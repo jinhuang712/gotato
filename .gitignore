@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Go build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Local environment
+.env
+.env.local
+
+# Editors
+.idea/
+.vscode/
+*.swp
