@@ -4,7 +4,7 @@
 
 > Extensions implement small behavior capabilities at explicit lifecycle boundaries.
 
-## 1. Phase-one Moving Parts
+## 1. Moving Parts
 
 ```text
 ContextTransformer
@@ -39,7 +39,7 @@ Block with a Tool Result
 termination hint
 ```
 
-Phase one Pre-Tool-Use observes the validated arguments and does not replace them.
+Pre-Tool-Use observes the validated arguments and does not replace them.
 
 ## 5. Tool Use
 
@@ -65,6 +65,8 @@ The outcome records whether execution occurred.
 ## 7. Event observation
 
 An `EventObserver` receives canonical Core Events. Its interface or configuration MUST express blocking or advisory failure behavior.
+
+An observer is in-process, fast, and Context-aware. It MUST NOT block on a network peer, a remote lock, or any wait without a bound of its own. Remote consumers receive Events through a bounded service boundary instead.
 
 Event projection, filtering, redaction, delivery, and sinks use focused Event Moving Parts rather than changing canonical Event production.
 

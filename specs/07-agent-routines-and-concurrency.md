@@ -25,7 +25,7 @@ The Run Context MUST reach every child operation. Child deadlines MUST fit withi
 
 `Abort` MUST be idempotent. On an active Run it cancels the Run Context; on an idle Agent it preserves state.
 
-`WaitForIdle` MUST accept a Context and return after the active Run, Agent Routines owned by that Run, and terminal subscribers settle according to the selected Routine policy.
+`WaitForIdle` MUST accept a Context and return after execution settlement: the active Run, Agent Routines owned by that Run, and terminal observers have settled according to the selected Routine policy. It MUST NOT wait on remote delivery.
 
 ## 4. Parallel Tools
 

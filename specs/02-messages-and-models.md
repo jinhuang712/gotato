@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> The Agent retains application Messages; the Model receives a deliberate provider-compatible conversion.
+> The Agent retains application Messages; the Model receives a deliberate provider-compatible conversion; the transport receives its own projection.
 
 ```text
 Agent Messages → Transform → Convert → Model Request → Model Stream
@@ -40,7 +40,9 @@ type Model interface {
 }
 ```
 
-A `ModelStream` MUST provide ordered events, terminal completion, close semantics, and Context cancellation. A `Recv`-style API is the preferred phase-one shape.
+A `ModelStream` MUST provide ordered events, terminal completion, close semantics, and Context cancellation. A `Recv`-style API is the preferred shape.
+
+Runtime Messages are Go domain values. They MUST NOT be generated Protobuf types or provider SDK types; conversion stages produce those representations at their own boundaries.
 
 ## 4. Model request
 
@@ -78,4 +80,4 @@ failure
 
 ## 7. Model failure
 
-A stream failure before assistant completion terminates the current Run with a typed Model error. Retry behavior is supplied by an explicit adapter or Extension policy.
+A stream failure before assistant completion terminates the current Turn with a typed Model error. Retry after a transient failure MUST occur inside the Run and MUST complete before the terminal Event.

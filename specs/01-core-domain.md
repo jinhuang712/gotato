@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Agent owns state. Run owns activity. Turn owns one Model response and its Tool batch. Agent Routine owns a child Run relationship.
+> Agent owns state. Run owns activity. Turn owns one Model response and its Tool batch. Agent Routine owns a child Run relationship. The service owns how Agents are hosted.
 
 ```text
 Agent
@@ -30,13 +30,17 @@ streaming state
 
 An Agent MUST serialize state mutations through one active Run. State inspection MUST use snapshots or equivalent read-only views.
 
+The service decides how Agent instances are created, retained, and located. The runtime owns the consistency of each instance.
+
 ## 2. Run
 
-A Run begins when `Prompt` or `Continue` is accepted and ends after terminal `agent_end` delivery settles.
+A Run begins when `Prompt` or `Continue` is accepted and ends at execution settlement: the terminal Event has been emitted and awaited observers have returned.
 
-Every Run MUST have an immutable correlation identifier unique within the process lifetime. Service transports MAY add their own external identifier while retaining the Core Run ID.
+Every Run MUST have an immutable correlation identifier unique within the process lifetime. The service and transport MAY add request, stream, and external identifiers; added identifiers MUST NOT replace the runtime Run ID.
 
-The embedded Run produces a `RunResult` containing final assistant output, usage, terminal status, Run ID, and correlation data.
+The Run produces a `RunResult` containing final assistant output, usage, terminal status, Run ID, and correlation data.
+
+Whether a remote consumer received the Event stream is delivery settlement. It is owned by the service and is independent of Run completion.
 
 ## 3. Turn
 
@@ -73,7 +77,7 @@ final outcome
 
 ## 6. Completion
 
-A Run reaches a terminal result through:
+A Run reaches its terminal result through:
 
 ```text
 Model completion with no continuation
@@ -85,6 +89,8 @@ fatal Model, Extension, or runtime failure
 ```
 
 Tool execution failures normally become failed Tool Results and allow the next Model Turn.
+
+A transient Model failure MAY be retried inside the Run. Retry, compaction, and queued continuation MUST all complete before the terminal Event; nothing resumes execution after it.
 
 ## 7. Agent Routine relationship
 
@@ -103,4 +109,6 @@ The child Run uses a distinct child Agent and retains normal Agent, Run, Turn, T
 
 ## 8. Service relationship
 
-An Agent factory creates or retrieves one Agent per isolated conversation. The service layer manages external Run identity, admission, caching, and transport lifetime around this Core state model.
+The service layer owns external Run identity, admission, conversation resolution, caching, transport lifetime, and delivery around this Core state model.
+
+It invokes the canonical runtime API. It MUST NOT maintain a second Agent state machine or reproduce loop behavior.

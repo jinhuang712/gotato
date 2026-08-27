@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Embedded APIs and remote services share one observable loop.
+> The hosted service, a direct Go caller, and every child Agent share one observable loop.
 
 ## 1. Canonical sequence
 
@@ -80,4 +80,6 @@ A Turn stopper runs after `turn_end`. A stop decision completes the Run before q
 
 ## 9. Settlement
 
-`agent_end` is the final Event. `Prompt`, `Continue`, and `WaitForIdle` MUST return after awaited terminal subscribers settle.
+`agent_end` is the final Event and the only terminal signal. Retry, compaction, and queued continuation MUST complete before it; nothing resumes execution after it.
+
+`Prompt`, `Continue`, and `WaitForIdle` MUST return after execution settlement: awaited observers of the terminal Event have returned. Remote delivery settles separately under the service's bounded policy.
