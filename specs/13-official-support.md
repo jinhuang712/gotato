@@ -18,7 +18,7 @@
 
 ## 2. Kernel support
 
-Phase-one official support includes:
+Core runtime support includes:
 
 ```text
 typed-function Tool adapter
@@ -57,7 +57,7 @@ A remote Routine executor MAY follow after the local implementation is stable.
 
 ## 5. Service support
 
-Phase-two official support includes:
+Service support includes:
 
 ```text
 Agent factory

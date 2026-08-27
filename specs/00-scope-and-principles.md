@@ -2,89 +2,129 @@
 
 **Status:** Draft
 
-> Phase one delivers a complete embedded Go Agent kernel. Phase two exposes that kernel as a standard service.
+> The deliverable is a callable Agent service. The structure beneath it is a transport-independent runtime that the service invokes and never replaces.
 
-## 1. Phase-one kernel
+## 1. Two directions
+
+Discovery and dependency point opposite ways, and both are deliberate.
 
 ```text
-Prompt or Continue
-  → streamed Model response
-  → zero or more Tool Calls
-  → Tool Result Messages
-  → another Turn or completion
+Discovery
+  service use case → required semantics → stable runtime contract
+
+Dependency
+  gRPC transport → service layer → runtime kernel
 ```
 
-The kernel MUST run in one process with in-memory state and ordinary Go interfaces.
+A working service reveals what callers need from Agent identity, conversation continuity, commands, Events, cancellation, errors, admission, and lifecycle. Contracts derived that way are grounded in observed use.
 
-## 2. Required kernel behavior
+The runtime MUST remain independent of the technologies used to expose it. It MUST NOT depend on Protobuf, gRPC, Agent caches, process hosting, or cluster APIs.
 
-Phase one MUST provide:
+## 2. Required runtime capability
+
+The runtime kernel MUST provide:
 
 ```text
-stateful Agent
-one active Run per Agent
+stateful Agent with one active mutating Run
 Prompt and Continue
 Model streaming and Message assembly
 Tool Call assembly and Schema validation
 Pre-Tool-Use and Post-Tool-Use
 sequential and bounded parallel Tool execution
-Tool progress and result Events
+Tool and Steering progress Events
 Steering and Follow-up
-context.Context cancellation
-local limits and stable errors
+context.Context cancellation reaching every owned operation
+local limits and stable typed errors
 Tool and staged ToolSet composition
-small Extension interfaces
+focused Extension interfaces
 Agent Routine spawn and bounded groups
 deterministic test fakes
 ```
 
-## 3. Phase-two service
+## 3. Required service capability
 
-Phase two MUST provide:
+The service MUST provide:
 
 ```text
-Agent factory
-in-service Agent cache
-service preset
-gRPC service definition
-Go gRPC server and client
-Event streaming
+named Agent definitions and factories
+conversation-scoped Agent resolution
+bounded in-process Agent cache
+Run admission
+Protobuf service contract
+gRPC server and Go client
+bounded Event delivery with a stated slow-consumer policy
 remote cancellation
-admission bounds
 readiness and graceful drain
 Kubernetes deployment baseline
 ```
 
-The service layer MUST invoke the canonical kernel API.
+The service MUST invoke the canonical runtime API. It MUST NOT maintain a second Agent state machine.
 
 ## 4. Layer ownership
 
 ```text
-Core          Agent state and Model/Tool execution
-ToolSet       capability composition and discovery
-Extension     behavior at explicit lifecycle hooks
-Agent Routine managed child Agent execution
-Adapter       provider and protocol translation
-Service       remote access and process lifecycle
-Application   business meaning and presentation
-Deployment    cluster resources and operational policy
+Runtime Kernel  Agent state · Model/Tool execution · canonical Events · limits
+ToolSet         capability composition and staged discovery
+Extension       behavior at explicit lifecycle stages
+Agent Routine   managed child Agent execution
+Adapter         provider and capability translation
+Service         remote access · Agent lifecycle · admission · delivery
+Transport       wire encoding and stream lifetime
+Application     business meaning and presentation
+Deployment      cluster resources and operational policy
 ```
 
-## 5. Core admission rule
+## 5. One canonical loop
 
-A capability belongs in Core when it:
+The repository MUST contain exactly one Agent loop. The gRPC service, a direct Go caller, and every Agent Routine MUST converge on it.
+
+A transport handler, an Agent cache, or a Routine executor MUST NOT reproduce loop behavior.
+
+## 6. One terminal Event
+
+A Run MUST emit exactly one terminal Event. Nothing resumes execution after it.
+
+Automatic retry after a transient Model failure, context compaction, and continuation for queued Steering or Follow-up MUST occur inside the Run:
+
+```text
+Model failure
+      ↓
+retry inside the Run
+      ↓
+      ...
+      ↓
+terminal Event      the only completion signal
+```
+
+An orchestration layer above the loop that re-invokes the runtime after completion is out of scope. Such a design forces every client to learn that the first completion signal is not authoritative, which a cross-language contract cannot express safely.
+
+## 7. Two settlements
+
+Execution and delivery settle independently.
+
+```text
+Execution settlement   the Run owns no further work        Runtime
+Delivery settlement    the consumer has all it will get    Service
+```
+
+Neither MUST block indefinitely on the other. A slow or disconnected consumer MUST NOT hold a Run open without bound, and a completed Run MUST NOT be reported as delivered before its consumer has received anything.
+
+## 8. Core admission rule
+
+A capability belongs in the runtime kernel when it:
 
 1. is required for correct Model/Tool execution;
 2. has semantics shared by every Agent;
-3. can be implemented without infrastructure dependencies;
-4. has deterministic acceptance tests.
+3. is meaningful without a network or process host;
+4. is reachable through ordinary Go values;
+5. has deterministic acceptance tests that need no provider or transport.
 
-Agent Routines form a focused composition package on top of Core Agent and Run contracts.
+Agent Routines form a focused composition package over the Agent and Run contracts rather than a second execution model.
 
-## 6. Dependencies
+## 9. Dependencies
 
-Core packages MUST depend only on the Go standard library and deliberately selected small foundational libraries. Provider SDKs, transport frameworks, databases, and Kubernetes clients belong to adapters and service packages.
+Runtime packages MUST depend only on the Go standard library and deliberately selected small foundational libraries. Provider SDKs, transport frameworks, databases, and cluster clients belong to adapter and service packages.
 
-## 7. Canonical control flow
+## 10. Presentation boundary
 
-The repository MUST contain one canonical Agent loop. Embedded APIs, Agent Routines, service presets, transports, and Extensions compose around that loop.
+Gotato publishes Go APIs, a Protobuf contract, Events, examples, and diagnostic utilities. End-user CLI, TUI, web, and chat experiences belong to applications.

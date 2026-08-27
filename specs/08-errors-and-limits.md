@@ -58,7 +58,7 @@ Panic recovery boundaries MUST exist around Tools, Extensions, subscribers, Rout
 
 ## 5. Local limits
 
-Phase one MUST support:
+The runtime MUST support:
 
 ```text
 Turns per Run
@@ -88,4 +88,4 @@ Progress-volume limits MAY truncate or coalesce optional updates while preservin
 
 ## 7. Service mapping
 
-Service transports map Core categories to stable protocol errors. Shared quotas, billing, and fleet-wide admission remain service or Extension concerns.
+Service transports map Core categories to stable protocol errors, including delivery exhaustion under the transport's bounded policy. Shared quotas, billing, and fleet-wide admission remain service or Extension concerns.
