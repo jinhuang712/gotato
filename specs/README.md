@@ -1,64 +1,50 @@
 # Gotato Specifications
 
-> Implementable contracts for one hosted Agent runtime and the service that exposes it.
+> Normative contracts for a self-contained Agent Core and its optional hosted orchestration.
 
-These documents define what an implementation must satisfy. Each one is self-contained: it states its own invariants rather than deferring to another document.
-
-Specs are the detailed source of truth for domain types, interface shapes, wire fields, state machines, ordering, bounds, failure semantics, and acceptance tests. Architecture documents may explain the reason for a choice, but an implementation MUST resolve technical ambiguity from the applicable spec rather than from an illustrative diagram in `docs/`.
-
-## What is being built
-
-A gRPC Agent service backed by a transport-independent Go runtime.
+Gotato has two first-class modes:
 
 ```text
-Remote client
-      │ RunCommand
-      ▼
-Agent Service
-  resolve · admit · own · deliver
-      │
-      ▼
-Runtime Kernel
-  Agent · Run · Turn · Model · Tools · Events
-      │
-      ▼
-Canonical Events ──► projection ──► RunEvent stream
+Embedded: Application → Agent Core → Model / Tools
+Hosted:   Client → Transport → Orchestrator → Agent Core
 ```
 
-## Two orderings
+Infrastructure such as Gateway, Kubernetes, load balancing, storage, and secrets surrounds Hosted mode but is not a Core dependency.
 
-Delivery and reading are ordered differently, on purpose.
+## Boundary order
 
 ```text
-Delivery order
-  vertical slices, each ending in a callable service
-  a slice proves runtime contracts by exercising them remotely
-
-Reading order
-  dependency order, so no contract references an undefined term
-  vocabulary and loop before the service that hosts them
+Infrastructure
+      ↓ hosts and routes
+Transport
+      ↓ maps wire commands
+Orchestration / Agent Host
+      ↓ coordinates Core instances
+Agent Core
+      ↓ consumes stable contracts
+Model and Capability Adapters
 ```
 
-The service is the first product boundary and drives which contracts exist. It is specified after the terms it uses are defined.
+Specifications define stable values, state transitions, ordering, bounds, failure semantics, service behavior, and acceptance. Architecture documents explain rationale. When an illustration conflicts with a specification, the specification wins.
 
 ## Reading order
 
-1. [Scope and principles](00-scope-and-principles.md)
-2. [Core domain](01-core-domain.md)
-3. [Messages and Models](02-messages-and-models.md)
-4. [Agent loop](03-agent-loop.md)
-5. [Events and delivery](04-events-and-delivery.md)
-6. [Tools and ToolSets](05-tools-and-toolsets.md)
-7. [Extensions](06-extensions.md)
-8. [Agent Routines, concurrency, and cancellation](07-agent-routines-and-concurrency.md)
-9. [Errors and limits](08-errors-and-limits.md)
-10. [Agent service and gRPC](09-agent-service-and-grpc.md)
-11. [Runtime and service API](10-runtime-and-service-api.md)
-12. [Testing and acceptance](11-testing-and-acceptance.md)
-13. [Delivery roadmap](12-delivery-roadmap.md)
-14. [Official support](13-official-support.md)
-15. [Future directions](14-future-directions.md)
-16. [Decisions and open questions](15-decisions-and-open-questions.md)
+1. Scope and principles
+2. Core domain
+3. Messages and Models
+4. Agent loop
+5. Events and delivery
+6. Tools and ToolSets
+7. Extensions
+8. Agent Routines and concurrency
+9. Errors and limits
+10. Agent Host and gRPC
+11. Runtime and Host API
+12. Testing and acceptance
+13. Delivery roadmap
+14. Official support
+15. Future directions
+16. Decisions and open questions
 
 ## Keywords
 

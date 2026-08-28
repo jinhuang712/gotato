@@ -2,129 +2,105 @@
 
 **Status:** Draft
 
-> The deliverable is a callable Agent service. The structure beneath it is a transport-independent runtime that the service invokes and never replaces.
+> Agent Core is the stable execution boundary. Hosted orchestration is an optional composition around it.
 
-## 1. Two directions
+## 1. Deliverables
 
-Discovery and dependency point opposite ways, and both are deliberate.
+The repository defines:
 
 ```text
-Discovery
-  service use case → required semantics → stable runtime contract
-
-Dependency
-  gRPC transport → service layer → runtime kernel
+Agent Core library
+Model, Tool, ToolSet, Extension, and Routine contracts
+canonical Events and local subscriptions
+optional Orchestrator / Agent Host
+optional gRPC transport adapter and Go client
+service admission, conversation ownership, and bounded delivery
+integration guidance for existing Gateway and Kubernetes platforms
+Model Router and provider/capability adapter boundaries
 ```
 
-A working service reveals what callers need from Agent identity, conversation continuity, commands, Events, cancellation, errors, admission, and lifecycle. Contracts derived that way are grounded in observed use.
+A regular Go service may consume only the Core. A Hosted deployment may consume all layers.
 
-The runtime MUST remain independent of the technologies used to expose it. It MUST NOT depend on Protobuf, gRPC, Agent caches, process hosting, or cluster APIs.
+## 2. Boundary rules
 
-## 2. Required runtime capability
+The Core MUST be self-contained and transport-independent. Core packages MUST NOT depend on:
 
-The runtime kernel MUST provide:
+```text
+Protobuf or gRPC
+Gateway or Kubernetes
+Agent caches or service admission
+databases or process-hosting APIs
+provider SDKs
+```
+
+The Host and Transport MUST call Core operations rather than copy its state machine. Infrastructure MUST route and host processes without defining Agent semantics.
+
+The Core boundary MUST exist from the first implementation. Public package release can be staged; Core independence and testability cannot be postponed.
+
+## 3. Required Core capability
+
+Core MUST provide:
 
 ```text
 stateful Agent with one active mutating Run
 Prompt and Continue
-Model streaming and Message assembly
+Model stream and Message assembly
 Tool Call assembly and Schema validation
 Pre-Tool-Use and Post-Tool-Use
-sequential and bounded parallel Tool execution
-Tool and Steering progress Events
+sequential and bounded parallel Tools
+ToolSet composition and staged activation
 Steering and Follow-up
-context.Context cancellation reaching every owned operation
-local limits and stable typed errors
-Tool and staged ToolSet composition
-focused Extension interfaces
+Context cancellation and local limits
+canonical Events and terminal settlement
+focused Extensions
 Agent Routine spawn and bounded groups
 deterministic test fakes
 ```
 
-## 3. Required service capability
+## 4. Optional Host capability
 
-The service MUST provide:
+The Host MUST provide these capabilities when Hosted mode is selected:
 
 ```text
 named Agent definitions and factories
-conversation-scoped Agent resolution
-bounded in-process Agent cache
-Run admission
-Protobuf service contract
-gRPC server and Go client
-bounded Event delivery with a stated slow-consumer policy
+per-Host admission and concurrency bounds
+conversation ownership and optional cache/lease
+transport stream attachment
+canonical Event projection and bounded delivery
 remote cancellation
 readiness and graceful drain
-Kubernetes deployment baseline
 ```
 
-The service MUST invoke the canonical runtime API. It MUST NOT maintain a second Agent state machine.
+The Host MUST NOT be required for Embedded mode.
 
-## 4. Layer ownership
+## 5. Two concurrency domains
+
+Core guarantees one state owner per Agent. Host coordinates multiple Agents and Runs:
 
 ```text
-Runtime Kernel  Agent state · Model/Tool execution · canonical Events · limits
-ToolSet         capability composition and staged discovery
-Extension       behavior at explicit lifecycle stages
-Agent Routine   managed child Agent execution
-Adapter         provider and capability translation
-Service         remote access · Agent lifecycle · admission · delivery
-Transport       wire encoding and stream lifetime
-Application     business meaning and presentation
-Deployment      cluster resources and operational policy
+Host:  multiple streams and Runs under admission bounds
+Agent: one active mutating Run
+Run:   bounded Tool and Routine concurrency
 ```
 
-## 5. One canonical loop
+Infrastructure replica count is not a substitute for Host admission or Core limits.
 
-The repository MUST contain exactly one Agent loop. The gRPC service, a direct Go caller, and every Agent Routine MUST converge on it.
+## 6. One canonical loop
 
-A transport handler, an Agent cache, or a Routine executor MUST NOT reproduce loop behavior.
+The repository MUST contain exactly one Agent loop. Embedded callers, Hosted callers, and child Routines MUST converge on it. No handler, cache, Gateway, or Routine executor may reproduce Model/Tool execution.
 
-## 6. One terminal Event
+## 7. One terminal Event
 
-A Run MUST emit exactly one terminal Event. Nothing resumes execution after it.
+A Run MUST emit exactly one terminal `agent_end` Event. Retry, context compaction, and queued continuation happen before it inside the same Run. Nothing starts after it.
 
-Automatic retry after a transient Model failure, context compaction, and continuation for queued Steering or Follow-up MUST occur inside the Run:
+## 8. Settlement
 
-```text
-Model failure
-      ↓
-retry inside the Run
-      ↓
-      ...
-      ↓
-terminal Event      the only completion signal
-```
+Execution settlement belongs to Core. Delivery settlement belongs to Host. Neither may wait indefinitely on the other. A disconnected consumer MUST NOT create unbounded Core work.
 
-An orchestration layer above the loop that re-invokes the runtime after completion is out of scope. Such a design forces every client to learn that the first completion signal is not authoritative, which a cross-language contract cannot express safely.
+## 9. Model and infrastructure boundaries
 
-## 7. Two settlements
+Core consumes a provider-neutral Model contract. Routing, provider selection, fallback, and provider SDKs belong to the Model layer. Gateway, load balancing, Kubernetes, storage, and credentials belong to Infrastructure.
 
-Execution and delivery settle independently.
+## 10. Presentation
 
-```text
-Execution settlement   the Run owns no further work        Runtime
-Delivery settlement    the consumer has all it will get    Service
-```
-
-Neither MUST block indefinitely on the other. A slow or disconnected consumer MUST NOT hold a Run open without bound, and a completed Run MUST NOT be reported as delivered before its consumer has received anything.
-
-## 8. Core admission rule
-
-A capability belongs in the runtime kernel when it:
-
-1. is required for correct Model/Tool execution;
-2. has semantics shared by every Agent;
-3. is meaningful without a network or process host;
-4. is reachable through ordinary Go values;
-5. has deterministic acceptance tests that need no provider or transport.
-
-Agent Routines form a focused composition package over the Agent and Run contracts rather than a second execution model.
-
-## 9. Dependencies
-
-Runtime packages MUST depend only on the Go standard library and deliberately selected small foundational libraries. Provider SDKs, transport frameworks, databases, and cluster clients belong to adapter and service packages.
-
-## 10. Presentation boundary
-
-Gotato publishes Go APIs, a Protobuf contract, Events, examples, and diagnostic utilities. End-user CLI, TUI, web, and chat experiences belong to applications.
+Applications own business workflows and end-user CLI, TUI, Web, and chat interfaces. Gotato publishes Core APIs, Hosted protocols, Events, examples, and diagnostics.

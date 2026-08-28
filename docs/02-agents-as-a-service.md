@@ -1,39 +1,55 @@
-# Agent as a Service
+# Hosted Agent Service
 
 **Status:** Draft
 
-> The Gotato product boundary is a first-party gRPC service backed by one transport-independent Agent runtime.
+> Agent-as-a-Service is a hosted composition of Transport, Orchestration, and Agent Core. It is not a different Agent execution model.
 
-## 1. Role
+## 1. Scope
 
-Agent-as-a-Service makes stateful, tool-using Agents available to Go services and other gRPC clients through a standard contract.
+Hosted mode makes Core Agents available to remote clients:
 
 ```text
 Client
-  │ RunCommand
+  │ RunCommand stream
   ▼
-Agent Service
+Transport Adapter
   │
   ▼
-Agent Runtime
-  ├──► Model
-  ├──► Tools and ToolSets
-  ├──► Agent Routines
-  └──► Canonical Events
-             │
-             ▼
-       RunEvent stream
+Agent Host / Orchestrator
+  │
+  ▼
+Agent Core
 ```
 
-The service owns remote access, Agent resolution, admission, transport delivery, and process lifecycle. The runtime owns Agent execution semantics.
+A Gateway, Kubernetes Service, or load balancer may surround this path, but those are infrastructure choices. A Go application may also embed the Core without using this service.
 
-## 2. Service contract
+## 2. Hosted components
 
-The external contract is one bidirectional stream: the client sends commands and the service returns the ordered projection of one attached Run.
+```text
+Transport
+  Protobuf · gRPC stream · command validation · wire projection
 
-The bidirectional stream represents an attached Run.
+Orchestrator
+  Agent registry · factory · admission · concurrency
+  conversation ownership · cache/lease · stream attachment
+  cancellation mapping · Event projection and bridge
+  readiness · drain
 
-Client commands express:
+Agent Core
+  Agent state · Run loop · Tools · Routines · canonical Events
+```
+
+The Orchestrator invokes Core operations. It must not maintain a parallel transcript or loop.
+
+## 3. Service contract
+
+The first transport is a bidirectional gRPC stream:
+
+```proto
+rpc Run(stream RunCommand) returns (stream RunEvent);
+```
+
+Commands are:
 
 ```text
 Start
@@ -42,291 +58,157 @@ FollowUp
 Cancel
 ```
 
-Server Events express:
+The stream attaches to one Run. The first command is `Start`; after terminal settlement no further commands are accepted.
+
+## 4. Request path
 
 ```text
-Agent and Turn lifecycle
-Message streaming
-Tool execution and progress
-ToolSet activation
-Agent Routine lifecycle
-usage
-terminal Run outcome
-```
-
-The Protobuf contract is the external compatibility surface. It projects runtime concepts without becoming the runtime domain model.
-
-## 3. Attached Run lifecycle
-
-```text
-client opens stream
-        ↓
-Start identifies Agent, conversation, and Prompt
-        ↓
-service validates and admits
-        ↓
-service resolves an Agent
-        ↓
-canonical Run starts
-        ↓
-Events stream to client
-        ↓
-terminal Event settles
-        ↓
-command acceptance closes
-```
-
-`Start` is the first command. One stream attaches to one Run. Duplicate starts and commands after terminal settlement are protocol errors.
-
-A Run emits exactly one terminal Event. A client that sees it needs no second completion signal, because retry, context compaction, and queued continuation all happen inside the Run.
-
-## 4. Commands and execution
-
-```text
-Start     → Prompt or Continue
-Steer     → accepted Steering queue
-FollowUp  → accepted Follow-up queue
-Cancel    → idempotent Run cancellation
-```
-
-Command acceptance preserves order. Runtime rules determine when accepted Steering and Follow-up Messages affect the next Turn.
-
-The service translates commands into canonical Agent operations; it does not maintain a second Agent state machine.
-
-## 5. Agent definitions and factories
-
-Applications register named Agent definitions through factories. Each registration binds a stable Agent name to the construction behavior used when a request resolves that name.
-
-Conceptually:
-
-```text
-Agent name + request context
-             ↓
-       AgentFactory
-             ├── Model
-             ├── Tools and ToolSets
-             ├── Extensions
-             └── limits and policies
-             ↓
-           Agent
-```
-
-Factories isolate application construction from service lifecycle. They can create ephemeral Agents or restore conversation-scoped state through an explicit state capability.
-
-## 6. Conversation state
-
-A service request may identify a conversation:
-
-```text
-Agent name + conversation key
-              ↓
-        Agent resolver
-              ↓
-     conversation-scoped Agent
-```
-
-The service coordinates per-key creation and ensures one active mutating Run per Agent. Concurrent conversations use separate Agent instances.
-
-Conversation identity is a service concern. Messages and active ToolSets remain runtime state owned by the resolved Agent.
-
-## 7. In-service Agent cache
-
-A bounded in-process cache can retain conversation Agents:
-
-```text
-Conversation Key
-       │
-       ▼
-┌──────────────────────────────┐
-│ Agent Cache                  │
-│ bounds · TTL · pin · eviction│
-└──────────────┬───────────────┘
-               ▼
-         stateful Agent
-```
-
-Two properties of the thing being cached shape everything about it. A conversation Agent is a live Go object, so a restart loses it and no larger cache changes that: the cache is an optimization, and durable continuity comes from an explicit state provider instead. And an Agent can be mid-Run, so eviction is not free the way it is for a value cache — evicting a busy Agent would destroy state that an attached client is still watching.
-
-That second property is why the cache needs a notion of an entry being in use, why expiry applies only to idle entries, and why two concurrent first requests for one key must produce one Agent rather than two. A conversation with two Agents is not a slow conversation; it is two conversations that both claim to be the same one.
-
-## 8. Event delivery
-
-Canonical Events cross the network through a bounded bridge:
-
-```text
-Runtime transition
+RunCommand.Start
       ↓
-Canonical Event
+validate command
       ↓
-project and redact
+admission
+      ↓
+resolve Agent name
+      ↓
+resolve Conversation ownership when present
+      ↓
+attach one Core Agent Run
+      ↓
+project canonical Events
       ↓
 bounded Event bridge
       ↓
-gRPC RunEvent
+RunEvent stream
 ```
 
-A Run can emit thousands of Events while a remote client accepts a few. The bridge is where that mismatch is resolved on purpose rather than by accident, so its capacity, its ordering guarantees, and its behavior when full are all stated.
+`Steer`, `FollowUp`, and `Cancel` are mapped to Core operations. Command acceptance and execution effect are separate: accepting a command does not mean that the next Model call has already observed it.
 
-What lets the bridge shed anything at all is that Events do not carry equal obligation. Lifecycle transitions and settled outcomes must reach the client in canonical order or the stream fails; streamed progress may be merged, thinned, or dropped, because progress never carries a fact its settling Event omits. A client that receives no progress at all still receives a complete history.
+## 5. Concurrency
 
-When the queue fills, the bridge slows the producer within a stated bound, merges pending progress, or fails the stream. What it does not do is silently drop a protected Event: a client whose stream fails knows it lost something, and a client missing a settled outcome does not. Blocking is bounded and Context-aware, because an unbounded wait would let one slow client hold a Run open indefinitely — the outcome the bridge exists to prevent.
-
-Two different moments on this path are called settlement, and they have different owners:
+A Host must support concurrent remote streams under explicit bounds:
 
 ```text
-Execution settlement   the Run is over and owns no further work
-Delivery settlement    the client has received everything it will receive
+Host process          multiple attached streams
+Different conversations concurrent Core Runs
+Same Agent             one mutating Run at a time
+Same Agent, second Run typed busy rejection
+One stream             commands accepted in arrival order
+One Run                bounded Tool and Routine concurrency
+One client             bounded Event delivery
 ```
 
-They are independent. A client that disconnects mid-stream ends delivery while execution continues to its own terminal Event, and a Run that finishes quickly may still have Events in flight. Conflating them produces a service that either cannot finish a Run because a socket is slow, or reports success before the client has anything.
+The Host owns global admission such as maximum active Runs, streams, queued requests, and per-Agent capacity. Core owns single-Agent mutation and Run-local limits. Kubernetes replica count is not a substitute for either.
 
-## 9. Cancellation
+The concrete preset values remain configuration decisions; the contract requires that each bound be explicit and observable.
+
+## 6. Conversation ownership
+
+A Host may resolve a conversation to a stateful Core Agent:
 
 ```text
-client Context
-stream close
-explicit Cancel
-service drain deadline
-      │
-      ▼
-Run Context
-  ├──► Model stream
-  ├──► Tool Uses
-  ├──► awaited runtime observers
-  └──► Agent Routines
+agent_name + conversation_key
+              ↓
+conversation owner
+              ↓
+Agent factory or cache
+              ↓
+Core Agent
 ```
 
-Every cancellation source converges on the Run Context. Cancel is idempotent. The service waits for execution settlement, then completes or abandons delivery under its bounded policy.
+An in-process cache can coordinate creation and pin an active Agent. It cannot provide cross-Pod continuity by itself.
 
-## 10. Error boundary
-
-The service distinguishes transport failures from Agent outcomes:
+For multiple Pods, continuity requires one of:
 
 ```text
-invalid command       → protocol status
-unknown Agent         → service status
-admission rejected    → service status
-Model terminal error  → terminal Run outcome and mapped status
-Tool failure          → Tool Result when reasoning can continue
-Routine failure       → Routine Result when parent can continue
+keyed/sticky routing
+explicit distributed ownership lease
+persistent state and restoration
 ```
 
-Runtime error categories map to stable transport statuses and portable error details. Internal causes remain available to application-controlled diagnostics without leaking secrets.
+A Kubernetes Service's ordinary load balancing provides none of these guarantees. The Hosted Service must not imply cross-Pod conversation continuity unless one is configured.
 
-## 11. Admission
+## 7. Event delivery
 
-Admission protects finite service resources:
+The Core emits canonical Events. The Host maps them to transport Events:
 
 ```text
-incoming Run
-    ↓
-service lifecycle check
-    ↓
-global and per-Agent bounds
-    ↓
-Agent availability
-    ↓
-accept or typed rejection
+Core Event → projection/redaction → bounded bridge → gRPC sender
 ```
 
-Admission is distinct from runtime limits. Service admission governs hosted capacity; runtime limits govern one accepted Run and its child work.
+Protected lifecycle and outcome Events cannot be silently dropped. Optional progress may be coalesced. A slow client may be slowed within a bound, have progress coalesced, or have its stream terminated according to the configured policy. It must not hold unrelated Runs open.
 
-## 12. Readiness and drain
+Execution settlement belongs to Core; delivery settlement belongs to Host.
+
+## 8. Cancellation
+
+```text
+client Cancel / stream Context / deadline / drain
+                         ↓
+                  Host Run Context
+                         ↓
+                    Core Abort
+                         ↓
+       Model · Tools · observers · child Routines
+```
+
+Stream closure ends remote delivery. The default attached-Run policy is to cancel the Run, but the Host must make the policy explicit. Cancellation is idempotent while the Run is active.
+
+## 9. Gateway and infrastructure
+
+Gateway and load balancer are external:
+
+```text
+Client → Gateway → LB/Kubernetes Service → Host Pod
+```
+
+They may handle TLS, authentication, network policy, and endpoint routing. They must support long-lived bidirectional gRPC streams and must not transparently retry an active Run in a way that duplicates `Start`.
+
+The Host needs no Gotato-specific Gateway when the application already has one. Gotato provides health, drain, and transport contracts for integration.
+
+## 10. Lifecycle
 
 ```text
 Serving
-  ├── liveness: process can operate
+  ├── liveness: process is operating
   └── readiness: new Runs may be admitted
 
-Drain requested
-      ↓
-readiness becomes false
-      ↓
-new admission stops
-      ↓
-active Runs settle or reach drain deadline
-      ↓
-remaining work follows DrainPolicy
-      ↓
-telemetry and Event delivery settle
+Draining
+  ├── readiness false
+  ├── new admission rejected
+  ├── active Runs settle or are cancelled by deadline
+  └── Event bridges flush or abandon within policy
 ```
 
-This lifecycle maps directly to Kubernetes probes and graceful termination.
+Infrastructure consumes these signals; it does not define Core semantics.
 
-## 13. Deployment forms
+## 11. Deployment forms
 
-### Agent-enabled application service
+### Existing Go service
 
 ```text
-┌──────────────────────────────────────────────┐
-│ Application Service                         │
-│                                              │
-│ Business API                                │
-│ Agent gRPC API → Gotato → Domain ToolSets   │
-└──────────────────────────────────────────────┘
+Existing Go Service
+  ├── existing business API
+  ├── existing Gateway / K8s deployment
+  └── Agent Core or embedded Host
 ```
 
-### Dedicated Agent service
+No new infrastructure is required merely because the Core is used.
+
+### Dedicated Hosted Service
 
 ```text
-┌──────────────────────────────────────────────┐
-│ Dedicated Gotato Service                    │
-│                                              │
-│ Agent API                                   │
-│   ├── Logs ToolSet    → Log API             │
-│   ├── Metrics ToolSet → Metrics API         │
-│   └── Repo ToolSet    → Repository API      │
-└──────────────────────────────────────────────┘
+Gateway/LB → Gotato Host → Agent Core
 ```
 
-Both forms preserve ownership of business data and APIs in their application domains.
+This form provides a dedicated remote Agent endpoint and may use the standard Orchestrator, gRPC adapter, and deployment examples.
 
-## 14. Kubernetes topology
+## 12. Ownership
 
 ```text
-Clients
-   │ gRPC
-   ▼
-Kubernetes Service
-   │
-   ├──► Gotato Pod A ──► Model / capability APIs
-   ├──► Gotato Pod B ──► Model / capability APIs
-   └──► Gotato Pod C ──► Model / capability APIs
+Core          execution and canonical facts
+Orchestrator  hosted coordination and remote delivery
+Transport     wire protocol
+Infrastructure deployment and network routing
+Application   business meaning, definitions, and policies
 ```
-
-An attached Run remains on the Pod serving its stream. Replicas add admission capacity. Pod-local caches improve locality; durable state and routing remain explicit capabilities.
-
-## 15. Direct Go use
-
-The same runtime boundary can serve a direct in-process caller:
-
-```text
-Go application
-      ↓
-Runtime API
-      ↓
-Canonical Agent loop
-```
-
-Direct use removes transport mapping while preserving Agent, Run, Tool, Event, cancellation, and settlement semantics. The two paths differ in what surrounds the loop, never in the loop.
-
-## 16. Ownership
-
-```text
-Runtime
-  Agent state · Model/Tool loop · canonical Events · local limits
-
-Service
-  Agent factories · conversation ownership · admission · cache · drain
-
-Transport
-  Protobuf mapping · gRPC stream · network cancellation · client
-
-Deployment
-  Pods · Services · resources · secrets · routing · storage
-
-Application
-  Agent definitions · ToolSets · business meaning · presentation
-```
-
-The boundaries are directional: transport and service depend on runtime semantics; runtime execution remains complete without a network.

@@ -1,255 +1,97 @@
-# Extension Model
+# Core Extension Model
 
 **Status:** Draft
 
-> Extensions customize named runtime stages without changing the Agent service protocol or duplicating the canonical loop.
+> Extensions customize named Agent Core stages without owning Core state or hosted coordination.
 
-## 1. Role
-
-```text
-Tool / ToolSet  → capability available to the Model
-Extension       → behavior at a runtime lifecycle joint
-Adapter         → connection to an external technology
-Service policy  → hosted access and process lifecycle behavior
-```
-
-Extensions are explicit Go components installed by an Agent definition or factory. They execute inside the transport-independent runtime boundary.
-
-```text
-Agent definition
-      ├── Model
-      ├── ToolSets
-      ├── Extensions
-      └── limits
-            ↓
-       Agent factory
-            ↓
-          Agent
-```
-
-## 2. Runtime Moving Parts
+## 1. Core extension points
 
 ```text
 ContextTransformer
-        │
-        ▼
 MessageConverter
-        │
-        ▼
-    Model Turn ───────────────► EventObserver
-        │
-        ▼
-   PreToolUse
-        │
-        ▼
-    Tool Use
-        │
-        ▼
-  PostToolUse
-        │
-        ▼
-   TurnStopper
+PreToolUse
+PostToolUse
+EventObserver
+TurnStopper
 ```
 
-Each Moving Part corresponds to a concrete execution stage. Core retains state transition, ordering, validation, commitment, cancellation, and settlement.
+Extensions are explicit Go components installed during Agent construction. They do not receive a mutable Agent pointer or a transport stream.
 
-## 3. Focused capability interfaces
-
-An Extension implements only the capabilities it needs. The available joints are context transformation, Message conversion, Pre-Tool-Use, Post-Tool-Use, Event observation, and Turn stopping.
-
-Each joint has one narrow responsibility and can be tested independently. Core retains the surrounding state transition and ordering.
-
-## 4. Context transformation
-
-`ContextTransformer` receives an immutable snapshot and produces the Messages used by the next Model Turn.
-
-It can:
+## 2. Context and Message conversion
 
 ```text
-select transcript ranges
-add application context
-prune stale material
-compact earlier Turns
-apply a context budget
+read-only Agent snapshot
+        ↓
+ContextTransformer chain
+        ↓
+MessageConverter chain
+        ↓
+Model request
 ```
 
-It receives the Run Context and cannot mutate committed Agent history implicitly.
+Transformers may select, add, prune, or compact context but cannot mutate committed history. Converters map runtime Messages to provider-neutral Model Messages and cannot store provider representations in Core transcript state.
 
-## 5. Message conversion
+## 3. Tool stages
 
-`MessageConverter` maps transformed Gotato Messages into the portable representation consumed by the Model adapter.
-
-```text
-Agent transcript
-      ↓ ContextTransformer
-selected runtime Messages
-      ↓ MessageConverter
-portable Model Messages
-      ↓ provider adapter
-provider request
-```
-
-This boundary keeps runtime history distinct from provider-specific encoding and from Protobuf transport Messages.
-
-## 6. Pre-Tool-Use
-
-Pre-Tool-Use runs after Tool resolution, complete argument assembly, and Schema validation.
+Pre-Tool-Use runs after complete argument assembly, resolution, and Schema validation:
 
 ```text
 Proceed
 Block with Tool Result
-Attach termination hint
 ```
 
-Validated arguments remain immutable through this stage. The Tool executor runs only after every installed Pre-Tool-Use component proceeds.
+All installed Pre components run in order until one blocks or fails. A blocked Tool is not executed and still passes through Post-Tool-Use.
 
-Typical uses include authorization decisions, approvals, audit preparation, and policy checks.
+Post-Tool-Use receives executed, blocked, failed, and cancelled outcomes. It runs in reverse installation order and may normalize safe content, redact, add metadata, enforce bounds, or attach a termination hint. It must preserve Tool identity and `Executed` truth.
 
-## 7. Tool execution
+## 4. Event observers
 
-The Tool interface is a Moving Part. Core supplies a validated Tool Use, Run Context, and bounded progress reporter and invokes the resolved executor at most once.
+An observer is local and awaited:
 
 ```text
-Pre A → Pre B → Tool Use → Post B → Post A
+create Event → observer A → observer B → Core continues
 ```
 
-Retry behavior belongs to an explicit idempotency-aware Tool or policy adapter. Generic middleware does not replay an arbitrary Tool Use invisibly.
+It must be fast, Context-aware, and bounded. Remote delivery is not an observer; it belongs to the Host Event Bridge. Observer failure uses an explicit blocking or advisory mode. Panics are recovered at the boundary.
 
-## 8. Post-Tool-Use
+## 5. Turn stopping
 
-Post-Tool-Use receives every finalized outcome, including executed and blocked outcomes:
+A TurnStopper runs after `turn_end` and before continuation selection. It can settle the Run while preserving the completed Turn and its Events. A stopper error is blocking by default.
+
+## 6. Ordering
 
 ```text
-model-facing Result
-application metadata
-safe Cause
-Executed
-Blocked
-termination hint
+Pre extensions:  A → B → C
+Tool executor:   at most once
+Post extensions: C → B → A
+Observers:       registration order
 ```
 
-It can normalize content, add typed metadata, redact fields, apply result bounds, and attach a termination hint before the final Event and transcript commitment.
+The order is deterministic in Embedded and Hosted modes.
 
-The outcome always records whether the Tool executor ran.
+## 7. Failure and reentrancy
 
-## 9. Event observation
+Blocking Extension failure settles the owning Run. Tool execution failure follows Tool Result semantics. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would violate the single state owner.
 
-An `EventObserver` receives canonical runtime Events in production order. Its behavior explicitly selects blocking or advisory failure semantics.
+Extensions may schedule external application work only with an explicit Context and settlement owner. Detached goroutines are not permitted.
 
-```text
-Canonical Event
-      ├── blocking observer
-      ├── advisory observer
-      ├── test recorder
-      └── telemetry adapter
-```
+## 8. Hosted policies are not Core Extensions
 
-Observers do not mutate canonical Event identity, kind, order, or correlation.
-
-An observer is awaited before the loop proceeds, which gives an in-process consumer exact ordering without buffering. That same property makes an observer the wrong place for remote work:
-
-```text
-An observer is in-process, fast, and Context-aware.
-An observer does not block on a network peer, on a remote lock,
-or on any wait that has no bound of its own.
-```
-
-Remote consumers receive Events across a bounded service boundary instead.
-
-## 10. Event projection and delivery
-
-Event consumers use focused components:
-
-```text
-Canonical Event
-      ↓ EventEnricher
-      ↓ EventProjector
-      ↓ EventRedactor
-      ↓ EventFilter
-      ↓ bounded delivery
-      ├── gRPC client
-      ├── logs and traces
-      └── application sink
-```
-
-Projection is consumer-specific. A gRPC bridge and an OpenTelemetry sink can receive different representations of the same fact without changing runtime history.
-
-Transport delivery policies belong to the service boundary rather than runtime Extensions.
-
-## 11. Turn stopping
-
-`TurnStopper` runs after `turn_end` and before continuation selection:
-
-```text
-turn_end
-   ↓
-TurnStopper
-   ↓
-Steering
-   ↓
-Tool continuation
-   ↓
-Follow-up
-   ↓
-completion
-```
-
-It can settle a Run before another Model request while preserving the completed Turn and its Events.
-
-## 12. Ordering
-
-```text
-Installed: A → B → C
-Pre:       A → B → C
-Tool Use:  at most once
-Post:      C → B → A
-Observers: registration order
-```
-
-Ordering is deterministic for direct and service-hosted execution.
-
-## 13. Failure semantics
-
-Each capability uses one explicit behavior:
-
-```text
-blocking    return an error and terminate the current operation
-transform   return the value consumed by the next stage
-advisory    report failure while preserving the Run outcome
-```
-
-Blocking Extension errors terminate the Run. Tool execution errors become failed Tool Results when the Runtime can continue. The service projects these outcomes without reclassifying Extension behavior.
-
-Panic recovery boundaries protect Tools, Extensions, observers, Agent Routines, and service callbacks.
-
-## 14. Service policies are separate Moving Parts
-
-Hosted lifecycle customization uses service-owned contracts:
+The following belong to Orchestration, not Core:
 
 ```text
 AgentFactory
-AgentCache
+ConversationResolver
 AdmissionController
+AgentCache
 EventProjector
 EventBridge
 ErrorMapper
 DrainPolicy
 ```
 
-These components operate around the Runtime. They are not runtime Extensions because they own network, process, conversation, or deployment behavior.
+They surround Core operations and cannot alter Core transcript or Loop semantics.
 
-## 15. Composition and compatibility
+## 9. Official extension packages
 
-Applications install Extensions through constructors and Agent definitions. Immutable Go builds provide reproducible composition. Focused packages can provide:
-
-```text
-OpenTelemetry
-structured logging
-context compaction
-Model routing
-cost accounting
-authorization integration
-approval integration
-```
-
-Each of these is an ordinary Go package installed the same way an application's own Extension is. Nothing in the list has privileged access to a stage that an application cannot reach.
+OpenTelemetry, structured logging, context compaction, authorization integration, approval integration, cost accounting, and Model routing may be packaged independently. They enter through the Core or Host boundary that owns their semantics.
