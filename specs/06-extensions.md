@@ -2,100 +2,219 @@
 
 **Status:** Draft
 
-> Extensions implement small behavior capabilities at explicit lifecycle boundaries.
+> Extensions customize named Runtime stages. They may transform a value, decide whether work proceeds, observe a fact, or stop a Turn; they do not own Core state transitions.
 
-## 1. Moving Parts
+## 1. Capability interfaces
 
-```text
-ContextTransformer
-MessageConverter
-PreToolUse
-PostToolUse
-EventObserver
-TurnStopper
+The draft Go shapes are:
+
+```go
+type ContextSnapshot struct {
+    Messages []Message
+    ActiveToolSets []ToolSetName
+}
+
+type TurnSnapshot struct {
+    RunID RunID
+    Number TurnNumber
+    Assistant Message
+}
+
+type PreToolAction string
+const (
+    PreToolProceed PreToolAction = "proceed"
+    PreToolBlock   PreToolAction = "block"
+)
+
+type ToolOutcome = ToolResult
+
+
+type ContextTransformer interface {
+    Transform(context.Context, ContextSnapshot) ([]Message, error)
+}
+
+type MessageConverter interface {
+    Convert(context.Context, []Message) ([]ModelMessage, error)
+}
+
+type PreToolUse interface {
+    Before(context.Context, ToolUse) (PreToolDecision, error)
+}
+
+type PostToolUse interface {
+    After(context.Context, ToolOutcome) (ToolOutcome, error)
+}
+
+type EventObserver interface {
+    Observe(context.Context, Event) error
+}
+
+type TurnStopper interface {
+    Stop(context.Context, TurnSnapshot) (StopDecision, error)
+}
 ```
 
-An Extension implements one or more small interfaces corresponding to these capabilities.
+Exact package names MAY evolve, but each capability MUST have one narrow responsibility and MUST receive the Run Context. An Extension MUST NOT receive a mutable Agent pointer or a transport stream.
 
 ## 2. Installation
 
-Extensions MUST be installed explicitly on Agent construction. Installation order MUST be deterministic.
+Extensions are installed explicitly as part of Agent construction:
+
+```text
+WithExtension(A)
+WithExtension(B)
+WithExtension(C)
+```
+
+The resulting order is immutable for the Agent lifetime. Installation MUST reject nil values and invalid duplicate registrations according to the selected composition policy. Runtime invocation order MUST be deterministic across direct and service callers.
 
 ## 3. Context transformation
 
-A `ContextTransformer` receives a context snapshot and returns the Messages used by the next conversion stage. It MUST honor the Run Context.
-
-A `MessageConverter` converts transformed Gotato Messages into the portable Model request representation.
-
-## 4. Pre-Tool-Use
-
-`PreToolUse` runs after Tool resolution, complete argument assembly, and Schema validation.
-
-It MAY return:
+Before each Model request:
 
 ```text
-Proceed
-Block with a Tool Result
-termination hint
+read-only Agent snapshot
+        ↓
+ContextTransformer chain
+        ↓
+new runtime Message sequence
+        ↓
+MessageConverter chain
+        ↓
+Model request
 ```
 
-Pre-Tool-Use observes the validated arguments and does not replace them.
+A Transformer receives a snapshot, not a live mutable transcript. It MAY select, add, prune, compact, or annotate context. It MUST return a new value, honor cancellation, and leave committed Agent history unchanged.
 
-## 5. Tool Use
+A transformer that returns an error blocks the Model call and terminates the Run unless an explicit application policy converts it into a safe continuation. The default is blocking.
 
-The Runtime invokes the resolved Tool executor at most once after all Pre-Tool-Use components proceed.
+## 4. Message conversion
 
-Tool execution remains a Moving Part through the Tool interface while invocation count, Context propagation, and outcome commitment remain fixed Core rails.
+Converters run in installation order. Each converter receives the prior converter's output and returns a new value. A converter MUST preserve Message role and Tool identity unless its contract explicitly describes a provider-compatible representation change.
 
-## 6. Post-Tool-Use
+The final converter output is consumed only by the Model adapter. It MUST NOT be stored as the Runtime transcript.
 
-`PostToolUse` receives every finalized Tool outcome, including executed and blocked outcomes.
+## 5. Pre-Tool-Use
 
-It MAY:
+Pre-Tool-Use executes after complete argument assembly, Tool resolution, and Schema validation:
+
+```go
+type PreToolDecision struct {
+    Action          PreToolAction
+    Result          *ToolResult
+    TerminationHint string
+}
+```
+
+`Action` is one of:
 
 ```text
-transform the model-facing Result
-add typed metadata
-redact or limit content
-attach a termination hint
+proceed
+block
 ```
 
-The outcome records whether execution occurred.
+All installed Pre-Tool-Use components run in installation order until one blocks or fails. A block skips the executor, creates a blocked Tool Result, and still passes through Post-Tool-Use. Validated ToolUse arguments are immutable during this chain.
 
-## 7. Event observation
+Typical policies include authorization, approval, audit preparation, and rate limits. They MUST NOT execute the Tool as a side effect of inspection.
 
-An `EventObserver` receives canonical Core Events. Its interface or configuration MUST express blocking or advisory failure behavior.
+## 6. Tool execution boundary
 
-An observer is in-process, fast, and Context-aware. It MUST NOT block on a network peer, a remote lock, or any wait without a bound of its own. Remote consumers receive Events through a bounded service boundary instead.
+The Runtime invokes one resolved Tool executor at most once after every Pre-Tool-Use component proceeds. Context and bounded progress reporting are passed unchanged through the boundary.
 
-Event projection, filtering, redaction, delivery, and sinks use focused Event Moving Parts rather than changing canonical Event production.
+An Extension MUST NOT replay an arbitrary Tool Use. Retry belongs to an idempotency-aware Tool or explicit policy that creates a new Tool Use identity.
 
-## 8. Turn stopping
+## 7. Post-Tool-Use
 
-A `TurnStopper` runs after `turn_end` and before Steering, Tool continuation, Follow-up, or another Model request.
-
-## 9. Ordering
+Post-Tool-Use receives every finalized outcome, including:
 
 ```text
-Installed: A → B → C
-Pre:       A → B → C
-Tool Use:  at most once
-Post:      C → B → A
-Observers: registration order
+executed success
+executed failure
+blocked by policy
+cancelled before executor
+limit-rejected use
 ```
 
-## 10. Failure modes
+The chain runs in reverse installation order. Each component MAY normalize safe content, attach typed metadata, redact fields, enforce result bounds, or add a termination hint. It MUST preserve `Executed` truth and Tool Call identity.
 
-Each capability MUST use one explicit mode:
+A blocking Post-Tool-Use error terminates the Run after prior committed state remains intact. It MUST NOT cause the Tool executor to run again.
+
+## 8. Event observers
+
+An EventObserver receives canonical Events in production order and is awaited before the Runtime continues:
 
 ```text
-blocking    current operation returns an error
-transform   returned value enters the next stage
-advisory    failure is reported while execution continues
+create Event
+  ↓
+observer A
+  ↓
+observer B
+  ↓
+loop continues
 ```
 
-A blocking Pre- or Post-Tool-Use Extension error terminates the Run. A Tool execution error becomes a failed Tool Result when the Runtime can continue.
+Observers run in registration order. An observer MUST be in-process, Context-aware, and bounded by its own work. It MUST NOT wait on a network peer, an unbounded queue, or a remote lock.
 
-## 11. Distribution
+Observer failures use an explicit mode:
 
-Extensions are compiled Go packages installed through constructors and options. Official tracing, logging, compaction, routing, retry, and policy integrations depend on these public contracts.
+```text
+blocking  return failure and terminate the current operation
+advisory  record/report failure and preserve the Run outcome
+```
+
+Panic recovery occurs at the observer boundary. A recovered panic follows the configured blocking or advisory mode and MUST NOT escape the Run goroutine.
+
+## 9. Turn stopping
+
+A TurnStopper runs after `turn_end` and before queue polling or another Model request:
+
+```text
+turn_end
+  ↓
+TurnStopper
+  ↓
+Steering
+  ↓
+Tool continuation
+  ↓
+Follow-up
+  ↓
+completion
+```
+
+A stop decision settles the Run while preserving the completed Turn. A stopper error is blocking by default.
+
+## 10. Ordering and reentrancy
+
+Extensions MUST NOT synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from inside an awaited stage. Such reentrancy would violate the one-writer rule and MUST return a typed invalid-state error or be rejected by construction.
+
+Extensions MAY enqueue application work outside the Runtime only when that work has an explicit Context and settlement owner. They MUST NOT create detached goroutines.
+
+## 11. Failure semantics
+
+| Capability | Default failure | State effect |
+|---|---|---|
+| ContextTransformer | blocking | no Model request |
+| MessageConverter | blocking | no Model request |
+| PreToolUse | blocking | no executor for current use |
+| PostToolUse | blocking | outcome not committed as final |
+| EventObserver | explicit mode | blocking or advisory |
+| TurnStopper | blocking | terminal Run |
+
+A Tool execution error is not an Extension failure and follows Tool Result semantics. Service projection, logging, and telemetry are not allowed to reclassify an Extension failure.
+
+## 12. Service-side Moving Parts
+
+These contracts remain outside the Runtime:
+
+```text
+AgentFactory
+AgentCache
+AdmissionController
+EventProjector
+EventBridge
+ErrorMapper
+DrainPolicy
+```
+
+They may observe or wrap Runtime operations, but they MUST NOT duplicate the canonical loop or mutate Runtime transcript state behind the Agent API.

@@ -29,11 +29,7 @@ The service owns remote access, Agent resolution, admission, transport delivery,
 
 ## 2. Service contract
 
-```proto
-service AgentService {
-  rpc Run(stream RunCommand) returns (stream RunEvent);
-}
-```
+The external contract is one bidirectional stream: the client sends commands and the service returns the ordered projection of one attached Run.
 
 The bidirectional stream represents an attached Run.
 
@@ -99,14 +95,7 @@ The service translates commands into canonical Agent operations; it does not mai
 
 ## 5. Agent definitions and factories
 
-Applications register named Agent definitions through factories:
-
-```go
-service, err := agentservice.New(
-    agentservice.WithAgent("incident", incidentFactory),
-    agentservice.WithAgent("repository", repositoryFactory),
-)
-```
+Applications register named Agent definitions through factories. Each registration binds a stable Agent name to the construction behavior used when a request resolves that name.
 
 Conceptually:
 

@@ -182,3 +182,105 @@ Routine Group results SHOULD use spawn order for deterministic aggregation while
 ## 16. Service relationship
 
 Local Routines execute child Agents in goroutines. A future remote Routine executor MAY invoke a child Agent service while preserving Routine identity, Context, Events, limits, and Result semantics.
+
+## 17. Routine value and handle
+
+The draft API is:
+
+```go
+type RoutineRequest struct {
+    Name          string
+    AgentName     AgentName
+    Prompt        Message
+    Limits        Limits
+    ParentRunID   RunID
+    Metadata      map[string]string
+}
+
+type RoutineResult struct {
+    RoutineID RoutineID
+    ChildRun  RunResult
+    Status    RoutineStatus
+    Error     *RuntimeError
+}
+
+type Routine interface {
+    ID() RoutineID
+    Cancel()
+    Wait(context.Context) (RoutineResult, error)
+}
+```
+
+`Spawn` assigns the Routine ID before it queues child work. A successful spawn returns a handle even when the child has not started. A rejected spawn returns no running child and MUST NOT emit `routine_started`.
+
+`Wait` may return a caller Context error before the Routine settles, but that timeout does not cancel the Routine. `Cancel` is idempotent and cancels only that Routine's Context. After settlement, every `Wait` returns the same immutable `RoutineResult`.
+
+## 18. Routine scheduling
+
+A Routine coordinator maintains explicit counters:
+
+```text
+spawned for parent Run
+queued
+running
+settled
+current nesting depth
+```
+
+Spawn admission is atomic with counter reservation. The coordinator MUST check parent Context, maximum depth, per-Run count, and concurrent count before calling the child factory. A failed factory releases the reservation and settles the Routine as failed.
+
+The local execution sequence is:
+
+```text
+reserve limits
+  ↓
+create Routine identity
+  ↓
+emit routine_started
+  ↓
+create distinct child Agent
+  ↓
+run child Prompt or Continue
+  ↓
+wait for child execution settlement
+  ↓
+classify child result
+  ↓
+emit one routine_* terminal Event
+  ↓
+release concurrency reservation
+```
+
+A child Run's `agent_end` is not a substitute for the parent-facing Routine terminal Event. Both belong to their respective scopes.
+
+## 19. Routine Group contract
+
+A Group is a bounded coordinator, not a workflow graph:
+
+```go
+type GroupPolicy string
+
+const (
+    CollectAll      GroupPolicy = "collect_all"
+    FailFast        GroupPolicy = "fail_fast"
+    CollectPartial  GroupPolicy = "collect_partial"
+    FirstSuccess    GroupPolicy = "first_success"
+)
+
+type RoutineGroup interface {
+    Spawn(context.Context, RoutineRequest) (Routine, error)
+    Wait(context.Context) ([]RoutineResult, error)
+    Cancel()
+}
+```
+
+The default policy is `CollectAll`. Results are indexed by spawn position. Group behavior is:
+
+| Policy | Sibling cancellation | Group result |
+|---|---|---|
+| `collect_all` | none unless parent Context cancels | all settled results |
+| `fail_fast` | cancel siblings after first terminal failure | first failure plus settled results |
+| `collect_partial` | no automatic sibling cancellation | successful and failed results |
+| `first_success` | cancel siblings after first success | first success or terminal group failure |
+
+A Group MUST wait for already-started children to settle before releasing its own resources. It MUST NOT report success merely because one child succeeded while protected sibling cancellation and settlement are still unaccounted for.

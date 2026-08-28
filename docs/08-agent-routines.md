@@ -49,16 +49,7 @@ The parent and child both use the canonical runtime loop. The service can projec
 
 A Routine can be spawned by runtime composition or through a model-callable Tool.
 
-Direct composition is conceptually:
-
-```go
-routine, err := routines.Spawn(ctx, factory, request)
-if err != nil {
-    return err
-}
-
-result, err := routine.Wait(ctx)
-```
+Direct composition asks a Routine coordinator to create a child from a factory, then waits on that child through its settled Result. Spawning and waiting are separate operations so a caller can coordinate several children without introducing a second Agent loop.
 
 Model-controlled spawn uses an ordinary Tool:
 
@@ -157,17 +148,7 @@ Created → Queued → Running
 
 A Routine settles exactly once. Repeated waits after settlement return the same immutable result.
 
-Conceptually:
-
-```go
-type RoutineResult struct {
-    RoutineID string
-    ChildRun  RunResult
-    Status    RoutineStatus
-}
-```
-
-A failed child Run becomes a failed Routine Result. Parent Tool or Group policy determines how the parent proceeds.
+A Routine Result carries the Routine identity, the child Run result, and the settled Routine status. A failed child Run becomes a failed Routine Result. Parent Tool or Group policy determines how the parent proceeds.
 
 ## 8. Fan-out and fan-in
 

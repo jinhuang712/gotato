@@ -24,14 +24,7 @@ Applications own business APIs and credentials. Gotato owns the model-facing cap
 
 ## 2. Tool
 
-A Tool exposes one model-callable operation. Its runtime contract is conceptually:
-
-```go
-type Tool interface {
-    Spec() ToolSpec
-    Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error)
-}
-```
+A Tool exposes one model-callable operation. Its contract has two parts: a stable specification that the Model can understand, and an executor that receives one validated Tool Use and produces one final outcome.
 
 A Tool specification contains:
 
@@ -46,14 +39,7 @@ Execution may call local Go code or an external system through an adapter. Runti
 
 ## 3. ToolSet
 
-A ToolSet groups related Tools behind one capability description:
-
-```go
-type ToolSet interface {
-    Spec() ToolSetSpec
-    Tools(ctx context.Context) ([]Tool, error)
-}
-```
+A ToolSet groups related Tools behind one capability description. It resolves a deterministic collection of concrete operations when the Runtime activates or inspects that capability domain.
 
 ```text
 grafana

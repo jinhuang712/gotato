@@ -55,18 +55,9 @@ Each Moving Part corresponds to a concrete execution stage. Core retains state t
 
 ## 3. Focused capability interfaces
 
-An Extension implements only the capabilities it needs:
+An Extension implements only the capabilities it needs. The available joints are context transformation, Message conversion, Pre-Tool-Use, Post-Tool-Use, Event observation, and Turn stopping.
 
-```go
-type ContextTransformer interface { /* ... */ }
-type MessageConverter interface { /* ... */ }
-type PreToolUse interface { /* ... */ }
-type PostToolUse interface { /* ... */ }
-type EventObserver interface { /* ... */ }
-type TurnStopper interface { /* ... */ }
-```
-
-The exact public signatures follow the runtime contracts proven by hosted Agent behavior. Interface responsibilities remain narrow and independently testable.
+Each joint has one narrow responsibility and can be tested independently. Core retains the surrounding state transition and ordering.
 
 ## 4. Context transformation
 

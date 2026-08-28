@@ -173,3 +173,42 @@ go test -race ./...
 ```
 
 Pi-semantic compatibility tests cover documented loop behavior where it applies. Gotato-specific tests cover ToolSets, delivery policy, Agent Routines, and service semantics.
+
+## 13. Deterministic fixture contract
+
+A fixture MUST make every external decision explicit:
+
+```go
+type ModelScript struct {
+    Calls []ModelCallScript
+}
+
+type ModelCallScript struct {
+    Events []ModelEvent
+    Gate   <-chan struct{}
+}
+
+type ToolScript struct {
+    Result ToolResult
+    Delay  time.Duration
+    Start  func()
+    Stop   func()
+}
+```
+
+The exact helper names MAY evolve, but a scripted Model MUST select its response by call order, a scripted Tool MUST record invocation count and arguments, and a fake clock MUST control TTL and deadline observations without sleeping the test process.
+
+A deterministic acceptance test MUST:
+
+1. use fixed IDs or an injectable ID generator;
+2. use a fixed clock and explicit Model/Tool scripts;
+3. record canonical Events before transport projection;
+4. assert both transcript commitment and Event sequence;
+5. wait on execution settlement rather than arbitrary sleeps;
+6. restore or close every fixture-owned resource.
+
+A concurrency test MUST coordinate goroutines with channels, barriers, or Context cancellation and MUST assert the bound being tested. A test that passes only because the scheduler happened to run one goroutine first is not an acceptance test.
+
+A slow-consumer fixture MUST expose queue occupancy and sender progress. It MUST prove whether the configured policy blocks, coalesces, or terminates, and MUST assert that no protected Event is silently lost.
+
+An integration test MAY use a provider, capability service, or Kubernetes cluster, but its failure MUST be distinguishable from a Runtime contract failure. Integration tests MUST record the adapter version and external endpoint class without recording credentials or raw prompts.

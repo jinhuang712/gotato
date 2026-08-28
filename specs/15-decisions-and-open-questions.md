@@ -56,16 +56,15 @@
 
 ## 2. Open runtime questions
 
+The draft contracts have selected the following shapes: `ModelStream.Recv(context.Context) (ModelEvent, error)`, `EventHandler.Observe(context.Context, Event) error`, and an activation schema with one required `name` field whose values are sorted inactive ToolSet names. These remain subject to compatibility review before publication.
+
 ```text
-1. What exact Go interface should ModelStream.Recv use?
-2. Should EventHandler receive the Run Context as a second argument?
-3. Which subscriber failures default to blocking versus advisory behavior?
-4. How should structured Message content balance type safety and adapter extensibility?
-5. Which JSON Schema implementation provides the required behavior with acceptable weight?
-6. Should one sequential Tool force its entire batch into sequential mode?
-7. What reserved namespace should individual always-visible Tools use?
-8. How should ToolSet descriptions be encoded in the activation Tool Schema?
-9. Which typed-function signatures can the reflection adapter support safely?
+1. Which subscriber failures default to blocking versus advisory behavior?
+2. How should structured Message content balance type safety and adapter extensibility?
+3. Which JSON Schema implementation provides the required behavior with acceptable weight?
+4. Should one sequential Tool force its entire batch into sequential mode?
+5. What reserved namespace should individual always-visible Tools use?
+6. Which typed-function signatures can the reflection adapter support safely?
 ```
 
 ## 3. Open event and delivery questions
@@ -81,23 +80,23 @@
 
 ## 4. Open Agent Routine questions
 
+The draft Routine, Routine Group, `Wait`, and `Cancel` shapes are specified in the concurrency contract. `WaitForIdle` waits for owned Routines and the default Group policy is `collect_all`; both remain compatibility decisions until exercised by the service and direct consumer.
+
 ```text
-1. What exact Spawn, Routine, Group, Wait, and Cancel APIs feel natural in Go?
-2. Does WaitForIdle always wait for owned Routines or follow the group policy?
-3. Which Routine Group policy is the default?
-4. How is maximum nesting depth propagated across Agent factories?
-5. How does a remote Routine executor preserve cancellation and Event correlation?
+1. How is maximum nesting depth propagated across Agent factories?
+2. How does a remote Routine executor preserve cancellation and Event correlation?
 ```
 
 ## 5. Open service questions
 
+The draft Protobuf envelope, command variants, Event variants, and compatibility rules are specified in the service contract. An attached stream closes delivery and the expected preset behavior is to cancel its active Run; the exact policy remains configurable until the service fixture fixes the default.
+
 ```text
-1. What exact Protobuf envelope preserves Event compatibility across versions?
-2. What active-Run policy should graceful drain use by default?
-3. What Agent cache interface best expresses acquire, pin, release, reset, and eviction?
-4. Which cache TTL and size defaults are safe for the preset?
-5. Should Kubernetes session affinity be part of the baseline example?
-6. Should stream close cancel the attached Run, or follow a configurable policy?
+1. What active-Run policy should graceful drain use by default?
+2. What Agent cache interface best expresses acquire, pin, release, reset, and eviction?
+3. Which cache TTL and size defaults are safe for the preset?
+4. Should Kubernetes session affinity be part of the baseline example?
+5. Should stream close cancellation remain configurable in addition to the expected default?
 ```
 
 ## 6. Decision method

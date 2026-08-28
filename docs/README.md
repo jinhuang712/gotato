@@ -4,7 +4,7 @@
 
 Gotato's first-class external interface is gRPC. Behind that interface, a transport-independent Go runtime owns Agent state, Model/Tool execution, Events, cancellation, and limits.
 
-Each document below is self-contained. None depends on another, and none refers to another; a concept a document needs, it states.
+Each document below is self-contained. None depends on another, and none refers to another; a concept a document needs, it states. These documents explain architecture and design rationale; exact interfaces, wire fields, state transitions, limits, and acceptance criteria belong to `specs/`.
 
 ## Reading order
 
