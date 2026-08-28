@@ -60,7 +60,7 @@ A TurnStopper runs after `turn_end` and before continuation selection. A stop pr
 
 Transformer, converter, Pre, Post, and stopper errors block by default and settle the owning Run according to the failure contract. Tool executor errors use Tool Result semantics. An Extension cannot synchronously call Prompt, Continue, or Reset on the same Agent from an awaited stage.
 
-Extensions may schedule application work only with an explicit Context and settlement owner. Detached goroutines are forbidden.
+Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are forbidden.
 
 ## 8. Host components are separate
 

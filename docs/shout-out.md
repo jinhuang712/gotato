@@ -27,13 +27,13 @@ Go Agent Core
      └── optional Orchestrator + gRPC Host
 ```
 
-The Core, ToolSet model, service boundary, and delivery contracts are Gotato's own design. The service host does not replace or duplicate the Core loop.
+The Agent goroutine, channel boundary, ToolSet model, service boundary, and delivery contracts are Gotato's own design. The service host does not replace or duplicate the Agent Loop.
 
 ## Semantic reference
 
 The primary reference is `@earendil-works/pi-agent-core`, including Agent state, Prompt/Continue, Model streaming, Message assembly, Tool execution, lifecycle Events, Abort/WaitForIdle, Steering/Follow-up, sequential/parallel Tool batches, and interception.
 
-Gotato expresses these ideas through Go contracts, Context cancellation, bounded concurrency, explicit capabilities, and separate Hosted orchestration.
+Gotato expresses these ideas through Go goroutines, channel communication, Context cancellation, bounded capability work, explicit Extensions, and separate Hosted orchestration.
 
 ## Project boundary
 

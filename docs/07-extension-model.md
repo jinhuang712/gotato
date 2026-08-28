@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Extensions customize named Agent Core stages without owning Core state or hosted coordination.
+> Extensions customize named stages of an Agent goroutine without taking over its private state or Orchestration.
 
 ## 1. Core extension points
 
@@ -71,9 +71,9 @@ The order is deterministic in Embedded and Hosted modes.
 
 ## 7. Failure and reentrancy
 
-Blocking Extension failure settles the owning Run. Tool execution failure follows Tool Result semantics. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would violate the single state owner.
+Blocking Extension failure settles the current Run. Tool execution failure follows Tool Result semantics. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would re-enter the same Agent goroutine.
 
-Extensions may schedule external application work only with an explicit Context and settlement owner. Detached goroutines are not permitted.
+Extensions may schedule external application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are not permitted.
 
 ## 8. Hosted policies are not Core Extensions
 

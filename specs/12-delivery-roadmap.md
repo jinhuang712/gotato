@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Deliver a disciplined Agent Core first, then add a small hosted composition without changing Core semantics.
+> **Agent as a Service, native to Go.** Deliver Agent goroutines and their tight Core first, then add channel-connected orchestration and Hosted transport.
 
 ## Structural invariants
 
@@ -10,12 +10,14 @@ From the first code commit:
 
 ```text
 Core has no transport, Host, Infrastructure, or provider SDK dependency
+Agent is a goroutine-backed execution unit with private state and channels
 one canonical Agent Loop exists
 Core exposes a self-contained in-process boundary
 initial PoC targets one Host process in one Pod
 one Run emits exactly one terminal Event
-all owned work has explicit Context, bound, and settlement
+all local work has explicit Context, bound, and settlement
 Host never duplicates the Core Loop
+Orchestration uses goroutines and channels rather than Agent resource ownership
 ```
 
 Publishing a package can be staged; the boundary cannot.
@@ -51,10 +53,10 @@ Steering and Follow-up
 ToolSets and activation
 Extensions
 bounded parallel Tools
-Agent Routines and Groups
+Agent Routines and channel-backed spawn
 ```
 
-**Exit:** Core supports staged capabilities, child Runs, bounded concurrency, and deterministic acceptance tests.
+**Exit:** Core supports staged capabilities, independent Agent Routines, bounded capability work, channel communication, and deterministic acceptance tests.
 
 ## Slice 4 — Model Layer
 
@@ -72,13 +74,15 @@ bounded provider policy
 ```text
 Agent registry and factory
 Host admission and concurrency
-conversation ownership
-cache/lease
+process-local Agent routing
+handle cache
+request queues and dispatch policy
 lifecycle and drain
 Event projection and bounded bridge
+Agent Routine coordination
 ```
 
-**Exit:** one process hosts multiple Core Agents and concurrent Runs without violating per-Agent exclusivity.
+**Exit:** one process hosts multiple Agent goroutines and concurrent Runs while each Agent remains single-flight and the Host owns external queue policy.
 
 ## Slice 6 — gRPC Hosted Service
 

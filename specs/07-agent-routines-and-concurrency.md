@@ -2,100 +2,141 @@
 
 **Status:** Draft
 
-> Core serializes each Agent; bounded child work and Hosted orchestration provide concurrency around that invariant.
+> An Agent is a Go routine. Channels connect independent Agent routines; Orchestration decides how work is admitted and coordinated.
 
-## 1. Agent exclusivity
+## 1. Agent Routine
 
-One Agent has at most one active mutating Run. Concurrent Prompt and Continue calls return a typed busy error. Different Agent instances may run concurrently.
-
-## 2. Run Context
+An Agent Routine is the running form of one Agent:
 
 ```text
-Run Context
-  ├── Model stream
-  ├── Tool Uses
-  ├── Extensions and observers
-  └── Agent Routines
+Agent Routine
+  = Agent identity
+  + private Agent state
+  + one Agent goroutine
+  + command channel
+  + result / Event channels
 ```
 
-Every owned child receives this Context or a shorter derived deadline. No child may extend its parent lifetime.
+The Agent goroutine is the only mutation authority for that Agent's private state. It runs one canonical Loop and processes one Prompt or Continue at a time.
 
-## 3. Internal concurrency
+A Routine is not a wrapper around a child Agent Run. A goroutine is not fire-and-forget: the Routine has an identity, explicit commands, limits, cancellation, Events, and a settled result.
 
-Parallel Tools require a positive configured bound. Tool completion Events follow actual completion order; transcript commitment is source ordered. Steering and Follow-up queues are concurrency-safe and preserve acceptance order.
-
-Every internal channel has explicit capacity, one owner, one producer responsible for close, and Context-aware blocking. Channels are not public API.
-
-## 4. Routine
-
-A Routine contains:
+## 2. Single-flight execution
 
 ```text
-Routine ID
-parent Run ID
-child Agent distinct from parent and siblings
-child Run and Context
-status
-settled immutable Result
+Free ── one Prompt/Continue ──► Busy
+Free ◄──── terminal result ───── Busy
 ```
 
-A Routine is a managed child Run, not a goroutine. A local implementation may use goroutines.
+A second execution command is not processed concurrently by the same Agent goroutine. Core may report `busy` or not-available to a direct caller. An Orchestrator may instead queue or reject the external request before sending it to the Agent.
 
-## 5. Spawn
+This is an execution property, not ownership of a Conversation, Host, Orchestrator, or shared resource.
 
-Application-controlled spawn uses an Agent factory. A Model-controlled `spawn_agent` Tool may wrap the same API and follows the ordinary Tool lifecycle. Spawn reserves bounds before child creation; rejected spawn creates no child and emits no `routine_started`.
+## 3. Spawn
 
-## 6. Lifecycle and settlement
+An Agent goroutine may create another Agent Routine directly or request one through a factory/Orchestrator:
 
 ```text
-Created → Queued → Running
-                    ├── Completed
-                    ├── Failed
-                    └── Cancelled
+Agent A goroutine ── go / Spawn ──► Agent B goroutine
+        │
+        └── optional factory / Orchestrator channel ──► Agent B
 ```
 
-A Routine settles once. Repeated waits return the same immutable result. Child `agent_end` and parent-facing Routine terminal Event are both required in their scopes.
+B has independent state, channels, limits, and lifecycle. Spawn provenance may be represented by `SpawnID`, origin Agent ID, and origin Run ID. These are correlation fields only; they do not create a resource hierarchy.
 
-## 7. Cancellation
+No Agent directly mutates B. Communication uses channel-backed commands, results, and Events.
 
-Parent cancellation cancels every owned Routine Context. Routine cancellation reaches child Model, Tools, Extensions, observers, and nested Routines. Group policy determines sibling cancellation.
+## 4. Run
 
-## 8. Limits
+A Run is one Prompt or Continue accepted by an Agent Routine. It has a Run ID, Context, Event sequence, and settled Result. A Run does not own another Agent Routine.
 
-The coordinator MUST enforce:
+The routine becomes available for another execution only after its current Run reaches terminal settlement. Request queuing between Runs belongs to the caller or Orchestrator.
+
+## 5. Communication and control
 
 ```text
-Routines per parent Run
-concurrently active Routines
-nesting depth
-child deadline
-child Turns and Tool Calls
-result and progress volume
+caller / Host ── command channel ──► Agent A
+Agent A        ── result channel  ──► caller / Host
+Agent A        ── Event channel   ──► observer / Host
+Agent A        ── Spawn channel   ──► factory / Orchestrator
+Agent A        ── command channel ──► Agent B
 ```
 
-Counters are reserved atomically before factory invocation. Failed factory creation releases reservations and settles the Routine as failed.
+The protocol may be implemented with Go channels behind stable handles. The Agent does not inspect user connections or decide external scheduling policy.
+
+## 6. Cancellation
+
+Cancellation is an explicit Context signal or channel command:
+
+```text
+caller / Orchestrator
+        │ Cancel
+        ▼
+Agent Routine
+        ├── current Model
+        ├── current Tools
+        └── local owned work
+```
+
+Creating B does not automatically place B in A's cancellation tree. An application or Orchestrator may choose cascading cancellation and send B an explicit signal. Spawn provenance alone does not imply lifetime inheritance.
+
+## 7. Core limits
+
+Core limits apply to one Agent Routine and its current Run:
+
+```text
+Turns and Tool Calls
+parallel Tool workers
+active ToolSets
+Tool result and progress volume
+Run, Model, and Tool deadlines
+```
+
+Core does not decide how many external Prompts wait for that routine.
+
+## 8. Orchestration limits
+
+Orchestration limits apply to the channel network:
+
+```text
+Agent goroutines
+queued Prompts
+active Runs
+Spawn commands
+Event delivery
+```
+
+The Orchestrator may implement FIFO, priority, reject-while-busy, safe-boundary Steer, immediate Abort, or a policy that creates another Agent routine. These are Host/application decisions.
 
 ## 9. Groups
 
-A bounded Routine Group supports:
+A group is a coordinator over independent Agent routines:
 
 ```text
-collect_all
-fail_fast
-collect_partial
-first_success
+coordinator goroutine
+  ├── Agent Routine A
+  ├── Agent Routine B
+  └── Agent Routine C
 ```
 
-Results are indexed by spawn order. Completion Events use actual completion order. A Group waits for started children to settle before releasing resources.
+Collect-all, fail-fast, collect-partial, and first-success are coordination policies. They do not establish resource ownership or automatic cancellation inheritance. A group waits through result channels and applies its own policy to completed results.
 
 ## 10. Events and correlation
 
-Parent Events include `routine_started`, `routine_completed`, `routine_failed`, and `routine_cancelled`, with Routine ID, parent Run ID, child Run ID, and name. Detailed child Events retain child Run sequence and may be separately projected by a Host.
+Each Agent Routine and Run has its own identity and Event sequence. A spawn request may carry:
 
-## 11. Hosted placement
+```text
+origin Agent ID
+origin Run ID
+Spawn ID
+created Agent ID
+created Run ID
+```
 
-Local placement uses child Core instances. A future remote Routine Executor may use a remote Host, but must preserve identity, limits, cancellation, Events, and single settlement. Remote placement is not a new Core loop.
+These fields describe provenance. They do not merge transcripts or create a parent Event history. `agent_end` remains terminal for the specific Run that produced it.
 
-## 12. Host concurrency
+## 11. Remote placement
 
-Host admission and scheduling of many Agent Runs are distinct from Core's per-Agent exclusivity. Host limits include active streams, active Runs, queued requests, per-Agent capacity, and delivery resources. Exact preset values are Host configuration.
+The initial implementation uses local goroutines and channels. A future Host may connect routines across a process boundary, but the remote protocol must preserve command identity, result correlation, cancellation, bounds, and Event meaning.
+
+Remote placement does not change the Agent Routine model and must not turn one Agent into an owner of another.

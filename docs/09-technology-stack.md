@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Build the Agent Core first with Go primitives; add protocol adapters for remote access and use the existing platform for deployment.
+> **Agent as a Service, native to Go.** Build Agent goroutines and their channel boundaries first; add protocol adapters for remote access and use the existing platform for deployment.
 
 ## 1. Stack map
 
@@ -11,16 +11,18 @@ The Core is the primary implementation target. The following diagram describes t
 ```text
 Existing platform
   Gateway · LB · Kubernetes · storage · secrets
-          │
+          │ hosts / routes
           ▼
-Transport adapter
+Transport goroutines
   gRPC / Protobuf / HTTP
-          │
+          │ channels
           ▼
-Orchestrator / Agent Host
-          │
+Orchestration goroutines
+  admission · queues · routing · coordination
+          │ Agent command channels
           ▼
-Agent Core
+Agent goroutine / Core
+  private state · canonical Loop · Events
           │
           ├── Model contract → Router → Provider adapter
           └── Tool contract → capability adapters
@@ -33,10 +35,11 @@ Infrastructure is optional to Core and need not be reimplemented when an applica
 ```text
 Go
 context.Context
+Agent goroutines
+explicit command / result / Event channels
 small interfaces
 ordinary typed errors
-goroutines and sync primitives
-bounded internal channels
+bounded capability workers
 JSON Schema for Tool inputs
 ```
 
@@ -72,18 +75,18 @@ Generated types must not enter Core signatures. An existing Go service may mount
 
 ## 5. Orchestration
 
-The Host uses Go contexts, bounded queues, synchronization, and worker coordination for:
+Orchestration uses Go contexts, goroutines, channels, bounded queues, synchronization, and worker coordination for:
 
 ```text
-multiple streams and Runs
-Agent factory and conversation ownership
-admission and concurrency
-cache leases
+multiple streams and Agent routines
+Agent factory and process-local routing
+admission and request queue policy
+dispatch when Agent routines are Free
 Event projection and delivery
 readiness and drain
 ```
 
-No channel is part of the public Core or Transport API. Every internal goroutine has an owning Context and settlement boundary.
+The public API may hide raw channels behind Agent handles, but channel-backed communication is the runtime model. Every long-lived goroutine has an explicit lifetime and shutdown signal; no goroutine is fire-and-forget.
 
 ## 6. Infrastructure integration
 
@@ -107,7 +110,7 @@ Multi-Pod Conversation continuity is intentionally out of scope and reserved as 
 Core and Host expose structured correlation such as:
 
 ```text
-Run ID · Turn · Tool Call ID · Routine ID · child Run ID
+Agent ID · Run ID · Turn · Tool Call ID · Spawn ID
 request ID · stream ID · Agent name · terminal status
 ```
 
@@ -118,11 +121,11 @@ Secrets, credentials, raw prompts, and unrestricted Tool payloads are redacted b
 A possible repository layout is:
 
 ```text
-core/              Agent, Run, Loop, Events, Context
+core/              Agent goroutine, Run, Loop, Events, Context
 model/             Model contract and provider-neutral values
 tool/              Tool, ToolSet, Schema helpers
-routines/          child Runs and Groups
-orchestration/     Host, admission, routing, cache, delivery
+routine/           Agent routine handles and spawn protocol
+orchestration/     scheduling, admission, routing, queues, delivery
 transport/grpc/    Protobuf mapping and gRPC server/client
 adapters/          providers and capabilities
 infra/             deployment examples and integration assets
@@ -132,4 +135,4 @@ The exact packages may evolve. Dependency direction may not: Host and adapters d
 
 ## 9. Testing
 
-Core uses deterministic fakes and no network. Host uses in-process transport, slow consumers, fake clocks, and race tests. Infrastructure and real provider tests are separate integration suites and must not be prerequisites for Core acceptance.
+Core uses deterministic fakes and no network. Agent routine tests use scripted channels and fake clocks. Host uses in-process transport, slow consumers, request queues, and race tests. Infrastructure and real provider tests are separate integration suites and must not be prerequisites for Core acceptance.

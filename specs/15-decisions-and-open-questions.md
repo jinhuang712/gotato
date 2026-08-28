@@ -2,71 +2,96 @@
 
 **Status:** Draft
 
-> The Core boundary is the primary commitment. Host and platform policies remain explicit composition choices; the project does not claim novelty for generic Agent or distributed-system patterns.
+> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
 
 ## 1. Decisions
 
 ### Product shape
 
-1. Gotato provides a self-contained Agent Core and an optional Hosted Agent Service.
-2. Embedded and Hosted modes are first-class; public Core release may be staged, but Core independence begins immediately.
-3. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are not Core dependencies.
-4. Delivery proceeds in slices that end in a usable Embedded or Hosted capability.
-5. Applications own business meaning and end-user presentation.
+1. Gotato provides a Go-native Agent Core and an optional Hosted Agent Service.
+2. An Agent is a goroutine-backed stateful execution unit with private state and channel boundaries.
+3. Agent-as-a-Service exposes Agent goroutines through Transport and Orchestration; it does not create a second Agent implementation.
+4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are not Core dependencies.
+5. Applications own business meaning, presentation, and any Embedded request scheduler.
 
 ### Core semantics
 
-6. Agent owns state; Run is one Prompt or Continue; one Agent has at most one active mutating Run.
-7. There is exactly one canonical Agent Loop for Embedded, Hosted, and child Routine execution.
-8. Prompt and Continue return a settled Core RunResult; Events are observed through local subscriptions.
-9. Core uses explicit provider-neutral Model streams and Tool contracts.
-10. Core fixes state transitions, assembly, validation, commitment, Event order, cancellation, limits, and terminal settlement.
-11. Every Run emits exactly one terminal `agent_end`; nothing starts after it.
-12. Tool executor invocation is at most once per ToolUse; explicit retry creates a new identity.
-13. Tool failures become Tool Results when the loop can continue; blocking Extension and protocol failures terminate the Run.
+6. The Agent goroutine is the only authority for its private state and canonical Loop.
+7. One Agent goroutine processes one Prompt or Continue at a time.
+8. Core does not own the external Prompt queue. A caller or Host decides reject, queue, priority, Steer, Abort, or creation of another Agent routine.
+9. There is exactly one canonical Agent Loop for all Agent goroutines.
+10. Prompt, Continue, Tool, Extension, and control messages converge on that Loop.
+11. Prompt and Continue return a settled Core RunResult; Events are published through the Agent Event boundary.
+12. Core uses explicit provider-neutral Model streams and Tool contracts.
+13. Core fixes state transitions, assembly, validation, commitment, Event order, cancellation, local limits, and terminal settlement.
+14. Every Run emits exactly one terminal `agent_end`; nothing starts after it.
+15. Tool executor invocation is at most once per ToolUse; explicit retry creates a new identity.
+16. Tool failures become Tool Results when the current Agent can continue; blocking Extension and protocol failures terminate the current Run.
+
+### Agent routines and channels
+
+17. An Agent Routine is the running goroutine-backed form of an Agent, not a wrapper around a child Agent Run.
+18. A spawned Agent is an independent Agent routine with private state and channels.
+19. Spawn provenance may be correlated by IDs but does not create resource ownership, shared mutable state, or automatic cancellation inheritance.
+20. Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels or channel-backed handles.
+21. A failure or cancellation in one independent Agent does not automatically terminate another Agent.
 
 ### Host and transport
 
-14. Orchestration/Agent Host manages multiple Core instances, admission, concurrency, conversation ownership, cache/lease, remote delivery, and lifecycle.
-15. gRPC is a Hosted Transport adapter, not a Core dependency.
-16. Host and Transport must not duplicate Core state or Loop behavior.
-17. Protected Events cannot be silently dropped; remote progress may be coalesced under bounds.
-18. Execution settlement and delivery settlement are independent.
-19. A Host may treat attached stream closure as Run cancellation, but the policy must be explicit.
-20. The initial PoC is single-Pod. Ordinary Kubernetes load balancing does not guarantee Conversation continuity across Pods.
+22. Orchestration/Agent Host manages Agent creation, admission, external request queues, dispatch, routing, remote delivery, and lifecycle.
+23. Host and Transport must not duplicate Core state or Loop behavior.
+24. gRPC is a Hosted Transport adapter, not a Core dependency.
+25. Protected Events cannot be silently dropped; remote progress may be coalesced under bounds.
+26. Execution settlement and remote delivery settlement are independent.
+27. A Host may treat attached stream closure as Run cancellation, but the policy must be explicit.
+28. The initial PoC is single-Pod. Ordinary Kubernetes load balancing does not guarantee Conversation continuity across Pods.
 
 ### Model and capabilities
 
-21. Model Router and provider adapters own provider selection and provider-specific policy.
-22. Tools and ToolSets are explicit Core capabilities implemented by application or protocol adapters.
-23. Agent Routine is managed child Agent execution using the canonical Loop.
+29. Model Router and provider adapters own provider selection and provider-specific policy.
+30. Tools, ToolSets, and Extensions are explicit Agent capabilities.
+31. Agent Routines and spawned Agents use the canonical Loop and channel-backed coordination.
 
 ## 2. Open Core questions
 
 ```text
-1. Default blocking versus advisory observer failure
-2. Structured Message content extensibility
-3. JSON Schema implementation and supported subset
-4. Whether a sequential Tool forces a whole batch sequential
-5. Root namespace for always-visible Tools
-6. Typed-function helper limits
-7. Whether one Agent owner goroutine is the default implementation
+1. Exact channel-backed Core API and whether raw channels remain private
+2. Default behavior when a direct Prompt arrives while the Agent is Busy
+3. Structured Message content extensibility
+4. JSON Schema implementation and supported subset
+5. Whether a sequential Tool forces a whole batch sequential
+6. Root namespace for always-visible Tools
+7. Typed-function helper limits
+8. Exact safe boundaries for Steer and Abort
+9. FollowUp buffer capacity and the exact continuation boundary
 ```
 
-## 3. Open Host questions
+## 3. Open Agent Routine questions
 
 ```text
-1. Host concurrency defaults: streams, Runs, queues, and per-Agent limits
-2. Default Event Bridge capacity and queue-full policy
-3. Progress coalescing window and memory bound
-4. Cache size, TTL, lease, and reset defaults
-5. Default stream-close cancellation behavior
-6. Exact Conversation ownership mechanism for multi-Pod deployments
-7. Whether detailed child Events share or separate the parent stream
-8. Host admission and quota scope for multi-tenant deployments
+1. Agent handle shape and channel ownership/close protocol
+2. Whether a spawned Agent is created by Core, application, or Host factory
+3. Which spawn metadata is normative: SpawnID, origin AgentID, origin RunID
+4. Whether Agent-to-Agent channels are request/response, Event, or both
+5. Whether routine-level groups belong in Core or Orchestration
+6. How independent Agent shutdown is acknowledged
 ```
 
-## 4. Open Infrastructure questions
+## 4. Open Host questions
+
+```text
+1. Host concurrency defaults: streams, Agent goroutines, Runs, and queues
+2. Default external Prompt policy while an Agent is Busy
+3. Default Event Bridge capacity and queue-full policy
+4. Progress coalescing window and memory bound
+5. Cache size, TTL, and reset defaults
+6. Default stream-close cancellation behavior
+7. Exact Conversation routing mechanism for future multi-Pod deployments
+8. Whether detailed Events from independent spawned Agents share or separate a stream
+9. Host admission and quota scope for multi-tenant deployments
+```
+
+## 5. Open Infrastructure questions
 
 ```text
 1. Supported Gateway products and long-lived gRPC requirements
@@ -75,11 +100,11 @@
 4. Required Kubernetes baseline versus application-provided platform
 ```
 
-## 5. Decision method
+## 6. Decision method
 
-Resolve an open question with a small executable prototype, fake clock or deterministic fixture where relevant, race-tested acceptance cases, an owning layer, and a recorded compatibility impact.
+Resolve an open question with a small executable prototype, fake clock or deterministic channel fixture where relevant, race-tested acceptance cases, an owning layer, and a recorded compatibility impact.
 
-## 6. Review record
+## 7. Review record
 
 Every resolution records:
 
@@ -88,5 +113,6 @@ chosen behavior
 rejected alternatives
 acceptance test
 owning package
+channel and Context lifetime
 compatibility impact
 ```

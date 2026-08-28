@@ -2,18 +2,18 @@
 
 **Status:** Draft
 
-> Core Events describe what happened. A Host decides how those facts cross a boundary.
+> The Agent goroutine emits facts. Channels carry those facts to local observers and remote delivery.
 
 ## 1. Two layers
 
 ```text
-Agent Core
+Agent goroutine
   └── canonical immutable Events
-          ├── local subscriber
+          ├── local Event channel
           └── Host projection → bounded delivery → remote client
 ```
 
-Core owns Event kind, production point, sequence, correlation, and terminal settlement. Host and Transport own projection, redaction, buffering, and delivery.
+The Agent owns Event kind, production point, sequence, correlation, and terminal settlement. Host and Transport own projection, redaction, buffering, and delivery.
 
 ## 2. Event classes
 
@@ -24,7 +24,7 @@ Protected
   lifecycle transitions and settled outcomes
   agent_start, turn_start, message_start/end
   tool start/end, ToolSet activation
-  Routine terminal Events, turn_end, agent_end
+  Agent Routine lifecycle, turn_end, agent_end
 
 Coalescable
   optional streamed progress
@@ -33,46 +33,68 @@ Coalescable
 
 Protected Events must be delivered in canonical order or the consumer stream fails. Coalescable progress may be merged, thinned, or omitted. Progress must not contain authoritative information absent from its settling protected Event.
 
-## 3. Core sequence
+## 3. Canonical shape
 
-Each Run assigns strictly increasing sequence numbers when Events are created:
+```go
+type Event struct {
+    AgentID     AgentID
+    RunID       RunID
+    Sequence    uint64
+    Kind        EventKind
+    Class       EventClass
+    Turn        TurnNumber
+    MessageID   MessageID
+    ToolCallID  ToolCallID
+    SpawnID     SpawnID
+    OriginRunID RunID
+    Payload     EventPayload
+    Timestamp   time.Time
+}
+```
+
+`Sequence` starts at 1 per Run, increases strictly, and is assigned during the Agent state transition before publication. Timestamp is diagnostic only. Correlation fields not applicable to a kind are empty.
+
+## 4. Ordering
+
+A normal Run orders Events as:
 
 ```text
 agent_start
   turn_start
-  message lifecycle
-  Tool lifecycle
-  tool result lifecycle
+  Prompt user Message lifecycle when applicable
+  assistant Message lifecycle
+  Tool execution and Tool Result lifecycle
   turn_end
+  ...
 agent_end
 ```
 
-Parallel Tool completion Events reflect actual completion order. Transcript Tool Results remain committed in assistant source order. Event sequence is not a timestamp and must not be inferred from arrival time.
+Parallel Tool completion Events reflect actual completion order; transcript commitment remains source ordered. Each Agent Routine and Run has its own Event sequence. Spawn provenance does not merge Event histories.
 
-## 4. Local observation
+## 5. Local observation
 
-A Core subscriber is an in-process observer:
+The Agent publishes Events through a local channel-backed subscription boundary:
 
 ```text
-create Event → observer A → observer B → loop continues
+Agent goroutine → Event channel → observer
 ```
 
-Observers run in registration order and are awaited. They must be Context-aware and bounded; they cannot wait on a network peer, unbounded queue, or remote lock. Blocking and advisory failure modes are explicit.
+An observer is local, Context-aware, and bounded. A blocking observer may hold the Agent at its declared boundary; an advisory observer must not block the Agent Loop. An observer cannot wait on a network peer, unbounded queue, or remote lock.
 
-A remote client is not a Core observer.
+A remote client is not an Agent observer. It receives a Host projection.
 
-## 5. Host delivery
+## 6. Host delivery
 
-A Host bridges Core Events to a remote transport:
+A Host bridges Agent Events to a remote transport:
 
 ```text
-Core Event
-   ↓
+Agent Event
+   ↓ channel
 projection / redaction
    ↓
 bounded per-consumer bridge
    ↓
-sender
+sender goroutine
    ↓
 remote client
 ```
@@ -87,9 +109,9 @@ queue-full policy
 shutdown flush deadline
 ```
 
-Its enqueue and sender operations belong to their respective Contexts. No sender goroutine or queue may outlive the stream that authorized it.
+The bridge and sender are owned by the stream that created them. No sender goroutine or queue may outlive that stream's Context.
 
-## 6. Backpressure
+## 7. Backpressure
 
 When a consumer is slower than the producer, the Host must explicitly choose:
 
@@ -99,41 +121,53 @@ coalescing optional progress
 stream termination
 ```
 
-It must never silently drop a Protected Event. If it cannot preserve one within its bound, it fails the consumer stream. A slow client cannot hold an unrelated Run open or grow memory without limit.
+It must never silently drop a Protected Event. If it cannot preserve one within its bound, it fails the consumer stream. A slow client cannot hold an unrelated Agent goroutine open or grow memory without limit.
 
-## 7. Two settlements
+## 8. Two settlements
 
 ```text
-Execution settlement   Core owns no further work
-Delivery settlement    Host has drained or abandoned delivery
+Agent execution settlement   current Run and local owned work are complete
+Host delivery settlement     remote Event delivery is drained or abandoned
 ```
 
-A client may disconnect while Core continues to its terminal Event. A fast Run may settle while delivery is still in flight. `WaitForIdle` observes execution settlement only.
+A client may disconnect while the Agent continues to its terminal Event. A fast Run may settle while delivery is still in flight. `WaitForIdle` observes Agent execution settlement only. Queue settlement and remote delivery are Host concerns.
 
-## 8. Cancellation
+## 9. Cancellation
 
-A disconnected stream ends delivery. Whether it cancels execution is a Host policy; attached Runs normally cancel on stream closure. Explicit Cancel, Run deadlines, and drain deadlines cancel the Run Context and reach Model, Tools, observers, and Routines.
+A disconnected stream ends delivery. Whether it also cancels the current Agent Run is a Host policy. Explicit Cancel, Run deadlines, and drain deadlines send cancellation through the Agent control boundary and reach its Model, Tools, observers, and local work.
 
-## 9. Child Runs
+Cancellation of another Agent Routine requires an explicit command or application/Host policy.
 
-Parent-facing Routine lifecycle Events are part of the parent Run Event view. Detailed child Events retain child Run correlation and may be exposed separately. Core sequence is scoped to each Run; Host projection must not pretend that parent and child have one transcript.
+## 10. Spawned Agents
 
-## 10. Drain
+A spawned Agent has its own Event channel and sequence. A Host may project selected Events onto an origin stream using explicit correlation:
+
+```text
+origin AgentID / RunID
+spawned AgentID / RunID
+SpawnID
+```
+
+The projection must not pretend that independent Agents share one transcript or one Event sequence.
+
+## 11. Drain
 
 During drain:
 
 ```text
 stop new admission
   ↓
-active Runs settle or are cancelled
+queued requests handled by Host policy
+  ↓
+active Agent Runs settle or are cancelled
   ↓
 bridges flush within deadline
   ↓
 abandon remaining delivery
 ```
 
-Abandoning delivery after execution settlement loses transmission, not Core history.
+Abandoning delivery after execution settlement loses transmission, not Agent history.
 
-## 11. Acceptance
+## 12. Acceptance
 
-Tests must prove canonical order, one terminal Event, class preservation, protected-event handling, bounded queues, slow-consumer behavior, observer bounds, independent execution/delivery settlement, and bounded drain.
+Tests must prove canonical order, one terminal Event per Run, class preservation, channel bounds, Protected Event handling, slow-consumer behavior, observer bounds, independent execution/delivery settlement, disconnect behavior, and bounded drain.

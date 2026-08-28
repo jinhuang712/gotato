@@ -2,124 +2,149 @@
 
 **Status:** Draft
 
-> An Agent Routine is a managed child Agent Run inside Core. Remote placement is a Host concern, not a second execution model.
+> **An Agent Routine is a Go-native running Agent: a goroutine with private state and channel boundaries.**
 
 ## 1. Meaning
 
+In Gotato, an Agent is a running Go routine, not a passive object that a Host executes on its behalf:
+
 ```text
 Agent Routine
-  = child Agent + child Run + parent Context
-  + identity + bounds + settled Result
+  = Agent identity
+  + private state
+  + one goroutine
+  + inbound command channel
+  + result / Event channels
 ```
 
-A goroutine is only a local scheduling mechanism. A Routine owns lifecycle, correlation, cancellation, and settlement.
+The routine owns its local Agent state and its simple Model → Tool → Model Loop. It does not own the Orchestrator, Conversation registry, user request queue, or shared application resources.
 
-## 2. Core composition
+A goroutine is not a fire-and-forget task. The Agent Routine has a stable handle, explicit commands, bounded work, cancellation, Events, and a settled result.
+
+## 2. One Prompt at a time
+
+One Agent Routine processes one Prompt or Continue at a time:
 
 ```text
-Parent Run
-   │ spawn
-   ▼
-Routine
-   ▼
-Distinct child Agent → canonical child Run
+Free ── dispatch one Prompt ──► Busy
+Free ◄──── result / agent_end ── Busy
 ```
 
-The child and its siblings have separate Agent instances and transcripts. They may share immutable adapters and configuration.
-
-## 3. Spawn sources
-
-Applications may spawn directly through a Routine coordinator. A Model may spawn through an ordinary `spawn_agent` Tool:
+A second Prompt is not executed concurrently by the same routine. Whether it waits, queues, is rejected, or causes a control action is decided by the caller or Orchestrator:
 
 ```text
-Parent Tool Call → PreToolUse → Routine → child Run
-                → Routine Result → PostToolUse → parent Tool Result
+incoming Prompts
+       ↓
+Orchestrator policy
+  reject · FIFO · priority · Steer · Abort
+       ↓
+Agent Routine channel
 ```
 
-Both paths use the same Core loop.
+The routine reports whether it is available; it does not design the external request policy.
 
-## 4. Lifecycle
+## 3. Spawn
+
+An Agent Routine may create another Agent Routine directly or request one through a coordinator:
 
 ```text
-Created → Queued → Running
-                    ├── Completed
-                    ├── Failed
-                    └── Cancelled
+Agent A goroutine ── go / spawn ──► Agent B goroutine
+        │
+        └── optional coordinator channel ──► Agent B
 ```
 
-A Routine settles exactly once. Repeated waits return the same immutable Result. A child `agent_end` is not a substitute for the parent-facing Routine terminal Event.
+B is an independent Agent with its own state and channel endpoints. A may receive a handle or correlation ID for B, but A does not own B's state, resources, or lifetime. Spawn origin may be recorded for correlation; it is not a scheduling hierarchy.
 
-## 5. Cancellation
+Spawn can also be initiated by an application or Host. All paths create the same kind of Agent Routine.
+
+## 4. Communication
+
+Routines communicate with explicit messages:
 
 ```text
-Parent Run Context
-       ▼
-Routine Context
-       ▼
-child Model · Tools · Extensions · nested Routines
+Agent A ── Command / Result / Event channel ── Agent B
+Agent A ── command channel ──► Orchestrator
+Agent B ── result channel ────► caller
 ```
 
-Parent cancellation reaches every owned child. A Routine may have a shorter deadline and an idempotent local cancellation handle.
+No Routine directly edits another Agent's state. Shared mutable state requires an explicit application capability; it is not created by spawning.
 
-## 6. Bounds
+## 5. Run and Routine
 
-Core or the Routine coordinator enforces:
+A `Run` is one Prompt or Continue handled by an Agent Routine. It is a work identity and result channel correlation, not a container that owns another Agent.
+
+The Agent Routine is the long-lived goroutine-backed execution unit. A Run begins when the routine accepts a command and settles when it emits its terminal Event and releases the current execution slot.
+
+## 6. Cancellation
+
+Cancellation is explicit:
 
 ```text
-Routines per parent Run
-concurrently active Routines
-maximum nesting depth
-child deadline
-child Turns and Tool Calls
-result and progress volume
+caller / Orchestrator
+        │ cancel command or Context signal
+        ▼
+Agent Routine
+        │
+        ├── current Model
+        ├── current Tools
+        └── local owned work
 ```
 
-Rejected spawn does not create child work or emit `routine_started`.
+Creating B does not automatically make B part of A's cancellation tree. An application or Orchestrator may send B a cancellation command or retain a Context relationship as a policy. The Core does not infer ownership from spawn provenance.
 
-## 7. Routine Groups
+## 7. Bounds
 
-A bounded Group coordinates siblings without becoming a workflow engine:
+Core bounds apply to one Agent Routine and its current Run:
 
 ```text
-collect all · fail fast · collect partial · first success
+Turns and Tool Calls
+parallel Tool workers
+active ToolSets
+Tool result and progress volume
+Run, Model, and Tool deadlines
 ```
 
-Group Results are normally in spawn order. Completion Events follow actual completion order. The Group waits for already-started children to settle before releasing resources.
-
-## 8. Events and correlation
-
-Parent-facing lifecycle Events include:
+Orchestration bounds apply to the channel network:
 
 ```text
-routine_started
-routine_completed
-routine_failed
-routine_cancelled
+Agent goroutines
+queued Prompts
+active Runs
+spawn requests
+Event delivery
 ```
 
-They carry Routine ID, parent Run ID, child Run ID, and name. Detailed child Events remain scoped to the child Run and may be separately projected by a Host.
+A rejected orchestration request does not create a new Agent Routine. A rejected Core command does not create a Run.
 
-## 9. Local and remote placement
+## 8. Routine groups
 
-Local:
+A group is an orchestration or application coordination pattern over independent Agent Routines:
 
 ```text
-Parent Core → local Routine coordinator → child Core
+coordinator
+  ├── Agent Routine A
+  ├── Agent Routine B
+  └── Agent Routine C
 ```
 
-Future remote:
+Supported policies may include collect-all, fail-fast, collect-partial, and first-success. These policies decide how the coordinator waits and reacts; they do not create ownership between the routines.
+
+## 9. Events and correlation
+
+Each Agent Routine and Run has its own identity and Event sequence. A spawn request may carry:
 
 ```text
-Parent Host/Core → Routine Executor → remote Agent Host → child Core
+origin Agent ID
+origin Run ID
+spawn request ID
+created Agent ID
+created Run ID
 ```
 
-Remote execution must preserve identity, cancellation, limits, Events, and single settlement. Remote placement is an orchestration/adapter feature and cannot redefine Routine semantics.
+These fields describe correlation and provenance. They do not merge transcripts or create a parent Event history. `agent_end` remains terminal for the specific Run that produced it.
 
-## 10. Ownership
+## 10. Orchestration and remote placement
 
-```text
-Core              Agent, Run, Context, canonical child Events
-Routine package   spawn, groups, identity, limits, Results
-Host              remote placement and cross-process projection
-Application       child definitions and coordination intent
-```
+The initial implementation uses local goroutines and channels. A future Host may connect routines across a process boundary, but the remote channel must preserve command identity, result correlation, cancellation, bounds, and Event meaning.
+
+Remote placement is a transport/orchestration concern. It must not turn an Agent Routine into a service-owned child object or introduce a second Agent Loop.

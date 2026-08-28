@@ -2,11 +2,11 @@
 
 **Status:** Draft
 
-> The Core API is stable and in-process. The Host API coordinates many Core instances and may expose them through Transport.
+> The Core API addresses one Agent goroutine. The Host API schedules and connects many Agent goroutines.
 
 ## 1. Core API
 
-The draft Core surface is:
+The draft Core surface is a channel-backed handle to one Agent routine:
 
 ```go
 type Agent interface {
@@ -26,11 +26,30 @@ type EventHandler interface {
 }
 ```
 
-The Core API contains no channels, transport envelopes, provider types, mutable internal slices, or Host objects. `Prompt` and `Continue` wait for Core execution settlement. `Subscribe` receives canonical Events locally.
+The public methods may block waiting on result channels. Core does not expose raw channels as the only API, but its runtime model is a goroutine and channel protocol.
 
-## 2. Core construction
+Core contains no transport envelopes, provider types, mutable internal slices, or Host objects.
 
-Construction validates Models, Tools, ToolSets, Extensions, Schemas, namespaces, limits, and ordering before the first Run. Options may include:
+## 2. Core command behavior
+
+`Prompt` and `Continue` submit one execution command to an Agent goroutine. The Agent accepts only one current execution. A direct call while Busy may return a typed busy/not-available result; Core does not enqueue a general external request.
+
+`Steer`, `FollowUp`, and `Abort` are control messages for current or next Agent execution. They do not turn Core into a user-facing request scheduler.
+
+The caller or Host owns any policy for:
+
+```text
+reject while Busy
+FIFO queue
+priority queue
+safe-boundary Steer
+immediate Abort
+creating another Agent routine
+```
+
+## 3. Core construction
+
+Construction validates Models, Tools, ToolSets, Extensions, Schemas, namespaces, limits, and ordering before the Agent goroutine accepts its first execution. Options may include:
 
 ```text
 WithModel
@@ -40,17 +59,26 @@ WithExtension
 WithLimits
 ```
 
-The Agent owns only dependencies documented as owned. Mutable transcript and queues are never shared between Agents without an explicit restoration contract.
+The Agent owns only dependencies documented as its private capability set. Mutable transcript state is never shared between Agents without an explicit application protocol.
 
-## 3. Core subscription
+## 4. Core subscription
 
-Handlers run in registration order and are awaited. They are local, Context-aware, and bounded. Blocking or advisory failure mode is explicit, and panics are recovered. Unsubscribe is idempotent; after its synchronization barrier returns, no new handler invocation may begin.
+Handlers receive Events from the Agent Event boundary in registration order. They are local, Context-aware, and bounded. Blocking or advisory failure mode is explicit, and panics are recovered. Unsubscribe is idempotent; after its synchronization barrier returns, no new handler invocation may begin.
 
-## 4. Core queues
+Remote transport delivery is a Host channel/stream concern, not a Core subscriber.
 
-Steer and FollowUp validate and append atomically in acceptance order. They do not block on Model, Tool, Routine, network, or observer work. Queue overflow, terminal state, and invalid input are returned at acceptance.
+## 5. Agent availability
 
-## 5. Host API
+The Agent routine reports execution availability through its handle or result protocol:
+
+```text
+Free ── accepted Prompt/Continue ──► Busy
+Free ◄──── terminal result/Event ─── Busy
+```
+
+This status does not define external queueing. A caller can wait, queue elsewhere, reject, steer, or abort according to its own policy.
+
+## 6. Host API
 
 The Host may expose boundaries equivalent to:
 
@@ -73,32 +101,61 @@ type AdmissionController interface {
 type AdmissionLease interface { Release() }
 ```
 
-A Host may additionally define Agent Cache/Lease, Conversation Owner, Event Projector, Event Bridge, and Drain Policy contracts. These are not Core API.
+A Host may additionally define Agent registries, routing tables, request queues, Event Projectors, Event Bridges, and Drain Policies. These coordinate channel endpoints; they do not own Agent state.
 
-## 6. Host responsibilities
+## 7. Host responsibilities
 
-The Host validates remote commands, admits capacity, resolves a Core Agent, maps cancellation, projects Events, delivers them with bounds, and manages readiness/drain. It does not edit Core state or reproduce the Agent loop.
+The Host:
 
-## 7. Conversation and cache
+```text
+receives remote commands
+adopts an admission and queue policy
+creates or locates an Agent routine
+waits for Free or chooses a control action
+sends commands through channels
+projects Events
+maps cancellation
+manages readiness and drain
+```
 
-A Host cache may retain live Core Agents with maximum entries, idle TTL, per-key creation coordination, active-Run pinning, idle-only eviction, reset, metrics, and fake-clock tests. Durable continuity requires a separate state provider.
+It does not edit Core state or reproduce the Agent Loop.
 
-## 8. Direct and hosted equivalence
+## 8. Conversation routing
 
-For equivalent initial Agent state, Model stream, Tool outcomes, options, and cancellation timing, direct Core and Hosted execution produce identical canonical Events, transcript commitment, and terminal Core status. Differences are wire mapping, remote acceptance, Host admission, projection, and process lifecycle.
+For the single-Pod PoC, a process-local registry may map a conversation key to an Agent handle:
 
-## 9. Package direction
+```text
+agent name + conversation key
+              ↓
+process-local routing table
+              ↓
+Agent channel endpoint
+```
+
+This is a routing decision, not an Agent ownership hierarchy. Multi-Pod routing remains a future contract.
+
+## 9. Cache and queue
+
+A Host may retain Agent handles in a bounded process-local cache. The Host may also maintain request queues separate from Agent state. Cache eviction must not interrupt a Busy Agent unless the configured lifecycle policy explicitly sends cancellation.
+
+Queue entries contain request identity, command payload, response channel/stream correlation, and cancellation policy. Queueing does not create a new Agent Run until the Host dispatches the request.
+
+## 10. Direct and hosted equivalence
+
+For equivalent initial Agent state, Model stream, Tool outcomes, options, and cancellation timing, direct Core and Hosted execution produce identical canonical Events, transcript commitment, and terminal Core status. Queue policy, dispatch timing, transport acknowledgement, and delivery timing belong to the caller or Host and are not Core equivalence facts.
+
+## 11. Package direction
 
 A possible package layout is:
 
 ```text
-core/              stable Agent execution kernel
+core/              Agent goroutine, Loop, state, Events
 model/             Model values, Router, provider adapters
 tool/              Tool, ToolSet, Schema helpers
-routines/          child Runs and Groups
-orchestration/     Host, routing, admission, cache, delivery
+routine/           Agent routine handles and spawn protocol
+orchestration/     scheduling, admission, routing, queues, delivery
 transport/grpc/    Protobuf mapping and server/client
 infra/             deployment and platform integration
 ```
 
-Exact names may evolve. Host, Transport, Model, and capability adapters depend on Core contracts; Core does not depend on them.
+Exact names may evolve. Orchestration, Transport, Model, and capability adapters depend on Core contracts; Core does not depend on them.

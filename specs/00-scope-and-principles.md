@@ -2,26 +2,45 @@
 
 **Status:** Draft
 
-> Agent Core is the stable execution boundary. Hosted orchestration is an optional composition around it.
+> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
 
 ## 1. Deliverables
 
-The repository defines a Core-first runtime and an optional hosted composition:
+The repository defines a Go-native Agent runtime and an optional hosted composition:
 
 ```text
-Agent Core library
-Model, Tool, ToolSet, Extension, and Routine contracts
-canonical Events and local subscriptions
-optional Orchestrator / Agent Host
-optional gRPC transport adapter and Go client
-service admission, conversation ownership, and bounded delivery
-integration guidance for existing Gateway and Kubernetes platforms
-Model Router and provider/capability adapter boundaries
+Agent Core
+  Agent goroutine · private state · canonical Loop
+  Model, Tool, ToolSet, Extension, and Agent Routine contracts
+  canonical Events and local channel-backed subscriptions
+
+Orchestration / Agent Host
+  Agent creation · admission · request queue policy
+  routing · coordination · remote Event delivery · lifecycle
+
+Transport
+  optional gRPC / Protobuf adapter and Go client
+
+Platform integration
+  guidance for existing Gateway and Kubernetes platforms
+Model and capability adapters
 ```
 
-A regular Go service may consume only the Core. A Hosted deployment may consume all layers. The project does not claim novelty for the basic Agent loop, provider abstraction, or generic distributed hosting; the normative value is in the explicit contracts and their composition.
+A regular Go service may create and call Agent routines directly. A Hosted deployment may expose them remotely. Infrastructure hosts and routes processes but is not a Core dependency.
 
-## 2. Boundary rules
+## 2. Core model
+
+An Agent is a goroutine-backed stateful execution unit:
+
+```text
+Agent = private state + simple Loop + capabilities + channels
+```
+
+The Agent goroutine processes one Prompt or Continue at a time. It does not own external request queues, Conversation registries, Orchestrators, or shared application resources.
+
+An Agent can request another independent Agent goroutine. Spawn provenance is correlation, not resource hierarchy.
+
+## 3. Boundary rules
 
 The Core MUST be self-contained and transport-independent. Core packages MUST NOT depend on:
 
@@ -29,78 +48,94 @@ The Core MUST be self-contained and transport-independent. Core packages MUST NO
 Protobuf or gRPC
 Gateway or Kubernetes
 Agent caches or service admission
-databases or process-hosting APIs
+application databases or process-hosting APIs
 provider SDKs
 ```
 
-The Host and Transport MUST call Core operations rather than copy its state machine. Infrastructure MUST route and host processes without defining Agent semantics.
+The Core owns one Agent's state, capabilities, Loop, Events, cancellation, and local limits. The caller or Host owns external admission, queueing, priority, preemption, routing, and the number of Agent goroutines.
 
-The Core boundary MUST exist from the first implementation. Public package release can be staged; Core independence and testability cannot be postponed.
-
-## 3. Required Core capability
+## 4. Required Core capability
 
 Core MUST provide:
 
 ```text
-stateful Agent with one active mutating Run
+stateful Agent goroutine with one active Prompt or Continue execution
 Prompt and Continue
 Model stream and Message assembly
 Tool Call assembly and Schema validation
 Pre-Tool-Use and Post-Tool-Use
 sequential and bounded parallel Tools
 ToolSet composition and staged activation
-Steering and Follow-up
+Steering and Follow-up control messages
 Context cancellation and local limits
 canonical Events and terminal settlement
 focused Extensions
-Agent Routine spawn and bounded groups
-deterministic test fakes
+Agent Routine spawn and channel-backed results
+Deterministic test fakes
 ```
 
-## 4. Optional Host capability
+Core MUST NOT provide a general external Prompt scheduler.
+
+## 5. Optional Orchestration capability
 
 The Host MUST provide these capabilities when Hosted mode is selected:
 
 ```text
 named Agent definitions and factories
-per-Host admission and concurrency bounds
-conversation ownership and optional cache/lease
+Agent routine creation and routing
+per-Host admission and request queue policy
+per-Agent dispatch when Free
+priority, rejection, Steer, and Abort policy
 transport stream attachment
 canonical Event projection and bounded delivery
 remote cancellation
 readiness and graceful drain
 ```
 
-The Host MUST NOT be required for Embedded mode.
+The Host MUST coordinate through Agent channels. It MUST NOT mutate Agent state or reproduce the Core Loop.
 
-## 5. Two concurrency domains
-
-Core guarantees one state owner per Agent. Host coordinates multiple Agents and Runs:
+## 6. Concurrency model
 
 ```text
-Host:  multiple streams and Runs under admission bounds
-Agent: one active mutating Run
-Run:   bounded Tool and Routine concurrency
+Agent goroutine: one current Prompt/Continue execution
+Orchestration goroutines: admission, queue, routing, coordination
+Transport goroutines: wire receive/send and projection
+Capability workers: bounded Tool or external work
 ```
 
-Infrastructure replica count is not a substitute for Host admission or Core limits.
+These are communicating goroutines, not a hierarchy of resource owners. Each Agent owns only its private state. Each coordinator owns only its queues and channel endpoints.
 
-## 6. One canonical loop
+## 7. One canonical Loop
 
-The repository MUST contain exactly one Agent loop. Embedded callers, Hosted callers, and child Routines MUST converge on it. No handler, cache, Gateway, or Routine executor may reproduce Model/Tool execution.
+The repository MUST contain exactly one Agent Loop. Every Agent goroutine uses it. Embedded callers, Hosted callers, and spawned Agents converge on the same Loop. No Host, scheduler, or capability may reproduce Model/Tool execution.
 
-## 7. One terminal Event
+## 8. One terminal Event
 
-A Run MUST emit exactly one terminal `agent_end` Event. Retry, context compaction, and queued continuation happen before it inside the same Run. Nothing starts after it.
+A Run MUST emit exactly one terminal `agent_end` Event. Retry, context transformation, and control-driven continuation happen before it inside that Run. Nothing starts after it.
 
-## 8. Settlement
+## 9. Channels and delivery
 
-Execution settlement belongs to Core. Delivery settlement belongs to Host. Neither may wait indefinitely on the other. A disconnected consumer MUST NOT create unbounded Core work.
+Core Events are immutable runtime facts delivered through local channel-backed observation. A Host may project them to remote channels or streams. Execution settlement and remote delivery settlement are separate concerns.
 
-## 9. Model and infrastructure boundaries
+Protected Events cannot be silently dropped; optional progress may be coalesced under explicit bounds.
 
-Core consumes a provider-neutral Model contract. Routing, provider selection, fallback, and provider SDKs belong to the Model layer. Gateway, load balancing, Kubernetes, storage, and credentials belong to Infrastructure.
+## 10. Model and capability boundaries
 
-## 10. Presentation
+Core consumes a provider-neutral Model contract. Routing, provider selection, fallback, and provider SDKs belong to the Model layer. Tools, ToolSets, and Extensions enter through explicit contracts. No package-global discovery is part of Core composition.
 
-Applications own business workflows and end-user CLI, TUI, Web, and chat interfaces. Gotato publishes Core APIs, Hosted protocols, Events, examples, and diagnostics.
+## 11. Initial PoC
+
+The initial Hosted PoC uses:
+
+```text
+one Host process
+one Pod
+local Agent goroutines and channels
+process-local Agent registry and routing
+```
+
+Cross-Pod Conversation continuity is reserved for future work.
+
+## 12. Presentation
+
+Applications own business workflows and end-user CLI, TUI, Web, and chat interfaces. Gotato provides Agent runtime contracts, Hosted protocol contracts, Events, examples, and diagnostics.

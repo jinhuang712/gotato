@@ -1,30 +1,28 @@
 # Gotato Documentation
 
-> A stable Go Agent Runtime Core and an optional hosted service composition.
+> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
 
-Gotato is Core-first. Embedded mode uses the Core directly inside an existing Go service. Hosted mode is an optional orchestration and transport composition for remote access; it does not define a second Agent execution model.
-
-The project does not claim novelty for the basic Model-to-Tool loop, provider abstraction, or generic distributed hosting. Its focus is a disciplined Go runtime boundary for stateful Agent execution and a small, testable hosted composition around that boundary.
+Gotato treats an Agent as a stateful Go runtime unit. The Agent goroutine owns its local state and runs one simple canonical Loop. An optional Agent-as-a-Service composition exposes those routines through Transport and Orchestration.
 
 ```text
-Embedded:  Application → Agent Core → Model / Tools
-Hosted:    Client → Transport → Orchestrator → Agent Core
-External:  Gateway / Kubernetes / LB / Storage
+Embedded: Application goroutine ──channel──► Agent goroutine
+Hosted:   Client → Transport goroutines → Orchestration → Agent goroutine
+External: Gateway / Kubernetes / LB / Storage
 ```
 
-The Core owns Agent semantics. The Orchestrator owns hosted coordination. Transport owns wire mapping. Infrastructure owns deployment. These are separate boundaries even when a small deployment places them in one process.
+The Core owns Agent state, capabilities, and execution. Orchestration schedules requests and connects goroutines. Transport maps wire messages. Infrastructure hosts and routes processes. These boundaries are connected by channels and explicit contracts, not a hierarchy of resource owners.
 
 ## Reading order
 
-1. [Philosophy](00-philosophy.md) — architectural constitution
-2. [Conceptual models](01-conceptual-models.md) — vocabulary and layers
+1. [Philosophy](00-philosophy.md) — project constitution and concurrency model
+2. [Conceptual models](01-conceptual-models.md) — Agents, goroutines, channels, and layers
 3. [Hosted Agent](02-agents-as-a-service.md) — orchestration and remote access
-4. [Agent Core](03-core-runtime.md) — the canonical loop
+4. [Agent Core](03-core-runtime.md) — the Go-native runtime and canonical Loop
 5. [Events and delivery](04-events-and-delivery.md) — facts and delivery
 6. [Moving parts](05-moving-parts.md) — replacement boundaries
 7. [Tools and ToolSets](06-tools-and-toolsets.md) — capabilities
 8. [Extension model](07-extension-model.md) — lifecycle customization
-9. [Agent Routines](08-agent-routines.md) — child Runs
+9. [Agent Routines](08-agent-routines.md) — goroutine-backed Agent execution
 10. [Technology stack](09-technology-stack.md) — implementation and deployment
 11. [Technical specifications](../specs/README.md) — normative contracts
 
@@ -32,24 +30,24 @@ The Core owns Agent semantics. The Orchestrator owns hosted coordination. Transp
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│ Application                                              │
-│ business workflows · presentation · Agent definitions   │
-├──────────────────────────────────────────────────────────┤
-│ Infrastructure (external)                                │
-│ gateway · Kubernetes · LB · storage · secrets           │
+│ Application / Client                                     │
+│ business workflows · requests · presentation             │
 ├──────────────────────────────────────────────────────────┤
 │ Transport (optional)                                     │
 │ gRPC · Protobuf · HTTP projection                       │
 ├──────────────────────────────────────────────────────────┤
-│ Orchestration / Agent Host (optional)                   │
-│ admission · routing · concurrency · cache · delivery    │
+│ Orchestration (optional)                                 │
+│ admission · queue · routing · coordination · delivery   │
 ├──────────────────────────────────────────────────────────┤
-│ Agent Core (stable)                                      │
-│ Agent · Run · Model/Tool loop · Events · cancellation   │
+│ Agent Core                                               │
+│ goroutine · private state · canonical Loop · Events     │
 ├──────────────────────────────────────────────────────────┤
-│ Model and capability adapters                            │
-│ provider routing · database · Redis · HTTP · MCP        │
+│ Open extensions and adapters                             │
+│ Model · Tools · ToolSets · Extensions · capabilities    │
+├──────────────────────────────────────────────────────────┤
+│ Infrastructure (external)                                │
+│ gateway · Kubernetes · LB · storage · secrets           │
 └──────────────────────────────────────────────────────────┘
 ```
 
-The same Core can be embedded directly or hosted behind a transport. A hosted service is a composition of boundaries, not a different execution model.
+The same Agent Core can be called inside a Go process or reached through a Hosted transport. Hosted mode schedules access to Agents; it does not replace their execution model.

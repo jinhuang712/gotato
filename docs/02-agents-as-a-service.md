@@ -2,44 +2,47 @@
 
 **Status:** Draft
 
-> Agent-as-a-Service is a first-class hosted composition of Transport, Orchestration, and Agent Core. The Core remains the primary execution boundary; Hosted mode is the remote delivery form, not a different Agent execution model.
+> **Agent as a Service, native to Go.** A Hosted Service connects remote callers to Agent goroutines; it does not replace their Loop.
 
 ## 1. Scope
 
-Hosted mode makes Core Agents available to remote clients. The initial PoC deliberately uses one Host process in one Pod; the hosted layer is being validated as a thin composition around Core, not as a distributed platform:
+Hosted mode exposes Agent routines to remote clients through a channel-shaped transport:
 
 ```text
 Client
-  │ RunCommand stream
+  │ bidirectional Run stream
   ▼
-Transport Adapter
-  │
+Transport goroutines
+  │ command / Event channels
   ▼
-Agent Host / Orchestrator
-  │
+Orchestration goroutines
+  │ Agent command channel
   ▼
-Agent Core
+Agent goroutine
 ```
 
-A Gateway, Kubernetes Service, or load balancer may surround this path, but those are infrastructure choices. A Go application may also embed the Core without using this service.
+The initial PoC uses one Host process in one Pod. The hosted layer validates remote access, admission, scheduling, Event projection, cancellation, and lifecycle without becoming a distributed platform.
+
+A Go application may embed Agent Core directly without using this service.
 
 ## 2. Hosted components
 
 ```text
-Transport
+Transport goroutines
   Protobuf · gRPC stream · command validation · wire projection
 
-Orchestrator
-  Agent registry · factory · admission · concurrency
-  conversation ownership · cache/lease · stream attachment
-  cancellation mapping · Event projection and bridge
-  readiness · drain
+Orchestration goroutines
+  Agent registry · factory · admission · request queues
+  routing · dispatch when Free · stream attachment
+  cancellation policy · Event projection and bridge
+  readiness · drain · channel coordination
 
-Agent Core
-  Agent state · Run loop · Tools · Routines · canonical Events
+Agent goroutines
+  private state · canonical Loop · Tools
+  Extensions · Agent Routines · canonical Events
 ```
 
-The Orchestrator invokes Core operations. It must not maintain a parallel transcript or loop.
+Orchestration sends commands to Agent channels and receives results and Events through channel-backed handles. It must not maintain a parallel transcript or Loop.
 
 ## 3. Service contract
 
@@ -58,93 +61,92 @@ FollowUp
 Cancel
 ```
 
-The stream attaches to one Run. The first command is `Start`; after terminal settlement no further commands are accepted.
+The stream carries commands to an Agent execution and receives its projected Events. The first command is `Start`; after terminal settlement no further commands are accepted on that execution stream.
 
 ## 4. Request path
 
 ```text
 RunCommand.Start
       ↓
-validate command
+Transport goroutine validates
       ↓
-admission
+Orchestration admission / queue policy
       ↓
-resolve Agent name
+resolve Agent handle
       ↓
-resolve Conversation ownership when present
+wait for Free, reject, or choose control action
       ↓
-attach one Core Agent Run
+dispatch command through Agent channel
       ↓
-project canonical Events
+Agent goroutine runs the canonical Loop
       ↓
-bounded Event bridge
+Event channel → projection → bounded bridge
       ↓
 RunEvent stream
 ```
 
-`Steer`, `FollowUp`, and `Cancel` are mapped to Core operations. Command acceptance and execution effect are separate: accepting a command does not mean that the next Model call has already observed it.
+`Steer`, `FollowUp`, and `Cancel` are control messages. Whether a new external Prompt waits, queues, is prioritized, steers the current execution, or aborts it is an Orchestration policy.
 
 ## 5. Concurrency
 
 A Host must support concurrent remote streams under explicit bounds:
 
 ```text
-Host process          multiple attached streams
-Different conversations concurrent Core Runs
-Same Agent             one mutating Run at a time
-Same Agent, second Run typed busy rejection
-One stream             commands accepted in arrival order
-One Run                bounded Tool and Routine concurrency
-One client             bounded Event delivery
+Host process          multiple transport and orchestration goroutines
+Agent goroutine       one Prompt or Continue at a time
+Busy Agent            reject, queue, prioritize, Steer, or Abort by policy
+Different Agents      may execute concurrently
+One Run               bounded Tool concurrency
+One client            bounded Event delivery
 ```
 
-The Host owns global admission such as maximum active Runs, streams, queued requests, and per-Agent capacity. Core owns single-Agent mutation and Run-local limits. Kubernetes replica count is not a substitute for either.
+The Host owns bounds for streams, Agent routines, queued requests, dispatch, and delivery. The Agent owns only its private state and current execution. Kubernetes replica count is not a substitute for Host scheduling.
 
-The concrete preset values remain configuration decisions; the contract requires that each bound be explicit and observable.
+The concrete preset values remain configuration decisions; every bound must be explicit and observable.
 
-## 6. Conversation ownership in the PoC
+## 6. Conversation routing in the PoC
 
-The initial PoC runs one Host process in one Pod. Conversation ownership is therefore process-local:
+The initial PoC runs one Host process in one Pod. A process-local registry maps a Conversation key to an Agent handle:
 
 ```text
 agent_name + conversation_key
               ↓
-process-local owner / cache
+process-local routing table
               ↓
-Core Agent
+Agent handle / command channel
 ```
 
-The Host may coordinate creation, pin an active Agent, and evict only idle Agents. No cross-Pod continuity is promised or required for this phase.
+The registry and cache retain handles and route requests. They do not make an Agent the owner of a Conversation or of Host resources. The Host decides whether a request waits for the Agent to become Free or enters a queue.
 
-### Reserved: Multi-Pod Conversation Ownership
+### Reserved: Multi-Pod Conversation Routing
 
 Multi-Pod continuity is intentionally left as a separate future design area. It may require keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing alone is not a continuity guarantee.
 
 ## 7. Event delivery
 
-The Core emits canonical Events. The Host maps them to transport Events:
+The Agent emits canonical Events through its Event channel. The Host projects them to transport Events:
 
 ```text
-Core Event → projection/redaction → bounded bridge → gRPC sender
+Agent Event → projection / redaction → bounded bridge → gRPC sender
 ```
 
-Protected lifecycle and outcome Events cannot be silently dropped. Optional progress may be coalesced. A slow client may be slowed within a bound, have progress coalesced, or have its stream terminated according to the configured policy. It must not hold unrelated Runs open.
+Protected lifecycle and outcome Events cannot be silently dropped. Optional progress may be coalesced. A slow client may be slowed within a bound, have progress coalesced, or have its stream terminated according to policy. It must not hold unrelated Agent goroutines open.
 
-Execution settlement belongs to Core; delivery settlement belongs to Host.
+Execution settlement belongs to the Agent Run; remote delivery settlement belongs to the Host bridge.
 
 ## 8. Cancellation
 
 ```text
 client Cancel / stream Context / deadline / drain
                          ↓
-                  Host Run Context
+             Orchestration control channel
                          ↓
-                    Core Abort
+                  Agent Abort
                          ↓
-       Model · Tools · observers · child Routines
+             Model · Tools · observers · local work
 ```
 
-Stream closure ends remote delivery. The default attached-Run policy is to cancel the Run, but the Host must make the policy explicit. Cancellation is idempotent while the Run is active.
+Stream closure ends remote delivery. The default attached-Run policy may also cancel execution, but the Host must document the choice. Cancellation of another Agent routine requires an explicit command or Host policy; spawn provenance does not imply cancellation ownership.
 
 ## 9. Gateway and infrastructure
 
@@ -163,16 +165,17 @@ The Host needs no Gotato-specific Gateway when the application already has one. 
 ```text
 Serving
   ├── liveness: process is operating
-  └── readiness: new Runs may be admitted
+  └── readiness: new requests may be admitted
 
 Draining
   ├── readiness false
   ├── new admission rejected
-  ├── active Runs settle or are cancelled by deadline
+  ├── queued requests handled by policy
+  ├── active Agent Runs settle or are cancelled by deadline
   └── Event bridges flush or abandon within policy
 ```
 
-Infrastructure consumes these signals; it does not define Core semantics.
+Infrastructure consumes these signals; it does not define Agent semantics.
 
 ## 11. Deployment forms
 
@@ -180,9 +183,9 @@ Infrastructure consumes these signals; it does not define Core semantics.
 
 ```text
 Existing Go Service
-  ├── existing business API
-  ├── existing Gateway / K8s deployment
-  └── Agent Core or embedded Host
+  ├── business API goroutines
+  ├── optional Orchestration goroutines
+  └── Agent goroutines
 ```
 
 No new infrastructure is required merely because the Core is used.
@@ -190,17 +193,17 @@ No new infrastructure is required merely because the Core is used.
 ### Dedicated Hosted Service
 
 ```text
-Gateway/LB → Gotato Host → Agent Core
+Gateway/LB → Transport goroutines → Orchestration → Agent goroutines
 ```
 
-This form provides a dedicated remote Agent endpoint and may use the standard Orchestrator, gRPC adapter, and deployment examples.
+This form provides a dedicated remote Agent endpoint while retaining the same Core Agent Loop.
 
-## 12. Ownership
+## 12. Ownership map
 
 ```text
-Core          execution and canonical facts
-Orchestrator  hosted coordination and remote delivery
-Transport     wire protocol
-Infrastructure deployment and network routing
-Application   business meaning, definitions, and policies
+Agent goroutine  private Agent state and execution
+Orchestration    request policy, scheduling, routing, coordination
+Transport        wire protocol and stream projection
+Infrastructure   process hosting and network routing
+Application      business meaning, definitions, and policies
 ```
