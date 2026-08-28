@@ -65,14 +65,14 @@ no first-party UI               applications own CLI, TUI, web, and chat
 |---|---|
 | [Philosophy](docs/00-philosophy.md) | purpose and lasting principles |
 | [Conceptual models](docs/01-conceptual-models.md) | vocabulary and boundaries |
-| [Agent as a Service](docs/06-agents-as-a-service.md) | the hosted product boundary |
-| [Core runtime](docs/02-core-runtime.md) | state owner and canonical loop |
-| [Runtime Moving Parts](docs/08-moving-parts.md) | complete visual map |
-| [Events and delivery](docs/09-events-and-delivery.md) | facts, backpressure, settlement |
-| [Tools and ToolSets](docs/04-tools-and-toolsets.md) | capability model |
-| [Extension model](docs/03-extension-model.md) | behavior at named stages |
-| [Agent Routines](docs/05-agent-routines.md) | managed child Agent Runs |
-| [Technology stack](docs/07-technology-stack.md) | Go, Protobuf, gRPC, Kubernetes |
+| [Agent as a Service](docs/02-agents-as-a-service.md) | the hosted product boundary |
+| [Core runtime](docs/03-core-runtime.md) | state owner and canonical loop |
+| [Events and delivery](docs/04-events-and-delivery.md) | facts, backpressure, settlement |
+| [Runtime Moving Parts](docs/05-moving-parts.md) | complete visual map |
+| [Tools and ToolSets](docs/06-tools-and-toolsets.md) | capability model |
+| [Extension model](docs/07-extension-model.md) | behavior at named stages |
+| [Agent Routines](docs/08-agent-routines.md) | managed child Agent Runs |
+| [Technology stack](docs/09-technology-stack.md) | Go, Protobuf, gRPC, Kubernetes |
 
 Entry points: [docs](docs/README.md) · [specs](specs/README.md)
 

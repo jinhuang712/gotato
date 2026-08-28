@@ -26,7 +26,7 @@ Clients and Go Services
        Kubernetes Deployment
 ```
 
-The service use case drives behavior. Package dependencies point inward toward runtime contracts.
+Package dependencies point inward toward runtime contracts. Each layer can be replaced without redefining the one beneath it.
 
 ## 2. Technology map
 
@@ -61,8 +61,6 @@ runtime kernel
       ├── tool contracts
       └── event contracts
 ```
-
-The runtime package can begin as an internal implementation boundary. Promotion to a public library adds compatibility commitments without changing the service's dependency direction.
 
 Runtime packages do not import generated Protobuf, gRPC, Kubernetes, cache, or process-hosting packages.
 
@@ -132,7 +130,7 @@ Every goroutine belongs to a Context and settlement boundary. No request, Tool, 
 
 ## 7. Channels
 
-Channels remain internal coordination primitives rather than the primary public API.
+Channels are Gotato's internal coordination primitive and none of its public API:
 
 ```text
 bounded Event bridge
@@ -142,28 +140,7 @@ service command handoff
 worker admission
 ```
 
-Channel rules:
-
-```text
-producer owns close
-capacity is explicit
-Context participates in blocking send and receive
-terminal facts retain delivery priority
-optional progress may be coalesced
-channels stay behind typed APIs
-```
-
-In Go this means a bounded channel plus a cancellable send:
-
-```go
-select {
-case queue <- event:
-case <-ctx.Done():
-    return ctx.Err()
-}
-```
-
-The failure modes are specific:
+Each of these is a place where an architectural bound becomes an actual number. Each is also where a Go program most easily loses that bound, and the ways it happens are specific:
 
 ```text
 unbounded channel      no backpressure; memory tracks the slowest consumer
@@ -172,7 +149,9 @@ detached sender        work outlives the Context that authorized it
 receiver closes        the next send panics
 ```
 
-The external API uses gRPC streams. A direct Go API uses runtime methods and Event subscriptions. Channel ownership stays inside the creating package.
+None of these is exotic and none announces itself. An unbounded channel behaves perfectly until the day a consumer is slow, and a detached sender goroutine is indistinguishable from a working one until shutdown.
+
+The external API is a gRPC stream and the direct Go API is runtime methods plus Event subscriptions, so no channel appears in a signature either consumer sees. Ownership stays inside the package that created the channel, which keeps these failure modes reviewable in one place instead of distributed across callers.
 
 ## 8. Synchronization and `errgroup`
 
@@ -236,17 +215,9 @@ canonical Event
 protobuf RunEvent
 ```
 
-Compatibility follows standard Protobuf rules:
+Protobuf earns its place by making one thing cheap and another thing detectable: adding a field without breaking a deployed client, and finding out at build time when a change would. The standard Go toolchain generates the server and client bindings; a build wrapper such as Buf compares each change against the previously released contract.
 
-```text
-field numbers remain stable
-removed fields are reserved
-new fields are additive
-enums retain an unspecified value
-oneof command and Event variants evolve compatibly
-```
-
-The standard Go Protobuf toolchain generates server and client bindings. Buf or an equivalent build wrapper can provide linting and breaking-change checks.
+A wire format read by exactly one language and one version does not need any of this. Gotato assumes the opposite case.
 
 ## 11. gRPC
 
@@ -271,33 +242,7 @@ The first-party Go client presents a typed remote Agent experience without requi
 
 ## 12. Bounded Event transport
 
-The service decouples runtime observation from network transmission with a bounded bridge:
-
-```text
-Runtime Event producer
-        ↓
-projection and redaction
-        ↓
-bounded queue
-        ↓
-gRPC sender
-```
-
-The bridge defines:
-
-```text
-capacity
-progress coalescing
-producer backpressure
-terminal Event priority
-slow-consumer termination
-Context cancellation
-settlement deadline
-```
-
-Unbounded channels and detached sender goroutines are not acceptable service defaults.
-
-The split matters because runtime observers are awaited inside the loop. A local observer may hold the loop briefly; a network peer may not hold it at all, so the gRPC sender lives on the far side of the queue:
+Runtime observers are awaited inside the loop. A network peer cannot be, so the gRPC sender lives on the far side of a queue:
 
 ```text
 Runtime goroutine              Sender goroutine
@@ -306,11 +251,13 @@ emit → observers → enqueue     dequeue → grpc.Send
 awaited · local · fast          slow · remote · bounded
 ```
 
-When the queue is full, the enqueue side applies the configured policy instead of waiting forever. Runtime execution then settles on its own schedule, and delivery settles on the client's.
+This is where the channel properties above stop being tidiness and start being the product. The queue has a stated capacity, the enqueue is a cancellable send, and the sender goroutine belongs to the stream's Context. Drop any one of the three and a slow client turns into a runtime problem: unbounded memory, a stalled loop, or a goroutine still writing to a socket nobody owns.
+
+Unbounded channels and detached sender goroutines are therefore not acceptable service defaults.
 
 ## 13. In-service Agent caching
 
-Conversation Agents can live in a bounded process-local cache:
+A conversation Agent is a live Go object holding a transcript, active ToolSets, and possibly an in-flight Run. What retains it is process-local memory, not a datastore:
 
 ```text
 Conversation Key
@@ -324,20 +271,9 @@ Conversation Key
          stateful Agent
 ```
 
-The cache contract includes:
+That has a consequence worth stating rather than discovering: the cache is an optimization and never durable truth. A restart loses it, and continuity across processes comes from an explicit state provider, not from a larger cache.
 
-```text
-per-key creation coordination
-active-Run pinning
-idle-only eviction
-explicit reset
-fake-clock testing
-cache metrics
-```
-
-The cache stores live runtime objects, not durable truth. An external state provider can restore Agents across processes while the cache remains a bounded optimization.
-
-Model responses are not cached by default because their output depends on transcript, Model version, sampling, visible Tools, and external state.
+Model responses are not cached by default. Their output depends on transcript, Model version, sampling, visible Tools, and external state, so a key correct enough to reuse a response is most of the request.
 
 ## 14. Kubernetes
 
@@ -405,21 +341,3 @@ OCI image         executable Agent service
 ```
 
 Separate modules are useful when they isolate provider SDKs, transport dependencies, or release commitments. Module boundaries follow dependency ownership rather than repository aesthetics.
-
-## 17. Testing
-
-```text
-runtime tests
-  scripted Model · fake Tools · Event recorder · fake clock
-
-service tests
-  in-process gRPC · fake Agent factory · bounded bridge fixtures
-
-concurrency tests
-  cancellation · race detector · slow consumers · drain
-
-integration tests
-  provider adapters · capability APIs · Kubernetes lifecycle
-```
-
-Runtime acceptance does not require a network. Service acceptance proves that remote commands and Events preserve runtime semantics.

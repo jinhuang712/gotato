@@ -156,19 +156,9 @@ Conversation Key
          stateful Agent
 ```
 
-The cache provides:
+Two properties of the thing being cached shape everything about it. A conversation Agent is a live Go object, so a restart loses it and no larger cache changes that: the cache is an optimization, and durable continuity comes from an explicit state provider instead. And an Agent can be mid-Run, so eviction is not free the way it is for a value cache — evicting a busy Agent would destroy state that an attached client is still watching.
 
-```text
-bounded entries
-idle expiration
-per-key creation coordination
-active-Run pinning
-idle-only eviction
-explicit reset
-observable cache behavior
-```
-
-It is a runtime optimization, not durable truth. Durable continuity requires an explicit state provider and restoration contract.
+That second property is why the cache needs a notion of an entry being in use, why expiry applies only to idle entries, and why two concurrent first requests for one key must produce one Agent rather than two. A conversation with two Agents is not a slow conversation; it is two conversations that both claim to be the same one.
 
 ## 8. Event delivery
 
@@ -188,42 +178,18 @@ gRPC RunEvent
 
 A Run can emit thousands of Events while a remote client accepts a few. The bridge is where that mismatch is resolved on purpose rather than by accident, so its capacity, its ordering guarantees, and its behavior when full are all stated.
 
-### What the bridge protects
+What lets the bridge shed anything at all is that Events do not carry equal obligation. Lifecycle transitions and settled outcomes must reach the client in canonical order or the stream fails; streamed progress may be merged, thinned, or dropped, because progress never carries a fact its settling Event omits. A client that receives no progress at all still receives a complete history.
 
-```text
-Protected                      Coalescable
-─────────                      ───────────
-agent_start                    message_update
-turn_start · turn_end          tool_execution_update
-message_start · message_end    Routine progress
-tool_execution_start · _end
-toolset_activated
-Routine terminal Events
-agent_end
-```
+When the queue fills, the bridge slows the producer within a stated bound, merges pending progress, or fails the stream. What it does not do is silently drop a protected Event: a client whose stream fails knows it lost something, and a client missing a settled outcome does not. Blocking is bounded and Context-aware, because an unbounded wait would let one slow client hold a Run open indefinitely — the outcome the bridge exists to prevent.
 
-Protected Events reach the client in canonical order, or the stream fails. Coalescable Events may be merged, thinned, or replaced by a later value under load. A client that receives coalesced progress still receives every settled outcome.
-
-### When the queue fills
-
-The bridge selects one documented policy:
-
-```text
-block        slow the producer within an explicit bound
-coalesce     merge pending progress and keep the newest
-terminate    fail the stream with ResourceExhausted
-```
-
-Blocking is bounded and Context-aware. An unbounded wait would let one client hold a Run open indefinitely, which is the outcome the bridge exists to prevent.
-
-### Two settlements
+Two different moments on this path are called settlement, and they have different owners:
 
 ```text
 Execution settlement   the Run is over and owns no further work
 Delivery settlement    the client has received everything it will receive
 ```
 
-They are independent. A client that disconnects mid-stream ends delivery while execution continues to its own terminal Event, and a Run that finishes quickly may still have Events in flight.
+They are independent. A client that disconnects mid-stream ends delivery while execution continues to its own terminal Event, and a Run that finishes quickly may still have Events in flight. Conflating them produces a service that either cannot finish a Run because a socket is slow, or reports success before the client has anything.
 
 ## 9. Cancellation
 
@@ -353,7 +319,7 @@ Runtime API
 Canonical Agent loop
 ```
 
-Direct use removes transport mapping while preserving Agent, Run, Tool, Event, cancellation, and settlement semantics. The public library surface is promoted from runtime contracts proven by both the service and direct consumer.
+Direct use removes transport mapping while preserving Agent, Run, Tool, Event, cancellation, and settlement semantics. The two paths differ in what surrounds the loop, never in the loop.
 
 ## 16. Ownership
 

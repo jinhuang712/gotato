@@ -167,6 +167,8 @@ behavior when the queue is full
 how in-flight Events settle at shutdown
 ```
 
+The enqueue side MUST participate in the producing Context, and the sender goroutine MUST belong to the consuming stream's Context. Neither side MUST be able to outlive the Context that authorized it.
+
 Unbounded channels and detached sender goroutines MUST NOT be service defaults.
 
 ## 10. Queue-full policy

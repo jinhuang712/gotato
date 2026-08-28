@@ -529,7 +529,7 @@ Canonical Agent Loop
 Event subscription + RunResult
 ```
 
-This path removes service and transport components while retaining identical runtime rails. It is the second consumer used to validate which runtime contracts deserve a public library commitment.
+This path removes service and transport components while retaining identical runtime rails. A component that only works when a stream, a cache, or an admission controller sits above it is a service Moving Part that has been misfiled as a runtime one, and this path is where that shows.
 
 ## 16. Moving Part inventory
 
@@ -592,4 +592,4 @@ state commitment
 Clock
 ```
 
-Public API status is separate from architectural importance. Contracts become public after their behavior is proven across the hosted service and a direct runtime consumer.
+Architectural importance and interface visibility are separate questions. A fixed rail can matter more than any Moving Part while exposing nothing, and a Moving Part is a replacement boundary rather than an invitation to publish every internal function as an interface.

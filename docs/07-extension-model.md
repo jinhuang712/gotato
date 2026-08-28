@@ -261,4 +261,4 @@ authorization integration
 approval integration
 ```
 
-A Moving Part becomes a supported public contract when concrete service and direct-use scenarios demonstrate stable behavior and acceptance tests fix its semantics.
+Each of these is an ordinary Go package installed the same way an application's own Extension is. Nothing in the list has privileged access to a stage that an application cannot reach.
