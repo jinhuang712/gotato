@@ -1,8 +1,8 @@
-# Runtime, Orchestration, and Infrastructure Boundaries
+# Extensions and Moving Parts
 
 **Status:** Draft
 
-> A replacement boundary belongs to the layer that owns its state and failure semantics.
+> **Tight Core, Open Extensions.** Keep Agent execution in one goroutine; connect policy and capability through explicit interfaces and channels.
 
 ## 1. Boundary map
 
@@ -13,32 +13,34 @@
 └──────────────────┬──────────────────┘
                    ▼
 ┌─────────────────────────────────────┐
-│ Transport                           │
+│ Transport goroutines                │
 │ gRPC · Protobuf · HTTP projection   │
 └──────────────────┬──────────────────┘
                    ▼
 ┌─────────────────────────────────────┐
-│ Orchestration / Agent Host          │
-│ admission · routing · cache         │
-│ concurrency · delivery · drain      │
+│ Orchestration goroutines             │
+│ admission · queues · routing        │
+│ coordination · delivery · drain     │
 └──────────────────┬──────────────────┘
-                   ▼
+                   ▼ channels
 ┌─────────────────────────────────────┐
-│ Agent Core                          │
-│ canonical loop · state · Events     │
+│ Agent goroutine / Core              │
+│ private state · canonical Loop      │
+│ Events · cancellation · limits     │
 └──────────────────┬──────────────────┘
-                   ▼
+                   ▼ explicit contracts
 ┌─────────────────────────────────────┐
-│ Model and Capability Adapters       │
+│ Model and capability adapters       │
 │ providers · DB · Redis · HTTP · MCP │
 └─────────────────────────────────────┘
 ```
 
-These may be packages in one Go process or separately deployed components. The dependency direction remains inward toward Core contracts.
+These may be packages in one Go process or separately connected components. The Core Agent remains a goroutine-backed execution unit; surrounding layers communicate with it rather than owning it.
 
-## 2. Core Moving Parts
+## 2. Core moving parts
 
 ```text
+Agent goroutine
 Model
 ContextTransformer
 MessageConverter
@@ -48,26 +50,26 @@ PreToolUse
 PostToolUse
 TurnStopper
 EventObserver
-Agent Routine factory/executor
+Agent Routine spawn capability
 ```
 
-Core fixed rails retain state mutation, stream assembly, validation, commitment, Event order, cancellation, limits, and terminal settlement.
+Core fixed rails retain private state mutation, Model stream assembly, validation, transcript commitment, Event order, cancellation, local limits, and terminal settlement.
 
-## 3. Orchestration Moving Parts
+## 3. Orchestration moving parts
 
 ```text
 Agent Registry / Factory
-Conversation Owner / Resolver
-Agent Cache / Lease
+Agent Handle / Channel Router
 Admission Controller
-Run and stream coordinator
+Request Queue / Scheduler
+Dispatch and Preemption Policy
 Event Projector
 Bounded Event Bridge
 Error Mapper
 Drain Policy
 ```
 
-These components coordinate Core instances. They must call Core APIs rather than edit transcript state or reproduce the Model/Tool loop.
+These components create and coordinate Agent goroutines. They decide how external requests are handled when an Agent is Busy. They cannot edit Agent state or reproduce the Model/Tool Loop.
 
 ## 4. Transport adapters
 
@@ -75,11 +77,11 @@ These components coordinate Core instances. They must call Core APIs rather than
 Protobuf command mapper
 Protobuf Event projector
 gRPC server stream
-first-party Go client
+gRPC client
 optional HTTP/SSE or Connect projection
 ```
 
-Transport changes representation and protocol behavior; it does not change Core semantics.
+Transport changes representation and protocol behavior. It does not change Agent semantics or provide a second Loop.
 
 ## 5. Infrastructure adapters
 
@@ -92,12 +94,12 @@ persistent state
 resource and autoscaling configuration
 ```
 
-Infrastructure is optional to Core and may already be provided by the application platform. It routes and hosts processes; it does not own Agent state or Agent Loop semantics.
+Infrastructure is external to Core and may already be provided by the application platform. It routes and hosts processes; it does not own Agent state or Agent Loop semantics.
 
 ## 6. Model layer
 
 ```text
-Core Model interface
+Agent Model interface
       ▼
 Model Router
   selection · fallback · rate limit · cost policy
@@ -117,55 +119,60 @@ Applications expose external systems through explicit Tool and ToolSet adapters:
 DB / Redis / HTTP / gRPC / MCP / workflow / sandbox
                          ▼
                     Tool contract
-                         ▼
-                      Agent Core
+                         ▼ channel-backed invocation
+                    Agent goroutine
 ```
 
-The adapter owns authentication, external timeouts, and private diagnostics. Core owns Tool identity, validation, execution boundaries, and result commitment.
+The adapter owns authentication, external timeout mapping, and private diagnostics. Core owns Tool identity, validation, invocation boundaries, Events, and result commitment.
 
 ## 8. Embedded composition
 
 ```text
-Application
-  ├── business orchestration
+Application goroutine
+  ├── caller-owned request policy
   ├── Model Router
   ├── Tools
-  └── Agent Core
+  └── Agent goroutine
 ```
 
-No Host or Transport is required. The application can provide its own concurrency, routing, and lifecycle policy.
+No Host or Transport is required. The application can send one Prompt and wait, or provide its own queue and dispatch policy.
 
 ## 9. Hosted composition
 
 ```text
-Client → Transport → Agent Host → Agent Core
-                         │
-                         └── Model / Capability adapters
+Client
+  ↓
+Transport goroutines
+  ↓ channels
+Orchestration goroutines
+  ↓ Agent command channel
+Agent goroutine
 ```
 
-The Host adds only the semantics required by remote multi-client access: admission, ownership, bounded delivery, cancellation mapping, and lifecycle.
+The Host adds remote admission, request policy, routing, bounded delivery, cancellation mapping, and lifecycle. It does not become the Agent.
 
 ## 10. Fixed rails versus policy
 
-Fixed:
+Fixed Core semantics:
 
 ```text
-Core state transitions
+Agent private state and one Loop
+one current Prompt/Continue per Agent goroutine
 canonical Event sequence
 Tool validation and commitment
-one terminal Event
-Context ownership
+one terminal Event per Run
+Agent Context and cancellation points
 ```
 
-Configurable:
+Caller/Host policy:
 
 ```text
-Host concurrency and queue sizes
-cache TTL and capacity
+external request queue and queue sizes
+reject / wait / priority / preemption
+number of Agent goroutines
+Conversation routing
 Event coalescing and queue-full policy
-routing and admission policy
-Tool execution mode
-Routine group policy
+Group coordination
 ```
 
-A configurable policy must not alter the meaning of a Core identity, transcript, Event sequence, or terminal Run result.
+A policy must not alter the meaning of an Agent identity, transcript, Event sequence, or terminal Run result.

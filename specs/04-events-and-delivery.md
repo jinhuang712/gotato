@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Core Events are immutable facts. Hosts deliver projections of those facts under explicit bounds.
+> Agent goroutines emit immutable facts. Channels carry those facts to local observers and Hosted delivery.
 
 ## 1. Event kinds
 
@@ -16,6 +16,8 @@ toolset_activated
 routine_started, routine_completed, routine_failed, routine_cancelled
 turn_end, agent_end
 ```
+
+Routine lifecycle Events describe an Agent Routine or spawn operation. They MUST NOT imply parent/child resource ownership.
 
 ## 2. Event classes
 
@@ -36,22 +38,22 @@ A Protected Event must reach a consumer in canonical order or that consumer's de
 
 ```go
 type Event struct {
-    RunID RunID
-    Sequence uint64
-    Kind EventKind
-    Class EventClass
-    Turn TurnNumber
-    MessageID MessageID
-    ToolCallID ToolCallID
-    RoutineID RoutineID
-    ParentRunID RunID
-    ChildRunID RunID
-    Payload EventPayload
-    Timestamp time.Time
+    AgentID     AgentID
+    RunID       RunID
+    Sequence    uint64
+    Kind        EventKind
+    Class       EventClass
+    Turn        TurnNumber
+    MessageID   MessageID
+    ToolCallID  ToolCallID
+    SpawnID     SpawnID
+    OriginRunID RunID
+    Payload     EventPayload
+    Timestamp   time.Time
 }
 ```
 
-`Sequence` starts at 1 per Run, increases strictly, and is assigned during the state transition before observer dispatch. Timestamp is diagnostic only. Correlation fields not applicable to a kind are empty.
+`Sequence` starts at 1 per Run, increases strictly, and is assigned during the Agent state transition before publication. Timestamp is diagnostic only. Correlation fields not applicable to a kind are empty.
 
 ## 4. Ordering
 
@@ -68,22 +70,24 @@ agent_start
 agent_end
 ```
 
-Parallel Tool completion Events reflect actual completion order; transcript commitment remains source ordered. Child Event sequence remains scoped to the child Run.
+Parallel Tool completion Events reflect actual completion order; transcript commitment remains source ordered. Each Agent Routine and Run has its own Event sequence. Spawn provenance does not merge Event histories.
 
 ## 5. Production
 
-Core creates an Event only for a committed transition or a declared operation start. It never retracts an Event. No Event is created after `agent_end`. Observers receive Events in production order and registration order.
+The Agent goroutine creates an Event only for a committed transition or a declared operation start. It never retracts an Event. No Event is created after `agent_end`. Publication occurs through the Agent Event boundary in production order.
 
 ## 6. Local subscribers
 
-A Core subscriber is an in-process, Context-aware, bounded observer. Core awaits it before continuing. Blocking and advisory failure modes are explicit, and panics are recovered. A subscriber cannot be a remote network peer.
+A Core subscriber is an in-process, Context-aware, bounded observer receiving Events from the Agent Event channel. Core MAY await a blocking observer at its declared boundary; an advisory observer MUST NOT block the Agent Loop. Panics are recovered according to the Extension contract.
+
+A subscriber cannot be a remote network peer.
 
 ## 7. Host delivery bridge
 
 A Host that delivers Events remotely MUST use a bounded bridge:
 
 ```text
-Core Event → projection/redaction → bounded queue → sender → client
+Agent Event → projection/redaction → bounded queue → sender → client
 ```
 
 The bridge MUST declare capacity, Protected kinds, coalescing, queue-full behavior, and shutdown flush deadline. Enqueue and sender operations must honor the Context that owns them. Detached senders and unbounded queues are forbidden defaults.
@@ -92,11 +96,18 @@ Protected Events take priority over optional progress. If a Protected Event cann
 
 ## 8. Settlement
 
-Execution settlement means Core owns no further work, including child Routines and terminal observers. Delivery settlement means Host delivery has drained or been abandoned. `WaitForIdle` observes only execution settlement.
+```text
+Agent execution settlement   current Run and local work are complete
+Host delivery settlement     remote delivery is drained or abandoned
+```
+
+`WaitForIdle` observes Agent execution settlement only. Queue settlement and remote delivery settlement belong to the caller or Host.
 
 ## 9. Cancellation and disconnect
 
-Disconnect ends delivery. Host policy decides whether it also cancels the Run; attached-Run hosting normally does. Explicit Cancel, deadlines, and drain cancel the Run Context and reach all owned operations.
+Disconnect ends delivery. Host policy decides whether it also cancels the current Agent Run. Explicit Cancel, deadlines, and drain send cancellation through the Agent control boundary and reach its Model, Tools, observers, and local work.
+
+Cancellation of another Agent Routine requires an explicit command or selected policy.
 
 ## 10. Projection
 
@@ -104,4 +115,4 @@ A projection may filter, redact, enrich, and encode a Core Event. It must preser
 
 ## 11. Acceptance
 
-Tests MUST prove Event order, classification, correlation, one terminal Event, protected delivery, progress coalescing, bounded queue behavior, observer bounds, independent execution/delivery settlement, disconnect behavior, and bounded drain.
+Tests MUST prove Event order, classification, correlation, one terminal Event per Run, Protected Event delivery, progress coalescing, bounded channel behavior, observer bounds, independent Agent/delivery settlement, disconnect behavior, and bounded drain.

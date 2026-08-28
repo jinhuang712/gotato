@@ -6,7 +6,7 @@
 
 ## 1. Core extensions
 
-Possible Core-compatible additions include richer content, context policies, budget allocation, and additional local Tool or Routine policies. They must preserve one loop, one Agent state owner, and one terminal Event.
+Possible Core-compatible additions include richer content, context policies, budget allocation, and additional local Tool or Agent Routine policies. They must preserve one Loop per Agent goroutine, private state confinement, channel boundaries, and one terminal Event per Run.
 
 ## 2. Model platform
 
@@ -26,13 +26,13 @@ These remain below or beside the Core Model contract. A Model cache must account
 
 A Host may add persistent Agent state, Run checkpoints, Event cursors, reconnection, leases, and resumable delivery. Repeated Model calls and Tool side effects require explicit idempotency semantics before resume is normative.
 
-## 4. Reserved: Multi-Pod Conversation ownership
+## 4. Reserved: Multi-Pod Conversation routing
 
 The initial PoC deliberately assumes one Host process in one Pod. Multi-Pod continuity is a separate future design area. Hosted deployments may later add keyed routing, distributed ownership, or durable restoration. A Kubernetes Service's ordinary load balancing is not a conversation guarantee.
 
 ## 5. Remote Agent Routines
 
-A Routine Executor may create a child Run through another Host while preserving identity, Context cancellation, limits, Events, and one settled Result.
+A Host may create or connect an independent Agent goroutine through another Host while preserving command identity, channel-equivalent correlation, cancellation policy, limits, Events, and one settled Result. Remote placement does not create a parent/child resource hierarchy.
 
 ## 6. Gateway and governance
 

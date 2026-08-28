@@ -2,18 +2,18 @@
 
 **Status:** Draft
 
-> Hosted Agent Service is an optional Transport adapter plus an Orchestrator around the primary Agent Core. The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
+> Hosted Agent Service is a channel-connected set of Transport and Orchestration goroutines that dispatches commands to Agent goroutines. The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
 
 ## 1. Hosted deliverables
 
-The Hosted layer is a first-class composition and validation target, not a second Agent runtime. The initial PoC uses one Host process in one Pod.
+The Hosted layer is a first-class composition and validation target, not a second Agent runtime. It creates, routes, schedules, and observes Agent goroutines through channels. The initial PoC uses one Host process in one Pod.
 
 Hosted mode provides:
 
 ```text
 Agent definition registry and factory
 Host admission and concurrency
-conversation ownership and optional cache/lease
+process-local Agent routing and optional handle cache
 transport stream attachment
 canonical Event projection and bounded delivery
 remote cancellation
@@ -26,9 +26,9 @@ None of these is required when an application embeds Core directly.
 ## 2. Dependency direction
 
 ```text
-Infrastructure → Transport → Orchestrator → Agent Core
-                                      ├── Model contract
-                                      └── Tool/ToolSet contracts
+Infrastructure → Transport goroutines → Orchestration goroutines → Agent goroutines
+                                                        ├── Model contract
+                                                        └── Tool/ToolSet contracts
 ```
 
 The Orchestrator invokes Core APIs and never duplicates its state machine. Generated transport types do not appear in Core signatures.
@@ -75,6 +75,9 @@ message RunEvent {
   string run_id = 1;
   uint64 sequence = 2;
   EventClass event_class = 3;
+  string agent_id = 4;
+  string spawn_id = 5;
+  string origin_run_id = 6;
   oneof event {
     AgentStart agent_start = 10;
     TurnStart turn_start = 11;
@@ -117,34 +120,32 @@ The Host must support multiple streams under explicit bounds:
 
 ```text
 max active streams
-max active Runs
+max active Agent goroutines
 max queued requests
-per-Agent capacity
-per-conversation ownership
+max dispatched Runs
+per-Agent dispatch policy
 Event bridge capacity
 ```
 
-A second mutating Run on one Core Agent receives a typed busy error. Different conversations may execute concurrently. Exact preset values are Host configuration, not Core semantics.
+An Agent goroutine processes one Prompt or Continue at a time. When it is Busy, the Host policy may reject the request, queue it, prioritize it, send Steer, or send Abort. Different Agent goroutines may execute concurrently. Exact preset values are Host configuration, not Core semantics.
 
-Admission reserves capacity before Agent construction or cache pinning and releases it exactly once.
+Admission reserves capacity before Agent construction or request dispatch and releases it exactly once.
 
-## 7. Conversation ownership in the PoC
+## 7. Conversation routing in the PoC
 
 The initial PoC assumes one Host process in one Pod:
 
 ```text
 agent_name + conversation_key
               ↓
-process-local resolver / owner
+process-local routing table
               ↓
-Factory or Agent cache
-              ↓
-Core Agent
+Agent handle / command channel
 ```
 
-The in-process cache provides per-key creation coordination, active-Run pinning, idle-only eviction, reset, and fake-clock testing. It is not durable state, and the PoC makes no cross-Pod continuity claim.
+The registry and cache retain Agent handles and route requests; they do not make an Agent the owner of a Conversation or of Host resources. The Host chooses whether a request waits for the routine to become Free, is rejected, or enters a queue. The PoC makes no cross-Pod continuity claim.
 
-### Reserved: Multi-Pod Conversation Ownership
+### Reserved: Multi-Pod Conversation Routing
 
 Multi-Pod continuity is outside the initial scope and remains a separate future contract. A future Host may use keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing alone is insufficient.
 
@@ -166,7 +167,7 @@ Cancel command / stream Context / deadline / drain
                     Core Abort
 ```
 
-Stream closure ends delivery; the default attached-Run policy also cancels execution. The policy must be configurable/documented. Cancellation reaches Model, Tools, Extensions, observers, and Routines.
+Stream closure ends delivery; the default attached-Run policy also cancels execution. The policy must be configurable/documented. Cancellation reaches the current Agent's Model, Tools, Extensions, observers, and local work. Cancellation of another Agent routine requires an explicit command or Host policy.
 
 ## 10. Error mapping
 
@@ -181,7 +182,7 @@ Model unavailable   → Unavailable
 internal invariant  → Internal
 ```
 
-Tool and Routine failures remain Core Results and Events while parent reasoning can continue.
+Tool failures remain Core Results and Events while the current Agent can continue. Failure in another Agent routine is delivered as a Result/Event and does not automatically terminate this Agent.
 
 ## 11. Lifecycle
 

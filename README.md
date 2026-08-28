@@ -1,72 +1,79 @@
 # Gotato
 
-> A Go-native Agent Runtime Core for embedding stateful, tool-using Agents, with an optional hosted composition.
+> **Agent as a Service, native to Go.**
+>
+> **Agents are goroutines. Channels are the boundaries.**
+>
+> **Tight Core, Open Extensions.**
 
 **Status:** design phase. This repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
 
 ## What this is
 
-Gotato is a runtime library first and a hosted service composition second. Its primary deliverable is a stable, self-contained Agent Core for stateful, tool-using execution:
+Gotato makes a stateful Agent a normal Go runtime unit. An Agent owns its private state and runs one simple Model → Tool → Model Loop in a Go goroutine. It communicates through explicit channels and capabilities.
 
 ```text
-Embedded application
-        │
-        ▼
-   Agent Core ───────► Model Router / Provider Adapters
-        │
-        └────────────► Tools / ToolSets / Capability Adapters
-
-Hosted application
-        │
-        ▼
-Transport ─► Orchestrator / Agent Host ─► Agent Core
-                    │
-                    ├── admission and concurrency
-                    ├── conversation ownership
-                    ├── event delivery
-                    └── lifecycle and drain
+Caller / Client
+      │ command channel
+      ▼
+Agent handle ──► Agent goroutine
+                    ├── private state
+                    ├── canonical Loop
+                    ├── Model / Tools / Extensions
+                    └── result / Event channels
 ```
 
-The Core owns Agent execution. The Orchestrator owns the coordination of many Core instances. Transport maps a protocol onto the Orchestrator. Infrastructure such as gateways, load balancers, Kubernetes, storage, and credentials remains an external deployment concern.
-
-Gotato does not claim to invent a new Model-to-Tool loop, provider abstraction, or general distributed actor system. Its design objective is to make Agent execution a disciplined Go component with explicit state ownership, bounded work, cancellation, Events, and extension points. Hosted mode demonstrates how that Core can be composed for remote access; it is not a second product kernel.
-
-## Two first-class modes
-
-### Embedded Agent mode
-
-A regular Go service can use the Core directly:
+The same Agent can be used directly from a Go process or exposed as Agent-as-a-Service:
 
 ```text
-HTTP/RPC handler or business workflow
-        │
-        ├── database / Redis / domain APIs
-        └── Agent Core.Prompt(...)
+Embedded: Application goroutine ──channel──► Agent goroutine
+Hosted:   Client → Transport → Orchestration → Agent goroutine
 ```
 
-The application may assemble Tools, query data itself, or let the Agent call explicitly installed Tools. It does not need a Gotato gateway, Agent Service, conversation router, or Kubernetes integration.
+Agent-as-a-Service is a remote access and coordination form, not a second Agent implementation. Orchestration may create goroutines, queue or reject Prompts, choose preemption policy, and connect Agents through channels. Infrastructure such as gateways, load balancers, Kubernetes, storage, and credentials remains an external deployment concern.
 
-### Hosted Agent mode
+## Project principles
 
-An application that wants remote Agent access composes the Core with an Orchestrator and a transport adapter:
+### The Agent owns the Loop
+
+The Agent goroutine is the authority for its own state, transcript, capabilities, and current execution. It processes one Prompt or Continue at a time. External callers may invoke, steer, follow up, observe, or abort; they do not directly mutate Agent state or run a parallel Loop.
+
+### Tight Core, Open Extensions
+
+The Core contains the stable semantics every Agent needs. Model providers, Tools, ToolSets, Extensions, transport, orchestration, and platform integration connect through explicit boundaries instead of hidden globals or copied execution logic.
+
+### Orchestration schedules; Agents execute
+
+Orchestration is a set of Go goroutines and channels. It decides whether external Prompts are rejected, queued, prioritized, steered, or aborted, and when a free Agent receives the next command. It does not become the owner of Agent state.
+
+### Agents communicate through channels
+
+A spawned Agent is an independent Agent goroutine. Spawn provenance may be correlated, but it does not create a resource ownership hierarchy or automatic shared state. Cancellation, waiting, and result delivery are explicit signals.
+
+## Core invariants
 
 ```text
-Client → optional Gateway/LB → gRPC Transport
-       → Orchestrator → Agent Core → Model / Tools
+one Agent goroutine processes one Prompt or Continue at a time
+external request queueing is caller/Orchestration policy
+one canonical Agent Loop exists
+Prompt, Continue, Tool, and control messages converge on that Loop
+canonical Events are immutable runtime facts
+one Run emits exactly one terminal agent_end Event
+Core never depends on Transport, Host, Infrastructure, or provider SDKs
 ```
 
-This mode provides concurrent streams, conversation resolution, admission, cancellation, canonical Event projection, bounded delivery, readiness, and drain.
+A single Agent may use internal goroutines for bounded Tool work. Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels. The public contract does not expose an implementation-specific channel layout, but the Go-native routine model is fundamental.
 
 ## Stable boundaries
 
 ```text
 Agent Core
-  Agent · Run · Turn · Model contract · Tool · ToolSet
-  Agent Routine · canonical Events · Context · local Limits
+  Agent goroutine · state · Run · Turn · Model contract
+  Tool · ToolSet · Extension · Agent Routine · canonical Events
 
 Orchestration / Agent Host
-  Factory · conversation ownership · admission · concurrency
-  cache/lease · stream attachment · Event bridge · lifecycle
+  Agent creation · request admission · queue policy
+  routing · stream attachment · Event forwarding · lifecycle
 
 Transport
   Protobuf · gRPC · HTTP projections · wire error mapping
@@ -74,24 +81,22 @@ Transport
 Infrastructure
   Gateway · Kubernetes · load balancing · storage · secrets
 
-Model layer
-  Model Router · provider adapters · fallback · provider policy
+Model and capability adapters
+  Model Router · provider adapters · database · Redis · HTTP · MCP
 ```
 
-The Core is transport-, host-, and provider-independent. The hosted path and the embedded path execute the same canonical Agent loop.
+## Initial PoC
 
-## Core invariants
+The initial Hosted PoC deliberately uses:
 
 ```text
-one Agent has at most one active mutating Run
-one canonical Agent loop exists
-Prompt, Continue, Tool, Routine, and cancellation share that loop
-canonical Events are immutable runtime facts
-one Run emits exactly one terminal agent_end Event
-all owned work has a Context, bound, and settlement owner
+one Host process
+one Pod
+process-local Agent registry and routing
+local goroutines and channels
 ```
 
-A single Agent may use internal goroutines for bounded Tool and Routine work. The semantic guarantee is one state owner, not a public promise about a particular goroutine layout.
+It validates the Agent Core and its hosted composition without claiming cross-Pod Conversation continuity. Multi-Pod routing and durable restoration remain separate future work.
 
 ## Documentation
 
@@ -99,21 +104,21 @@ A single Agent may use internal goroutines for bounded Tool and Routine work. Th
 
 | Document | Subject |
 |---|---|
-| [Philosophy](docs/00-philosophy.md) | boundaries and lasting principles |
-| [Conceptual models](docs/01-conceptual-models.md) | Core, Host, Transport, Infrastructure, and modes |
+| [Philosophy](docs/00-philosophy.md) | project principles and boundaries |
+| [Conceptual models](docs/01-conceptual-models.md) | Agents, goroutines, channels, and layers |
 | [Hosted Agent](docs/02-agents-as-a-service.md) | orchestration and remote service |
-| [Agent Core](docs/03-core-runtime.md) | self-contained runtime kernel |
-| [Events and delivery](docs/04-events-and-delivery.md) | canonical facts and remote delivery |
+| [Agent Core](docs/03-core-runtime.md) | Go-native runtime and canonical Loop |
+| [Events and delivery](docs/04-events-and-delivery.md) | canonical facts and delivery |
 | [Moving parts](docs/05-moving-parts.md) | replaceable boundaries by layer |
 | [Tools and ToolSets](docs/06-tools-and-toolsets.md) | capability composition |
 | [Extensions](docs/07-extension-model.md) | Core lifecycle joints |
-| [Agent Routines](docs/08-agent-routines.md) | managed child Runs |
+| [Agent Routines](docs/08-agent-routines.md) | goroutine-backed Agents |
 | [Technology stack](docs/09-technology-stack.md) | Go, providers, transport, and deployment |
 | [Specifications](specs/README.md) | normative contracts and acceptance |
 
 ## Origin
 
-Gotato is inspired by [Pi](https://pi.dev), a minimal and highly extensible coding-agent harness created by Mario Zechner and its contributors. Gotato is an independent Go design shaped around a reusable Agent Core and an optional service host, not a port of Pi's terminal product.
+Gotato is inspired by [Pi](https://pi.dev), a minimal and highly extensible coding-agent harness created by Mario Zechner and its contributors. Gotato is an independent Go design shaped around a channel-driven Agent Runtime and an optional Agent-as-a-Service composition, not a port of Pi's terminal product.
 
 Details and attribution: [shout-out](docs/shout-out.md).
 
