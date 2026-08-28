@@ -7,14 +7,16 @@
 
 ## 1. Mission
 
-Gotato provides a Go-native Agent Core for stateful, tool-using workloads and an optional Agent-as-a-Service host for remote access.
+Gotato's primary product is a Go-native Agent Runtime Core for stateful, tool-using workloads. An Agent-as-a-Service host is an optional composition around that Core for applications that need remote access.
 
 ```text
 Embedded: Application → Agent Core → Model / Tool
 Hosted:   Client → Transport → Orchestrator → Agent Core
 ```
 
-The Core is useful without a network. The Hosted mode is useful when many callers need shared Agent capabilities, bounded concurrency, remote Events, and managed lifecycle.
+The Core is useful without a network. The Hosted mode is useful when callers need shared Agent capabilities, bounded concurrency, remote Events, and managed lifecycle.
+
+Gotato does not claim a novel Agent algorithm, provider abstraction, or distributed actor model. It optimizes for a clear Go boundary, explicit ownership, bounded execution, predictable cancellation, and a Core that can be tested independently of hosting.
 
 ## 2. Boundary-first design
 

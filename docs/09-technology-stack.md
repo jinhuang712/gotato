@@ -2,9 +2,11 @@
 
 **Status:** Draft
 
-> Use Go primitives for Agent Core, protocol adapters for remote access, and the existing platform for deployment.
+> Build the Agent Core first with Go primitives; add protocol adapters for remote access and use the existing platform for deployment.
 
 ## 1. Stack map
+
+The Core is the primary implementation target. The following diagram describes the optional hosted path, not a requirement that every deployment include all layers:
 
 ```text
 Existing platform
@@ -96,7 +98,9 @@ persistent state
 resource limits and autoscaling
 ```
 
-A Gateway must support long-lived bidirectional gRPC streams and must not retry an active Run in a way that duplicates commands. Kubernetes Service routing alone does not guarantee Conversation continuity across Pods.
+For the initial PoC, use one Host process in one Pod. A Gateway must support long-lived bidirectional gRPC streams and must not retry an active Run in a way that duplicates commands.
+
+Multi-Pod Conversation continuity is intentionally out of scope and reserved as a future ownership/routing design. Kubernetes Service routing alone does not guarantee it.
 
 ## 7. Observability
 

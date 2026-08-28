@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Agent Core is the self-contained Go kernel that executes one canonical Agent loop. It can be embedded in an existing service or hosted by an Orchestrator.
+> Agent Core is Gotato's primary deliverable: a self-contained Go runtime that executes one canonical Agent loop. It can be embedded in an existing service or hosted by an Orchestrator.
 
 ## 1. Boundary
 
@@ -18,7 +18,7 @@ Application or Orchestrator
           └── Canonical Events
 ```
 
-Core does not import or require gRPC, Protobuf, Kubernetes, Gateway, cache, service admission, or provider SDKs.
+Core does not import or require gRPC, Protobuf, Kubernetes, Gateway, cache, service admission, or provider SDKs. This boundary is the project's main engineering commitment, not a claim that the underlying Agent loop is novel.
 
 ## 2. Core state
 

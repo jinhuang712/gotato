@@ -6,7 +6,7 @@
 
 ## 1. Deliverables
 
-The repository defines:
+The repository defines a Core-first runtime and an optional hosted composition:
 
 ```text
 Agent Core library
@@ -19,7 +19,7 @@ integration guidance for existing Gateway and Kubernetes platforms
 Model Router and provider/capability adapter boundaries
 ```
 
-A regular Go service may consume only the Core. A Hosted deployment may consume all layers.
+A regular Go service may consume only the Core. A Hosted deployment may consume all layers. The project does not claim novelty for the basic Agent loop, provider abstraction, or generic distributed hosting; the normative value is in the explicit contracts and their composition.
 
 ## 2. Boundary rules
 

@@ -2,9 +2,11 @@
 
 **Status:** Draft
 
-> Hosted Agent Service is a Transport adapter plus an Orchestrator around Agent Core. Gateway and Kubernetes are external infrastructure.
+> Hosted Agent Service is an optional Transport adapter plus an Orchestrator around the primary Agent Core. The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
 
 ## 1. Hosted deliverables
+
+The Hosted layer is a first-class composition and validation target, not a second Agent runtime. The initial PoC uses one Host process in one Pod.
 
 Hosted mode provides:
 
@@ -126,21 +128,25 @@ A second mutating Run on one Core Agent receives a typed busy error. Different c
 
 Admission reserves capacity before Agent construction or cache pinning and releases it exactly once.
 
-## 7. Conversation ownership
+## 7. Conversation ownership in the PoC
+
+The initial PoC assumes one Host process in one Pod:
 
 ```text
 agent_name + conversation_key
               ↓
-Host resolver / owner
+process-local resolver / owner
               ↓
 Factory or Agent cache
               ↓
 Core Agent
 ```
 
-In-process cache provides per-key creation coordination, active-Run pinning, idle-only eviction, reset, and fake-clock testing. It is not durable state.
+The in-process cache provides per-key creation coordination, active-Run pinning, idle-only eviction, reset, and fake-clock testing. It is not durable state, and the PoC makes no cross-Pod continuity claim.
 
-Across Pods, continuity requires keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing is insufficient. The Host must not claim cross-Pod continuity without one of these contracts.
+### Reserved: Multi-Pod Conversation Ownership
+
+Multi-Pod continuity is outside the initial scope and remains a separate future contract. A future Host may use keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing alone is insufficient.
 
 ## 8. Event delivery
 

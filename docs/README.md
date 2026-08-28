@@ -1,8 +1,10 @@
 # Gotato Documentation
 
-> A stable Go Agent Core and an optional Agent-as-a-Service host.
+> A stable Go Agent Runtime Core and an optional hosted service composition.
 
-Gotato has two first-class consumption modes. The Embedded mode uses the Core directly inside an existing Go service. The Hosted mode adds orchestration and transport so multiple clients can access Agents remotely.
+Gotato is Core-first. Embedded mode uses the Core directly inside an existing Go service. Hosted mode is an optional orchestration and transport composition for remote access; it does not define a second Agent execution model.
+
+The project does not claim novelty for the basic Model-to-Tool loop, provider abstraction, or generic distributed hosting. Its focus is a disciplined Go runtime boundary for stateful Agent execution and a small, testable hosted composition around that boundary.
 
 ```text
 Embedded:  Application → Agent Core → Model / Tools
