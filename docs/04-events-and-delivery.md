@@ -2,157 +2,138 @@
 
 **Status:** Draft
 
-> A Run produces facts. Consumers receive projections of those facts under an explicit bound.
+> Core Events describe what happened. A Host decides how those facts cross a boundary.
 
-## 1. Role
-
-Events are how anything outside the Model/Tool loop learns what happened. A gRPC client, a log pipeline, a trace exporter, and a test recorder all read the same runtime history.
+## 1. Two layers
 
 ```text
-Runtime transition
-        ↓
-Canonical Event
-        ├──► gRPC client
-        ├──► observer
-        ├──► telemetry
-        └──► test recorder
+Agent Core
+  └── canonical immutable Events
+          ├── local subscriber
+          └── Host projection → bounded delivery → remote client
 ```
 
-An Event is an immutable fact. Consumers choose their representation of it; they do not change what happened.
+Core owns Event kind, production point, sequence, correlation, and terminal settlement. Host and Transport own projection, redaction, buffering, and delivery.
 
-The facts a Run produces are its lifecycle transitions, the Messages it commits, the Tool Uses it executes, the capability changes it makes, the child Runs it owns, and its terminal outcome.
+## 2. Event classes
 
-## 2. Two classes
-
-Not every Event carries the same obligation.
-
-A **protected** Event is a lifecycle transition or a settled outcome. Every consumer receives each one, in canonical order, or that consumer's stream fails.
-
-A **coalescable** Event is optional progress. A consumer under load may merge several into one, keep only the newest, or skip them entirely.
-
-What makes the split safe is a constraint on the producer rather than a permission for the consumer: progress exists so a human sees motion, and it never carries a fact that the Event settling the same operation does not also carry. A consumer that receives no progress at all still receives a complete history.
-
-Without this split, bounded delivery has no honest implementation. Either every delta is guaranteed, which hands a slow client control over the Run, or facts are dropped by whichever ones happened to arrive during congestion, and no consumer can tell which.
-
-## 3. Ordering
-
-Order within a Run is canonical, and one Run can be true in two orders at once.
-
-Parallel Tool batches complete out of order, and their completion Events say so. Transcript commitment stays in assistant source order. The client therefore sees what actually happened, while the next Model Turn sees a deterministic history:
+Every Event belongs to one class:
 
 ```text
-Completion Events   C → A → B     actual
-Transcript          A → B → C     deterministic
+Protected
+  lifecycle transitions and settled outcomes
+  agent_start, turn_start, message_start/end
+  tool start/end, ToolSet activation
+  Routine terminal Events, turn_end, agent_end
+
+Coalescable
+  optional streamed progress
+  message_update, tool_execution_update, Routine progress
 ```
 
-Neither order is a projection of the other. Collapsing them would force a choice between lying to the client about concurrency and making Model input depend on scheduling.
+Protected Events must be delivered in canonical order or the consumer stream fails. Coalescable progress may be merged, thinned, or omitted. Progress must not contain authoritative information absent from its settling protected Event.
 
-Correlation travels with every Event so a consumer can place it without inferring anything from arrival order.
+## 3. Core sequence
 
-## 4. One terminal Event
-
-`agent_end` is final. A Run has exactly one, and nothing resumes execution after it.
-
-This is a deliberate constraint on where orchestration lives. Automatic retry after a transient Model failure, context compaction when the transcript outgrows the window, and continuation for queued Steering or Follow-up all happen inside the Run, before that Event.
-
-The alternative is an orchestration layer above the loop that calls the Runtime again after it finished. That design forces every client to learn that the first completion signal is not the real one, and a cross-language gRPC contract cannot carry that footnote safely.
-
-## 5. Observers hold the loop
-
-An observer runs inside the Run and is awaited before the loop proceeds.
+Each Run assigns strictly increasing sequence numbers when Events are created:
 
 ```text
-Canonical Event
-      ↓
-observer runs
-      ↓
-loop continues
+agent_start
+  turn_start
+  message lifecycle
+  Tool lifecycle
+  tool result lifecycle
+  turn_end
+agent_end
 ```
 
-For an in-process consumer this is a feature: exact ordering, no buffering, and natural pacing without extra machinery. A test recorder or a metrics counter wants precisely this.
+Parallel Tool completion Events reflect actual completion order. Transcript Tool Results remain committed in assistant source order. Event sequence is not a timestamp and must not be inferred from arrival time.
 
-It is also a privilege, so the Runtime bounds who may claim it:
+## 4. Local observation
+
+A Core subscriber is an in-process observer:
 
 ```text
-An observer is in-process, fast, and Context-aware.
-An observer does not block on a network peer, on a remote lock,
-or on any wait that has no bound of its own.
+create Event → observer A → observer B → loop continues
 ```
 
-A remote consumer never attaches here. Being awaited means being able to stall the Model/Tool loop, and a network peer has no bound of its own to offer.
+Observers run in registration order and are awaited. They must be Context-aware and bounded; they cannot wait on a network peer, unbounded queue, or remote lock. Blocking and advisory failure modes are explicit.
+
+A remote client is not a Core observer.
+
+## 5. Host delivery
+
+A Host bridges Core Events to a remote transport:
+
+```text
+Core Event
+   ↓
+projection / redaction
+   ↓
+bounded per-consumer bridge
+   ↓
+sender
+   ↓
+remote client
+```
+
+The bridge declares:
+
+```text
+capacity
+protected Event set
+coalescing behavior
+queue-full policy
+shutdown flush deadline
+```
+
+Its enqueue and sender operations belong to their respective Contexts. No sender goroutine or queue may outlive the stream that authorized it.
 
 ## 6. Backpressure
 
-Backpressure is what a system does when a producer outruns a consumer.
-
-A Model can stream hundreds of deltas per second. A client on a poor connection may accept a handful. The gap has only three possible answers:
+When a consumer is slower than the producer, the Host must explicitly choose:
 
 ```text
-buffer without limit   memory grows until the process dies
-discard silently       the consumer's history is wrong and cannot tell
-slow the producer      the producer pays for the consumer's speed
+bounded blocking
+coalescing optional progress
+stream termination
 ```
 
-Every streaming system picks among these three. The failure mode is picking by accident: an unbounded queue is a choice, just an unexamined one.
+It must never silently drop a Protected Event. If it cannot preserve one within its bound, it fails the consumer stream. A slow client cannot hold an unrelated Run open or grow memory without limit.
 
-Gotato picks explicitly, and picks differently on each side of the delivery boundary.
-
-## 7. The bounded bridge
-
-Remote delivery crosses a queue with a stated capacity, which is what keeps the awaited side and the network side apart:
+## 7. Two settlements
 
 ```text
-Runtime goroutine                Sender goroutine
-─────────────────                ────────────────
-emit → observers → enqueue       dequeue → grpc.Send
-awaited · local · fast           slow · remote · bounded
+Execution settlement   Core owns no further work
+Delivery settlement    Host has drained or abandoned delivery
 ```
 
-A bridge that does not state its capacity, its protected kinds, its coalescing behavior, its queue-full behavior, and its shutdown behavior has still chosen all five. It has just chosen them where nobody can review the choice.
+A client may disconnect while Core continues to its terminal Event. A fast Run may settle while delivery is still in flight. `WaitForIdle` observes execution settlement only.
 
-When the queue fills, the answer is one of blocking the producer within an explicit bound, coalescing pending progress, or terminating the stream. Blocking is bounded and Context-aware; an unbounded wait would hand one slow client the ability to hold a Run open indefinitely, which is the outcome the bridge exists to prevent.
+## 8. Cancellation
 
-Terminating is preferable to dropping a protected Event. A client whose stream fails knows it lost something; a client silently missing `tool_execution_end` does not.
+A disconnected stream ends delivery. Whether it cancels execution is a Host policy; attached Runs normally cancel on stream closure. Explicit Cancel, Run deadlines, and drain deadlines cancel the Run Context and reach Model, Tools, observers, and Routines.
 
-## 8. Two settlements
+## 9. Child Runs
 
-Two different moments are called settlement, and they have different owners.
+Parent-facing Routine lifecycle Events are part of the parent Run Event view. Detailed child Events retain child Run correlation and may be exposed separately. Core sequence is scoped to each Run; Host projection must not pretend that parent and child have one transcript.
+
+## 10. Drain
+
+During drain:
 
 ```text
-Execution settlement   the Run is over and owns no further work    Runtime
-Delivery settlement    the consumer has all it will receive        Service
+stop new admission
+  ↓
+active Runs settle or are cancelled
+  ↓
+bridges flush within deadline
+  ↓
+abandon remaining delivery
 ```
 
-They are independent in both directions. A client that disconnects mid-Run ends delivery while execution continues to its own terminal Event. A Run that finishes in milliseconds may still have Events in flight for seconds.
+Abandoning delivery after execution settlement loses transmission, not Core history.
 
-Conflating them produces two distinct bugs: a Runtime that cannot finish because a socket is slow, and a service that reports success before the client has anything.
+## 11. Acceptance
 
-## 9. Cancellation and disconnect
-
-A disconnect is not a cancellation. It ends delivery; it says nothing about intent.
-
-Treating a closed stream as cancellation is the usual choice for an attached Run, because nobody remains who wanted the answer. It is still a choice the service makes and states, not a fact the transport reports. Every source that does mean cancellation — an explicit command, a Run deadline, a drain deadline — converges on the Run Context, and from there reaches the Model, the Tools, the observers, and every Agent Routine through one mechanism.
-
-## 10. Shutdown
-
-Drain stops new admission and lets active Runs reach execution settlement within a deadline. In-flight Events then get a bounded window to reach their consumers.
-
-A bridge that cannot flush in that window abandons delivery rather than delaying shutdown. The execution history is already complete at that point; only its transmission is lost, and that is the cheaper of the two things to lose.
-
-## 11. Ownership
-
-```text
-Runtime
-  Event kind · production point · order · correlation
-  terminal Event · execution settlement · observer contract
-
-Service
-  projection · redaction · queue capacity
-  coalescing · slow-consumer policy · delivery settlement
-
-Transport
-  wire encoding · stream lifetime · status mapping
-
-Application
-  what it does with the facts
-```
+Tests must prove canonical order, one terminal Event, class preservation, protected-event handling, bounded queues, slow-consumer behavior, observer bounds, independent execution/delivery settlement, and bounded drain.

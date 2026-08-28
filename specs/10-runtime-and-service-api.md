@@ -1,12 +1,12 @@
-# 10. Runtime and Service API
+# 10. Core and Host API
 
 **Status:** Draft
 
-> One Runtime boundary serves the hosted service and a direct Go caller. The API exposes operations and immutable values; internal channels, locks, provider types, and transport envelopes remain hidden.
+> The Core API is stable and in-process. The Host API coordinates many Core instances and may expose them through Transport.
 
-## 1. Runtime interface
+## 1. Core API
 
-The draft Go surface is:
+The draft Core surface is:
 
 ```go
 type Agent interface {
@@ -26,85 +26,33 @@ type EventHandler interface {
 }
 ```
 
-`Prompt` and `Continue` return after execution settlement. `Subscribe` receives canonical Events while the Run is active. `WaitForIdle` waits for the active Run, owned child Routines, and terminal observers; it MUST NOT wait for remote delivery.
+The Core API contains no channels, transport envelopes, provider types, mutable internal slices, or Host objects. `Prompt` and `Continue` wait for Core execution settlement. `Subscribe` receives canonical Events locally.
 
-Exact package names and method receivers MAY evolve, but the following behaviors MUST remain:
+## 2. Core construction
 
-- one Agent has at most one active mutating Run;
-- `Abort` is idempotent;
-- queue operations preserve acceptance order;
-- snapshots are immutable from the caller's perspective;
-- `Reset` is rejected while a Run is active;
-- an unsubscribe prevents future handler calls after its own synchronization barrier returns.
-
-## 2. Runtime construction
-
-Construction validates all static configuration before the first Run:
-
-```go
-New(
-    WithModel(model),
-    WithTool(tool),
-    WithTools(tools...),
-    WithToolSet(toolSet),
-    WithToolSets(toolSets...),
-    WithExtension(extension),
-    WithLimits(limits),
-)
-```
-
-Construction MUST reject nil dependencies, duplicate names, invalid Schemas, duplicate qualified Tool IDs, invalid limits, and incompatible options. It MUST NOT defer static errors until the first Prompt.
-
-The constructed Agent owns the lifecycle of dependencies it is explicitly documented to own. Provider clients and application services may be shared immutable dependencies; mutable transcript and queue state is never shared between Agents unless an explicit state provider restores it.
-
-## 3. Event subscription
-
-A subscription is an in-process observer, not a remote stream:
-
-```go
-type EventHandler interface {
-    Observe(context.Context, Event) error
-}
-```
-
-The Runtime invokes handlers in registration order and awaits each handler before progressing. A handler MUST be Context-aware and bounded. The Runtime MUST recover handler panics and apply the selected blocking or advisory policy.
-
-Unsubscribe MUST be safe to call more than once. After it returns, no new handler invocation may begin for that subscription. An invocation already in progress is settled by its Event Context before the unsubscribe call returns or returns its own documented cancellation error.
-
-## 4. Queue operations
-
-`Steer` and `FollowUp` are synchronous acceptance operations:
+Construction validates Models, Tools, ToolSets, Extensions, Schemas, namespaces, limits, and ordering before the first Run. Options may include:
 
 ```text
-validate Message
-  ↓
-lock Agent queue state
-  ↓
-check Run state and queue bound
-  ↓
-append in acceptance order
-  ↓
-unlock
+WithModel
+WithTool / WithTools
+WithToolSet / WithToolSets
+WithExtension
+WithLimits
 ```
 
-They MUST NOT block on Model, Tool, Routine, network, or observer work. A queue-full, terminal, invalid-message, or Context-independent policy error is returned at acceptance time.
+The Agent owns only dependencies documented as owned. Mutable transcript and queues are never shared between Agents without an explicit restoration contract.
 
-## 5. Service registration
+## 3. Core subscription
 
-The service preset assembles focused hosted-access components:
+Handlers run in registration order and are awaited. They are local, Context-aware, and bounded. Blocking or advisory failure mode is explicit, and panics are recovered. Unsubscribe is idempotent; after its synchronization barrier returns, no new handler invocation may begin.
 
-```go
-service, err := agentservice.New(
-    agentservice.WithAgent("incident", incidentFactory),
-    agentservice.WithAgent("repository", repositoryFactory),
-)
-```
+## 4. Core queues
 
-Registration MUST be deterministic and eager. Unknown options, duplicate Agent names, nil factories, invalid service bounds, and conflicting lifecycle policies fail construction.
+Steer and FollowUp validate and append atomically in acceptance order. They do not block on Model, Tool, Routine, network, or observer work. Queue overflow, terminal state, and invalid input are returned at acceptance.
 
-The preset owns request validation, Agent resolution, admission, cache leases, Event projection, Event bridge, error mapping, readiness, and drain. It invokes the Runtime API rather than reproducing the Agent loop.
+## 5. Host API
 
-## 6. Agent factory
+The Host may expose boundaries equivalent to:
 
 ```go
 type AgentFactory interface {
@@ -117,66 +65,40 @@ type AgentRequest struct {
     RequestID       string
     Metadata        map[string]string
 }
-```
 
-A factory MUST return an isolated Agent or restore one through an explicit state capability. It MUST NOT return the same mutable Agent to two concurrent conversation keys. Factory Context cancellation prevents construction from becoming an unowned background task.
-
-## 7. Package boundary
-
-A coherent implementation MAY use:
-
-```text
-cmd/gotatod           executable service
-service/              factories, cache, admission, delivery, lifecycle
-transport/grpc/       Protobuf mapping and server/client
-routines/             child Runs, groups, Results
-extension/            Runtime stage contracts
-tool/                 Tool, ToolSet, Schema helpers
-event/                Event projection and sinks
-testkit/              deterministic fakes
-internal/runtime/     canonical loop and Agent state
-model/                Model contracts and stream Events
-```
-
-The runtime package MUST NOT import generated Protobuf, gRPC, Kubernetes, cache, database, or process-hosting packages. Transport types MUST be mapped at the boundary.
-
-## 8. Metadata
-
-Core behavior uses typed fields. Metadata is bounded, copied at boundaries, and reserved for correlation or adapter round-tripping. Metadata MUST NOT override Run ID, Event kind, Event order, Tool identity, or terminal status.
-
-Request metadata, trace identifiers, provider call IDs, and application labels are additive. Secrets and raw prompts are not default metadata.
-
-## 9. Routine usage
-
-The Routine package composes the Runtime API:
-
-```go
-routine, err := routines.Spawn(ctx, childFactory, request)
-if err != nil {
-    return err
+type AdmissionController interface {
+    Admit(context.Context, AgentRequest) (AdmissionLease, error)
 }
-result, err := routine.Wait(ctx)
+
+type AdmissionLease interface { Release() }
 ```
 
-It MUST NOT introduce another Model/Tool loop. Group Results are immutable and, by default, ordered by spawn position even when completion Events arrive out of order.
+A Host may additionally define Agent Cache/Lease, Conversation Owner, Event Projector, Event Bridge, and Drain Policy contracts. These are not Core API.
 
-## 10. Direct/service equivalence
+## 6. Host responsibilities
 
-The direct caller and service adapter MUST use the same Agent, Run, Message, Tool, Event, Context, and settlement contracts. Differences are limited to:
+The Host validates remote commands, admits capacity, resolves a Core Agent, maps cancellation, projects Events, delivers them with bounds, and manages readiness/drain. It does not edit Core state or reproduce the Agent loop.
+
+## 7. Conversation and cache
+
+A Host cache may retain live Core Agents with maximum entries, idle TTL, per-key creation coordination, active-Run pinning, idle-only eviction, reset, metrics, and fake-clock tests. Durable continuity requires a separate state provider.
+
+## 8. Direct and hosted equivalence
+
+For equivalent initial Agent state, Model stream, Tool outcomes, options, and cancellation timing, direct Core and Hosted execution produce identical canonical Events, transcript commitment, and terminal Core status. Differences are wire mapping, remote acceptance, Host admission, projection, and process lifecycle.
+
+## 9. Package direction
+
+A possible package layout is:
 
 ```text
-wire mapping
-remote command acceptance
-conversation resolution
-admission
-projection and delivery
-process lifecycle
+core/              stable Agent execution kernel
+model/             Model values, Router, provider adapters
+tool/              Tool, ToolSet, Schema helpers
+routines/          child Runs and Groups
+orchestration/     Host, routing, admission, cache, delivery
+transport/grpc/    Protobuf mapping and server/client
+infra/             deployment and platform integration
 ```
 
-Equivalent inputs and scripted dependencies MUST produce identical canonical Event sequences and terminal Runtime outcomes. A service-specific workaround that changes those facts is a contract violation.
-
-## 11. Internal implementation rules
-
-Internal channels, mutexes, atomics, worker pools, provider clients, and goroutines are implementation details. They MUST have an owner, Context, and settlement boundary, but they MUST NOT become accidental public API through returned channels or mutable callbacks.
-
-No API method may return a channel that callers are responsible for closing. Channel close ownership stays with its creating package.
+Exact names may evolve. Host, Transport, Model, and capability adapters depend on Core contracts; Core does not depend on them.

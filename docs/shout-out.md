@@ -1,92 +1,47 @@
 # Shout-out and Project Origin
 
-> Gotato is inspired by Pi's small and extensible agent-kernel design.
+> Gotato is inspired by Pi's small and extensible Agent kernel.
 
 ## Background
 
-[Pi](https://pi.dev), created by Mario Zechner and developed with its contributors, is a minimal and highly extensible coding-agent harness.
-
-The technical idea that led to Gotato is the Agent loop beneath Pi's terminal product:
+[Pi](https://pi.dev), created by Mario Zechner and developed with its contributors, is a minimal and highly extensible coding-agent harness. Its core loop demonstrates that stateful, tool-using Agent execution can remain compact and understandable:
 
 ```text
 user input
     ↓
-model stream
-    ├── final response ──────────────► done
-    └── Tool Calls
-          ↓
-        execute
-          ↓
-        append Tool Results
-          └──────────────────────────► model stream
+Model stream
+    ├── final response → done
+    └── Tool Calls → execute → Tool Results → Model stream
 ```
-
-This loop demonstrates that a stateful, tool-using Agent runtime can remain compact and understandable.
 
 ## From Pi to Gotato
 
-Gotato began with a concrete question:
-
-> How can Pi-like Agent semantics power an idiomatic Go Agent service while preserving a small, transport-independent runtime boundary?
+Gotato asks how those semantics can become an idiomatic Go Agent Core that is useful both inside an existing service and behind a hosted Agent API:
 
 ```text
-Pi agent-kernel semantics
-           │
-           ▼
-Go Runtime Kernel
-  context · interfaces · bounded concurrency · ToolSets
-           │
-           ▼
-Gotato Agent Service
-  Protobuf · gRPC · lifecycle · Event streaming
+Pi-like loop
+     ↓
+Go Agent Core
+  Context · interfaces · bounded work
+     ├── embedded Go application
+     └── optional Orchestrator + gRPC Host
 ```
 
-The service use case reveals the necessary lifecycle, cancellation, Event, state, and error contracts. The runtime kernel keeps those semantics independent of transport and hosting.
+The Core, ToolSet model, service boundary, and delivery contracts are Gotato's own design. The service host does not replace or duplicate the Core loop.
 
 ## Semantic reference
 
-The primary reference is `@earendil-works/pi-agent-core`:
+The primary reference is `@earendil-works/pi-agent-core`, including Agent state, Prompt/Continue, Model streaming, Message assembly, Tool execution, lifecycle Events, Abort/WaitForIdle, Steering/Follow-up, sequential/parallel Tool batches, and interception.
 
-```text
-Agent state
-Prompt and Continue
-Model streaming
-Message assembly
-Tool execution
-Lifecycle Events
-Abort and WaitForIdle
-Steering and Follow-up
-Sequential and parallel Tool batches
-Context and Tool interception
-```
-
-Gotato expresses these ideas through its own Go runtime and service contracts.
-
-## Go-native expression
-
-```text
-Pi / TypeScript              Gotato / Go
-──────────────────────       ─────────────────────────────
-AbortSignal                  context.Context
-AsyncIterable                explicit Model stream
-Promise concurrency          bounded goroutines
-mutable object composition   constructors and small interfaces
-Tool arrays                  Tools plus ToolSets
-```
-
-ToolSet is a Gotato addition for grouping related operations and supporting staged capability discovery.
+Gotato expresses these ideas through Go contracts, Context cancellation, bounded concurrency, explicit capabilities, and separate Hosted orchestration.
 
 ## Project boundary
 
-Pi's terminal interface, coding Tools, session-tree product, resource loader, skills, themes, package manager, provider login, and project trust belong to Pi's coding-agent product.
-
-Gotato focuses on reusable Agent execution semantics, a standard Go service boundary, and the runtime kernel beneath that service. It provides no first-party end-user UI.
+Pi's terminal product, coding Tools, session tree, resource loader, skills, themes, package manager, provider login, and project trust are outside Gotato's scope. Gotato provides no first-party end-user UI.
 
 ## Credit and license
 
-Pi is distributed under the MIT License. Gotato acknowledges Pi's creator and contributors as the source of its primary design reference.
-
-Gotato is an independent Go implementation rather than an official Pi port. Attribution should be retained wherever code or derived material requires it.
+Pi is distributed under the MIT License. Gotato is an independent Go design rather than an official Pi port. Attribution should be retained wherever derived code or material requires it.
 
 - [Pi website](https://pi.dev)
 - [Pi repository](https://github.com/earendil-works/pi)

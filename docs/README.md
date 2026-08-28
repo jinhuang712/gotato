@@ -1,67 +1,53 @@
 # Gotato Documentation
 
-> A Go-native Agent-as-a-Service with a compact runtime kernel and one canonical Agent loop.
+> A stable Go Agent Core and an optional Agent-as-a-Service host.
 
-Gotato's first-class external interface is gRPC. Behind that interface, a transport-independent Go runtime owns Agent state, Model/Tool execution, Events, cancellation, and limits.
+Gotato has two first-class consumption modes. The Embedded mode uses the Core directly inside an existing Go service. The Hosted mode adds orchestration and transport so multiple clients can access Agents remotely.
 
-Each document below is self-contained. None depends on another, and none refers to another; a concept a document needs, it states. These documents explain architecture and design rationale; exact interfaces, wire fields, state transitions, limits, and acceptance criteria belong to `specs/`.
+```text
+Embedded:  Application → Agent Core → Model / Tools
+Hosted:    Client → Transport → Orchestrator → Agent Core
+External:  Gateway / Kubernetes / LB / Storage
+```
+
+The Core owns Agent semantics. The Orchestrator owns hosted coordination. Transport owns wire mapping. Infrastructure owns deployment. These are separate boundaries even when a small deployment places them in one process.
 
 ## Reading order
 
-0. [Shout-out and project origin](shout-out.md) — optional background
-1. [Philosophy](00-philosophy.md)
-2. [Conceptual models](01-conceptual-models.md)
-3. [Agent as a Service](02-agents-as-a-service.md)
-4. [Core runtime](03-core-runtime.md)
-5. [Events and delivery](04-events-and-delivery.md)
-6. [Runtime Moving Parts](05-moving-parts.md)
-7. [Tools and ToolSets](06-tools-and-toolsets.md)
-8. [Extension model](07-extension-model.md)
-9. [Agent Routines](08-agent-routines.md)
-10. [Technology stack and runtime primitives](09-technology-stack.md)
-11. [Technical specifications](../specs/README.md)
+1. [Philosophy](00-philosophy.md) — architectural constitution
+2. [Conceptual models](01-conceptual-models.md) — vocabulary and layers
+3. [Hosted Agent](02-agents-as-a-service.md) — orchestration and remote access
+4. [Agent Core](03-core-runtime.md) — the canonical loop
+5. [Events and delivery](04-events-and-delivery.md) — facts and delivery
+6. [Moving parts](05-moving-parts.md) — replacement boundaries
+7. [Tools and ToolSets](06-tools-and-toolsets.md) — capabilities
+8. [Extension model](07-extension-model.md) — lifecycle customization
+9. [Agent Routines](08-agent-routines.md) — child Runs
+10. [Technology stack](09-technology-stack.md) — implementation and deployment
+11. [Technical specifications](../specs/README.md) — normative contracts
 
-The number on a filename is a suggested entry point, not a prerequisite. Any document can be read first.
-
-## Architecture at a glance
+## Layer map
 
 ```text
-Go / other service
-       │
-       │ gRPC
-       ▼
-Gotato Agent Service
-  factory · admission · lifecycle · Event bridge
-       │
-       ▼
-Go Runtime Kernel
-  Agent · Run · Model · Tools · Events · cancellation
-       │
-       ├──► Model adapters
-       ├──► capability adapters
-       └──► Agent Routines
+┌──────────────────────────────────────────────────────────┐
+│ Application                                              │
+│ business workflows · presentation · Agent definitions   │
+├──────────────────────────────────────────────────────────┤
+│ Infrastructure (external)                                │
+│ gateway · Kubernetes · LB · storage · secrets           │
+├──────────────────────────────────────────────────────────┤
+│ Transport (optional)                                     │
+│ gRPC · Protobuf · HTTP projection                       │
+├──────────────────────────────────────────────────────────┤
+│ Orchestration / Agent Host (optional)                   │
+│ admission · routing · concurrency · cache · delivery    │
+├──────────────────────────────────────────────────────────┤
+│ Agent Core (stable)                                      │
+│ Agent · Run · Model/Tool loop · Events · cancellation   │
+├──────────────────────────────────────────────────────────┤
+│ Model and capability adapters                            │
+│ provider routing · database · Redis · HTTP · MCP        │
+└──────────────────────────────────────────────────────────┘
 ```
 
-The code dependency points inward: transport and hosting depend on the runtime kernel; the kernel never depends on gRPC, Protobuf, caching, or Kubernetes.
-
-## Documentation layers
-
-```text
-┌──────────────────────┐
-│ Philosophy           │  purpose and lasting principles
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│ Concept documents    │  vocabulary, boundaries, and architecture
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│ Specifications       │  implementable and testable contracts
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│ Implementation       │  service, runtime packages, clients, and adapters
-└──────────────────────┘
-```
-
-The documents describe the enduring architecture. Delivery sequence, acceptance criteria, and API promotion decisions belong in `specs/`.
+The same Core can be embedded directly or hosted behind a transport. A hosted service is a composition of boundaries, not a different execution model.

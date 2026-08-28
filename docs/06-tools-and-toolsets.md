@@ -2,240 +2,104 @@
 
 **Status:** Draft
 
-> A Tool is an operation. A ToolSet is a capability domain exposed through a hosted Agent definition.
+> Tools are Core capabilities; adapters connect them to application systems. ToolSets provide staged capability discovery.
 
 ## 1. Capability path
 
 ```text
-Application capability
-        ↓
+Application system
+   ↓
 Tool / ToolSet adapter
-        ↓
+   ↓
 Agent definition
-        ↓
-Agent factory
-        ↓
-Runtime-visible Tool specifications
-        ↓
-Model selection and Tool Use
+   ↓
+Agent Core
+   ↓
+Model-visible Tool specifications
 ```
 
-Applications own business APIs and credentials. Gotato owns the model-facing capability contract and deterministic Tool lifecycle.
+Database, Redis, HTTP, gRPC, MCP, workflow, sandbox, and remote Agent integrations are application or adapter concerns. Core owns the stable Tool lifecycle.
 
 ## 2. Tool
 
-A Tool exposes one model-callable operation. Its contract has two parts: a stable specification that the Model can understand, and an executor that receives one validated Tool Use and produces one final outcome.
+A Tool is one model-callable operation:
 
-A Tool specification contains:
-
-```text
-stable identity
-description
-input JSON Schema
-portable result expectations
+```go
+type Tool interface {
+    Spec() ToolSpec
+    Execute(context.Context, ToolUse, ToolProgress) (ToolResult, error)
+}
 ```
 
-Execution may call local Go code or an external system through an adapter. Runtime Tool types remain independent of Protobuf and provider SDK types.
+Its specification includes stable identity, description, input Schema, result expectations, and execution policy. Its executor receives a validated Core ToolUse, not provider or Protobuf types.
 
 ## 3. ToolSet
 
-A ToolSet groups related Tools behind one capability description. It resolves a deterministic collection of concrete operations when the Runtime activates or inspects that capability domain.
+A ToolSet groups related operations under one capability domain:
 
 ```text
 grafana
   ├── view_dashboard
   ├── edit_panel
-  ├── probe
-  ├── refresh
-  └── sync
+  └── refresh
 ```
 
-Applications compose Agent definitions at the ToolSet level:
+A ToolSet resolves deterministic concrete Tools when activated or inspected. Its external dependencies and credentials belong to the adapter.
+
+## 4. Staged discovery
 
 ```text
-incident Agent
-  Model
-  grafana ToolSet
-  logs ToolSet
-  repository ToolSet
-  runtime limits
+Model sees capability domains
+  grafana · github · database
+        ↓ activate grafana
+Model sees concrete operations
+  grafana.view_dashboard · grafana.edit_panel · ...
 ```
 
-The Agent factory installs this definition when the service resolves the named Agent.
+The built-in activation Tool is implemented through the ordinary Tool lifecycle. Activation is committed between Turns and affects the next Model request.
 
-## 4. Two-stage model choice
+## 5. Identity and visibility
 
-ToolSets turn a flat operation-selection problem into two focused decisions:
+Core identity is:
 
 ```text
-Stage A: capability discovery
-
-Model
- ├── grafana
- ├── github
- ├── kubernetes
- └── database
-       │
-       ▼ activate grafana
-
-Stage B: operation selection
-
-Model
- ├── grafana.view_dashboard
- ├── grafana.edit_panel
- ├── grafana.probe
- ├── grafana.refresh
- └── grafana.sync
+ToolSetName + "." + ToolName
 ```
 
-This reduces Model context size and operation-selection entropy while preserving explicit Tool identity.
+Individual root Tools use one configured root namespace and remain visible. Active ToolSets expose concrete Tools in deterministic order. Provider adapters may encode names and must preserve a reversible mapping to Core identity.
 
-## 5. Registration, activation, and visibility
-
-```text
-┌──────────────────────┐
-│ Registered ToolSets  │  all domains configured on the Agent
-└──────────┬───────────┘
-           │ activate
-           ▼
-┌──────────────────────┐
-│ Active ToolSets      │  domains selected in Agent state
-└──────────┬───────────┘
-           │ resolve for Turn
-           ▼
-┌──────────────────────┐
-│ Visible Tools        │  specifications sent to the Model
-└──────────────────────┘
-```
-
-Individually configured Tools remain visible. ToolSet activation changes visibility between Model Turns and remains in the conversation Agent until reset or explicit state change.
-
-The service owns how that Agent is retained; the runtime owns activation state consistency.
-
-## 6. Activation protocol
-
-When inactive ToolSets exist, the Runtime exposes a built-in activation Tool containing their stable names and descriptions:
-
-```text
-activate_toolset(name="grafana")
-```
-
-A successful activation follows the ordinary Tool path:
+## 6. Lifecycle
 
 ```text
 Tool Call
-  → resolve and validate
+  → assemble complete JSON
+  → resolve Tool
+  → validate Schema
   → Pre-Tool-Use
-  → activation state transition
+  → execute at most once
   → Post-Tool-Use
-  → Tool Result
-  → next Model Turn sees concrete Tools
+  → finalize Result
+  → commit Tool Result Message
 ```
 
-Activation is deterministic, idempotent, bounded, and observable through canonical Events.
+Blocked, invalid, and failed outcomes retain whether execution occurred. A Tool execution error normally becomes a failed Tool Result so the Model can continue.
 
-## 7. Identity and encoding
+## 7. Construction
 
-Core uses qualified Tool identity:
+Agent construction validates non-nil implementations, unique Tool and ToolSet names, qualified IDs, valid Schemas, deterministic ordering, and visibility bounds before a Run is admitted. Dynamic ToolSet failure must not corrupt existing Core state.
 
-```text
-grafana.view_dashboard
-grafana.edit_panel
-github.view_repository
-```
+## 8. Parallel batches
 
-Provider adapters may encode names to satisfy provider restrictions:
+Preflight is source ordered. Execution may be sequential or bounded parallel. Completion Events reflect actual completion; Tool Result Messages commit in assistant source order. Every admitted Tool settles before `turn_end`.
 
-```text
-grafana.view_dashboard ↔ grafana_view_dashboard
-```
+## 9. Progress and bounds
 
-The mapping is stable and reversible within a Model request. Service Event projection preserves the canonical qualified identity even when the provider uses an encoded name.
+Tool progress is optional and coalescable. Final results are authoritative. Core enforces bounds for progress bytes, progress updates, result bytes, and metadata. Overflow never creates an unbounded Model context.
 
-## 8. Construction validation
+## 10. Adapter ownership
 
-Agent construction validates the complete capability composition:
+An adapter owns protocol translation, authentication, external timeout mapping, and private diagnostics. Core owns Tool identity, validation, cancellation, invocation boundaries, Events, and transcript commitment.
 
-```text
-Tool and ToolSet names
-input Schemas
-duplicate ToolSet names
-duplicate qualified Tool identities
-deterministic ordering
-non-nil implementations
-visibility bounds
-```
+## 11. Embedded and hosted use
 
-Invalid static composition fails before the service admits a Run for that Agent instance.
-
-## 9. Tool Use and outcomes
-
-```text
-Model Tool Call
-      ↓
-complete argument assembly
-      ↓
-Tool resolution and Schema validation
-      ↓
-Pre-Tool-Use
-      ↓
-Tool executor at most once
-      ↓
-Post-Tool-Use
-      ↓
-final Tool outcome
-      ↓
-Tool Result Message and Events
-```
-
-A Tool outcome records whether execution occurred, its model-facing content, typed metadata, failure details safe for the Model, and any termination hint.
-
-Tool execution errors normally become failed Tool Results so the Model can reason about them. Runtime protocol and invariant failures terminate the Run.
-
-## 10. Progress and network projection
-
-A Tool may report bounded progress:
-
-```text
-Tool progress
-    ↓
-canonical Tool Event
-    ↓
-service Event projection
-    ↓
-bounded gRPC Event bridge
-```
-
-Optional progress can be coalesced for a slow client. The final Tool outcome and lifecycle order remain intact.
-
-## 11. Parallel batches
-
-```text
-Assistant source order: A · B · C
-Execution:              bounded concurrency
-Completion Events:      actual completion order
-Transcript Results:     A · B · C
-```
-
-This lets the service stream real progress while preserving deterministic Model context.
-
-## 12. Capability adapters
-
-Adapters can expose remote systems through the same contracts:
-
-```text
-HTTP API      → Tool or ToolSet
-gRPC service  → Tool or ToolSet
-MCP server    → ToolSet
-workflow      → Tool
-remote Agent  → Tool or Agent Routine
-sandbox       → Tool execution adapter
-```
-
-Each adapter owns its protocol dependencies, authentication integration, and external failure mapping.
-
-## 13. Go composition
-
-Constructors and explicit options assemble Tools and ToolSets. Typed-function helpers can derive Schema and execution glue from Go input and output types. Source generation can assemble package-level ToolSets while retaining explicit dependencies.
-
-What every form shares is that a Tool reaches an Agent because some line of code put it there. Helpers and generators reduce the typing; they do not introduce discovery that a reader of the construction site cannot see.
+In Embedded mode, an application installs Tools directly on a Core Agent. In Hosted mode, a Host creates the Agent from a factory and projects Tool Events through transport. The Tool contract is identical in both modes.

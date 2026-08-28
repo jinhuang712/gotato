@@ -2,330 +2,106 @@
 
 **Status:** Draft
 
-> Events are the runtime's record of what happened. Delivery is a separate, bounded promise about who receives that record.
-
-```text
-Runtime transition
-        ↓
-Canonical Event ──┬──► observer
-                  ├──► test recorder
-                  └──► service projection ──► bounded bridge ──► gRPC client
-```
+> Core Events are immutable facts. Hosts deliver projections of those facts under explicit bounds.
 
 ## 1. Event kinds
 
-The runtime MUST expose semantic equivalents of:
+Core MUST expose semantic equivalents of:
 
 ```text
-agent_start              the Run was accepted
-turn_start               a Model Turn begins
-message_start            a Message begins
-message_update           streamed delta for the Message under construction
-message_end              the Message is committed to the transcript
-tool_execution_start     a resolved and validated Tool Use begins
-tool_execution_update    bounded progress from a running Tool
-tool_execution_end       a settled Tool outcome
-toolset_activated        capability visibility changed
-routine_started          a child Agent Run began
-routine_completed        a child Agent Run settled successfully
-routine_failed           a child Agent Run returned a terminal error
-routine_cancelled        a child Agent Run was cancelled
-turn_end                 the Turn and its Tool batch are finalized
-agent_end                the Run is over
+agent_start, turn_start
+message_start, message_update, message_end
+tool_execution_start, tool_execution_update, tool_execution_end
+toolset_activated
+routine_started, routine_completed, routine_failed, routine_cancelled
+turn_end, agent_end
 ```
-
-Go names and payload types MAY differ while preserving these lifecycle meanings.
 
 ## 2. Event classes
 
-Every Event kind MUST belong to exactly one class.
+Every Event belongs to exactly one class:
 
 ```text
-Protected                       Coalescable
-─────────                       ───────────
-agent_start                     message_update
-turn_start · turn_end           tool_execution_update
-message_start · message_end     Routine progress
-tool_execution_start · _end
-toolset_activated
-routine_* terminal Events
-agent_end
+Protected: lifecycle transitions and settled outcomes
+           agent/turn lifecycle, Message start/end, Tool start/end,
+           activation, Routine terminal Events, turn_end, agent_end
+
+Coalescable: optional progress
+             Message updates, Tool updates, Routine progress
 ```
 
-A protected Event is a lifecycle transition or a settled outcome. Every consumer MUST receive each protected Event, in canonical order, or that consumer's stream MUST fail.
+A Protected Event must reach a consumer in canonical order or that consumer's delivery fails. Coalescable progress may be merged or omitted and must not contain authoritative information absent from its settling Protected Event.
 
-A coalescable Event is optional progress. A consumer under load MAY merge several into one, retain only the newest, or omit them.
+## 3. Canonical shape
 
-A coalescable Event MUST NOT carry information absent from the protected Event that settles the same operation. This is what makes bounded delivery possible without losing history.
+```go
+type Event struct {
+    RunID RunID
+    Sequence uint64
+    Kind EventKind
+    Class EventClass
+    Turn TurnNumber
+    MessageID MessageID
+    ToolCallID ToolCallID
+    RoutineID RoutineID
+    ParentRunID RunID
+    ChildRunID RunID
+    Payload EventPayload
+    Timestamp time.Time
+}
+```
 
-## 3. Ordering
+`Sequence` starts at 1 per Run, increases strictly, and is assigned during the state transition before observer dispatch. Timestamp is diagnostic only. Correlation fields not applicable to a kind are empty.
 
-Order within a Run is canonical:
+## 4. Ordering
+
+A normal Run orders Events as:
 
 ```text
 agent_start
   turn_start
-    user Message lifecycle when a Prompt supplied input
-    assistant message_start
-    assistant message_update ...
-    assistant message_end
-    Tool execution Events
-    Tool Result Message lifecycle
+  Prompt user Message lifecycle when applicable
+  assistant Message lifecycle
+  Tool execution and Tool Result lifecycle
   turn_end
   ...
 agent_end
 ```
 
-Tool execution and Tool Result Events MUST occur after assistant `message_end` and before `turn_end`.
+Parallel Tool completion Events reflect actual completion order; transcript commitment remains source ordered. Child Event sequence remains scoped to the child Run.
 
-Parallel Tool batches complete out of order and their completion Events MUST reflect that. Transcript commitment MUST follow assistant source order:
+## 5. Production
 
-```text
-Completion Events   C → A → B     actual
-Transcript          A → B → C     deterministic
-```
+Core creates an Event only for a committed transition or a declared operation start. It never retracts an Event. No Event is created after `agent_end`. Observers receive Events in production order and registration order.
 
-Routine lifecycle Events MUST appear in the parent Run Event stream. Detailed child Events MUST preserve the child Run sequence.
+## 6. Local subscribers
 
-## 4. Correlation
+A Core subscriber is an in-process, Context-aware, bounded observer. Core awaits it before continuing. Blocking and advisory failure modes are explicit, and panics are recovered. A subscriber cannot be a remote network peer.
 
-Every Event MUST carry sufficient correlation to place it:
+## 7. Host delivery bridge
 
-```text
-run_id
-turn sequence
-message or tool_call_id where applicable
-routine_id · parent_run_id · child_run_id for child work
-```
-
-Consumers MAY add transport, request, or trace identifiers. Added identifiers MUST NOT replace runtime correlation.
-
-## 5. Canonical Event shape
-
-The canonical Event envelope is conceptually:
-
-```go
-type EventKind string
-type EventClass string
-
-const (
-    ProtectedEvent   EventClass = "protected"
-    CoalescableEvent EventClass = "coalescable"
-)
-
-type Event struct {
-    RunID       RunID
-    Sequence    uint64
-    Kind        EventKind
-    Class       EventClass
-    Turn        TurnNumber
-    MessageID   MessageID
-    ToolCallID  ToolCallID
-    RoutineID   RoutineID
-    ParentRunID RunID
-    ChildRunID  RunID
-    Payload     EventPayload
-    Timestamp   time.Time
-}
-```
-
-`Sequence` starts at `1` for each Run and increases strictly by one. It is assigned by the Runtime at Event creation, before observer dispatch. `Timestamp` is diagnostic and MUST NOT be used to reorder Events. Correlation fields that do not apply to a kind remain empty; `RunID`, `Sequence`, `Kind`, `Class`, and the kind-specific payload are always present.
-
-The payload is a tagged value. Required payload content is:
-
-| Kind | Required payload |
-|---|---|
-| `agent_start` | Agent identity and accepted Run metadata |
-| `turn_start` / `turn_end` | Run ID and Turn number; end includes finalized Tool batch status |
-| `message_start` | Message ID, role, and expected content kind |
-| `message_update` | Message ID and one delta or partial value |
-| `message_end` | Message ID and authoritative committed Message |
-| `tool_execution_start` | Tool Call ID, qualified Tool ID, Turn, and validated-use metadata |
-| `tool_execution_update` | Tool Call ID and bounded progress update |
-| `tool_execution_end` | Tool Call ID and authoritative Tool Result |
-| `toolset_activated` | ToolSet name and active-set state after commitment |
-| `routine_started` | Routine ID, parent Run ID, child Run ID, and name |
-| `routine_completed` / `routine_failed` / `routine_cancelled` | Routine identity and settled Routine Result or status |
-| `agent_end` | immutable RunResult and terminal status |
-
-The authoritative payload is emitted exactly once for each committed Message, Tool outcome, Routine settlement, and Run settlement. A projection MAY remove fields, but it MUST NOT change the payload's identity or settled meaning.
-
-## 6. Event production and sequence
-
-Canonical Event production is part of the state transition that caused it:
+A Host that delivers Events remotely MUST use a bounded bridge:
 
 ```text
-commit or lifecycle transition
-        ↓
-assign Run sequence
-        ↓
-create immutable Event
-        ↓
-dispatch awaited observers
-        ↓
-expose Event to service consumers
+Core Event → projection/redaction → bounded queue → sender → client
 ```
 
-The Runtime MUST NOT create an Event speculatively and later retract it. An Event MUST describe a transition that has either committed or is the declared start of an operation. Sequence assignment MUST be serialized with Run state mutation.
+The bridge MUST declare capacity, Protected kinds, coalescing, queue-full behavior, and shutdown flush deadline. Enqueue and sender operations must honor the Context that owns them. Detached senders and unbounded queues are forbidden defaults.
 
-For a single Run, a later Event MUST never be assigned a lower sequence. Parallel Tool completion changes completion order, not sequence validity; source-order transcript commitment is represented by the order of Tool Result Message Events.
+Protected Events take priority over optional progress. If a Protected Event cannot be preserved within policy, the Host fails the consumer stream rather than silently dropping it.
 
-No Event is produced after `agent_end`. A terminal `agent_end` payload is the Runtime's final authority even if a transport projection is delayed or abandoned.
+## 8. Settlement
 
-## 7. Partial Messages
+Execution settlement means Core owns no further work, including child Routines and terminal observers. Delivery settlement means Host delivery has drained or been abandoned. `WaitForIdle` observes only execution settlement.
 
-An assistant `message_update` MUST identify the Message under construction and carry a delta or partial value. The committed transcript changes at `message_end`, which MUST carry the authoritative Message.
+## 9. Cancellation and disconnect
 
-A projection MAY omit cumulative snapshots from update Events so stream size stays linear in output length.
+Disconnect ends delivery. Host policy decides whether it also cancels the Run; attached-Run hosting normally does. Explicit Cancel, deadlines, and drain cancel the Run Context and reach all owned operations.
 
-## 8. One terminal Event
+## 10. Projection
 
-A Run MUST emit exactly one `agent_end`. No loop Event MUST follow it for that Run.
+A projection may filter, redact, enrich, and encode a Core Event. It must preserve Event class, identity, correlation, and settled meaning. `RunEvent` is not a second event history.
 
-Retry, compaction, and queued continuation MUST occur inside the Run, before the terminal Event. An implementation MUST NOT introduce a second completion signal that clients must wait for instead.
+## 11. Acceptance
 
-## 9. Observer contract
-
-An observer runs inside the Run and is awaited before the loop proceeds.
-
-```text
-Canonical Event
-      ↓
-observer runs
-      ↓
-loop continues
-```
-
-Observers MUST run in registration order. Observer failure MUST follow one declared mode, blocking or advisory. Panics MUST be recovered at the observer boundary.
-
-An observer MUST be in-process, fast, and Context-aware. An observer MUST NOT block on a network peer, a remote lock, or any wait without a bound of its own.
-
-A remote consumer MUST NOT attach as an observer. Remote delivery MUST use the bounded bridge.
-
-Observers MUST NOT alter Event identity, kind, order, or correlation.
-
-## 10. Backpressure
-
-Backpressure is what a system does when a producer outruns a consumer.
-
-A Model can stream hundreds of deltas per second; a client on a poor connection may accept a handful. The gap admits only three answers:
-
-```text
-buffer without limit   memory grows until the process fails
-discard silently       the consumer's history is wrong and cannot detect it
-slow the producer      the producer pays for the consumer's speed
-```
-
-Every streaming path MUST choose explicitly. An unbounded queue MUST NOT be used as a default, because it selects the first answer without stating it.
-
-## 11. Bounded bridge
-
-Delivery across an asynchronous boundary MUST use a bounded bridge.
-
-```text
-Runtime goroutine                Sender goroutine
-─────────────────                ────────────────
-emit → observers → enqueue       dequeue → send
-awaited · local · fast           slow · remote · bounded
-```
-
-A bridge MUST declare:
-
-```text
-capacity
-which Event kinds are protected
-how coalescing merges progress
-behavior when the queue is full
-how in-flight Events settle at shutdown
-```
-
-The enqueue side MUST participate in the producing Context, and the sender goroutine MUST belong to the consuming stream's Context. Neither side MUST be able to outlive the Context that authorized it.
-
-A protected Event MUST take priority over coalescable progress when the bridge has no free slot. If the bridge cannot make room or deliver that protected Event within its bounded policy, it MUST fail the consumer stream rather than discard the Event. The bridge MUST have an explicit delivery deadline for shutdown and MUST abandon delivery after that deadline.
-
-Unbounded channels and detached sender goroutines MUST NOT be service defaults.
-
-## 12. Queue-full policy
-
-When capacity is reached, a bridge MUST apply one documented policy composed from:
-
-```text
-block        slow the producer within an explicit bound
-coalesce     merge pending progress and retain the newest
-terminate    fail the stream with a resource-exhausted error
-```
-
-Blocking MUST be bounded and Context-aware. An unbounded wait MUST NOT be used, because it lets one slow consumer hold a Run open indefinitely.
-
-Coalescing MUST apply only to the coalescable class.
-
-A bridge MUST NOT silently drop a protected Event. Terminating the stream is required instead: a consumer whose stream fails knows it lost history, while a consumer missing `tool_execution_end` does not.
-
-## 13. Two settlements
-
-```text
-Execution settlement
-  Model stream closed · Tool Uses finished
-  Agent Routines settled · observers returned
-  owned by the Runtime
-
-Delivery settlement
-  queue drained or abandoned · stream closed
-  owned by the Service
-```
-
-They MUST be independent in both directions. A consumer that disconnects mid-Run ends delivery while execution proceeds to its own terminal Event. A Run that finishes quickly MAY still have Events in flight.
-
-`WaitForIdle` MUST observe execution settlement. It MUST NOT wait on remote delivery.
-
-## 14. Cancellation and disconnect
-
-A disconnect ends delivery. It states nothing about intent.
-
-```text
-explicit Cancel   → cancel the Run Context
-stream closed     → service policy decides
-Run deadline      → cancel the Run Context
-drain deadline    → cancel the Run Context
-```
-
-A service that treats a closed stream as cancellation MUST document that choice. Cancellation MUST then reach the Model, Tool Uses, observers, and every Agent Routine through the Run Context.
-
-## 15. Drain
-
-```text
-drain requested
-      ↓
-no new Runs admitted
-      ↓
-active Runs reach execution settlement or are cancelled
-      ↓
-bridges flush within the delivery deadline
-      ↓
-process exits
-```
-
-A bridge that cannot flush within its deadline MUST abandon delivery rather than delay shutdown. Execution history is already complete at that point; only its transmission is lost.
-
-## 16. Service projection
-
-A projection converts a canonical Event into a consumer-specific representation. It MAY filter, redact, re-encode, and enrich.
-
-A projection MUST NOT delete or reorder canonical runtime history, and MUST preserve Event class and correlation.
-
-Each consumer receives its own projection of the same immutable fact.
-
-## 17. Acceptance
-
-Tests MUST prove:
-
-- canonical Event order matches state transitions;
-- `agent_end` is the last Event of every Run;
-- protected Events survive coalescing under load;
-- a coalescable Event carries nothing its settling Event omits;
-- an observer exceeding its bound is detected;
-- a full queue applies its documented policy;
-- a protected Event is never silently dropped;
-- a disconnected consumer does not stall an unrelated Run;
-- `WaitForIdle` returns without remote delivery;
-- drain flushes or abandons within its deadline.
+Tests MUST prove Event order, classification, correlation, one terminal Event, protected delivery, progress coalescing, bounded queue behavior, observer bounds, independent execution/delivery settlement, disconnect behavior, and bounded drain.

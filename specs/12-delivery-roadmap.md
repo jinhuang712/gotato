@@ -2,137 +2,117 @@
 
 **Status:** Draft
 
-> Every slice ends in something a client can call. Runtime contracts are proven by exercising them remotely, and the public library is extracted from contracts that survived that exercise.
-
-```text
-callable service → observed need → runtime contract → acceptance test
-```
-
-A slice that only adds interfaces is not complete. A slice completes when a client can do something it could not do before, and deterministic tests hold the behavior in place.
+> Stabilize Agent Core first, then add hosted orchestration and transport without changing Core semantics.
 
 ## Structural invariants
 
-These hold from the first commit of code, not from a later cleanup slice:
+From the first code commit:
 
 ```text
-runtime packages import no Protobuf, gRPC, cache, or hosting package
-wire types are mapped at the boundary, never used as domain types
-one Agent loop exists
-each Run emits exactly one terminal Event
-every queue, batch, stream, and Routine has a stated bound
+Core has no transport, Host, Infrastructure, or provider SDK dependency
+one canonical Agent Loop exists
+Core exposes a self-contained in-process boundary
+one Run emits exactly one terminal Event
+all owned work has explicit Context, bound, and settlement
+Host never duplicates the Core Loop
 ```
 
-Retrofitting any of these is expensive enough that the first slice must already satisfy them.
+Publishing a package can be staged; the boundary cannot.
 
-## Slice 1 — A callable Run
+## Slice 1 — Agent Core
 
 ```text
-runtime      Agent state · Prompt · Model stream · Message assembly
-             canonical Events · Run Context cancellation
-service      static Agent registration · ephemeral Agent per request
-             bounded Event bridge
-transport    Protobuf contract · gRPC server · Go client
-             Start and Cancel commands
-testkit      scripted Model · Event recorder · fake clock · in-process gRPC
+Agent state
+Prompt / Continue
+Model stream and Message assembly
+canonical Events
+Context cancellation
+RunResult and terminal settlement
 ```
 
-**Exit:** a Go client opens a stream, sends `Start`, receives ordered lifecycle and Message Events ending in one terminal Event, and cancels a Run mid-stream so cancellation reaches the scripted Model.
+**Exit:** a Go program embeds Core, runs a scripted Model, receives Events, and cancels a Run.
 
-This slice is the smallest thing that is genuinely a hosted Agent, and it already forces decisions on Event projection, stream ownership, terminal signalling, and cancellation mapping.
-
-## Slice 2 — The Tool loop
+## Slice 2 — Tool Loop
 
 ```text
-runtime      Tool Call assembly · Schema validation
-             Tool Use at most once · Tool Result commitment
-             Model → Tool → Model continuation
-             failed Tool Results as reasoning input
-service      Tool Event projection
-testkit      succeeding, failing, panicking, streaming, cancellable Tools
+Tool assembly and Schema validation
+Model → Tool → Model
+Tool Result commitment
+Tool failure and panic handling
 ```
 
-**Exit:** a remote client observes a multi-Turn Run where the Model calls Tools, receives their results, and continues. Malformed streamed arguments never reach an executor.
+**Exit:** an embedded Agent executes a Tool exactly once and continues with its result.
 
-Without this slice the service is a Model proxy, not an Agent runtime.
-
-## Slice 3 — Interaction and delivery policy
+## Slice 3 — Core composition
 
 ```text
-runtime      Steering and Follow-up queues · continuation order
-             TurnStopper · bounded parallel Tool batches
-service      Steer · FollowUp commands
-             Event classes · coalescing · queue-full policy
-             slow-consumer behavior · delivery settlement
+Steering and Follow-up
+ToolSets and activation
+Extensions
+bounded parallel Tools
+Agent Routines and Groups
 ```
 
-**Exit:** a client steers a Run in flight and queues a follow-up; a deliberately slow client triggers the documented queue-full policy without dropping a protected Event and without stalling an unrelated Run.
+**Exit:** Core supports staged capabilities, child Runs, bounded concurrency, and deterministic acceptance tests.
 
-Delivery policy belongs here rather than later. A bridge whose behavior under load is undefined is not shippable, and defining it after clients depend on it is a breaking change.
-
-## Slice 4 — Stateful conversations
+## Slice 4 — Model Layer
 
 ```text
-service      AgentFactory contract · conversation keys
-             bounded Agent cache · per-key creation coordination
-             active-Run pinning · idle-only eviction · explicit reset
-             Run admission · typed rejection
+Model Router contract
+provider selection
+provider adapters
+bounded provider policy
 ```
 
-**Exit:** two conversations run concurrently with isolated state; a second request on one conversation reaches the same Agent with its transcript intact; a concurrent mutating Run on one Agent is rejected with a typed busy error; cache eviction never removes a pinned entry.
+**Exit:** Embedded Core can use a real provider through a provider-neutral Model contract without importing provider SDKs.
 
-## Slice 5 — Composition
+## Slice 5 — Orchestration / Agent Host
 
 ```text
-runtime      individual Tools and staged ToolSets · activation Tool
-             ContextTransformer · MessageConverter
-             PreToolUse · PostToolUse · EventObserver
-             Agent Routine identity · lifecycle · bounded groups
-service      ToolSet and Routine Event projection
-             child Agent factories
+Agent registry and factory
+Host admission and concurrency
+conversation ownership
+cache/lease
+lifecycle and drain
+Event projection and bounded bridge
 ```
 
-**Exit:** a Model discovers a capability domain, activates it, and calls a concrete Tool on the next Turn; a parent Agent spawns bounded child Agents, receives correlated Results, and one client cancellation collapses the entire ownership tree.
+**Exit:** one process hosts multiple Core Agents and concurrent Runs without violating per-Agent exclusivity.
 
-## Slice 6 — Production baseline
+## Slice 6 — gRPC Hosted Service
 
 ```text
-service      readiness · liveness · graceful drain · DrainPolicy
-             structured errors · service metrics
-runtime      stable typed errors · local limits · panic boundaries
-deployment   health probes · shutdown handling · deployment example
-             resource and autoscaling guidance · observability example
+Protobuf contract
+bidirectional Run stream
+Start / Steer / FollowUp / Cancel
+Go client
+remote Event delivery and cancellation
 ```
 
-**Exit:** a replicated deployment serves concurrent conversations, a rollout drains without severing an in-flight Run before its deadline, and race tests pass across queues, cache, bridges, and Routines.
+**Exit:** a remote client executes the same Core Loop through the Host.
 
-## Slice 7 — Core extraction
-
-The runtime begins as an internal boundary. Publishing it is a separate act with its own preconditions.
+## Slice 7 — Multi-Pod Continuity
 
 ```text
-promote runtime packages to a public API
-add a direct in-process consumer and examples
-publish an independent testkit
-semantic versioning and compatibility commitment
+keyed routing or distributed ownership
+persistent state restoration
+stream affinity and failure semantics
 ```
 
-**Entry conditions**, all required:
+**Exit:** cross-Pod Conversation continuity has an explicit tested guarantee. Ordinary load balancing alone is not considered sufficient.
+
+## Slice 8 — Platform Integration
 
 ```text
-the hosted service exercises the full Model → Tool → Model loop
-a direct Go consumer runs the same loop with no service present
-both produce identical canonical Events for equivalent input
-both share one cancellation model and one terminal Event
-the service adds no Agent state machine of its own
-no wire type appears in a runtime signature
-runtime acceptance tests need no network
-at least one real Agent has shipped against the contracts
+Gateway integration
+Kubernetes deployment
+health probes
+observability
+resource and autoscaling guidance
 ```
 
-**Exit:** an external Go program embeds the runtime directly, and the service and that program depend on the same published contracts.
+**Exit:** an existing platform can host the service without Core or Host depending on Kubernetes APIs.
 
-The second consumer is the point. A single caller cannot distinguish a general contract from one shaped around its own convenience.
+## Ongoing
 
-## Ongoing — Ecosystem
-
-Model adapters, capability adapters, Extensions, an optional HTTP projection, external state, remote Agent Routine execution, and durable Runs proceed as independent packages, each backed by a concrete use case.
+HTTP/Connect projections, capability adapters, remote Routines, durable Runs, governance, shared budgets, and richer Model routing proceed as independent packages backed by concrete use cases.
