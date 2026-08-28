@@ -252,4 +252,4 @@ Each adapter owns its protocol dependencies, authentication integration, and ext
 
 Constructors and explicit options assemble Tools and ToolSets. Typed-function helpers can derive Schema and execution glue from Go input and output types. Source generation can assemble package-level ToolSets while retaining explicit dependencies.
 
-The exact public Go surface is promoted from the runtime contracts used successfully by hosted Agents and direct consumers.
+What every form shares is that a Tool reaches an Agent because some line of code put it there. Helpers and generators reduce the typing; they do not introduce discovery that a reader of the construction site cannot see.

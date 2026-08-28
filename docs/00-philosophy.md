@@ -3,7 +3,7 @@
 **Status:** Draft  
 **Purpose:** Project constitution
 
-> Build a useful Go Agent service, discover its runtime contracts through real use, and preserve a small kernel beneath the network boundary.
+> Build a useful Go Agent service, run every Agent on one canonical loop, and preserve a small transport-independent kernel beneath the network boundary.
 
 ## 1. Mission
 
@@ -17,23 +17,7 @@ It makes Agent execution remotely accessible, observable, cancellable, bounded, 
 
 Gotato's runtime semantics draw on Pi, a compact and extensible agent kernel written in TypeScript. The Go expression, the ToolSet model, the service boundary, and the delivery contracts are Gotato's own.
 
-## 2. Service-first discovery, runtime-first dependency
-
-Gotato uses two complementary directions:
-
-```text
-Product discovery
-  service use case → required semantics → stable runtime contract
-
-Code dependency
-  gRPC transport → service layer → runtime kernel
-```
-
-The service is the first product boundary. It reveals what callers need from Agent identity, conversation state, commands, Events, cancellation, errors, admission, and lifecycle.
-
-The runtime remains independent of the service technologies used to expose it. It does not import Protobuf, gRPC, Agent caches, Kubernetes APIs, or transport envelopes.
-
-## 3. One canonical execution path
+## 2. One canonical execution path
 
 ```text
 Remote client
@@ -52,9 +36,9 @@ Canonical Agent Runtime
 
 Every hosted Agent uses one state model, one Model/Tool loop, one Event model, and one cancellation model.
 
-A direct Go API can expose the same runtime boundary without introducing an embedded-only loop. Public library contracts emerge by promoting runtime interfaces already validated by the service and an in-process consumer.
+A direct Go API can expose the same runtime boundary without introducing an embedded-only loop. One boundary serves both consumers, or it is the wrong boundary.
 
-## 4. Product shape
+## 3. Product shape
 
 Gotato provides a coherent service system:
 
@@ -71,9 +55,9 @@ Agent Routine execution
 
 Applications provide Agent definitions, Models, capabilities, policies, and presentation. Gotato provides no first-party CLI, TUI, web, or chat experience.
 
-## 5. Design principles
+## 4. Design principles
 
-### 5.1 Prove abstractions through service behavior
+### 4.1 Prove abstractions through service behavior
 
 A runtime concept enters the architecture when a concrete Agent service behavior needs it and deterministic tests can describe it.
 
@@ -89,7 +73,7 @@ acceptance test
 
 This keeps the kernel grounded in executable use rather than speculative generality.
 
-### 5.2 Keep transport outside the kernel
+### 4.2 Keep transport outside the kernel
 
 The service translates between wire contracts and runtime contracts:
 
@@ -103,9 +87,9 @@ Canonical Event
 RunEvent
 ```
 
-Transport concerns stay in service and adapter packages. Runtime Messages, Events, results, and errors remain ordinary Go domain types.
+Transport concerns stay in service and adapter packages. Runtime Messages, Events, results, and errors remain ordinary Go domain types. The runtime does not import Protobuf, gRPC, Agent caches, Kubernetes APIs, or transport envelopes.
 
-### 5.3 Keep the kernel small
+### 4.3 Keep the kernel small
 
 The runtime kernel contains semantics required by Agent execution:
 
@@ -123,13 +107,13 @@ terminal settlement
 
 A small kernel keeps the complete control flow reviewable and testable without a network.
 
-### 5.4 Let Models reason and the Runtime execute
+### 4.4 Let Models reason and the Runtime execute
 
 The Model interprets input, selects visible Tools, combines results, and determines whether another Turn is useful.
 
 The Runtime assembles streams, validates arguments, schedules Tools, propagates cancellation, enforces limits, commits transcript state, converts failures, and emits canonical Events.
 
-### 5.5 Use one fact model across boundaries
+### 4.5 Use one fact model across boundaries
 
 Agent state transitions create canonical Events. Embedded observers, gRPC clients, logs, traces, and tests consume projections of the same facts.
 
@@ -147,13 +131,13 @@ Transport projection can filter, redact, coalesce, or encode Events without chan
 
 One Run produces exactly one terminal Event. Retry, context compaction, and queued continuation belong inside the Run rather than to an orchestration layer that could restart it afterwards. A caller that observes the terminal Event knows the Run is over and needs no second completion signal.
 
-### 5.6 Prefer explicit Go composition
+### 4.6 Prefer explicit Go composition
 
 Models, Tools, ToolSets, Extensions, factories, and policies enter through constructors and explicit options. Their ownership and dependencies remain visible in code.
 
 Reflection helpers and code generation may reduce boilerplate while preserving deterministic construction. Package-global registration and classpath-style discovery do not define the composition model.
 
-### 5.7 Bound all owned work
+### 4.7 Bound all owned work
 
 Every Model stream, Tool batch, Event bridge, Agent Routine, cache, and service admission path has explicit ownership, cancellation, buffering, and settlement behavior.
 
@@ -169,7 +153,7 @@ Run Context
 
 Execution never waits on a network peer. A remote consumer that cannot keep up is slowed, thinned, or disconnected by the service under an explicit bound. It does not hold the Model/Tool loop open, and it does not accumulate unbounded memory inside the Runtime.
 
-### 5.8 Follow Go's strengths
+### 4.8 Follow Go's strengths
 
 ```text
 small interfaces
@@ -181,7 +165,7 @@ explicit streams
 constructors and functional options
 ```
 
-## 6. Architectural layers
+## 5. Architectural layers
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -204,7 +188,7 @@ constructors and functional options
 
 Dependency direction points toward the runtime contracts. Deployment and transport packages can be replaced without redefining Agent execution.
 
-## 7. Ownership vocabulary
+## 6. Ownership vocabulary
 
 ```text
 Runtime Kernel  runs canonical Agent semantics
@@ -218,7 +202,7 @@ Transport       maps service behavior to a wire protocol
 Application     owns business meaning and presentation
 ```
 
-## 8. Scope
+## 7. Scope
 
 Gotato concentrates on Agent runtime and service infrastructure. External applications and specialized systems own:
 
@@ -234,7 +218,7 @@ company-wide platform governance
 
 Gotato integrates with these systems through Tools, ToolSets, Extensions, adapters, and service APIs.
 
-## 9. Success
+## 8. Success
 
 ```text
 a Go service can call an Agent through the official gRPC client
@@ -247,7 +231,7 @@ a slow or disconnected client is bounded without stalling the Runtime
 a direct Go consumer can reuse the same runtime boundary
 ```
 
-## 10. Review questions
+## 9. Review questions
 
 1. Which observed service behavior requires this concept?
 2. Which layer owns its state and failure semantics?
@@ -257,6 +241,6 @@ a direct Go consumer can reuse the same runtime boundary
 6. Is concurrency, buffering, cancellation, and settlement bounded?
 7. Is the abstraction stable enough for more than one consumer?
 
-## 11. Declaration
+## 10. Declaration
 
-> Gotato discovers its product through a working Go Agent service and structures its code around a transport-independent runtime kernel. The service is first-class, the loop is singular, the boundaries are explicit, and reusable library APIs are promoted from behavior proven in use.
+> Gotato exposes Agents as a service and structures its code around a transport-independent runtime kernel. The service is first-class, the loop is singular, the boundaries are explicit, and every owned operation is bounded.

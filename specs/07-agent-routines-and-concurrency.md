@@ -37,7 +37,33 @@ The default Tool batch policy SHOULD collect all finalized results. An explicit 
 
 Steering and Follow-up queue operations MUST be concurrency-safe and preserve acceptance order within each queue.
 
-## 6. Agent Routine
+## 6. Internal channels
+
+Channels are internal coordination primitives. A channel MUST NOT appear in a public runtime or service signature; callers interact through operations, streams, and Event subscriptions.
+
+Every channel MUST have:
+
+```text
+an explicit capacity
+one owning package
+one producer responsible for close
+```
+
+A blocking send or receive MUST participate in its owning Context:
+
+```go
+select {
+case queue <- event:
+case <-ctx.Done():
+    return ctx.Err()
+}
+```
+
+A bare send MUST NOT be used where the receiver can go away, and a sender goroutine MUST NOT outlive the Context that authorized it.
+
+These rules apply to the Event bridge, the Steering and Follow-up queues, Tool and Routine progress, service command handoff, and worker admission.
+
+## 7. Agent Routine
 
 An Agent Routine MUST contain:
 
@@ -53,7 +79,7 @@ settled Routine Result
 
 A Routine MUST use an Agent instance distinct from its parent and siblings.
 
-## 7. Spawn
+## 8. Spawn
 
 The Agent Routine package MUST support application-controlled spawn through an Agent factory.
 
@@ -66,7 +92,7 @@ result, err := routine.Wait(ctx)
 
 The final API MAY evolve while preserving asynchronous spawn, explicit cancellation, and single settlement.
 
-## 8. Model-controlled spawn
+## 9. Model-controlled spawn
 
 A model-callable `spawn_agent` Tool MAY wrap the Agent Routine API.
 
@@ -81,7 +107,7 @@ Parent Tool Call
 
 The spawn Tool MUST use the ordinary Tool lifecycle and parent Run limits.
 
-## 9. Lifecycle
+## 10. Lifecycle
 
 ```text
 Created → Queued → Running
@@ -92,7 +118,7 @@ Created → Queued → Running
 
 A Routine MUST settle exactly once. `Wait` calls after settlement MUST return the same immutable result.
 
-## 10. Cancellation
+## 11. Cancellation
 
 Parent Run cancellation MUST cancel every owned Routine Context.
 
@@ -100,7 +126,7 @@ Routine cancellation MUST reach the child Model, Tools, Extensions, subscribers,
 
 Sibling cancellation follows the selected Routine Group policy.
 
-## 11. Limits
+## 12. Limits
 
 The Runtime or Routine package MUST enforce:
 
@@ -114,7 +140,7 @@ child Turn and Tool limits
 
 A spawn request that exceeds a bound MUST return a typed limit outcome without starting the child Agent.
 
-## 12. Routine Events
+## 13. Routine Events
 
 Parent-facing lifecycle Events MUST include:
 
@@ -136,7 +162,7 @@ child_run_id
 
 Detailed child Events retain the child Run identity and MAY be exposed through a dedicated Routine subscription.
 
-## 13. Routine Group
+## 14. Routine Group
 
 A bounded Routine Group SHOULD support:
 
@@ -149,10 +175,10 @@ first success
 
 The selected policy MUST define sibling cancellation, result ordering, and group error behavior.
 
-## 14. Result ordering
+## 15. Result ordering
 
 Routine Group results SHOULD use spawn order for deterministic aggregation while Routine completion Events use actual completion order.
 
-## 15. Service relationship
+## 16. Service relationship
 
 Local Routines execute child Agents in goroutines. A future remote Routine executor MAY invoke a child Agent service while preserving Routine identity, Context, Events, limits, and Result semantics.

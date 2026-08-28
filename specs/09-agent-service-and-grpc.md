@@ -51,6 +51,18 @@ The bidirectional stream represents one attached Run.
 
 The Protobuf contract is the external compatibility surface. Generated types MUST stay at the transport boundary and MUST NOT appear in runtime signatures.
 
+Contract evolution MUST follow standard Protobuf compatibility rules:
+
+```text
+field numbers remain stable
+removed fields are reserved
+new fields are additive
+enums retain an unspecified value
+oneof command and Event variants evolve compatibly
+```
+
+The build SHOULD compare each change against the previously released contract so a breaking change fails before release.
+
 ## 4. Command protocol
 
 ```text

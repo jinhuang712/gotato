@@ -305,18 +305,7 @@ Service
 
 Fixed rails retain state transitions, validation, ordering, commitment, cancellation, and terminal settlement.
 
-## 22. Runtime kernel and public library
-
-The runtime kernel is the transport-independent Go implementation used by the service. A public library is a supported packaging and compatibility surface over that kernel.
-
-```text
-runtime kernel   implementation and semantic boundary
-public library   promoted API and compatibility commitment
-```
-
-They may share the same implementation without being declared stable at the same time.
-
-## 23. Vocabulary map
+## 22. Vocabulary map
 
 | Pair | Distinction |
 |---|---|
@@ -333,5 +322,4 @@ They may share the same implementation without being declared stable at the same
 | ToolSet / Extension | ToolSet adds capability; Extension changes behavior |
 | Agent Routine / goroutine | Routine is managed Agent work; goroutine schedules it locally |
 | Runtime / Service | Runtime executes Agents; Service hosts and exposes them |
-| Runtime kernel / library | Kernel is implementation boundary; library is public contract |
 | Go Context / Model context | Go Context cancels work; Model context carries reasoning material |

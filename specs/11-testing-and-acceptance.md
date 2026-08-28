@@ -151,7 +151,19 @@ same limits       → identical typed outcomes
 
 Divergence between the two paths is a contract violation, not a configuration difference.
 
-## 11. Quality gates
+## 11. Integration tests
+
+The acceptance suites above MUST pass with fakes alone. A separate integration layer exercises what those fakes deliberately stand in for:
+
+```text
+provider adapters      real Model endpoints and provider encoding
+capability adapters    real HTTP, gRPC, and MCP capability services
+deployment lifecycle   probes, rollout, and graceful termination
+```
+
+Integration tests MUST NOT be a precondition for the acceptance suites, and an acceptance test MUST NOT be relaxed because an integration test covers similar ground. The two answer different questions: acceptance asks whether the contract holds, integration asks whether an external system matches an adapter's assumptions about it.
+
+## 12. Quality gates
 
 ```text
 gofmt

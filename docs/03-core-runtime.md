@@ -21,7 +21,7 @@ Canonical Event
 RunEvent
 ```
 
-It is an architectural and implementation boundary before it is a public compatibility promise. A public Go library can promote this boundary after service and direct-use scenarios establish a stable API.
+The Runtime is a boundary in the dependency graph. The service names runtime types; the Runtime names nothing above it.
 
 ## 2. Runtime shape
 
@@ -333,7 +333,7 @@ blocking Extension failure, or exhausted Run limit
 
 Runtime errors use typed Go categories. Service adapters map those categories to portable error details and gRPC status without changing their meaning.
 
-## 17. Boundary test
+## 17. What belongs in the Runtime
 
 A component belongs in the Runtime when:
 
