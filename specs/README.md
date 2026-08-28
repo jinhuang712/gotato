@@ -4,6 +4,8 @@
 
 These documents define what an implementation must satisfy. Each one is self-contained: it states its own invariants rather than deferring to another document.
 
+Specs are the detailed source of truth for domain types, interface shapes, wire fields, state machines, ordering, bounds, failure semantics, and acceptance tests. Architecture documents may explain the reason for a choice, but an implementation MUST resolve technical ambiguity from the applicable spec rather than from an illustrative diagram in `docs/`.
+
 ## What is being built
 
 A gRPC Agent service backed by a transport-independent Go runtime.

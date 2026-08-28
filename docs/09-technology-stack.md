@@ -221,13 +221,7 @@ A wire format read by exactly one language and one version does not need any of 
 
 ## 11. gRPC
 
-`google.golang.org/grpc` is the canonical external transport:
-
-```proto
-service AgentService {
-  rpc Run(stream RunCommand) returns (stream RunEvent);
-}
-```
+`google.golang.org/grpc` is the canonical external transport for the bidirectional attached-Run stream.
 
 Bidirectional streaming carries:
 

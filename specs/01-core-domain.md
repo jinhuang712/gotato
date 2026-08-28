@@ -2,113 +2,286 @@
 
 **Status:** Draft
 
-> Agent owns state. Run owns activity. Turn owns one Model response and its Tool batch. Agent Routine owns a child Run relationship. The service owns how Agents are hosted.
+> Agent owns state. Run owns one invocation. Turn owns one Model response and its Tool batch. Every identity, state transition, and committed value has an explicit owner.
 
-```text
-Agent
-  └── active Run
-        ├── Turn 1 → Model → Tools
-        ├── Turn 2 → Model → Agent Routine
-        └── Turn 3 → Model → finish
+This specification defines the runtime values shared by the Agent loop. Service and transport layers may add identifiers and projections, but they MUST NOT replace these values or change their ownership rules.
+
+## 1. Identity types
+
+The implementation SHOULD use distinct Go types for identifiers even when their wire representation is a string:
+
+```go
+type AgentName string
+type ConversationKey string
+type RunID string
+type TurnNumber uint32
+type MessageID string
+type ToolCallID string
+type ToolSetName string
+type ToolName string
+type RoutineID string
+
+type RunStatus string
+const (
+    RunRunning          RunStatus = "running"
+    RunCompleted        RunStatus = "completed"
+    RunFailed           RunStatus = "failed"
+    RunCancelled        RunStatus = "cancelled"
+    RunDeadlineExceeded RunStatus = "deadline_exceeded"
+    RunLimitExceeded    RunStatus = "limit_exceeded"
+)
+
+type ToolUseStatus string
+const (
+    ToolUseRunning   ToolUseStatus = "running"
+    ToolUseBlocked   ToolUseStatus = "blocked"
+    ToolUseSucceeded ToolUseStatus = "succeeded"
+    ToolUseFailed     ToolUseStatus = "failed"
+    ToolUseCancelled  ToolUseStatus = "cancelled"
+)
+
+type RoutineStatus string
+const (
+    RoutineQueued    RoutineStatus = "queued"
+    RoutineRunning   RoutineStatus = "running"
+    RoutineCompleted RoutineStatus = "completed"
+    RoutineFailed    RoutineStatus = "failed"
+    RoutineCancelled RoutineStatus = "cancelled"
+)
 ```
 
-## 1. Agent
+The following rules apply:
 
-An `Agent` MUST own or reference:
+- `RunID` MUST be non-empty, immutable, and unique for the process lifetime.
+- `TurnNumber` MUST start at `1` and increase by one for each Model Turn in a Run.
+- A `MessageID` MUST be unique within an Agent transcript; streamed updates for one Message use one ID.
+- A `ToolCallID` MUST be unique within the assistant Message that produced it.
+- A qualified Tool ID is `ToolSetName + "." + ToolName`; a root Tool uses the reserved root namespace selected by the Agent configuration.
+- A `RoutineID` MUST be unique within its parent Run and MUST never be reused for a sibling Routine.
+- Service request IDs, stream IDs, trace IDs, and provider IDs are additional correlation values. They MUST NOT be used in place of `RunID` or `TurnNumber`.
 
-```text
-system instructions
-current Model
-Message history
-individual Tools
-registered ToolSets
-active ToolSets
-runtime options
-Steering and Follow-up queues
-streaming state
+IDs are opaque. Consumers MUST NOT infer time, ordering, ownership, or retry identity from their textual representation.
+
+## 2. Agent state
+
+An Agent is a stateful runtime object with one serialized mutation owner:
+
+```go
+type AgentState struct {
+    SystemInstructions string
+    Messages           []Message
+    RegisteredToolSets []ToolSetState
+    ActiveToolSets     []ToolSetName
+    Steering           []Message
+    FollowUps          []Message
+    Run                *ActiveRun
+    Options            RuntimeOptions
+}
+
+type ActiveRun struct {
+    RunID  RunID
+    Status RunStatus
+}
 ```
 
-An Agent MUST serialize state mutations through one active Run. State inspection MUST use snapshots or equivalent read-only views.
+The exact Go field names MAY evolve, but the state MUST represent these values. A caller MUST NOT receive mutable internal slices, maps, or pointers through a snapshot.
 
-The service decides how Agent instances are created, retained, and located. The runtime owns the consistency of each instance.
-
-## 2. Run
-
-A Run begins when `Prompt` or `Continue` is accepted and ends at execution settlement: the terminal Event has been emitted and awaited observers have returned.
-
-Every Run MUST have an immutable correlation identifier unique within the process lifetime. The service and transport MAY add request, stream, and external identifiers; added identifiers MUST NOT replace the runtime Run ID.
-
-The Run produces a `RunResult` containing final assistant output, usage, terminal status, Run ID, and correlation data.
-
-Whether a remote consumer received the Event stream is delivery settlement. It is owned by the service and is independent of Run completion.
-
-## 3. Turn
-
-A Turn begins before one Model call and ends after its assistant Message and requested Tool executions are finalized.
-
-A Run contains one or more Turns. Turns MUST have deterministic sequence numbers within the Run.
-
-## 4. Tool Call and Tool Use
-
-A Tool Call is the Model-produced request. A Tool Use is the Runtime execution attempt created after resolution and validation.
-
-Each Tool Use MUST retain:
+An Agent has the following state machine:
 
 ```text
-Run ID
-Turn sequence
-Tool Call ID
-qualified Tool ID
-validated arguments
-execution and block status
-final outcome
+Idle ──Prompt/Continue──► Running
+Idle ──Reset─────────────► Idle
+Running ──terminal───────► Idle
+Running ──Prompt/Continue► Busy error
+Running ──Reset──────────► Invalid-state error
 ```
 
-## 5. State invariants
+`Steer` and `FollowUp` are queue operations. They do not acquire a second Run and do not mutate committed transcript history until the loop reaches their defined boundary.
 
-- The accepted Prompt Message MUST be committed before its Model Turn.
-- An assistant Message MUST be committed before Pre-Tool-Use.
-- A Tool Result MUST reference a Tool Call from the current assistant Message.
-- Batch Tool Results MUST be committed in assistant source order.
-- ToolSet activation MUST affect the next Model Turn.
-- Terminal Runs MUST start no new Model, Tool, or Agent Routine work.
-- `Reset` and Run mutation MUST be mutually exclusive.
-- Snapshots MUST isolate internal slices and maps from caller mutation.
+## 3. Run
 
-## 6. Completion
+A Run is one accepted `Prompt` or `Continue` operation:
 
-A Run reaches its terminal result through:
+```go
+type RunResult struct {
+    RunID        RunID
+    Status       RunStatus
+    FinalMessage *Message
+    Usage        Usage
+    Error        *RuntimeError
+}
+```
+
+`RunResult` is immutable after execution settlement. `FinalMessage` is the last committed assistant Message when one exists. A Run that fails before an assistant Message MAY return a nil `FinalMessage`; it MUST still return its Run ID and terminal status.
+
+The runtime MUST expose equivalent statuses:
 
 ```text
-Model completion with no continuation
-all Tool Results request termination
-TurnStopper decision
-Context cancellation
-deadline or local limit
-fatal Model, Extension, or runtime failure
+completed
+failed
+cancelled
+deadline_exceeded
+limit_exceeded
 ```
 
-Tool execution failures normally become failed Tool Results and allow the next Model Turn.
-
-A transient Model failure MAY be retried inside the Run. Retry, compaction, and queued continuation MUST all complete before the terminal Event; nothing resumes execution after it.
-
-## 7. Agent Routine relationship
-
-An Agent Routine records:
+A Run lifecycle is:
 
 ```text
-Routine ID
-Routine name
-parent Run ID
-child Run ID
-Routine status
-Routine Result
+Created → Accepted → Running → Settling → Settled
 ```
 
-The child Run uses a distinct child Agent and retains normal Agent, Run, Turn, Tool, and Event semantics.
+`Created` is internal. `Accepted` means the Agent owns the Run and `agent_start` may be emitted. `Settling` begins after the loop has selected a terminal outcome and starts no new work. `Settled` means the terminal Event has been emitted and all awaited observers have returned.
 
-## 8. Service relationship
+A terminal Run MUST satisfy all of the following:
 
-The service layer owns external Run identity, admission, conversation resolution, caching, transport lifetime, and delivery around this Core state model.
+- exactly one terminal result is stored;
+- exactly one `agent_end` Event is produced;
+- no Model stream, Tool Use, Routine, queue continuation, or retry starts afterward;
+- repeated waits return the same immutable result;
+- cancellation of a settled Run is a no-op.
 
-It invokes the canonical runtime API. It MUST NOT maintain a second Agent state machine or reproduce loop behavior.
+Execution settlement is distinct from remote delivery settlement. The runtime MUST NOT wait for a network consumer.
+
+## 4. Turn
+
+A Turn owns one Model request and the Tool batch produced by that request:
+
+```go
+type Turn struct {
+    RunID       RunID
+    Number      TurnNumber
+    Assistant   Message
+    ToolUses    []ToolUse
+    StopReason  StopReason
+    Usage       Usage
+}
+```
+
+A Turn starts before context transformation and ends only after:
+
+1. the assistant Message is committed;
+2. every requested Tool Use has a finalized outcome; and
+3. the Tool Result Messages are committed in assistant source order.
+
+A Turn MUST NOT commit a Tool Result belonging to another Turn. A Turn number is never reused, including after an internal Model retry.
+
+## 5. Tool Call and Tool Use
+
+A Tool Call is Model output. A Tool Use is the Runtime-owned execution record:
+
+```go
+type ToolUse struct {
+    RunID         RunID
+    Turn          TurnNumber
+    CallID        ToolCallID
+    QualifiedID   string
+    ArgumentsJSON []byte
+    SourceIndex   uint32
+    Status        ToolUseStatus
+    Executed      bool
+    Result        *ToolResult
+}
+```
+
+The Runtime creates a Tool Use only after the complete argument JSON has been assembled, the Tool has been resolved, and Schema validation has passed. A blocked use has `Executed == false`; a failed executor has `Executed == true` and a failed result.
+
+The executor MUST be invoked at most once for one Tool Use. A retry is a new explicitly identified Tool Use, not an invisible replay of the old one.
+
+## 6. Snapshot contract
+
+`StateSnapshot` MUST return a read-only value equivalent to:
+
+```go
+type AgentSnapshot struct {
+    Messages          []Message
+    RegisteredToolSets []ToolSetState
+    ActiveToolSets    []ToolSetName
+    Busy              bool
+    ActiveRunID       *RunID
+    QueuedSteering    int
+    QueuedFollowUps   int
+}
+```
+
+The snapshot MUST:
+
+- preserve transcript order;
+- report active ToolSets in deterministic order;
+- copy all slices and maps, including nested Message content;
+- remain valid after the Agent starts, settles, or resets another Run;
+- omit mutable executor handles, Context values, provider clients, and internal locks.
+
+## 7. State invariants
+
+The following are Core invariants, not service policies:
+
+- An accepted Prompt Message is committed before its first Model request.
+- An assistant Message is committed before Pre-Tool-Use runs.
+- A Tool Result references a Tool Call in the current assistant Message.
+- Batch Tool Results are committed in assistant source order.
+- ToolSet activation is committed between Turns and affects the next Model request.
+- Steering and Follow-up acceptance order is preserved within each queue.
+- Reset and Run mutation are mutually exclusive.
+- A terminal Run starts no new work.
+- A snapshot cannot mutate Agent state through aliasing.
+
+## 8. Completion causes
+
+A Run may settle because of:
+
+```text
+normal Model completion with no continuation
+Tool or Extension termination decision
+context cancellation
+Run or child deadline
+local limit exhaustion
+fatal Model or protocol failure
+runtime invariant failure
+```
+
+Tool execution failure is not automatically a Run completion cause. When the loop remains valid, it becomes a failed Tool Result and the Model receives it as reasoning input.
+
+A transient Model failure MAY be retried inside the same Run only when the configured retry policy admits it. Any retry MUST finish before `agent_end`, MUST obey the Run Context and limits, and MUST NOT create a second terminal signal.
+
+## 9. Routine relationship
+
+An Agent Routine owns a child Run relationship:
+
+```go
+type RoutineRef struct {
+    RoutineID  RoutineID
+    Name       string
+    ParentRun  RunID
+    ChildRun   RunID
+    Status     RoutineStatus
+}
+```
+
+The child uses a distinct Agent instance and transcript. Parent and child share correlation, not mutable Agent state.
+
+## 10. Service relationship
+
+The service owns:
+
+```text
+external request and stream identity
+Agent definition lookup
+conversation routing and cache retention
+admission
+remote Event delivery
+readiness and drain
+```
+
+The Runtime owns:
+
+```text
+Agent state consistency
+Run and Turn sequencing
+Model/Tool execution
+canonical Events
+Context propagation
+local limits
+execution settlement
+```
+
+A service handler, cache, or Routine executor MUST call these Runtime operations rather than implementing another state machine.
