@@ -69,7 +69,7 @@ readiness and drain
 error-to-status mapping
 ```
 
-Tests must distinguish process-local cache guarantees from cross-Pod continuity. A multi-Pod test requires an explicit sticky-routing, distributed-owner, or durable-state fixture.
+The initial PoC tests process-local cache guarantees only. Cross-Pod continuity is intentionally out of scope; its tests belong to the reserved Multi-Pod Conversation Ownership design and require an explicit sticky-routing, distributed-owner, or durable-state fixture.
 
 ## 8. Equivalence acceptance
 

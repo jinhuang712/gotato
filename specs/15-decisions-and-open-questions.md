@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> The Core boundary is decided. Host and platform policies remain explicit compatibility choices.
+> The Core boundary is the primary commitment. Host and platform policies remain explicit composition choices; the project does not claim novelty for generic Agent or distributed-system patterns.
 
 ## 1. Decisions
 
@@ -33,7 +33,7 @@
 17. Protected Events cannot be silently dropped; remote progress may be coalesced under bounds.
 18. Execution settlement and delivery settlement are independent.
 19. A Host may treat attached stream closure as Run cancellation, but the policy must be explicit.
-20. Ordinary Kubernetes load balancing does not guarantee Conversation continuity across Pods.
+20. The initial PoC is single-Pod. Ordinary Kubernetes load balancing does not guarantee Conversation continuity across Pods.
 
 ### Model and capabilities
 

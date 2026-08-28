@@ -1,12 +1,12 @@
 # Gotato
 
-> A Go-native Agent Core with an optional Agent-as-a-Service host.
+> A Go-native Agent Runtime Core for embedding stateful, tool-using Agents, with an optional hosted composition.
 
 **Status:** design phase. This repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
 
 ## What this is
 
-Gotato has a stable, self-contained in-process kernel and an optional hosted composition:
+Gotato is a runtime library first and a hosted service composition second. Its primary deliverable is a stable, self-contained Agent Core for stateful, tool-using execution:
 
 ```text
 Embedded application
@@ -28,6 +28,8 @@ Transport ─► Orchestrator / Agent Host ─► Agent Core
 ```
 
 The Core owns Agent execution. The Orchestrator owns the coordination of many Core instances. Transport maps a protocol onto the Orchestrator. Infrastructure such as gateways, load balancers, Kubernetes, storage, and credentials remains an external deployment concern.
+
+Gotato does not claim to invent a new Model-to-Tool loop, provider abstraction, or general distributed actor system. Its design objective is to make Agent execution a disciplined Go component with explicit state ownership, bounded work, cancellation, Events, and extension points. Hosted mode demonstrates how that Core can be composed for remote access; it is not a second product kernel.
 
 ## Two first-class modes
 

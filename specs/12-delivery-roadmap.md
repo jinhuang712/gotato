@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Stabilize Agent Core first, then add hosted orchestration and transport without changing Core semantics.
+> Deliver a disciplined Agent Core first, then add a small hosted composition without changing Core semantics.
 
 ## Structural invariants
 
@@ -12,6 +12,7 @@ From the first code commit:
 Core has no transport, Host, Infrastructure, or provider SDK dependency
 one canonical Agent Loop exists
 Core exposes a self-contained in-process boundary
+initial PoC targets one Host process in one Pod
 one Run emits exactly one terminal Event
 all owned work has explicit Context, bound, and settlement
 Host never duplicates the Core Loop
@@ -91,7 +92,9 @@ remote Event delivery and cancellation
 
 **Exit:** a remote client executes the same Core Loop through the Host.
 
-## Slice 7 — Multi-Pod Continuity
+## Reserved Slice 7 — Multi-Pod Continuity
+
+This slice is deliberately outside the initial single-Pod PoC and remains a separately scoped future effort:
 
 ```text
 keyed routing or distributed ownership

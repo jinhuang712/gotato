@@ -94,7 +94,9 @@ Infrastructure routes and hosts processes:
 Gateway · Kubernetes Service · load balancer · Pod · storage
 ```
 
-It may select a Pod, but it cannot resolve a process-local conversation Agent unless an explicit sticky-routing, ownership, or durable-state contract exists.
+The initial PoC assumes one Host process in one Pod. In that scope, process-local routing is sufficient and no cross-Pod ownership protocol is required.
+
+Multi-Pod Conversation Ownership is intentionally reserved as a separate future contract. Ordinary infrastructure routing must not be presented as providing that guarantee.
 
 ## 8. Conversation
 
@@ -108,7 +110,9 @@ Host ownership / routing
 Core Agent instance
 ```
 
-Process-local cache coordination is not distributed ownership. Multi-Pod continuity requires keyed routing, a distributed lease, or durable state restoration.
+For the initial PoC, Conversation ownership is process-local. A cache may coordinate creation and pin an active Agent within the Host process.
+
+Multi-Pod continuity is out of scope for the PoC and remains a separately reserved design area. A future implementation may choose keyed routing, a distributed lease, or durable state restoration.
 
 ## 9. Model Layer
 

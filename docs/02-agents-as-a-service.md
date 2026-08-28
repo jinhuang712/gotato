@@ -2,11 +2,11 @@
 
 **Status:** Draft
 
-> Agent-as-a-Service is a hosted composition of Transport, Orchestration, and Agent Core. It is not a different Agent execution model.
+> Agent-as-a-Service is a first-class hosted composition of Transport, Orchestration, and Agent Core. The Core remains the primary execution boundary; Hosted mode is the remote delivery form, not a different Agent execution model.
 
 ## 1. Scope
 
-Hosted mode makes Core Agents available to remote clients:
+Hosted mode makes Core Agents available to remote clients. The initial PoC deliberately uses one Host process in one Pod; the hosted layer is being validated as a thin composition around Core, not as a distributed platform:
 
 ```text
 Client
@@ -102,31 +102,23 @@ The Host owns global admission such as maximum active Runs, streams, queued requ
 
 The concrete preset values remain configuration decisions; the contract requires that each bound be explicit and observable.
 
-## 6. Conversation ownership
+## 6. Conversation ownership in the PoC
 
-A Host may resolve a conversation to a stateful Core Agent:
+The initial PoC runs one Host process in one Pod. Conversation ownership is therefore process-local:
 
 ```text
 agent_name + conversation_key
               ↓
-conversation owner
-              ↓
-Agent factory or cache
+process-local owner / cache
               ↓
 Core Agent
 ```
 
-An in-process cache can coordinate creation and pin an active Agent. It cannot provide cross-Pod continuity by itself.
+The Host may coordinate creation, pin an active Agent, and evict only idle Agents. No cross-Pod continuity is promised or required for this phase.
 
-For multiple Pods, continuity requires one of:
+### Reserved: Multi-Pod Conversation Ownership
 
-```text
-keyed/sticky routing
-explicit distributed ownership lease
-persistent state and restoration
-```
-
-A Kubernetes Service's ordinary load balancing provides none of these guarantees. The Hosted Service must not imply cross-Pod conversation continuity unless one is configured.
+Multi-Pod continuity is intentionally left as a separate future design area. It may require keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing alone is not a continuity guarantee.
 
 ## 7. Event delivery
 
