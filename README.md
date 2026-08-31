@@ -1,14 +1,16 @@
 # Gotato
 
 > **Agent as a Service.**
->
-> **Core Native to Go.**
 
-**Status:** design phase. Gotato is being designed as a small, embeddable Agent runtime with an optional Hosted form. The repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
+> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+
+**Status:** Design phase. The repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
 
 ## What Gotato is
 
-Gotato gives an existing Go service a basic Agent without asking the service to assemble a Runner, a workflow engine, or a platform. The caller supplies a Model and optional Tools, then calls the Agent through a small Go interface. Gotato owns the Agent Loop, conversation state, Tool execution, cancellation, and Events internally.
+Gotato gives an existing Go service a stateful, tool-using Agent through a small Go interface. The caller provides a Model and optional Tools; Agent Core owns the conversation state, canonical Agent Loop, Tool execution, cancellation, and Events. The service does not need to assemble a Runner, workflow engine, or platform first.
+
+In this vocabulary, Gotato is the runtime, Agent Core is its execution kernel, and Host is the optional service composition around Core. Self-contained means that an Agent owns its private state and current work; it does not mean that it has no Model or Tool adapters.
 
 ```go
 agent, err := gotato.NewAgent(
@@ -23,24 +25,20 @@ if err != nil {
 result, err := agent.Prompt(ctx, gotato.UserMessage(input))
 ```
 
-The same Agent can stay inside the existing service or be exposed as an Agent Service later:
+Gotato is embedded-first. The same Core semantics can stay inside the existing service or later be exposed as a Hosted Agent Service:
 
 ```text
 Embedded: Application → Agent Core
 Hosted:   Client → Agent Host / Orchestration → Agent Core
 ```
 
-Hosted mode changes access and coordination, not the Agent implementation. A remote caller uses the same Agent semantics as a local caller.
+Hosted mode changes access and coordination, not the Agent implementation. A remote caller uses the same Agent semantics as a local caller. “As a Service” describes this callable semantic boundary; network hosting is optional.
 
 ## Project principles
 
-### Agents are goroutines.
+### Agents are self-contained goroutines: each owns its state and work.
 
-Each Agent has one Go-native execution unit. Its private state is confined to that unit, and its public handle provides the safe way to call it.
-
-### Agents own their work.
-
-An Agent owns its private conversation state and current Run. Callers and Hosts own external request policy, routing, and scheduling.
+Each Agent has one Go-native execution unit. Its private conversation state and current Run are confined to that unit, and its public handle provides the safe way to call it. Callers and Hosts own external request policy, routing, and scheduling.
 
 ### Infrastructure hosts. Orchestration coordinates. Agent Core executes.
 
@@ -105,9 +103,9 @@ Model
   Response / Events
 ```
 
-The Core handles the canonical Model → Tool → Model Loop and bounded local work. It does not require a separate service process. Long-term memory, workflows, multi-agent policy, and durable distributed state are separate products or extensions, not prerequisites for a basic Agent.
+The Core handles the canonical Model → Tool → Model Loop and bounded local work. It does not require a separate service process. Long-term memory, workflows, multi-agent policy, and durable distributed state are separate products or extensions, not prerequisites for the first stateful Agent.
 
-## Agent as a Service
+## From Embedded Agent to Hosted Service
 
 A Hosted Agent Service is a thin composition around the same Core:
 
@@ -146,7 +144,9 @@ The initial Hosted PoC may use one process, one Pod, local routing, and an exist
 
 ## Origin
 
-Gotato is inspired by [Pi](https://pi.dev), a minimal and highly extensible coding-agent harness created by Mario Zechner and its contributors. Gotato is an independent Go design shaped around a small Agent Core and an optional Hosted composition, not a port of Pi's terminal product.
+**Inspired by [Pi's Agent Kernel](https://pi.dev), redesigned as a Go-native Agent Runtime.**
+
+Gotato is an independent Go design shaped around a minimal Agent Core and an optional Hosted composition, not a port of Pi's terminal product.
 
 Details and attribution: [shout-out](docs/shout-out.md).
 

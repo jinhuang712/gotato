@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **Agents are goroutines. Agent Core makes them callable and safe.**
+> **Agents are self-contained goroutines: each owns its state and work.**
 
 ## 1. Identity types
 

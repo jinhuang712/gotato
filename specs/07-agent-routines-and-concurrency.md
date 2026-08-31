@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **Agents are goroutines. Orchestration coordinates their work.**
+> **Agents are self-contained goroutines; Orchestration coordinates their work.**
 
 ## 1. Agent Routine
 

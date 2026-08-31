@@ -43,7 +43,7 @@ type ControllableAgent interface {
 }
 ```
 
-Exact names may evolve, but the basic Agent path must remain small. Advanced capabilities use the same Core Loop rather than a second execution API.
+Exact names may evolve, but the minimal Agent path must remain small. Advanced capabilities use the same Core Loop rather than a second execution API.
 
 ## 2. Core command behavior
 
@@ -66,7 +66,7 @@ creating another Agent
 
 Construction validates the Model, Tools, optional ToolSets, Extensions, Schemas, namespaces, and local limits before the Agent accepts its first execution.
 
-A basic Agent requires only a Model and may have no Tools. Typed function helpers SHOULD make a normal Go function easy to expose as a Tool.
+The minimal Agent path requires only a Model and may have no Tools. Typed function helpers SHOULD make a normal Go function easy to expose as a Tool.
 
 Each Agent receives private conversation state. Core may keep the current transcript in memory for multi-turn behavior. Long-term Memory, retrieval, compaction, artifacts, and cross-session persistence are not Core requirements.
 

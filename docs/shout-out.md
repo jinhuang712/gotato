@@ -1,6 +1,6 @@
 # Shout-out and Project Origin
 
-> Gotato is inspired by Pi's small and extensible Agent kernel.
+> **Inspired by Pi's Agent Kernel, redesigned as a Go-native Agent Runtime.**
 
 ## Background
 
@@ -19,7 +19,7 @@ Model stream
 Gotato asks how those semantics can become an idiomatic Go Agent Core that is useful both inside an existing service and behind a hosted Agent API:
 
 ```text
-Pi-like loop
+Pi Agent Kernel
      ↓
 Go Agent Core
   Context · interfaces · bounded work

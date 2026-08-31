@@ -2,13 +2,13 @@
 
 **Status:** Draft
 
-This glossary fixes the small set of terms used across the architecture documents and specifications. `docs/` explains why they fit together; `specs/` defines their behavior.
+This glossary fixes the minimal set of terms used across the architecture documents and specifications. `docs/` explains why they fit together; `specs/` defines their behavior.
 
 ## Core terms
 
 ### Agent
 
-A callable, stateful Go runtime unit. An Agent accepts a Prompt or Continue, runs its Model and Tools, and returns a result or stream through a small interface.
+A callable, self-contained, stateful Go runtime unit. An Agent accepts a Prompt or Continue, runs its Model and Tools, and returns a result or stream through a small interface. Self-contained means that it owns its private state and current work; Model and Tool adapters may remain external.
 
 ### Agent Core
 
@@ -54,7 +54,7 @@ The adapter that connects a Go function, service, or external system to the Core
 
 ### ToolSet
 
-A named group of related Tools that can be activated and exposed in deterministic order. ToolSets are optional for a basic Agent.
+A named group of related Tools that can be activated and exposed in deterministic order. ToolSets are optional for the minimal Agent path.
 
 ### Extension
 
@@ -72,7 +72,7 @@ The optional coordinating layer that creates and routes Agents, applies admissio
 
 ### Host
 
-The optional service composition around Agent Core. A Host combines Orchestration with protocol adapters, remote access, cancellation mapping, readiness, and drain.
+The optional service composition around Agent Core. A Host combines Orchestration with protocol adapters, remote access, cancellation mapping, readiness, and drain. Orchestration is the coordination responsibility; Host is the composition that exposes and operates it.
 
 ### Protocol adapter
 

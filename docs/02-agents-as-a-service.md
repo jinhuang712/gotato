@@ -16,7 +16,7 @@ Agent Host / Orchestration
 Agent Core
 ```
 
-The same Agent can also be used directly:
+The same Agent Core can also be used directly:
 
 ```text
 Existing Go Service → Agent Core

@@ -1,17 +1,17 @@
 # Gotato Documentation
 
 > **Agent as a Service.**
->
-> **Core Native to Go.**
 
-Gotato is a small Go-native Agent runtime that can be embedded in an existing service or exposed as a Hosted Agent Service. The user-facing idea is simple: provide a Model and optional Tools, then call an Agent. The runtime owns the execution details.
+> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+
+The runtime is easily embedded in an existing Go service and can be exposed as a Hosted Agent Service. The user-facing idea is simple: provide a Model and optional Tools, then call a stateful Agent. Agent Core owns the execution details. “As a Service” describes the Agent's callable boundary; Hosted deployment is optional.
 
 ```text
 Embedded: Application ── Agent interface ──► Agent Core
 Hosted:   Client ── protocol adapter ──► Host / Orchestration ──► Agent Core
 ```
 
-The two paths share one Agent contract and one execution model. Hosting changes access, routing, and lifecycle; it does not create a second Agent implementation.
+The two paths share one Agent contract and one execution model. Hosting changes access, routing, and lifecycle; it does not create a second Agent implementation. In this vocabulary, Orchestration coordinates, Host exposes the service boundary, and Infrastructure hosts the processes.
 
 ## The architecture in one picture
 
@@ -37,7 +37,7 @@ A protocol adapter may connect a remote client to the Host. It is a replaceable 
 
 ## Reading order
 
-1. [Philosophy](00-philosophy.md) — the product thesis and four principles
+1. [Philosophy](00-philosophy.md) — the product thesis and three principles
 2. [Glossary](glossary.md) — shared vocabulary
 3. [Conceptual models](01-conceptual-models.md) — Agent, Core, Host, and adapters
 4. [Agent Core](03-core-runtime.md) — the minimal execution runtime
@@ -54,7 +54,7 @@ A protocol adapter may connect a remote client to the Host. It is a replaceable 
 
 ### Agent Core
 
-Core owns the small set of semantics needed by every Agent: conversation state, the canonical Model → Tool → Model Loop, Tool invocation, cancellation, local limits, and canonical Events. Its public handle is the main integration surface.
+Core owns the minimal set of semantics needed by every Agent: conversation state, the canonical Model → Tool → Model Loop, Tool invocation, cancellation, local limits, and canonical Events. Its public handle is the main integration surface.
 
 ### Agent Host / Orchestration
 
