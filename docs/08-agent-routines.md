@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> This document describes the advanced concurrency model behind the simple Agent interface.
+> This document describes the Agent execution units that Core provides and the Orchestration required to coordinate more than one.
 
 ## 1. Why this is an advanced concept
 
@@ -17,30 +17,32 @@ Agent handle
         └── result / Event boundary
 ```
 
-The Routine is an implementation and coordination concept. Callers do not create goroutines or manage channel topology merely to call an Agent.
+The Routine is Core's execution unit, not a resource the caller has to assemble. Callers do not create goroutines or manage channel topology merely to call one Agent. When multiple Routines must be revisited or coordinated, application code or Gotato Orchestration owns the handles and coordination channels.
+
+Run settlement does not close a Routine. A retained Routine remains available until its owner closes it. An ephemeral Routine may be retired after its task settles; a persistent Routine may be closed while its Conversation becomes Dormant. Go garbage collection is not an Agent lifecycle mechanism.
 
 ## 2. Single-flight execution
 
 One Agent Routine processes one Prompt or Continue at a time:
 
 ```text
-Free ── dispatch one Prompt ──► Busy
-Free ◄──── result / settlement ─ Busy
+Idle ── dispatch one Prompt ──► Busy
+Idle ◄──── result / settlement ─ Busy
 ```
 
-A second Prompt is not executed concurrently by the same Routine. Whether it waits, queues, is rejected, or becomes a control action is decided by the caller or Host.
+A second Prompt is not executed concurrently by the same Routine. While `Closing` or `Closed`, it is rejected rather than classified as ordinary busy work. Whether an Idle Agent request waits, queues, is rejected, or becomes a control action is decided by application Orchestration or Host policy.
 
 This protects Agent state without making Core a general request scheduler.
 
 ## 3. Spawn
 
-An Agent may create another independent Agent Routine directly or request one through a Host/application coordinator:
+An Agent may create another independent Agent Routine directly or request one through an application Orchestration coordinator:
 
 ```text
 Agent A ── spawn request ──► Agent B
 ```
 
-B has independent state, channels, limits, and lifecycle. Spawn provenance may be represented by IDs for correlation; it does not create resource ownership or automatic lifetime inheritance.
+B has independent state, channels, limits, and lifecycle. Spawn provenance may be represented by IDs for correlation; it does not create resource ownership or automatic lifetime inheritance. Orchestration may explicitly choose an Ephemeral child policy that closes B after its terminal Run, or a Persistent child policy that retains B's Conversation for later rehydration.
 
 No Agent directly mutates another Agent. Communication uses the Agent contract or explicit channel-backed coordination.
 
@@ -48,15 +50,15 @@ No Agent directly mutates another Agent. Communication uses the Agent contract o
 
 A Run is one Prompt or Continue accepted by a Routine. It has an identity, Context, Event sequence, and settled result. A Run is not a container that owns another Agent Routine.
 
-The Routine remains available for another execution only after its current Run settles. Request queuing between Runs belongs to the caller or Host.
+The Routine remains available for another execution only after its current Run settles. Request queuing between Runs belongs to application Orchestration or Host.
 
 ## 5. Communication and control
 
 ```text
-caller / Host ── command ──► Agent A
-Agent A        ── result ───► caller / Host
-Agent A        ── Event ────► observer / Host
-Agent A        ── spawn ────► application / Host
+caller / Orchestration ── command ──► Agent A
+Agent A        ── result ───► caller / Orchestration
+Agent A        ── Event ────► observer / Orchestration
+Agent A        ── spawn ────► application / Orchestration
 Agent A        ── command ──► Agent B
 ```
 
@@ -67,7 +69,7 @@ These relationships may use Go interfaces, private channels, or a protocol adapt
 Cancellation is an explicit Context signal or command:
 
 ```text
-caller / Host
+caller / Orchestration / Host
      │ Cancel
      ▼
 Agent Routine
@@ -76,7 +78,7 @@ Agent Routine
      └── local owned work
 ```
 
-Creating B does not automatically place B in A's cancellation tree. An application or Host may choose cascading cancellation and send B an explicit signal.
+Creating B does not automatically place B in A's cancellation tree. Application Orchestration or Host may choose cascading cancellation and send B an explicit signal.
 
 ## 7. Core and Host bounds
 
@@ -90,13 +92,14 @@ Tool result and progress volume
 Run, Model, and Tool deadlines
 ```
 
-Host bounds the surrounding coordination:
+Application Orchestration / Host bounds the surrounding coordination:
 
 ```text
 Agent instances
 queued Prompts
 active Runs
 spawn requests
+retirement and close operations
 Event delivery
 ```
 
@@ -104,7 +107,7 @@ A rejected request does not create a Run or Routine. A Core command rejection do
 
 ## 8. Routine groups
 
-A group is a coordination pattern over independent Routines:
+A group is a coordination pattern over independent Routines. Therefore, multiple Routines require a coordinator somewhere, even if it is only application code holding fixed Agent handles; the Gotato Orchestration components provide the reusable form, with Host exposing it for remote coordination:
 
 ```text
 coordinator
@@ -113,7 +116,7 @@ coordinator
   └── Agent Routine C
 ```
 
-Collect-all, fail-fast, collect-partial, and first-success are Host/application policies. They do not establish resource ownership or automatic cancellation inheritance.
+Collect-all, fail-fast, collect-partial, and first-success are application Orchestration/Host policies. They do not establish resource ownership or automatic cancellation inheritance.
 
 ## 9. Events and correlation
 
@@ -131,6 +134,6 @@ These fields describe provenance. They do not merge transcripts or create a pare
 
 ## 10. Remote placement
 
-The initial implementation may keep Routines in one process. A Hosted composition may later connect independent Routines across a process boundary while preserving command identity, result correlation, cancellation, bounds, and Event meaning.
+The initial implementation may keep Routines in one process. Orchestration may later connect independent Routines across a process boundary while preserving command identity, result correlation, cancellation, bounds, close acknowledgement, and Event meaning.
 
-Remote placement is a Host/protocol concern. It must not turn an Agent into an owned child resource or introduce a second Agent Loop.
+Remote placement is an Orchestration/Host protocol concern. It must not turn an Agent into an owned child resource or introduce a second Agent Loop. A remote close is complete only after the Core side acknowledges `Closed`; delivery of that acknowledgement may settle later.

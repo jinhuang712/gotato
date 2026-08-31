@@ -106,4 +106,4 @@ A Tool adapter owns authentication, external timeout mapping, protocol translati
 
 ## 10. Embedded and Hosted
 
-In Embedded mode, an application installs Tools directly on a Core Agent. In Hosted mode, a Host creates the Agent and delivers Tool Events through its protocol adapter. The Tool contract is identical in both modes.
+In Embedded mode, an application installs Tools directly on a Core Agent. In Hosted mode, Orchestration creates or resolves the Agent and Host delivers Tool Events through its protocol adapter. The Tool contract is identical in both modes.

@@ -2,25 +2,25 @@
 
 **Status:** Draft
 
-> **Agent as a Service.**
+> **Go-native Agent Runtime and Orchestration.**
 
-> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+> Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
 
 ## 1. Decisions
 
 ### Product shape
 
-1. Gotato provides a minimal Go-native Agent Core and an optional Hosted Agent Service. Embedded use is the first-class path; Hosted use is an optional composition.
+1. Gotato provides an atomic Go-native Agent Core and a first-class Orchestration path for managed multi-Agent use. Hosted Agent Service is the service-facing form of that path.
 2. An Agent is a callable, goroutine-backed stateful execution unit with private state.
-3. Agent-as-a-Service exposes the same Agent Core through Host / Orchestration and an optional protocol adapter; it does not create a second Agent implementation.
+3. A single Agent may be used through a retained handle; multiple Agents require Orchestration to retain, address, route, and coordinate those handles. Hosted access does not create a second Agent implementation.
 4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are integration choices, not Gotato products.
-5. Applications own business meaning, presentation, and any Embedded request scheduler.
+5. Applications own business meaning, presentation, and may implement Orchestration for fixed Embedded Agent sets; Gotato provides the reusable Orchestration path.
 
 ### Core semantics
 
 6. The Agent goroutine is the only authority for its private state and canonical Loop.
 7. One Agent goroutine processes one Prompt or Continue at a time.
-8. Core does not own the external Prompt queue. A caller or Host decides reject, queue, priority, Steer, Abort, or creation of another Agent routine.
+8. Core does not own the external Prompt queue. Application Orchestration or Host decides reject, queue, priority, Steer, Abort, or creation of another Agent routine.
 9. There is exactly one canonical Agent Loop for all Agent goroutines.
 10. Prompt, Continue, Tool, Extension, and control messages converge on that Loop.
 11. Prompt and Continue return a settled Core RunResult; Events are published through the Agent Event boundary.
@@ -38,10 +38,10 @@
 20. Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels or channel-backed handles.
 21. A failure or cancellation in one independent Agent does not automatically terminate another Agent.
 
-### Host and protocol adapters
+### Orchestration, Host, and protocol adapters
 
-22. Orchestration/Agent Host manages Agent creation, admission, external request queues, dispatch, routing, remote delivery, and lifecycle.
-23. Host and protocol adapters must not duplicate Core state or Loop behavior.
+22. Orchestration manages Agent identity, handle retention, creation, admission, external request queues, dispatch, routing, multi-Agent coordination, and lifecycle. Host adds the service-facing boundary, remote delivery, and protocol attachment.
+23. Orchestration, Host, and protocol adapters must not duplicate Core state or Loop behavior.
 24. gRPC is one optional protocol adapter for Hosted use, not a Core dependency.
 25. Protected Events cannot be silently dropped; remote progress may be coalesced under bounds.
 26. Execution settlement and remote delivery settlement are independent.
@@ -53,6 +53,16 @@
 29. Model Router and provider adapters own provider selection and provider-specific policy.
 30. Tools, ToolSets, and Extensions are explicit Agent capabilities.
 31. Agent Routines and spawned Agents use the canonical Loop and channel-backed coordination.
+32. A single Agent can be used through a retained handle without Orchestration. Once multiple Agents must be found, revisited, scheduled, or coordinated, those responsibilities are mandatory somewhere in application code or Gotato Orchestration, with Host exposing it when needed; Core provides neither a global lookup nor recovery from AgentID alone.
+33. Run settlement does not close an Agent. A retained Agent remains usable until explicit close or an owner-selected retirement policy.
+34. Core exposes an idempotent, context-bounded close operation. Closing rejects new Runs, settles or explicitly cancels the current Run, closes local resources exactly once, and does not wait for remote delivery.
+35. The default policy for a directly constructed Agent is `Retain`; `AfterRun`, `AfterIdle`, and `Ephemeral` are Orchestration retirement policies.
+36. An Agent may request retirement after its current Run, but the owner decides whether to honor it. The request cannot mutate an external routing table or destroy another Agent.
+37. Conversation identity belongs to Orchestration and may outlive a live Agent. Retained retirement persists state before route removal; rehydration creates a new AgentID for the same ConversationID.
+38. A failed retained-retirement persistence operation must not be reported as successful. Ephemeral/discard retirement must not silently reuse discarded state.
+39. Parent/child spawn correlation does not imply lifecycle ownership. Workflow-level cancellation or cleanup must be an explicit Orchestration policy.
+40. A retained Conversation passes through `Retiring`; Orchestration stops admission and fences stale handles before persistence, close acknowledgement, and `Dormant` route installation.
+41. Host drain expiry is an incomplete-drain outcome, not proof that Busy or Closing Agents were closed. Go cannot forcibly terminate work that ignores Context.
 
 ## 2. Open Core questions
 
@@ -79,18 +89,21 @@
 6. How independent Agent shutdown is acknowledged
 ```
 
-## 4. Open Host questions
+## 4. Open Lifecycle and Host questions
 
 ```text
-1. Host concurrency defaults: streams, Agent goroutines, Runs, and queues
-2. Default external Prompt policy while an Agent is Busy
-3. Default Event Bridge capacity and queue-full policy
-4. Progress coalescing window and memory bound
-5. Cache size, TTL, and reset defaults
-6. Default stream-close cancellation behavior
-7. Exact Conversation routing mechanism for future multi-Pod deployments
-8. Whether detailed Events from independent spawned Agents share or separate a stream
-9. Host admission and quota scope for multi-tenant deployments
+1. Whether `Close(context.Context) error` is the final Core spelling or an additive lifecycle interface
+2. Whether lifecycle signals use a separate AgentLifecycleEvent type or a separate channel contract
+3. Snapshot format and atomic persistence interface for retained Conversations
+4. Host concurrency defaults: streams, Agent goroutines, Runs, and queues
+5. Default external Prompt policy while an Agent is Busy
+6. Default Event Bridge capacity and queue-full policy
+7. Progress coalescing window and memory bound
+8. Cache size, idle TTL, and reset defaults
+9. Default stream-close cancellation and Agent-retirement behavior
+10. Exact Conversation routing mechanism for future multi-Pod deployments
+11. Whether detailed Events from independent spawned Agents share or separate a stream
+12. Host admission and quota scope for multi-tenant deployments
 ```
 
 ## 5. Open integration questions

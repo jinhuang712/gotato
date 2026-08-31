@@ -11,6 +11,7 @@ The implementation SHOULD use distinct Go types:
 ```go
 type AgentID string
 type AgentName string
+type ConversationID string
 type ConversationKey string
 type RunID string
 type TurnNumber uint32
@@ -19,6 +20,7 @@ type ToolCallID string
 type ToolSetName string
 type ToolName string
 type SpawnID string
+type AgentGeneration uint64
 ```
 
 An `AgentID` identifies one Agent goroutine and its private state. A `RunID` identifies one Prompt or Continue handled by that routine. A `SpawnID` correlates an Agent creation request without implying ownership or a parent/child resource hierarchy.
@@ -38,6 +40,14 @@ Agent
 ```
 
 Agent state is never directly mutated by callers, Hosts, or other Agents. Commands are delivered to the Agent goroutine, which is the only authority allowed to mutate that Agent's state.
+
+Run settlement does not end the Agent. The Core lifecycle is:
+
+```text
+Created → Idle ⇄ Busy → Closing → Closed
+```
+
+A directly held Agent remains usable after a Run settles until its owner explicitly closes it. An Agent entering `Closing` accepts no new Prompt or Continue. Close behavior, retirement intent, and Conversation retention are defined in [spec 16](16-agent-lifecycle-and-retirement.md).
 
 ```go
 type AgentState struct {
@@ -59,20 +69,20 @@ The exact fields may evolve, but private state, Agent-owned work, and execution 
 An Agent goroutine processes one Prompt or Continue at a time:
 
 ```text
-Free ── accept one command ──► Busy
-Free ◄──── terminal result ─── Busy
+Idle ── accept one command ──► Busy
+Idle ◄──── terminal result ─── Busy
 ```
 
-This is a local execution property. Core does not own the external request queue. A direct caller may receive a typed busy/not-available result when the Agent is Busy. An Orchestrator may instead queue, reject, prioritize, steer, or abort before dispatching a command.
+This is a local execution property. Core does not own the external request queue. A direct caller may receive a typed busy/not-available result when the Agent is Busy. Application Orchestration may instead queue, reject, prioritize, steer, or abort before dispatching a command.
 
-The Agent does not own a Conversation registry, Host, Orchestrator, or shared application resource.
+The Agent does not own a Conversation registry, Host, Orchestration, or shared application resource.
 
 ## 4. Core operations
 
 `Prompt` and `Continue` submit one execution command. `Steer`, `FollowUp`, and `Abort` submit control messages for the current or next execution. The exact external request policy is not part of the Core:
 
 ```text
-caller / Host policy
+application Orchestration / Host policy
   reject · queue · priority · preempt
           ↓ channel
 Agent command
@@ -83,13 +93,14 @@ Steering and follow-up data may be bounded inside the Agent's command protocol, 
 ## 5. State transitions
 
 ```text
-Free ──Prompt/Continue──► Busy
-Free ──Reset─────────────► Free
-Busy ──terminal──────────► Free
+Idle ──Prompt/Continue──► Busy
+Idle ──Reset─────────────► Idle
+Busy ──terminal──────────► Idle
+Idle/Busy ──close────────► Closing → Closed
 Busy ──new Prompt────────► not accepted by Agent
 ```
 
-`Reset` cannot mutate an Agent while its current execution is active. A Host may choose to wait for Free before sending Reset.
+`Reset` cannot mutate an Agent while its current execution is active. A Host may choose to wait for `Idle` before sending Reset.
 
 ## 6. Run
 
@@ -109,7 +120,7 @@ A Run is one accepted Prompt or Continue. Its lifecycle is:
 Created → Accepted → Running → Settling → Settled
 ```
 
-A terminal Run stores one immutable result, produces one `agent_end`, starts no new Model/Tool/retry work, and returns the same result from repeated waits. Core does not wait for remote delivery.
+A terminal Run stores one immutable result, produces one `agent_end`, starts no new Model/Tool/retry work, and returns the same result from repeated waits. Core does not wait for remote delivery. `agent_end` terminates the Run; it does not close the Agent.
 
 A Run does not own another Agent. An Agent created by a spawn request has its own AgentID, goroutine, state, channels, and Run identities.
 
@@ -148,7 +159,7 @@ Core creates a ToolUse only after complete argument assembly, resolution, and Sc
 
 ## 9. Snapshot
 
-A snapshot MUST preserve transcript order, active ToolSet order, current execution status, and active Run identity while omitting mutable executors, Contexts, provider clients, channels, and locks. All slices, maps, byte arrays, and nested content are copied or immutable.
+A snapshot MUST preserve transcript order, active ToolSet order, current execution status, and active Run identity while omitting mutable executors, Contexts, provider clients, channels, and locks. All slices, maps, byte arrays, and nested content are copied or immutable. A retirement snapshot is taken only at a quiescent boundary after the current Run settles; resuming an active Run after crash is a separate checkpoint contract and is not implied by Conversation rehydration.
 
 ## 10. Invariants
 
@@ -167,6 +178,6 @@ snapshot cannot alias mutable Agent state
 
 ## 11. Agent communication
 
-Agent-to-Agent and Agent-to-Orchestrator communication uses explicit channels or channel-backed handles. No caller directly reaches another Agent's private state. Spawn provenance is correlation metadata, not ownership.
+Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels or channel-backed handles. No caller directly reaches another Agent's private state. Spawn provenance is correlation metadata, not ownership.
 
-Conversation keys, factories, request queues, caches, admission, and cross-process routing belong to the caller or Host. The Core receives commands for one Agent and executes them locally.
+Conversation records, factories, request queues, caches, admission, retirement, and cross-process routing belong to Orchestration or the caller. The Core receives commands for one Agent and executes them locally. A multi-Agent caller must retain handles or provide an external key-to-handle mapping; an AgentID alone cannot recover a lost in-memory Agent. Cross-process or restart recovery is outside the current Core contract unless the lifecycle and persistence contracts in [spec 16](16-agent-lifecycle-and-retirement.md) are implemented.

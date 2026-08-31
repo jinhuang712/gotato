@@ -2,7 +2,7 @@
 
 **Status:** Planned packages
 
-> **Official packages extend Agent Core without enlarging it.**
+> **Official packages extend Agent Core and provide the Orchestration path without enlarging Core.**
 
 ## 1. Core packages
 
@@ -44,16 +44,18 @@ Each package owns protocol dependencies and external failure mapping. Calls retu
 
 ```text
 Agent Factory
-Agent Registry and Router
+Conversation Record and Resolver
+Agent identity, Registry, and Router
 bounded Agent Handle Cache
 Admission Controller
 Request Queue and Dispatch Policy
+Retirement and Close Policy
 Event Projector and Bridge
 Drain Policy
 Agent Routine Coordinator
 ```
 
-These are optional for Embedded mode and required only by the Hosted composition that uses them. They coordinate Agent goroutines; they do not own their private state or create a second Loop.
+These packages are unnecessary for a single directly held Agent, but provide the required coordination path for managed multi-Agent Embedded use and Hosted use. They retain, retire, and rehydrate Agent handles and Conversations; they do not own private Agent state or create a second Loop. The Core close contract remains usable without these packages.
 
 ## 5. Protocol adapters
 
@@ -63,7 +65,7 @@ server and client helpers
 optional SSE or Connect projection
 ```
 
-Protocol adapters attach a wire protocol to the Host contract. They do not create alternative Agent semantics and are not required for Embedded use.
+Protocol adapters attach a wire protocol to the Host and its Orchestration contract. They do not create alternative Agent semantics and are not required for direct Embedded use.
 
 ## 6. Infrastructure integration assets
 
@@ -78,7 +80,7 @@ These are compatibility examples, not Gotato infrastructure or Core libraries. T
 
 ## 7. Extensions
 
-Independent packages may provide OpenTelemetry, structured logging, context compaction, authorization, approvals, cost accounting, and Model routing through the correct Core or Host boundary. Long-lived work must have an explicit Context, channel, and shutdown path.
+Independent packages may provide OpenTelemetry, structured logging, context compaction, authorization, approvals, cost accounting, and Model routing through the correct Core, Orchestration, or Host boundary. Long-lived work must have an explicit Context, channel, and shutdown path.
 
 ## 8. Compatibility
 

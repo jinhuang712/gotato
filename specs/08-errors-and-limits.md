@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **Agent Core bounds Agent work; Orchestration bounds the channel network.**
+> **Agent Core bounds one Agent's work; Orchestration bounds the multi-Agent network.**
 
 ## 1. Error shape
 
@@ -27,6 +27,9 @@ Agent Core provides categories equivalent to:
 invalid_argument
 invalid_state
 busy
+agent_closed
+agent_closing
+retirement_failed
 model_failure
 model_protocol_failure
 tool_resolution_failure
@@ -50,11 +53,13 @@ Tool validation       failed/blocked Tool Result
 Extension             terminal current Run failure by default
 Model provider        retry inside current Run only when policy permits
 Model protocol        terminal current Run failure
-Spawn request         Result/Event; caller/Host policy decides continuation
+Spawn request         Result/Event; application Orchestration/Host policy decides continuation
 Context cancellation  terminal cancelled/deadline for affected Run
 Core limit            typed affected outcome; no new governed work
 Invariant failure     terminal failure
 Host admission        Host request outcome; no Agent command dispatched
+Agent close           lifecycle outcome; no new Run admitted
+Retirement            Orchestration outcome; Conversation retained or discarded by policy
 Queue policy          caller/Host outcome; no Core state change
 ```
 
@@ -71,6 +76,9 @@ Core limits apply to one Agent goroutine and its current Run:
 ```go
 type CoreLimits struct {
     MaxTurns uint32
+    MaxMessages uint32
+    MaxMessageBytes uint64
+    MaxTranscriptBytes uint64
     MaxToolCalls uint32
     MaxActiveToolSets uint32
     MaxVisibleTools uint32
@@ -84,11 +92,11 @@ type CoreLimits struct {
 }
 ```
 
-Zero semantics must be documented per field; explicitly configured zero count/byte limits admit no work. Negative durations are invalid. Agent goroutine count, external Prompt queues, streams, fleet quotas, billing, and process memory are not Core limits.
+Zero semantics must be documented per field; explicitly configured zero count/byte limits admit no work. Negative durations are invalid. `MaxMessages`, `MaxMessageBytes`, and `MaxTranscriptBytes` bound the retained Core conversation across Runs, not only one Turn. Core may invoke an explicitly configured compaction policy before rejecting a commitment; it MUST NOT silently drop committed Messages. Agent goroutine count, external Prompt queues, streams, fleet quotas, billing, Conversation retention, and process memory are not Core limits.
 
 ## 6. Orchestration limits
 
-An Orchestrator may separately limit:
+Orchestration may separately limit:
 
 ```text
 Agent goroutines
@@ -109,6 +117,8 @@ Core checks:
 Agent execution command  before Run creation
 Turns                    before next Turn
 Tool Calls               before Tool Use
+Messages                 before transcript commitment
+Transcript bytes         before transcript commitment
 ToolSets                 before activation
 Visible Tools            before Model request
 Parallel Tools           before worker launch
@@ -116,13 +126,13 @@ Results/progress         before publication or commitment
 Deadlines                before and during owned work
 ```
 
-Orchestration checks:
+Orchestration/Host checks:
 
 ```text
-remote request           before queue or dispatch
-queue capacity           before enqueue
-Agent creation           before goroutine start
-Stream/Event delivery    before bridge allocation or publication
+application or remote request before queue or dispatch
+queue capacity             before enqueue
+Agent creation             before goroutine start
+Stream/Event delivery      before bridge allocation or publication
 ```
 
 Checks are atomic with respect to the goroutine or coordinator that owns the relevant bound.
@@ -131,7 +141,7 @@ Checks are atomic with respect to the goroutine or coordinator that owns the rel
 
 On Core limit exhaustion, the Agent stops admitting governed work, retains committed state, emits the applicable typed outcome, cancels active local work when policy requires, and settles the affected Run once.
 
-On Host limit exhaustion, the Host rejects or queues according to its policy. It does not partially dispatch a request and then claim that the Agent accepted it.
+On Orchestration/Host limit exhaustion, Orchestration rejects or queues according to its policy. It does not partially dispatch a request and then claim that the Agent accepted it. On retirement, it stops admission before close and must not report retained Conversation state until persistence succeeds.
 
 Progress may truncate or coalesce; final outcomes remain authoritative.
 
@@ -154,7 +164,16 @@ invariant failure   → failed
 
 The first selected terminal cause wins. Cancellation after a terminal decision does not replace a settled result.
 
-## 11. Host mapping
+## 11. Agent and retirement mapping
+
+```text
+Prompt after Closing/Closed → FailedPrecondition or typed agent_closed
+retirement persistence failure → FailedPrecondition / Internal by owner policy
+retained retirement          → Conversation remains Dormant
+Ephemeral retirement         → Conversation is Closed or absent
+```
+
+## 12. Host mapping
 
 A Host may map errors as:
 

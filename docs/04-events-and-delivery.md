@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Core emits Agent facts. A Host may observe and deliver them.
+> Core emits Agent facts. Orchestration observes and coordinates them; Host may deliver them remotely.
 
 ## 1. Two uses of an Event
 
@@ -13,7 +13,7 @@ Agent Core
           └── Host delivery → remote client
 ```
 
-Core creates Events for Agent state transitions and declared operations. A Host may project those Events for a protocol or client. The projection is delivery, not a second Event history.
+Core creates Events for Agent state transitions and declared operations. Application Orchestration or Host may observe those Events, coordinate Events from multiple Agents, and project them for a protocol or client. The projection is delivery, not a second Event history.
 
 ## 2. Event classes
 
@@ -21,7 +21,7 @@ Every Event belongs to one class:
 
 ```text
 Protected
-  lifecycle transitions and settled outcomes
+  Run lifecycle transitions and settled outcomes
 
 Coalescable
   optional streamed progress
@@ -79,7 +79,7 @@ An observer is Context-aware and bounded. A blocking observer may hold Core at i
 
 ## 6. Hosted delivery
 
-A Host may deliver Core Events to a remote client:
+Host may deliver Core Events, selected and coordinated by Orchestration, to a remote client:
 
 ```text
 Core Event
@@ -89,28 +89,43 @@ bounded delivery bridge
 remote client
 ```
 
-The Host declares capacity, Protected Event handling, coalescing, queue-full behavior, and shutdown deadline. It must not silently drop a Protected Event or grow memory without a bound.
+The Host declares capacity, Protected Event handling, coalescing, queue-full behavior, and shutdown deadline. It must not silently drop a Protected Event or grow memory without a bound. Orchestration may enrich a projection with the stable ConversationID and AgentGeneration; those are routing metadata, not Core Event state.
 
 A protocol adapter only maps the Host's semantic Events to a wire representation. It does not define Core Event meaning.
 
-## 7. Two settlements
+## 7. Three settlements
 
 ```text
-Agent settlement    current Run and local work are complete
+Run settlement      current Run and local work are complete
+Agent closure       Core resources are closed and the Agent is Closed
 Host settlement      remote delivery is drained or abandoned
 ```
 
-Core does not wait for remote delivery before returning its result. A client may disconnect while the Agent continues, depending on Host policy.
+Core does not wait for remote delivery before returning its result. A client may disconnect while the Agent continues, depending on Orchestration/Host policy. `agent_end` is terminal for that Run only; it does not indicate that the Agent Core has been closed.
 
-## 8. Cancellation and disconnect
+## 8. Agent lifecycle signals
+
+Agent closure is separate from Run Events. Core or Orchestration may expose a bounded lifecycle boundary with:
+
+```text
+agent_created
+agent_retirement_requested
+agent_closing
+agent_closed
+agent_retirement_failed
+```
+
+These signals carry AgentID, optional ConversationID, reason, and correlation metadata. They are not inserted into the per-Run Event sequence unless the selected Event contract explicitly defines that behavior. A Host may project them to a remote client, but remote delivery does not determine whether Core closure is complete.
+
+## 9. Cancellation and disconnect
 
 A disconnected client ends delivery. The Host documents whether it also cancels the attached Run. Explicit Cancel, deadlines, and drain send cancellation through the Agent boundary and reach its Model, Tools, observers, and local work.
 
-Cancellation of another Agent requires an explicit command or selected Host/application policy.
+Cancellation of another Agent requires an explicit command or selected application Orchestration/Host policy.
 
-## 9. Spawned Agents
+## 10. Spawned Agents
 
-A spawned Agent has its own Event channel and sequence. A Host may project selected Events onto an origin stream using explicit correlation:
+A spawned Agent has its own Event channel and sequence. Orchestration or Host may project selected Events onto an origin stream using explicit correlation:
 
 ```text
 origin AgentID / RunID
@@ -120,7 +135,7 @@ SpawnID
 
 The projection must not pretend that independent Agents share one transcript or one Event sequence.
 
-## 10. Drain
+## 11. Drain
 
 ```text
 stop new admission
@@ -136,6 +151,6 @@ remaining delivery abandoned
 
 Abandoning delivery after execution settlement loses transmission, not Core history.
 
-## 11. Acceptance
+## 12. Acceptance
 
 Tests prove canonical order, classification, correlation, one terminal Event per Run, bounded observation and delivery, Protected Event handling, progress coalescing, independent execution/delivery settlement, disconnect behavior, and bounded drain.

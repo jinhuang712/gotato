@@ -1,55 +1,58 @@
-# Hosted Agent Service
+# Orchestration and Hosted Agent Service
 
 **Status:** Draft
 
-> The Hosted form gives remote callers the same Agent Core that Go services can use locally.
+> Orchestration turns independent Agent Cores into an addressable system; Hosted access makes that system available to remote callers.
 
 ## 1. Purpose
 
-Gotato can expose an Agent as a Service without turning the Agent into a second runtime. The Host is a thin composition around Agent Core:
+Gotato exposes a multi-Agent service without turning any Agent into a second runtime. Orchestration owns the external identity, handle retention, routing, admission, lifecycle, and coordination of independent Core Agents. Host and protocol adapters provide the service-facing boundary:
 
 ```text
 Remote Client
       ↓ protocol adapter
-Agent Host / Orchestration
-      ↓ Agent contract
-Agent Core
+Host
+      ↓
+Orchestration
+      ↓ Agent contracts
+Agent Core × N
 ```
 
 The same Agent Core can also be used directly:
 
 ```text
-Existing Go Service → Agent Core
+Existing Go Service → Agent handle → Agent Core
 ```
 
-Hosted mode changes access, routing, admission, Event delivery, and lifecycle. It does not change the Agent Loop or the meaning of a Run.
+Hosted mode changes access, routing, admission, Event delivery, and lifecycle. It does not change the Agent Loop or the meaning of a Run. Agent closure and Conversation retention are separate lifecycle decisions; see [Agent Lifecycle](10-agent-lifecycle.md).
 
-## 2. What the Host provides
+## 2. What Orchestration and Host provide
 
-The Host coordinates service access to Agents:
+Orchestration coordinates service access to multiple Agents:
 
 ```text
-Agent creation and routing
+Conversation identity and handle retention
+Agent creation, routing, and rehydration
 request admission and queue policy
-per-Agent dispatch
+per-Agent dispatch and coordination
 Event observation and delivery
-remote cancellation
-readiness and drain
+remote cancellation, retirement, and lifecycle
 ```
 
-These are Host responsibilities, not Core configuration. The Host calls Agent Core through a stable semantic interface and does not maintain a parallel transcript or Loop.
+These are coordination responsibilities, not Core configuration. Orchestration calls Agent Core through stable contracts and does not maintain a parallel transcript or Loop. A single directly held Agent may bypass this layer; a managed multi-Agent service may not.
 
-A protocol adapter attaches a wire protocol to this interface. gRPC is a useful first adapter, but HTTP, SSE, or an existing service protocol can serve the same role.
+Host wraps Orchestration with readiness, drain, and a service boundary. A protocol adapter attaches a wire protocol to Host. gRPC is a useful first adapter, but HTTP, SSE, or an existing service protocol can serve the same role.
 
 ## 3. Hosted request path
 
 ```text
 wire command
       ↓ protocol adapter
-semantic Agent command
-      ↓ Host / Orchestration
-Agent handle
-      ↓
+semantic service command
+      ↓ Host
+Orchestration
+  identity · route · admit · schedule · coordinate
+      ↓ Agent handle
 Agent Core
       ↓
 canonical Events and RunResult
@@ -57,7 +60,7 @@ canonical Events and RunResult
 wire response / Event stream
 ```
 
-The adapter handles encoding, decoding, connection lifetime, and protocol errors. Orchestration handles Agent selection, admission, scheduling, and lifecycle. Core executes the command.
+The adapter handles encoding, decoding, connection lifetime, and protocol errors. Orchestration selects the Agent handle and applies service policy. Core executes the command.
 
 ## 4. Service contract
 
@@ -71,57 +74,59 @@ Conceptually:
 
 ```text
 RunCommand:  Start | Steer | FollowUp | Cancel
-RunEvent:    lifecycle | Message | Tool | terminal result
+Start:       existing ConversationID or caller-scoped ConversationKey
+RunEvent:    lifecycle | Message | Tool | terminal result + ConversationID
 ```
 
-The wire contract is an adapter contract. It must preserve Core identity, correlation, Event class, ordering, and settled meaning without making Protobuf types part of Core.
+The wire contract is an adapter contract. It must preserve Core identity, correlation, Event class, ordering, and settled meaning without making Protobuf types part of Core. Agent `Close`/retirement is a separate Host lifecycle operation, not an implicit consequence of closing this Run stream; its acknowledgement means Core closure, while delivery of that acknowledgement may settle later.
 
-## 5. Command lifecycle
+## 5. Command and Agent lifecycle
+
+The protocol stream has its own lifecycle and must not be confused with the Agent lifecycle:
 
 ```text
 BeforeStart ── valid Start ──► Active
 BeforeStart ── other command ► protocol error
 Active ────── terminal ──────► Terminal
-Active ────── stream close ──► Closed
-Terminal ──── delivery done ─► Closed
+Active ────── stream close ──► Closed delivery stream
 ```
 
-`Start` contains one Prompt or Continue. Commands after terminal settlement are rejected. The adapter serializes commands in arrival order; Core decides when a command takes effect according to its control boundaries.
+`Start` contains one Prompt or Continue. Commands after terminal settlement are rejected. The adapter serializes commands in arrival order; Core decides when a command takes effect according to its control boundaries. Closing this delivery stream does not automatically close the Agent or Conversation; the Host documents whether it also requests Run cancellation.
 
-Whether a second external request waits, queues, is rejected, or becomes a control command is Host policy.
+Whether a second external request waits, queues, is rejected, or becomes a control command is Orchestration policy, possibly exposed through Host.
 
 ## 6. Orchestration and Core
 
-Orchestration may coordinate many Agents:
+A single Agent can be called directly through its handle. Multiple Agents cannot be treated as a collection of anonymous handles: Orchestration must retain or resolve those handles, route requests, and apply the coordination policy.
 
 ```text
 incoming request
       ↓
-Host policy
-  route · admit · queue · control
-      ↓ Agent contract
-Agent Core
+Orchestration
+  identity · route · admit · queue · control · aggregate
+      ↓ Agent contract(s)
+Agent Core × N
 ```
 
-For one Agent, the Host can reject while Busy, queue the request, or dispatch a control message. Different Agents may execute concurrently. Core remains responsible for one current Prompt or Continue per Agent.
+For one Agent, application code may provide this coordination directly. For dynamic, concurrent, or remote use, the Orchestration layer provides it and Host may expose it. Different Agents may execute concurrently; Core remains responsible for one current Prompt or Continue per Agent.
 
-The Host owns external bounds for streams, queued requests, Agent instances, and Event delivery. Core owns bounds for one Agent's local work.
+Orchestration owns external bounds for streams, queued requests, Agent instances, and Event delivery. Core owns bounds for one Agent's local work.
 
-## 7. Conversation routing
+## 7. Conversation routing and retirement
 
-The Host may map an application key to an Agent handle:
+Orchestration or Host may map an application key to a Conversation record and then to a live Agent handle:
 
 ```text
 Agent name + conversation key
               ↓
-Host routing table
+Conversation record / routing table
               ↓
-Agent handle
+live Agent handle, or Agent definition + Core snapshot
 ```
 
-This mapping is application or Host state. It does not make the Agent the owner of a user account, registry, or external resource.
+This mapping is application or Orchestration state. It does not make the Agent the owner of a user account, registry, or external resource. Without a retained handle or a recoverable Conversation record, an AgentID is only an identifier and cannot restore an in-memory Agent.
 
-The initial PoC may use a process-local map. Cross-process or multi-Pod continuity is a separate routing and persistence contract, not a requirement for the first Hosted service.
+A live Agent may be retired after a Run, an idle TTL, or a capacity decision. During retirement the Conversation is `Retiring` and new dispatch is rejected or retried. With retention, Orchestration persists the Core state, closes the live handle, marks the Conversation Dormant, and later creates a new AgentID on rehydration. With Ephemeral or discard policy, it closes the Agent and the Conversation is removed or marked Closed. The initial PoC may use a process-local map; cross-process continuity additionally requires a persistence and routing contract.
 
 ## 8. Event delivery
 
@@ -157,12 +162,12 @@ A protocol adapter may be in the same process as the Host or in a separate servi
 
 ```text
 Same process:
-  protocol handler → Host interface → Core
+  protocol handler → Host → Orchestration → Core × N
 
 Separate services:
   client → protocol adapter → Orchestration service
-                                ↓ internal protocol adapter
-                           Agent Core service
+                                ↓ internal protocol adapter(s)
+                           Agent Core service(s)
 ```
 
 An internal gRPC call is reasonable when a process boundary, independent deployment, or a standard service contract is useful. When components share a process, a direct Go interface or channel-backed handle is the simpler implementation. Both forms preserve the same semantic Host and Agent contracts.
@@ -181,7 +186,7 @@ Gotato does not implement or require a Gateway, Kubernetes, load balancer, broke
 
 An existing Go service may host the Agent Core and Host beside its own APIs.
 
-## 12. Lifecycle
+## 12. Host lifecycle and drain
 
 ```text
 Serving
@@ -191,16 +196,17 @@ Serving
 Draining
   ├── readiness false
   ├── new admission rejected
-  ├── queued requests handled by Host policy
+  ├── Orchestration stops new Agent creation/dispatch
   ├── active Runs settle or cancel by deadline
+  ├── live Agents close according to retention policy
   └── delivery bridges flush or abandon within policy
 ```
 
-The infrastructure consumes these signals. It does not define Agent semantics.
+The infrastructure consumes these signals. It does not define Agent semantics. Process shutdown is not Conversation closure; retained Conversations may be rehydrated later when the persistence contract exists.
 
 ## 13. Deployment forms
 
-### Embedded Agent
+### Embedded, single Agent
 
 ```text
 Existing Go Service
@@ -208,21 +214,31 @@ Existing Go Service
   └── Agent Core
 ```
 
-### Same-process Host
+### Embedded, multiple Agents
+
+```text
+Existing Go Service
+  ├── business handlers
+  ├── application Orchestration
+  └── Agent Core × N
+```
+
+### Same-process Hosted Service
 
 ```text
 Existing Go Service
   ├── protocol adapter
-  ├── Agent Host / Orchestration
-  └── Agent Core
+  ├── Host
+  ├── Orchestration
+  └── Agent Core × N
 ```
 
-### Dedicated Host
+### Dedicated Hosted Service
 
 ```text
 Existing Infrastructure
         ↓
-Protocol Adapter → Host / Orchestration → Agent Core
+Protocol Adapter → Host → Orchestration → Agent Core × N
 ```
 
-All three forms use the same Core Agent. The difference is where access and coordination live.
+All forms use the same Core Agent. The difference is where identity, access, and multi-Agent coordination live.

@@ -81,19 +81,20 @@ Blocking Extension failure settles the current Run. An Extension must not synchr
 
 Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are not permitted.
 
-## 8. Host policies are not Core Extensions
+## 8. Orchestration and Host policies are not Core Extensions
 
-The following belong to Host / Orchestration:
+The following belong to Orchestration or Host:
 
 ```text
 AgentFactory
 ConversationResolver
 AdmissionController
 AgentCache
+RetirementPolicy
 EventProjector
 DeliveryBridge
 ErrorMapper
 DrainPolicy
 ```
 
-They surround Core operations and coordinate Agents. They do not alter Core transcript or Loop semantics.
+They surround Core operations, retain or retire Agent handles, and coordinate multiple Agents. They are unnecessary for one directly held Agent except for explicit Core close, but required when Agents must be found, coordinated, or rehydrated. They do not alter Core transcript or Loop semantics.
