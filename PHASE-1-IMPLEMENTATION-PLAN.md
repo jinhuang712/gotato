@@ -320,6 +320,7 @@ Run 的错误和 `Close` 的错误必须分开。Run 失败不等于 Agent 关�
 GET  /healthz
 GET  /readyz
 POST /v1/runs
+POST /v1/runs/{run_id}/cancel
 POST /v1/runs/stream
 GET  /v1/conversations/{conversation_id}
 POST /v1/conversations/{conversation_id}/retire

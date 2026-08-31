@@ -246,6 +246,45 @@ func (o *Orchestrator) rehydrateLocked(ctx context.Context, request Request, cur
 	return agent, current.record.Clone(), nil
 }
 
+// CancelRun requests cancellation of an active Run while retaining its Agent
+// and Conversation. Cancellation is best effort when a provider ignores the
+// Context passed to Model.Stream.
+func (o *Orchestrator) CancelRun(ctx context.Context, runID gotato.RunID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if runID == "" {
+		return gotatoError(gotato.ErrInvalidArgument, "Run ID is required")
+	}
+
+	o.mu.Lock()
+	agents := make([]gotato.Agent, 0, len(o.byID))
+	for _, current := range o.byID {
+		if current.agent != nil {
+			agents = append(agents, current.agent)
+		}
+	}
+	o.mu.Unlock()
+
+	supported := false
+	for _, agent := range agents {
+		canceler, ok := agent.(gotato.RunCanceler)
+		if !ok {
+			continue
+		}
+		supported = true
+		if err := canceler.CancelRun(ctx, runID); err == nil {
+			return nil
+		} else if ctx.Err() != nil {
+			return err
+		}
+	}
+	if !supported {
+		return gotatoError(gotato.ErrNotSupported, "live Agents do not support Run cancellation")
+	}
+	return gotatoError(gotato.ErrInvalidState, "Run is not active")
+}
+
 func (o *Orchestrator) Dispatch(ctx context.Context, request Request, message gotato.Message) (gotato.RunResult, Record, error) {
 	if !o.Serving() {
 		return gotato.RunResult{}, Record{}, gotatoError(gotato.ErrInvalidState, "Orchestration is draining")
