@@ -149,7 +149,7 @@ curl -X POST http://127.0.0.1:8787/v1/runs \\
   -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}'
 ```
 
-The local service also exposes `/v1/runs/stream` for SSE and a polling-based non-stream workflow: `POST /v1/runs/async` returns `202` with a `run_id`, then `GET /v1/runs/{run_id}` returns the current status, metrics, and latest completed-turn heartbeat. Use `POST /v1/runs/{run_id}/cancel` for best-effort cancellation. For example:
+The local service also exposes `/v1/runs/stream` for full SSE events and a loop-progress response workflow: `POST /v1/runs/progress` keeps one ordinary HTTP request open and emits newline-delimited JSON frames for `accepted`, each completed `loop`, and the final `result` (it does not stream Model tokens). For clients that cannot keep a response open, `POST /v1/runs/async` returns `202` with a `run_id`, then `GET /v1/runs/{run_id}` returns the current status, metrics, and latest completed-turn heartbeat. Use `POST /v1/runs/{run_id}/cancel` for best-effort cancellation. For example:
 
 ```bash
 run_id=$(curl -sS -X POST http://127.0.0.1:8787/v1/runs/async \
@@ -162,6 +162,14 @@ while true; do
   [[ "$status" != "running" ]] && break
   sleep 2
 done
+```
+
+To keep one request open and receive only loop-level frames, use `curl -N` with the progress endpoint:
+
+```bash
+curl -N -X POST http://127.0.0.1:8787/v1/runs/progress \
+  -H 'content-type: application/json' \
+  -d '{"agent_name":"default","conversation_key":"local-progress","prompt":"use-tool"}'
 ```
 
 The SSE `agent_start` event contains the `run_id` needed by the cancel endpoint. It is a Reference Agent for testing library semantics, not yet a production deployment.

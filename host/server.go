@@ -37,6 +37,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("POST /v1/runs", s.run)
 	mux.HandleFunc("POST /v1/runs/async", s.runAsync)
+	mux.HandleFunc("POST /v1/runs/progress", s.runProgress)
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.getRun)
 	mux.HandleFunc("POST /v1/runs/{run_id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/stream", s.runStream)
