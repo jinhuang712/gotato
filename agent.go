@@ -51,6 +51,13 @@ type Snapshotter interface {
 	Snapshot(context.Context) (CoreSnapshot, error)
 }
 
+// RunCanceler lets a Host or Orchestration layer cancel an active Run without
+// closing the Agent or discarding its Conversation state.
+type RunCanceler interface {
+	Agent
+	CancelRun(context.Context, RunID) error
+}
+
 type IdleWaiter interface {
 	WaitForIdle(context.Context) error
 }
@@ -226,6 +233,10 @@ type coreAgent struct {
 	messages     []Message
 	stateVersion uint64
 
+	runMu          sync.Mutex
+	currentRunID   RunID
+	currentRunStop context.CancelFunc
+
 	events    *eventHub
 	lifecycle *lifecycleHub
 }
@@ -266,6 +277,27 @@ func (a *coreAgent) Status() AgentStatus {
 }
 
 func (a *coreAgent) Done() <-chan struct{} { return a.done }
+
+func (a *coreAgent) CancelRun(ctx context.Context, runID RunID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if runID == "" {
+		return runtimeError(ErrInvalidArgument, "CancelRun", "Run ID is required", nil)
+	}
+	a.runMu.Lock()
+	currentID := a.currentRunID
+	stop := a.currentRunStop
+	a.runMu.Unlock()
+	if currentID != runID || stop == nil {
+		return runtimeError(ErrInvalidState, "CancelRun", "Run is not active", nil)
+	}
+	stop()
+	return nil
+}
 
 func (a *coreAgent) Subscribe(ctx context.Context) (EventStream, error) {
 	return a.events.subscribe(ctx)
@@ -553,6 +585,19 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 	}
 
 	runID := RunID(nextID("run"))
+	a.runMu.Lock()
+	a.currentRunID = runID
+	a.currentRunStop = cancel
+	a.runMu.Unlock()
+	defer func() {
+		a.runMu.Lock()
+		if a.currentRunID == runID {
+			a.currentRunID = ""
+			a.currentRunStop = nil
+		}
+		a.runMu.Unlock()
+	}()
+
 	var sequence uint64
 	a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil)
 	fail := func(err *RuntimeError) (RunResult, error) {

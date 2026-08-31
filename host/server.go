@@ -33,6 +33,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("POST /v1/runs", s.run)
+	mux.HandleFunc("POST /v1/runs/{run_id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/stream", s.runStream)
 	mux.HandleFunc("GET /v1/conversations/", s.conversation)
 	mux.HandleFunc("POST /v1/conversations/", s.conversationCommand)
@@ -108,6 +109,22 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 	response := responseFor(record, result, err)
 	writeJSON(w, status, response)
+}
+
+func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
+	if !s.ready.Load() {
+		writeError(w, http.StatusServiceUnavailable, "host is draining")
+		return
+	}
+	runID := gotato.RunID(r.PathValue("run_id"))
+	if err := s.Orchestration.CancelRun(r.Context(), runID); err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status": "cancel_requested",
+		"run_id": string(runID),
+	})
 }
 
 func (s *Server) runStream(w http.ResponseWriter, r *http.Request) {

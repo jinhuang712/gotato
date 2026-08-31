@@ -151,6 +151,58 @@ func TestAgentPreservesReasoningArtifact(t *testing.T) {
 	}
 }
 
+func TestAgentCancelRun(t *testing.T) {
+	started := make(chan struct{}, 1)
+	block := make(chan struct{})
+	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	agent, err := NewAgent(WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close(context.Background())
+	events, err := agent.(EventSource).Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close()
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, promptErr := agent.Prompt(context.Background(), UserMessage("cancel me"))
+		resultCh <- promptErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Model was not called")
+	}
+	var runID RunID
+	for runID == "" {
+		event, nextErr := events.Next(context.Background())
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		if event.Kind == EventAgentStart {
+			runID = event.RunID
+		}
+	}
+	canceler, ok := agent.(RunCanceler)
+	if !ok {
+		t.Fatal("Agent does not support Run cancellation")
+	}
+	if err := canceler.CancelRun(context.Background(), runID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-resultCh:
+		if !IsCode(err, ErrCancelled) {
+			t.Fatalf("prompt error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled Run did not return")
+	}
+}
+
 func TestAgentSingleFlight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})

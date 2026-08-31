@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -15,10 +16,14 @@ import (
 )
 
 func newTestHTTPServer(t *testing.T) (*Server, *httptest.Server) {
+	return newTestHTTPServerWithModel(t, testmodel.EchoModel{})
+}
+
+func newTestHTTPServerWithModel(t *testing.T, model gotato.Model) (*Server, *httptest.Server) {
 	t.Helper()
 	o := orchestration.New()
 	if err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
-		options := []gotato.Option{gotato.WithModel(testmodel.EchoModel{})}
+		options := []gotato.Option{gotato.WithModel(model)}
 		if snapshot != nil {
 			options = append(options, gotato.WithInitialSnapshot(*snapshot))
 		}
@@ -52,6 +57,66 @@ func TestHTTPRunRetireAndRehydrate(t *testing.T) {
 	}
 }
 
+func TestHTTPRunCancel(t *testing.T) {
+	hostServer, server := newTestHTTPServerWithModel(t, blockingModel{})
+	defer server.Close()
+	defer hostServer.Drain(context.Background())
+
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/runs/stream", strings.NewReader(`{"agent_name":"default","conversation_key":"cancel-test","prompt":"cancel"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("content-type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	reader := bufio.NewReader(response.Body)
+	var runID string
+	for runID == "" {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var payload struct {
+			Event struct {
+				RunID string `json:"run_id"`
+			} `json:"event"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data: "))), &payload); err != nil {
+			t.Fatal(err)
+		}
+		runID = payload.Event.RunID
+	}
+
+	cancelRequest, err := http.NewRequest(http.MethodPost, server.URL+"/v1/runs/"+runID+"/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelResponse, err := http.DefaultClient.Do(cancelRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancelResponse.Body.Close()
+	if cancelResponse.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(cancelResponse.Body)
+		t.Fatalf("cancel status = %d, body = %s", cancelResponse.StatusCode, body)
+	}
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"status":"cancelled"`) {
+		t.Fatalf("cancelled result missing: %s", body)
+	}
+}
+
 func TestHTTPStreamContainsRunTerminalEvents(t *testing.T) {
 	hostServer, server := newTestHTTPServer(t)
 	defer server.Close()
@@ -76,6 +141,24 @@ func TestHTTPStreamContainsRunTerminalEvents(t *testing.T) {
 		t.Fatalf("SSE body missing terminal events: %s", text)
 	}
 }
+
+type blockingModel struct{}
+
+func (blockingModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	return blockingStream{}, nil
+}
+
+type blockingStream struct{}
+
+func (blockingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	<-ctx.Done()
+	return gotato.ModelEvent{}, ctx.Err()
+}
+
+func (blockingStream) Close() error { return nil }
 
 func postJSON(t *testing.T, url, body string) map[string]any {
 	t.Helper()

@@ -149,7 +149,7 @@ curl -X POST http://127.0.0.1:8787/v1/runs \\
   -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}'
 ```
 
-The local service also exposes `/v1/runs/stream` for SSE, Conversation retirement, Agent close, health/readiness, and drain. It is a Reference Agent for testing library semantics, not yet a production deployment.
+The local service also exposes `/v1/runs/stream` for SSE, `POST /v1/runs/{run_id}/cancel` for best-effort Run cancellation, Conversation retirement, Agent close, health/readiness, and drain. The SSE `agent_start` event contains the `run_id` needed by the cancel endpoint. It is a Reference Agent for testing library semantics, not yet a production deployment.
 
 For an OpenAI-compatible LLM Gateway, configure the Library adapter with YAML:
 
