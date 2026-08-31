@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,10 +21,12 @@ type Server struct {
 	CancelRunOnDisconnect bool
 	ready                 atomic.Bool
 	draining              atomic.Bool
+	runsMu                sync.Mutex
+	runs                  map[gotato.RunID]*asyncRunState
 }
 
 func NewServer(orchestrationLayer *orchestration.Orchestrator) *Server {
-	s := &Server{Orchestration: orchestrationLayer}
+	s := &Server{Orchestration: orchestrationLayer, runs: make(map[gotato.RunID]*asyncRunState)}
 	s.ready.Store(true)
 	return s
 }
@@ -33,6 +36,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("POST /v1/runs", s.run)
+	mux.HandleFunc("POST /v1/runs/async", s.runAsync)
+	mux.HandleFunc("GET /v1/runs/{run_id}", s.getRun)
 	mux.HandleFunc("POST /v1/runs/{run_id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/stream", s.runStream)
 	mux.HandleFunc("GET /v1/conversations/", s.conversation)
@@ -77,6 +82,13 @@ type runRequest struct {
 	Prompt             string  `json:"prompt"`
 }
 
+type runHeartbeat struct {
+	Turn      gotato.TurnNumber `json:"turn"`
+	ElapsedMS int64             `json:"elapsed_ms"`
+	Summary   map[string]any    `json:"summary,omitempty"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
 type runResponse struct {
 	ConversationID  string               `json:"conversation_id"`
 	AgentID         string               `json:"agent_id,omitempty"`
@@ -86,6 +98,7 @@ type runResponse struct {
 	FinalMessage    string               `json:"final_message,omitempty"`
 	Usage           *gotato.Usage        `json:"usage,omitempty"`
 	Metrics         *gotato.RunMetrics   `json:"metrics,omitempty"`
+	Heartbeat       *runHeartbeat        `json:"heartbeat,omitempty"`
 	Error           *gotato.RuntimeError `json:"error,omitempty"`
 }
 

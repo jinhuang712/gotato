@@ -37,36 +37,6 @@ func (echoTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato
 	return gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: input.Value}}}, nil
 }
 
-func watchHeartbeat(agent gotato.Agent) {
-	source, ok := agent.(gotato.EventSource)
-	if !ok {
-		return
-	}
-	stream, err := source.Subscribe(context.Background())
-	if err != nil {
-		log.Printf("heartbeat subscribe: %v", err)
-		return
-	}
-	go func() {
-		defer stream.Close()
-		for {
-			event, err := stream.Next(context.Background())
-			if err != nil {
-				return
-			}
-			switch event.Kind {
-			case gotato.EventTurnStart:
-				log.Printf("[heartbeat] run=%s turn=%d started", event.RunID, event.Turn)
-			case gotato.EventTurnEnd:
-				summary, _ := json.Marshal(event.Payload["summary"])
-				log.Printf("[heartbeat] run=%s turn=%d completed summary=%s", event.RunID, event.Turn, summary)
-			case gotato.EventAgentEnd:
-				log.Printf("[heartbeat] run=%s finished status=%v", event.RunID, event.Payload["status"])
-			}
-		}
-	}()
-}
-
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "listen address")
 	modelName := flag.String("model", "echo", "model kind: echo, demo, or gateway")
@@ -74,7 +44,6 @@ func main() {
 	runTimeout := flag.Duration("run-timeout", 10*time.Minute, "maximum duration of one Run; 0 disables the limit")
 	modelTimeout := flag.Duration("model-timeout", 5*time.Minute, "maximum duration of one Model call; 0 disables the limit")
 	toolTimeout := flag.Duration("tool-timeout", 5*time.Minute, "maximum duration of one Tool call; 0 disables the limit")
-	heartbeat := flag.Bool("heartbeat", false, "log a bounded summary at the end of every loop turn")
 	flag.Parse()
 
 	var gatewayModel gotato.Model
@@ -111,14 +80,7 @@ func main() {
 		if snapshot != nil {
 			options = append(options, gotato.WithInitialSnapshot(*snapshot))
 		}
-		agent, err := gotato.NewAgent(options...)
-		if err != nil {
-			return nil, err
-		}
-		if *heartbeat {
-			watchHeartbeat(agent)
-		}
-		return agent, nil
+		return gotato.NewAgent(options...)
 	}
 
 	orchestrator := orchestration.New()

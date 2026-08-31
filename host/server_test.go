@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/internal/testmodel"
@@ -59,6 +60,103 @@ func TestHTTPRunRetireAndRehydrate(t *testing.T) {
 	if second["agent_id"] == firstAgent || second["agent_generation"].(float64) != 1 {
 		t.Fatalf("rehydrated response = %+v", second)
 	}
+}
+
+func TestHTTPAsyncRunCanBePolled(t *testing.T) {
+	hostServer, server := newTestHTTPServerWithModel(t, blockingModel{})
+	defer server.Close()
+	defer hostServer.Drain(context.Background())
+
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/runs/async", strings.NewReader(`{"agent_name":"default","conversation_key":"async-test","prompt":"async"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("content-type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var submitted map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&submitted); err != nil {
+		response.Body.Close()
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("async submit status = %d, body = %+v", response.StatusCode, submitted)
+	}
+	runID := submitted["run_id"].(string)
+	if submitted["status"] != string(gotato.RunRunning) {
+		t.Fatalf("async submit response = %+v", submitted)
+	}
+
+	pollResponse, err := http.Get(server.URL + "/v1/runs/" + runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var polled map[string]any
+	if err := json.NewDecoder(pollResponse.Body).Decode(&polled); err != nil {
+		pollResponse.Body.Close()
+		t.Fatal(err)
+	}
+	pollResponse.Body.Close()
+	if polled["status"] != string(gotato.RunRunning) {
+		t.Fatalf("poll response = %+v", polled)
+	}
+	if _, ok := polled["metrics"].(map[string]any); !ok {
+		t.Fatalf("poll metrics = %#v", polled["metrics"])
+	}
+
+	cancelResponse := postJSON(t, server.URL+"/v1/runs/"+runID+"/cancel", "{}")
+	if cancelResponse["status"] != "cancel_requested" {
+		t.Fatalf("cancel response = %+v", cancelResponse)
+	}
+	for attempt := 0; attempt < 20; attempt++ {
+		pollResponse, err = http.Get(server.URL + "/v1/runs/" + runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		polled = make(map[string]any)
+		if err := json.NewDecoder(pollResponse.Body).Decode(&polled); err != nil {
+			pollResponse.Body.Close()
+			t.Fatal(err)
+		}
+		pollResponse.Body.Close()
+		if polled["status"] == string(gotato.RunCanceled) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("async run did not settle as cancelled: %+v", polled)
+}
+
+func TestHTTPAsyncRunReturnsCompletedTurnHeartbeat(t *testing.T) {
+	hostServer, server := newTestHTTPServer(t)
+	defer server.Close()
+	defer hostServer.Drain(context.Background())
+
+	submitted := postJSON(t, server.URL+"/v1/runs/async", `{"agent_name":"default","conversation_key":"async-heartbeat-test","prompt":"hello"}`)
+	runID := submitted["run_id"].(string)
+	for attempt := 0; attempt < 20; attempt++ {
+		response, err := http.Get(server.URL + "/v1/runs/" + runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var polled map[string]any
+		if err := json.NewDecoder(response.Body).Decode(&polled); err != nil {
+			response.Body.Close()
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if polled["status"] == string(gotato.RunCompleted) {
+			if _, ok := polled["heartbeat"].(map[string]any); !ok {
+				t.Fatalf("completed response heartbeat = %#v", polled["heartbeat"])
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("async run did not complete")
 }
 
 func TestHTTPRunCancel(t *testing.T) {
