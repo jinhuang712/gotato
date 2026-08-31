@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Agent is a Go-native execution unit; its private state is processed by its own goroutine and reached through channels.
+> **Agents are goroutines. Agent Core owns their state and execution.**
 
 ## 1. Identity types
 
@@ -37,7 +37,7 @@ Agent
   └── Event channel
 ```
 
-Agent state is never directly mutated by callers, Hosts, or other Agents. Commands are delivered to the Agent goroutine, which is the only state mutation authority for that Agent.
+Agent state is never directly mutated by callers, Hosts, or other Agents. Commands are delivered to the Agent goroutine, which is the only authority allowed to mutate that Agent's state.
 
 ```go
 type AgentState struct {
@@ -52,7 +52,7 @@ type AgentState struct {
 }
 ```
 
-The exact fields may evolve, but private state and channel confinement remain. Snapshots copy nested data and cannot mutate Core state.
+The exact fields may evolve, but private state, Agent-owned work, and channel confinement remain. Snapshots copy nested data and cannot mutate Core state.
 
 ## 3. Availability and single-flight execution
 

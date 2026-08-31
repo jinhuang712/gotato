@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Errors and bounds belong to the goroutine or coordinator that can act on them. Core limits one Agent execution; Orchestration limits the channel network.
+> **Agent Core bounds Agent work; Orchestration bounds the channel network.**
 
 ## 1. Error shape
 
@@ -21,7 +21,7 @@ type RuntimeError struct {
 
 ## 2. Core categories
 
-Core provides categories equivalent to:
+Agent Core provides categories equivalent to:
 
 ```text
 invalid_argument

@@ -2,7 +2,11 @@
 
 **Status:** Draft
 
-> **Agent as a Service, native to Go.** Deliver Agent goroutines and their tight Core first, then add channel-connected orchestration and Hosted transport.
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
+>
+> Deliver Agent goroutines and their tight Core first, then add channel-connected orchestration and Hosted transport.
 
 ## Structural invariants
 
@@ -12,7 +16,7 @@ From the first code commit:
 Core has no transport, Host, Infrastructure, or provider SDK dependency
 Agent is a goroutine-backed execution unit with private state and channels
 one canonical Agent Loop exists
-Core exposes a self-contained in-process boundary
+Agent Core exposes a self-contained in-process boundary
 initial PoC targets one Host process in one Pod
 one Run emits exactly one terminal Event
 all local work has explicit Context, bound, and settlement

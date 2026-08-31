@@ -1,8 +1,12 @@
 # Gotato Specifications
 
-> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
 
-The specifications define the contracts of a Go-native Agent Runtime and its optional Hosted composition.
+The specifications define the contracts of a Go-native Agent Runtime and its optional Hosted composition. They make the project principles concrete: Agents are goroutines, Agents own their work, Infrastructure hosts, Orchestration coordinates, Agent Core executes, and the Core stays tight while extensions remain open.
+
+Use the [Glossary](../docs/glossary.md) for the shared vocabulary used by both the architecture documents and these specifications.
 
 ```text
 Agent goroutine
@@ -18,7 +22,7 @@ Orchestration goroutines
   └── lifecycle and drain
 ```
 
-A single Agent goroutine processes one Prompt or Continue at a time. The caller or Host decides whether further external requests wait, queue, are rejected, steered, aborted, or create another Agent routine. There is no resource ownership hierarchy between Agent goroutines or between Agents and Orchestration.
+A single Agent goroutine processes one Prompt or Continue at a time. The caller or Host decides whether further external requests wait, queue, are rejected, steered, aborted, or create another Agent routine. Agents own their current work; callers and Hosts own admission and scheduling policy.
 
 Infrastructure such as Gateway, Kubernetes, load balancing, storage, and secrets surrounds Hosted mode but is not a Core dependency.
 

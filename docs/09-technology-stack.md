@@ -2,7 +2,11 @@
 
 **Status:** Draft
 
-> **Agent as a Service, native to Go.** Build Agent goroutines and their channel boundaries first; add protocol adapters for remote access and use the existing platform for deployment.
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
+>
+> Build Agent Core and its goroutine model first; add protocol adapters for remote access and use the existing platform for deployment.
 
 ## 1. Stack map
 

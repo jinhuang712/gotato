@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Test Agent goroutines with deterministic channels, Orchestration with request policy, and Infrastructure separately.
+> **Test Agent Core, Orchestration policy, and Infrastructure independently.**
 
 ## 1. Test layers
 

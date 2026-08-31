@@ -2,7 +2,7 @@
 
 **Status:** Planned packages
 
-> Official packages extend Agent goroutines and channel contracts without enlarging the tight Core.
+> **Official packages extend Agent Core without enlarging it.**
 
 ## 1. Core packages
 

@@ -24,3 +24,6 @@ go.work.sum
 .idea/
 .vscode/
 *.swp
+
+# Pi session metadata
+.pi/

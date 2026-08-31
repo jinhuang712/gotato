@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Tools are Core capabilities; adapters connect them to application systems. ToolSets provide staged capability discovery.
+> **Tools extend Agent Core; adapters connect them to application systems. ToolSets stage capability discovery.**
 
 ## 1. Capability path
 
@@ -18,7 +18,7 @@ Agent Core
 Model-visible Tool specifications
 ```
 
-Database, Redis, HTTP, gRPC, MCP, workflow, sandbox, and remote Agent integrations are application or adapter concerns. Core owns the stable Tool lifecycle.
+Database, Redis, HTTP, gRPC, MCP, workflow, sandbox, and remote Agent integrations are application or adapter concerns. Agent Core owns the stable Tool lifecycle.
 
 ## 2. Tool
 
@@ -98,7 +98,7 @@ Tool progress is optional and coalescable. Final results are authoritative. Core
 
 ## 10. Adapter ownership
 
-An adapter owns protocol translation, authentication, external timeout mapping, and private diagnostics. Core owns Tool identity, validation, cancellation, invocation boundaries, Events, and transcript commitment.
+An adapter owns protocol translation, authentication, external timeout mapping, and private diagnostics. Agent Core owns Tool identity, validation, cancellation, invocation boundaries, Events, and transcript commitment.
 
 ## 11. Embedded and hosted use
 

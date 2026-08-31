@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Hosted Agent Service is a channel-connected set of Transport and Orchestration goroutines that dispatches commands to Agent goroutines. The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
+> **Agent as a Service connects clients to Agent Core through Transport and Orchestration.** The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
 
 ## 1. Hosted deliverables
 

@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> The Core API addresses one Agent goroutine. The Host API schedules and connects many Agent goroutines.
+> **The Core API executes one Agent; the Host API coordinates many.**
 
 ## 1. Core API
 
@@ -26,9 +26,9 @@ type EventHandler interface {
 }
 ```
 
-The public methods may block waiting on result channels. Core does not expose raw channels as the only API, but its runtime model is a goroutine and channel protocol.
+The public methods may block waiting on result channels. Agent Core does not expose raw channels as the only API, but its runtime model is a goroutine and channel protocol.
 
-Core contains no transport envelopes, provider types, mutable internal slices, or Host objects.
+Agent Core contains no transport envelopes, provider types, mutable internal slices, or Host objects.
 
 ## 2. Core command behavior
 
@@ -59,7 +59,7 @@ WithExtension
 WithLimits
 ```
 
-The Agent owns only dependencies documented as its private capability set. Mutable transcript state is never shared between Agents without an explicit application protocol.
+Each Agent receives an explicit private capability set. Mutable transcript state is never shared between Agents without an explicit application protocol.
 
 ## 4. Core subscription
 

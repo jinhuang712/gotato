@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Separate the Agent goroutine that executes, the channels that connect it, and the Orchestration goroutines that decide what happens next.
+> **Agents are goroutines. Agent Core executes. Orchestration coordinates.**
 
 ## 1. Layered system
 
@@ -40,7 +40,7 @@ An Agent is a Go-native, stateful execution unit:
 Agent = identity + private state + goroutine + channels
 ```
 
-The Agent goroutine owns only its own state and capabilities. It runs one simple canonical Loop and does not own a Conversation registry, request queue, Host, Orchestrator, or shared application resource.
+Each Agent goroutine owns its state and capabilities. It runs one canonical Loop, while Conversation registries, request queues, Hosts, Orchestrators, and shared application resources remain outside the Agent.
 
 The public Agent handle may hide the goroutine and expose synchronous convenience methods. Internally those methods send commands and await response channels.
 
@@ -56,7 +56,7 @@ A Routine is not a wrapper around a child Agent Run, and a goroutine is not mere
 
 ## 4. Agent state and availability
 
-The Agent owns:
+An Agent contains:
 
 ```text
 system instructions
@@ -94,11 +94,11 @@ Model → Tool → Model → ...
 canonical Events + RunResult
 ```
 
-The Loop owns Agent state transitions and capability execution. It does not inspect external user behavior or choose a request queue policy.
+Agent Core applies state transitions and executes capabilities through the canonical Loop. The Loop does not inspect external user behavior or choose a request queue policy.
 
 ## 7. Orchestration
 
-Orchestration is a collection of Go goroutines connected by channels. It coordinates Agent routines without becoming their state owner:
+Orchestration is a collection of Go goroutines connected by channels. It coordinates Agent routines without executing their work:
 
 ```text
 incoming requests
@@ -178,7 +178,7 @@ Hosted mode adds remote access and scheduling policy. It does not add another Ag
 
 | Concern | Primary owner |
 |---|---|
-| Agent state and canonical Loop | Agent goroutine / Core |
+| Agent state and canonical Loop | Agent goroutine / Agent Core |
 | Agent capabilities | Core contracts and adapters |
 | Prompt admission and queue policy | Application or Orchestration |
 | Agent creation and routing | Orchestration |

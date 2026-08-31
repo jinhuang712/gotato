@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Agent goroutines emit immutable facts. Channels carry those facts to local observers and Hosted delivery.
+> **Agents emit immutable facts; Hosts project and deliver them.**
 
 ## 1. Event kinds
 
