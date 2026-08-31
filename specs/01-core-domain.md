@@ -105,11 +105,20 @@ Busy ──new Prompt────────► not accepted by Agent
 ## 6. Run
 
 ```go
+type RunMetrics struct {
+    ElapsedMS      int64
+    Turns          uint32
+    ToolCalls      uint32
+    TextBytes      uint64
+    ReasoningBytes uint64
+}
+
 type RunResult struct {
     RunID        RunID
     Status       RunStatus
     FinalMessage *Message
     Usage        Usage
+    Metrics      RunMetrics
     Error        *RuntimeError
 }
 ```

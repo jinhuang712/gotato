@@ -286,6 +286,18 @@ func (o *Orchestrator) CancelRun(ctx context.Context, runID gotato.RunID) error 
 }
 
 func (o *Orchestrator) Dispatch(ctx context.Context, request Request, message gotato.Message) (gotato.RunResult, Record, error) {
+	return o.dispatch(ctx, request, message, nil)
+}
+
+// DispatchWithAdmission is the same dispatch path as Dispatch, but signals
+// after the conversation has acquired its single-flight lease and immediately
+// before Core Prompt starts. Hosts that subscribe to Events before dispatch can
+// use this boundary to correlate the next agent_start with this Run.
+func (o *Orchestrator) DispatchWithAdmission(ctx context.Context, request Request, message gotato.Message, admitted chan<- struct{}) (gotato.RunResult, Record, error) {
+	return o.dispatch(ctx, request, message, admitted)
+}
+
+func (o *Orchestrator) dispatch(ctx context.Context, request Request, message gotato.Message, admitted chan<- struct{}) (gotato.RunResult, Record, error) {
 	if !o.Serving() {
 		return gotato.RunResult{}, Record{}, gotatoError(gotato.ErrInvalidState, "Orchestration is draining")
 	}
@@ -298,6 +310,9 @@ func (o *Orchestrator) Dispatch(ctx context.Context, request Request, message go
 		return gotato.RunResult{}, record, err
 	}
 	defer lease.release()
+	if admitted != nil {
+		admitted <- struct{}{}
+	}
 	result, runErr := agent.Prompt(ctx, message)
 	return result, o.record(record.ID), runErr
 }

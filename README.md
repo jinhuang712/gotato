@@ -149,7 +149,22 @@ curl -X POST http://127.0.0.1:8787/v1/runs \\
   -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}'
 ```
 
-The local service also exposes `/v1/runs/stream` for SSE, `POST /v1/runs/{run_id}/cancel` for best-effort Run cancellation, Conversation retirement, Agent close, health/readiness, and drain. The SSE `agent_start` event contains the `run_id` needed by the cancel endpoint. It is a Reference Agent for testing library semantics, not yet a production deployment.
+The local service also exposes `/v1/runs/stream` for SSE and a polling-based non-stream workflow: `POST /v1/runs/async` returns `202` with a `run_id`, then `GET /v1/runs/{run_id}` returns the current status, metrics, and latest completed-turn heartbeat. Use `POST /v1/runs/{run_id}/cancel` for best-effort cancellation. For example:
+
+```bash
+run_id=$(curl -sS -X POST http://127.0.0.1:8787/v1/runs/async \
+  -H 'content-type: application/json' \
+  -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}' | jq -r .run_id)
+while true; do
+  response=$(curl -sS http://127.0.0.1:8787/v1/runs/$run_id)
+  echo "$response" | jq .
+  status=$(echo "$response" | jq -r .status)
+  [[ "$status" != "running" ]] && break
+  sleep 2
+done
+```
+
+The SSE `agent_start` event contains the `run_id` needed by the cancel endpoint. It is a Reference Agent for testing library semantics, not yet a production deployment.
 
 For an OpenAI-compatible LLM Gateway, configure the Library adapter with YAML:
 
@@ -166,7 +181,7 @@ cp gateway.codex.example.yaml gateway.yaml
 go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
 ```
 
-The local service allows long-running work with `--run-timeout`, `--model-timeout`, and `--tool-timeout` (defaults: 10m, 5m, and 5m; `0` disables a deadline). Add `--heartbeat` to log a bounded summary at every completed loop turn without printing prompt, answer, reasoning, or Tool arguments. This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
+The local service allows long-running work with `--run-timeout`, `--model-timeout`, and `--tool-timeout` (defaults: 10m, 5m, and 5m; `0` disables a deadline). This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
 
 The `gateway` package owns YAML loading, provider authentication, HTTP/SSE encoding, streaming normalization, retries before stream consumption, and provider errors. Core remains provider-neutral.
 

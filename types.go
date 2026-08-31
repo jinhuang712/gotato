@@ -151,6 +151,7 @@ const (
 type RunStatus string
 
 const (
+	RunRunning          RunStatus = "running"
 	RunCompleted        RunStatus = "completed"
 	RunCanceled         RunStatus = "cancelled"
 	RunDeadlineExceeded RunStatus = "deadline_exceeded"
