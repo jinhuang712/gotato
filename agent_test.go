@@ -81,15 +81,26 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	var kinds []EventKind
+	var turnSummary map[string]any
 	for {
 		event, nextErr := stream.Next(context.Background())
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
 		kinds = append(kinds, event.Kind)
+		if event.Kind == EventTurnEnd {
+			var ok bool
+			turnSummary, ok = event.Payload["summary"].(map[string]any)
+			if !ok {
+				t.Fatalf("turn summary = %#v", event.Payload["summary"])
+			}
+		}
 		if event.Kind == EventAgentEnd {
 			break
 		}
+	}
+	if turnSummary == nil || turnSummary["tool_calls"] != 0 {
+		t.Fatalf("unexpected turn summary = %#v", turnSummary)
 	}
 	if len(kinds) == 0 || kinds[len(kinds)-1] != EventAgentEnd {
 		t.Fatalf("events did not settle: %v", kinds)
