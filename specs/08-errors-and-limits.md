@@ -17,7 +17,7 @@ type RuntimeError struct {
 }
 ```
 
-`Message` is safe for Model and transport exposure. `Cause` is diagnostic and is not serialized by default. Details are bounded and non-secret. Wrapping preserves category and supports `errors.Is`/`errors.As`.
+`Message` is safe for Model and protocol exposure. `Cause` is diagnostic and is not serialized by default. Details are bounded and non-secret. Wrapping preserves category and supports `errors.Is`/`errors.As`.
 
 ## 2. Core categories
 
@@ -58,11 +58,11 @@ Host admission        Host request outcome; no Agent command dispatched
 Queue policy          caller/Host outcome; no Core state change
 ```
 
-A Tool failure must not become a transport failure while the current Agent Run can continue. A failure in another Agent routine does not automatically terminate this Agent.
+A Tool failure must not become a protocol failure while the current Agent Run can continue. A failure in another Agent routine does not automatically terminate this Agent.
 
 ## 4. Panic boundaries
 
-Panic recovery exists around Tool executors, Extensions, observers, Agent creation callbacks, Host callbacks, and Transport projection callbacks. A recovered panic is classified at its boundary, settles or reports according to policy, and never silently disappears.
+Panic recovery exists around Tool executors, Extensions, observers, Agent creation callbacks, Host callbacks, and protocol adapter callbacks. A recovered panic is classified at its boundary, settles or reports according to policy, and never silently disappears.
 
 ## 5. Core limits
 

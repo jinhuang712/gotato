@@ -1,142 +1,143 @@
-# Technology Stack and Deployment Boundaries
+# Technology Stack and Boundaries
 
 **Status:** Draft
 
-> **Agent as a Service.**
->
-> **Core Native to Go.**
->
-> Build Agent Core and its goroutine model first; add protocol adapters for remote access and use the existing platform for deployment.
+> Build a small Go-native Agent Core, attach provider and capability adapters, and host it in the platform that already runs the service.
 
-## 1. Stack map
-
-The Core is the primary implementation target. The following diagram describes the optional hosted path, not a requirement that every deployment include all layers:
+## 1. The stack
 
 ```text
-Existing platform
+Existing Infrastructure
   Gateway · LB · Kubernetes · storage · secrets
-          │ hosts / routes
+          │ hosts / connects
           ▼
-Transport goroutines
-  gRPC / Protobuf / HTTP
-          │ channels
+Agent Host / Orchestration (optional)
+  admission · routing · coordination · lifecycle · delivery
+          │ Agent contract
           ▼
-Orchestration goroutines
-  admission · queues · routing · coordination
-          │ Agent command channels
-          ▼
-Agent goroutine / Core
-  private state · canonical Loop · Events
-          │
-          ├── Model contract → Router → Provider adapter
-          └── Tool contract → capability adapters
+Agent Core
+  Go · private state · canonical Loop · Events
+          │                         │
+          ▼                         ▼
+LLM Adapter                  Tool Adapter
+          │                         │
+External Model provider      Go service / application system
 ```
 
-Infrastructure is optional to Core and need not be reimplemented when an application already provides it.
+This is not a required deployment stack. An embedded Agent uses only Core and the adapters it needs. A Hosted Agent adds a Host and a protocol adapter to an existing service boundary.
 
 ## 2. Core technology
 
 ```text
 Go
 context.Context
-Agent goroutines
-explicit command / result / Event channels
 small interfaces
 ordinary typed errors
-bounded capability workers
-JSON Schema for Tool inputs
+private goroutine-backed Agent execution
+bounded local work
+provider-neutral Messages and Model values
 ```
 
-Core packages must not import Protobuf, gRPC, Kubernetes, cache, database, or provider SDK packages.
+Core must not import Protobuf, gRPC, Kubernetes, Gateway, a database, a broker, or a provider SDK. The public Core API uses Go values and Context, not wire representations.
 
-## 3. Model layer
+## 3. LLM adapters
 
 ```text
-Model interface
-      ▼
-Model Router
-  model selection · fallback · rate limit · cost policy
-      ▼
-Provider Adapter
-      ▼
+Model contract
+      ▲
+LLM Adapter
+  provider protocol · authentication · usage · provider policy
+      ▲
 external provider
 ```
 
-The Router and adapters can be used by Embedded and Hosted applications. Provider-specific encoding, authentication, and transport stay below the provider-neutral Core contract.
+An LLM Adapter turns a provider API into the Core Model contract. It owns provider-specific encoding, streaming, authentication, and connection retry. Core owns the Agent Loop, Model call boundaries, transcript commitment, and Run settlement.
 
-Run-level retry remains a Core policy because it must preserve one Run and one terminal Event. Provider-local connection retry may stay in the adapter when it does not change Core semantics.
+The adapter interface must remain provider-neutral so an existing service can change providers without changing its Agent code.
 
-## 4. Transport
-
-Protobuf and gRPC are optional transport boundaries for Hosted mode:
+## 4. Tool adapters
 
 ```text
-protobuf command → mapper → Host operation
-Core Event → projector → protobuf RunEvent
+Go function / service / external system
+                 ↓
+             Tool Adapter
+                 ↓
+             Core Tool contract
 ```
 
-Generated types must not enter Core signatures. An existing Go service may mount the gRPC adapter beside its own APIs without deploying a separate Gotato infrastructure stack.
+A simple Go function should be easy to expose as a Tool. Service-backed Tools may use an existing HTTP, gRPC, RPC, database, or MCP client. The adapter owns external authentication, protocol details, and resource policy; Core owns Tool invocation and result commitment.
 
-## 5. Orchestration
+## 5. Orchestration and protocol adapters
 
-Orchestration uses Go contexts, goroutines, channels, bounded queues, synchronization, and worker coordination for:
+Orchestration is a small coordination layer for Hosted use:
 
 ```text
-multiple streams and Agent routines
-Agent factory and process-local routing
-admission and request queue policy
-dispatch when Agent routines are Free
-Event projection and delivery
-readiness and drain
+Agent Factory
+Agent routing
+admission and queue policy
+lifecycle and cancellation
+Event observation and delivery
 ```
 
-The public API may hide raw channels behind Agent handles, but channel-backed communication is the runtime model. Every long-lived goroutine has an explicit lifetime and shutdown signal; no goroutine is fire-and-forget.
+A protocol adapter connects a client to this layer:
+
+```text
+HTTP / gRPC / SSE / existing RPC
+             ↓
+      Host / Orchestration
+```
+
+The protocol adapter maps wire commands and Events. It is optional for Embedded use and is not a dependency of Core. When Orchestration and Core share a process, a direct Go interface or channel-backed handle is the simplest connection. When they have a deliberate process boundary, internal gRPC is a valid adapter.
 
 ## 6. Infrastructure integration
 
-Infrastructure may provide:
+Infrastructure is external:
 
 ```text
 Gateway / Ingress
-Kubernetes Service and Deployment
+Kubernetes / container runtime
 load balancing and session affinity
 identity and secrets
-persistent state
+persistent stores
 resource limits and autoscaling
 ```
 
-For the initial PoC, use one Host process in one Pod. A Gateway must support long-lived bidirectional gRPC streams and must not retry an active Run in a way that duplicates commands.
+Gotato provides integration contracts such as Context propagation, long-lived stream behavior, readiness, liveness, and drain. It does not provide or require an Infrastructure product.
 
-Multi-Pod Conversation continuity is intentionally out of scope and reserved as a future ownership/routing design. Kubernetes Service routing alone does not guarantee it.
+The initial Hosted PoC may use one Host process, one Pod, local routing, and an existing HTTP or gRPC server. Multi-Pod continuity is a future routing and persistence contract.
 
 ## 7. Observability
 
-Core and Host expose structured correlation such as:
+Core and Host may expose:
 
 ```text
 Agent ID · Run ID · Turn · Tool Call ID · Spawn ID
-request ID · stream ID · Agent name · terminal status
+request ID · stream ID · terminal status
 ```
 
-Secrets, credentials, raw prompts, and unrestricted Tool payloads are redacted before export. Observability must not change execution semantics.
+Observability uses Go interfaces or OpenTelemetry adapters. It must not force raw prompts, provider payloads, or credentials into logs, and it must not change Agent execution semantics.
 
 ## 8. Package direction
 
-A possible repository layout is:
+A possible layout is:
 
 ```text
-core/              Agent goroutine, Run, Loop, Events, Context
-model/             Model contract and provider-neutral values
-tool/              Tool, ToolSet, Schema helpers
-routine/           Agent routine handles and spawn protocol
-orchestration/     scheduling, admission, routing, queues, delivery
-transport/grpc/    Protobuf mapping and gRPC server/client
-adapters/          providers and capabilities
-infra/             deployment examples and integration assets
+agent/             small public Agent interface and Core implementation
+model/             provider-neutral Model values and contract
+adapter/llm/       provider integrations
+adapter/tool/      application capability integrations
+host/              optional Orchestration and lifecycle
+adapter/protocol/   optional protocol adapters used by Host
 ```
 
-The exact packages may evolve. Dependency direction may not: Host and adapters depend on Core contracts; Core does not depend on them.
+The package names may evolve. The dependency direction must not:
+
+```text
+LLM / Tool adapters → Core contracts
+Host / protocol adapters → Host / Core contracts
+Infrastructure hosts everything from outside
+```
 
 ## 9. Testing
 
-Core uses deterministic fakes and no network. Agent routine tests use scripted channels and fake clocks. Host uses in-process transport, slow consumers, request queues, and race tests. Infrastructure and real provider tests are separate integration suites and must not be prerequisites for Core acceptance.
+Core tests use deterministic Models, Tools, Contexts, and clocks without a network. Host tests exercise admission, routing, cancellation, delivery, and drain in-process. Real provider and platform tests are integration suites; they are not prerequisites for Core acceptance.

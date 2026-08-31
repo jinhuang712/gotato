@@ -16,7 +16,7 @@ A busy or invalid command creates no Run and emits no start Event.
 
 `Prompt` validates and commits a user Message before its first Model request, then runs the Loop and returns after Core execution settlement. `Continue` appends no user Message and is valid only when the transcript ends in a Model-continuable state such as a user or Tool Result Message. It never synthesizes user input.
 
-The public Go call may wait on a result channel; the Agent goroutine remains the state and execution authority.
+The public Go call may wait on a result channel; Core keeps the execution unit and state authority private.
 
 ## 3. Normative algorithm
 
@@ -118,4 +118,4 @@ A failure in another Agent routine is communicated as a result or Event. It does
 
 ## 11. Equivalence
 
-Given equivalent initial Agent state, Model stream, Tools, options, and cancellation timing, Embedded and Hosted execution MUST produce the same canonical Event kinds/order, committed transcript, and terminal Core status. Transport acknowledgements, queue policy, and delivery timing are not Core facts.
+Given equivalent initial Agent state, Model stream, Tools, options, and cancellation timing, Embedded and Hosted execution MUST produce the same canonical Event kinds/order, committed transcript, and terminal Core status. Protocol acknowledgements, queue policy, and delivery timing are not Core facts.

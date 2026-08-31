@@ -2,23 +2,23 @@
 
 **Status:** Draft
 
-> **Tools extend Agent Core; adapters connect them to application systems. ToolSets stage capability discovery.**
+> Tools give an Agent access to the systems that make its answers useful.
 
-## 1. Capability path
+## 1. The simple path
+
+A Go function or existing service becomes an Agent capability through a Tool adapter:
 
 ```text
-Application system
-   ↓
-Tool / ToolSet adapter
-   ↓
-Agent definition
-   ↓
+Go function / service
+        ↓
+Tool adapter
+        ↓
 Agent Core
-   ↓
-Model-visible Tool specifications
+        ↓
+Model-visible Tool
 ```
 
-Database, Redis, HTTP, gRPC, MCP, workflow, sandbox, and remote Agent integrations are application or adapter concerns. Agent Core owns the stable Tool lifecycle.
+The first Agent only needs individual Tools. ToolSets are optional grouping and discovery for larger capability surfaces.
 
 ## 2. Tool
 
@@ -31,11 +31,13 @@ type Tool interface {
 }
 ```
 
-Its specification includes stable identity, description, input Schema, result expectations, and execution policy. Its executor receives a validated Core ToolUse, not provider or Protobuf types.
+Its specification contains a stable identity, description, input Schema, result expectations, and execution policy. Its executor receives Core values rather than provider or protocol types.
+
+Typed function helpers should infer ordinary Go input and output types where possible, so a developer can add a Tool without manually writing a protocol schema for every function.
 
 ## 3. ToolSet
 
-A ToolSet groups related operations under one capability domain:
+A ToolSet groups related operations:
 
 ```text
 grafana
@@ -44,21 +46,21 @@ grafana
   └── refresh
 ```
 
-A ToolSet resolves deterministic concrete Tools when activated or inspected. Its external dependencies and credentials belong to the adapter.
+A ToolSet resolves deterministic concrete Tools when activated or inspected. External dependencies and credentials remain in the adapter.
 
-## 4. Staged discovery
+ToolSets can support staged capability discovery:
 
 ```text
-Model sees capability domains
+Model sees domains
   grafana · github · database
         ↓ activate grafana
 Model sees concrete operations
   grafana.view_dashboard · grafana.edit_panel · ...
 ```
 
-The built-in activation Tool is implemented through the ordinary Tool lifecycle. Activation is committed between Turns and affects the next Model request.
+Staged discovery is an advanced capability, not part of the minimum Agent setup.
 
-## 5. Identity and visibility
+## 4. Identity and visibility
 
 Core identity is:
 
@@ -66,40 +68,42 @@ Core identity is:
 ToolSetName + "." + ToolName
 ```
 
-Individual root Tools use one configured root namespace and remain visible. Active ToolSets expose concrete Tools in deterministic order. Provider adapters may encode names and must preserve a reversible mapping to Core identity.
+Root Tools use a configured namespace and remain visible. Active ToolSets expose concrete Tools in deterministic order. Provider adapters may encode names but must preserve a reversible mapping to Core identity.
 
-## 6. Lifecycle
+## 5. Lifecycle
 
 ```text
 Tool Call
   → assemble complete JSON
   → resolve Tool
   → validate Schema
-  → Pre-Tool-Use
+  → before hooks
   → execute at most once
-  → Post-Tool-Use
+  → after hooks
   → finalize Result
-  → commit Tool Result Message
+  → commit Tool Result
 ```
 
 Blocked, invalid, and failed outcomes retain whether execution occurred. A Tool execution error normally becomes a failed Tool Result so the Model can continue.
 
-## 7. Construction
+## 6. Construction
 
-Agent construction validates non-nil implementations, unique Tool and ToolSet names, qualified IDs, valid Schemas, deterministic ordering, and visibility bounds before a Run is admitted. Dynamic ToolSet failure must not corrupt existing Core state.
+Agent construction validates non-nil implementations, unique names, qualified IDs, valid Schemas, deterministic ordering, and visibility bounds before a Run is admitted. Dynamic ToolSet failure must not corrupt existing Core state.
 
-## 8. Parallel batches
+## 7. Parallel batches
 
-Preflight is source ordered. Execution may be sequential or bounded parallel. Completion Events reflect actual completion; Tool Result Messages commit in assistant source order. Every admitted Tool settles before `turn_end`.
+Preflight is source ordered. Execution may be sequential or bounded parallel. Completion Events reflect actual completion; Tool Result Messages commit in assistant source order. Every admitted Tool settles before the Turn ends.
 
-## 9. Progress and bounds
+Tool concurrency is local to one Agent Run. It does not allow a second Prompt to mutate the same Agent concurrently.
+
+## 8. Progress and bounds
 
 Tool progress is optional and coalescable. Final results are authoritative. Core enforces bounds for progress bytes, progress updates, result bytes, and metadata. Overflow never creates an unbounded Model context.
 
-## 10. Adapter ownership
+## 9. Adapter ownership
 
-An adapter owns protocol translation, authentication, external timeout mapping, and private diagnostics. Agent Core owns Tool identity, validation, cancellation, invocation boundaries, Events, and transcript commitment.
+A Tool adapter owns authentication, external timeout mapping, protocol translation, and private diagnostics. Agent Core owns Tool identity, validation, cancellation, invocation boundaries, Events, and conversation commitment.
 
-## 11. Embedded and hosted use
+## 10. Embedded and Hosted
 
-In Embedded mode, an application installs Tools directly on a Core Agent. In Hosted mode, a Host creates the Agent from a factory and projects Tool Events through transport. The Tool contract is identical in both modes.
+In Embedded mode, an application installs Tools directly on a Core Agent. In Hosted mode, a Host creates the Agent and delivers Tool Events through its protocol adapter. The Tool contract is identical in both modes.

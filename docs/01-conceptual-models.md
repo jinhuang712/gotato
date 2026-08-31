@@ -2,188 +2,166 @@
 
 **Status:** Draft
 
-> **Agents are goroutines. Agent Core executes. Orchestration coordinates.**
+> This document explains the Agent, the Core, and the optional Host around them.
 
-## 1. Layered system
+## 1. Agent as a Go interface
 
-```text
-Application / Client
-        │ commands and results
-        ▼
-Transport goroutines (optional)
-        │ channels
-        ▼
-Orchestration goroutines
-  admission · queue · routing · delivery
-        │ channels
-        ▼
-Agent goroutine
-  private state · simple Loop · capabilities
-        │
-        ├── Model contract → provider adapter
-        └── Tool / Extension → capability adapter
-```
-
-Infrastructure may host the process and carry the network:
+The first concept is an Agent that can be called from an existing Go service:
 
 ```text
-Client → Gateway / LB → Pod → Transport → Orchestration → Agent goroutine
+Agent interface
+      ↓
+Agent Core
+  private state · canonical Loop · Tools · Events
 ```
 
-Infrastructure placement is not Agent semantics.
+The interface hides the execution machinery. A local Agent and a Hosted Agent proxy can expose the same semantic operations, so a caller does not need a second application model when the Agent moves behind a service boundary.
 
-## 2. Agent
+## 2. Agent Core
 
-An Agent is a Go-native, stateful execution unit:
+Agent Core is a small Go-native runtime:
 
 ```text
-Agent = identity + private state + goroutine + channels
+Agent Core
+  ├── one Agent execution unit
+  ├── private conversation state
+  ├── Model → Tool → Model Loop
+  ├── explicit capabilities
+  ├── cancellation and local limits
+  └── result / Event boundary
 ```
 
-Each Agent goroutine owns its state and capabilities. It runs one canonical Loop, while Conversation registries, request queues, Hosts, Orchestrators, and shared application resources remain outside the Agent.
+Core does not require a service framework, a database, a broker, or a deployment platform. A caller can construct it inside an existing process and call it directly.
 
-The public Agent handle may hide the goroutine and expose synchronous convenience methods. Internally those methods send commands and await response channels.
-
-## 3. Agent Routine
-
-An Agent Routine is the running form of an Agent:
+## 3. The three system boundaries
 
 ```text
-Agent Routine = Agent goroutine + channel endpoints
+Existing Infrastructure
+  hosts and connects the process
+          │
+          ▼
+Agent Host / Orchestration
+  admission · routing · coordination · lifecycle
+          │ Agent contract
+          ▼
+Agent Core
+  state · execution · Tools · Events
 ```
 
-A Routine is not a wrapper around a child Agent Run, and a goroutine is not merely an implementation detail. A spawned Agent creates another independent routine. Spawn provenance can be recorded, but there is no resource ownership hierarchy between routines.
+Infrastructure provides the external environment. Orchestration coordinates Agents and callers. Core executes one Agent's work. These boundaries may live in one process or across process boundaries.
 
-## 4. Agent state and availability
+A protocol adapter connects a remote client to the Host when needed. An LLM adapter and Tool adapter connect Core to external capabilities. Adapters are boundaries, not additional ownership layers.
 
-An Agent contains:
+## 4. Agent execution
+
+An Agent has one current execution boundary:
+
+```text
+Agent handle
+      ↓
+one Agent execution unit
+      ├── current Prompt or Continue
+      ├── private conversation state
+      ├── Model and Tools
+      └── result and Events
+```
+
+The execution unit may be implemented by a goroutine. That detail is important to Core correctness but is not a setup requirement for the caller. External request queues and routing remain Host or application policy.
+
+## 5. Conversation state and Work
+
+Core keeps the current conversation state required for a basic multi-turn Agent:
 
 ```text
 system instructions
-Model contract
 committed Messages
-Tools and ToolSets
-Extensions
+Tools and active capabilities
 current Run state
 local execution limits
 ```
 
-The Agent can be `Free` or `Busy` with respect to its current execution. It handles one Prompt or Continue at a time. `Free` means the routine can accept another execution command; it does not mean the Agent owns a user session or external resource.
+This is not a separate Memory product. Long-term memory, retrieval, compaction, artifacts, and cross-session persistence are optional application or extension concerns.
 
-## 5. Run and Turn
+An Agent owns its private state and its accepted current work. It does not own a user's Conversation registry, an external request queue, or shared application resources.
 
-A Run is one Prompt or Continue processed by an Agent Routine. It has an identity, Context, Events, and settled Result.
+## 6. Run and Turn
 
-A Turn is one Model request and the Tool batch produced by that response:
+A Run is one accepted Prompt or Continue. A Turn is one Model request and the Tool work produced by that response:
 
 ```text
-turn_start → Model response → Tool batch → Tool Results → turn_end
+Run
+  └── Turn → Model response → Tool batch → Turn → ...
 ```
 
-A Run is not a parent container for another Agent. A spawned Agent has its own routine and its own Run.
+These identities support result and Event correlation. They are runtime concepts; a basic caller only needs to submit a Prompt and receive a result.
 
-## 6. The canonical Loop
+## 7. The canonical Loop
 
-Every Agent Routine uses one Loop:
+Every Agent uses one Core Loop:
 
 ```text
 Prompt / Continue
        ↓
 Model → Tool → Model → ...
        ↓
-canonical Events + RunResult
+Result / canonical Events
 ```
 
-Agent Core applies state transitions and executes capabilities through the canonical Loop. The Loop does not inspect external user behavior or choose a request queue policy.
+Core applies state transitions, assembles Model streams, invokes Tools, commits results, and settles the Run. Neither a Host nor an application scheduler reproduces this Loop.
 
-## 7. Orchestration
+## 8. Orchestration
 
-Orchestration is a collection of Go goroutines connected by channels. It coordinates Agent routines without executing their work:
+Orchestration coordinates Agent access:
 
 ```text
-incoming requests
-        ↓
-request goroutine / scheduler
-        ├── reject while Busy
-        ├── FIFO or priority queue
-        ├── dispatch when Free
-        ├── Steer at a boundary
-        └── Abort immediately
-        ↓
-Agent channel
+incoming request
+       ↓
+Agent Host / Orchestration
+  route · admit · queue · control · deliver
+       ↓ Agent contract
+Agent Core
 ```
 
-Orchestration may create Agent routines, coordinate groups, attach transport streams, forward Events, and manage lifecycle. It does not edit Agent state or reproduce the Agent Loop.
+Queueing, priority, preemption, Agent creation, and Conversation routing are policies around Core. They can be omitted in a direct embedded call or supplied by a Hosted composition.
 
-## 8. Conversation
-
-A Conversation is an application or Host routing key. In the single-Pod PoC, a process-local registry may map it to an Agent handle:
+## 9. Adapters
 
 ```text
-agent name + conversation key
-              ↓
-process-local routing table
-              ↓
-Agent channel
+Model provider → LLM Adapter → Model contract → Core
+Go service     → Tool Adapter → Tool contract  → Core
+Remote client  → Protocol Adapter → Host contract
 ```
 
-This is routing, not Agent ownership. The Agent does not own the registry, and ordinary multi-Pod continuity remains a future concern.
+An adapter translates an external representation and owns external integration details. Core remains provider-neutral, service-neutral, and protocol-neutral.
 
-## 9. Transport
-
-Transport maps external messages to channel-backed Orchestration or Agent commands:
-
-```text
-RunCommand → transport goroutine → Host command channel
-Agent Event → Event channel → projection → RunEvent
-```
-
-Protobuf and gRPC types stop at the transport boundary.
-
-## 10. Model and capabilities
-
-The Core consumes a provider-neutral Model contract. Tools, ToolSets, and Extensions are explicit capabilities installed on an Agent:
-
-```text
-Agent goroutine
-   ├── Model contract → Router → Provider
-   ├── Tool / ToolSet → capability adapter
-   └── Extension hooks
-```
-
-Adapters own external protocol, authentication, and provider policy. The Agent owns capability invocation and commitment into its local state.
-
-## 11. Embedded and Hosted
+## 10. Embedded and Hosted
 
 ### Embedded
 
 ```text
-Go method / application goroutine
-        │ channel-backed call
-        ▼
-Agent goroutine
+Existing Go Service → Agent interface → Agent Core
 ```
 
-The application is free to provide its own request queue or simply call one Prompt and wait for the result.
+The application can call one Agent directly. Its existing HTTP, gRPC, or RPC boundary remains its own concern.
 
 ### Hosted
 
 ```text
-Client → Transport goroutines → Orchestration goroutines → Agent goroutine
+Client → Protocol Adapter → Host / Orchestration → Agent Core
 ```
 
-Hosted mode adds remote access and scheduling policy. It does not add another Agent implementation.
+The Host exposes the same Agent through a service boundary and adds routing, admission, lifecycle, and Event delivery. Hosting does not create another Agent implementation.
 
-## 12. Boundaries
+## 11. Boundary table
 
-| Concern | Primary owner |
+| Concern | Owner |
 |---|---|
-| Agent state and canonical Loop | Agent goroutine / Agent Core |
-| Agent capabilities | Core contracts and adapters |
+| Agent state and canonical Loop | Agent Core |
+| Model provider protocol | LLM Adapter |
+| Business-system capability | Tool Adapter |
 | Prompt admission and queue policy | Application or Orchestration |
 | Agent creation and routing | Orchestration |
-| Wire mapping | Transport |
-| Deployment and network | Infrastructure |
-| Provider selection | Model layer |
+| Remote command and Event mapping | Protocol Adapter attached to Host |
+| Process hosting and network | Existing Infrastructure |
 
-The system is connected by channels and explicit contracts rather than a hierarchy of resource owners.
+The point of the model is not to make every deployment use every box. It is to keep the simple path short while preserving a clean path to service hosting.

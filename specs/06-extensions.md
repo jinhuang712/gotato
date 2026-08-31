@@ -32,7 +32,7 @@ type TurnStopper interface {
 }
 ```
 
-Exact package names may evolve, but each interface has one responsibility and receives the owning Run Context. Extensions do not receive mutable Agent pointers or transport streams.
+Exact package names may evolve, but each interface has one responsibility and receives the owning Run Context. Extensions do not receive mutable Agent pointers or protocol streams.
 
 ## 2. Installation and order
 

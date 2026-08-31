@@ -36,7 +36,7 @@ A Host may create or connect an independent Agent goroutine through another Host
 
 ## 6. Gateway and governance
 
-Authentication, authorization, approvals, audit, credentials, sandbox policies, tenant quotas, and edge routing may integrate at Gateway, Host, or adapter boundaries. They must not enter Core through transport types or hidden global state.
+Authentication, authorization, approvals, audit, credentials, sandbox policies, tenant quotas, and edge routing may integrate at Gateway, Host, or adapter boundaries. They must not enter Core through protocol types or hidden global state.
 
 ## 7. Promotion rule
 

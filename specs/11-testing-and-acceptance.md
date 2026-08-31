@@ -2,117 +2,104 @@
 
 **Status:** Draft
 
-> **Test Agent Core, Orchestration policy, and Infrastructure independently.**
+> Test the simple Agent path first, then test Host policy and platform integration separately.
 
-## 1. Test layers
+## 1. Test surfaces
 
 ```text
 Core tests
-  scripted Model · Tools · Agent channels · Events · fake Context/clock
+  scripted Model · Tools · conversation state · Events · cancellation
 
-Agent routine tests
-  single-flight execution · spawn · result channels · cancellation
+Agent execution tests
+  single-flight work · results · control · optional spawning
 
 Host tests
-  Agent creation · admission · queues · routing · delivery · drain
-  in-process gRPC and slow consumers
+  Agent creation · admission · routing · delivery · drain
 
-Integration tests
-  provider adapters · capability services · Gateway/Kubernetes
+Adapter tests
+  LLM normalization · Tool mapping · protocol mapping
+
+Platform tests
+  existing HTTP/gRPC service · Gateway/Kubernetes compatibility
 ```
 
-Infrastructure tests must not be prerequisites for Core acceptance.
+Platform tests must not be prerequisites for Core acceptance. Core tests must not require a live provider, network, registry, broker, database, or deployment platform.
 
 ## 2. Core testkit
 
-The testkit MUST include scripted Model streams, succeeding/failing/panicking/cancellable Tools, ToolSet fixtures, Event recorders, Extension fixtures, Agent channel probes, independent Agent factories, fake clocks, deterministic ID generation, and explicit result channels.
+The testkit MUST include scripted Model streams, succeeding/failing/panicking/cancellable Tools, Event recorders, Extension fixtures, Agent handles, fake clocks, deterministic ID generation, and explicit result boundaries.
+
+It SHOULD make the first Agent scenario easy to test without constructing a Host or a persistence service.
 
 ## 3. Core acceptance
 
 Tests MUST prove:
 
 ```text
-one Agent goroutine processes one Prompt at a time
-second direct execution command is not processed concurrently
+one Agent execution unit processes one Prompt at a time
 Model → Tool → Model continuation
 malformed arguments never execute
 Tool failures become Tool Results
 Continue adds no user Message
 Steering and Follow-up control messages
-stopper prevents next Model call
-exactly one final agent_end
+stopper prevents the next Model call
+one final agent_end
 retry remains inside one Run
-Agent state is mutated only by its goroutine
+Agent state is mutated only by its execution unit
 ```
 
 Tests MUST NOT require Core to choose an external Prompt queue policy.
 
 ## 4. Tool and Extension acceptance
 
-Tests MUST prove Tool validation, at-most-once execution, blocked outcomes, Pre order, Post reverse order, bounded parallel completion versus source-order commitment, ToolSet activation, deterministic visibility, channel-aware cancellation, and blocking/advisory Extension behavior.
+Tests MUST prove Tool validation, at-most-once execution, blocked outcomes, Pre order, Post reverse order, bounded parallel completion versus source-order commitment, optional ToolSet activation, deterministic visibility, Context-aware cancellation, and blocking/advisory Extension behavior.
 
 ## 5. Event acceptance
 
-Tests MUST prove Event sequence, class, correlation, terminal ordering, Protected Event preservation, progress coalescing, bounded channel/queue policy, observer bounds, independent Agent execution/delivery settlement, disconnect behavior, and bounded drain.
+Tests MUST prove Event sequence, class, correlation, terminal ordering, Protected Event preservation, progress coalescing, bounded observation and delivery, independent Agent execution/delivery settlement, disconnect behavior, and bounded drain.
 
-## 6. Agent Routine acceptance
+## 6. Agent execution acceptance
 
 Tests MUST prove:
 
 ```text
-an Agent Routine is a goroutine-backed Agent
-independent Agent routines have isolated state
-spawn creates a new Agent routine
-spawn provenance is correlation, not ownership
-Agent-to-Agent communication uses explicit channels
-one routine settles one current Run exactly once
+an Agent is callable through the Core interface
+private conversation state is isolated
+one execution settles one Run exactly once
 cancellation requires an explicit signal or selected policy
-another routine's failure does not implicitly terminate this one
-routine and Agent bounds are enforced at their owning layer
+spawn creates an independent Agent when enabled
+another Agent's failure does not implicitly terminate this one
+Core and Host bounds are enforced at their owning boundary
 ```
 
 Tests MUST NOT assume an automatic parent/child resource hierarchy.
 
-## 7. Orchestration acceptance
+## 7. Orchestration and Host acceptance
 
 Tests MUST prove:
 
 ```text
-multiple Agent goroutines execute concurrently
+multiple Agents can execute concurrently
 one Agent receives no second Prompt while Busy
-FIFO queue policy works when configured
-reject-while-Busy policy works when configured
-priority policy works when configured
-safe-boundary Steer policy works when configured
-immediate Abort policy works when configured
-spawn and Agent creation are bounded
-request/result correlation survives channel hops
+configured queue and rejection policies work
+configured priority, Steer, and Abort policies work
+Agent creation and admission are bounded
+request/result correlation survives interface hops
+Event delivery is bounded and preserves Protected Events
+readiness and drain work within a deadline
 ```
 
-These are Orchestration policies, not innate Core Agent behavior.
+These are Host policies, not innate Core behavior.
 
-## 8. Host acceptance
+## 8. Adapter acceptance
 
-Tests MUST prove:
+LLM Adapter tests MUST prove provider streams normalize into the Model contract, provider failures retain classification, and Core remains independent of provider types.
 
-```text
-remote text Run
-Tool/ToolSet/Agent Routine Event projection
-Start ordering and duplicate/post-terminal errors
-Steer/FollowUp delivery
-remote cancellation propagation
-isolated process-local Conversation routing
-cache hit and idle-only eviction
-bounded admission and Event delivery
-readiness and drain
-error-to-status mapping
-```
+Tool Adapter tests MUST prove external protocol and authentication stay outside Core. Protocol adapter tests MUST prove wire commands and Events preserve Core identity, ordering, correlation, and settled meaning.
 
-The initial PoC tests one Host process in one Pod. Cross-Pod continuity is intentionally out of scope; its tests belong to the reserved Multi-Pod Conversation Routing design.
+## 9. Embedded and Hosted equivalence
 
-## 9. Equivalence acceptance
-
-The same scripted scenario through direct Core and Hosted paths must yield the same canonical Event sequence, transcript, limits, and terminal status after the same command is dispatched to the Agent. Queue policy, dispatch timing, transport acknowledgement, and delivery timing are excluded from Core equivalence.
+The same scripted scenario through direct Core and Hosted paths must yield the same canonical Event sequence, conversation commitment, limits, and terminal status after the command reaches the Agent. Queue policy, dispatch timing, protocol acknowledgement, and delivery timing are excluded from Core equivalence.
 
 ## 10. Quality gates
 
