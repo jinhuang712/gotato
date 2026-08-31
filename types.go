@@ -157,11 +157,20 @@ const (
 	RunFailed           RunStatus = "failed"
 )
 
+type RunMetrics struct {
+	ElapsedMS      int64  `json:"elapsed_ms"`
+	Turns          uint32 `json:"turns"`
+	ToolCalls      uint32 `json:"tool_calls"`
+	TextBytes      uint64 `json:"text_bytes"`
+	ReasoningBytes uint64 `json:"reasoning_bytes"`
+}
+
 type RunResult struct {
 	RunID        RunID         `json:"run_id"`
 	Status       RunStatus     `json:"status"`
 	FinalMessage *Message      `json:"final_message,omitempty"`
 	Usage        Usage         `json:"usage,omitempty"`
+	Metrics      RunMetrics    `json:"metrics"`
 	Error        *RuntimeError `json:"error,omitempty"`
 }
 

@@ -80,6 +80,9 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	if result.Status != RunCompleted || TextOf(*result.FinalMessage) != "hello" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	if result.Metrics.Turns != 1 || result.Metrics.TextBytes != uint64(len("hello")) {
+		t.Fatalf("run metrics = %+v", result.Metrics)
+	}
 	var kinds []EventKind
 	var turnSummary map[string]any
 	for {

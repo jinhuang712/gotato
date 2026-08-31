@@ -84,6 +84,8 @@ type runResponse struct {
 	RunID           string               `json:"run_id,omitempty"`
 	RunStatus       gotato.RunStatus     `json:"status,omitempty"`
 	FinalMessage    string               `json:"final_message,omitempty"`
+	Usage           *gotato.Usage        `json:"usage,omitempty"`
+	Metrics         *gotato.RunMetrics   `json:"metrics,omitempty"`
 	Error           *gotato.RuntimeError `json:"error,omitempty"`
 }
 
@@ -320,6 +322,14 @@ func (in runRequest) toOrchestrationRequest() orchestration.Request {
 
 func responseFor(record orchestration.Record, result gotato.RunResult, err error) runResponse {
 	response := runResponse{ConversationID: string(record.ID), AgentID: string(record.LiveAgentID), AgentGeneration: uint64(record.Generation), RunID: string(result.RunID), RunStatus: result.Status, Error: result.Error}
+	if result.RunID != "" {
+		metrics := result.Metrics
+		response.Metrics = &metrics
+		if result.Usage.InputTokens != 0 || result.Usage.OutputTokens != 0 || result.Usage.TotalTokens != 0 {
+			usage := result.Usage
+			response.Usage = &usage
+		}
+	}
 	if result.FinalMessage != nil {
 		response.FinalMessage = gotato.TextOf(*result.FinalMessage)
 	}
