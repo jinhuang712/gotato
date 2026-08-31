@@ -4,7 +4,7 @@
 
 > Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
 
-**Status:** Design phase. The repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
+**Status:** Phase 1 implementation underway. The repository contains the Core library, a local Reference Agent service, architecture documents, and implementable specifications.
 
 ## What Gotato is
 
@@ -132,6 +132,43 @@ Hosted:
 ```
 
 The initial Hosted PoC may use one process, one Pod, local routing, and an existing Gateway or HTTP/gRPC server. Gotato does not need to implement the platform around it.
+
+## Local Reference Agent
+
+The first implementation includes a deterministic local service assembled from the Gotato library:
+
+```bash
+go run ./cmd/gotato-agent --model demo
+```
+
+Then call it without an API key or external service:
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/runs \\
+  -H 'content-type: application/json' \\
+  -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}'
+```
+
+The local service also exposes `/v1/runs/stream` for SSE, Conversation retirement, Agent close, health/readiness, and drain. It is a Reference Agent for testing library semantics, not yet a production deployment.
+
+For an OpenAI-compatible LLM Gateway, configure the Library adapter with YAML:
+
+```bash
+cp gateway.example.yaml gateway.yaml
+# edit gateway.yaml, or provide ${GOTATO_GATEWAY_API_KEY}
+go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
+```
+
+The first Pi-compatible provider is also available through Codex Responses SSE:
+
+```bash
+cp gateway.codex.example.yaml gateway.yaml
+go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
+```
+
+This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
+
+The `gateway` package owns YAML loading, provider authentication, HTTP/SSE encoding, streaming normalization, retries before stream consumption, and provider errors. Core remains provider-neutral.
 
 ## Documentation
 

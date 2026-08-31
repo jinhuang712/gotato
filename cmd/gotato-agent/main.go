@@ -1,0 +1,106 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/gateway"
+	"github.com/jinhuang712/gotato/host"
+	"github.com/jinhuang712/gotato/internal/testmodel"
+	"github.com/jinhuang712/gotato/orchestration"
+)
+
+type echoTool struct{}
+
+func (echoTool) Spec() gotato.ToolSpec {
+	return gotato.ToolSpec{ID: "demo.echo", Name: "demo_echo", Description: "Returns the value passed to it.", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
+}
+
+func (echoTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgress) (gotato.ToolResult, error) {
+	if progress != nil {
+		progress("demo tool started")
+	}
+	var input struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
+		return gotato.ToolResult{}, err
+	}
+	return gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: input.Value}}}, nil
+}
+
+func main() {
+	addr := flag.String("addr", "127.0.0.1:8787", "listen address")
+	modelName := flag.String("model", "echo", "model kind: echo, demo, or gateway")
+	gatewayConfigPath := flag.String("gateway-config", "gateway.yaml", "YAML configuration for the OpenAI-compatible Gateway")
+	flag.Parse()
+
+	var gatewayModel gotato.Model
+	if *modelName == "gateway" {
+		config, err := gateway.LoadYAML(*gatewayConfigPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		client, err := gateway.New(config)
+		if err != nil {
+			log.Fatal(err)
+		}
+		gatewayModel = client
+	}
+	newModel := func() gotato.Model {
+		switch *modelName {
+		case "demo":
+			return testmodel.DemoModel{}
+		case "gateway":
+			return gatewayModel
+		default:
+			return testmodel.EchoModel{}
+		}
+	}
+	factory := func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		options := []gotato.Option{gotato.WithModel(newModel()), gotato.WithInstruction("You are the local Gotato reference agent.")}
+		if *modelName == "demo" {
+			options = append(options, gotato.WithTool(echoTool{}))
+		}
+		if snapshot != nil {
+			options = append(options, gotato.WithInitialSnapshot(*snapshot))
+		}
+		return gotato.NewAgent(options...)
+	}
+
+	orchestrator := orchestration.New()
+	if err := orchestrator.Register(orchestration.Definition{Name: "default", New: factory}); err != nil {
+		log.Fatal(err)
+	}
+	server := host.NewServer(orchestrator)
+	httpServer := &http.Server{Addr: *addr, Handler: server.Handler(), ReadHeaderTimeout: 5 * time.Second}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Drain(drainCtx); err != nil {
+			log.Printf("drain: %v", err)
+		}
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+	}()
+
+	log.Printf("gotato-agent listening on http://%s (model=%s)", *addr, *modelName)
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}

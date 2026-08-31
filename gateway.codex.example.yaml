@@ -1,0 +1,14 @@
+# Gotato Gateway configuration for the Pi openai-codex provider.
+# This uses the OAuth credential already managed by Pi; no token is copied into
+# this file. ${HOME} is expanded when the file is loaded.
+api: openai-codex-responses
+base_url: https://chatgpt.com/backend-api
+model: gpt-5.6-luna
+auth:
+  type: pi_oauth
+  provider: openai-codex
+  file: ${HOME}/.pi/agent/auth.json
+max_retries: 2
+retry_backoff: 200ms
+headers:
+  X-Gotato-Client: gotato-agent

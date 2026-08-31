@@ -19,6 +19,7 @@ go.work.sum
 # Local environment
 .env
 .env.local
+gateway.yaml
 
 # Editors
 .idea/
