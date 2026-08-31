@@ -2,13 +2,13 @@
 
 **Status:** Draft
 
-> Every Agent goroutine runs the same small Loop. Orchestration decides when a command reaches it.
+> **Agent Core executes one canonical Loop; Orchestration controls admission.**
 
 ## 1. Command admission
 
 `Prompt` and `Continue` are commands delivered to one Agent goroutine. The routine accepts one execution command only when it is Free. Before `agent_start`, Core validates input, assigns Run identity and Context, and emits `agent_start`.
 
-Core does not own the external request queue. A direct caller may receive a typed busy/not-available error. A Host or application may hold the request, queue it, prioritize it, or choose a control action before dispatch.
+Agent Core does not own the external request queue. A direct caller may receive a typed busy/not-available error. A Host or application may hold the request, queue it, prioritize it, or choose a control action before dispatch.
 
 A busy or invalid command creates no Run and emits no start Event.
 
@@ -49,7 +49,7 @@ send RunResult through the result channel
 mark Agent execution Free
 ```
 
-No step consults a user request queue, Conversation registry, Host resource, or platform state.
+No step consults an external request queue, Conversation registry, Host resource, or platform state.
 
 ## 4. Turn order
 

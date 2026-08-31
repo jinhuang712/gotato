@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Core Messages are provider-neutral transcript values; a Model returns a normalized stream that Core assembles once.
+> **Core keeps Messages provider-neutral; Models return normalized streams.**
 
 ## 1. Message
 

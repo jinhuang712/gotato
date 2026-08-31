@@ -2,7 +2,7 @@
 
 **Status:** Exploration
 
-> New capabilities enter the layer that owns their state and failure semantics.
+> **New capabilities belong in the layer that owns their state and failure semantics.**
 
 ## 1. Core extensions
 

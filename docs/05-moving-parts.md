@@ -1,8 +1,8 @@
-# Extensions and Moving Parts
+# Boundaries and Moving Parts
 
 **Status:** Draft
 
-> **Tight Core, Open Extensions.** Keep Agent execution in one goroutine; connect policy and capability through explicit interfaces and channels.
+> This document maps the boundaries between Agent Core, Orchestration, Transport, adapters, and Infrastructure.
 
 ## 1. Boundary map
 
@@ -35,7 +35,7 @@
 └─────────────────────────────────────┘
 ```
 
-These may be packages in one Go process or separately connected components. The Core Agent remains a goroutine-backed execution unit; surrounding layers communicate with it rather than owning it.
+These may be packages in one Go process or separately connected components. Agent Core remains a goroutine-backed execution unit; surrounding layers communicate with it through explicit contracts rather than taking over its work.
 
 ## 2. Core moving parts
 
@@ -94,7 +94,7 @@ persistent state
 resource and autoscaling configuration
 ```
 
-Infrastructure is external to Core and may already be provided by the application platform. It routes and hosts processes; it does not own Agent state or Agent Loop semantics.
+Infrastructure is external to Agent Core and may already be provided by the application platform. It routes and hosts processes; it does not define Agent state or Loop semantics.
 
 ## 6. Model layer
 
@@ -123,7 +123,7 @@ DB / Redis / HTTP / gRPC / MCP / workflow / sandbox
                     Agent goroutine
 ```
 
-The adapter owns authentication, external timeout mapping, and private diagnostics. Core owns Tool identity, validation, invocation boundaries, Events, and result commitment.
+The adapter owns authentication, external timeout mapping, and private diagnostics. Agent Core owns Tool identity, validation, invocation boundaries, Events, and result commitment.
 
 ## 8. Embedded composition
 

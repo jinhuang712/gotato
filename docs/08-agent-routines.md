@@ -2,11 +2,11 @@
 
 **Status:** Draft
 
-> **An Agent Routine is a Go-native running Agent: a goroutine with private state and channel boundaries.**
+> **Agent Routines run as goroutines with private state and explicit channels.**
 
 ## 1. Meaning
 
-In Gotato, an Agent is a running Go routine, not a passive object that a Host executes on its behalf:
+In Gotato, an Agent runs as a goroutine; it is not a passive object that a Host executes on its behalf:
 
 ```text
 Agent Routine
@@ -17,7 +17,7 @@ Agent Routine
   + result / Event channels
 ```
 
-The routine owns its local Agent state and its simple Model → Tool → Model Loop. It does not own the Orchestrator, Conversation registry, user request queue, or shared application resources.
+The routine owns its local Agent state and executes the Model → Tool → Model Loop. The Orchestrator, Conversation registry, user request queue, and shared application resources remain outside the routine.
 
 A goroutine is not a fire-and-forget task. The Agent Routine has a stable handle, explicit commands, bounded work, cancellation, Events, and a settled result.
 

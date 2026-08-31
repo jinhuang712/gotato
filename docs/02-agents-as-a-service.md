@@ -2,7 +2,11 @@
 
 **Status:** Draft
 
-> **Agent as a Service, native to Go.** A Hosted Service connects remote callers to Agent goroutines; it does not replace their Loop.
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
+>
+> A Hosted Service connects remote callers to Agent Core through Transport and Orchestration; it does not replace Agent execution.
 
 ## 1. Scope
 

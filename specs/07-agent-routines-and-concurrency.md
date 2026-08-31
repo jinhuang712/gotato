@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> An Agent is a Go routine. Channels connect independent Agent routines; Orchestration decides how work is admitted and coordinated.
+> **Agents are goroutines. Orchestration coordinates their work.**
 
 ## 1. Agent Routine
 

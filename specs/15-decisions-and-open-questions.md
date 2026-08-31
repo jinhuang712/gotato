@@ -2,7 +2,9 @@
 
 **Status:** Draft
 
-> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
 
 ## 1. Decisions
 

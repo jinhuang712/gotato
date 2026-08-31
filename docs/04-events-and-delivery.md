@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> The Agent goroutine emits facts. Channels carry those facts to local observers and remote delivery.
+> **Agents emit facts. Hosts deliver them.**
 
 ## 1. Two layers
 
@@ -13,7 +13,7 @@ Agent goroutine
           └── Host projection → bounded delivery → remote client
 ```
 
-The Agent owns Event kind, production point, sequence, correlation, and terminal settlement. Host and Transport own projection, redaction, buffering, and delivery.
+The Agent goroutine produces Event kind, production point, sequence, correlation, and terminal settlement. Host and Transport project, redact, buffer, and deliver those Events.
 
 ## 2. Event classes
 

@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Extensions customize named stages of an Agent goroutine without taking over its private state or Orchestration.
+> **Extensions add behavior at named Core stages without taking over Agent state.**
 
 ## 1. Core extension points
 

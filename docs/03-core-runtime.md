@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **The Agent is a Go goroutine with private state, a channel boundary, and one simple Loop.**
+> **Agent Core executes one canonical Loop for every Agent.**
 
 ## 1. Boundary
 
@@ -27,7 +27,7 @@ Core does not import or require gRPC, Protobuf, Kubernetes, Gateway, cache, serv
 
 ## 2. Agent state
 
-An Agent goroutine owns only its local state and capabilities:
+Each Agent goroutine owns its local state and capabilities:
 
 ```text
 system instructions
@@ -40,7 +40,7 @@ current Run state
 runtime options and local limits
 ```
 
-The state is accessed and mutated by the Agent goroutine. Callers receive snapshots or results and cannot mutate the state directly. An Agent does not own a Conversation registry, Host, Orchestrator, or shared application resource.
+The Agent goroutine is the only authority that accesses and mutates this state. Callers receive snapshots or results and cannot mutate it directly. Conversation registries, Hosts, Orchestrators, and shared application resources remain outside the Agent.
 
 An Agent can process one Prompt or Continue at a time. When its current execution settles, it becomes available for another invocation. This is a single-flight execution property, not a global lock or a scheduling policy.
 
@@ -106,7 +106,7 @@ A Model Router or provider adapter may select a provider, but it cannot mutate A
 
 ## 6. Tool boundary
 
-Tools are explicit capabilities available to the Agent goroutine. Core owns:
+Tools are explicit capabilities available to the Agent goroutine. Agent Core owns:
 
 ```text
 argument assembly
@@ -121,7 +121,7 @@ The application or an adapter owns external authentication, protocol translation
 
 ## 7. Agent Routine
 
-An Agent Routine is the running Go routine of an Agent:
+An Agent Routine is the running goroutine of an Agent:
 
 ```text
 Agent identity

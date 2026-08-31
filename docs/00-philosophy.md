@@ -3,11 +3,9 @@
 **Status:** Draft
 **Purpose:** Project constitution
 
-> **Agent as a Service, native to Go.**
+> **Agent as a Service.**
 >
-> **Agents are goroutines. Channels are the boundaries.**
->
-> **Tight Core, Open Extensions.**
+> **Core Native to Go.**
 
 ## 1. Mission
 
@@ -25,9 +23,9 @@ Agent goroutine
 
 An Agent can start another independent Agent goroutine. The spawned Agent communicates through channels; it does not become a child resource owned by the spawning Agent. Orchestration is another set of goroutines and channels that decides when work is admitted, queued, interrupted, or routed.
 
-## 2. The Agent owns its local Loop
+## 2. Agents own their work
 
-The Agent goroutine is the sole authority for its own state and execution:
+Each Agent goroutine owns its state and execution. It is the sole authority for changing that state and controlling that execution:
 
 ```text
 Agent goroutine
@@ -42,7 +40,7 @@ An Agent processes one Prompt or Continue at a time. This is a single-flight pro
 
 The Agent does not decide what an external caller should do while it is busy. It reports execution availability through its channel/API. The caller or Orchestrator decides whether to reject, queue, prioritize, steer at a safe boundary, or abort.
 
-## 3. Channels, not hierarchy
+## 3. Explicit boundaries
 
 Communication is message-based:
 
@@ -57,7 +55,7 @@ A `spawn` relationship records origin and correlation when useful. It does not i
 
 ## 4. Tight Core, Open Extensions
 
-The Core contains only the semantics every Agent needs:
+Agent Core contains only the semantics every Agent needs:
 
 ```text
 Agent state and transcript
@@ -69,9 +67,9 @@ Events and cancellation
 
 Model providers, capability adapters, transport, orchestration, storage, and deployment are extension or surrounding layers. They connect through explicit interfaces and channels; they do not enter Core through hidden globals or copied loops.
 
-## 5. Orchestration decides what happens next
+## 5. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
 
-Orchestration is not an Agent owner. It is a channel-driven coordination layer that may spawn goroutines for:
+Infrastructure hosts and routes processes; it does not define Agent semantics. Agent Core provides the runtime and executes the canonical Loop. Orchestration does not execute Agent work. It is a channel-driven coordination layer that may spawn goroutines for:
 
 ```text
 request admission
@@ -99,7 +97,7 @@ Orchestration goroutines
 Agent goroutine
 ```
 
-The service provides access, admission, scheduling, and delivery. It does not create a second Agent Loop. A single-Pod deployment is enough for the initial PoC; distributed ownership is a separate future concern.
+The service provides access, admission, scheduling, and delivery. Agent Core remains the execution authority; Hosted mode does not create a second Agent Loop. A single-Pod deployment is enough for the initial PoC; distributed ownership is a separate future concern.
 
 ## 7. Less is more
 
@@ -126,4 +124,4 @@ The system may still have many goroutines, channels, Tools, Extensions, Provider
 
 ## 9. Declaration
 
-> Gotato treats an Agent as a Go-native, stateful execution unit. The Agent runs one simple Loop, communicates through channels, exposes explicit capabilities, and can be served remotely without surrendering its semantics to the service around it.
+> Gotato treats Agents as goroutines that own their work. Infrastructure hosts, Orchestration coordinates, and Agent Core executes. The Core stays tight, extensions stay open, and Hosted access never changes Agent semantics.

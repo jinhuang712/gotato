@@ -1,8 +1,8 @@
-# 06. Extensions and Moving Parts
+# 06. Extensions
 
 **Status:** Draft
 
-> Extensions customize named Core stages; they do not own Agent state or Hosted coordination.
+> **Extensions add behavior at named Core stages without taking over Agent state.**
 
 ## 1. Interfaces
 
@@ -62,7 +62,7 @@ Transformer, converter, Pre, Post, and stopper errors block by default and settl
 
 Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are forbidden.
 
-## 8. Host components are separate
+## 8. Host components have their own role
 
 The following are Host components, not Core Extensions:
 

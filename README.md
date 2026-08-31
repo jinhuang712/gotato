@@ -1,16 +1,14 @@
 # Gotato
 
-> **Agent as a Service, native to Go.**
+> **Agent as a Service.**
 >
-> **Agents are goroutines. Channels are the boundaries.**
->
-> **Tight Core, Open Extensions.**
+> **Core Native to Go.**
 
 **Status:** design phase. This repository currently contains architecture documents and implementable specifications; no Go implementation has been committed.
 
 ## What this is
 
-Gotato makes a stateful Agent a normal Go runtime unit. An Agent owns its private state and runs one simple Model → Tool → Model Loop in a Go goroutine. It communicates through explicit channels and capabilities.
+Gotato makes a stateful Agent a normal Go runtime unit. Each Agent runs as a goroutine, owns its private state and work, and communicates through explicit channels and capabilities. Agent Core executes the canonical Model → Tool → Model Loop.
 
 ```text
 Caller / Client
@@ -30,25 +28,27 @@ Embedded: Application goroutine ──channel──► Agent goroutine
 Hosted:   Client → Transport → Orchestration → Agent goroutine
 ```
 
+In Embedded mode, the application sends a Prompt directly to Agent Core and waits for its RunResult. In Hosted mode, a client sends the same kind of command through a Run stream. Both paths reach the same Agent execution model.
+
 Agent-as-a-Service is a remote access and coordination form, not a second Agent implementation. Orchestration may create goroutines, queue or reject Prompts, choose preemption policy, and connect Agents through channels. Infrastructure such as gateways, load balancers, Kubernetes, storage, and credentials remains an external deployment concern.
 
 ## Project principles
 
-### The Agent owns the Loop
+### Agents are goroutines
 
-The Agent goroutine is the authority for its own state, transcript, capabilities, and current execution. It processes one Prompt or Continue at a time. External callers may invoke, steer, follow up, observe, or abort; they do not directly mutate Agent state or run a parallel Loop.
+Each Agent runs as a goroutine with private state and explicit channel endpoints. It processes one Prompt or Continue at a time; external callers may invoke, steer, follow up, observe, or abort, but they do not directly mutate Agent state or run a parallel Loop.
+
+### Agents own their work
+
+The Agent goroutine is the authority for its own state, transcript, capabilities, and current execution. Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels; spawning does not create shared mutable state or resource ownership.
+
+### Infrastructure hosts. Orchestration coordinates. Agent Core executes.
+
+Infrastructure hosts and routes processes. Orchestration is a set of Go goroutines and channels that admits, schedules, routes, and coordinates Agent work. Agent Core provides the state machine and executes the canonical Loop; the Agent goroutine remains the only authority over its private state, and no surrounding layer duplicates that Loop.
 
 ### Tight Core, Open Extensions
 
 The Core contains the stable semantics every Agent needs. Model providers, Tools, ToolSets, Extensions, transport, orchestration, and platform integration connect through explicit boundaries instead of hidden globals or copied execution logic.
-
-### Orchestration schedules; Agents execute
-
-Orchestration is a set of Go goroutines and channels. It decides whether external Prompts are rejected, queued, prioritized, steered, or aborted, and when a free Agent receives the next command. It does not become the owner of Agent state.
-
-### Agents communicate through channels
-
-A spawned Agent is an independent Agent goroutine. Spawn provenance may be correlated, but it does not create a resource ownership hierarchy or automatic shared state. Cancellation, waiting, and result delivery are explicit signals.
 
 ## Core invariants
 
@@ -100,19 +100,20 @@ It validates the Agent Core and its hosted composition without claiming cross-Po
 
 ## Documentation
 
-`docs/` explains the architecture. `specs/` defines implementable contracts.
+`docs/` explains why the architecture is shaped this way. `specs/` defines implementable contracts.
 
 | Document | Subject |
 |---|---|
 | [Philosophy](docs/00-philosophy.md) | project principles and boundaries |
-| [Conceptual models](docs/01-conceptual-models.md) | Agents, goroutines, channels, and layers |
-| [Hosted Agent](docs/02-agents-as-a-service.md) | orchestration and remote service |
+| [Glossary](docs/glossary.md) | shared vocabulary |
+| [Conceptual models](docs/01-conceptual-models.md) | Agents, layers, and responsibilities |
 | [Agent Core](docs/03-core-runtime.md) | Go-native runtime and canonical Loop |
-| [Events and delivery](docs/04-events-and-delivery.md) | canonical facts and delivery |
-| [Moving parts](docs/05-moving-parts.md) | replaceable boundaries by layer |
 | [Tools and ToolSets](docs/06-tools-and-toolsets.md) | capability composition |
 | [Extensions](docs/07-extension-model.md) | Core lifecycle joints |
 | [Agent Routines](docs/08-agent-routines.md) | goroutine-backed Agents |
+| [Events and delivery](docs/04-events-and-delivery.md) | canonical facts and delivery |
+| [Hosted Agent](docs/02-agents-as-a-service.md) | remote access and coordination |
+| [Moving parts](docs/05-moving-parts.md) | replaceable boundaries by layer |
 | [Technology stack](docs/09-technology-stack.md) | Go, providers, transport, and deployment |
 | [Specifications](specs/README.md) | normative contracts and acceptance |
 

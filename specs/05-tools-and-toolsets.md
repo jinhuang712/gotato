@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Tool is the Core execution unit. ToolSet is the staged capability-discovery unit.
+> **Tools extend Agent Core; ToolSets stage capability discovery.**
 
 ## 1. Tool
 
@@ -96,7 +96,7 @@ Progress is optional and coalescable. Core enforces progress bytes, update count
 
 ## 10. Adapters
 
-HTTP, gRPC, MCP, database, Redis, workflow, sandbox, and remote Agent adapters implement Tool or ToolSet. Adapters own authentication, protocol translation, external timeout mapping, and private diagnostics. Core owns identity, validation, cancellation, invocation, Events, and commitment.
+HTTP, gRPC, MCP, database, Redis, workflow, sandbox, and remote Agent adapters implement Tool or ToolSet. Adapters own authentication, protocol translation, external timeout mapping, and private diagnostics. Agent Core owns identity, validation, cancellation, invocation, Events, and commitment.
 
 ## 11. Composition
 

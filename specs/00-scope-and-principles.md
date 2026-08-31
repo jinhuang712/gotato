@@ -2,7 +2,16 @@
 
 **Status:** Draft
 
-> **Agent as a Service, native to Go. Agents are goroutines; channels are the boundaries.**
+> **Agent as a Service.**
+>
+> **Core Native to Go.**
+
+The specifications apply four principles:
+
+1. **Agents are goroutines.**
+2. **Agents own their work.**
+3. **Infrastructure hosts. Orchestration coordinates. Agent Core executes.**
+4. **Tight Core, Open Extensions.**
 
 ## 1. Deliverables
 
@@ -52,7 +61,7 @@ application databases or process-hosting APIs
 provider SDKs
 ```
 
-The Core owns one Agent's state, capabilities, Loop, Events, cancellation, and local limits. The caller or Host owns external admission, queueing, priority, preemption, routing, and the number of Agent goroutines.
+Each Agent goroutine owns its state, capabilities, Loop, Events, cancellation, and local limits through Agent Core. The caller or Host owns external admission, queueing, priority, preemption, routing, and the number of Agent goroutines.
 
 ## 4. Required Core capability
 
@@ -103,7 +112,7 @@ Transport goroutines: wire receive/send and projection
 Capability workers: bounded Tool or external work
 ```
 
-These are communicating goroutines, not a hierarchy of resource owners. Each Agent owns only its private state. Each coordinator owns only its queues and channel endpoints.
+These are communicating goroutines with distinct responsibilities. Each Agent owns its private state and work. Each coordinator owns its queues and channel endpoints.
 
 ## 7. One canonical Loop
 
