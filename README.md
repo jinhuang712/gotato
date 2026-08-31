@@ -166,7 +166,7 @@ cp gateway.codex.example.yaml gateway.yaml
 go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
 ```
 
-The local service allows long-running work with `--run-timeout`, `--model-timeout`, and `--tool-timeout` (defaults: 10m, 5m, and 5m; `0` disables a deadline). This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
+The local service allows long-running work with `--run-timeout`, `--model-timeout`, and `--tool-timeout` (defaults: 10m, 5m, and 5m; `0` disables a deadline). Add `--heartbeat` to log a bounded summary at every completed loop turn without printing prompt, answer, reasoning, or Tool arguments. This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
 
 The `gateway` package owns YAML loading, provider authentication, HTTP/SSE encoding, streaming normalization, retries before stream consumption, and provider errors. Core remains provider-neutral.
 

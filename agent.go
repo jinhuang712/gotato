@@ -587,6 +587,34 @@ func (a *coreAgent) emit(runID RunID, seq *uint64, kind EventKind, class EventCl
 	a.events.publish(Event{AgentID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()})
 }
 
+// summarizeTurn builds a bounded, provider-neutral heartbeat payload. It
+// describes work performed by the loop without copying prompt, answer,
+// reasoning, or Tool arguments into operational logs.
+func summarizeTurn(assistant Message, usage Usage, elapsed time.Duration, toolResults []map[string]any) map[string]any {
+	var textBytes, reasoningBytes uint64
+	for _, part := range assistant.Parts {
+		switch part.Kind {
+		case ContentText:
+			textBytes += uint64(len(part.Text))
+		case ContentReasoning:
+			reasoningBytes += uint64(len(part.Text))
+		}
+	}
+	summary := map[string]any{
+		"elapsed_ms":      elapsed.Milliseconds(),
+		"text_bytes":      textBytes,
+		"reasoning_bytes": reasoningBytes,
+		"tool_calls":      len(assistant.ToolCalls),
+		"input_tokens":    usage.InputTokens,
+		"output_tokens":   usage.OutputTokens,
+		"total_tokens":    usage.TotalTokens,
+	}
+	if len(toolResults) > 0 {
+		summary["tool_results"] = toolResults
+	}
+	return summary
+}
+
 func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -648,6 +676,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			return fail(err)
 		}
 		a.emit(runID, &sequence, EventTurnStart, EventProtected, turn, "", "", nil)
+		turnStarted := time.Now()
 
 		request := ModelRequest{SystemInstructions: a.instruction, Messages: cloneMessages(a.messages), Tools: cloneToolSpecs(a.toolSpecs)}
 		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
@@ -664,7 +693,10 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 		a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)})
 
 		if len(assistant.ToolCalls) == 0 {
-			a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{"stop_reason": assistant.StopReason})
+			a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
+				"stop_reason": assistant.StopReason,
+				"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), nil),
+			})
 			finalCopy := assistant.Clone()
 			final = &finalCopy
 			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage}
@@ -672,6 +704,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			return result, nil
 		}
 
+		toolResults := make([]map[string]any, 0, len(assistant.ToolCalls))
 		for sourceIndex, call := range assistant.ToolCalls {
 			toolCalls++
 			if limitExceededUint32(a.limitsSet, a.limits.MaxToolCalls, toolCalls) {
@@ -733,8 +766,17 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			}
 			a.emit(runID, &sequence, EventToolExecutionEnd, EventProtected, turn, assistant.ID, call.ID, map[string]any{"status": toolResult.Status, "executed": toolResult.Executed})
 			a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status})
+			toolResults = append(toolResults, map[string]any{
+				"tool_id":  call.ToolID,
+				"call_id":  call.ID,
+				"status":   toolResult.Status,
+				"executed": toolResult.Executed,
+			})
 		}
-		a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{"stop_reason": StopToolCalls})
+		a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
+			"stop_reason": StopToolCalls,
+			"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), toolResults),
+		})
 		if err := contextFailure(runCtx, "continuation"); err != nil {
 			return fail(err)
 		}
