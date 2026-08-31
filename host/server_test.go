@@ -62,6 +62,58 @@ func TestHTTPRunRetireAndRehydrate(t *testing.T) {
 	}
 }
 
+func TestHTTPProgressReturnsLoopFrames(t *testing.T) {
+	hostServer, server := newTestHTTPServer(t)
+	defer server.Close()
+	defer hostServer.Drain(context.Background())
+
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/runs/progress", strings.NewReader(`{"agent_name":"default","conversation_key":"progress-test","prompt":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("content-type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/x-ndjson" {
+		t.Fatalf("progress response = %d %q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+
+	var types []string
+	var sawHeartbeat bool
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		var frame struct {
+			Type string `json:"type"`
+			Run  struct {
+				Status       string         `json:"status"`
+				FinalMessage string         `json:"final_message"`
+				Heartbeat    map[string]any `json:"heartbeat"`
+			} `json:"run"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &frame); err != nil {
+			t.Fatal(err)
+		}
+		types = append(types, frame.Type)
+		if frame.Type == "loop" {
+			if frame.Run.Status != string(gotato.RunRunning) || frame.Run.FinalMessage != "" {
+				t.Fatalf("loop frame leaked final result = %#v", frame)
+			}
+			if frame.Run.Heartbeat != nil {
+				sawHeartbeat = true
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(types) != 3 || types[0] != "accepted" || types[1] != "loop" || types[2] != "result" || !sawHeartbeat {
+		t.Fatalf("progress frames = %#v, heartbeat=%v", types, sawHeartbeat)
+	}
+}
+
 func TestHTTPAsyncRunCanBePolled(t *testing.T) {
 	hostServer, server := newTestHTTPServerWithModel(t, blockingModel{})
 	defer server.Close()

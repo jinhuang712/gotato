@@ -27,6 +27,92 @@ type asyncRunState struct {
 	finished  bool
 }
 
+type progressFrame struct {
+	Type string       `json:"type"`
+	Run  *runResponse `json:"run,omitempty"`
+}
+
+func (s *Server) runProgress(w http.ResponseWriter, r *http.Request) {
+	if !s.ready.Load() {
+		writeError(w, http.StatusServiceUnavailable, "host is draining")
+		return
+	}
+	var input runRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(input.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	state, err := s.startAsyncRun(input.toOrchestrationRequest(), gotato.UserMessage(input.Prompt))
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "progress streaming is not supported")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	writeFrame := func(frame progressFrame) error {
+		if _, err := fmt.Fprintf(w, "%s\n", mustJSON(frame)); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+	if err := writeFrame(progressFrame{Type: "accepted", Run: ptrRunResponse(state.response())}); err != nil {
+		return
+	}
+
+	var lastTurn gotato.TurnNumber
+	var lastUpdated time.Time
+	for {
+		response := state.response()
+		if heartbeat := response.Heartbeat; heartbeat != nil && (heartbeat.Turn != lastTurn || heartbeat.UpdatedAt.After(lastUpdated)) {
+			loop := response
+			loop.RunStatus = gotato.RunRunning
+			loop.FinalMessage = ""
+			loop.Usage = nil
+			loop.Error = nil
+			if err := writeFrame(progressFrame{Type: "loop", Run: ptrRunResponse(loop)}); err != nil {
+				if s.CancelRunOnDisconnect {
+					_ = s.Orchestration.CancelRun(context.Background(), state.runID)
+				}
+				return
+			}
+			lastTurn = heartbeat.Turn
+			lastUpdated = heartbeat.UpdatedAt
+		}
+		if response.RunStatus != gotato.RunRunning {
+			_ = writeFrame(progressFrame{Type: "result", Run: ptrRunResponse(response)})
+			return
+		}
+
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-r.Context().Done():
+			timer.Stop()
+			if s.CancelRunOnDisconnect {
+				_ = s.Orchestration.CancelRun(context.Background(), state.runID)
+			}
+			return
+		}
+	}
+}
+
+func ptrRunResponse(response runResponse) *runResponse {
+	return &response
+}
+
 func (s *Server) runAsync(w http.ResponseWriter, r *http.Request) {
 	if !s.ready.Load() {
 		writeError(w, http.StatusServiceUnavailable, "host is draining")
@@ -124,7 +210,7 @@ func (s *Server) startAsyncRun(request orchestration.Request, prompt gotato.Mess
 			}
 			state := newAsyncRunState(record, received.event)
 			s.storeRun(state)
-			go s.monitorAsyncRun(state, stream, eventCh, resultCh, stop)
+			go s.monitorAsyncRun(state, eventCh, resultCh, stop)
 			return state, nil
 		case response := <-resultCh:
 			if response.result.RunID == "" {
@@ -140,7 +226,7 @@ func (s *Server) startAsyncRun(request orchestration.Request, prompt gotato.Mess
 			state := newAsyncRunState(record, gotato.Event{RunID: response.result.RunID, Timestamp: time.Now()})
 			s.storeRun(state)
 			resultCh <- response
-			go s.monitorAsyncRun(state, stream, eventCh, resultCh, stop)
+			go s.monitorAsyncRun(state, eventCh, resultCh, stop)
 			return state, nil
 		case <-startCtx.Done():
 			cancelDispatch()
@@ -192,7 +278,7 @@ func (s *Server) storeRun(state *asyncRunState) {
 	s.runsMu.Unlock()
 }
 
-func (s *Server) monitorAsyncRun(state *asyncRunState, stream gotato.EventStream, eventCh <-chan eventRead, resultCh <-chan dispatchResponse, stop func()) {
+func (s *Server) monitorAsyncRun(state *asyncRunState, eventCh <-chan eventRead, resultCh <-chan dispatchResponse, stop func()) {
 	defer stop()
 	var resultReceived bool
 	var terminalEvent bool
