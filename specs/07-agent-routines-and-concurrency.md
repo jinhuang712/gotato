@@ -17,7 +17,7 @@ Agent Routine
   + result / Event channels
 ```
 
-The Agent goroutine is the only mutation authority for that Agent's private state. It runs one canonical Loop and processes one Prompt or Continue at a time.
+The Agent execution unit is the only mutation authority for that Agent's private state. It runs one canonical Loop and processes one Prompt or Continue at a time.
 
 A Routine is not a wrapper around a child Agent Run. A goroutine is not fire-and-forget: the Routine has an identity, explicit commands, limits, cancellation, Events, and a settled result.
 

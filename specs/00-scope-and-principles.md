@@ -6,7 +6,7 @@
 >
 > **Core Native to Go.**
 
-The specifications apply four principles:
+Gotato has one product goal: make a basic Agent as easy to add to an existing Go service as a normal Go interface, while keeping a direct path to Hosted Agent Service. The specifications apply four principles:
 
 1. **Agents are goroutines.**
 2. **Agents own their work.**
@@ -15,136 +15,138 @@ The specifications apply four principles:
 
 ## 1. Deliverables
 
-The repository defines a Go-native Agent runtime and an optional hosted composition:
+The repository defines a minimal Agent Core and an optional Hosted composition:
 
 ```text
 Agent Core
-  Agent goroutine · private state · canonical Loop
-  Model, Tool, ToolSet, Extension, and Agent Routine contracts
-  canonical Events and local channel-backed subscriptions
+  small Agent interface · private conversation state · canonical Loop
+  Model and Tool contracts · cancellation · local limits
+  canonical Events · result settlement
 
-Orchestration / Agent Host
-  Agent creation · admission · request queue policy
-  routing · coordination · remote Event delivery · lifecycle
+Agent Host / Orchestration
+  Agent creation · routing · admission · lifecycle
+  optional request policy · Event delivery · protocol attachment
 
-Transport
-  optional gRPC / Protobuf adapter and Go client
-
-Platform integration
-  guidance for existing Gateway and Kubernetes platforms
-Model and capability adapters
+Adapters
+  LLM adapters for Model providers
+  Tool adapters for Go services and external systems
+  optional protocol adapters for Hosted access
 ```
 
-A regular Go service may create and call Agent routines directly. A Hosted deployment may expose them remotely. Infrastructure hosts and routes processes but is not a Core dependency.
+Infrastructure is external. A Gotato deployment may use an existing Go process, HTTP/gRPC server, Gateway, Kubernetes cluster, storage, or secrets platform. Gotato provides integration contracts but does not implement those systems or count them as Gotato components.
 
 ## 2. Core model
 
-An Agent is a goroutine-backed stateful execution unit:
+An Agent is a callable, goroutine-backed stateful execution unit:
 
 ```text
-Agent = private state + simple Loop + capabilities + channels
+Agent = private conversation state + simple Loop + capabilities + interface
 ```
 
-The Agent goroutine processes one Prompt or Continue at a time. It does not own external request queues, Conversation registries, Orchestrators, or shared application resources.
+The Agent processes one Prompt or Continue at a time. It owns its current work and local state. It does not own an external request queue, Conversation registry, Host, or shared application resource.
 
-An Agent can request another independent Agent goroutine. Spawn provenance is correlation, not resource hierarchy.
+Core may keep the current conversation transcript required for basic multi-turn behavior. Long-term memory, retrieval, compaction, artifacts, and cross-session persistence are outside the minimal Core.
+
+An Agent may create another independent Agent, but spawn provenance is correlation, not resource hierarchy. Multi-Agent coordination is an optional Host or application capability.
 
 ## 3. Boundary rules
 
-The Core MUST be self-contained and transport-independent. Core packages MUST NOT depend on:
+Core MUST be self-contained and protocol-independent. Core packages MUST NOT depend on:
 
 ```text
 Protobuf or gRPC
 Gateway or Kubernetes
-Agent caches or service admission
+service registries or message brokers
 application databases or process-hosting APIs
 provider SDKs
+long-term Memory or Artifact products
 ```
 
-Each Agent goroutine owns its state, capabilities, Loop, Events, cancellation, and local limits through Agent Core. The caller or Host owns external admission, queueing, priority, preemption, routing, and the number of Agent goroutines.
+Each Agent execution unit owns its state, capabilities, Loop, Events, cancellation, and local limits through Core. The caller or Host owns external admission, queueing, priority, preemption, routing, and the number of Agent instances.
+
+LLM, Tool, and protocol adapters depend on Core contracts. Core does not depend on their concrete protocols.
 
 ## 4. Required Core capability
 
 Core MUST provide:
 
 ```text
-stateful Agent goroutine with one active Prompt or Continue execution
-Prompt and Continue
+small callable Agent interface
+stateful Agent execution with one active Prompt or Continue
 Model stream and Message assembly
 Tool Call assembly and Schema validation
-Pre-Tool-Use and Post-Tool-Use
-sequential and bounded parallel Tools
-ToolSet composition and staged activation
-Steering and Follow-up control messages
+Tool execution and Tool Result commitment
 Context cancellation and local limits
 canonical Events and terminal settlement
-focused Extensions
-Agent Routine spawn and channel-backed results
-Deterministic test fakes
 ```
 
-Core MUST NOT provide a general external Prompt scheduler.
+Core SHOULD provide the following as additive capabilities without complicating the basic path:
 
-## 5. Optional Orchestration capability
+```text
+Continue, Steer, Follow-up, and Abort
+sequential and bounded parallel Tools
+ToolSet composition and staged activation
+focused Extensions
+Agent Routine spawn and channel-backed coordination
+```
 
-The Host MUST provide these capabilities when Hosted mode is selected:
+Core MUST NOT require a general external Prompt scheduler, a service registry, a broker, a workflow engine, or a Memory product.
+
+## 5. Optional Host / Orchestration capability
+
+A Hosted composition MAY provide:
 
 ```text
 named Agent definitions and factories
-Agent routine creation and routing
+Agent creation and routing
 per-Host admission and request queue policy
 per-Agent dispatch when Free
 priority, rejection, Steer, and Abort policy
-transport stream attachment
+protocol stream attachment
 canonical Event projection and bounded delivery
 remote cancellation
 readiness and graceful drain
 ```
 
-The Host MUST coordinate through Agent channels. It MUST NOT mutate Agent state or reproduce the Core Loop.
+The Host MUST coordinate through the Agent contract. It MUST NOT mutate Agent state or reproduce the Core Loop.
+
+A protocol adapter maps wire commands and Events to the Host interface. It is optional for Embedded use and is not a Core dependency.
 
 ## 6. Concurrency model
 
 ```text
-Agent goroutine: one current Prompt/Continue execution
-Orchestration goroutines: admission, queue, routing, coordination
-Transport goroutines: wire receive/send and projection
+Agent execution unit: one current Prompt/Continue execution
+Host goroutines: admission, routing, coordination, lifecycle, delivery
 Capability workers: bounded Tool or external work
 ```
 
-These are communicating goroutines with distinct responsibilities. Each Agent owns its private state and work. Each coordinator owns its queues and channel endpoints.
+These are communicating units with distinct responsibilities. Each Agent owns its private state and current work. Each coordinator owns its queues and interface endpoints.
 
 ## 7. One canonical Loop
 
-The repository MUST contain exactly one Agent Loop. Every Agent goroutine uses it. Embedded callers, Hosted callers, and spawned Agents converge on the same Loop. No Host, scheduler, or capability may reproduce Model/Tool execution.
+The implementation MUST contain exactly one Agent Loop. Every Agent uses it. Embedded callers, Hosted callers, and optional spawned Agents converge on the same Loop. No Host, scheduler, adapter, or capability may reproduce Model/Tool execution.
 
 ## 8. One terminal Event
 
 A Run MUST emit exactly one terminal `agent_end` Event. Retry, context transformation, and control-driven continuation happen before it inside that Run. Nothing starts after it.
 
-## 9. Channels and delivery
+## 9. Events and delivery
 
-Core Events are immutable runtime facts delivered through local channel-backed observation. A Host may project them to remote channels or streams. Execution settlement and remote delivery settlement are separate concerns.
+Core Events are immutable runtime facts delivered through local observation. A Host MAY project them to a protocol stream. Execution settlement and remote delivery settlement are separate concerns.
 
-Protected Events cannot be silently dropped; optional progress may be coalesced under explicit bounds.
+Protected Events cannot be silently dropped; optional progress MAY be coalesced under explicit bounds.
 
-## 10. Model and capability boundaries
+## 10. Initial PoC
 
-Core consumes a provider-neutral Model contract. Routing, provider selection, fallback, and provider SDKs belong to the Model layer. Tools, ToolSets, and Extensions enter through explicit contracts. No package-global discovery is part of Core composition.
-
-## 11. Initial PoC
-
-The initial Hosted PoC uses:
+The initial implementation SHOULD prove both forms without building infrastructure:
 
 ```text
-one Host process
-one Pod
-local Agent goroutines and channels
-process-local Agent registry and routing
+Embedded: one existing Go service → Agent Core
+Hosted:   one Host process → local routing → Agent Core
 ```
 
-Cross-Pod Conversation continuity is reserved for future work.
+The Hosted PoC may reuse an existing HTTP/gRPC server and existing process environment. Cross-Pod continuity, durable Runs, long-term Memory, and platform-specific deployment are future integration work.
 
-## 12. Presentation
+## 11. Presentation
 
-Applications own business workflows and end-user CLI, TUI, Web, and chat interfaces. Gotato provides Agent runtime contracts, Hosted protocol contracts, Events, examples, and diagnostics.
+Applications own business workflows, user interfaces, and request mapping. Gotato provides the Agent interface, Core semantics, optional Host contracts, adapters, Events, examples, and diagnostics.

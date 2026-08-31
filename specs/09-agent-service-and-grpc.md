@@ -1,39 +1,48 @@
-# 09. Agent Host and gRPC
+# 09. Agent Host and Protocol Adapters
 
 **Status:** Draft
 
-> **Agent as a Service connects clients to Agent Core through Transport and Orchestration.** The initial PoC is single-Pod; Gateway and Kubernetes are external infrastructure.
+> The Host exposes the same Agent Core through a service boundary; a protocol adapter carries the boundary.
 
-## 1. Hosted deliverables
+## 1. Scope
 
-The Hosted layer is a first-class composition and validation target, not a second Agent runtime. It creates, routes, schedules, and observes Agent goroutines through channels. The initial PoC uses one Host process in one Pod.
+The Hosted composition is optional. It creates, routes, schedules, and observes Agent executions through the Core Agent contract. It does not define another Agent runtime or require a new platform.
 
-Hosted mode provides:
+```text
+Embedded: Go service → Agent Core
+Hosted:   Client → protocol adapter → Host / Orchestration → Agent Core
+```
+
+A Hosted deployment may run in the same process as Core or in a separate process. Infrastructure remains external.
+
+## 2. Host responsibilities
+
+A Host MAY provide:
 
 ```text
 Agent definition registry and factory
-Host admission and concurrency
-process-local Agent routing and optional handle cache
-transport stream attachment
-canonical Event projection and bounded delivery
+Agent routing
+request admission and queue policy
+per-Agent dispatch
+Event projection and bounded delivery
 remote cancellation
 readiness and drain
-gRPC server and Go client
 ```
 
-None of these is required when an application embeds Core directly.
+The Host MUST NOT mutate Core state or reproduce the Agent Loop. It coordinates through the Agent contract.
 
-## 2. Dependency direction
+## 3. Protocol adapter
+
+A protocol adapter maps a wire representation to the Host's semantic interface:
 
 ```text
-Infrastructure → Transport goroutines → Orchestration goroutines → Agent goroutines
-                                                        ├── Model contract
-                                                        └── Tool/ToolSet contracts
+wire command → semantic Agent command
+canonical Event → wire Event
 ```
 
-The Orchestrator invokes Core APIs and never duplicates its state machine. Generated transport types do not appear in Core signatures.
+The adapter owns encoding, decoding, stream lifetime, and protocol errors. It is optional for Embedded use and is not a Core dependency.
 
-## 3. Service contract
+One possible adapter is a bidirectional gRPC stream:
 
 ```proto
 service AgentService {
@@ -41,11 +50,9 @@ service AgentService {
 }
 ```
 
-`Run` is one bidirectional stream attached to one Core Run. Commands are `Start`, `Steer`, `FollowUp`, and `Cancel`. Events are lifecycle, Message, Tool, ToolSet, Routine, and terminal projections.
+HTTP, SSE, an existing RPC system, or an in-process Go call may implement the same semantic boundary.
 
-## 4. Wire rules
-
-The first contract is conceptually:
+## 4. Wire contract example
 
 ```proto
 message RunCommand {
@@ -66,6 +73,7 @@ message Start {
   }
   map<string, string> metadata = 5;
 }
+
 message ContinueInput {}
 message Steer { Message message = 1; }
 message FollowUp { Message message = 1; }
@@ -98,100 +106,99 @@ message RunEvent {
 }
 ```
 
-Payload messages and enums must preserve Core identity, class, correlation, and settled meaning. Contract evolution keeps field numbers stable, reserves removed fields, uses additive fields and explicit unspecified enum values, and treats unknown additive fields as ignorable.
+A wire contract MUST preserve Core identity, Event class, correlation, ordering, and settled meaning. Protobuf types MUST NOT enter Core signatures.
 
-## 5. Command state machine
+## 5. Command lifecycle
 
 ```text
-BeforeStart ──valid Start──► Active
-BeforeStart ──other command► protocol error
-Active ──────terminal──────► Terminal
-Active ──────stream close──► Closed
-Terminal ────delivery done──► Closed
+BeforeStart ── valid Start ──► Active
+BeforeStart ── other command ► protocol error
+Active ────── terminal ──────► Terminal
+Active ────── stream close ──► Closed
+Terminal ──── delivery done ─► Closed
 ```
 
-`Start` is first and contains exactly one of Prompt or Continue. Duplicate Start and commands after terminal settlement are protocol errors. Cancel is idempotent only while Active; repeated Cancel after terminal settlement is a protocol error.
+`Start` is first and contains exactly one Prompt or Continue. Duplicate Start and commands after terminal settlement are protocol errors. Cancel is idempotent while Active; the adapter documents behavior after terminal settlement.
 
-The command receiver serializes commands in arrival order. Runtime execution and Event sending may proceed concurrently. Acceptance does not imply immediate execution effect.
+The command receiver serializes commands in arrival order. Runtime execution and Event sending may proceed concurrently. Acceptance of a command does not imply immediate execution effect.
 
 ## 6. Host concurrency
 
-The Host must support multiple streams under explicit bounds:
+The Host MUST make its bounds explicit:
 
 ```text
-max active streams
-max active Agent goroutines
-max queued requests
-max dispatched Runs
+active streams
+Agent instances
+queued requests
+active dispatched Runs
 per-Agent dispatch policy
-Event bridge capacity
+Event delivery bridges
 ```
 
-An Agent goroutine processes one Prompt or Continue at a time. When it is Busy, the Host policy may reject the request, queue it, prioritize it, send Steer, or send Abort. Different Agent goroutines may execute concurrently. Exact preset values are Host configuration, not Core semantics.
+An Agent processes one Prompt or Continue at a time. When it is Busy, Host policy may reject, queue, prioritize, Steer, or Abort. Different Agents may execute concurrently. Exact values are Host configuration, not Core semantics.
 
-Admission reserves capacity before Agent construction or request dispatch and releases it exactly once.
+Admission reserves capacity before Agent construction or dispatch and releases it exactly once.
 
-## 7. Conversation routing in the PoC
+## 7. Conversation routing
 
-The initial PoC assumes one Host process in one Pod:
+For a single-process Host, a routing table MAY map an application key to an Agent handle:
 
 ```text
-agent_name + conversation_key
+agent name + conversation key
               ↓
-process-local routing table
+Host routing table
               ↓
-Agent handle / command channel
+Agent handle
 ```
 
-The registry and cache retain Agent handles and route requests; they do not make an Agent the owner of a Conversation or of Host resources. The Host chooses whether a request waits for the routine to become Free, is rejected, or enters a queue. The PoC makes no cross-Pod continuity claim.
-
-### Reserved: Multi-Pod Conversation Routing
-
-Multi-Pod continuity is outside the initial scope and remains a separate future contract. A future Host may use keyed routing, distributed ownership, or durable state restoration. Ordinary Kubernetes load balancing alone is insufficient.
+This is Host or application state, not Agent ownership. Cross-process and multi-Pod continuity require a separate routing and persistence contract.
 
 ## 8. Event delivery
 
 ```text
-Core Event → project/redact → bounded queue → gRPC sender
+Core Event → Host projection / redaction → bounded delivery → protocol adapter
 ```
 
-Protected Events preserve canonical order or fail the stream. Coalescable progress may be merged. Queue-full and shutdown behavior are explicit. The sender belongs to the stream Context and cannot outlive it.
+Protected Events preserve canonical order or fail the consumer stream. Progress MAY be coalesced. The sender belongs to the stream Context and cannot outlive it.
 
-## 9. Cancellation
+Execution settlement belongs to Core. Remote delivery settlement belongs to the Host.
+
+## 9. Cancellation and errors
 
 ```text
-Cancel command / stream Context / deadline / drain
+Cancel / stream Context / deadline / drain
+                    ↓
+              Host policy
+                    ↓
+                 Core Abort
+```
+
+Cancellation reaches the current Agent's Model, Tools, Extensions, observers, and local work. A stream close MAY cancel the attached Run, but the Host MUST document the policy.
+
+Tool failures remain Core Results while the Agent can continue. Host admission, protocol, and delivery failures remain Host outcomes.
+
+## 10. Internal process boundary
+
+When Host and Core share a process, a direct Go interface or channel-backed handle is the simplest connection:
+
+```text
+Host → Agent interface → Core
+```
+
+When they have a deliberate process boundary, an internal gRPC adapter is reasonable:
+
+```text
+Orchestration service → gRPC adapter → Agent Core service
+```
+
+Both forms use the same semantic contract. The Agent Core does not depend on gRPC.
+
+## 11. Infrastructure relationship
+
+```text
+Existing Gateway / LB / Kubernetes / Go service
                          ↓
-                  Host Run Context
-                         ↓
-                    Core Abort
+                    Gotato Host
 ```
 
-Stream closure ends delivery; the default attached-Run policy also cancels execution. The policy must be configurable/documented. Cancellation reaches the current Agent's Model, Tools, Extensions, observers, and local work. Cancellation of another Agent routine requires an explicit command or Host policy.
-
-## 10. Error mapping
-
-```text
-invalid input       → InvalidArgument
-unknown Agent       → NotFound
-busy/invalid state  → FailedPrecondition
-admission/delivery  → ResourceExhausted
-cancelled           → Canceled
-deadline            → DeadlineExceeded
-Model unavailable   → Unavailable
-internal invariant  → Internal
-```
-
-Tool failures remain Core Results and Events while the current Agent can continue. Failure in another Agent routine is delivered as a Result/Event and does not automatically terminate this Agent.
-
-## 11. Lifecycle
-
-The Host exposes liveness, readiness, and drain. Drain disables admission, settles or cancels active Runs, flushes or abandons Event delivery within a deadline, and then releases resources.
-
-## 12. Infrastructure relationship
-
-```text
-Client → optional Gateway/LB → Kubernetes Service → Host Pod
-```
-
-Gateway and K8s provide network routing and process hosting. They are not required Gotato components and must not retry an active stream in a way that duplicates Start. An existing Go service may mount this Host and gRPC adapter beside its own APIs.
+Infrastructure is outside this specification. It only needs to satisfy the Host's integration requirements, such as Context propagation, long-lived stream support, no duplicate retry of an active Run, and readiness/drain signals.

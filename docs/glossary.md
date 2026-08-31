@@ -2,74 +2,86 @@
 
 **Status:** Draft
 
-This glossary fixes the terms used across the architecture documents and specifications. `docs/` explains why the terms fit together; `specs/` defines their normative behavior.
+This glossary fixes the small set of terms used across the architecture documents and specifications. `docs/` explains why they fit together; `specs/` defines their behavior.
 
-## Runtime terms
+## Core terms
 
 ### Agent
 
-A stateful Go runtime unit with private state, explicit capabilities, and one running execution boundary. An Agent processes one Prompt or Continue at a time.
+A callable, stateful Go runtime unit. An Agent accepts a Prompt or Continue, runs its Model and Tools, and returns a result or stream through a small interface.
 
 ### Agent Core
 
-The Go-native runtime that provides Agent state, the canonical Model → Tool → Model Loop, capabilities, Events, cancellation, and local limits. Agent Core does not provide transport, hosting, or an external request queue.
+The Go-native runtime behind an Agent. Core owns the current conversation state, canonical Model → Tool → Model Loop, Tool invocation, cancellation, local limits, Events, and result settlement.
 
-### Agent Routine
+### Conversation state
 
-The running form of an Agent: one Agent identity, one goroutine, private state, command channels, result channels, and an Event channel. A spawned Routine is independent of the Routine that created it.
+The committed Messages and local execution state needed for an Agent's current conversation. Core may keep this state in memory. It is not a long-term Memory product.
 
 ### Work
 
-The private state and currently accepted Run owned by an Agent. Work does not include a Host's request queue, Conversation routing, or admission policy.
+The private state and currently accepted Run owned by an Agent. Work does not include a Host's request queue, routing table, or admission policy.
 
 ### Run
 
-One accepted Prompt or Continue processed by an Agent Routine. A Run has its own identity, Context, Event sequence, and settled RunResult.
+One accepted Prompt or Continue processed by an Agent. A Run has an identity, Context, Event sequence, and settled result.
 
 ### Turn
 
 One Model request and the Tool batch produced by that response. A Turn ends after its assistant Message, Tool outcomes, and Tool Result Messages are committed.
 
-### Conversation
+### Agent Routine
 
-An application or Host routing key used to find an Agent. A Conversation is not Agent state and is not owned by the Agent.
+The internal running form of an Agent: its private execution unit, state boundary, and result/Event boundary. A Routine may use one goroutine. A spawned Routine is independent of the Routine that created it.
 
 ## Capability terms
 
 ### Model
 
-A provider-neutral Core contract that returns a normalized stream of text, reasoning, Tool Calls, usage, completion, or failure Events. Provider selection and SDK details stay in adapters.
+A provider-neutral Core contract for normalized Model responses and streams. Provider protocol, authentication, and provider policy belong to an LLM Adapter.
+
+### LLM Adapter
+
+The adapter that converts a Model provider's API into the Core Model contract. It owns provider-specific encoding, streaming, authentication, usage, and provider errors.
 
 ### Tool
 
 One model-callable operation with a stable identity, validated arguments, bounded execution, and a committed Tool Result.
 
+### Tool Adapter
+
+The adapter that connects a Go function, service, or external system to the Core Tool contract. It owns external protocol, authentication, and resource policy.
+
 ### ToolSet
 
-A named group of related Tools that can be activated and exposed in a deterministic order. ToolSets support staged capability discovery.
+A named group of related Tools that can be activated and exposed in deterministic order. ToolSets are optional for a basic Agent.
 
 ### Extension
 
-An explicit component installed at a named Core stage, such as context transformation, message conversion, Tool interception, Event observation, or Turn stopping. Extensions cannot directly mutate Agent state.
-
-## Layer terms
-
-### Orchestration
-
-The coordinating layer that admits requests, applies queue and preemption policy, creates and routes Agent Routines, forwards Events, and manages lifecycle. Orchestration coordinates; it does not execute the Agent Loop.
-
-### Host
-
-The optional service composition around Agent Core. A Host combines Orchestration with transport-facing streams, admission, delivery, cancellation, readiness, and drain.
-
-### Transport
-
-The protocol adapter that maps wire commands and projected Events. gRPC, Protobuf, HTTP, and SSE belong here, not in Agent Core.
-
-### Infrastructure
-
-The external environment that hosts and routes processes, such as gateways, Kubernetes, load balancers, storage, and secrets. Infrastructure does not define Agent semantics.
+An explicit component installed at a named Core stage, such as context transformation, Message conversion, Tool interception, Event observation, or Turn stopping. An Extension cannot directly take over Agent state.
 
 ### Event
 
-An immutable runtime fact emitted by an Agent Routine. Core Events carry identity, order, correlation, class, and settled meaning. A Host may project them for remote delivery without creating a second Event history.
+An immutable fact emitted by Core for a committed transition or declared operation. Events carry identity, order, correlation, class, and settled meaning.
+
+## Service terms
+
+### Orchestration
+
+The optional coordinating layer that creates and routes Agents, applies admission and queue policy, manages lifecycle, and coordinates Event delivery. Orchestration coordinates; Core executes.
+
+### Host
+
+The optional service composition around Agent Core. A Host combines Orchestration with protocol adapters, remote access, cancellation mapping, readiness, and drain.
+
+### Protocol adapter
+
+The boundary adapter that maps wire commands and Events to the Host or Orchestration interface. HTTP, gRPC, SSE, and an existing RPC protocol may implement the same semantic contract. A protocol adapter is not a Core layer.
+
+### Infrastructure
+
+The existing environment that hosts and connects processes, such as a Go service, Gateway, Kubernetes, load balancer, storage, and secrets. Infrastructure is outside Gotato's implementation scope.
+
+### Hosted Agent Service
+
+An Agent Core exposed through a Host and an optional protocol adapter. Hosted access changes how callers reach and coordinate an Agent; it does not create a second Agent implementation.

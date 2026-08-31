@@ -2,89 +2,96 @@
 
 **Status:** Draft
 
-> **The Core API executes one Agent; the Host API coordinates many.**
+> The Core API is the simple Agent interface. The Host API is the optional service composition around it.
 
 ## 1. Core API
 
-The draft Core surface is a channel-backed handle to one Agent routine:
+The minimum public surface is a handle to one Agent:
 
 ```go
 type Agent interface {
     Prompt(context.Context, Message) (RunResult, error)
+}
+```
+
+Construction SHOULD use a small constructor and progressive options:
+
+```go
+agent, err := gotato.NewAgent(
+    gotato.WithModel(model),
+    gotato.WithInstruction("You are a helpful assistant."),
+    gotato.WithTools(tools...),
+)
+```
+
+The public API MUST NOT require a Runner, Host, SessionService, Registry, Broker, or protocol server for a direct call.
+
+Streaming and control MAY be exposed as additive capabilities:
+
+```go
+type StreamingAgent interface {
+    Agent
+    Stream(context.Context, Message) (EventStream, error)
+}
+
+type ControllableAgent interface {
+    Agent
     Continue(context.Context) (RunResult, error)
     Steer(Message) error
     FollowUp(Message) error
     Abort()
-    WaitForIdle(context.Context) error
-    Subscribe(EventHandler) (unsubscribe func())
-    StateSnapshot() AgentSnapshot
-    Reset() error
-}
-
-type EventHandler interface {
-    Observe(context.Context, Event) error
 }
 ```
 
-The public methods may block waiting on result channels. Agent Core does not expose raw channels as the only API, but its runtime model is a goroutine and channel protocol.
-
-Agent Core contains no transport envelopes, provider types, mutable internal slices, or Host objects.
+Exact names may evolve, but the basic Agent path must remain small. Advanced capabilities use the same Core Loop rather than a second execution API.
 
 ## 2. Core command behavior
 
-`Prompt` and `Continue` submit one execution command to an Agent goroutine. The Agent accepts only one current execution. A direct call while Busy may return a typed busy/not-available result; Core does not enqueue a general external request.
+`Prompt` submits one execution command to an Agent. The Agent accepts one current execution. A direct call while Busy returns a typed busy/not-available result unless the selected Core policy defines another bounded behavior. Core does not enqueue an unbounded external request queue.
 
-`Steer`, `FollowUp`, and `Abort` are control messages for current or next Agent execution. They do not turn Core into a user-facing request scheduler.
+`Continue`, `Steer`, `FollowUp`, and `Abort` are additive control operations. They do not turn Core into a user-facing scheduler.
 
 The caller or Host owns any policy for:
 
 ```text
 reject while Busy
-FIFO queue
-priority queue
+bounded queue
+priority
 safe-boundary Steer
 immediate Abort
-creating another Agent routine
+creating another Agent
 ```
 
 ## 3. Core construction
 
-Construction validates Models, Tools, ToolSets, Extensions, Schemas, namespaces, limits, and ordering before the Agent goroutine accepts its first execution. Options may include:
+Construction validates the Model, Tools, optional ToolSets, Extensions, Schemas, namespaces, and local limits before the Agent accepts its first execution.
 
-```text
-WithModel
-WithTool / WithTools
-WithToolSet / WithToolSets
-WithExtension
-WithLimits
-```
+A basic Agent requires only a Model and may have no Tools. Typed function helpers SHOULD make a normal Go function easy to expose as a Tool.
 
-Each Agent receives an explicit private capability set. Mutable transcript state is never shared between Agents without an explicit application protocol.
+Each Agent receives private conversation state. Core may keep the current transcript in memory for multi-turn behavior. Long-term Memory, retrieval, compaction, artifacts, and cross-session persistence are not Core requirements.
 
-## 4. Core subscription
+## 4. Core observation
 
-Handlers receive Events from the Agent Event boundary in registration order. They are local, Context-aware, and bounded. Blocking or advisory failure mode is explicit, and panics are recovered. Unsubscribe is idempotent; after its synchronization barrier returns, no new handler invocation may begin.
+A Core MAY expose local Events through an in-process, Context-aware subscription boundary. Subscribers are local and bounded. Remote delivery is a Host and protocol-adapter concern.
 
-Remote transport delivery is a Host channel/stream concern, not a Core subscriber.
+Unsubscribe is idempotent. After its synchronization barrier returns, no new handler invocation may begin.
 
 ## 5. Agent availability
-
-The Agent routine reports execution availability through its handle or result protocol:
 
 ```text
 Free ── accepted Prompt/Continue ──► Busy
 Free ◄──── terminal result/Event ─── Busy
 ```
 
-This status does not define external queueing. A caller can wait, queue elsewhere, reject, steer, or abort according to its own policy.
+Availability describes one Agent's execution state. It does not define external queueing, routing, or process placement.
 
 ## 6. Host API
 
-The Host may expose boundaries equivalent to:
+The optional Host coordinates Agents through semantic interfaces:
 
 ```go
 type AgentFactory interface {
-    NewAgent(context.Context, AgentRequest) (*Agent, error)
+    NewAgent(context.Context, AgentRequest) (Agent, error)
 }
 
 type AgentRequest struct {
@@ -98,21 +105,35 @@ type AdmissionController interface {
     Admit(context.Context, AgentRequest) (AdmissionLease, error)
 }
 
-type AdmissionLease interface { Release() }
+type AdmissionLease interface {
+    Release()
+}
 ```
 
-A Host may additionally define Agent registries, routing tables, request queues, Event Projectors, Event Bridges, and Drain Policies. These coordinate channel endpoints; they do not own Agent state.
+A Host MAY additionally define routing tables, request queues, Event projectors, delivery bridges, and drain policies. These coordinate Core handles; they do not own Agent state.
 
-## 7. Host responsibilities
+## 7. Protocol adapters
+
+A protocol adapter implements the Host boundary for a wire protocol:
+
+```text
+HTTP / gRPC / SSE / existing RPC
+          ↓
+Host semantic interface
+```
+
+The adapter maps commands and Events, owns connection lifetime, and reports protocol errors. It is optional for Embedded use. It MUST NOT introduce wire types into Core.
+
+## 8. Host responsibilities
 
 The Host:
 
 ```text
-receives remote commands
-adopts an admission and queue policy
-creates or locates an Agent routine
+receives or accepts external commands
+adopts admission and queue policy
+creates or locates an Agent
 waits for Free or chooses a control action
-sends commands through channels
+sends commands through the Agent interface
 projects Events
 maps cancellation
 manages readiness and drain
@@ -120,42 +141,49 @@ manages readiness and drain
 
 It does not edit Core state or reproduce the Agent Loop.
 
-## 8. Conversation routing
+## 9. Conversation routing
 
-For the single-Pod PoC, a process-local registry may map a conversation key to an Agent handle:
+A Host MAY map an application ConversationKey to an Agent handle:
 
 ```text
-agent name + conversation key
+Agent name + ConversationKey
               ↓
-process-local routing table
+Host routing table
               ↓
-Agent channel endpoint
+Agent handle
 ```
 
-This is a routing decision, not an Agent ownership hierarchy. Multi-Pod routing remains a future contract.
+This is a routing decision, not Agent ownership. Multi-process routing and durable restoration are future contracts.
 
-## 9. Cache and queue
+## 10. Cache and queue
 
-A Host may retain Agent handles in a bounded process-local cache. The Host may also maintain request queues separate from Agent state. Cache eviction must not interrupt a Busy Agent unless the configured lifecycle policy explicitly sends cancellation.
+A Host MAY retain Agent handles in a bounded process-local cache. It MAY maintain request queues separate from Agent state. Cache eviction must not interrupt a Busy Agent unless the lifecycle policy explicitly sends cancellation.
 
-Queue entries contain request identity, command payload, response channel/stream correlation, and cancellation policy. Queueing does not create a new Agent Run until the Host dispatches the request.
+Queueing does not create a Core Run until the Host dispatches the request.
 
-## 10. Direct and hosted equivalence
+## 11. Local and Hosted equivalence
 
-For equivalent initial Agent state, Model stream, Tool outcomes, options, and cancellation timing, direct Core and Hosted execution produce identical canonical Events, transcript commitment, and terminal Core status. Queue policy, dispatch timing, transport acknowledgement, and delivery timing belong to the caller or Host and are not Core equivalence facts.
+For equivalent initial Agent state, Model stream, Tool outcomes, options, and cancellation timing, direct Core and Hosted execution produce identical canonical Events, transcript commitment, and terminal Core status.
 
-## 11. Package direction
+Queue policy, dispatch timing, protocol acknowledgement, and delivery timing are Host concerns, not Core equivalence facts.
+
+## 12. Package direction
 
 A possible package layout is:
 
 ```text
-core/              Agent goroutine, Loop, state, Events
-model/             Model values, Router, provider adapters
-tool/              Tool, ToolSet, Schema helpers
-routine/           Agent routine handles and spawn protocol
-orchestration/     scheduling, admission, routing, queues, delivery
-transport/grpc/    Protobuf mapping and server/client
-infra/             deployment and platform integration
+agent/             public Agent interface and Core implementation
+model/             provider-neutral Model values and contract
+adapter/llm/       LLM provider integrations
+adapter/tool/      application capability integrations
+host/              optional Orchestration and lifecycle
+adapter/protocol/   optional protocol adapters used by Host
 ```
 
-Exact names may evolve. Orchestration, Transport, Model, and capability adapters depend on Core contracts; Core does not depend on them.
+Exact names may evolve. The dependency direction must not:
+
+```text
+LLM / Tool adapters → Core contracts
+Host / protocol adapters → Host / Core contracts
+Infrastructure hosts everything from outside
+```

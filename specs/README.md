@@ -4,56 +4,54 @@
 >
 > **Core Native to Go.**
 
-The specifications define the contracts of a Go-native Agent Runtime and its optional Hosted composition. They make the project principles concrete: Agents are goroutines, Agents own their work, Infrastructure hosts, Orchestration coordinates, Agent Core executes, and the Core stays tight while extensions remain open.
+These specifications define a small Go-native Agent Core and the optional Host that exposes the same Agent as a Service. They make the four project principles concrete:
 
-Use the [Glossary](../docs/glossary.md) for the shared vocabulary used by both the architecture documents and these specifications.
+1. Agents are goroutines.
+2. Agents own their work.
+3. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
+4. Tight Core, Open Extensions.
 
-```text
-Agent goroutine
-  ├── private state
-  ├── simple canonical Loop
-  ├── explicit capabilities
-  └── command / result / Event channels
+Use the [Glossary](../docs/glossary.md) for the shared vocabulary.
 
-Orchestration goroutines
-  ├── admission and request queue policy
-  ├── Agent creation and routing
-  ├── coordination and delivery
-  └── lifecycle and drain
-```
+## Scope
 
-A single Agent goroutine processes one Prompt or Continue at a time. The caller or Host decides whether further external requests wait, queue, are rejected, steered, aborted, or create another Agent routine. Agents own their current work; callers and Hosts own admission and scheduling policy.
-
-Infrastructure such as Gateway, Kubernetes, load balancing, storage, and secrets surrounds Hosted mode but is not a Core dependency.
-
-## Boundary order
+The specifications cover:
 
 ```text
-Infrastructure
-      ↓ hosts and routes
-Transport goroutines
-      ↓ maps wire commands
-Orchestration goroutines
-      ↓ channel commands and results
-Agent goroutine
-      ↓ consumes stable contracts
-Model and Capability Adapters
+Agent Core
+  Agent interface · conversation state · canonical Loop
+  Model and Tool contracts · Events · cancellation · limits
+
+Agent Host / Orchestration
+  Agent creation · routing · admission · lifecycle · delivery
+
+Adapters
+  LLM · Tool · and optional protocol adapters
 ```
 
-Specifications define stable values, state transitions, ordering, bounds, failure semantics, service behavior, and acceptance. Architecture documents explain rationale. When an illustration conflicts with a specification, the specification wins.
+Infrastructure is outside the implementation scope. The specifications define the integration signals a Host may expose, but do not define a Gateway, Kubernetes operator, broker, database, or secrets platform.
+
+A direct Go caller uses Core without a Host. A remote caller reaches the same Core through a Host and an adapter:
+
+```text
+Embedded: Go service → Agent Core
+Hosted:   Client → protocol adapter → Host / Orchestration → Agent Core
+```
+
+Architecture documents explain rationale and usage. These specifications define stable values, state transitions, ordering, bounds, failure semantics, service behavior, and acceptance. When an illustration conflicts with a specification, the specification wins.
 
 ## Reading order
 
 1. Scope and principles
 2. Core domain
 3. Messages and Models
-4. Agent loop
+4. Agent Loop
 5. Events and delivery
 6. Tools and ToolSets
 7. Extensions
 8. Agent Routines and concurrency
 9. Errors and limits
-10. Agent Host and gRPC
+10. Agent Host and protocol adapter
 11. Runtime and Host API
 12. Testing and acceptance
 13. Delivery roadmap

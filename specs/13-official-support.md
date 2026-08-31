@@ -55,17 +55,17 @@ Agent Routine Coordinator
 
 These are optional for Embedded mode and required only by the Hosted composition that uses them. They coordinate Agent goroutines; they do not own their private state or create a second Loop.
 
-## 5. Transport packages
+## 5. Protocol adapters
 
 ```text
-gRPC Protobuf contract
-gRPC server and Go client
-optional HTTP/SSE or Connect projection
+gRPC or HTTP command/Event mapping
+server and client helpers
+optional SSE or Connect projection
 ```
 
-Transport packages map channel commands and Agent facts; they do not create alternative Agent semantics.
+Protocol adapters attach a wire protocol to the Host contract. They do not create alternative Agent semantics and are not required for Embedded use.
 
-## 6. Infrastructure assets
+## 6. Infrastructure integration assets
 
 ```text
 Kubernetes deployment examples
@@ -74,11 +74,11 @@ health and drain configuration
 observability integration
 ```
 
-These are deployment assets, not Core libraries. The initial PoC uses one Pod and one Host process.
+These are compatibility examples, not Gotato infrastructure or Core libraries. They must work with an existing platform rather than introduce a new one.
 
 ## 7. Extensions
 
-Independent packages may provide OpenTelemetry, structured logging, context compaction, authorization, approvals, cost accounting, and Model routing through the correct Core or Host joint. Long-lived work must have an explicit Context, channel, and shutdown path.
+Independent packages may provide OpenTelemetry, structured logging, context compaction, authorization, approvals, cost accounting, and Model routing through the correct Core or Host boundary. Long-lived work must have an explicit Context, channel, and shutdown path.
 
 ## 8. Compatibility
 

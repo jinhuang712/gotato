@@ -116,6 +116,8 @@ completion → finalized Message
 
 At completion every Tool argument must parse as one JSON value, the assistant Message is committed once, and only then may Tool resolution begin. Malformed JSON, duplicate IDs, post-terminal stream Events, or missing completion are Model protocol failures. Partial failed responses are discarded by default.
 
-## 9. Model Router boundary
+## 9. LLM Adapter boundary
 
-A Model Router may select providers, classify provider failures, apply bounded provider policy, and expose a provider-neutral Model. It cannot mutate Core transcript state, execute Tools, or create a second Agent Loop. Run-level retry is admitted by Core policy and remains inside the same Run.
+An LLM Adapter exposes the provider-neutral Model contract to Core. It owns provider protocol, authentication, provider-specific options, usage mapping, and provider-level failure policy. A Model Router may select among adapters.
+
+An adapter cannot mutate Core transcript state, execute Tools, or create a second Agent Loop. Run-level retry is admitted by Core policy and remains inside the same Run.

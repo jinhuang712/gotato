@@ -2,99 +2,114 @@
 
 **Status:** Draft
 
-> **Agent Core executes one canonical Loop for every Agent.**
+> This document describes the small Go-native runtime behind every Gotato Agent.
 
-## 1. Boundary
+## 1. The public idea
 
-Agent Core is Gotato's primary runtime. It supplies the execution unit that can be embedded in a Go process or reached through an Orchestrator:
+Agent Core turns a Model and optional Tools into a callable Agent:
 
-```text
-caller / Orchestrator
-        │ command channel
-        ▼
-Agent handle ──► Agent goroutine
-                    │
-                    ├── private Agent state
-                    ├── Model → Tool → Model Loop
-                    ├── explicit capabilities
-                    ├── cancellation
-                    └── Event / result channels
+```go
+agent, err := gotato.NewAgent(
+    gotato.WithModel(model),
+    gotato.WithInstruction("You are a helpful assistant."),
+    gotato.WithTools(tools...),
+)
+if err != nil {
+    return err
+}
+
+result, err := agent.Prompt(ctx, gotato.UserMessage(input))
 ```
 
-The goroutine is not an optional implementation detail. The stable public handle hides the goroutine identity and exposes channel-backed operations.
+The public handle is the integration surface. It does not expose a Runner, require a Host, or require a service platform.
 
-Core does not import or require gRPC, Protobuf, Kubernetes, Gateway, cache, service admission, or provider SDKs. It does not decide how external Prompts are queued, prioritized, rejected, or routed.
-
-## 2. Agent state
-
-Each Agent goroutine owns its local state and capabilities:
-
-```text
-system instructions
-Model contract
-committed Messages
-individual Tools and registered ToolSets
-active ToolSets
-Extensions
-current Run state
-runtime options and local limits
-```
-
-The Agent goroutine is the only authority that accesses and mutates this state. Callers receive snapshots or results and cannot mutate it directly. Conversation registries, Hosts, Orchestrators, and shared application resources remain outside the Agent.
-
-An Agent can process one Prompt or Continue at a time. When its current execution settles, it becomes available for another invocation. This is a single-flight execution property, not a global lock or a scheduling policy.
-
-## 3. Channel-backed Core API
-
-The public API may remain synchronous for ordinary Go callers while using channels internally:
+A minimal Core interface is:
 
 ```go
 type Agent interface {
     Prompt(context.Context, Message) (RunResult, error)
+}
+```
+
+Streaming and control are additive capabilities rather than prerequisites for the first call:
+
+```go
+type StreamingAgent interface {
+    Agent
+    Stream(context.Context, Message) (EventStream, error)
+}
+
+type ControllableAgent interface {
+    Agent
     Continue(context.Context) (RunResult, error)
     Steer(Message) error
     FollowUp(Message) error
     Abort()
-    WaitForIdle(context.Context) error
-    Subscribe(EventHandler) (unsubscribe func())
-    StateSnapshot() AgentSnapshot
-    Reset() error
 }
 ```
 
-`Prompt` and `Continue` submit one execution command and wait on its result channel. They do not provide a queue for future external Prompts. If the Agent is already executing, the direct caller receives a typed not-available/busy result or must use its own scheduler.
+The exact exported names may evolve, but the public shape must remain small and ordinary for Go callers.
 
-`Steer` and `Abort` are control messages for the current Agent execution. `FollowUp` is a control message for a subsequent continuation; it is not a general user-request scheduler. The exact buffering and acceptance bounds are Core configuration, while policy for many external requests belongs to the caller or Host.
+## 2. What Core owns
+
+Core owns the semantics that make the Agent work:
+
+```text
+current conversation state
+Model → Tool → Model Loop
+Model and Tool contracts
+Tool invocation and result commitment
+Context cancellation and local limits
+canonical Events and Run settlement
+```
+
+Core does not own external request queues, Conversation registries, service discovery, brokers, long-term memory, or deployment.
+
+The current conversation state is the minimum state needed for a multi-turn Agent. It is not a separate Memory product.
+
+## 3. Internal execution unit
+
+Each Agent has one Go-native execution unit with private state:
+
+```text
+Agent handle
+    ↓ private command boundary
+Agent execution unit
+    ├── conversation state
+    ├── current Run
+    ├── Model and Tools
+    └── result / Event boundary
+```
+
+The implementation may use a goroutine and channels to confine state and serialize transitions. Callers use methods; they do not manage the goroutine or channel topology.
+
+One Agent processes one Prompt or Continue at a time. If an external service needs a queue, it supplies that policy or uses the optional Host/Orchestration layer.
 
 ## 4. Canonical Loop
 
-Each Agent goroutine runs one canonical Loop:
+Core has one execution path:
 
 ```text
-receive one Prompt or Continue
+receive Prompt or Continue
 create Run identity and Context
-emit agent_start
+record the input in conversation state
 
 repeat:
-  admit next Turn
-  build Model request from private state
-  open Model stream
-  assemble and commit assistant Message
+  build a Model request from private state
+  open the provider-neutral Model stream
+  assemble and commit one assistant Message
   resolve and execute Tool Calls
   commit Tool Results
-  emit turn_end
-  process control messages at defined boundaries
   continue or settle
 
-emit one agent_end
-return RunResult through the result channel
+publish terminal result and Events
 ```
 
-The Loop does not inspect user connections, request queues, or platform state. It responds to commands delivered through its channel. Embedded and Hosted callers use the same Loop.
+The loop is internal. It does not inspect user connections, service registries, request queues, or platform state. Embedded and Hosted callers reach the same Loop.
 
 ## 5. Model boundary
 
-Core constructs Model requests, assembles streams, and commits transcript state. It consumes only a provider-neutral contract:
+Core consumes a provider-neutral Model contract:
 
 ```go
 type Model interface {
@@ -102,87 +117,95 @@ type Model interface {
 }
 ```
 
-A Model Router or provider adapter may select a provider, but it cannot mutate Agent state or create another Loop.
+An LLM Adapter implements this contract for a provider. It owns provider protocol, authentication, provider options, provider errors, and provider-level retry. Core decides when to call the Model and how the normalized stream affects Agent state.
+
+A provider adapter cannot mutate Core transcript state, execute Tools, or create another Agent Loop.
 
 ## 6. Tool boundary
 
-Tools are explicit capabilities available to the Agent goroutine. Agent Core owns:
+Tools are explicit capabilities:
 
 ```text
-argument assembly
-resolution and Schema validation
-Pre-Tool-Use and Post-Tool-Use
-bounded invocation
-result commitment
-Tool Events
+complete Tool arguments
+  → resolve Tool
+  → validate input
+  → run at most once
+  → finalize result
+  → commit Tool Result
 ```
 
-The application or an adapter owns external authentication, protocol translation, and external resource policy.
+A Tool Adapter connects a Go service or external system to the Core Tool contract. The adapter owns external authentication, protocol mapping, and resource policy. Core owns invocation, cancellation, Events, and commitment.
 
-## 7. Agent Routine
+Typed function helpers should make a small Go function easy to expose as a Tool. ToolSets and staged discovery are optional capabilities, not requirements for a basic Agent.
 
-An Agent Routine is the running goroutine of an Agent:
+## 7. Conversation state
+
+Core may keep:
 
 ```text
-Agent identity
-  + private state
-  + one Agent goroutine
-  + inbound command channel
-  + outbound result/Event channels
+system instructions
+committed Messages
+registered Tools
+active optional ToolSets
+current Run state
+local execution limits
 ```
 
-A spawned Agent is another independent Agent Routine. It is not a child task object owned by the spawning Agent. The spawning operation may attach origin IDs or correlation metadata, but the two routines communicate through channels and do not share mutable state by default.
+This state is private to the Agent. Snapshots and results do not alias mutable Core state. Persistence, retrieval, compaction, and cross-session memory belong outside the minimal Core.
 
-A `Run` is one Prompt or Continue processed by an Agent Routine. A Run is not a container that owns another Agent Routine.
+## 8. Control
 
-## 8. Spawn and coordination
-
-An Agent goroutine may create another Agent directly or send a spawn request through an explicit factory/capability:
+Advanced callers may send:
 
 ```text
-Agent A goroutine ── go / spawn ──► Agent B goroutine
-        │
-        └── optional factory / Orchestration channel ──► Agent B
+Continue  continue the current conversation
+Steer    change direction at a safe boundary
+FollowUp provide a subsequent continuation
+Abort    cancel the current Run
 ```
 
-Both paths create the same independent Agent Routine. The Orchestrator or application may decide admission, limits, routing, and whether to wait for B. Agent A does not acquire ownership of B. Cancellation of B is explicit; it is not implied merely by the fact that A created it.
+These controls are handled by the same Loop. They do not turn Core into a general external request scheduler.
 
-## 9. Events
+## 9. Events and settlement
 
-The Agent goroutine emits immutable canonical Events through its Event boundary. Local subscribers and Hosts consume those Events; neither is part of the Agent's private transcript state.
+Core emits canonical Events for committed transitions and declared operations. A Run has one terminal settlement. Core returns its result after local execution settles; it does not wait for remote delivery.
 
-`agent_end` is the final canonical Event for a Run. The Agent does not wait for remote delivery before returning its result.
+A local subscriber or Hosted Host may observe these Events. Remote projection is outside Core.
 
-## 10. Cancellation and settlement
+## 10. Limits and cancellation
 
-The Agent goroutine selects on the current Run Context and control channels. Cancellation stops new work and asks Model, Tools, Extensions, and any locally admitted work to settle. It does not roll back committed state.
-
-Execution settlement is the point at which the Agent has completed the current Run and can accept the next one. Queue settlement and remote delivery are outside Core.
-
-## 11. Limits
-
-Core limits govern one Agent execution:
+Core bounds one Agent's local work:
 
 ```text
 Turns and Tool Calls
-visible Tools and active ToolSets
 parallel Tool workers
 Tool result and progress volume
 Run, Model, and Tool deadlines
 ```
 
-The Host or caller governs external request queues, active streams, global quotas, and how many Agent goroutines to create.
+Every blocking operation receives the Run Context. Cancellation prevents future work and asks active Model, Tool, and Extension work to settle. Committed state is not rolled back.
 
-## 12. Embedded use
+## 11. Embedded use
 
 ```text
-Go method / application goroutine
-          │ channel-backed call
-          ▼
-       Agent goroutine
-          │
-          ├── Model
-          └── Tools / Extensions
+Existing Go Service
+        │ direct Agent interface
+        ▼
+    Agent Core
+        ├── LLM Adapter
+        └── Tool Adapters
 ```
 
-A method may send one Prompt and wait for its response. If the application accepts multiple user Prompts, the application—not Core—chooses whether to queue, reject, steer, or abort them.
+No Host, protocol adapter, Registry, Broker, or new deployment platform is required. The existing service decides how to map its own request and response types.
+
+## 12. Hosted use
+
+```text
+Client
+  ↓ protocol adapter
+Agent Host / Orchestration
+  ↓ Agent interface
+Agent Core
+```
+
+The Host adds remote access, admission, routing, lifecycle, and Event delivery. It uses the same Core Agent and does not reproduce the Loop.

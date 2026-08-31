@@ -10,10 +10,10 @@
 
 ### Product shape
 
-1. Gotato provides a Go-native Agent Core and an optional Hosted Agent Service.
-2. An Agent is a goroutine-backed stateful execution unit with private state and channel boundaries.
-3. Agent-as-a-Service exposes Agent goroutines through Transport and Orchestration; it does not create a second Agent implementation.
-4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are not Core dependencies.
+1. Gotato provides a small Go-native Agent Core and an optional Hosted Agent Service.
+2. An Agent is a callable, goroutine-backed stateful execution unit with private state.
+3. Agent-as-a-Service exposes the same Agent Core through Host / Orchestration and an optional protocol adapter; it does not create a second Agent implementation.
+4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are integration choices, not Gotato products.
 5. Applications own business meaning, presentation, and any Embedded request scheduler.
 
 ### Core semantics
@@ -38,11 +38,11 @@
 20. Agent-to-Agent and Agent-to-Orchestration communication uses explicit channels or channel-backed handles.
 21. A failure or cancellation in one independent Agent does not automatically terminate another Agent.
 
-### Host and transport
+### Host and protocol adapters
 
 22. Orchestration/Agent Host manages Agent creation, admission, external request queues, dispatch, routing, remote delivery, and lifecycle.
-23. Host and Transport must not duplicate Core state or Loop behavior.
-24. gRPC is a Hosted Transport adapter, not a Core dependency.
+23. Host and protocol adapters must not duplicate Core state or Loop behavior.
+24. gRPC is one optional protocol adapter for Hosted use, not a Core dependency.
 25. Protected Events cannot be silently dropped; remote progress may be coalesced under bounds.
 26. Execution settlement and remote delivery settlement are independent.
 27. A Host may treat attached stream closure as Run cancellation, but the policy must be explicit.
@@ -93,13 +93,13 @@
 9. Host admission and quota scope for multi-tenant deployments
 ```
 
-## 5. Open Infrastructure questions
+## 5. Open integration questions
 
 ```text
-1. Supported Gateway products and long-lived gRPC requirements
-2. Whether session affinity is an example or a supported guarantee
-3. Durable state provider contract and failure behavior
-4. Required Kubernetes baseline versus application-provided platform
+1. Required long-lived stream and Context behavior for supported protocol adapters
+2. Which Gateway or load-balancer behaviors can be documented as compatibility guarantees
+3. Durable state provider contract and failure behavior, if a future Host needs it
+4. Which deployment examples should be maintained versus left to the application platform
 ```
 
 ## 6. Decision method

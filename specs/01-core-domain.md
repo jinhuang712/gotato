@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **Agents are goroutines. Agent Core owns their state and execution.**
+> **Agents are goroutines. Agent Core makes them callable and safe.**
 
 ## 1. Identity types
 
@@ -27,7 +27,7 @@ Host request, stream, trace, and provider IDs are additive and must not replace 
 
 ## 2. Agent runtime
 
-An Agent is a goroutine-backed execution unit:
+An Agent is a callable, goroutine-backed execution unit:
 
 ```text
 Agent
@@ -52,7 +52,7 @@ type AgentState struct {
 }
 ```
 
-The exact fields may evolve, but private state, Agent-owned work, and channel confinement remain. Snapshots copy nested data and cannot mutate Core state.
+The exact fields may evolve, but private state, Agent-owned work, and execution confinement remain. Snapshots copy nested data and cannot mutate Core state.
 
 ## 3. Availability and single-flight execution
 

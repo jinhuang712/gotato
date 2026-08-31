@@ -2,9 +2,19 @@
 
 **Status:** Draft
 
-> **Extensions add behavior at named Core stages without taking over Agent state.**
+> Extensions add focused behavior at named Agent stages without taking over the Agent.
 
-## 1. Core extension points
+## 1. Why Extensions exist
+
+The Core owns the Agent Loop and state transitions. Extensions add local behavior at explicit stages without requiring a fork of the Loop or a second framework:
+
+```text
+Core stage → Extension → Core continues
+```
+
+Extensions are installed during Agent construction. They receive read-only snapshots or stage-specific values, not a mutable Agent pointer or a protocol stream.
+
+## 2. Extension points
 
 ```text
 ContextTransformer
@@ -15,9 +25,9 @@ EventObserver
 TurnStopper
 ```
 
-Extensions are explicit Go components installed during Agent construction. They do not receive a mutable Agent pointer or a transport stream.
+Each point has one responsibility and receives the owning Run Context. The exact package names may evolve; the stage boundaries are the contract.
 
-## 2. Context and Message conversion
+## 3. Context and Message conversion
 
 ```text
 read-only Agent snapshot
@@ -29,9 +39,9 @@ MessageConverter chain
 Model request
 ```
 
-Transformers may select, add, prune, or compact context but cannot mutate committed history. Converters map runtime Messages to provider-neutral Model Messages and cannot store provider representations in Core transcript state.
+Transformers may select, add, prune, or compact the request context but cannot mutate committed history. Converters map runtime Messages to provider-neutral Model Messages and cannot store provider representations in Core transcript state.
 
-## 3. Tool stages
+## 4. Tool stages
 
 Pre-Tool-Use runs after complete argument assembly, resolution, and Schema validation:
 
@@ -40,25 +50,25 @@ Proceed
 Block with Tool Result
 ```
 
-All installed Pre components run in order until one blocks or fails. A blocked Tool is not executed and still passes through Post-Tool-Use.
+Installed Pre components run in order until one blocks or fails. A blocked Tool is not executed and still passes through Post-Tool-Use.
 
-Post-Tool-Use receives executed, blocked, failed, and cancelled outcomes. It runs in reverse installation order and may normalize safe content, redact, add metadata, enforce bounds, or attach a termination hint. It must preserve Tool identity and `Executed` truth.
+Post-Tool-Use receives executed, blocked, failed, and cancelled outcomes. It runs in reverse installation order and may normalize safe content, redact, add bounded metadata, or attach a termination hint. It preserves Tool identity and `Executed` truth.
 
-## 4. Event observers
+## 5. Event observers
 
-An observer is local and awaited:
+An observer is local and bounded:
 
 ```text
 create Event → observer A → observer B → Core continues
 ```
 
-It must be fast, Context-aware, and bounded. Remote delivery is not an observer; it belongs to the Host Event Bridge. Observer failure uses an explicit blocking or advisory mode. Panics are recovered at the boundary.
+It must be fast and Context-aware. A blocking observer may hold Core at its declared boundary; an advisory observer must not block the Loop. Remote delivery belongs to the Host, not to an Extension.
 
-## 5. Turn stopping
+## 6. Turn stopping
 
 A TurnStopper runs after `turn_end` and before continuation selection. It can settle the Run while preserving the completed Turn and its Events. A stopper error is blocking by default.
 
-## 6. Ordering
+## 7. Ordering and failure
 
 ```text
 Pre extensions:  A → B → C
@@ -67,17 +77,13 @@ Post extensions: C → B → A
 Observers:       registration order
 ```
 
-The order is deterministic in Embedded and Hosted modes.
+Blocking Extension failure settles the current Run. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would re-enter the Agent execution unit.
 
-## 7. Failure and reentrancy
+Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are not permitted.
 
-Blocking Extension failure settles the current Run. Tool execution failure follows Tool Result semantics. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would re-enter the same Agent goroutine.
+## 8. Host policies are not Core Extensions
 
-Extensions may schedule external application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are not permitted.
-
-## 8. Hosted policies are not Core Extensions
-
-The following belong to Orchestration, not Core:
+The following belong to Host / Orchestration:
 
 ```text
 AgentFactory
@@ -85,13 +91,9 @@ ConversationResolver
 AdmissionController
 AgentCache
 EventProjector
-EventBridge
+DeliveryBridge
 ErrorMapper
 DrainPolicy
 ```
 
-They surround Core operations and cannot alter Core transcript or Loop semantics.
-
-## 9. Official extension packages
-
-OpenTelemetry, structured logging, context compaction, authorization integration, approval integration, cost accounting, and Model routing may be packaged independently. They enter through the Core or Host boundary that owns their semantics.
+They surround Core operations and coordinate Agents. They do not alter Core transcript or Loop semantics.
