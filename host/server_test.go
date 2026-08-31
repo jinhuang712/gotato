@@ -44,6 +44,10 @@ func TestHTTPRunRetireAndRehydrate(t *testing.T) {
 	if first["status"] != string(gotato.RunCompleted) {
 		t.Fatalf("first response = %+v", first)
 	}
+	metrics, ok := first["metrics"].(map[string]any)
+	if !ok || metrics["turns"] != float64(1) || metrics["elapsed_ms"] == nil {
+		t.Fatalf("run metrics = %#v", first["metrics"])
+	}
 	conversationID := first["conversation_id"].(string)
 	firstAgent := first["agent_id"].(string)
 

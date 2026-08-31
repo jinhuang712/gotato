@@ -587,6 +587,13 @@ func (a *coreAgent) emit(runID RunID, seq *uint64, kind EventKind, class EventCl
 	a.events.publish(Event{AgentID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()})
 }
 
+func addUsage(total, current Usage) Usage {
+	total.InputTokens += current.InputTokens
+	total.OutputTokens += current.OutputTokens
+	total.TotalTokens += current.TotalTokens
+	return total
+}
+
 // summarizeTurn builds a bounded, provider-neutral heartbeat payload. It
 // describes work performed by the loop without copying prompt, answer,
 // reasoning, or Tool arguments into operational logs.
@@ -642,12 +649,27 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 	}()
 
 	var sequence uint64
+	var totalUsage Usage
+	var final *Message
+	var toolCalls uint32
+	var turns uint32
+	var textBytes, reasoningBytes uint64
+	runStarted := time.Now()
+	runMetrics := func() RunMetrics {
+		return RunMetrics{
+			ElapsedMS:      time.Since(runStarted).Milliseconds(),
+			Turns:          turns,
+			ToolCalls:      toolCalls,
+			TextBytes:      textBytes,
+			ReasoningBytes: reasoningBytes,
+		}
+	}
 	a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil)
 	fail := func(err *RuntimeError) (RunResult, error) {
 		if err == nil {
 			err = runtimeError(ErrInternalInvariant, "Run", "nil terminal error", nil)
 		}
-		result := RunResult{RunID: runID, Status: RunFailed, Error: err}
+		result := RunResult{RunID: runID, Status: RunFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
 		if errors.Is(err.Cause, context.Canceled) || err.Code == ErrCancelled {
 			result.Status = RunCanceled
 		}
@@ -665,9 +687,6 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 	a.emit(runID, &sequence, EventMessageStart, EventProtected, 0, prompt.ID, "", map[string]any{"role": string(prompt.Role)})
 	a.emit(runID, &sequence, EventMessageEnd, EventProtected, 0, prompt.ID, "", map[string]any{"role": string(prompt.Role)})
 
-	var totalUsage Usage
-	var final *Message
-	var toolCalls uint32
 	for turn := TurnNumber(1); ; turn++ {
 		if limitExceededUint32(a.limitsSet, a.limits.MaxTurns, uint32(turn)) {
 			return fail(runtimeError(ErrLimitExceeded, "Run", "maximum Turns exceeded", nil))
@@ -675,12 +694,21 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 		if err := contextFailure(runCtx, "turn"); err != nil {
 			return fail(err)
 		}
+		turns++
 		a.emit(runID, &sequence, EventTurnStart, EventProtected, turn, "", "", nil)
 		turnStarted := time.Now()
 
 		request := ModelRequest{SystemInstructions: a.instruction, Messages: cloneMessages(a.messages), Tools: cloneToolSpecs(a.toolSpecs)}
 		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
-		totalUsage = usage
+		totalUsage = addUsage(totalUsage, usage)
+		for _, part := range assistant.Parts {
+			switch part.Kind {
+			case ContentText:
+				textBytes += uint64(len(part.Text))
+			case ContentReasoning:
+				reasoningBytes += uint64(len(part.Text))
+			}
+		}
 		if modelErr != nil {
 			return fail(modelErr)
 		}
@@ -699,7 +727,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			})
 			finalCopy := assistant.Clone()
 			final = &finalCopy
-			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage}
+			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
 			a.emit(runID, &sequence, EventAgentEnd, EventProtected, turn, "", "", map[string]any{"status": result.Status})
 			return result, nil
 		}
