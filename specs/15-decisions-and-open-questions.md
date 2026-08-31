@@ -3,14 +3,14 @@
 **Status:** Draft
 
 > **Agent as a Service.**
->
-> **Core Native to Go.**
+
+> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
 
 ## 1. Decisions
 
 ### Product shape
 
-1. Gotato provides a small Go-native Agent Core and an optional Hosted Agent Service.
+1. Gotato provides a minimal Go-native Agent Core and an optional Hosted Agent Service. Embedded use is the first-class path; Hosted use is an optional composition.
 2. An Agent is a callable, goroutine-backed stateful execution unit with private state.
 3. Agent-as-a-Service exposes the same Agent Core through Host / Orchestration and an optional protocol adapter; it does not create a second Agent implementation.
 4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are integration choices, not Gotato products.

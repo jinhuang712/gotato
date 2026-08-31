@@ -3,15 +3,14 @@
 **Status:** Draft
 
 > **Agent as a Service.**
->
-> **Core Native to Go.**
 
-Gotato has one product goal: make a basic Agent as easy to add to an existing Go service as a normal Go interface, while keeping a direct path to Hosted Agent Service. The specifications apply four principles:
+> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
 
-1. **Agents are goroutines.**
-2. **Agents own their work.**
-3. **Infrastructure hosts. Orchestration coordinates. Agent Core executes.**
-4. **Tight Core, Open Extensions.**
+Gotato has one product goal: make a stateful Agent as easy to add to an existing Go service as a normal Go interface, while keeping a direct path to Hosted Agent Service. The specifications apply three principles:
+
+1. **Agents are self-contained goroutines: each owns its state and work.**
+2. **Infrastructure hosts. Orchestration coordinates. Agent Core executes.**
+3. **Tight Core, Open Extensions.**
 
 ## 1. Deliverables
 
@@ -45,7 +44,7 @@ Agent = private conversation state + simple Loop + capabilities + interface
 
 The Agent processes one Prompt or Continue at a time. It owns its current work and local state. It does not own an external request queue, Conversation registry, Host, or shared application resource.
 
-Core may keep the current conversation transcript required for basic multi-turn behavior. Long-term memory, retrieval, compaction, artifacts, and cross-session persistence are outside the minimal Core.
+Core may keep the current conversation transcript required for multi-turn behavior. Long-term memory, retrieval, compaction, artifacts, and cross-session persistence are outside the minimal Core.
 
 An Agent may create another independent Agent, but spawn provenance is correlation, not resource hierarchy. Multi-Agent coordination is an optional Host or application capability.
 

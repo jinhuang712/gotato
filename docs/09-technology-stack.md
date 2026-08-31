@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Build a small Go-native Agent Core, attach provider and capability adapters, and host it in the platform that already runs the service.
+> Build a minimal, Go-native runtime for self-contained, stateful Agents; attach provider and capability adapters; and host it in the platform that already runs the service.
 
 ## 1. The stack
 

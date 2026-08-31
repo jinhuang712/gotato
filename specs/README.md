@@ -1,15 +1,14 @@
 # Gotato Specifications
 
 > **Agent as a Service.**
->
-> **Core Native to Go.**
 
-These specifications define a small Go-native Agent Core and the optional Host that exposes the same Agent as a Service. They make the four project principles concrete:
+> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
 
-1. Agents are goroutines.
-2. Agents own their work.
-3. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
-4. Tight Core, Open Extensions.
+These specifications define the minimal Agent Core and the optional Host that exposes the same Core semantics as a Hosted Agent Service. They make the three project principles concrete:
+
+1. Agents are self-contained goroutines: each owns its state and work.
+2. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
+3. Tight Core, Open Extensions.
 
 Use the [Glossary](../docs/glossary.md) for the shared vocabulary.
 

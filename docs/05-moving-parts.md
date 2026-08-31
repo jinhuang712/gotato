@@ -2,9 +2,9 @@
 
 **Status:** Draft
 
-> This document maps the small Core, the thin Host, the side adapters, and the existing platform around them.
+> This document maps the minimal Core, the thin Host, the side adapters, and the existing platform around them.
 
-## 1. One Agent, two forms
+## 1. One Core, two forms
 
 ```text
 Embedded:

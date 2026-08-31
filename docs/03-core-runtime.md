@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> This document describes the small Go-native runtime behind every Gotato Agent.
+> This document describes the minimal Go-native runtime behind every Gotato Agent.
 
 ## 1. The public idea
 
@@ -136,7 +136,7 @@ complete Tool arguments
 
 A Tool Adapter connects a Go service or external system to the Core Tool contract. The adapter owns external authentication, protocol mapping, and resource policy. Core owns invocation, cancellation, Events, and commitment.
 
-Typed function helpers should make a small Go function easy to expose as a Tool. ToolSets and staged discovery are optional capabilities, not requirements for a basic Agent.
+Typed function helpers should make a small Go function easy to expose as a Tool. ToolSets and staged discovery are optional capabilities, not requirements for the minimal Agent path.
 
 ## 7. Conversation state
 

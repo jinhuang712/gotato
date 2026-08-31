@@ -19,7 +19,7 @@ The interface hides the execution machinery. A local Agent and a Hosted Agent pr
 
 ## 2. Agent Core
 
-Agent Core is a small Go-native runtime:
+Agent Core is a minimal Go-native runtime:
 
 ```text
 Agent Core
