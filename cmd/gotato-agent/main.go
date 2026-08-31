@@ -41,6 +41,9 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "listen address")
 	modelName := flag.String("model", "echo", "model kind: echo, demo, or gateway")
 	gatewayConfigPath := flag.String("gateway-config", "gateway.yaml", "YAML configuration for the OpenAI-compatible Gateway")
+	runTimeout := flag.Duration("run-timeout", 10*time.Minute, "maximum duration of one Run; 0 disables the limit")
+	modelTimeout := flag.Duration("model-timeout", 5*time.Minute, "maximum duration of one Model call; 0 disables the limit")
+	toolTimeout := flag.Duration("tool-timeout", 5*time.Minute, "maximum duration of one Tool call; 0 disables the limit")
 	flag.Parse()
 
 	var gatewayModel gotato.Model
@@ -66,7 +69,11 @@ func main() {
 		}
 	}
 	factory := func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
-		options := []gotato.Option{gotato.WithModel(newModel()), gotato.WithInstruction("You are the local Gotato reference agent.")}
+		options := []gotato.Option{
+			gotato.WithModel(newModel()),
+			gotato.WithInstruction("You are the local Gotato reference agent."),
+			gotato.WithDeadlines(*runTimeout, *modelTimeout, *toolTimeout),
+		}
 		if *modelName == "demo" {
 			options = append(options, gotato.WithTool(echoTool{}))
 		}
