@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> **Agents emit immutable facts; Hosts project and deliver them.**
+> **Agents emit immutable facts; Orchestration coordinates them and Hosts project and deliver them.**
 
 ## 1. Event kinds
 
@@ -24,8 +24,8 @@ Routine lifecycle Events describe an Agent Routine or spawn operation. They MUST
 Every Event belongs to exactly one class:
 
 ```text
-Protected: lifecycle transitions and settled outcomes
-           agent/turn lifecycle, Message start/end, Tool start/end,
+Protected: Run lifecycle transitions and settled outcomes
+           Run/turn lifecycle, Message start/end, Tool start/end,
            activation, Routine terminal Events, turn_end, agent_end
 
 Coalescable: optional progress
@@ -82,9 +82,9 @@ A Core subscriber is an in-process, Context-aware, bounded observer receiving Ev
 
 A subscriber cannot be a remote network peer.
 
-## 7. Host delivery bridge
+## 7. Orchestration and Host delivery bridge
 
-A Host that delivers Events remotely MUST use a bounded bridge:
+Orchestration may coordinate Events from multiple Agents. A Host that delivers those Events remotely MUST use a bounded bridge:
 
 ```text
 Agent Event → projection/redaction → bounded queue → sender → client
@@ -92,27 +92,42 @@ Agent Event → projection/redaction → bounded queue → sender → client
 
 The bridge MUST declare capacity, Protected kinds, coalescing, queue-full behavior, and shutdown flush deadline. Enqueue and sender operations must honor the Context that owns them. Detached senders and unbounded queues are forbidden defaults.
 
-Protected Events take priority over optional progress. If a Protected Event cannot be preserved within policy, the Host fails the consumer stream rather than silently dropping it.
+Protected Events take priority over optional progress. If a Protected Event cannot be preserved within policy, the Host fails the consumer stream rather than silently dropping it. Orchestration must preserve each Agent's identity and sequence when combining streams. It MAY enrich the projection with ConversationID and AgentGeneration; those are routing metadata, not Core Event fields.
 
 ## 8. Settlement
 
 ```text
 Agent execution settlement   current Run and local work are complete
 Host delivery settlement     remote delivery is drained or abandoned
+Agent closure settlement     Core resources are closed and Done is closed
 ```
 
-`WaitForIdle` observes Agent execution settlement only. Queue settlement and remote delivery settlement belong to the caller or Host.
+`WaitForIdle` observes Agent execution settlement only. Orchestration queue settlement, Agent closure, and remote delivery settlement belong to the caller, Orchestration, or Host according to their contracts. `agent_end` terminates a Run; it does not close the Agent.
 
-## 9. Cancellation and disconnect
+## 9. Agent lifecycle signals
 
-Disconnect ends delivery. Host policy decides whether it also cancels the current Agent Run. Explicit Cancel, deadlines, and drain send cancellation through the Agent control boundary and reach its Model, Tools, observers, and local work.
+Agent closure MUST remain distinguishable from Run Events. A Core or Orchestration lifecycle boundary SHOULD expose semantic equivalents of:
 
-Cancellation of another Agent Routine requires an explicit command or selected policy.
+```text
+agent_created
+agent_retirement_requested
+agent_closing
+agent_closed
+agent_retirement_failed
+```
 
-## 10. Projection
+A lifecycle signal MUST preserve AgentID, optional ConversationID, reason, and correlation metadata. It MUST NOT consume a Run's per-Run sequence unless the Event contract explicitly defines empty-Run lifecycle records. Remote delivery of `agent_closed` is not required for Core closure to complete.
 
-A projection may filter, redact, enrich, and encode a Core Event. It must preserve Event class, identity, correlation, and settled meaning. `RunEvent` is not a second event history.
+## 10. Cancellation and disconnect
 
-## 11. Acceptance
+Disconnect ends delivery. Orchestration/Host policy decides whether it also cancels the current Agent Run. Explicit Cancel, deadlines, and drain send cancellation through the Agent control boundary and reach its Model, Tools, observers, and local work.
+
+Cancellation of another Agent Routine requires an explicit command or selected application Orchestration/Host policy.
+
+## 11. Projection
+
+A projection may filter, redact, enrich, and encode a Core Event. It must preserve Event class, identity, correlation, and settled meaning. When Orchestration combines Agents, it must not flatten their independent sequences. `RunEvent` is not a second event history.
+
+## 12. Acceptance
 
 Tests MUST prove Event order, classification, correlation, one terminal Event per Run, Protected Event delivery, progress coalescing, bounded channel behavior, observer bounds, independent Agent/delivery settlement, disconnect behavior, and bounded drain.

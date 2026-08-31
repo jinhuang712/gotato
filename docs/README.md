@@ -1,17 +1,23 @@
 # Gotato Documentation
 
-> **Agent as a Service.**
+> **Go-native Agent Runtime and Orchestration.**
 
-> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+> Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
 
-The runtime is easily embedded in an existing Go service and can be exposed as a Hosted Agent Service. The user-facing idea is simple: provide a Model and optional Tools, then call a stateful Agent. Agent Core owns the execution details. “As a Service” describes the Agent's callable boundary; Hosted deployment is optional.
+Gotato has two deliberately separated layers. Agent Core is the atomic execution unit for one stateful Agent. Orchestration is the coordination layer that retains, addresses, routes, and combines multiple Core Agents. A Hosted Agent Service exposes that Orchestration through a protocol and an existing process platform.
 
 ```text
-Embedded: Application ── Agent interface ──► Agent Core
-Hosted:   Client ── protocol adapter ──► Host / Orchestration ──► Agent Core
+Embedded, single:
+  Application ── Agent handle ──► Agent Core
+
+Embedded, multi:
+  Application Orchestration ──► Agent Core × N
+
+Hosted:
+  Client ── protocol adapter ──► Host ──► Orchestration ──► Agent Core × N
 ```
 
-The two paths share one Agent contract and one execution model. Hosting changes access, routing, and lifecycle; it does not create a second Agent implementation. In this vocabulary, Orchestration coordinates, Host exposes the service boundary, and Infrastructure hosts the processes.
+The same Agent contract and Core Loop apply at every scale. A direct handle is the smallest entry point, not a substitute for multi-Agent coordination. Once Agents must be revisited, routed, scheduled, or combined, Orchestration is required somewhere: application code may provide it for a fixed set of handles, while Gotato Orchestration provides the reusable coordination form and Host exposes it as a service.
 
 ## The architecture in one picture
 
@@ -20,11 +26,15 @@ The two paths share one Agent contract and one execution model. Hosting changes 
                     hosts and connects the process
                                    │
                                    ▼
-                        Agent Host / Orchestration
-                 admission · routing · lifecycle · delivery
-                                   │ Agent contract
+                         Host / Protocol Adapter
+                    remote access · delivery · mapping
+                                   │
                                    ▼
-                              Agent Core
+                            Orchestration
+             identity · routing · admission · retirement · coordination
+                                   │ Agent contract(s)
+                                   ▼
+                            Agent Core × N
               private state · canonical Loop · Tools · Events
                          │                         │
                          ▼                         ▼
@@ -45,37 +55,39 @@ A protocol adapter may connect a remote client to the Host. It is a replaceable 
 6. [Extension model](07-extension-model.md) — optional Core hooks
 7. [Agent Routines](08-agent-routines.md) — advanced concurrency and spawning
 8. [Events and delivery](04-events-and-delivery.md) — facts and observation
-9. [Hosted Agent](02-agents-as-a-service.md) — the optional service form
-10. [Boundaries and moving parts](05-moving-parts.md) — ownership and adapters
-11. [Technology stack](09-technology-stack.md) — implementation and integration
-12. [Technical specifications](../specs/README.md) — normative contracts
+9. [Orchestration and Hosted Agent](02-agents-as-a-service.md) — multi-Agent coordination and service form
+10. [Boundaries and moving parts](05-moving-parts.md) — Core, Orchestration, Host, and adapters
+11. [Agent lifecycle](10-agent-lifecycle.md) — closing, retirement, and Conversation retention
+12. [Technology stack](09-technology-stack.md) — implementation and integration
+13. [Technical specifications](../specs/README.md) — normative contracts
 
-## Three system boundaries
+## The system shape
 
 ### Agent Core
 
-Core owns the minimal set of semantics needed by every Agent: conversation state, the canonical Model → Tool → Model Loop, Tool invocation, cancellation, local limits, and canonical Events. Its public handle is the main integration surface.
+Core owns the semantics of one Agent: conversation state, the canonical Model → Tool → Model Loop, Tool invocation, cancellation, local limits, Events, and result settlement. Its public handle is the atomic integration surface.
 
-### Agent Host / Orchestration
+### Orchestration
 
-The Host is optional. It coordinates multiple Agent instances, applies admission and routing policy, attaches protocol adapters, forwards Events, and manages lifecycle. It calls Core through a stable Agent contract.
+Orchestration owns the coordination semantics of multiple Agents: Conversation identity, handle retention, routing, admission, scheduling, lifecycle, retirement, inter-Agent communication, and result/Event coordination. It does not mutate Core state or reproduce the Core Loop. A retained Conversation may outlive its current Agent handle and rehydrate a new AgentID. For one directly held Agent it may be ordinary application code; for dynamic or Hosted use it is a first-class Gotato layer.
 
-### Existing infrastructure
+### Host and existing infrastructure
 
-Infrastructure is the environment chosen by the application: a Go process, an existing RPC server, a Gateway, Kubernetes, storage, secrets, or a load balancer. It is outside Gotato; Gotato integrates with it and does not reimplement it.
+A Host exposes Orchestration through a protocol adapter and manages remote delivery, readiness, and drain. Infrastructure is the environment chosen by the application: a Go process, an existing RPC server, a Gateway, Kubernetes, storage, secrets, or a load balancer. Both are outside Core; Gotato integrates with them and does not reimplement the platform.
 
 ## Progressive disclosure
 
-A first integration should need only:
+A first single-Agent integration should need only:
 
 ```text
-Agent · Model · Tool · Prompt · Result
+Agent · Model · Tool · Prompt · Result · Close
 ```
 
-Advanced users can open:
+A multi-Agent or Hosted integration additionally opens:
 
 ```text
-Stream · Event · cancellation · Host · Orchestration · protocol adapters
+Orchestration · identity · routing · lifecycle · coordination
+Stream · Event · cancellation · protocol adapters
 ```
 
 The internal goroutine, Loop, state confinement, and delivery mechanics remain implementation details unless a caller needs the corresponding contract.

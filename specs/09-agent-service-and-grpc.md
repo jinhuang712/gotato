@@ -1,35 +1,45 @@
-# 09. Agent Host and Protocol Adapters
+# 09. Orchestration, Host, and Protocol Adapters
 
 **Status:** Draft
 
-> The Host exposes the same Agent Core through a service boundary; a protocol adapter carries the boundary.
+> Orchestration makes Agent Cores addressable and coordinated; Host and protocol adapters expose that system through a service boundary.
 
 ## 1. Scope
 
-The Hosted composition is optional. It creates, routes, schedules, and observes Agent executions through the Core Agent contract. It does not define another Agent runtime or require a new platform.
+The single-Agent Core path is direct. A multi-Agent system requires Orchestration to create, retain, route, schedule, and observe Agent executions through the Core contract. A Hosted deployment adds Host and a protocol adapter around that Orchestration; it does not define another Agent runtime or require a new platform.
 
 ```text
-Embedded: Go service → Agent Core
-Hosted:   Client → protocol adapter → Host / Orchestration → Agent Core
+Embedded, single: Go service → Agent Core
+Embedded, multi:  Go service → Orchestration → Agent Core × N
+Hosted:           Client → protocol adapter → Host → Orchestration → Agent Core × N
 ```
 
-A Hosted deployment may run in the same process as Core or in a separate process. Infrastructure remains external.
+A Hosted deployment may run in the same process as Orchestration and Core or across separate processes. Infrastructure remains external.
 
-## 2. Host responsibilities
+## 2. Orchestration and Host responsibilities
 
-A Host MAY provide:
+Orchestration MUST provide the coordination needed by a managed multi-Agent system, equivalent to:
 
 ```text
 Agent definition registry and factory
-Agent routing
+Conversation identity and handle retention
+Agent routing and rehydration
 request admission and queue policy
-per-Agent dispatch
-Event projection and bounded delivery
-remote cancellation
-readiness and drain
+per-Agent dispatch and multi-Agent coordination
+Event observation and bounded delivery
+Agent retirement, cancellation, and lifecycle
 ```
 
-The Host MUST NOT mutate Core state or reproduce the Agent Loop. It coordinates through the Agent contract.
+A Host MAY wrap Orchestration with:
+
+```text
+remote command and Event access
+protocol stream attachment
+readiness and drain
+remote Agent close and retirement commands
+```
+
+Orchestration and Host MUST NOT mutate Core state or reproduce the Agent Loop. They coordinate through the Agent contract.
 
 ## 3. Protocol adapter
 
@@ -66,7 +76,10 @@ message RunCommand {
 
 message Start {
   string agent_name = 1;
-  string conversation_key = 2;
+  oneof conversation {
+    string conversation_id = 2;
+    string conversation_key = 6;
+  }
   oneof input {
     Message prompt = 3;
     ContinueInput continue_input = 4;
@@ -86,6 +99,8 @@ message RunEvent {
   string agent_id = 4;
   string spawn_id = 5;
   string origin_run_id = 6;
+  string conversation_id = 7;
+  uint64 agent_generation = 8;
   oneof event {
     AgentStart agent_start = 10;
     TurnStart turn_start = 11;
@@ -106,25 +121,26 @@ message RunEvent {
 }
 ```
 
-A wire contract MUST preserve Core identity, Event class, correlation, ordering, and settled meaning. Protobuf types MUST NOT enter Core signatures.
+A wire contract MUST preserve Core identity, Event class, correlation, ordering, and settled meaning. A Hosted Start resolves either an existing ConversationID or a caller-scoped ConversationKey; the resulting stable ConversationID SHOULD be returned on RunEvents. Agent close/retirement is a separate Host lifecycle operation, not a RunCommand or stream-close side effect. A close acknowledgement means Core closure; delivery of that acknowledgement may settle later. Protobuf types MUST NOT enter Core signatures.
 
-## 5. Command lifecycle
+## 5. Command and Agent lifecycle
+
+The protocol stream lifecycle is distinct from the Agent lifecycle:
 
 ```text
 BeforeStart ── valid Start ──► Active
 BeforeStart ── other command ► protocol error
 Active ────── terminal ──────► Terminal
-Active ────── stream close ──► Closed
-Terminal ──── delivery done ─► Closed
+Active ────── stream close ──► Closed delivery stream
 ```
 
-`Start` is first and contains exactly one Prompt or Continue. Duplicate Start and commands after terminal settlement are protocol errors. Cancel is idempotent while Active; the adapter documents behavior after terminal settlement.
+`Start` is first and contains exactly one Prompt or Continue. Duplicate Start and commands after terminal settlement are protocol errors. Cancel is idempotent while Active; the adapter documents behavior after terminal settlement. Closing a delivery stream does not automatically close the Agent or Conversation unless the Host policy explicitly requests Run cancellation or Agent retirement.
 
-The command receiver serializes commands in arrival order. Runtime execution and Event sending may proceed concurrently. Acceptance of a command does not imply immediate execution effect.
+The command receiver serializes commands in arrival order. Runtime execution, Agent lifecycle, and Event sending may proceed concurrently. Acceptance of a command does not imply immediate execution effect.
 
-## 6. Host concurrency
+## 6. Orchestration and Host concurrency
 
-The Host MUST make its bounds explicit:
+Orchestration and Host MUST make their bounds explicit:
 
 ```text
 active streams
@@ -135,25 +151,34 @@ per-Agent dispatch policy
 Event delivery bridges
 ```
 
-An Agent processes one Prompt or Continue at a time. When it is Busy, Host policy may reject, queue, prioritize, Steer, or Abort. Different Agents may execute concurrently. Exact values are Host configuration, not Core semantics.
+An Agent processes one Prompt or Continue at a time. When it is Busy, Orchestration policy may reject, queue, prioritize, Steer, or Abort. Different Agents may execute concurrently. Exact values are Orchestration/Host configuration, not Core semantics.
 
-Admission reserves capacity before Agent construction or dispatch and releases it exactly once.
+Admission reserves capacity before Agent construction or dispatch and releases it exactly once. Retirement reserves the Conversation transition, stops new admission, persists retained state before removing the live route, and releases the Agent capacity exactly once.
 
-## 7. Conversation routing
+## 7. Conversation routing and retirement
 
-For a single-process Host, a routing table MAY map an application key to an Agent handle:
+For a single-process Host, a routing table MAY map an application key to a Conversation record and live Agent handle:
 
 ```text
 agent name + conversation key
               ↓
-Host routing table
+Conversation record / Host routing table
               ↓
-Agent handle
+live Agent handle, or Agent definition + Core snapshot
 ```
 
-This is Host or application state, not Agent ownership. Cross-process and multi-Pod continuity require a separate routing and persistence contract.
+This is Host or application state, not Agent ownership. A retained Conversation may become Dormant after its live Agent is retired and may later be rehydrated with a new AgentID. Without a retained handle or a recoverable Conversation record, an AgentID cannot recover an in-memory Agent. Cross-process and multi-Pod continuity require the routing and persistence contract defined in [spec 16](16-agent-lifecycle-and-retirement.md).
 
-## 8. Event delivery
+## 8. Agent closure and Event delivery
+
+A Host MUST distinguish Core Agent closure from remote delivery closure. A remote close command succeeds only after the Core side acknowledges `Closed`; delivery of that acknowledgement may complete later. The Host MUST NOT report a retained Conversation as closed merely because an attached stream ended.
+
+```text
+Agent lifecycle signal → Host projection → bounded delivery → client
+Core execution settlement and Agent closure remain independent from delivery settlement
+```
+
+## 9. Event delivery
 
 ```text
 Core Event → Host projection / redaction → bounded delivery → protocol adapter
@@ -163,7 +188,7 @@ Protected Events preserve canonical order or fail the consumer stream. Progress 
 
 Execution settlement belongs to Core. Remote delivery settlement belongs to the Host.
 
-## 9. Cancellation and errors
+## 10. Cancellation and errors
 
 ```text
 Cancel / stream Context / deadline / drain
@@ -177,23 +202,25 @@ Cancellation reaches the current Agent's Model, Tools, Extensions, observers, an
 
 Tool failures remain Core Results while the Agent can continue. Host admission, protocol, and delivery failures remain Host outcomes.
 
-## 10. Internal process boundary
+## 11. Internal process boundary
 
-When Host and Core share a process, a direct Go interface or channel-backed handle is the simplest connection:
+When Orchestration and Core share a process, a direct Go interface or channel-backed handle is the simplest connection:
 
 ```text
-Host → Agent interface → Core
+Orchestration → Agent interface → Core × N
 ```
 
 When they have a deliberate process boundary, an internal gRPC adapter is reasonable:
 
 ```text
-Orchestration service → gRPC adapter → Agent Core service
+Orchestration service → gRPC adapter → Agent Core service(s)
 ```
+
+Host and protocol adapters may sit in front of Orchestration, but the Core contract remains unchanged.
 
 Both forms use the same semantic contract. The Agent Core does not depend on gRPC.
 
-## 11. Infrastructure relationship
+## 12. Infrastructure relationship
 
 ```text
 Existing Gateway / LB / Kubernetes / Go service

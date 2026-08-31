@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> Build a minimal, Go-native runtime for self-contained, stateful Agents; attach provider and capability adapters; and host it in the platform that already runs the service.
+> Build a Go-native Agent Core, coordinate multiple Cores through Orchestration, and expose them through the platform that already runs the service.
 
 ## 1. The stack
 
@@ -11,11 +11,15 @@ Existing Infrastructure
   Gateway · LB · Kubernetes · storage · secrets
           │ hosts / connects
           ▼
-Agent Host / Orchestration (optional)
-  admission · routing · coordination · lifecycle · delivery
-          │ Agent contract
+Host / Protocol Adapter (optional)
+  remote access · delivery · readiness · drain
+          │
           ▼
-Agent Core
+Orchestration (for managed multi-Agent use)
+  identity · routing · admission · lifecycle · coordination
+          │ Agent contract(s)
+          ▼
+Agent Core × N
   Go · private state · canonical Loop · Events
           │                         │
           ▼                         ▼
@@ -24,7 +28,7 @@ LLM Adapter                  Tool Adapter
 External Model provider      Go service / application system
 ```
 
-This is not a required deployment stack. An embedded Agent uses only Core and the adapters it needs. A Hosted Agent adds a Host and a protocol adapter to an existing service boundary.
+This is not a required deployment stack. A single embedded Agent uses only Core and the adapters it needs. A multi-Agent application adds Orchestration, whether implemented by the application or a Gotato package. A Hosted Agent Service adds Host and a protocol adapter around that Orchestration.
 
 ## 2. Core technology
 
@@ -69,25 +73,27 @@ A simple Go function should be easy to expose as a Tool. Service-backed Tools ma
 
 ## 5. Orchestration and protocol adapters
 
-Orchestration is a small coordination layer for Hosted use:
+Orchestration is the coordination layer for multiple Agents, whether it is embedded in application code or provided as a reusable package:
 
 ```text
-Agent Factory
-Agent routing
+Agent identity and handle retention
+Conversation records and rehydration
+Agent Factory and routing
 admission and queue policy
-lifecycle and cancellation
+lifecycle, retirement, and cancellation
+multi-Agent coordination
 Event observation and delivery
 ```
 
-A protocol adapter connects a client to this layer:
+A Host and protocol adapter connect remote clients to this layer:
 
 ```text
 HTTP / gRPC / SSE / existing RPC
              ↓
-      Host / Orchestration
+      Host → Orchestration
 ```
 
-The protocol adapter maps wire commands and Events. It is optional for Embedded use and is not a dependency of Core. When Orchestration and Core share a process, a direct Go interface or channel-backed handle is the simplest connection. When they have a deliberate process boundary, internal gRPC is a valid adapter.
+The protocol adapter maps wire commands and Events. It is optional for direct Embedded use and is not a dependency of Core. When Orchestration and Core share a process, a direct Go interface or channel-backed handle is the simplest connection. When they have a deliberate process boundary, internal gRPC is a valid adapter.
 
 ## 6. Infrastructure integration
 
@@ -108,10 +114,11 @@ The initial Hosted PoC may use one Host process, one Pod, local routing, and an 
 
 ## 7. Observability
 
-Core and Host may expose:
+Core, Orchestration, and Host may expose:
 
 ```text
-Agent ID · Run ID · Turn · Tool Call ID · Spawn ID
+Agent ID · Conversation ID · Agent Generation · Run ID
+Turn · Tool Call ID · Spawn ID · lifecycle status
 request ID · stream ID · terminal status
 ```
 
@@ -126,18 +133,19 @@ agent/             small public Agent interface and Core implementation
 model/             provider-neutral Model values and contract
 adapter/llm/       provider integrations
 adapter/tool/      application capability integrations
-host/              optional Orchestration and lifecycle
-adapter/protocol/   optional protocol adapters used by Host
+orchestration/     Conversation routing, Agent lifecycle, and coordination
+host/              service-facing composition around Orchestration
+adapter/protocol/  optional protocol adapters used by Host
 ```
 
 The package names may evolve. The dependency direction must not:
 
 ```text
 LLM / Tool adapters → Core contracts
-Host / protocol adapters → Host / Core contracts
+Orchestration / Host / protocol adapters → Orchestration / Core contracts
 Infrastructure hosts everything from outside
 ```
 
 ## 9. Testing
 
-Core tests use deterministic Models, Tools, Contexts, and clocks without a network. Host tests exercise admission, routing, cancellation, delivery, and drain in-process. Real provider and platform tests are integration suites; they are not prerequisites for Core acceptance.
+Core tests use deterministic Models, Tools, Contexts, and clocks without a network. Orchestration tests exercise identity, handle retention, admission, routing, retirement, rehydration, cancellation, and coordination. Host tests exercise protocol mapping, lifecycle commands, delivery, and drain in-process. Real provider and platform tests are integration suites; they are not prerequisites for Core acceptance.

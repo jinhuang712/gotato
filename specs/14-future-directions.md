@@ -24,11 +24,11 @@ These remain below or beside the Core Model contract. A Model cache must account
 
 ## 3. Durable Hosted state
 
-A Host may add persistent Agent state, Run checkpoints, Event cursors, reconnection, leases, and resumable delivery. Repeated Model calls and Tool side effects require explicit idempotency semantics before resume is normative.
+A Host or Orchestration may add persistent Conversation records, Agent state snapshots, Run checkpoints, Event cursors, reconnection, leases, and resumable delivery. Retiring a live Agent while retaining its Conversation requires an atomic snapshot and rehydration contract. Repeated Model calls and Tool side effects require explicit idempotency semantics before resume is normative.
 
 ## 4. Reserved: Multi-Pod Conversation routing
 
-The initial PoC deliberately assumes one Host process in one Pod. Multi-Pod continuity is a separate future design area. Hosted deployments may later add keyed routing, distributed ownership, or durable restoration. A Kubernetes Service's ordinary load balancing is not a conversation guarantee.
+The initial PoC deliberately assumes one Host process in one Pod. Multi-Pod continuity is a separate future design area. Hosted deployments may later add keyed routing, distributed ownership, or durable restoration. A Kubernetes Service's ordinary load balancing is not a conversation guarantee. A retained Conversation can survive Agent retirement only when its Agent definition and Core state are durably recoverable.
 
 ## 5. Remote Agent Routines
 

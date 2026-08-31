@@ -4,27 +4,28 @@
 
 **Purpose:** Project constitution
 
-> **Agent as a Service.**
+> **Go-native Agent Runtime and Orchestration.**
 
-> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+> Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
 
 Self-contained means that an Agent owns its private state and current work; it does not mean that it has no Model or Tool adapters.
 
 ## 1. Mission
 
-Gotato gives an existing Go service a stateful, tool-using Agent through a small, ordinary Go interface. The caller provides a Model and optional Tools, calls the Agent, and receives a result or stream. Gotato owns the execution details instead of asking every service to assemble its own harness.
+Gotato provides one Agent semantics at two scales. Agent Core is the atomic runtime for one stateful, tool-using Agent. Orchestration is the layer that makes multiple Core Agents addressable, routable, schedulable, and coordinatable. A Host exposes that Orchestration through a protocol and an existing process platform.
 
 ```text
-Go service
-    ↓ Agent interface
-Agent Core
-    ├── conversation state for the current Agent
-    ├── canonical Model → Tool → Model Loop
-    ├── bounded local work
-    └── result / Event boundary
+Single Agent:
+  Go service → Agent handle → Agent Core
+
+Multiple Agents:
+  Application / Orchestration → Agent Core × N
+
+Hosted Service:
+  Client → Protocol Adapter → Host → Orchestration → Agent Core × N
 ```
 
-The same Core semantics can remain embedded or be exposed through a Hosted Agent Service. Hosted access adds a Host and Orchestration around Core; it does not replace Core or create a second Loop. “As a Service” describes the callable boundary, not a requirement for network deployment.
+The caller provides a Model and optional Tools, then uses the same Core contract whether the handle is direct or reached through Orchestration. The direct call is the smallest entry point; it is not a complete multi-Agent service model. “As a Service” describes the addressable, coordinated boundary, not a requirement that every single-Agent call use a network.
 
 ## 2. Agents are self-contained goroutines: each owns its state and work
 
@@ -42,32 +43,35 @@ Agent goroutine
 
 The goroutine is an internal semantic guarantee, not a setup step for the caller. A caller can use ordinary Go methods while Core preserves serialized state transitions and bounded local work.
 
-The Agent owns its private conversation state and the Run it has accepted. Its goroutine is the only authority that changes that state or advances that Run. A caller or Host owns the surrounding policy:
+The Agent owns its private conversation state and the Run it has accepted. Its goroutine is the only authority that changes that state or advances that Run. A Run's terminal `agent_end` does not close the Agent; explicit close releases the execution unit. Application Orchestration or Host owns the surrounding policy:
 
 ```text
 admission · queueing · routing · priority · preemption · lifecycle
 ```
 
-This division keeps the minimal Agent path simple while leaving service-level policy where it belongs. Conversation routing and long-term persistence can be added around Core; they are not prerequisites for the first Agent.
+This division keeps the minimal Agent path simple while leaving service-level policy where it belongs. Conversation routing, retirement, and long-term persistence can be added around Core; they are not prerequisites for the first Agent. A retained Conversation may outlive a retired Agent and later rehydrate it with a new AgentID.
 
-## 3. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
+A single Agent needs only its handle. Once an application has multiple Agents that it must revisit or coordinate, an external coordination owner is unavoidable: fixed application code may hold the handles, while dynamic or remote use needs routing, admission, scheduling, and lifecycle policy in application Orchestration or Host. Core has no global Agent lookup, and an AgentID alone cannot recover a lost in-memory handle.
 
-These are the three system boundaries. Infrastructure is external; Core is the execution kernel; and Host / Orchestration is the optional Gotato service composition:
+## 3. Infrastructure hosts. Orchestration coordinates. Host exposes. Agent Core executes.
+
+These are distinct responsibilities:
 
 ```text
 Infrastructure
   hosts and connects processes
 
-Agent Host / Orchestration
-  creates, routes, coordinates, and serves Agents
+Host / Protocol Adapter
+  exposes remote access and delivery
 
-Agent Core
-  executes one Agent's work
+Orchestration
+  creates, addresses, routes, schedules, and coordinates Agents
+
+Agent Core × N
+  executes each Agent's private work and canonical Loop
 ```
 
-Infrastructure is selected by the application and remains external. Orchestration is the coordination responsibility within the optional Host composition. Infrastructure hosts processes; Host exposes and operates Agents; Agent Core is the only component that executes the canonical Agent Loop.
-
-A protocol adapter may connect a remote client to Orchestration. It maps wire messages to the fixed Host contract and does not become part of Core semantics.
+Infrastructure remains external. Orchestration is optional for one directly held Agent, but its responsibilities are unavoidable once multiple Agents must be found or coordinated. Host is the service-facing composition around Orchestration; a protocol adapter maps wire messages to it. Neither Host nor Orchestration may mutate Core state or reproduce the canonical Agent Loop.
 
 ## 4. Tight Core, Open Extensions
 
@@ -96,40 +100,46 @@ Go service     → Tool Adapter → Core Tool contract
 
 Adapters own external protocols, authentication, provider or service errors, and integration policy. Core owns when a Model is called, when a Tool is invoked, and how the result becomes part of the Agent conversation.
 
-## 6. Two forms of the same Core semantics
+## 6. From Embedded Core to Orchestrated Service
 
-### Embedded
+### Embedded, single Agent
 
 ```text
-Existing Go Service → Agent interface → Agent Core
+Existing Go Service → Agent handle → Agent Core
 ```
 
-The service can call Core directly. No Host, protocol adapter, or new deployment platform is required.
+The service can call Core directly. No Host or Gotato Orchestration package is required if the service holds the handle and only needs one Agent.
+
+### Embedded, multiple Agents
+
+```text
+Existing Go Service → application Orchestration → Agent Core × N
+```
+
+The application must retain handles or map Conversation keys to them, then own whatever routing, admission, retirement, lifecycle, and coordination the use case needs. This is Orchestration even when it is implemented as ordinary application code. A retained Conversation can resolve to a live handle or to persisted state for rehydration.
 
 ### Hosted
 
 ```text
-Client → protocol adapter → Agent Host / Orchestration → Agent Core
+Client → protocol adapter → Host → Orchestration → Agent Core × N
 ```
 
-The Host adds access, routing, admission, Event delivery, cancellation mapping, readiness, and drain. The Agent remains the same Core runtime.
-
-The Hosted form may use an existing HTTP or gRPC server and existing infrastructure. Gotato does not need to own the process platform around it.
+The Host adds remote access, Event delivery, cancellation mapping, readiness, and drain. Orchestration adds addressability and multi-Agent coordination. The Agent Core remains the same runtime.
 
 ## 7. Minimalism
 
-Minimalism means one useful path, not an absence of capability:
+Minimalism means one useful entry path, not pretending that one Agent is the whole service:
 
 ```text
-Model + optional Tools → Agent → Prompt → Result / Events
+Model + optional Tools → Agent Core → Prompt → Result / Events
 ```
 
-A first caller should not need to choose a Runner, build a SessionService, configure a Registry, or understand the Host. Advanced controls remain available through progressive disclosure, but the default path stays minimal.
+A first single-Agent caller should not need to choose a Runner, build Orchestration, configure a Registry, or understand the Host. When the use case grows to multiple Agents, Orchestration becomes the explicit next layer rather than hidden global state or accidental application plumbing.
 
 ## 8. Review questions
 
-1. Is this behavior required to execute one Agent, or is it Host policy?
-2. Can the caller use the Agent through a small Go interface?
+1. Is this behavior required to execute one Agent, or is it Orchestration policy?
+2. Can the caller use one Agent through a small Go interface, while multi-Agent access remains explicit?
 3. Does this add a second Loop or another state owner?
 4. Is this provider, business-system, or protocol knowledge leaking into Core?
 5. Can Embedded and Hosted use the same Agent semantics?
@@ -137,4 +147,4 @@ A first caller should not need to choose a Runner, build a SessionService, confi
 
 ## 9. Declaration
 
-> Gotato makes a stateful Agent as easy to call as a Go interface. Agent Core keeps the execution path small and Go-native; Host and Orchestration can expose the same Core semantics as a Service; existing Infrastructure remains the environment, not another Gotato product.
+> Gotato makes one stateful Agent as easy to call as a Go interface, then makes the transition to an addressable multi-Agent service explicit. Agent Core executes; Orchestration coordinates; Host exposes; existing Infrastructure remains the environment.

@@ -24,7 +24,7 @@ Pi Agent Kernel
 Go Agent Core
   Context · interfaces · bounded work
      ├── embedded Go application
-     └── optional Orchestrator + gRPC Host
+     └── Orchestration + optional gRPC Host
 ```
 
 The Agent goroutine, channel boundary, ToolSet model, service boundary, and delivery contracts are Gotato's own design. The service host does not replace or duplicate the Agent Loop.
@@ -33,7 +33,7 @@ The Agent goroutine, channel boundary, ToolSet model, service boundary, and deli
 
 The primary reference is `@earendil-works/pi-agent-core`, including Agent state, Prompt/Continue, Model streaming, Message assembly, Tool execution, lifecycle Events, Abort/WaitForIdle, Steering/Follow-up, sequential/parallel Tool batches, and interception.
 
-Gotato expresses these ideas through Go goroutines, channel communication, Context cancellation, bounded capability work, explicit Extensions, and separate Hosted orchestration.
+Gotato expresses these ideas through Go goroutines, channel communication, Context cancellation, bounded capability work, explicit Extensions, and a distinct Orchestration layer with optional Hosted access.
 
 ## Project boundary
 

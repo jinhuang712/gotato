@@ -1,13 +1,13 @@
 # Gotato Specifications
 
-> **Agent as a Service.**
+> **Go-native Agent Runtime and Orchestration.**
 
-> Gotato is a minimal, Go-native runtime for self-contained, stateful Agents.
+> Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
 
-These specifications define the minimal Agent Core and the optional Host that exposes the same Core semantics as a Hosted Agent Service. They make the three project principles concrete:
+These specifications define the atomic Agent Core, the Orchestration required to coordinate multiple Agents, and the optional protocol-facing Host that exposes that coordination as a Hosted Agent Service. A direct single-Agent call may use Core alone; a multi-Agent or Hosted system requires an Orchestration responsibility. They make the three project principles concrete:
 
 1. Agents are self-contained goroutines: each owns its state and work.
-2. Infrastructure hosts. Orchestration coordinates. Agent Core executes.
+2. Infrastructure hosts. Orchestration coordinates. Host exposes. Agent Core executes.
 3. Tight Core, Open Extensions.
 
 Use the [Glossary](../docs/glossary.md) for the shared vocabulary.
@@ -21,8 +21,9 @@ Agent Core
   Agent interface · conversation state · canonical Loop
   Model and Tool contracts · Events · cancellation · limits
 
-Agent Host / Orchestration
-  Agent creation · routing · admission · lifecycle · delivery
+Orchestration / Host
+  Agent identity · handle retention · creation · routing
+  admission · lifecycle · retirement · coordination · delivery
 
 Adapters
   LLM · Tool · and optional protocol adapters
@@ -30,14 +31,15 @@ Adapters
 
 Infrastructure is outside the implementation scope. The specifications define the integration signals a Host may expose, but do not define a Gateway, Kubernetes operator, broker, database, or secrets platform.
 
-A direct Go caller uses Core without a Host. A remote caller reaches the same Core through a Host and an adapter:
+A direct single-Agent caller uses Core without Orchestration or Host. A multi-Agent embedded caller supplies Orchestration in application code or uses the Gotato layer. A Conversation-aware caller additionally needs a Conversation record and a key-to-handle or key-to-rehydration mapping. A remote caller reaches the same Core semantics through Host and an adapter:
 
 ```text
-Embedded: Go service → Agent Core
-Hosted:   Client → protocol adapter → Host / Orchestration → Agent Core
+Embedded, single: Go service → Agent Core
+Embedded, multi:  Go service → Orchestration → Agent Core × N
+Hosted:           Client → protocol adapter → Host → Orchestration → Agent Core × N
 ```
 
-Architecture documents explain rationale and usage. These specifications define stable values, state transitions, ordering, bounds, failure semantics, service behavior, and acceptance. When an illustration conflicts with a specification, the specification wins.
+Architecture documents explain rationale and usage. These specifications define stable values, state transitions, ordering, bounds, failure semantics, Orchestration behavior, service behavior, and acceptance. When an illustration conflicts with a specification, the specification wins.
 
 ## Reading order
 
@@ -50,13 +52,14 @@ Architecture documents explain rationale and usage. These specifications define 
 7. Extensions
 8. Agent Routines and concurrency
 9. Errors and limits
-10. Agent Host and protocol adapter
+10. Orchestration, Host, and protocol adapters
 11. Runtime and Host API
 12. Testing and acceptance
 13. Delivery roadmap
 14. Official support
 15. Future directions
 16. Decisions and open questions
+17. Agent lifecycle and retirement
 
 ## Keywords
 

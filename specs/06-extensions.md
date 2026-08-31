@@ -62,13 +62,14 @@ Transformer, converter, Pre, Post, and stopper errors block by default and settl
 
 Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are forbidden.
 
-## 8. Host components have their own role
+## 8. Orchestration and Host components have their own role
 
-The following are Host components, not Core Extensions:
+The following are Orchestration or Host components, not Core Extensions:
 
 ```text
 AgentFactory · ConversationResolver · AdmissionController
-AgentCache · EventProjector · EventBridge · ErrorMapper · DrainPolicy
+AgentCache · RetirementPolicy · EventProjector · EventBridge
+ErrorMapper · DrainPolicy
 ```
 
-They may wrap Core operations but may not mutate Core transcript state or create another loop.
+They may wrap Core operations, retain or retire Agent handles, and preserve Conversation records, but may not mutate Core transcript state or create another loop.

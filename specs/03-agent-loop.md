@@ -6,7 +6,7 @@
 
 ## 1. Command admission
 
-`Prompt` and `Continue` are commands delivered to one Agent goroutine. The routine accepts one execution command only when it is Free. Before `agent_start`, Core validates input, assigns Run identity and Context, and emits `agent_start`.
+`Prompt` and `Continue` are commands delivered to one Agent goroutine. The routine accepts one execution command only when it is `Idle`. Before `agent_start`, Core validates input, assigns Run identity and Context, and emits `agent_start`.
 
 Agent Core does not own the external request queue. A direct caller may receive a typed busy/not-available error. A Host or application may hold the request, queue it, prioritize it, or choose a control action before dispatch.
 
@@ -46,7 +46,7 @@ repeat:
 
 emit one agent_end
 send RunResult through the result channel
-mark Agent execution Free
+mark Agent execution Idle, or continue Agent close toward Closed
 ```
 
 No step consults an external request queue, Conversation registry, Host resource, or platform state.
@@ -89,7 +89,7 @@ Orchestration / caller
 Agent goroutine
 ```
 
-Steering does not interrupt current Model or Tool work by default; the Agent consumes it at the defined safe boundary. Follow-up supplies a subsequent continuation command, not a general external request queue. Abort cancels the current Run. The Orchestrator decides whether an external request should become one of these controls.
+Steering does not interrupt current Model or Tool work by default; the Agent consumes it at the defined safe boundary. Follow-up supplies a subsequent continuation command, not a general external request queue. Abort cancels the current Run. Application Orchestration decides whether an external request should become one of these controls.
 
 ## 8. Stop and cancellation
 
@@ -105,7 +105,7 @@ Busy → terminal decision
      → emit agent_end
      → await terminal local observers
      → send RunResult
-     → Free
+     → Idle, or Closed when Closing
 ```
 
 No retry, Model call, Tool, or control-driven continuation starts after `agent_end`. Core does not wait for Host delivery or for unrelated Agent goroutines.
@@ -114,7 +114,7 @@ No retry, Model call, Tool, or control-driven continuation starts after `agent_e
 
 Tool errors normally become failed Tool Results and allow continuation. Malformed Model protocol, fatal Model error, blocking Extension error, invariant failure, cancellation, deadline, and exhausted Core limit settle the Run.
 
-A failure in another Agent routine is communicated as a result or Event. It does not automatically terminate this Agent unless the caller or Orchestrator chooses that policy.
+A failure in another Agent routine is communicated as a result or Event. It does not automatically terminate this Agent unless application Orchestration chooses that policy.
 
 ## 11. Equivalence
 

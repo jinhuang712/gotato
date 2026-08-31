@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-> This document describes the minimal Go-native runtime behind every Gotato Agent.
+> This document describes the atomic Go-native execution runtime behind every Gotato Agent.
 
 ## 1. The public idea
 
@@ -17,17 +17,19 @@ agent, err := gotato.NewAgent(
 if err != nil {
     return err
 }
+defer func() { _ = agent.Close(context.Background()) }()
 
 result, err := agent.Prompt(ctx, gotato.UserMessage(input))
 ```
 
-The public handle is the integration surface. It does not expose a Runner, require a Host, or require a service platform.
+The public handle is the atomic integration surface. It does not expose a Runner, require Orchestration for one directly held Agent, or require a service platform. `Close` releases the Core execution unit; it is idempotent and does not require persistence or a Host. Orchestration becomes the next layer when multiple handles must be retained, routed, or coordinated.
 
 A minimal Core interface is:
 
 ```go
 type Agent interface {
     Prompt(context.Context, Message) (RunResult, error)
+    Close(context.Context) error
 }
 ```
 
@@ -65,7 +67,7 @@ canonical Events and Run settlement
 
 Core does not own external request queues, Conversation registries, service discovery, brokers, long-term memory, or deployment.
 
-The current conversation state is the minimum state needed for a multi-turn Agent. It is not a separate Memory product.
+The current conversation state is the minimum state needed for a multi-turn Agent. Core bounds retained Messages and transcript bytes with explicit limits; compaction is an opt-in policy and Core must not silently drop committed history. It is not a separate Memory product.
 
 ## 3. Internal execution unit
 
@@ -83,7 +85,7 @@ Agent execution unit
 
 The implementation may use a goroutine and channels to confine state and serialize transitions. Callers use methods; they do not manage the goroutine or channel topology.
 
-One Agent processes one Prompt or Continue at a time. If an external service needs a queue, it supplies that policy or uses the optional Host/Orchestration layer.
+One Agent processes one Prompt or Continue at a time. A terminal Run leaves a retained Agent usable; it does not close the Agent. `Close` moves the Agent through graceful shutdown, rejects new Runs, and releases its private execution resources. If an application manages multiple Agents or needs an external queue, it supplies that Orchestration policy or uses the reusable Gotato Orchestration layer. Core never becomes the registry or scheduler.
 
 ## 4. Canonical Loop
 
@@ -105,7 +107,7 @@ repeat:
 publish terminal result and Events
 ```
 
-The loop is internal. It does not inspect user connections, service registries, request queues, or platform state. Embedded and Hosted callers reach the same Loop.
+The loop is internal. It does not inspect user connections, service registries, request queues, or platform state. Direct Embedded callers, application Orchestration, and Hosted callers reach the same Loop.
 
 ## 5. Model boundary
 
@@ -148,8 +150,11 @@ committed Messages
 registered Tools
 active optional ToolSets
 current Run state
+Agent lifecycle state
 local execution limits
 ```
+
+A Core Agent's lifecycle is `Created → Idle ⇄ Busy → Closing → Closed`. The default is to retain the Agent after a Run. Automatic `AfterRun`, `AfterIdle`, and `Ephemeral` retirement policies belong to Orchestration.
 
 This state is private to the Agent. Snapshots and results do not alias mutable Core state. Persistence, retrieval, compaction, and cross-session memory belong outside the minimal Core.
 
@@ -170,7 +175,7 @@ These controls are handled by the same Loop. They do not turn Core into a genera
 
 Core emits canonical Events for committed transitions and declared operations. A Run has one terminal settlement. Core returns its result after local execution settles; it does not wait for remote delivery.
 
-A local subscriber or Hosted Host may observe these Events. Remote projection is outside Core.
+A local subscriber or Hosted Orchestration/Host may observe these Events. Remote projection is outside Core.
 
 ## 10. Limits and cancellation
 
@@ -178,6 +183,7 @@ Core bounds one Agent's local work:
 
 ```text
 Turns and Tool Calls
+retained Messages and transcript bytes
 parallel Tool workers
 Tool result and progress volume
 Run, Model, and Tool deadlines
@@ -187,6 +193,7 @@ Every blocking operation receives the Run Context. Cancellation prevents future 
 
 ## 11. Embedded use
 
+Single Agent:
 ```text
 Existing Go Service
         │ direct Agent interface
@@ -198,14 +205,26 @@ Existing Go Service
 
 No Host, protocol adapter, Registry, Broker, or new deployment platform is required. The existing service decides how to map its own request and response types.
 
+Multiple Agents:
+```text
+Existing Go Service
+        │ application Orchestration
+        ▼
+    Agent Core × N
+```
+
+The application must retain handles or provide a key-to-handle mapping and own the coordination policy.
+
 ## 12. Hosted use
 
 ```text
 Client
   ↓ protocol adapter
-Agent Host / Orchestration
-  ↓ Agent interface
-Agent Core
+Host
+  ↓
+Orchestration
+  ↓ Agent contract(s)
+Agent Core × N
 ```
 
-The Host adds remote access, admission, routing, lifecycle, and Event delivery. It uses the same Core Agent and does not reproduce the Loop.
+The Host adds remote access, protocol attachment, and delivery lifecycle. Orchestration manages multiple Core Agents, Conversation routing, admission, retirement, and Agent lifecycle. Both use the same Core Agent semantics and do not reproduce the Loop.
