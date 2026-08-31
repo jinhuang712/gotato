@@ -126,6 +126,21 @@ func WithLimits(limits CoreLimits) Option {
 	}
 }
 
+// WithDeadlines overrides only the Run, Model, and Tool deadlines. A zero
+// duration disables that deadline. Other local limits retain their defaults
+// and are not made explicit by this option.
+func WithDeadlines(run, model, tool time.Duration) Option {
+	return func(c *agentConfig) error {
+		if run < 0 || model < 0 || tool < 0 {
+			return runtimeError(ErrInvalidArgument, "WithDeadlines", "deadlines cannot be negative", nil)
+		}
+		c.limits.RunDeadline = run
+		c.limits.ModelCallDeadline = model
+		c.limits.ToolCallDeadline = tool
+		return nil
+	}
+}
+
 func WithInitialSnapshot(snapshot CoreSnapshot) Option {
 	return func(c *agentConfig) error {
 		if snapshot.Version == 0 {
