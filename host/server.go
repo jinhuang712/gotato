@@ -16,13 +16,19 @@ import (
 	"github.com/jinhuang712/gotato/orchestration"
 )
 
+// DefaultRunRetention bounds how many Runs stay pollable after they settle.
+const DefaultRunRetention = 1024
+
 type Server struct {
 	Orchestration         *orchestration.Orchestrator
 	CancelRunOnDisconnect bool
-	ready                 atomic.Bool
-	draining              atomic.Bool
-	runsMu                sync.Mutex
-	runs                  map[gotato.RunID]*asyncRunState
+	// RunRetention bounds the poll table. Zero uses DefaultRunRetention.
+	RunRetention int
+	ready        atomic.Bool
+	draining     atomic.Bool
+	runsMu       sync.Mutex
+	runs         map[gotato.RunID]*asyncRunState
+	runOrder     []gotato.RunID
 }
 
 func NewServer(orchestrationLayer *orchestration.Orchestrator) *Server {
@@ -52,15 +58,15 @@ func (s *Server) Drain(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if s.draining.Swap(true) {
+	s.draining.Store(true)
+	s.ready.Store(false)
+	if s.Orchestration == nil {
 		return nil
 	}
-	s.ready.Store(false)
-	if s.Orchestration != nil {
-		s.Orchestration.SetServing(false)
-		return s.Orchestration.Drain(ctx)
-	}
-	return nil
+	s.Orchestration.SetServing(false)
+	// A repeated drain re-reports the current state. Returning nil the second
+	// time would claim that Agents closed when they may still be Closing.
+	return s.Orchestration.Drain(ctx)
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +325,14 @@ func (s *Server) drain(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if err := s.Drain(ctx); err != nil {
+		var incomplete *orchestration.DrainIncomplete
+		if errors.As(err, &incomplete) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status":  "incomplete_drain",
+				"pending": incomplete.Pending,
+			})
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
