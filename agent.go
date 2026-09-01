@@ -9,7 +9,6 @@ import (
 	"maps"
 	"runtime/debug"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,16 +66,39 @@ type RetirableAgent interface {
 	RequestRetirement(context.Context, string) error
 }
 
+// ControllableAgent adds the control operations that share the one canonical
+// Loop. They are additive: the minimal Agent path stays two methods.
+//
+// Continue runs the Loop without appending a user Message and is valid only
+// when the transcript already ends in a Model-continuable state.
+//
+// Steer and FollowUp deliver a bounded control Message consumed at a defined
+// safe boundary. Neither interrupts the Model or Tool work in flight. Steer is
+// consumed at the next Turn boundary; FollowUp is consumed only where the Run
+// would otherwise settle.
+//
+// Abort cancels the current Run without closing the Agent.
+type ControllableAgent interface {
+	Agent
+	Continue(context.Context) (RunResult, error)
+	Steer(Message) error
+	FollowUp(Message) error
+	Abort()
+}
+
 type Option func(*agentConfig) error
 
 type agentConfig struct {
-	model       Model
-	instruction string
-	tools       []Tool
-	limits      CoreLimits
-	limitsSet   bool
-	initial     CoreSnapshot
-	hasInitial  bool
+	model         Model
+	instruction   string
+	tools         []Tool
+	toolSets      []toolSetConfig
+	rootNamespace string
+	extensions    extensionSet
+	limits        CoreLimits
+	limitsSet     bool
+	initial       CoreSnapshot
+	hasInitial    bool
 }
 
 func WithModel(model Model) Option {
@@ -169,33 +191,17 @@ func NewAgent(options ...Option) (Agent, error) {
 		return nil, err
 	}
 
-	tools := make(map[string]Tool, len(cfg.tools))
-	specs := make([]ToolSpec, 0, len(cfg.tools))
-	for _, tool := range cfg.tools {
-		spec := tool.Spec()
-		if err := validateToolSpec(spec); err != nil {
-			return nil, err
-		}
-		if _, exists := tools[spec.ID]; exists {
-			return nil, runtimeError(ErrInvalidArgument, "NewAgent", "duplicate Tool ID: "+spec.ID, nil)
-		}
-		tools[spec.ID] = tool
-		if spec.Name != "" {
-			if _, exists := tools[spec.Name]; exists {
-				return nil, runtimeError(ErrInvalidArgument, "NewAgent", "duplicate Tool name: "+spec.Name, nil)
-			}
-			tools[spec.Name] = tool
-		}
-		specs = append(specs, cloneToolSpec(spec))
+	registry, err := newToolRegistry(&cfg)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 
 	a := &coreAgent{
 		id:           AgentID(nextID("agent")),
 		model:        cfg.model,
 		instruction:  cfg.instruction,
-		tools:        tools,
-		toolSpecs:    specs,
+		registry:     registry,
+		extensions:   cfg.extensions,
 		limits:       cfg.limits,
 		limitsSet:    cfg.limitsSet,
 		commands:     make(chan agentCommand),
@@ -203,6 +209,8 @@ func NewAgent(options ...Option) (Agent, error) {
 		done:         make(chan struct{}),
 		ready:        make(chan struct{}),
 		admission:    make(chan struct{}, 1),
+		steer:        make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
+		followUp:     make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
 		events:       newEventHub(),
 		lifecycle:    newLifecycleHub(),
 		stateChange:  make(chan struct{}),
@@ -216,6 +224,9 @@ func NewAgent(options ...Option) (Agent, error) {
 		if a.stateVersion == 0 {
 			a.stateVersion = 1
 		}
+		if err := registry.restoreActive(cfg.initial.ActiveToolSets); err != nil {
+			return nil, err
+		}
 	}
 	a.setStatus(AgentCreated)
 	go a.loop()
@@ -227,10 +238,14 @@ type coreAgent struct {
 	id          AgentID
 	model       Model
 	instruction string
-	tools       map[string]Tool
-	toolSpecs   []ToolSpec
+	registry    *toolRegistry
+	extensions  extensionSet
 	limits      CoreLimits
 	limitsSet   bool
+
+	// observerCtx belongs to the Run in flight. Only the Agent goroutine
+	// reads and writes it, so Event observers see the owning Run Context.
+	observerCtx context.Context
 
 	commands    chan agentCommand
 	closeSignal chan struct{}
@@ -239,6 +254,8 @@ type coreAgent struct {
 	doneOnce    sync.Once
 	ready       chan struct{}
 	admission   chan struct{}
+	steer       chan Message
+	followUp    chan Message
 
 	closeRequested atomic.Bool
 	status         atomic.Uint32
@@ -260,6 +277,7 @@ type agentCommandKind uint8
 
 const (
 	commandPrompt agentCommandKind = iota + 1
+	commandContinue
 	commandSnapshot
 )
 
@@ -338,11 +356,21 @@ func (a *coreAgent) RequestRetirement(ctx context.Context, reason string) error 
 }
 
 func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if err := validatePrompt(message); err != nil {
 		return RunResult{}, err
+	}
+	return a.submit(ctx, commandPrompt, "Prompt", message)
+}
+
+// Continue runs the Loop without appending a user Message. It is valid only
+// when the committed transcript already ends in a Model-continuable state.
+func (a *coreAgent) Continue(ctx context.Context) (RunResult, error) {
+	return a.submit(ctx, commandContinue, "Continue", Message{})
+}
+
+func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation string, message Message) (RunResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	if err := a.admissionError(); err != nil {
 		return RunResult{}, err
@@ -351,7 +379,7 @@ func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, err
 	select {
 	case a.admission <- struct{}{}:
 	default:
-		return RunResult{}, runtimeError(ErrBusy, "Prompt", "Agent is already processing a Run", nil)
+		return RunResult{}, runtimeError(ErrBusy, operation, "Agent is already processing a Run", nil)
 	}
 	releaseAdmission := true
 	defer func() {
@@ -360,12 +388,12 @@ func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, err
 		}
 	}()
 
-	cmd := agentCommand{kind: commandPrompt, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
+	cmd := agentCommand{kind: kind, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
 	select {
 	case a.commands <- cmd:
 		releaseAdmission = false
 	case <-ctx.Done():
-		return RunResult{}, runtimeError(codeForContext(ctx.Err()), "Prompt", "Prompt was cancelled before admission", ctx.Err())
+		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" was cancelled before admission", ctx.Err())
 	case <-a.closeSignal:
 		return RunResult{}, a.admissionError()
 	}
@@ -374,7 +402,51 @@ func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, err
 	case response := <-cmd.result:
 		return response.result, response.err
 	case <-ctx.Done():
-		return RunResult{}, runtimeError(codeForContext(ctx.Err()), "Prompt", "Prompt context ended", ctx.Err())
+		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" context ended", ctx.Err())
+	}
+}
+
+// Steer delivers guidance for the Run in flight. The Agent commits it at the
+// next Turn boundary; it never interrupts the current Model or Tool work. A
+// Steer that arrives where the Run would settle keeps the Run going for one
+// more Turn rather than being dropped.
+func (a *coreAgent) Steer(message Message) error {
+	return a.enqueueControl(a.steer, message, "Steer")
+}
+
+// FollowUp supplies the continuation to use where the Run would otherwise
+// settle. It is not a general external request queue: the buffer is bounded
+// and belongs to this Agent.
+func (a *coreAgent) FollowUp(message Message) error {
+	return a.enqueueControl(a.followUp, message, "FollowUp")
+}
+
+func (a *coreAgent) enqueueControl(target chan Message, message Message, operation string) error {
+	if err := validateControlMessage(message, operation); err != nil {
+		return err
+	}
+	if err := a.admissionError(); err != nil {
+		return err
+	}
+	if cap(target) == 0 {
+		return runtimeError(ErrLimitExceeded, operation, operation+" is disabled by the configured limit", nil)
+	}
+	select {
+	case target <- message.Clone():
+		return nil
+	default:
+		return runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil)
+	}
+}
+
+// Abort cancels the current Run. It does not close the Agent, and it is a
+// no-op when no Run is active.
+func (a *coreAgent) Abort() {
+	a.runMu.Lock()
+	stop := a.currentRunStop
+	a.runMu.Unlock()
+	if stop != nil {
+		stop()
 	}
 }
 
@@ -474,14 +546,25 @@ func (a *coreAgent) loop() {
 					continue
 				}
 				cmd.snapshot <- snapshotResponse{snapshot: a.snapshotUnsafe()}
-			case commandPrompt:
+			case commandPrompt, commandContinue:
 				if err := a.admissionError(); err != nil {
 					cmd.result <- promptResponse{err: err}
 					<-a.admission
 					continue
 				}
+				if cmd.kind == commandContinue {
+					if err := validateContinuable(a.messages); err != nil {
+						cmd.result <- promptResponse{err: err}
+						<-a.admission
+						continue
+					}
+				}
 				a.setStatus(AgentBusy)
-				result, err := a.executeRun(cmd.ctx, cmd.message)
+				var prompt *Message
+				if cmd.kind == commandPrompt {
+					prompt = &cmd.message
+				}
+				result, err := a.executeRun(cmd.ctx, prompt)
 				cmd.result <- promptResponse{result: result, err: err}
 				<-a.admission
 				if a.closeRequested.Load() {
@@ -549,6 +632,7 @@ func (a *coreAgent) snapshotUnsafe() CoreSnapshot {
 		Version:            1,
 		SystemInstructions: a.instruction,
 		Messages:           cloneMessages(a.messages),
+		ActiveToolSets:     a.registry.activeNames(),
 		StateVersion:       a.stateVersion,
 		CapturedAt:         time.Now(),
 	}
@@ -582,9 +666,22 @@ func (a *coreAgent) commitMessage(message Message) error {
 	return nil
 }
 
-func (a *coreAgent) emit(runID RunID, seq *uint64, kind EventKind, class EventClass, turn TurnNumber, messageID MessageID, callID ToolCallID, payload map[string]any) {
+// emit assigns the next Run sequence number, awaits local Event observers, and
+// publishes the Event. A blocking observer failure settles the owning Run, so
+// the caller must not continue past a non-nil result.
+func (a *coreAgent) emit(runID RunID, seq *uint64, kind EventKind, class EventClass, turn TurnNumber, messageID MessageID, callID ToolCallID, payload map[string]any) *RuntimeError {
 	*seq++
-	a.events.publish(Event{AgentID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()})
+	event := Event{AgentID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()}
+	var failure *RuntimeError
+	if len(a.extensions.observers) > 0 {
+		ctx := a.observerCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		failure = a.extensions.observe(ctx, event)
+	}
+	a.events.publish(event)
+	return failure
 }
 
 func addUsage(total, current Usage) Usage {
@@ -622,7 +719,9 @@ func summarizeTurn(assistant Message, usage Usage, elapsed time.Duration, toolRe
 	return summary
 }
 
-func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, error) {
+// executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
+// appends no user Message and picks up the committed transcript as it stands.
+func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -664,7 +763,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			ReasoningBytes: reasoningBytes,
 		}
 	}
-	a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil)
+	a.observerCtx = runCtx
+	defer func() { a.observerCtx = nil }()
+
 	fail := func(err *RuntimeError) (RunResult, error) {
 		if err == nil {
 			err = runtimeError(ErrInternalInvariant, "Run", "nil terminal error", nil)
@@ -676,16 +777,30 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 		if err.Code == ErrDeadlineExceeded {
 			result.Status = RunDeadlineExceeded
 		}
-		a.emit(runID, &sequence, EventAgentEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
+		// The terminal Event is emitted even when an observer already failed:
+		// a Run may not end without exactly one agent_end.
+		_ = a.emit(runID, &sequence, EventAgentEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
+		a.discardControl()
 		return result, err
 	}
 
-	prompt.ID = MessageID(nextID("message"))
-	if err := a.commitMessage(prompt); err != nil {
-		return fail(asRuntimeError(err))
+	if err := a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil); err != nil {
+		return fail(err)
 	}
-	a.emit(runID, &sequence, EventMessageStart, EventProtected, 0, prompt.ID, "", map[string]any{"role": string(prompt.Role)})
-	a.emit(runID, &sequence, EventMessageEnd, EventProtected, 0, prompt.ID, "", map[string]any{"role": string(prompt.Role)})
+
+	if prompt != nil {
+		prompt.ID = MessageID(nextID("message"))
+		if err := a.commitMessage(*prompt); err != nil {
+			return fail(asRuntimeError(err))
+		}
+		payload := map[string]any{"role": string(prompt.Role)}
+		if err := a.emit(runID, &sequence, EventMessageStart, EventProtected, 0, prompt.ID, "", payload); err != nil {
+			return fail(err)
+		}
+		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, 0, prompt.ID, "", payload); err != nil {
+			return fail(err)
+		}
+	}
 
 	for turn := TurnNumber(1); ; turn++ {
 		if limitExceededUint32(a.limitsSet, a.limits.MaxTurns, uint32(turn)) {
@@ -695,10 +810,28 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 			return fail(err)
 		}
 		turns++
-		a.emit(runID, &sequence, EventTurnStart, EventProtected, turn, "", "", nil)
+		if err := a.emit(runID, &sequence, EventTurnStart, EventProtected, turn, "", "", nil); err != nil {
+			return fail(err)
+		}
 		turnStarted := time.Now()
 
-		request := ModelRequest{SystemInstructions: a.instruction, Messages: cloneMessages(a.messages), Tools: cloneToolSpecs(a.toolSpecs)}
+		// Transformers and converters shape what this Turn sends to the
+		// Model. Their output is never committed as the Core transcript.
+		outbound := cloneMessages(a.messages)
+		if !a.extensions.empty() {
+			transformed, extensionErr := a.extensions.transformContext(runCtx, ContextSnapshot{
+				AgentID:            a.id,
+				RunID:              runID,
+				Turn:               turn,
+				SystemInstructions: a.instruction,
+				Messages:           outbound,
+			})
+			if extensionErr != nil {
+				return fail(extensionErr)
+			}
+			outbound = transformed
+		}
+		request := ModelRequest{SystemInstructions: a.instruction, Messages: outbound, Tools: a.registry.visibleSpecs()}
 		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
 		totalUsage = addUsage(totalUsage, usage)
 		for _, part := range assistant.Parts {
@@ -718,82 +851,118 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 		if err := a.commitMessage(assistant); err != nil {
 			return fail(asRuntimeError(err))
 		}
-		a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)})
+		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)}); err != nil {
+			return fail(err)
+		}
 
-		if len(assistant.ToolCalls) == 0 {
-			a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
-				"stop_reason": assistant.StopReason,
-				"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), nil),
-			})
+		settle := func(stopped bool, reason string) (RunResult, error) {
 			finalCopy := assistant.Clone()
 			final = &finalCopy
 			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
-			a.emit(runID, &sequence, EventAgentEnd, EventProtected, turn, "", "", map[string]any{"status": result.Status})
+			payload := map[string]any{"status": result.Status}
+			if stopped {
+				payload["stopped_by_extension"] = true
+				if reason != "" {
+					payload["stop_reason"] = reason
+				}
+			}
+			_ = a.emit(runID, &sequence, EventAgentEnd, EventProtected, turn, "", "", payload)
+			a.discardControl()
 			return result, nil
 		}
 
-		toolResults := make([]map[string]any, 0, len(assistant.ToolCalls))
-		for sourceIndex, call := range assistant.ToolCalls {
-			toolCalls++
-			if limitExceededUint32(a.limitsSet, a.limits.MaxToolCalls, toolCalls) {
-				return fail(runtimeError(ErrLimitExceeded, "Tool", "maximum Tool Calls exceeded", nil))
+		if len(assistant.ToolCalls) == 0 {
+			if err := a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
+				"stop_reason": assistant.StopReason,
+				"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), nil),
+			}); err != nil {
+				return fail(err)
 			}
-			tool := a.tools[call.ToolID]
-			if tool == nil {
-				return fail(runtimeError(ErrToolResolutionFailure, "Tool", "unknown Tool: "+call.ToolID, nil))
+			// A TurnStopper runs after turn_end and before continuation
+			// selection. A stop preserves the Turn and settles the Run.
+			decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
+				AgentID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
+			})
+			if stopErr != nil {
+				return fail(stopErr)
 			}
-			if !json.Valid(call.Arguments) {
-				return fail(runtimeError(ErrToolArgumentFailure, "Tool", "Tool arguments are not valid JSON", nil))
+			if decision.Stop {
+				return settle(true, decision.Reason)
 			}
-			if err := validateToolSchema(tool.Spec().InputSchema, call.Arguments); err != nil {
-				return fail(runtimeError(ErrToolArgumentFailure, "Tool", err.Error(), err))
+			// Safe boundary at settlement: Steer and FollowUp both apply here.
+			// Cancellation is checked first so a queued continuation is never
+			// committed to a Run that is already ending.
+			if err := contextFailure(runCtx, "continuation"); err != nil {
+				return fail(err)
 			}
+			injected, controlErr := a.consumeControl(runID, &sequence, turn, true)
+			if controlErr != nil {
+				return fail(controlErr)
+			}
+			if injected {
+				continue
+			}
+			return settle(false, "")
+		}
 
-			use := ToolUse{RunID: runID, Turn: turn, CallID: call.ID, QualifiedID: call.ToolID, ArgumentsJSON: slices.Clone(call.Arguments), SourceIndex: uint32(sourceIndex)}
-			a.emit(runID, &sequence, EventToolExecutionStart, EventProtected, turn, assistant.ID, call.ID, map[string]any{"tool_id": call.ToolID})
-			toolCtx, toolCancel := boundedContext(runCtx, a.limits.ToolCallDeadline)
-			var progressBytes uint64
-			var progressUpdates uint32
-			progress := func(text string) {
-				if (a.limitsSet && a.limits.MaxToolProgressUpdates == 0) || (a.limits.MaxToolProgressUpdates > 0 && progressUpdates >= a.limits.MaxToolProgressUpdates) {
-					return
-				}
-				if (a.limitsSet && a.limits.MaxToolProgressBytes == 0) || (a.limits.MaxToolProgressBytes > 0 && progressBytes+uint64(len(text)) > a.limits.MaxToolProgressBytes) {
-					return
-				}
-				progressUpdates++
-				progressBytes += uint64(len(text))
-				a.emit(runID, &sequence, EventToolExecutionUpdate, EventCoalescable, turn, assistant.ID, call.ID, map[string]any{"text": text})
+		// Preflight is source ordered: resolve, validate, and run the Pre
+		// chain before any executor starts.
+		plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &toolCalls)
+		if planErr != nil {
+			return fail(planErr)
+		}
+		// A blocked Tool is already settled at preflight, so its start and end
+		// Events are emitted together, in source order.
+		outcomes := make(map[int]ToolResult, len(plans))
+		for i := range plans {
+			if err := a.emit(runID, &sequence, EventToolExecutionStart, EventProtected, turn, assistant.ID, plans[i].call.ID, map[string]any{"tool_id": plans[i].call.ToolID}); err != nil {
+				return fail(err)
 			}
-			toolResult, toolErr := executeToolSafely(tool, toolCtx, use, progress)
-			toolCancel()
-			use.Executed = true
-			if toolErr != nil {
-				toolResult = ToolResult{CallID: call.ID, Status: ToolResultFailed, SafeError: safeError(toolErr), Executed: true}
-			} else {
-				toolResult.CallID = call.ID
-				toolResult.Executed = true
-				if toolResult.Status == "" {
-					toolResult.Status = ToolResultOK
+			if plans[i].blocked {
+				outcomes[i] = plans[i].result
+				if err := a.emit(runID, &sequence, EventToolExecutionEnd, EventProtected, turn, assistant.ID, plans[i].call.ID, map[string]any{"status": plans[i].result.Status, "executed": plans[i].result.Executed}); err != nil {
+					return fail(err)
 				}
 			}
-			if runCtx.Err() != nil {
-				toolResult.Status = ToolResultCanceled
-				if toolResult.SafeError == "" {
-					toolResult.SafeError = safeError(runCtx.Err())
-				}
+		}
+
+		// Execution may be sequential or bounded parallel. Completion Events
+		// are emitted inside the group as each outcome arrives, so they follow
+		// actual completion order; commitment below stays source ordered.
+		for _, group := range groupPlans(plans, a.parallelWorkers()) {
+			completed, groupErr := a.executeToolGroup(runCtx, runID, &sequence, turn, assistant.ID, plans, group)
+			if groupErr != nil {
+				return fail(groupErr)
 			}
+			for index, result := range completed {
+				outcomes[index] = result
+			}
+		}
+
+		toolResults := make([]map[string]any, 0, len(plans))
+		settledResults := make([]ToolResult, 0, len(plans))
+		for i := range plans {
+			call := plans[i].call
+			toolResult := outcomes[i]
+			// Post-Tool-Use sees executed, blocked, failed, and cancelled
+			// outcomes alike, in reverse installation order.
+			finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
+			if postErr != nil {
+				return fail(postErr)
+			}
+			toolResult = finalized
 			if err := validateToolResultSize(a.limits, a.limitsSet, toolResult); err != nil {
 				return fail(err)
 			}
-			use.Result = &toolResult
 			content := cloneContent(toolResult.Content)
 			resultMessage := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
 			if err := a.commitMessage(resultMessage); err != nil {
 				return fail(asRuntimeError(err))
 			}
-			a.emit(runID, &sequence, EventToolExecutionEnd, EventProtected, turn, assistant.ID, call.ID, map[string]any{"status": toolResult.Status, "executed": toolResult.Executed})
-			a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status})
+			if err := a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status}); err != nil {
+				return fail(err)
+			}
+			settledResults = append(settledResults, toolResult.Clone())
 			toolResults = append(toolResults, map[string]any{
 				"tool_id":  call.ToolID,
 				"call_id":  call.ID,
@@ -801,12 +970,103 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt Message) (RunResult, 
 				"executed": toolResult.Executed,
 			})
 		}
-		a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
+
+		// ToolSet activation commits at the batch boundary, so newly active
+		// Tools appear only in the next Model request.
+		activated, activationErr := a.registry.commitPending()
+		if activationErr != nil {
+			return fail(asRuntimeError(activationErr))
+		}
+		for _, name := range activated {
+			if err := a.emit(runID, &sequence, EventToolSetActivated, EventProtected, turn, "", "", map[string]any{"toolset": name}); err != nil {
+				return fail(err)
+			}
+		}
+
+		if err := a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
 			"stop_reason": StopToolCalls,
 			"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), toolResults),
+		}); err != nil {
+			return fail(err)
+		}
+		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
+			AgentID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopToolCalls,
 		})
+		if stopErr != nil {
+			return fail(stopErr)
+		}
+		if decision.Stop {
+			return settle(true, decision.Reason)
+		}
+		// Safe boundary between Turns: Steer applies, FollowUp waits for
+		// settlement.
 		if err := contextFailure(runCtx, "continuation"); err != nil {
 			return fail(err)
+		}
+		if _, controlErr := a.consumeControl(runID, &sequence, turn, false); controlErr != nil {
+			return fail(controlErr)
+		}
+	}
+}
+
+// consumeControl commits the control Messages that apply at this boundary. It
+// runs inside the Agent execution unit, so committing them keeps the Agent
+// goroutine as the only mutation authority for the transcript.
+func (a *coreAgent) consumeControl(runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
+	injected := false
+	commit := func(message Message, source string) *RuntimeError {
+		message.ID = MessageID(nextID("message"))
+		if err := a.commitMessage(message); err != nil {
+			return asRuntimeError(err)
+		}
+		payload := map[string]any{"role": string(message.Role), "source": source}
+		if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, message.ID, "", payload); err != nil {
+			return err
+		}
+		if err := a.emit(runID, sequence, EventMessageEnd, EventProtected, turn, message.ID, "", payload); err != nil {
+			return err
+		}
+		injected = true
+		return nil
+	}
+	for {
+		select {
+		case message := <-a.steer:
+			if err := commit(message, "steer"); err != nil {
+				return injected, err
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if !settling {
+		return injected, nil
+	}
+	for {
+		select {
+		case message := <-a.followUp:
+			if err := commit(message, "follow_up"); err != nil {
+				return injected, err
+			}
+			continue
+		default:
+		}
+		break
+	}
+	return injected, nil
+}
+
+// discardControl drops control Messages left over when a Run reaches its
+// terminal Event. Nothing may continue after agent_end, so a leftover control
+// Message must not silently reappear inside the next Run.
+func (a *coreAgent) discardControl() {
+	for {
+		select {
+		case <-a.steer:
+		case <-a.followUp:
+		default:
+			return
 		}
 	}
 }
@@ -824,7 +1084,9 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 	defer stream.Close()
 
 	assistant := Message{ID: MessageID(nextID("message")), Role: RoleAssistant}
-	a.emit(runID, sequence, EventMessageStart, EventProtected, turn, assistant.ID, "", map[string]any{"role": string(RoleAssistant)})
+	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, assistant.ID, "", map[string]any{"role": string(RoleAssistant)}); err != nil {
+		return Message{}, Usage{}, err
+	}
 	var usage Usage
 	var complete bool
 	for {
@@ -845,7 +1107,9 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 		case ModelTextDelta:
 			if modelEvent.Text != "" {
 				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentText, Text: modelEvent.Text})
-				a.emit(runID, sequence, EventMessageUpdate, EventCoalescable, turn, assistant.ID, "", map[string]any{"text": modelEvent.Text})
+				if err := a.emit(runID, sequence, EventMessageUpdate, EventCoalescable, turn, assistant.ID, "", map[string]any{"text": modelEvent.Text}); err != nil {
+					return Message{}, Usage{}, err
+				}
 			}
 		case ModelReasoningDelta:
 			if modelEvent.Text != "" {
@@ -951,6 +1215,41 @@ func validatePrompt(message Message) error {
 	return nil
 }
 
+func validateControlMessage(message Message, operation string) error {
+	if message.Role != RoleUser {
+		return runtimeError(ErrInvalidArgument, operation, operation+" message must have role user", nil)
+	}
+	if strings.TrimSpace(TextOf(message)) == "" && len(message.Parts) == 0 {
+		return runtimeError(ErrInvalidArgument, operation, operation+" message is empty", nil)
+	}
+	return nil
+}
+
+// validateContinuable enforces that Continue never synthesizes user input: the
+// transcript must already end where a Model can pick up.
+func validateContinuable(messages []Message) error {
+	if len(messages) == 0 {
+		return runtimeError(ErrInvalidState, "Continue", "transcript is empty", nil)
+	}
+	switch messages[len(messages)-1].Role {
+	case RoleUser, RoleToolResult:
+		return nil
+	default:
+		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
+	}
+}
+
+// controlCapacity turns a configured control-message limit into a channel
+// capacity. A zero limit disables that control command.
+func controlCapacity(limit uint32) int {
+	if limit > maxControlCapacity {
+		return maxControlCapacity
+	}
+	return int(limit)
+}
+
+const maxControlCapacity = 1024
+
 func validateToolSpec(spec ToolSpec) error {
 	if strings.TrimSpace(spec.ID) == "" {
 		return runtimeError(ErrInvalidArgument, "ToolSpec", "Tool ID is empty", nil)
@@ -967,6 +1266,20 @@ func validateToolSpec(spec ToolSpec) error {
 	return nil
 }
 
+// validateToolSchema checks Tool arguments against the supported JSON Schema
+// subset. Core validates a JSON value rather than a Go struct, so `omitempty`
+// on a Go field never changes what `required` means here.
+//
+// Enforced:
+//
+//	type                  object, array, string, boolean, number, integer, null
+//	properties            recursive validation of declared members
+//	required              declared member must be present
+//	additionalProperties  false rejects undeclared members
+//
+// Carried to the Model but not enforced by Core: description, enum, format,
+// items, and every other keyword. An unknown keyword is ignored rather than
+// rejected, so a richer provider Schema still passes through unchanged.
 func validateToolSchema(schema, arguments []byte) error {
 	if len(schema) == 0 {
 		return nil
@@ -985,6 +1298,14 @@ func validateToolSchema(schema, arguments []byte) error {
 func validateSchemaValue(schema map[string]any, value any, path string) error {
 	if typ, ok := schema["type"].(string); ok && !schemaTypeMatches(typ, value) {
 		return fmt.Errorf("%s must be %s", path, typ)
+	}
+	if allowed, ok := schema["enum"].([]any); ok && len(allowed) > 0 {
+		if !enumAllows(allowed, value) {
+			// The allowed values come from the declared Schema, so naming
+			// them is safe. The received value is provider payload and stays
+			// out of the message.
+			return fmt.Errorf("%s must be one of: %s", path, describeEnum(allowed))
+		}
 	}
 	if required, ok := schema["required"].([]any); ok {
 		object, isObject := value.(map[string]any)
@@ -1020,6 +1341,41 @@ func validateSchemaValue(schema map[string]any, value any, path string) error {
 		}
 	}
 	return nil
+}
+
+// enumAllows compares a decoded JSON value against the declared enum. Both
+// sides come from encoding/json, so the dynamic types are limited to string,
+// float64, bool, and nil.
+func enumAllows(allowed []any, value any) bool {
+	for _, candidate := range allowed {
+		switch expected := candidate.(type) {
+		case string:
+			if actual, ok := value.(string); ok && actual == expected {
+				return true
+			}
+		case float64:
+			if actual, ok := value.(float64); ok && actual == expected {
+				return true
+			}
+		case bool:
+			if actual, ok := value.(bool); ok && actual == expected {
+				return true
+			}
+		case nil:
+			if value == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func describeEnum(allowed []any) string {
+	names := make([]string, 0, len(allowed))
+	for _, candidate := range allowed {
+		names = append(names, fmt.Sprintf("%v", candidate))
+	}
+	return strings.Join(names, ", ")
 }
 
 func schemaTypeMatches(typ string, value any) bool {

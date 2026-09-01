@@ -19,6 +19,7 @@ const (
 	ErrToolResolutionFailure ErrorCode = "tool_resolution_failure"
 	ErrToolArgumentFailure   ErrorCode = "tool_argument_validation_failure"
 	ErrToolExecutionFailure  ErrorCode = "tool_execution_failure"
+	ErrExtensionFailure      ErrorCode = "extension_failure"
 	ErrLimitExceeded         ErrorCode = "limit_exceeded"
 	ErrCancelled             ErrorCode = "cancelled"
 	ErrDeadlineExceeded      ErrorCode = "deadline_exceeded"

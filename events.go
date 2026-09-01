@@ -27,6 +27,7 @@ const (
 	EventToolExecutionUpdate EventKind = "tool_execution_update"
 	EventToolExecutionEnd    EventKind = "tool_execution_end"
 	EventToolResultCommitted EventKind = "tool_result_committed"
+	EventToolSetActivated    EventKind = "toolset_activated"
 	EventTurnEnd             EventKind = "turn_end"
 	EventAgentEnd            EventKind = "agent_end"
 )
