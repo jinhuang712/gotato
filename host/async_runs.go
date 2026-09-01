@@ -275,7 +275,30 @@ func (s *Server) storeRun(state *asyncRunState) {
 		s.runs = make(map[gotato.RunID]*asyncRunState)
 	}
 	s.runs[state.runID] = state
+	s.runOrder = append(s.runOrder, state.runID)
+	limit := s.runRetention()
+	// A poll table is an index. Finished Runs stay addressable for a bounded
+	// window so a client can still collect a result, then they are reclaimed.
+	for len(s.runOrder) > limit {
+		oldest := s.runOrder[0]
+		s.runOrder = s.runOrder[1:]
+		delete(s.runs, oldest)
+	}
 	s.runsMu.Unlock()
+}
+
+func (s *Server) runRetention() int {
+	if s.RunRetention > 0 {
+		return s.RunRetention
+	}
+	return DefaultRunRetention
+}
+
+// RetainedRuns reports how many Runs the poll table still answers for.
+func (s *Server) RetainedRuns() int {
+	s.runsMu.Lock()
+	defer s.runsMu.Unlock()
+	return len(s.runs)
 }
 
 func (s *Server) monitorAsyncRun(state *asyncRunState, eventCh <-chan eventRead, resultCh <-chan dispatchResponse, stop func()) {

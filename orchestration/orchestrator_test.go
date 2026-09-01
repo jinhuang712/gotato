@@ -2,8 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -140,7 +143,15 @@ func TestConcurrentResolveDoesNotDuplicateRehydration(t *testing.T) {
 
 type failingStore struct{}
 
-func (failingStore) Save(context.Context, Record) error { return errors.New("store unavailable") }
+func (failingStore) Save(context.Context, StoredState) error { return errors.New("store unavailable") }
+
+func (failingStore) Load(context.Context, gotato.ConversationID) (StoredState, bool, error) {
+	return StoredState{}, false, errors.New("store unavailable")
+}
+
+func (failingStore) Delete(context.Context, gotato.ConversationID) error {
+	return errors.New("store unavailable")
+}
 
 func TestRetirementPersistenceFailureLeavesConversationActive(t *testing.T) {
 	o := testOrchestrator(t, WithSnapshotStore(failingStore{}))
@@ -155,9 +166,114 @@ func TestRetirementPersistenceFailureLeavesConversationActive(t *testing.T) {
 	if !ok || current.Status != ConversationActive || current.LiveAgentID == "" {
 		t.Fatalf("route after failed retirement = %+v", current)
 	}
-	if err := o.CloseAgent(context.Background(), current.LiveAgentID); err != nil {
-		t.Fatal(err)
+	// The store is the authority for retained state. A discard it refuses is
+	// reported rather than assumed, even though the Agent itself did close.
+	if err := o.CloseAgent(context.Background(), current.LiveAgentID); !gotato.IsCode(err, gotato.ErrRetirementFailed) {
+		t.Fatalf("close with a failing store = %v", err)
+	}
+	if closed, ok := o.Get(record.ID); !ok || closed.Status != ConversationClosed || closed.LiveAgentID != "" {
+		t.Fatalf("route after discard = %+v", closed)
 	}
 }
 
 func generationPtr(value gotato.AgentGeneration) *gotato.AgentGeneration { return &value }
+
+func TestRecordCarriesNoConversationContent(t *testing.T) {
+	o := testOrchestrator(t)
+	_, record, err := o.Dispatch(context.Background(), Request{AgentName: "default", ConversationKey: "opaque"}, gotato.UserMessage("secret words"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Retire(context.Background(), record.ID, Retain); err != nil {
+		t.Fatal(err)
+	}
+	// A Record is a routing view. Serializing one must never carry transcript
+	// content to a layer that only needs to route.
+	dormant, ok := o.Get(record.ID)
+	if !ok {
+		t.Fatal("conversation disappeared")
+	}
+	encoded, err := json.Marshal(dormant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "secret words") {
+		t.Fatalf("Record leaked conversation content: %s", encoded)
+	}
+}
+
+func TestDiscardedConversationLeavesNoRetainedState(t *testing.T) {
+	store := NewMemorySnapshotStore()
+	o := testOrchestrator(t, WithSnapshotStore(store))
+	_, record, err := o.Dispatch(context.Background(), Request{AgentName: "default", ConversationKey: "discard"}, gotato.UserMessage("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Retire(context.Background(), record.ID, Retain); err != nil {
+		t.Fatal(err)
+	}
+	if store.Len() != 1 {
+		t.Fatalf("retained states after retain = %d", store.Len())
+	}
+	if err := o.CloseConversation(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if store.Len() != 0 {
+		t.Fatalf("closing the Conversation left retained state: %d", store.Len())
+	}
+	if _, _, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: "discard"}); !gotato.IsCode(err, gotato.ErrAgentClosed) {
+		t.Fatalf("resolve after close = %v", err)
+	}
+}
+
+func TestRehydrationNeedsTheStore(t *testing.T) {
+	store := NewMemorySnapshotStore()
+	o := testOrchestrator(t, WithSnapshotStore(store))
+	request := Request{AgentName: "default", ConversationKey: "authority"}
+	_, record, err := o.Dispatch(context.Background(), request, gotato.UserMessage("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Retire(context.Background(), record.ID, Retain); err != nil {
+		t.Fatal(err)
+	}
+	// Orchestration keeps no second copy of the state: emptying the store
+	// makes the Conversation unrecoverable rather than silently fresh.
+	if err := store.Delete(context.Background(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := o.Resolve(context.Background(), request); !gotato.IsCode(err, gotato.ErrInvalidState) {
+		t.Fatalf("rehydration without retained state = %v", err)
+	}
+}
+
+func TestClosedConversationsAreReclaimed(t *testing.T) {
+	o := testOrchestrator(t, WithClosedRecordLimit(2))
+	var ids []gotato.ConversationID
+	for i := 0; i < 5; i++ {
+		key := gotato.ConversationKey(fmt.Sprintf("bounded-%d", i))
+		_, record, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, record.ID)
+		if err := o.CloseConversation(context.Background(), record.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := o.ClosedRecords(); got != 2 {
+		t.Fatalf("closed tombstones = %d, want 2", got)
+	}
+	// The two most recent closures still answer as closed.
+	for _, id := range ids[3:] {
+		if _, ok := o.Get(id); !ok {
+			t.Fatalf("recent closed Conversation %s was evicted", id)
+		}
+	}
+	// The oldest were reclaimed from the routing table.
+	for _, id := range ids[:3] {
+		if _, ok := o.Get(id); ok {
+			t.Fatalf("old closed Conversation %s was never reclaimed", id)
+		}
+	}
+}

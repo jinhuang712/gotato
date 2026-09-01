@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,11 +21,14 @@ func newTestHTTPServer(t *testing.T) (*Server, *httptest.Server) {
 	return newTestHTTPServerWithModel(t, testmodel.EchoModel{})
 }
 
-func newTestHTTPServerWithModel(t *testing.T, model gotato.Model) (*Server, *httptest.Server) {
+func newTestHTTPServerWithModel(t *testing.T, model gotato.Model, tools ...gotato.Tool) (*Server, *httptest.Server) {
 	t.Helper()
 	o := orchestration.New()
 	if err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
 		options := []gotato.Option{gotato.WithModel(model)}
+		if len(tools) > 0 {
+			options = append(options, gotato.WithTools(tools...))
+		}
 		if snapshot != nil {
 			options = append(options, gotato.WithInitialSnapshot(*snapshot))
 		}
@@ -62,8 +66,67 @@ func TestHTTPRunRetireAndRehydrate(t *testing.T) {
 	}
 }
 
+// twoTurnModel makes a Run that provably spans two Turns: the first ends with
+// a Tool Call, the second blocks until released. That is what makes a progress
+// heartbeat observable — a single-Turn Run settles before the loop can see one,
+// because Event delivery and result delivery settle independently.
+type twoTurnModel struct {
+	mu      sync.Mutex
+	calls   int
+	release chan struct{}
+}
+
+func (m *twoTurnModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	m.mu.Lock()
+	call := m.calls
+	m.calls++
+	m.mu.Unlock()
+	if call == 0 {
+		return &scriptStream{events: []gotato.ModelEvent{
+			{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
+			{Kind: gotato.ModelDone, StopReason: gotato.StopToolCalls},
+		}}, nil
+	}
+	select {
+	case <-m.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &scriptStream{events: []gotato.ModelEvent{
+		{Kind: gotato.ModelTextDelta, Text: "done"},
+		{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn},
+	}}, nil
+}
+
+type scriptStream struct {
+	events []gotato.ModelEvent
+	index  int
+}
+
+func (s *scriptStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
+	if s.index >= len(s.events) {
+		return gotato.ModelEvent{}, io.EOF
+	}
+	event := s.events[s.index]
+	s.index++
+	return event, nil
+}
+
+func (s *scriptStream) Close() error { return nil }
+
+type echoTool struct{}
+
+func (echoTool) Spec() gotato.ToolSpec {
+	return gotato.ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
+}
+
+func (echoTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgress) (gotato.ToolResult, error) {
+	return gotato.ToolResult{Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "tool-ok"}}}, nil
+}
+
 func TestHTTPProgressReturnsLoopFrames(t *testing.T) {
-	hostServer, server := newTestHTTPServer(t)
+	model := &twoTurnModel{release: make(chan struct{})}
+	hostServer, server := newTestHTTPServerWithModel(t, model, echoTool{})
 	defer server.Close()
 	defer hostServer.Drain(context.Background())
 
@@ -83,6 +146,7 @@ func TestHTTPProgressReturnsLoopFrames(t *testing.T) {
 
 	var types []string
 	var sawHeartbeat bool
+	var released bool
 	scanner := bufio.NewScanner(response.Body)
 	for scanner.Scan() {
 		var frame struct {
@@ -104,13 +168,27 @@ func TestHTTPProgressReturnsLoopFrames(t *testing.T) {
 			if frame.Run.Heartbeat != nil {
 				sawHeartbeat = true
 			}
+			// The Run only settles once the loop frame has been observed, so
+			// the frame order is fixed rather than raced.
+			if !released {
+				released = true
+				close(model.release)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(types) != 3 || types[0] != "accepted" || types[1] != "loop" || types[2] != "result" || !sawHeartbeat {
+	// The contract is the frame sequence, not the frame count: one accepted
+	// frame, one loop frame per Turn heartbeat, and exactly one terminal
+	// result frame at the end.
+	if len(types) < 3 || types[0] != "accepted" || types[len(types)-1] != "result" || !sawHeartbeat {
 		t.Fatalf("progress frames = %#v, heartbeat=%v", types, sawHeartbeat)
+	}
+	for i, kind := range types[1 : len(types)-1] {
+		if kind != "loop" {
+			t.Fatalf("frame %d = %q, want loop: %#v", i+1, kind, types)
+		}
 	}
 }
 
