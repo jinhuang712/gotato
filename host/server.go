@@ -123,14 +123,39 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "prompt is required")
 		return
 	}
-	request := input.toOrchestrationRequest()
-	result, record, err := s.Orchestration.Dispatch(r.Context(), request, gotato.UserMessage(input.Prompt))
+	outcome, err := s.Run(r.Context(), input.toCommand())
 	status := http.StatusOK
 	if err != nil {
 		status = statusForError(err)
 	}
-	response := responseFor(record, result, err)
-	writeJSON(w, status, response)
+	writeJSON(w, status, responseOf(outcome))
+}
+
+// toCommand maps the local JSON shape onto the protocol-independent Host
+// command. The wire type stops here: nothing below sees it.
+func (in runRequest) toCommand() Command {
+	return Command{
+		AgentName:          in.AgentName,
+		ConversationID:     in.ConversationID,
+		ConversationKey:    in.ConversationKey,
+		ExpectedGeneration: in.ExpectedGeneration,
+		Prompt:             in.Prompt,
+	}
+}
+
+// responseOf maps a Host Outcome back onto the local JSON shape.
+func responseOf(outcome Outcome) runResponse {
+	return runResponse{
+		ConversationID:  outcome.ConversationID,
+		AgentID:         outcome.AgentID,
+		AgentGeneration: outcome.AgentGeneration,
+		RunID:           outcome.RunID,
+		RunStatus:       outcome.Status,
+		FinalMessage:    outcome.FinalMessage,
+		Usage:           outcome.Usage,
+		Metrics:         outcome.Metrics,
+		Error:           outcome.Error,
+	}
 }
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
@@ -138,14 +163,14 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "host is draining")
 		return
 	}
-	runID := gotato.RunID(r.PathValue("run_id"))
-	if err := s.Orchestration.CancelRun(r.Context(), runID); err != nil {
+	runID := r.PathValue("run_id")
+	if err := s.CancelRun(r.Context(), runID); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status": "cancel_requested",
-		"run_id": string(runID),
+		"run_id": runID,
 	})
 }
 
@@ -271,8 +296,8 @@ func (s *Server) conversation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "conversation ID is required")
 		return
 	}
-	record, ok := s.Orchestration.Get(gotato.ConversationID(id))
-	if !ok {
+	record, err := s.Conversation(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
 	}
@@ -295,15 +320,11 @@ func (s *Server) conversationCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if body.Policy == "" {
-		body.Policy = orchestration.Retain
-	}
-	err := s.Orchestration.Retire(r.Context(), gotato.ConversationID(parts[0]), body.Policy)
+	record, err := s.RetireConversation(r.Context(), parts[0], string(body.Policy))
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
-	record, _ := s.Orchestration.Get(gotato.ConversationID(parts[0]))
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -314,7 +335,7 @@ func (s *Server) agentCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown Agent command")
 		return
 	}
-	if err := s.Orchestration.CloseAgent(r.Context(), gotato.AgentID(parts[0])); err != nil {
+	if err := s.CloseAgent(r.Context(), parts[0]); err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
