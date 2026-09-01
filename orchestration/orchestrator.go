@@ -53,9 +53,19 @@ type Record struct {
 	Generation   gotato.AgentGeneration `json:"agent_generation"`
 	Status       ConversationStatus     `json:"status"`
 	StateVersion uint64                 `json:"state_version"`
+	// Origin is set when this Conversation was spawned by another Run. It is
+	// provenance, not ownership.
+	Origin *Provenance `json:"origin,omitempty"`
 }
 
-func (r Record) Clone() Record { return r }
+func (r Record) Clone() Record {
+	out := r
+	if r.Origin != nil {
+		origin := *r.Origin
+		out.Origin = &origin
+	}
+	return out
+}
 
 type Definition struct {
 	Name gotato.AgentName
@@ -416,6 +426,10 @@ func (o *Orchestrator) Register(def Definition) error {
 }
 
 func (o *Orchestrator) Resolve(ctx context.Context, request Request) (gotato.Agent, Record, error) {
+	return o.resolveWithProvenance(ctx, request, nil)
+}
+
+func (o *Orchestrator) resolveWithProvenance(ctx context.Context, request Request, origin *Provenance) (gotato.Agent, Record, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, Record{}, err
 	}
@@ -485,7 +499,7 @@ func (o *Orchestrator) Resolve(ctx context.Context, request Request) (gotato.Age
 		o.releaseAgentLocked()
 		return nil, Record{}, err
 	}
-	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, StateVersion: 1}
+	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, StateVersion: 1, Origin: origin}
 	current = &entry{record: record, agent: agent, changed: make(chan struct{}), policy: policy}
 	o.byID[id] = current
 	if request.ConversationKey != "" {
