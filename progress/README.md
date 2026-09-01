@@ -29,7 +29,7 @@
 | [M7](M7-core-control-commands.md) | Core 控制命令与 Continue | Slice 4 | 已完成 | 无 |
 | [M8](M8-extensions.md) | Extensions 六个挂点 | Slice 4 | 已完成 | 无 |
 | [M9](M9-toolsets-and-parallel.md) | ToolSets 与有界并行 Tool | Slice 4 | 已完成 | 无 |
-| [M10](M10-orchestration-policies.md) | 层间边界与容量 | Slice 5 收口 · 7 | 进行中 | 退休策略、admission 容量、请求队列 |
+| [M10](M10-orchestration-policies.md) | 层间边界与容量 | Slice 5 收口 · 7 | 已完成 | 无 |
 | [M11](M11-agent-routines.md) | Agent Routines 与 spawn | Slice 7 | 未开始 | 全部 |
 | [M12](M12-durable-conversation.md) | Conversation 持久化与重启恢复 | Slice 7 | 未开始 | 全部 |
 | [M13](M13-wire-contract.md) | wire contract 冻结与第二协议适配器 | Slice 6 收口 · 7 | 未开始 | 全部 |
@@ -73,9 +73,9 @@ M2/M5/M6 收尾（已完成）
         ↓
 M7 控制命令 → M8 Extensions → M9 ToolSets 与并行 Tool（已完成）
         ↓
-M10 层间边界与容量  ← 进行中
+M10 层间边界与容量（已完成）
         ↓
-M11 Agent Routines ┊ M12 Conversation 持久化   （两者可并行）
+M11 Agent Routines ┊ M12 Conversation 持久化   ← 下一站，两者可并行
         ↓
 M13 wire contract 冻结与第二协议适配器
 ```
