@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 )
@@ -154,7 +155,33 @@ type Limits struct {
 	MaxAgents int
 	// MaxActiveRuns caps Runs dispatched at the same time across all Agents.
 	MaxActiveRuns int
+	// IdleTTL is how long an AfterIdle Conversation may sit with no admitted
+	// Run before its Agent is retired. There is no default: selecting
+	// AfterIdle without setting it is a configuration error.
+	IdleTTL time.Duration
 }
+
+// Timer is a scheduled callback that can be cancelled.
+type Timer interface{ Stop() bool }
+
+// Clock schedules idle retirement. A test substitutes one so idle behaviour
+// is asserted by advancing the clock rather than by sleeping.
+type Clock interface {
+	AfterFunc(time.Duration, func()) Timer
+}
+
+// WithClock replaces the scheduler used for idle retirement.
+func WithClock(clock Clock) Option {
+	return func(o *Orchestrator) {
+		if clock != nil {
+			o.clock = clock
+		}
+	}
+}
+
+type systemClock struct{}
+
+func (systemClock) AfterFunc(d time.Duration, f func()) Timer { return time.AfterFunc(d, f) }
 
 // WithLimits sets the coordination bounds.
 func WithLimits(limits Limits) Option {
@@ -186,6 +213,7 @@ type Orchestrator struct {
 	// nor a Run.
 	live       int
 	activeRuns int
+	clock      Clock
 	store      SnapshotStore
 	seq        uint64
 	serving    atomic.Bool
@@ -260,6 +288,19 @@ type entry struct {
 	agent    gotato.Agent
 	inFlight uint32
 	changed  chan struct{}
+	// policy is the retirement policy chosen when this Conversation was
+	// created. idleTimer is armed only while the Conversation is Active with
+	// no admitted Run.
+	policy    RetirementPolicy
+	idleTimer Timer
+}
+
+// disarmIdle cancels a pending idle retirement. The caller holds o.mu.
+func (e *entry) disarmIdle() {
+	if e.idleTimer != nil {
+		e.idleTimer.Stop()
+		e.idleTimer = nil
+	}
 }
 
 func New(options ...Option) *Orchestrator {
@@ -268,6 +309,7 @@ func New(options ...Option) *Orchestrator {
 		byID:        make(map[gotato.ConversationID]*entry),
 		byKey:       make(map[string]*entry),
 		closedLimit: DefaultClosedRecords,
+		clock:       systemClock{},
 		store:       NewMemorySnapshotStore(),
 	}
 	o.serving.Store(true)
@@ -347,6 +389,13 @@ func (o *Orchestrator) Resolve(ctx context.Context, request Request) (gotato.Age
 	if request.ExpectedGeneration != nil {
 		return nil, Record{}, gotatoError(gotato.ErrInvalidState, "expected generation has no matching Conversation")
 	}
+	policy := request.Retirement
+	if policy == "" {
+		policy = Retain
+	}
+	if err := o.validatePolicy(policy); err != nil {
+		return nil, Record{}, err
+	}
 	// A rejected request creates neither an Agent nor a Run, so capacity is
 	// reserved before the factory runs.
 	if err := o.reserveAgentLocked(); err != nil {
@@ -359,12 +408,61 @@ func (o *Orchestrator) Resolve(ctx context.Context, request Request) (gotato.Age
 		return nil, Record{}, err
 	}
 	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, StateVersion: 1}
-	current = &entry{record: record, agent: agent, changed: make(chan struct{})}
+	current = &entry{record: record, agent: agent, changed: make(chan struct{}), policy: policy}
 	o.byID[id] = current
 	if request.ConversationKey != "" {
 		o.byKey[key] = current
 	}
+	o.armIdleLocked(current)
 	return agent, record.Clone(), nil
+}
+
+// validatePolicy rejects a retirement policy the configuration cannot honour.
+// AfterIdle has no framework default TTL: it is a deployment decision.
+func (o *Orchestrator) validatePolicy(policy RetirementPolicy) error {
+	switch policy {
+	case Retain, AfterRun, Ephemeral:
+		return nil
+	case AfterIdle:
+		if o.limits.IdleTTL <= 0 {
+			return gotatoError(gotato.ErrInvalidArgument, "AfterIdle requires a configured IdleTTL")
+		}
+		return nil
+	default:
+		return gotatoError(gotato.ErrInvalidArgument, "unknown retirement policy: "+string(policy))
+	}
+}
+
+// armIdleLocked schedules idle retirement for an Active Conversation with no
+// admitted Run. A Busy Agent is never scheduled for eviction. The caller holds
+// o.mu.
+func (o *Orchestrator) armIdleLocked(current *entry) {
+	current.disarmIdle()
+	if current.policy != AfterIdle || o.limits.IdleTTL <= 0 {
+		return
+	}
+	if current.agent == nil || current.record.Status != ConversationActive || current.inFlight > 0 {
+		return
+	}
+	id := current.record.ID
+	generation := current.record.Generation
+	current.idleTimer = o.clock.AfterFunc(o.limits.IdleTTL, func() { o.retireIdle(id, generation) })
+}
+
+// retireIdle honours an expired idle TTL. It re-checks the fence because the
+// Conversation may have accepted a Run between the timer firing and this call.
+func (o *Orchestrator) retireIdle(id gotato.ConversationID, generation gotato.AgentGeneration) {
+	o.mu.Lock()
+	current := o.byID[id]
+	stale := current == nil || current.agent == nil ||
+		current.record.Generation != generation ||
+		current.record.Status != ConversationActive ||
+		current.inFlight > 0
+	o.mu.Unlock()
+	if stale {
+		return
+	}
+	_ = o.Retire(context.Background(), id, Retain)
 }
 
 func (o *Orchestrator) rehydrateLocked(ctx context.Context, request Request, current *entry) (gotato.Agent, Record, error) {
@@ -407,6 +505,7 @@ func (o *Orchestrator) rehydrateLocked(ctx context.Context, request Request, cur
 	current.record.StateVersion++
 	close(current.changed)
 	current.changed = make(chan struct{})
+	o.armIdleLocked(current)
 	return agent, current.record.Clone(), nil
 }
 
@@ -495,12 +594,45 @@ func (l *dispatchLease) release() {
 	if l.o.activeRuns > 0 {
 		l.o.activeRuns--
 	}
-	if current := l.o.byID[l.id]; current != nil && current.inFlight > 0 {
-		current.inFlight--
-		close(current.changed)
-		current.changed = make(chan struct{})
+	var retireAfterRun bool
+	var generation gotato.AgentGeneration
+	if current := l.o.byID[l.id]; current != nil {
+		if current.inFlight > 0 {
+			current.inFlight--
+			close(current.changed)
+			current.changed = make(chan struct{})
+		}
+		if current.inFlight == 0 && current.record.Status == ConversationActive {
+			generation = current.record.Generation
+			switch current.policy {
+			case AfterRun:
+				retireAfterRun = true
+			case AfterIdle:
+				l.o.armIdleLocked(current)
+			}
+		}
 	}
 	l.o.mu.Unlock()
+	if retireAfterRun {
+		// Retire takes the same lock, so it runs outside this critical
+		// section. The caller already has its RunResult.
+		go l.o.retireSettled(l.id, generation)
+	}
+}
+
+// retireSettled honours AfterRun once the Run that triggered it has settled.
+func (o *Orchestrator) retireSettled(id gotato.ConversationID, generation gotato.AgentGeneration) {
+	o.mu.Lock()
+	current := o.byID[id]
+	stale := current == nil || current.agent == nil ||
+		current.record.Generation != generation ||
+		current.record.Status != ConversationActive ||
+		current.inFlight > 0
+	o.mu.Unlock()
+	if stale {
+		return
+	}
+	_ = o.Retire(context.Background(), id, Retain)
 }
 
 func (o *Orchestrator) acquire(id gotato.ConversationID, generation gotato.AgentGeneration, expected *gotato.AgentGeneration) (*dispatchLease, error) {
@@ -522,6 +654,8 @@ func (o *Orchestrator) acquire(id gotato.ConversationID, generation gotato.Agent
 	if o.limits.MaxActiveRuns > 0 && o.activeRuns >= o.limits.MaxActiveRuns {
 		return nil, gotatoError(gotato.ErrLimitExceeded, "maximum active Runs reached")
 	}
+	// A new admission cancels the idle countdown; it restarts from settlement.
+	current.disarmIdle()
 	current.inFlight++
 	o.activeRuns++
 	return &dispatchLease{o: o, id: id}, nil
@@ -612,6 +746,7 @@ func (o *Orchestrator) Retire(ctx context.Context, id gotato.ConversationID, pol
 		return gotatoError(gotato.ErrInvalidState, "retirement fence changed")
 	}
 	current.agent = nil
+	current.disarmIdle()
 	o.releaseAgentLocked()
 	current.record.LiveAgentID = ""
 	current.record.StateVersion++
@@ -691,11 +826,13 @@ func (o *Orchestrator) markRetirementFailed(id gotato.ConversationID, generation
 
 func (o *Orchestrator) Get(id gotato.ConversationID) (Record, bool) {
 	o.mu.Lock()
+	defer o.mu.Unlock()
 	current := o.byID[id]
-	o.mu.Unlock()
 	if current == nil {
 		return Record{}, false
 	}
+	// The record is copied under the lock: a retirement running on another
+	// goroutine may be rewriting it.
 	return current.record.Clone(), true
 }
 

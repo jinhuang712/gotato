@@ -381,3 +381,164 @@ func waitFor(t *testing.T, condition func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// manualClock fires scheduled callbacks on demand so idle retirement is
+// asserted by advancing time rather than by sleeping.
+type manualClock struct {
+	mu      sync.Mutex
+	pending []*manualTimer
+}
+
+type manualTimer struct {
+	clock   *manualClock
+	fn      func()
+	stopped bool
+}
+
+func (t *manualTimer) Stop() bool {
+	t.clock.mu.Lock()
+	defer t.clock.mu.Unlock()
+	was := !t.stopped
+	t.stopped = true
+	return was
+}
+
+func (c *manualClock) AfterFunc(_ time.Duration, fn func()) Timer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	timer := &manualTimer{clock: c, fn: fn}
+	c.pending = append(c.pending, timer)
+	return timer
+}
+
+// fire runs every armed callback, mimicking the TTL expiring.
+func (c *manualClock) fire() {
+	c.mu.Lock()
+	pending := c.pending
+	c.pending = nil
+	c.mu.Unlock()
+	for _, timer := range pending {
+		c.mu.Lock()
+		stopped := timer.stopped
+		c.mu.Unlock()
+		if !stopped {
+			timer.fn()
+		}
+	}
+}
+
+func (c *manualClock) armed() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	count := 0
+	for _, timer := range c.pending {
+		if !timer.stopped {
+			count++
+		}
+	}
+	return count
+}
+
+func TestAfterRunRetiresAtSettlement(t *testing.T) {
+	o := testOrchestrator(t)
+	request := Request{AgentName: "default", ConversationKey: "after-run", Retirement: AfterRun}
+	_, record, err := o.Dispatch(context.Background(), request, gotato.UserMessage("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		current, ok := o.Get(record.ID)
+		return ok && current.Status == ConversationDormant
+	})
+	current, _ := o.Get(record.ID)
+	if current.LiveAgentID != "" {
+		t.Fatalf("AfterRun left a live Agent: %+v", current)
+	}
+	waitFor(t, func() bool { return o.LiveAgents() == 0 })
+
+	// The Conversation survives its Agent: the next request rehydrates it.
+	_, revived, err := o.Dispatch(context.Background(), request, gotato.UserMessage("again"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revived.Generation != 1 {
+		t.Fatalf("generation after AfterRun rehydration = %d", revived.Generation)
+	}
+}
+
+func TestAfterIdleStartsCountingAtSettlement(t *testing.T) {
+	clock := &manualClock{}
+	o := testOrchestrator(t, WithLimits(Limits{IdleTTL: time.Minute}), WithClock(clock))
+	request := Request{AgentName: "default", ConversationKey: "after-idle", Retirement: AfterIdle}
+	_, record, err := o.Resolve(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clock.armed() != 1 {
+		t.Fatalf("idle timer armed = %d after creation", clock.armed())
+	}
+
+	// A new admission cancels the countdown and settlement restarts it.
+	if _, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if clock.armed() != 1 {
+		t.Fatalf("idle timer armed = %d after settlement", clock.armed())
+	}
+
+	clock.fire()
+	waitFor(t, func() bool {
+		current, ok := o.Get(record.ID)
+		return ok && current.Status == ConversationDormant
+	})
+	waitFor(t, func() bool { return o.LiveAgents() == 0 })
+}
+
+func TestAfterIdleDoesNotEvictABusyAgent(t *testing.T) {
+	release := make(chan struct{})
+	clock := &manualClock{}
+	o := New(WithLimits(Limits{IdleTTL: time.Minute}), WithClock(clock))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{AgentName: "default", ConversationKey: "busy", Retirement: AfterIdle}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("hello"))
+		done <- err
+	}()
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	// Firing the TTL while the Agent is Busy must not close it.
+	clock.fire()
+	record, ok := o.Get(recordIDForKeyIn(t, o, "busy"))
+	if !ok || record.Status != ConversationActive || record.LiveAgentID == "" {
+		t.Fatalf("busy Conversation after an expired TTL = %+v", record)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAfterIdleRequiresAConfiguredTTL(t *testing.T) {
+	o := testOrchestrator(t)
+	_, _, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: "no-ttl", Retirement: AfterIdle})
+	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		t.Fatalf("AfterIdle without a TTL = %v", err)
+	}
+	if o.LiveAgents() != 0 {
+		t.Fatalf("rejected policy still built an Agent: %d", o.LiveAgents())
+	}
+}
+
+func recordIDForKeyIn(t *testing.T, o *Orchestrator, key string) gotato.ConversationID {
+	t.Helper()
+	_, record, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: gotato.ConversationKey(key)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.ID
+}
