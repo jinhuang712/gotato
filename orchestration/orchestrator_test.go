@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 )
@@ -275,5 +276,108 @@ func TestClosedConversationsAreReclaimed(t *testing.T) {
 		if _, ok := o.Get(id); ok {
 			t.Fatalf("old closed Conversation %s was never reclaimed", id)
 		}
+	}
+}
+
+func TestAgentCapacityRejectsBeforeConstruction(t *testing.T) {
+	var built int
+	o := New(WithLimits(Limits{MaxAgents: 2}))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		built++
+		return gotato.NewAgent(gotato.WithModel(testModel{}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, _, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: gotato.ConversationKey(fmt.Sprintf("cap-%d", i))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: "cap-overflow"}); !gotato.IsCode(err, gotato.ErrLimitExceeded) {
+		t.Fatalf("resolve past the Agent bound = %v", err)
+	}
+	// A rejected request creates neither an Agent nor a Conversation.
+	if built != 2 {
+		t.Fatalf("factory ran %d times, want 2", built)
+	}
+	if o.LiveAgents() != 2 {
+		t.Fatalf("live Agents = %d", o.LiveAgents())
+	}
+	if _, ok := o.Get(""); ok {
+		t.Fatal("rejected request left a Conversation behind")
+	}
+
+	// Retiring one gives the slot back.
+	first, _ := o.Get(recordIDForKey(t, o, "cap-0"))
+	if err := o.Retire(context.Background(), first.ID, Retain); err != nil {
+		t.Fatal(err)
+	}
+	if o.LiveAgents() != 1 {
+		t.Fatalf("live Agents after retirement = %d", o.LiveAgents())
+	}
+	if _, _, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: "cap-overflow"}); err != nil {
+		t.Fatalf("resolve after a slot freed = %v", err)
+	}
+}
+
+func TestActiveRunCapacityIsReleasedExactlyOnce(t *testing.T) {
+	release := make(chan struct{})
+	o := New(WithLimits(Limits{MaxActiveRuns: 1}))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, _, err := o.Dispatch(context.Background(), Request{AgentName: "default", ConversationKey: "run-a"}, gotato.UserMessage("first"))
+		done <- err
+	}()
+	<-started
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	if _, _, err := o.Dispatch(context.Background(), Request{AgentName: "default", ConversationKey: "run-b"}, gotato.UserMessage("second")); !gotato.IsCode(err, gotato.ErrLimitExceeded) {
+		t.Fatalf("dispatch past the Run bound = %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return o.ActiveRuns() == 0 })
+	if _, _, err := o.Dispatch(context.Background(), Request{AgentName: "default", ConversationKey: "run-b"}, gotato.UserMessage("second")); err != nil {
+		t.Fatalf("dispatch after the Run settled = %v", err)
+	}
+}
+
+type gatedTestModel struct{ release chan struct{} }
+
+func (m gatedTestModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	select {
+	case <-m.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &testModelStream{events: []gotato.ModelEvent{{Kind: gotato.ModelTextDelta, Text: "ok"}, {Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}}}, nil
+}
+
+func recordIDForKey(t *testing.T, o *Orchestrator, key string) gotato.ConversationID {
+	t.Helper()
+	_, record, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: gotato.ConversationKey(key)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record.ID
+}
+
+func waitFor(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition never held")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

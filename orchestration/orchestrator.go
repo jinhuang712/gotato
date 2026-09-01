@@ -145,6 +145,22 @@ func WithSnapshotStore(store SnapshotStore) Option {
 // Conversation under the same key.
 const DefaultClosedRecords = 1024
 
+// Limits bounds the coordination around Core. Core bounds one Agent's own
+// work; these bound how many of them exist and how much they run at once.
+// Zero leaves a dimension unbounded.
+type Limits struct {
+	// MaxAgents caps live Agent instances. A request that would exceed it is
+	// rejected before any Agent is constructed.
+	MaxAgents int
+	// MaxActiveRuns caps Runs dispatched at the same time across all Agents.
+	MaxActiveRuns int
+}
+
+// WithLimits sets the coordination bounds.
+func WithLimits(limits Limits) Option {
+	return func(o *Orchestrator) { o.limits = limits }
+}
+
 // WithClosedRecordLimit bounds the closed-Conversation tombstones the routing
 // table keeps. Zero drops a closed Conversation from the table immediately.
 func WithClosedRecordLimit(limit int) Option {
@@ -164,9 +180,45 @@ type Orchestrator struct {
 	// an index, and an index that only ever grows is a leak.
 	closed      []gotato.ConversationID
 	closedLimit int
-	store       SnapshotStore
-	seq         uint64
-	serving     atomic.Bool
+	limits      Limits
+	// live counts installed Agent handles; activeRuns counts dispatched Runs.
+	// Both are reservations, so a rejected request creates neither an Agent
+	// nor a Run.
+	live       int
+	activeRuns int
+	store      SnapshotStore
+	seq        uint64
+	serving    atomic.Bool
+}
+
+// reserveAgentLocked admits one more live Agent. The caller holds o.mu.
+func (o *Orchestrator) reserveAgentLocked() error {
+	if o.limits.MaxAgents > 0 && o.live >= o.limits.MaxAgents {
+		return gotatoError(gotato.ErrLimitExceeded, "maximum live Agents reached")
+	}
+	o.live++
+	return nil
+}
+
+// releaseAgentLocked gives back one live Agent slot. The caller holds o.mu.
+func (o *Orchestrator) releaseAgentLocked() {
+	if o.live > 0 {
+		o.live--
+	}
+}
+
+// LiveAgents reports how many Agent handles Orchestration currently holds.
+func (o *Orchestrator) LiveAgents() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.live
+}
+
+// ActiveRuns reports how many Runs are dispatched right now.
+func (o *Orchestrator) ActiveRuns() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.activeRuns
 }
 
 // tombstone marks a closed Conversation as reclaimable and evicts the oldest
@@ -295,9 +347,15 @@ func (o *Orchestrator) Resolve(ctx context.Context, request Request) (gotato.Age
 	if request.ExpectedGeneration != nil {
 		return nil, Record{}, gotatoError(gotato.ErrInvalidState, "expected generation has no matching Conversation")
 	}
+	// A rejected request creates neither an Agent nor a Run, so capacity is
+	// reserved before the factory runs.
+	if err := o.reserveAgentLocked(); err != nil {
+		return nil, Record{}, err
+	}
 	id := gotato.ConversationID(nextID("conversation", &o.seq))
 	agent, err := def.New(ctx, request, nil)
 	if err != nil {
+		o.releaseAgentLocked()
 		return nil, Record{}, err
 	}
 	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, StateVersion: 1}
@@ -330,12 +388,16 @@ func (o *Orchestrator) rehydrateLocked(ctx context.Context, request Request, cur
 	if state.Record.StateVersion != current.record.StateVersion {
 		return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "retained state version does not match the route")
 	}
+	if err := o.reserveAgentLocked(); err != nil {
+		return nil, current.record.Clone(), err
+	}
 	snapshot := state.Snapshot
 	request.AgentName = current.record.AgentName
 	request.ConversationID = current.record.ID
 	request.ConversationKey = current.record.Key
 	agent, err := def.New(ctx, request, &snapshot)
 	if err != nil {
+		o.releaseAgentLocked()
 		return nil, current.record.Clone(), err
 	}
 	current.agent = agent
@@ -430,6 +492,9 @@ func (l *dispatchLease) release() {
 		return
 	}
 	l.o.mu.Lock()
+	if l.o.activeRuns > 0 {
+		l.o.activeRuns--
+	}
 	if current := l.o.byID[l.id]; current != nil && current.inFlight > 0 {
 		current.inFlight--
 		close(current.changed)
@@ -454,7 +519,11 @@ func (o *Orchestrator) acquire(id gotato.ConversationID, generation gotato.Agent
 	if expected != nil && *expected != generation {
 		return nil, gotatoError(gotato.ErrInvalidState, "stale Agent generation")
 	}
+	if o.limits.MaxActiveRuns > 0 && o.activeRuns >= o.limits.MaxActiveRuns {
+		return nil, gotatoError(gotato.ErrLimitExceeded, "maximum active Runs reached")
+	}
 	current.inFlight++
+	o.activeRuns++
 	return &dispatchLease{o: o, id: id}, nil
 }
 
@@ -543,6 +612,7 @@ func (o *Orchestrator) Retire(ctx context.Context, id gotato.ConversationID, pol
 		return gotatoError(gotato.ErrInvalidState, "retirement fence changed")
 	}
 	current.agent = nil
+	o.releaseAgentLocked()
 	current.record.LiveAgentID = ""
 	current.record.StateVersion++
 	if policy == Ephemeral {
