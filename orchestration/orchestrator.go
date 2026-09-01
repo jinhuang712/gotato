@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -159,7 +160,25 @@ type Limits struct {
 	// Run before its Agent is retired. There is no default: selecting
 	// AfterIdle without setting it is a configuration error.
 	IdleTTL time.Duration
+	// Queue decides what happens to a request for a Conversation that is
+	// already running one. The default rejects.
+	Queue QueuePolicy
+	// MaxQueuedPrompts caps requests waiting for their turn under QueueFIFO.
+	MaxQueuedPrompts int
 }
+
+// QueuePolicy is what Orchestration does with a request whose Conversation is
+// already running a Run. Core never queues: one Agent processes one Prompt at
+// a time, and the surrounding policy decides the rest.
+type QueuePolicy string
+
+const (
+	// RejectWhileBusy returns a typed busy error straight away.
+	RejectWhileBusy QueuePolicy = "reject"
+	// QueueFIFO waits for a turn in arrival order, bounded by
+	// MaxQueuedPrompts. Waiting never bypasses an earlier request.
+	QueueFIFO QueuePolicy = "fifo"
+)
 
 // Timer is a scheduled callback that can be cancelled.
 type Timer interface{ Stop() bool }
@@ -213,10 +232,14 @@ type Orchestrator struct {
 	// nor a Run.
 	live       int
 	activeRuns int
-	clock      Clock
-	store      SnapshotStore
-	seq        uint64
-	serving    atomic.Bool
+	// queue is a single arrival-ordered list. Keeping it global is what makes
+	// FIFO mean FIFO: a later request never overtakes an earlier one, whatever
+	// Conversation each names.
+	queue   []*waiter
+	clock   Clock
+	store   SnapshotStore
+	seq     uint64
+	serving atomic.Bool
 }
 
 // reserveAgentLocked admits one more live Agent. The caller holds o.mu.
@@ -247,6 +270,61 @@ func (o *Orchestrator) ActiveRuns() int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.activeRuns
+}
+
+// waiter is one request holding its place in the dispatch queue.
+type waiter struct {
+	id      gotato.ConversationID
+	ready   chan struct{}
+	granted bool
+	dropped bool
+}
+
+// grantLocked hands a reserved slot to the head of the queue when the named
+// Conversation is idle and global capacity allows. The caller holds o.mu.
+func (o *Orchestrator) grantLocked() {
+	for len(o.queue) > 0 {
+		head := o.queue[0]
+		if o.limits.MaxActiveRuns > 0 && o.activeRuns >= o.limits.MaxActiveRuns {
+			return
+		}
+		current := o.byID[head.id]
+		if current == nil || current.agent == nil || current.record.Status != ConversationActive {
+			// The Conversation went away while this request waited; wake it so
+			// it can report the failure itself.
+			o.queue = o.queue[1:]
+			head.dropped = true
+			close(head.ready)
+			continue
+		}
+		if current.inFlight > 0 {
+			return
+		}
+		o.queue = o.queue[1:]
+		current.disarmIdle()
+		current.inFlight++
+		o.activeRuns++
+		head.granted = true
+		close(head.ready)
+	}
+}
+
+// removeWaiterLocked drops an abandoned request from the queue. The caller
+// holds o.mu.
+func (o *Orchestrator) removeWaiterLocked(target *waiter) {
+	for i, queued := range o.queue {
+		if queued == target {
+			o.queue = append(o.queue[:i], o.queue[i+1:]...)
+			return
+		}
+	}
+}
+
+// QueuedPrompts reports how many requests are waiting for their turn.
+func (o *Orchestrator) QueuedPrompts() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.queue)
 }
 
 // tombstone marks a closed Conversation as reclaimable and evicts the oldest
@@ -568,7 +646,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, request Request, message go
 	if err != nil {
 		return gotato.RunResult{}, record, err
 	}
-	lease, err := o.acquire(record.ID, record.Generation, request.ExpectedGeneration)
+	lease, err := o.acquire(ctx, record.ID, record.Generation, request.ExpectedGeneration)
 	if err != nil {
 		return gotato.RunResult{}, record, err
 	}
@@ -612,6 +690,7 @@ func (l *dispatchLease) release() {
 			}
 		}
 	}
+	l.o.grantLocked()
 	l.o.mu.Unlock()
 	if retireAfterRun {
 		// Retire takes the same lock, so it runs outside this critical
@@ -635,7 +714,7 @@ func (o *Orchestrator) retireSettled(id gotato.ConversationID, generation gotato
 	_ = o.Retire(context.Background(), id, Retain)
 }
 
-func (o *Orchestrator) acquire(id gotato.ConversationID, generation gotato.AgentGeneration, expected *gotato.AgentGeneration) (*dispatchLease, error) {
+func (o *Orchestrator) acquire(ctx context.Context, id gotato.ConversationID, generation gotato.AgentGeneration, expected *gotato.AgentGeneration) (*dispatchLease, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	current := o.byID[id]
@@ -654,10 +733,69 @@ func (o *Orchestrator) acquire(id gotato.ConversationID, generation gotato.Agent
 	if o.limits.MaxActiveRuns > 0 && o.activeRuns >= o.limits.MaxActiveRuns {
 		return nil, gotatoError(gotato.ErrLimitExceeded, "maximum active Runs reached")
 	}
+	if current.inFlight > 0 || len(o.queue) > 0 {
+		// Joining behind an existing queue keeps arrival order honest: a
+		// request that finds the Agent idle still waits if others got here
+		// first.
+		if o.limits.Queue != QueueFIFO {
+			return nil, gotatoError(gotato.ErrBusy, "Conversation is already running a Run")
+		}
+		if o.limits.MaxQueuedPrompts > 0 && len(o.queue) >= o.limits.MaxQueuedPrompts {
+			return nil, gotatoError(gotato.ErrLimitExceeded, "prompt queue is full")
+		}
+		return o.waitForTurnLocked(ctx, id, generation, expected)
+	}
+	if o.limits.MaxActiveRuns > 0 && o.activeRuns >= o.limits.MaxActiveRuns {
+		if o.limits.Queue != QueueFIFO {
+			return nil, gotatoError(gotato.ErrLimitExceeded, "maximum active Runs reached")
+		}
+		if o.limits.MaxQueuedPrompts > 0 && len(o.queue) >= o.limits.MaxQueuedPrompts {
+			return nil, gotatoError(gotato.ErrLimitExceeded, "prompt queue is full")
+		}
+		return o.waitForTurnLocked(ctx, id, generation, expected)
+	}
 	// A new admission cancels the idle countdown; it restarts from settlement.
 	current.disarmIdle()
 	current.inFlight++
 	o.activeRuns++
+	return &dispatchLease{o: o, id: id}, nil
+}
+
+// waitForTurnLocked parks a request in arrival order until a slot is handed to
+// it. The caller holds o.mu and this releases it while waiting.
+func (o *Orchestrator) waitForTurnLocked(ctx context.Context, id gotato.ConversationID, generation gotato.AgentGeneration, expected *gotato.AgentGeneration) (*dispatchLease, error) {
+	pending := &waiter{id: id, ready: make(chan struct{})}
+	o.queue = append(o.queue, pending)
+	o.mu.Unlock()
+
+	select {
+	case <-pending.ready:
+	case <-ctx.Done():
+		o.mu.Lock()
+		if pending.granted {
+			// The slot arrived while this request was giving up; hand it
+			// straight to whoever is next rather than losing it.
+			o.mu.Unlock()
+			(&dispatchLease{o: o, id: id}).release()
+			o.mu.Lock()
+		} else {
+			o.removeWaiterLocked(pending)
+		}
+		return nil, queueAbandoned(ctx.Err())
+	}
+
+	o.mu.Lock()
+	if pending.dropped {
+		return nil, gotatoError(gotato.ErrAgentClosed, "Conversation went away while the request waited")
+	}
+	current := o.byID[id]
+	if current == nil || current.agent == nil || current.record.Generation != generation ||
+		(expected != nil && *expected != current.record.Generation) {
+		o.mu.Unlock()
+		(&dispatchLease{o: o, id: id}).release()
+		o.mu.Lock()
+		return nil, gotatoError(gotato.ErrInvalidState, "stale Agent generation")
+	}
 	return &dispatchLease{o: o, id: id}, nil
 }
 
@@ -997,6 +1135,22 @@ func agentID(agent gotato.Agent) gotato.AgentID {
 func nextID(prefix string, seq *uint64) string {
 	return fmt.Sprintf("%s-%d", prefix, atomic.AddUint64(seq, 1))
 }
+
+// queueAbandoned types the outcome of a request that gave up its place in the
+// queue, so a caller can tell it apart from a failure inside the Run.
+func queueAbandoned(err error) error {
+	code := gotato.ErrCancelled
+	if errors.Is(err, context.DeadlineExceeded) {
+		code = gotato.ErrDeadlineExceeded
+	}
+	return &gotato.RuntimeError{
+		Code:      code,
+		Operation: "Orchestration",
+		Message:   "request left the prompt queue before its turn",
+		Cause:     err,
+	}
+}
+
 func contextError(ctx context.Context) error {
 	if ctx == nil {
 		return nil
