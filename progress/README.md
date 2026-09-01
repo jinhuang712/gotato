@@ -32,13 +32,22 @@
 | [M10](M10-orchestration-policies.md) | 层间边界与容量 | Slice 5 收口 · 7 | 已完成 | 无 |
 | [M11](M11-agent-routines.md) | Agent Routines 与 spawn | Slice 7 | 已完成 | routine 事件投影并入 M13 |
 | [M12](M12-durable-conversation.md) | Conversation 持久化与重启恢复 | Slice 7 | 已完成 | 无 |
-| [M13](M13-wire-contract.md) | wire contract 冻结与第二协议适配器 | Slice 6 收口 · 7 | 未开始 | 全部 |
+| [M13](M13-wire-contract.md) | wire contract 冻结与第二协议适配器 | Slice 6 收口 · 7 | 已完成 | routine 事件投影 |
 
 Slice 与里程碑不是一一对应：
 
 - Slice 1 由 M0 与 M1 交付
 - Slice 2 的 Tool 侧在 M2，LLM 侧在 M3
 - Slice 3 的 Core 事件在 M1，deadline 与 abort 在 M2，远端投影在 M5
+
+### 两个模块
+
+`adapter/grpc/` 是独立的 Go module。根模块的直接依赖仍然只有 `yaml.v3`，要 gRPC 的部署单独 import 它。验收要分开跑：
+
+```bash
+go test -race ./...
+cd adapter/grpc && go test -race ./...
+```
 
 ## 3. 结构不变量
 
@@ -77,7 +86,7 @@ M10 层间边界与容量（已完成）
         ↓
 M11 Agent Routines ┊ M12 Conversation 持久化（已完成）
         ↓
-M13 wire contract 冻结与第二协议适配器  ← 下一站
+M13 wire contract 冻结与第二协议适配器（已完成）
 ```
 
 M7 到 M9 是串行做完的。三者都落在 `agent.go:720` 的 `executeRun` 上：M7 改 Loop 的命令入口，M8 改 Loop 的阶段挂点，M9 改 Tool 调度层。
@@ -134,7 +143,6 @@ M7 开工前要清的四项已经清完：
 
 | 决策 | 现状 | 阻塞阶段 |
 | --- | --- | --- |
-| gRPC 是否仍是目标协议 | `specs/09-agent-service-and-grpc.md` 以 gRPC 立契约，实现是纯 `net/http`，`go.mod` 无相关依赖 | M13 |
 | 账本该拆成几种类型 | 层间泄漏已堵，剩下的是「要不要把约定写进编译器」。`specs/01` 的 `AgentState`、`Turn` 与 `specs/02` 的 `ModelMessage` 在代码里仍不存在 | 待议 |
 
 ### 已定的决策
