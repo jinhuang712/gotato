@@ -192,8 +192,12 @@ type CoreSnapshot struct {
 	Version            uint32    `json:"version"`
 	SystemInstructions string    `json:"system_instructions,omitempty"`
 	Messages           []Message `json:"messages"`
-	StateVersion       uint64    `json:"state_version"`
-	CapturedAt         time.Time `json:"captured_at"`
+	// ActiveToolSets records which optional ToolSets the Agent had activated.
+	// It is part of conversation state: a transcript that already mentions an
+	// activated ToolSet must rehydrate with those Tools still visible.
+	ActiveToolSets []string  `json:"active_toolsets,omitempty"`
+	StateVersion   uint64    `json:"state_version"`
+	CapturedAt     time.Time `json:"captured_at"`
 }
 
 func (s CoreSnapshot) Clone() CoreSnapshot {
@@ -202,6 +206,7 @@ func (s CoreSnapshot) Clone() CoreSnapshot {
 	for i, m := range s.Messages {
 		out.Messages[i] = m.Clone()
 	}
+	out.ActiveToolSets = slices.Clone(s.ActiveToolSets)
 	return out
 }
 

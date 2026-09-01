@@ -11,9 +11,15 @@ type CoreLimits struct {
 	MaxToolResultBytes     uint64
 	MaxToolProgressBytes   uint64
 	MaxToolProgressUpdates uint32
-	RunDeadline            time.Duration
-	ModelCallDeadline      time.Duration
-	ToolCallDeadline       time.Duration
+	MaxSteerMessages       uint32
+	MaxFollowUpMessages    uint32
+	// MaxParallelTools bounds the workers one Turn may run at once. Zero or
+	// one keeps a batch sequential.
+	MaxParallelTools  uint32
+	MaxActiveToolSets uint32
+	RunDeadline       time.Duration
+	ModelCallDeadline time.Duration
+	ToolCallDeadline  time.Duration
 }
 
 func defaultLimits() CoreLimits {
@@ -26,6 +32,10 @@ func defaultLimits() CoreLimits {
 		MaxToolResultBytes:     4 << 20,
 		MaxToolProgressBytes:   1 << 20,
 		MaxToolProgressUpdates: 1000,
+		MaxSteerMessages:       8,
+		MaxFollowUpMessages:    4,
+		MaxParallelTools:       1,
+		MaxActiveToolSets:      16,
 		RunDeadline:            5 * time.Minute,
 		ModelCallDeadline:      2 * time.Minute,
 		ToolCallDeadline:       2 * time.Minute,
