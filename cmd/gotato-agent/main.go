@@ -49,6 +49,7 @@ func main() {
 	queuePolicy := flag.String("queue", "reject", "policy for a busy Conversation: reject or fifo")
 	maxQueued := flag.Int("max-queued", 0, "maximum queued requests under the fifo policy; 0 disables the bound")
 	idleTTL := flag.Duration("idle-ttl", 0, "idle duration before an after_idle Conversation retires; 0 disables the policy")
+	stateDir := flag.String("state-dir", "", "directory for retained Conversation state; empty keeps state in memory only")
 	flag.Parse()
 
 	var gatewayModel gotato.Model
@@ -109,16 +110,35 @@ func main() {
 	} else if *queuePolicy != string(orchestration.RejectWhileBusy) {
 		log.Fatalf("unknown queue policy %q: use reject or fifo", *queuePolicy)
 	}
-	orchestrator := orchestration.New(orchestration.WithLimits(orchestration.Limits{
+	options := []orchestration.Option{orchestration.WithLimits(orchestration.Limits{
 		MaxAgents:        *maxAgents,
 		MaxActiveRuns:    *maxRuns,
 		IdleTTL:          *idleTTL,
 		Queue:            queue,
 		MaxQueuedPrompts: *maxQueued,
-	}))
+	})}
+	if *stateDir != "" {
+		store, err := orchestration.NewFileSnapshotStore(*stateDir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		options = append(options, orchestration.WithSnapshotStore(store))
+	}
+	orchestrator := orchestration.New(options...)
 	for _, definition := range definitions {
 		if err := orchestrator.Register(definition); err != nil {
 			log.Fatal(err)
+		}
+	}
+	if *stateDir != "" {
+		// Retained Conversations outlive the process that served them, so the
+		// routing table is rebuilt before the listener opens.
+		restored, err := orchestrator.Restore(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+		if restored > 0 {
+			log.Printf("restored %d dormant conversation(s) from %s", restored, *stateDir)
 		}
 	}
 	server := host.NewServer(orchestrator)

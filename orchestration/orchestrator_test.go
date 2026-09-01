@@ -154,6 +154,10 @@ func (failingStore) Delete(context.Context, gotato.ConversationID) error {
 	return errors.New("store unavailable")
 }
 
+func (failingStore) List(context.Context) ([]gotato.ConversationID, error) {
+	return nil, errors.New("store unavailable")
+}
+
 func TestRetirementPersistenceFailureLeavesConversationActive(t *testing.T) {
 	o := testOrchestrator(t, WithSnapshotStore(failingStore{}))
 	_, record, err := o.Resolve(context.Background(), Request{AgentName: "default", ConversationKey: "failure"})
