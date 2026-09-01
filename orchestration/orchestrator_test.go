@@ -542,3 +542,156 @@ func recordIDForKeyIn(t *testing.T, o *Orchestrator, key string) gotato.Conversa
 	}
 	return record.ID
 }
+
+func TestRejectWhileBusyIsTheDefault(t *testing.T) {
+	release := make(chan struct{})
+	o := New()
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{AgentName: "default", ConversationKey: "busy-reject"}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("first"))
+		done <- err
+	}()
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	if _, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("second")); !gotato.IsCode(err, gotato.ErrBusy) {
+		t.Fatalf("second dispatch = %v", err)
+	}
+	if o.QueuedPrompts() != 0 {
+		t.Fatalf("rejecting policy still queued %d", o.QueuedPrompts())
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQueueFIFOPreservesArrivalOrder(t *testing.T) {
+	release := make(chan struct{})
+	o := New(WithLimits(Limits{Queue: QueueFIFO, MaxQueuedPrompts: 8}))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{AgentName: "default", ConversationKey: "fifo"}
+	first := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("first"))
+		first <- err
+	}()
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	const followers = 4
+	order := make(chan int, followers)
+	for i := 0; i < followers; i++ {
+		index := i
+		go func() {
+			_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("queued"))
+			if err != nil {
+				t.Error(err)
+			}
+			order <- index
+		}()
+		// Each follower joins the queue before the next one is started, so
+		// arrival order is what the assertion below can rely on.
+		waitFor(t, func() bool { return o.QueuedPrompts() == index+1 })
+	}
+
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	for want := 0; want < followers; want++ {
+		select {
+		case got := <-order:
+			if got != want {
+				t.Fatalf("queued request %d ran before %d", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("queued request %d never ran", want)
+		}
+	}
+	if o.QueuedPrompts() != 0 {
+		t.Fatalf("queue not drained: %d", o.QueuedPrompts())
+	}
+}
+
+func TestQueueIsBounded(t *testing.T) {
+	release := make(chan struct{})
+	o := New(WithLimits(Limits{Queue: QueueFIFO, MaxQueuedPrompts: 1}))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{AgentName: "default", ConversationKey: "bounded-queue"}
+	running := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("first"))
+		running <- err
+	}()
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	queued := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("queued"))
+		queued <- err
+	}()
+	waitFor(t, func() bool { return o.QueuedPrompts() == 1 })
+
+	if _, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("overflow")); !gotato.IsCode(err, gotato.ErrLimitExceeded) {
+		t.Fatalf("dispatch past the queue bound = %v", err)
+	}
+	close(release)
+	if err := <-running; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-queued; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAbandonedQueuedRequestReleasesItsPlace(t *testing.T) {
+	release := make(chan struct{})
+	o := New(WithLimits(Limits{Queue: QueueFIFO, MaxQueuedPrompts: 4}))
+	if err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{AgentName: "default", ConversationKey: "abandon"}
+	running := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("first"))
+		running <- err
+	}()
+	waitFor(t, func() bool { return o.ActiveRuns() == 1 })
+
+	abandonCtx, abandon := context.WithCancel(context.Background())
+	abandoned := make(chan error, 1)
+	go func() {
+		_, _, err := o.Dispatch(abandonCtx, request, gotato.UserMessage("abandoned"))
+		abandoned <- err
+	}()
+	waitFor(t, func() bool { return o.QueuedPrompts() == 1 })
+	abandon()
+	if err := <-abandoned; !gotato.IsCode(err, gotato.ErrCancelled) {
+		t.Fatalf("abandoned request = %v", err)
+	}
+	waitFor(t, func() bool { return o.QueuedPrompts() == 0 })
+
+	close(release)
+	if err := <-running; err != nil {
+		t.Fatal(err)
+	}
+	// The slot the abandoned request gave up is still usable.
+	if _, _, err := o.Dispatch(context.Background(), request, gotato.UserMessage("after")); err != nil {
+		t.Fatalf("dispatch after an abandoned queue entry = %v", err)
+	}
+}
