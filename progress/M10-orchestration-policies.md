@@ -2,7 +2,7 @@
 
 | 状态 | 对应 Slice | 依赖 |
 | --- | --- | --- |
-| 进行中 | Slice 5 收口 · Slice 7（前半） | M4、M9 |
+| 已完成 | Slice 5 收口 · Slice 7（前半） | M4、M9 |
 
 ## 目标
 
@@ -44,15 +44,28 @@ Agent Core     唯一权威的 session transcript
 - [x] store 拒绝删除时路由照样回收：索引上界不该取决于 store 健不健康，失败仍然照实上报
 - [x] Host 的轮询表改成有界 FIFO，`DefaultRunRetention` 1024，`Server.RunRetention` 可配
 
-## 待做：策略与容量
+## 已完成：策略与容量
 
-- [ ] `AfterRun`：选定的 Run 结算之后退休该 Agent
-- [ ] `AfterIdle`：Run 结算之后且无准入 Run 时开始计时，新准入取消或重置计时器
-- [ ] Busy Agent 不得被淘汰，除非有显式的取消或 abort 决定
-- [ ] 容量型 admission：在 Agent 构造或 dispatch 之前预留容量，恰好释放一次
-- [ ] 请求队列策略：至少支持 reject-while-busy 与有界 FIFO 两种，默认值显式
-- [ ] 各项上界写进配置结构：Agent 实例数、排队请求数、活跃 Run 数
-- [ ] `cmd/gotato-agent` 支持注册多个 Definition
+- [x] 容量型 admission：`Limits.MaxAgents` 与 `MaxActiveRuns`，在构造 Agent 之前预留，租约恰好释放一次
+- [x] `AfterRun`：选定的 Run 结算之后退休该 Agent，Conversation 转 Dormant
+- [x] `AfterIdle`：Run 结算之后且无准入 Run 时开始计时，新准入取消计时
+- [x] Busy Agent 不得被淘汰：计时器触发时重查围栏，期间被准入的 Run 让它退回
+- [x] 请求队列策略：`RejectWhileBusy` 默认、`QueueFIFO` 可选，深度由 `MaxQueuedPrompts` 限
+- [x] `cmd/gotato-agent` 注册多个 Definition，容量与队列参数走命令行 flag
+
+### 队列为什么是全局一条
+
+FIFO 要真是 FIFO，队列就不能按 Conversation 分。分开之后，一个后到的请求只要点名一个空闲 Conversation 就能越过先到的请求。所以是一条全局到达序列表。
+
+槽位是**交接**给队首的，不是唤醒一群人去抢：释放方在锁内把 `inFlight` 与 `activeRuns` 记到队首名下再唤醒它。放弃排队的请求如果正好在交接途中拿到了槽位，会把它转交给下一个而不是丢掉。
+
+### AfterIdle 没有默认 TTL
+
+选了 `AfterIdle` 却不配 `IdleTTL` 是配置错误，直接拒绝，而不是替接入方猜一个数。这一条是用户拍的板：TTL 是配置项。
+
+### 顺带修掉的既有竞态
+
+`Get` 在释放锁之后才拷贝 Record。之前没有任何东西会与它并发改记录，所以一直没暴露；`AfterRun` 把退休放到后台 goroutine 之后，race detector 立刻抓到了。
 
 ## 已定的事
 
@@ -70,9 +83,10 @@ store 是唯一权威，清空 store 之后会话不可恢复             ✅
 丢弃式退休之后 store 里不留状态                          ✅
 关闭会话的墓碑数量有上界，超出的被回收                    ✅
 Host 轮询表有上界，超出的被回收                          ✅
-AfterRun 与 AfterIdle 在声明的边界上真的关闭 Agent
-Busy Agent 不会被 TTL 或容量淘汰
-admission 容量耗尽时按配置拒绝或排队，租约恰好释放一次
+AfterRun 与 AfterIdle 在声明的边界上真的关闭 Agent              ✅
+Busy Agent 不会被 TTL 或容量淘汰                               ✅
+admission 容量耗尽时按配置拒绝或排队，租约恰好释放一次          ✅
+排队请求按到达顺序获得槽位，放弃排队不丢槽位                    ✅
 ```
 
 ## 测试
@@ -86,6 +100,16 @@ admission 容量耗尽时按配置拒绝或排队，租约恰好释放一次
 | `TestPollTableIsBounded` | 轮询表超出上界时最旧的 Run 不再可查 |
 | `TestConversationEndpointCarriesNoTranscript` | HTTP 会话查询接口不吐 transcript |
 | `TestRetirementPersistenceFailureLeavesConversationActive` | store 挂掉时退休失败照实上报，路由保持可用 |
+| `TestAgentCapacityRejectsBeforeConstruction` | 超出 Agent 上界时工厂根本不运行，退休后槽位归还 |
+| `TestActiveRunCapacityIsReleasedExactlyOnce` | Run 上界耗尽时拒绝，结算后立刻可用 |
+| `TestAfterRunRetiresAtSettlement` | AfterRun 在结算边界退休，Conversation 仍可 rehydrate |
+| `TestAfterIdleStartsCountingAtSettlement` | 计时从结算起算，新准入取消它 |
+| `TestAfterIdleDoesNotEvictABusyAgent` | TTL 到期时 Agent 正忙则不关 |
+| `TestAfterIdleRequiresAConfiguredTTL` | 没配 TTL 就选 AfterIdle 是配置错误 |
+| `TestRejectWhileBusyIsTheDefault` | 默认策略直接返回 busy，不排队 |
+| `TestQueueFIFOPreservesArrivalOrder` | 四个排队请求按到达顺序执行 |
+| `TestQueueIsBounded` | 队列满时拒绝 |
+| `TestAbandonedQueuedRequestReleasesItsPlace` | 放弃排队返回类型化错误，槽位不丢 |
 
 ## 顺带修掉的 flake
 
