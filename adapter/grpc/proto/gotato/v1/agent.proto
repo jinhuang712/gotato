@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package gotato.v1;
+
+option go_package = "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1;gotatov1";
+
+// AgentService is one protocol adapter over the Host semantic boundary. It
+// defines no Agent semantics of its own: every RPC maps onto host.Service.
+service AgentService {
+  // Contract reports the frozen Host contract version behind this adapter.
+  rpc Contract(ContractRequest) returns (ContractResponse);
+
+  // Run settles one command and returns its outcome.
+  rpc Run(RunCommand) returns (RunOutcome);
+
+  // StreamRun settles one command while streaming its canonical Events. The
+  // terminal outcome is the last message on the stream.
+  rpc StreamRun(RunCommand) returns (stream RunUpdate);
+
+  // CancelRun aborts an active Run. It is idempotent while the Run is active
+  // and reports not-active afterwards rather than pretending to cancel.
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+
+  // GetConversation reports one routing record. It carries no transcript.
+  rpc GetConversation(ConversationRequest) returns (ConversationRecord);
+
+  // RetireConversation is a lifecycle operation, never a side effect of a
+  // stream ending.
+  rpc RetireConversation(RetireConversationRequest) returns (ConversationRecord);
+
+  // CloseAgent closes one live Core Agent.
+  rpc CloseAgent(CloseAgentRequest) returns (CloseAgentResponse);
+}
+
+message ContractRequest {}
+
+message ContractResponse {
+  string version = 1;
+}
+
+// RunCommand carries exactly one input: either a prompt or a continue.
+message RunCommand {
+  string agent_name = 1;
+  oneof conversation {
+    string conversation_id = 2;
+    string conversation_key = 3;
+  }
+  oneof input {
+    string prompt = 4;
+    ContinueInput continue_input = 5;
+  }
+  optional uint64 expected_generation = 6;
+  string retirement = 7;
+}
+
+message ContinueInput {}
+
+message RunOutcome {
+  string conversation_id = 1;
+  string agent_id = 2;
+  uint64 agent_generation = 3;
+  string run_id = 4;
+  string status = 5;
+  string final_message = 6;
+  Usage usage = 7;
+  RunMetrics metrics = 8;
+  RuntimeError error = 9;
+}
+
+message Usage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 total_tokens = 3;
+}
+
+message RunMetrics {
+  int64 elapsed_ms = 1;
+  uint32 turns = 2;
+  uint32 tool_calls = 3;
+  uint64 text_bytes = 4;
+  uint64 reasoning_bytes = 5;
+}
+
+message RuntimeError {
+  string code = 1;
+  string operation = 2;
+  string message = 3;
+}
+
+// RunUpdate is either one projected Event or the terminal outcome.
+message RunUpdate {
+  oneof update {
+    RunEvent event = 1;
+    RunOutcome outcome = 2;
+  }
+}
+
+// RunEvent preserves Core identity, class, correlation, and order. The payload
+// travels as JSON so the adapter never has to redefine what an Event means.
+message RunEvent {
+  string agent_id = 1;
+  string run_id = 2;
+  uint64 sequence = 3;
+  string kind = 4;
+  string event_class = 5;
+  uint32 turn = 6;
+  string message_id = 7;
+  string tool_call_id = 8;
+  string spawn_id = 9;
+  string origin_run_id = 10;
+  bytes payload_json = 11;
+  // Routing metadata Orchestration adds. It does not change Core meaning.
+  string conversation_id = 12;
+  uint64 agent_generation = 13;
+}
+
+message CancelRunRequest {
+  string run_id = 1;
+}
+
+message CancelRunResponse {}
+
+message ConversationRequest {
+  string conversation_id = 1;
+}
+
+message RetireConversationRequest {
+  string conversation_id = 1;
+  string policy = 2;
+}
+
+message ConversationRecord {
+  string conversation_id = 1;
+  string conversation_key = 2;
+  string agent_name = 3;
+  string live_agent_id = 4;
+  uint64 agent_generation = 5;
+  string status = 6;
+  uint64 state_version = 7;
+}
+
+message CloseAgentRequest {
+  string agent_id = 1;
+}
+
+message CloseAgentResponse {}
