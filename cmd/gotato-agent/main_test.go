@@ -83,6 +83,17 @@ func TestBlackBoxLocalAgent(t *testing.T) {
 	}
 	post(t, client, base+"/v1/runs", `{"agent_name":"default","conversation_key":"blackbox","prompt":"after close"}`, http.StatusNotFound)
 
+	// A second Agent definition is routable by name, and an unknown one is
+	// rejected rather than silently served by the default.
+	demo := post(t, client, base+"/v1/runs", `{"agent_name":"demo","conversation_key":"blackbox-demo","prompt":"hello"}`, http.StatusOK)
+	if demo["final_message"] != "demo response: hello" {
+		t.Fatalf("second definition = %+v", demo)
+	}
+	if demo["conversation_id"] == conversationID {
+		t.Fatalf("second definition shared the first Conversation: %+v", demo)
+	}
+	post(t, client, base+"/v1/runs", `{"agent_name":"missing","conversation_key":"blackbox-missing","prompt":"hello"}`, http.StatusBadRequest)
+
 	// 10: drain flips readiness and stops new admission.
 	drained := post(t, client, base+"/admin/drain", `{}`, http.StatusOK)
 	if drained["status"] != "drained" {
