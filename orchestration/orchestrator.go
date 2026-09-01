@@ -86,10 +86,23 @@ func (s StoredState) Clone() StoredState {
 
 // SnapshotStore is the single authority for retained Conversation state.
 // Orchestration keeps no second copy: what the store does not hold is gone.
+//
+// Save is a compare-and-swap on StateVersion. A write whose version does not
+// advance past the stored one is rejected, so a stale writer cannot overwrite
+// a newer generation.
+//
+// List exists so a process that restarts can find the Conversations it is
+// meant to still answer for.
 type SnapshotStore interface {
 	Save(context.Context, StoredState) error
 	Load(context.Context, gotato.ConversationID) (StoredState, bool, error)
 	Delete(context.Context, gotato.ConversationID) error
+	List(context.Context) ([]gotato.ConversationID, error)
+}
+
+// ErrStaleState reports a Save whose StateVersion did not advance.
+func staleStateError(id gotato.ConversationID) error {
+	return gotatoError(gotato.ErrInvalidState, "stale state version for Conversation "+string(id))
 }
 
 type MemorySnapshotStore struct {
@@ -106,9 +119,26 @@ func (s *MemorySnapshotStore) Save(ctx context.Context, state StoredState) error
 		return err
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.states[state.Record.ID]; ok && state.Record.StateVersion <= existing.Record.StateVersion {
+		return staleStateError(state.Record.ID)
+	}
 	s.states[state.Record.ID] = state.Clone()
-	s.mu.Unlock()
 	return nil
+}
+
+func (s *MemorySnapshotStore) List(ctx context.Context) ([]gotato.ConversationID, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]gotato.ConversationID, 0, len(s.states))
+	for id := range s.states {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, nil
 }
 
 func (s *MemorySnapshotStore) Load(ctx context.Context, id gotato.ConversationID) (StoredState, bool, error) {
@@ -1173,4 +1203,56 @@ func contextError(ctx context.Context) error {
 }
 func gotatoError(code gotato.ErrorCode, message string) error {
 	return &gotato.RuntimeError{Code: code, Operation: "Orchestration", Message: message}
+}
+
+// Restore rebuilds the routing table from the store after a restart. Every
+// Conversation the store holds comes back Dormant with no live Agent: the
+// state survived the process, the Agent did not.
+//
+// A Conversation whose Agent definition is no longer registered is reported
+// rather than installed, because a route nobody can serve is worse than a
+// visible gap.
+func (o *Orchestrator) Restore(ctx context.Context) (int, error) {
+	if err := contextError(ctx); err != nil {
+		return 0, err
+	}
+	ids, err := o.store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	restored := 0
+	var missing []string
+	for _, id := range ids {
+		state, found, loadErr := o.store.Load(ctx, id)
+		if loadErr != nil {
+			return restored, loadErr
+		}
+		if !found {
+			continue
+		}
+		o.mu.Lock()
+		if _, known := o.defs[state.Record.AgentName]; !known {
+			o.mu.Unlock()
+			missing = append(missing, string(id)+"="+string(state.Record.AgentName))
+			continue
+		}
+		if _, exists := o.byID[id]; exists {
+			o.mu.Unlock()
+			continue
+		}
+		record := state.Record.Clone()
+		record.Status = ConversationDormant
+		record.LiveAgentID = ""
+		current := &entry{record: record, changed: make(chan struct{}), policy: Retain}
+		o.byID[id] = current
+		if record.Key != "" {
+			o.byKey[routeKey(record.AgentName, record.Key)] = current
+		}
+		o.mu.Unlock()
+		restored++
+	}
+	if len(missing) > 0 {
+		return restored, gotatoError(gotato.ErrInvalidState, "no Agent definition for retained Conversations: "+strings.Join(missing, " "))
+	}
+	return restored, nil
 }
