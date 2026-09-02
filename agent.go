@@ -46,10 +46,6 @@ type LifecycleAgent interface {
 	SubscribeLifecycle(context.Context) (LifecycleStream, error)
 }
 
-type Snapshotter interface {
-	Snapshot(context.Context) (CoreSnapshot, error)
-}
-
 // RunCanceler lets a Host or Orchestration layer cancel an active Run without
 // closing the Agent or discarding its Conversation state.
 type RunCanceler interface {
@@ -59,11 +55,6 @@ type RunCanceler interface {
 
 type IdleWaiter interface {
 	WaitForIdle(context.Context) error
-}
-
-type RetirableAgent interface {
-	Agent
-	RequestRetirement(context.Context, string) error
 }
 
 // ControllableAgent adds the control operations that share the one canonical
@@ -97,8 +88,6 @@ type agentConfig struct {
 	extensions    extensionSet
 	limits        CoreLimits
 	limitsSet     bool
-	initial       CoreSnapshot
-	hasInitial    bool
 }
 
 func WithModel(model Model) Option {
@@ -163,17 +152,6 @@ func WithDeadlines(run, model, tool time.Duration) Option {
 	}
 }
 
-func WithInitialSnapshot(snapshot CoreSnapshot) Option {
-	return func(c *agentConfig) error {
-		if snapshot.Version == 0 {
-			snapshot.Version = 1
-		}
-		c.initial = snapshot.Clone()
-		c.hasInitial = true
-		return nil
-	}
-}
-
 func NewAgent(options ...Option) (Agent, error) {
 	cfg := agentConfig{limits: defaultLimits()}
 	for _, option := range options {
@@ -197,36 +175,24 @@ func NewAgent(options ...Option) (Agent, error) {
 	}
 
 	a := &coreAgent{
-		id:           AgentID(nextID("agent")),
-		model:        cfg.model,
-		instruction:  cfg.instruction,
-		registry:     registry,
-		extensions:   cfg.extensions,
-		limits:       cfg.limits,
-		limitsSet:    cfg.limitsSet,
-		commands:     make(chan agentCommand),
-		closeSignal:  make(chan struct{}),
-		done:         make(chan struct{}),
-		ready:        make(chan struct{}),
-		admission:    make(chan struct{}, 1),
-		steer:        make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
-		followUp:     make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
-		events:       newEventHub(),
-		lifecycle:    newLifecycleHub(),
-		stateChange:  make(chan struct{}),
-		messages:     nil,
-		stateVersion: 1,
-	}
-	if cfg.hasInitial {
-		a.instruction = cfg.initial.SystemInstructions
-		a.messages = cloneMessages(cfg.initial.Messages)
-		a.stateVersion = cfg.initial.StateVersion
-		if a.stateVersion == 0 {
-			a.stateVersion = 1
-		}
-		if err := registry.restoreActive(cfg.initial.ActiveToolSets); err != nil {
-			return nil, err
-		}
+		id:          AgentID(nextID("agent")),
+		model:       cfg.model,
+		instruction: cfg.instruction,
+		registry:    registry,
+		extensions:  cfg.extensions,
+		limits:      cfg.limits,
+		limitsSet:   cfg.limitsSet,
+		commands:    make(chan agentCommand),
+		closeSignal: make(chan struct{}),
+		done:        make(chan struct{}),
+		ready:       make(chan struct{}),
+		admission:   make(chan struct{}, 1),
+		steer:       make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
+		followUp:    make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
+		events:      newEventHub(),
+		lifecycle:   newLifecycleHub(),
+		stateChange: make(chan struct{}),
+		messages:    nil,
 	}
 	a.setStatus(AgentCreated)
 	go a.loop()
@@ -260,10 +226,9 @@ type coreAgent struct {
 	closeRequested atomic.Bool
 	status         atomic.Uint32
 
-	stateMu      sync.Mutex
-	stateChange  chan struct{}
-	messages     []Message
-	stateVersion uint64
+	stateMu     sync.Mutex
+	stateChange chan struct{}
+	messages    []Message
 
 	runMu          sync.Mutex
 	currentRunID   RunID
@@ -278,25 +243,18 @@ type agentCommandKind uint8
 const (
 	commandPrompt agentCommandKind = iota + 1
 	commandContinue
-	commandSnapshot
 )
 
 type agentCommand struct {
-	kind     agentCommandKind
-	ctx      context.Context
-	message  Message
-	result   chan promptResponse
-	snapshot chan snapshotResponse
+	kind    agentCommandKind
+	ctx     context.Context
+	message Message
+	result  chan promptResponse
 }
 
 type promptResponse struct {
 	result RunResult
 	err    error
-}
-
-type snapshotResponse struct {
-	snapshot CoreSnapshot
-	err      error
 }
 
 func (a *coreAgent) ID() AgentID { return a.id }
@@ -338,21 +296,6 @@ func (a *coreAgent) Subscribe(ctx context.Context) (EventStream, error) {
 
 func (a *coreAgent) SubscribeLifecycle(ctx context.Context) (LifecycleStream, error) {
 	return a.lifecycle.subscribe(ctx)
-}
-
-func (a *coreAgent) RequestRetirement(ctx context.Context, reason string) error {
-	if ctx != nil {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-	}
-	if a.Status() == AgentClosed {
-		return nil
-	}
-	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleAgentRetirementRequested, AgentID: a.id, Reason: boundedReason(reason), Timestamp: time.Now()})
-	return nil
 }
 
 func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, error) {
@@ -502,32 +445,6 @@ func (a *coreAgent) WaitForIdle(ctx context.Context) error {
 	}
 }
 
-func (a *coreAgent) Snapshot(ctx context.Context) (CoreSnapshot, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := a.admissionError(); err != nil {
-		return CoreSnapshot{}, err
-	}
-	if a.Status() != AgentIdle {
-		return CoreSnapshot{}, runtimeError(ErrBusy, "Snapshot", "Agent is not idle", nil)
-	}
-	cmd := agentCommand{kind: commandSnapshot, ctx: ctx, snapshot: make(chan snapshotResponse, 1)}
-	select {
-	case a.commands <- cmd:
-	case <-ctx.Done():
-		return CoreSnapshot{}, ctx.Err()
-	case <-a.closeSignal:
-		return CoreSnapshot{}, a.admissionError()
-	}
-	select {
-	case response := <-cmd.snapshot:
-		return response.snapshot, response.err
-	case <-ctx.Done():
-		return CoreSnapshot{}, ctx.Err()
-	}
-}
-
 func (a *coreAgent) loop() {
 	a.setStatus(AgentIdle)
 	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleAgentCreated, AgentID: a.id, Timestamp: time.Now()})
@@ -540,12 +457,6 @@ func (a *coreAgent) loop() {
 			return
 		case cmd := <-a.commands:
 			switch cmd.kind {
-			case commandSnapshot:
-				if a.Status() != AgentIdle {
-					cmd.snapshot <- snapshotResponse{err: runtimeError(ErrBusy, "Snapshot", "Agent is not idle", nil)}
-					continue
-				}
-				cmd.snapshot <- snapshotResponse{snapshot: a.snapshotUnsafe()}
 			case commandPrompt, commandContinue:
 				if err := a.admissionError(); err != nil {
 					cmd.result <- promptResponse{err: err}
@@ -627,17 +538,6 @@ func decodeAgentStatus(status uint32) AgentStatus {
 	}
 }
 
-func (a *coreAgent) snapshotUnsafe() CoreSnapshot {
-	return CoreSnapshot{
-		Version:            1,
-		SystemInstructions: a.instruction,
-		Messages:           cloneMessages(a.messages),
-		ActiveToolSets:     a.registry.activeNames(),
-		StateVersion:       a.stateVersion,
-		CapturedAt:         time.Now(),
-	}
-}
-
 func (a *coreAgent) commitMessage(message Message) error {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
@@ -662,7 +562,6 @@ func (a *coreAgent) commitMessage(message Message) error {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	a.messages = candidate
-	a.stateVersion++
 	return nil
 }
 
@@ -1473,11 +1372,4 @@ func cloneToolSpecs(specs []ToolSpec) []ToolSpec {
 		out[i] = cloneToolSpec(spec)
 	}
 	return out
-}
-
-func boundedReason(reason string) string {
-	if len(reason) > 256 {
-		return reason[:256]
-	}
-	return reason
 }

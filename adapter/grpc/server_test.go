@@ -23,11 +23,8 @@ import (
 func newTestClient(t *testing.T) (gotatov1.AgentServiceClient, *host.Server) {
 	t.Helper()
 	o := orchestration.New()
-	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
 		options := []gotato.Option{gotato.WithModel(testmodel.EchoModel{})}
-		if snapshot != nil {
-			options = append(options, gotato.WithInitialSnapshot(*snapshot))
-		}
 		return gotato.NewAgent(options...)
 	}})
 	if err != nil {
@@ -154,47 +151,7 @@ func TestGRPCRejectsAnAmbiguousCommand(t *testing.T) {
 	}
 }
 
-func TestGRPCLifecycleCommandsAreSeparateFromTheStream(t *testing.T) {
-	client, _ := newTestClient(t)
-	outcome, err := client.Run(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-lifecycle"},
-		Input:        &gotatov1.RunCommand_Prompt{Prompt: "hello"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	record, err := client.GetConversation(context.Background(), &gotatov1.ConversationRequest{ConversationId: outcome.GetConversationId()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.GetStatus() != string(orchestration.ConversationActive) {
-		t.Fatalf("record = %+v", record)
-	}
 
-	retired, err := client.RetireConversation(context.Background(), &gotatov1.RetireConversationRequest{
-		ConversationId: outcome.GetConversationId(),
-		Policy:         string(orchestration.Retain),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retired.GetStatus() != string(orchestration.ConversationDormant) || retired.GetLiveAgentId() != "" {
-		t.Fatalf("retired record = %+v", retired)
-	}
-
-	revived, err := client.Run(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-lifecycle"},
-		Input:        &gotatov1.RunCommand_Prompt{Prompt: "again"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if revived.GetAgentGeneration() != 1 || revived.GetAgentId() == outcome.GetAgentId() {
-		t.Fatalf("rehydrated outcome = %+v", revived)
-	}
-}
 
 func TestGRPCConversationRecordCarriesNoTranscript(t *testing.T) {
 	client, _ := newTestClient(t)

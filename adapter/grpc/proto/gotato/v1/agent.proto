@@ -24,10 +24,6 @@ service AgentService {
   // GetConversation reports one routing record. It carries no transcript.
   rpc GetConversation(ConversationRequest) returns (ConversationRecord);
 
-  // RetireConversation is a lifecycle operation, never a side effect of a
-  // stream ending.
-  rpc RetireConversation(RetireConversationRequest) returns (ConversationRecord);
-
   // CloseAgent closes one live Core Agent.
   rpc CloseAgent(CloseAgentRequest) returns (CloseAgentResponse);
 }
@@ -50,7 +46,6 @@ message RunCommand {
     ContinueInput continue_input = 5;
   }
   optional uint64 expected_generation = 6;
-  string retirement = 7;
 }
 
 message ContinueInput {}
@@ -124,11 +119,6 @@ message ConversationRequest {
   string conversation_id = 1;
 }
 
-message RetireConversationRequest {
-  string conversation_id = 1;
-  string policy = 2;
-}
-
 message ConversationRecord {
   string conversation_id = 1;
   string conversation_key = 2;
@@ -136,7 +126,6 @@ message ConversationRecord {
   string live_agent_id = 4;
   uint64 agent_generation = 5;
   string status = 6;
-  uint64 state_version = 7;
 }
 
 message CloseAgentRequest {

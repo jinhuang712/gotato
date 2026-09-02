@@ -24,13 +24,10 @@ func newTestHTTPServer(t *testing.T) (*Server, *httptest.Server) {
 func newTestHTTPServerWithModel(t *testing.T, model gotato.Model, tools ...gotato.Tool) (*Server, *httptest.Server) {
 	t.Helper()
 	o := orchestration.New()
-	if err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	if err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
 		options := []gotato.Option{gotato.WithModel(model)}
 		if len(tools) > 0 {
 			options = append(options, gotato.WithTools(tools...))
-		}
-		if snapshot != nil {
-			options = append(options, gotato.WithInitialSnapshot(*snapshot))
 		}
 		return gotato.NewAgent(options...)
 	}}); err != nil {
@@ -40,31 +37,7 @@ func newTestHTTPServerWithModel(t *testing.T, model gotato.Model, tools ...gotat
 	return s, httptest.NewServer(s.Handler())
 }
 
-func TestHTTPRunRetireAndRehydrate(t *testing.T) {
-	hostServer, server := newTestHTTPServer(t)
-	defer server.Close()
-	defer hostServer.Drain(context.Background())
 
-	first := postJSON(t, server.URL+"/v1/runs", `{"agent_name":"default","conversation_key":"http-test","prompt":"one"}`)
-	if first["status"] != string(gotato.RunCompleted) {
-		t.Fatalf("first response = %+v", first)
-	}
-	metrics, ok := first["metrics"].(map[string]any)
-	if !ok || metrics["turns"] != float64(1) || metrics["elapsed_ms"] == nil {
-		t.Fatalf("run metrics = %#v", first["metrics"])
-	}
-	conversationID := first["conversation_id"].(string)
-	firstAgent := first["agent_id"].(string)
-
-	retired := postJSON(t, server.URL+"/v1/conversations/"+conversationID+"/retire", `{"policy":"retain"}`)
-	if retired["status"] != string(orchestration.ConversationDormant) {
-		t.Fatalf("retired response = %+v", retired)
-	}
-	second := postJSON(t, server.URL+"/v1/runs", `{"agent_name":"default","conversation_key":"http-test","prompt":"two"}`)
-	if second["agent_id"] == firstAgent || second["agent_generation"].(float64) != 1 {
-		t.Fatalf("rehydrated response = %+v", second)
-	}
-}
 
 // twoTurnModel makes a Run that provably spans two Turns: the first ends with
 // a Tool Call, the second blocks until released. That is what makes a progress

@@ -87,7 +87,7 @@ func embeddedKinds(t *testing.T) []gotato.EventKind {
 func hostedKinds(t *testing.T) []gotato.EventKind {
 	t.Helper()
 	o := orchestration.New()
-	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
 		return gotato.NewAgent(gotato.WithModel(equivalenceModel()), gotato.WithTool(echoTool{}))
 	}})
 	if err != nil {
@@ -132,7 +132,7 @@ func TestEmbeddedAndHostedProduceTheSameEventSequence(t *testing.T) {
 
 func TestProjectedEventsCarryRoutingMetadata(t *testing.T) {
 	o := orchestration.New()
-	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
 		return gotato.NewAgent(gotato.WithModel(equivalenceModel()), gotato.WithTool(echoTool{}))
 	}})
 	if err != nil {
@@ -175,7 +175,7 @@ func TestCommandRejectsAnAmbiguousInput(t *testing.T) {
 
 func TestDeliveryFailureDoesNotDecideRunSettlement(t *testing.T) {
 	o := orchestration.New()
-	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
 		return gotato.NewAgent(gotato.WithModel(equivalenceModel()), gotato.WithTool(echoTool{}))
 	}})
 	if err != nil {

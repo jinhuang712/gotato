@@ -24,7 +24,6 @@ const (
 	ErrCancelled             ErrorCode = "cancelled"
 	ErrDeadlineExceeded      ErrorCode = "deadline_exceeded"
 	ErrInternalInvariant     ErrorCode = "internal_invariant_failure"
-	ErrRetirementFailed      ErrorCode = "retirement_failed"
 	ErrNotSupported          ErrorCode = "not_supported"
 )
 

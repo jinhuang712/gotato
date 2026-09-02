@@ -27,8 +27,7 @@ type Command struct {
 	Prompt             string
 	// Continue runs the Loop without appending a user Message. Prompt must be
 	// empty when it is set.
-	Continue   bool
-	Retirement string
+	Continue bool
 }
 
 // Outcome is the settled result of a Command, projected for delivery. It
@@ -77,9 +76,6 @@ type Service interface {
 	CancelRun(ctx context.Context, runID string) error
 	// Conversation reports one routing record.
 	Conversation(ctx context.Context, id string) (orchestration.Record, error)
-	// RetireConversation closes the live Agent under the given policy. It is a
-	// lifecycle operation, never a side effect of a stream ending.
-	RetireConversation(ctx context.Context, id string, policy string) (orchestration.Record, error)
 	// CloseAgent closes one live Core Agent.
 	CloseAgent(ctx context.Context, agentID string) error
 	// Ready reports whether the Host still admits work.
@@ -111,7 +107,6 @@ func (c Command) toOrchestration() (orchestration.Request, error) {
 		AgentName:       gotato.AgentName(name),
 		ConversationID:  gotato.ConversationID(c.ConversationID),
 		ConversationKey: gotato.ConversationKey(c.ConversationKey),
-		Retirement:      orchestration.RetirementPolicy(c.Retirement),
 	}
 	if c.ExpectedGeneration != nil {
 		generation := gotato.AgentGeneration(*c.ExpectedGeneration)
@@ -217,18 +212,6 @@ func (s *Server) Conversation(ctx context.Context, id string) (orchestration.Rec
 	if !ok {
 		return orchestration.Record{}, gotato.ErrorOf(gotato.ErrAgentClosed, "conversation not found")
 	}
-	return record, nil
-}
-
-func (s *Server) RetireConversation(ctx context.Context, id string, policy string) (orchestration.Record, error) {
-	retirement := orchestration.RetirementPolicy(policy)
-	if retirement == "" {
-		retirement = orchestration.Retain
-	}
-	if err := s.Orchestration.Retire(ctx, gotato.ConversationID(id), retirement); err != nil {
-		return orchestration.Record{}, err
-	}
-	record, _ := s.Orchestration.Get(gotato.ConversationID(id))
 	return record, nil
 }
 

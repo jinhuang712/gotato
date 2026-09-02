@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 )
@@ -16,20 +15,9 @@ import (
 type ConversationStatus string
 
 const (
-	ConversationActive   ConversationStatus = "active"
-	ConversationDormant  ConversationStatus = "dormant"
-	ConversationRetiring ConversationStatus = "retiring"
-	ConversationClosed   ConversationStatus = "closed"
-	ConversationArchived ConversationStatus = "archived"
-)
-
-type RetirementPolicy string
-
-const (
-	Retain    RetirementPolicy = "retain"
-	AfterRun  RetirementPolicy = "after_run"
-	AfterIdle RetirementPolicy = "after_idle"
-	Ephemeral RetirementPolicy = "ephemeral"
+	ConversationActive  ConversationStatus = "active"
+	ConversationClosing ConversationStatus = "closing"
+	ConversationClosed  ConversationStatus = "closed"
 )
 
 type Request struct {
@@ -38,21 +26,19 @@ type Request struct {
 	ConversationKey    gotato.ConversationKey
 	ExpectedGeneration *gotato.AgentGeneration
 	Metadata           map[string]string
-	Retirement         RetirementPolicy
 }
 
 // Record is the routing view of a Conversation. It carries identity and
-// status only: conversation content belongs to Core and, once the live Agent
-// is gone, to the SnapshotStore. Nothing above Orchestration needs the
-// transcript to route a request, so nothing above Orchestration receives it.
+// status only: conversation content belongs to the live Agent. Nothing above
+// Orchestration needs the transcript to route a request, so nothing above
+// Orchestration receives it.
 type Record struct {
-	ID           gotato.ConversationID  `json:"conversation_id"`
-	Key          gotato.ConversationKey `json:"conversation_key"`
-	AgentName    gotato.AgentName       `json:"agent_name"`
-	LiveAgentID  gotato.AgentID         `json:"live_agent_id,omitempty"`
-	Generation   gotato.AgentGeneration `json:"agent_generation"`
-	Status       ConversationStatus     `json:"status"`
-	StateVersion uint64                 `json:"state_version"`
+	ID          gotato.ConversationID  `json:"conversation_id"`
+	Key         gotato.ConversationKey `json:"conversation_key"`
+	AgentName   gotato.AgentName       `json:"agent_name"`
+	LiveAgentID gotato.AgentID         `json:"live_agent_id,omitempty"`
+	Generation  gotato.AgentGeneration `json:"agent_generation"`
+	Status      ConversationStatus     `json:"status"`
 	// Origin is set when this Conversation was spawned by another Run. It is
 	// provenance, not ownership.
 	Origin *Provenance `json:"origin,omitempty"`
@@ -69,118 +55,10 @@ func (r Record) Clone() Record {
 
 type Definition struct {
 	Name gotato.AgentName
-	New  func(context.Context, Request, *gotato.CoreSnapshot) (gotato.Agent, error)
-}
-
-// StoredState is everything a dormant Conversation needs to come back: the
-// routing record that names its Agent definition, plus the Core snapshot to
-// rebuild from.
-type StoredState struct {
-	Record   Record              `json:"record"`
-	Snapshot gotato.CoreSnapshot `json:"snapshot"`
-}
-
-func (s StoredState) Clone() StoredState {
-	return StoredState{Record: s.Record, Snapshot: s.Snapshot.Clone()}
-}
-
-// SnapshotStore is the single authority for retained Conversation state.
-// Orchestration keeps no second copy: what the store does not hold is gone.
-//
-// Save is a compare-and-swap on StateVersion. A write whose version does not
-// advance past the stored one is rejected, so a stale writer cannot overwrite
-// a newer generation.
-//
-// List exists so a process that restarts can find the Conversations it is
-// meant to still answer for.
-type SnapshotStore interface {
-	Save(context.Context, StoredState) error
-	Load(context.Context, gotato.ConversationID) (StoredState, bool, error)
-	Delete(context.Context, gotato.ConversationID) error
-	List(context.Context) ([]gotato.ConversationID, error)
-}
-
-// ErrStaleState reports a Save whose StateVersion did not advance.
-func staleStateError(id gotato.ConversationID) error {
-	return gotatoError(gotato.ErrInvalidState, "stale state version for Conversation "+string(id))
-}
-
-type MemorySnapshotStore struct {
-	mu     sync.Mutex
-	states map[gotato.ConversationID]StoredState
-}
-
-func NewMemorySnapshotStore() *MemorySnapshotStore {
-	return &MemorySnapshotStore{states: make(map[gotato.ConversationID]StoredState)}
-}
-
-func (s *MemorySnapshotStore) Save(ctx context.Context, state StoredState) error {
-	if err := contextError(ctx); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if existing, ok := s.states[state.Record.ID]; ok && state.Record.StateVersion <= existing.Record.StateVersion {
-		return staleStateError(state.Record.ID)
-	}
-	s.states[state.Record.ID] = state.Clone()
-	return nil
-}
-
-func (s *MemorySnapshotStore) List(ctx context.Context) ([]gotato.ConversationID, error) {
-	if err := contextError(ctx); err != nil {
-		return nil, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ids := make([]gotato.ConversationID, 0, len(s.states))
-	for id := range s.states {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids, nil
-}
-
-func (s *MemorySnapshotStore) Load(ctx context.Context, id gotato.ConversationID) (StoredState, bool, error) {
-	if err := contextError(ctx); err != nil {
-		return StoredState{}, false, err
-	}
-	s.mu.Lock()
-	state, ok := s.states[id]
-	s.mu.Unlock()
-	if !ok {
-		return StoredState{}, false, nil
-	}
-	return state.Clone(), true, nil
-}
-
-func (s *MemorySnapshotStore) Delete(ctx context.Context, id gotato.ConversationID) error {
-	if err := contextError(ctx); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	delete(s.states, id)
-	s.mu.Unlock()
-	return nil
-}
-
-// Len reports how many Conversations the store retains. It exists so a caller
-// can assert that discarded state is really gone.
-func (s *MemorySnapshotStore) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.states)
+	New  func(context.Context, Request) (gotato.Agent, error)
 }
 
 type Option func(*Orchestrator)
-
-func WithSnapshotStore(store SnapshotStore) Option {
-	return func(o *Orchestrator) {
-		if store != nil {
-			o.store = store
-		}
-	}
-}
 
 // DefaultClosedRecords bounds how many closed Conversations stay addressable
 // so a late request gets a closed error instead of silently opening a new
@@ -196,10 +74,6 @@ type Limits struct {
 	MaxAgents int
 	// MaxActiveRuns caps Runs dispatched at the same time across all Agents.
 	MaxActiveRuns int
-	// IdleTTL is how long an AfterIdle Conversation may sit with no admitted
-	// Run before its Agent is retired. There is no default: selecting
-	// AfterIdle without setting it is a configuration error.
-	IdleTTL time.Duration
 	// Queue decides what happens to a request for a Conversation that is
 	// already running one. The default rejects.
 	Queue QueuePolicy
@@ -219,28 +93,6 @@ const (
 	// MaxQueuedPrompts. Waiting never bypasses an earlier request.
 	QueueFIFO QueuePolicy = "fifo"
 )
-
-// Timer is a scheduled callback that can be cancelled.
-type Timer interface{ Stop() bool }
-
-// Clock schedules idle retirement. A test substitutes one so idle behaviour
-// is asserted by advancing the clock rather than by sleeping.
-type Clock interface {
-	AfterFunc(time.Duration, func()) Timer
-}
-
-// WithClock replaces the scheduler used for idle retirement.
-func WithClock(clock Clock) Option {
-	return func(o *Orchestrator) {
-		if clock != nil {
-			o.clock = clock
-		}
-	}
-}
-
-type systemClock struct{}
-
-func (systemClock) AfterFunc(d time.Duration, f func()) Timer { return time.AfterFunc(d, f) }
 
 // WithLimits sets the coordination bounds.
 func WithLimits(limits Limits) Option {
@@ -276,8 +128,6 @@ type Orchestrator struct {
 	// FIFO mean FIFO: a later request never overtakes an earlier one, whatever
 	// Conversation each names.
 	queue   []*waiter
-	clock   Clock
-	store   SnapshotStore
 	seq     uint64
 	serving atomic.Bool
 }
@@ -341,7 +191,6 @@ func (o *Orchestrator) grantLocked() {
 			return
 		}
 		o.queue = o.queue[1:]
-		current.disarmIdle()
 		current.inFlight++
 		o.activeRuns++
 		head.granted = true
@@ -406,19 +255,6 @@ type entry struct {
 	agent    gotato.Agent
 	inFlight uint32
 	changed  chan struct{}
-	// policy is the retirement policy chosen when this Conversation was
-	// created. idleTimer is armed only while the Conversation is Active with
-	// no admitted Run.
-	policy    RetirementPolicy
-	idleTimer Timer
-}
-
-// disarmIdle cancels a pending idle retirement. The caller holds o.mu.
-func (e *entry) disarmIdle() {
-	if e.idleTimer != nil {
-		e.idleTimer.Stop()
-		e.idleTimer = nil
-	}
 }
 
 func New(options ...Option) *Orchestrator {
@@ -427,8 +263,6 @@ func New(options ...Option) *Orchestrator {
 		byID:        make(map[gotato.ConversationID]*entry),
 		byKey:       make(map[string]*entry),
 		closedLimit: DefaultClosedRecords,
-		clock:       systemClock{},
-		store:       NewMemorySnapshotStore(),
 	}
 	o.serving.Store(true)
 	for _, option := range options {
@@ -495,10 +329,8 @@ func (o *Orchestrator) resolveWithProvenance(ctx context.Context, request Reques
 				return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "active Conversation has no live Agent")
 			}
 			return current.agent, current.record.Clone(), nil
-		case ConversationRetiring:
-			return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "Conversation is retiring")
-		case ConversationDormant:
-			return o.rehydrateLocked(ctx, request, current)
+		case ConversationClosing:
+			return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "Conversation is closing")
 		default:
 			return nil, current.record.Clone(), gotatoError(gotato.ErrAgentClosed, "Conversation is closed")
 		}
@@ -511,124 +343,24 @@ func (o *Orchestrator) resolveWithProvenance(ctx context.Context, request Reques
 	if request.ExpectedGeneration != nil {
 		return nil, Record{}, gotatoError(gotato.ErrInvalidState, "expected generation has no matching Conversation")
 	}
-	policy := request.Retirement
-	if policy == "" {
-		policy = Retain
-	}
-	if err := o.validatePolicy(policy); err != nil {
-		return nil, Record{}, err
-	}
 	// A rejected request creates neither an Agent nor a Run, so capacity is
 	// reserved before the factory runs.
 	if err := o.reserveAgentLocked(); err != nil {
 		return nil, Record{}, err
 	}
 	id := gotato.ConversationID(nextID("conversation", &o.seq))
-	agent, err := def.New(ctx, request, nil)
+	agent, err := def.New(ctx, request)
 	if err != nil {
 		o.releaseAgentLocked()
 		return nil, Record{}, err
 	}
-	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, StateVersion: 1, Origin: origin}
-	current = &entry{record: record, agent: agent, changed: make(chan struct{}), policy: policy}
+	record := Record{ID: id, Key: request.ConversationKey, AgentName: request.AgentName, LiveAgentID: agentID(agent), Generation: 0, Status: ConversationActive, Origin: origin}
+	current = &entry{record: record, agent: agent, changed: make(chan struct{})}
 	o.byID[id] = current
 	if request.ConversationKey != "" {
 		o.byKey[key] = current
 	}
-	o.armIdleLocked(current)
 	return agent, record.Clone(), nil
-}
-
-// validatePolicy rejects a retirement policy the configuration cannot honour.
-// AfterIdle has no framework default TTL: it is a deployment decision.
-func (o *Orchestrator) validatePolicy(policy RetirementPolicy) error {
-	switch policy {
-	case Retain, AfterRun, Ephemeral:
-		return nil
-	case AfterIdle:
-		if o.limits.IdleTTL <= 0 {
-			return gotatoError(gotato.ErrInvalidArgument, "AfterIdle requires a configured IdleTTL")
-		}
-		return nil
-	default:
-		return gotatoError(gotato.ErrInvalidArgument, "unknown retirement policy: "+string(policy))
-	}
-}
-
-// armIdleLocked schedules idle retirement for an Active Conversation with no
-// admitted Run. A Busy Agent is never scheduled for eviction. The caller holds
-// o.mu.
-func (o *Orchestrator) armIdleLocked(current *entry) {
-	current.disarmIdle()
-	if current.policy != AfterIdle || o.limits.IdleTTL <= 0 {
-		return
-	}
-	if current.agent == nil || current.record.Status != ConversationActive || current.inFlight > 0 {
-		return
-	}
-	id := current.record.ID
-	generation := current.record.Generation
-	current.idleTimer = o.clock.AfterFunc(o.limits.IdleTTL, func() { o.retireIdle(id, generation) })
-}
-
-// retireIdle honours an expired idle TTL. It re-checks the fence because the
-// Conversation may have accepted a Run between the timer firing and this call.
-func (o *Orchestrator) retireIdle(id gotato.ConversationID, generation gotato.AgentGeneration) {
-	o.mu.Lock()
-	current := o.byID[id]
-	stale := current == nil || current.agent == nil ||
-		current.record.Generation != generation ||
-		current.record.Status != ConversationActive ||
-		current.inFlight > 0
-	o.mu.Unlock()
-	if stale {
-		return
-	}
-	_ = o.Retire(context.Background(), id, Retain)
-}
-
-func (o *Orchestrator) rehydrateLocked(ctx context.Context, request Request, current *entry) (gotato.Agent, Record, error) {
-	def, ok := o.defs[current.record.AgentName]
-	if !ok {
-		return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "Agent definition is unavailable")
-	}
-	if request.ExpectedGeneration != nil && current.record.Generation != *request.ExpectedGeneration {
-		return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "stale Agent generation")
-	}
-	// The store is the only authority for retained state. If it does not hold
-	// this Conversation, the state is gone and rehydration must fail rather
-	// than quietly start a fresh Agent under the same identity.
-	state, found, err := o.store.Load(ctx, current.record.ID)
-	if err != nil {
-		return nil, current.record.Clone(), gotatoError(gotato.ErrRetirementFailed, err.Error())
-	}
-	if !found {
-		return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "Dormant Conversation has no retained state")
-	}
-	if state.Record.StateVersion != current.record.StateVersion {
-		return nil, current.record.Clone(), gotatoError(gotato.ErrInvalidState, "retained state version does not match the route")
-	}
-	if err := o.reserveAgentLocked(); err != nil {
-		return nil, current.record.Clone(), err
-	}
-	snapshot := state.Snapshot
-	request.AgentName = current.record.AgentName
-	request.ConversationID = current.record.ID
-	request.ConversationKey = current.record.Key
-	agent, err := def.New(ctx, request, &snapshot)
-	if err != nil {
-		o.releaseAgentLocked()
-		return nil, current.record.Clone(), err
-	}
-	current.agent = agent
-	current.record.Generation++
-	current.record.LiveAgentID = agentID(agent)
-	current.record.Status = ConversationActive
-	current.record.StateVersion++
-	close(current.changed)
-	current.changed = make(chan struct{})
-	o.armIdleLocked(current)
-	return agent, current.record.Clone(), nil
 }
 
 // CancelRun requests cancellation of an active Run while retaining its Agent
@@ -716,46 +448,13 @@ func (l *dispatchLease) release() {
 	if l.o.activeRuns > 0 {
 		l.o.activeRuns--
 	}
-	var retireAfterRun bool
-	var generation gotato.AgentGeneration
-	if current := l.o.byID[l.id]; current != nil {
-		if current.inFlight > 0 {
-			current.inFlight--
-			close(current.changed)
-			current.changed = make(chan struct{})
-		}
-		if current.inFlight == 0 && current.record.Status == ConversationActive {
-			generation = current.record.Generation
-			switch current.policy {
-			case AfterRun:
-				retireAfterRun = true
-			case AfterIdle:
-				l.o.armIdleLocked(current)
-			}
-		}
+	if current := l.o.byID[l.id]; current != nil && current.inFlight > 0 {
+		current.inFlight--
+		close(current.changed)
+		current.changed = make(chan struct{})
 	}
 	l.o.grantLocked()
 	l.o.mu.Unlock()
-	if retireAfterRun {
-		// Retire takes the same lock, so it runs outside this critical
-		// section. The caller already has its RunResult.
-		go l.o.retireSettled(l.id, generation)
-	}
-}
-
-// retireSettled honours AfterRun once the Run that triggered it has settled.
-func (o *Orchestrator) retireSettled(id gotato.ConversationID, generation gotato.AgentGeneration) {
-	o.mu.Lock()
-	current := o.byID[id]
-	stale := current == nil || current.agent == nil ||
-		current.record.Generation != generation ||
-		current.record.Status != ConversationActive ||
-		current.inFlight > 0
-	o.mu.Unlock()
-	if stale {
-		return
-	}
-	_ = o.Retire(context.Background(), id, Retain)
 }
 
 func (o *Orchestrator) acquire(ctx context.Context, id gotato.ConversationID, generation gotato.AgentGeneration, expected *gotato.AgentGeneration) (*dispatchLease, error) {
@@ -798,8 +497,6 @@ func (o *Orchestrator) acquire(ctx context.Context, id gotato.ConversationID, ge
 		}
 		return o.waitForTurnLocked(ctx, id, generation, expected)
 	}
-	// A new admission cancels the idle countdown; it restarts from settlement.
-	current.disarmIdle()
 	current.inFlight++
 	o.activeRuns++
 	return &dispatchLease{o: o, id: id}, nil
@@ -843,12 +540,9 @@ func (o *Orchestrator) waitForTurnLocked(ctx context.Context, id gotato.Conversa
 	return &dispatchLease{o: o, id: id}, nil
 }
 
-func (o *Orchestrator) Retire(ctx context.Context, id gotato.ConversationID, policy RetirementPolicy) error {
+func (o *Orchestrator) closeLiveConversation(ctx context.Context, id gotato.ConversationID) error {
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	if policy == "" {
-		policy = Retain
 	}
 	o.mu.Lock()
 	current := o.byID[id]
@@ -856,19 +550,15 @@ func (o *Orchestrator) Retire(ctx context.Context, id gotato.ConversationID, pol
 		o.mu.Unlock()
 		return gotatoError(gotato.ErrInvalidArgument, "unknown Conversation")
 	}
-	if current.record.Status == ConversationDormant {
-		o.mu.Unlock()
-		return nil
-	}
 	if current.record.Status == ConversationClosed {
 		o.mu.Unlock()
 		return nil
 	}
 	if current.record.Status != ConversationActive {
 		o.mu.Unlock()
-		return gotatoError(gotato.ErrInvalidState, "Conversation is already retiring")
+		return gotatoError(gotato.ErrInvalidState, "Conversation is already closing")
 	}
-	current.record.Status = ConversationRetiring
+	current.record.Status = ConversationClosing
 	close(current.changed)
 	current.changed = make(chan struct{})
 	agent := current.agent
@@ -876,92 +566,34 @@ func (o *Orchestrator) Retire(ctx context.Context, id gotato.ConversationID, pol
 	o.mu.Unlock()
 
 	if err := o.waitEntryIdle(ctx, id); err != nil {
-		o.markRetirementFailed(id, generation, err)
+		o.markCloseFailed(id, generation, err)
 		return err
 	}
 	if waiter, ok := agent.(gotato.IdleWaiter); ok {
 		if err := waiter.WaitForIdle(ctx); err != nil {
-			o.markRetirementFailed(id, generation, err)
+			o.markCloseFailed(id, generation, err)
 			return err
 		}
 	}
-
-	var snapshot *gotato.CoreSnapshot
-	if policy != Ephemeral {
-		snapshotter, ok := agent.(gotato.Snapshotter)
-		if !ok {
-			err := gotatoError(gotato.ErrRetirementFailed, "Agent does not support snapshots")
-			o.markRetirementFailed(id, generation, err)
-			return err
-		}
-		captured, err := snapshotter.Snapshot(ctx)
-		if err != nil {
-			o.markRetirementFailed(id, generation, err)
-			return err
-		}
-		o.mu.Lock()
-		current = o.byID[id]
-		if current == nil || current.record.Generation != generation || current.record.Status != ConversationRetiring {
-			o.mu.Unlock()
-			return gotatoError(gotato.ErrInvalidState, "retirement fence changed")
-		}
-		current.record.StateVersion++
-		record := current.record.Clone()
-		o.mu.Unlock()
-		// The state reaches the store before the live route is removed. If
-		// this write fails the Conversation is not reported as retired.
-		if err := o.store.Save(ctx, StoredState{Record: record, Snapshot: captured}); err != nil {
-			o.markRetirementFailed(id, generation, err)
-			return gotatoError(gotato.ErrRetirementFailed, err.Error())
-		}
-		snapshot = &captured
-	}
-
 	if err := agent.Close(ctx); err != nil {
-		o.markRetirementFailed(id, generation, err)
-		return gotatoError(gotato.ErrRetirementFailed, err.Error())
+		o.markCloseFailed(id, generation, err)
+		return gotatoError(gotato.ErrInternalInvariant, "Agent close failed: "+err.Error())
 	}
+
 	o.mu.Lock()
 	current = o.byID[id]
-	if current == nil || current.record.Generation != generation || current.record.Status != ConversationRetiring {
+	if current == nil || current.record.Generation != generation || current.record.Status != ConversationClosing {
 		o.mu.Unlock()
-		return gotatoError(gotato.ErrInvalidState, "retirement fence changed")
+		return gotatoError(gotato.ErrInvalidState, "close fence changed")
 	}
 	current.agent = nil
-	current.disarmIdle()
 	o.releaseAgentLocked()
 	current.record.LiveAgentID = ""
-	current.record.StateVersion++
-	if policy == Ephemeral {
-		current.record.Status = ConversationClosed
-	} else {
-		current.record.Status = ConversationDormant
-	}
+	current.record.Status = ConversationClosed
 	close(current.changed)
 	current.changed = make(chan struct{})
-	finalRecord := current.record.Clone()
 	o.mu.Unlock()
-	if policy == Ephemeral {
-		// Discard retirement keeps nothing. A later request under the same
-		// key must not silently reuse this state. The route is reclaimed even
-		// when the store refuses: the index bound holds regardless of store
-		// health, and the failure is still reported.
-		o.tombstone(id)
-		if err := o.store.Delete(ctx, id); err != nil {
-			return gotatoError(gotato.ErrRetirementFailed, err.Error())
-		}
-		return nil
-	}
-	if err := o.store.Save(ctx, StoredState{Record: finalRecord, Snapshot: *snapshot}); err != nil {
-		o.mu.Lock()
-		if current := o.byID[id]; current != nil && current.record.Generation == generation {
-			current.record.Status = ConversationRetiring
-			close(current.changed)
-			current.changed = make(chan struct{})
-		}
-		o.mu.Unlock()
-		return gotatoError(gotato.ErrRetirementFailed, err.Error())
-	}
+	o.tombstone(id)
 	return nil
 }
 
@@ -987,16 +619,16 @@ func (o *Orchestrator) waitEntryIdle(ctx context.Context, id gotato.Conversation
 	}
 }
 
-func (o *Orchestrator) markRetirementFailed(id gotato.ConversationID, generation gotato.AgentGeneration, err error) {
+func (o *Orchestrator) markCloseFailed(id gotato.ConversationID, generation gotato.AgentGeneration, err error) {
 	o.mu.Lock()
-	if current := o.byID[id]; current != nil && current.record.Generation == generation && current.record.Status == ConversationRetiring {
-		keepRetiring := false
+	if current := o.byID[id]; current != nil && current.record.Generation == generation && current.record.Status == ConversationClosing {
+		keepClosing := false
 		if current.agent != nil {
 			if lifecycle, ok := current.agent.(gotato.AgentLifecycle); ok {
-				keepRetiring = lifecycle.Status() == gotato.AgentClosing || lifecycle.Status() == gotato.AgentClosed
+				keepClosing = lifecycle.Status() == gotato.AgentClosing || lifecycle.Status() == gotato.AgentClosed
 			}
 		}
-		if !keepRetiring {
+		if !keepClosing {
 			current.record.Status = ConversationActive
 		}
 		close(current.changed)
@@ -1013,7 +645,7 @@ func (o *Orchestrator) Get(id gotato.ConversationID) (Record, bool) {
 	if current == nil {
 		return Record{}, false
 	}
-	// The record is copied under the lock: a retirement running on another
+	// The record is copied under the lock: a close running on another
 	// goroutine may be rewriting it.
 	return current.record.Clone(), true
 }
@@ -1051,40 +683,30 @@ func (o *Orchestrator) CloseAgent(ctx context.Context, id gotato.AgentID) error 
 	}
 	conversationID := current.record.ID
 	o.mu.Unlock()
-	return o.closeConversation(ctx, conversationID, false)
+	return o.closeConversation(ctx, conversationID)
 }
 
 func (o *Orchestrator) CloseConversation(ctx context.Context, id gotato.ConversationID) error {
-	return o.closeConversation(ctx, id, true)
+	return o.closeConversation(ctx, id)
 }
 
-func (o *Orchestrator) closeConversation(ctx context.Context, id gotato.ConversationID, conversationClose bool) error {
+func (o *Orchestrator) closeConversation(ctx context.Context, id gotato.ConversationID) error {
 	o.mu.Lock()
 	current := o.byID[id]
 	if current == nil {
 		o.mu.Unlock()
 		return gotatoError(gotato.ErrInvalidArgument, "unknown Conversation")
 	}
-	if current.record.Status == ConversationDormant || current.record.Status == ConversationClosed {
-		if !conversationClose {
-			o.mu.Unlock()
-			return nil
-		}
-		current.record.Status = ConversationClosed
+	if current.record.Status == ConversationClosed {
 		o.mu.Unlock()
-		// Closing the business Conversation deletes its retained state.
-		o.tombstone(id)
-		if err := o.store.Delete(ctx, id); err != nil {
-			return gotatoError(gotato.ErrRetirementFailed, err.Error())
-		}
 		return nil
 	}
 	if current.record.Status != ConversationActive {
 		o.mu.Unlock()
-		return gotatoError(gotato.ErrInvalidState, "Conversation is already retiring")
+		return gotatoError(gotato.ErrInvalidState, "Conversation is already closing")
 	}
 	o.mu.Unlock()
-	return o.Retire(ctx, id, Ephemeral)
+	return o.closeLiveConversation(ctx, id)
 }
 
 // PendingAgent describes one Conversation that a drain could not settle.
@@ -1117,9 +739,8 @@ func (e *DrainIncomplete) Error() string {
 
 func (e *DrainIncomplete) Unwrap() error { return e.Cause }
 
-// Drain stops admission and retires every live Conversation with retention.
-// It reports the Conversations it could not settle instead of claiming that
-// every Agent closed.
+// Drain stops admission and closes every live Conversation. It reports the
+// Conversations it could not settle instead of claiming that every Agent closed.
 func (o *Orchestrator) Drain(ctx context.Context) error {
 	o.SetServing(false)
 	o.mu.Lock()
@@ -1132,7 +753,7 @@ func (o *Orchestrator) Drain(ctx context.Context) error {
 	o.mu.Unlock()
 	var first error
 	for _, id := range ids {
-		if err := o.Retire(ctx, id, Retain); err != nil && first == nil {
+		if err := o.closeLiveConversation(ctx, id); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -1143,13 +764,13 @@ func (o *Orchestrator) Drain(ctx context.Context) error {
 }
 
 // pendingAgents lists Conversations that still hold a live Agent or remain in
-// the Retiring transition.
+// the Closing transition.
 func (o *Orchestrator) pendingAgents() []PendingAgent {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	pending := make([]PendingAgent, 0)
 	for id, current := range o.byID {
-		if current.record.Status != ConversationActive && current.record.Status != ConversationRetiring {
+		if current.record.Status != ConversationActive && current.record.Status != ConversationClosing {
 			continue
 		}
 		if current.agent == nil && current.record.Status == ConversationActive {
@@ -1203,56 +824,4 @@ func contextError(ctx context.Context) error {
 }
 func gotatoError(code gotato.ErrorCode, message string) error {
 	return &gotato.RuntimeError{Code: code, Operation: "Orchestration", Message: message}
-}
-
-// Restore rebuilds the routing table from the store after a restart. Every
-// Conversation the store holds comes back Dormant with no live Agent: the
-// state survived the process, the Agent did not.
-//
-// A Conversation whose Agent definition is no longer registered is reported
-// rather than installed, because a route nobody can serve is worse than a
-// visible gap.
-func (o *Orchestrator) Restore(ctx context.Context) (int, error) {
-	if err := contextError(ctx); err != nil {
-		return 0, err
-	}
-	ids, err := o.store.List(ctx)
-	if err != nil {
-		return 0, err
-	}
-	restored := 0
-	var missing []string
-	for _, id := range ids {
-		state, found, loadErr := o.store.Load(ctx, id)
-		if loadErr != nil {
-			return restored, loadErr
-		}
-		if !found {
-			continue
-		}
-		o.mu.Lock()
-		if _, known := o.defs[state.Record.AgentName]; !known {
-			o.mu.Unlock()
-			missing = append(missing, string(id)+"="+string(state.Record.AgentName))
-			continue
-		}
-		if _, exists := o.byID[id]; exists {
-			o.mu.Unlock()
-			continue
-		}
-		record := state.Record.Clone()
-		record.Status = ConversationDormant
-		record.LiveAgentID = ""
-		current := &entry{record: record, changed: make(chan struct{}), policy: Retain}
-		o.byID[id] = current
-		if record.Key != "" {
-			o.byKey[routeKey(record.AgentName, record.Key)] = current
-		}
-		o.mu.Unlock()
-		restored++
-	}
-	if len(missing) > 0 {
-		return restored, gotatoError(gotato.ErrInvalidState, "no Agent definition for retained Conversations: "+strings.Join(missing, " "))
-	}
-	return restored, nil
 }
