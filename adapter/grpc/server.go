@@ -107,14 +107,6 @@ func (s *Server) GetConversation(ctx context.Context, request *gotatov1.Conversa
 	return recordOf(record), nil
 }
 
-func (s *Server) RetireConversation(ctx context.Context, request *gotatov1.RetireConversationRequest) (*gotatov1.ConversationRecord, error) {
-	record, err := s.service.RetireConversation(ctx, request.GetConversationId(), request.GetPolicy())
-	if err != nil {
-		return nil, statusOf(err)
-	}
-	return recordOf(record), nil
-}
-
 func (s *Server) CloseAgent(ctx context.Context, request *gotatov1.CloseAgentRequest) (*gotatov1.CloseAgentResponse, error) {
 	if err := s.service.CloseAgent(ctx, request.GetAgentId()); err != nil {
 		return nil, statusOf(err)
@@ -127,7 +119,6 @@ func commandOf(request *gotatov1.RunCommand) host.Command {
 		AgentName:       request.GetAgentName(),
 		ConversationID:  request.GetConversationId(),
 		ConversationKey: request.GetConversationKey(),
-		Retirement:      request.GetRetirement(),
 	}
 	if request.GetContinueInput() != nil {
 		command.Continue = true
@@ -184,7 +175,6 @@ func recordOf(record orchestration.Record) *gotatov1.ConversationRecord {
 		LiveAgentId:     string(record.LiveAgentID),
 		AgentGeneration: uint64(record.Generation),
 		Status:          string(record.Status),
-		StateVersion:    record.StateVersion,
 	}
 }
 

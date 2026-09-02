@@ -19,13 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Contract_FullMethodName           = "/gotato.v1.AgentService/Contract"
-	AgentService_Run_FullMethodName                = "/gotato.v1.AgentService/Run"
-	AgentService_StreamRun_FullMethodName          = "/gotato.v1.AgentService/StreamRun"
-	AgentService_CancelRun_FullMethodName          = "/gotato.v1.AgentService/CancelRun"
-	AgentService_GetConversation_FullMethodName    = "/gotato.v1.AgentService/GetConversation"
-	AgentService_RetireConversation_FullMethodName = "/gotato.v1.AgentService/RetireConversation"
-	AgentService_CloseAgent_FullMethodName         = "/gotato.v1.AgentService/CloseAgent"
+	AgentService_Contract_FullMethodName        = "/gotato.v1.AgentService/Contract"
+	AgentService_Run_FullMethodName             = "/gotato.v1.AgentService/Run"
+	AgentService_StreamRun_FullMethodName       = "/gotato.v1.AgentService/StreamRun"
+	AgentService_CancelRun_FullMethodName       = "/gotato.v1.AgentService/CancelRun"
+	AgentService_GetConversation_FullMethodName = "/gotato.v1.AgentService/GetConversation"
+	AgentService_CloseAgent_FullMethodName      = "/gotato.v1.AgentService/CloseAgent"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -47,9 +46,6 @@ type AgentServiceClient interface {
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
 	// GetConversation reports one routing record. It carries no transcript.
 	GetConversation(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*ConversationRecord, error)
-	// RetireConversation is a lifecycle operation, never a side effect of a
-	// stream ending.
-	RetireConversation(ctx context.Context, in *RetireConversationRequest, opts ...grpc.CallOption) (*ConversationRecord, error)
 	// CloseAgent closes one live Core Agent.
 	CloseAgent(ctx context.Context, in *CloseAgentRequest, opts ...grpc.CallOption) (*CloseAgentResponse, error)
 }
@@ -121,16 +117,6 @@ func (c *agentServiceClient) GetConversation(ctx context.Context, in *Conversati
 	return out, nil
 }
 
-func (c *agentServiceClient) RetireConversation(ctx context.Context, in *RetireConversationRequest, opts ...grpc.CallOption) (*ConversationRecord, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ConversationRecord)
-	err := c.cc.Invoke(ctx, AgentService_RetireConversation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *agentServiceClient) CloseAgent(ctx context.Context, in *CloseAgentRequest, opts ...grpc.CallOption) (*CloseAgentResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CloseAgentResponse)
@@ -160,9 +146,6 @@ type AgentServiceServer interface {
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
 	// GetConversation reports one routing record. It carries no transcript.
 	GetConversation(context.Context, *ConversationRequest) (*ConversationRecord, error)
-	// RetireConversation is a lifecycle operation, never a side effect of a
-	// stream ending.
-	RetireConversation(context.Context, *RetireConversationRequest) (*ConversationRecord, error)
 	// CloseAgent closes one live Core Agent.
 	CloseAgent(context.Context, *CloseAgentRequest) (*CloseAgentResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
@@ -189,9 +172,6 @@ func (UnimplementedAgentServiceServer) CancelRun(context.Context, *CancelRunRequ
 }
 func (UnimplementedAgentServiceServer) GetConversation(context.Context, *ConversationRequest) (*ConversationRecord, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetConversation not implemented")
-}
-func (UnimplementedAgentServiceServer) RetireConversation(context.Context, *RetireConversationRequest) (*ConversationRecord, error) {
-	return nil, status.Error(codes.Unimplemented, "method RetireConversation not implemented")
 }
 func (UnimplementedAgentServiceServer) CloseAgent(context.Context, *CloseAgentRequest) (*CloseAgentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CloseAgent not implemented")
@@ -300,24 +280,6 @@ func _AgentService_GetConversation_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AgentService_RetireConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RetireConversationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AgentServiceServer).RetireConversation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AgentService_RetireConversation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AgentServiceServer).RetireConversation(ctx, req.(*RetireConversationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AgentService_CloseAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CloseAgentRequest)
 	if err := dec(in); err != nil {
@@ -358,10 +320,6 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConversation",
 			Handler:    _AgentService_GetConversation_Handler,
-		},
-		{
-			MethodName: "RetireConversation",
-			Handler:    _AgentService_RetireConversation_Handler,
 		},
 		{
 			MethodName: "CloseAgent",

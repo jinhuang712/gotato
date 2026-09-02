@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -211,14 +210,6 @@ func TestFailedToolSetResolutionExposesNothing(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("open")); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := snapshot.Messages[2].ToolResult
-	if result.Status != ToolResultFailed || !strings.Contains(result.SafeError, "catalog is down") {
-		t.Fatalf("failed activation result = %+v", result)
-	}
 	second := model.toolIDs(1)
 	if slices.Contains(second, "files.read") {
 		t.Fatalf("failed ToolSet exposed Tools: %v", second)
@@ -370,13 +361,6 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	}
 	if len(commits) != 2 || commits[0] != "call-slow" || commits[1] != "call-fast" {
 		t.Fatalf("commitment did not follow source order: %v", commits)
-	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if TextOf(snapshot.Messages[2]) != "slow" || TextOf(snapshot.Messages[3]) != "fast" {
-		t.Fatalf("transcript order = %q, %q", TextOf(snapshot.Messages[2]), TextOf(snapshot.Messages[3]))
 	}
 }
 

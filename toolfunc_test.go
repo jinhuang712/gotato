@@ -155,24 +155,6 @@ func TestWithFuncRunsThroughTheLoop(t *testing.T) {
 	if seen.City != "Shenzhen" || seen.Unit != "celsius" {
 		t.Fatalf("decoded arguments = %+v", seen)
 	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	toolMessage := snapshot.Messages[2]
-	if toolMessage.Role != RoleToolResult || toolMessage.ToolResult.Status != ToolResultOK {
-		t.Fatalf("tool message = %+v", toolMessage)
-	}
-	if len(toolMessage.Parts) != 1 || toolMessage.Parts[0].Kind != ContentJSON {
-		t.Fatalf("tool content = %+v", toolMessage.Parts)
-	}
-	var output weatherOutput
-	if err := json.Unmarshal([]byte(toolMessage.Parts[0].Text), &output); err != nil {
-		t.Fatal(err)
-	}
-	if output.Summary != "sunny in Shenzhen" {
-		t.Fatalf("tool output = %+v", output)
-	}
 }
 
 func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
@@ -209,14 +191,6 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	defer agent.Close(context.Background())
 	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); err != nil {
 		t.Fatal(err)
-	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	toolResult := snapshot.Messages[2].ToolResult
-	if toolResult.Status != ToolResultFailed || !toolResult.Executed {
-		t.Fatalf("tool result = %+v", toolResult)
 	}
 }
 

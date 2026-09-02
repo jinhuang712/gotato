@@ -86,7 +86,7 @@ func (m failingModel) Stream(ctx context.Context, request gotato.ModelRequest) (
 func groupOrchestrator(t *testing.T, failing map[string]bool) *Orchestrator {
 	t.Helper()
 	o := New()
-	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request) (gotato.Agent, error) {
 		if failing[string(request.ConversationKey)] {
 			return gotato.NewAgent(gotato.WithModel(failingModel{}))
 		}
@@ -131,7 +131,7 @@ func TestGroupCollectPartialNeverFailsTheGroup(t *testing.T) {
 func TestGroupFailFastStopsWaitingWithoutCancellingSiblings(t *testing.T) {
 	release := make(chan struct{})
 	o := New()
-	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request) (gotato.Agent, error) {
 		if request.ConversationKey == "fails" {
 			return gotato.NewAgent(gotato.WithModel(failingModel{}))
 		}
@@ -160,7 +160,7 @@ func TestGroupCancelSiblingsIsOptIn(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
 	o := New()
-	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request) (gotato.Agent, error) {
 		if request.ConversationKey == "fails" {
 			return gotato.NewAgent(gotato.WithModel(failingModel{}))
 		}
@@ -206,7 +206,7 @@ func TestGroupHonoursTheCallerContext(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
 	o := New()
-	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request, snapshot *gotato.CoreSnapshot) (gotato.Agent, error) {
+	err := o.Register(Definition{Name: "default", New: func(ctx context.Context, request Request) (gotato.Agent, error) {
 		return gotato.NewAgent(gotato.WithModel(gatedTestModel{release: release}))
 	}})
 	if err != nil {

@@ -138,32 +138,7 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	_ = stream.Close()
 }
 
-func TestAgentPreservesReasoningArtifact(t *testing.T) {
-	artifact := []byte(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`)
-	model := &testModel{scripts: [][]ModelEvent{{
-		{Kind: ModelReasoningDelta, Text: "thinking"},
-		{Kind: ModelReasoningDone, ReasoningArtifact: artifact},
-		{Kind: ModelDone, StopReason: StopEndTurn},
-	}}}
-	agent, err := NewAgent(WithModel(model))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer agent.Close(context.Background())
-	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Messages) != 2 || len(snapshot.Messages[1].Parts) != 1 {
-		t.Fatalf("snapshot = %+v", snapshot.Messages)
-	}
-	if string(snapshot.Messages[1].Parts[0].Signature) != string(artifact) {
-		t.Fatalf("reasoning artifact = %q", snapshot.Messages[1].Parts[0].Signature)
-	}
-}
+
 
 func TestAgentCancelRun(t *testing.T) {
 	started := make(chan struct{}, 1)
@@ -311,7 +286,7 @@ func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
 }
 
-func TestAgentToolLoopAndSnapshot(t *testing.T) {
+func TestAgentToolLoop(t *testing.T) {
 	tool := &scriptedTool{}
 	agent, err := NewAgent(WithModel(&toolModel{}), WithTool(tool))
 	if err != nil {
@@ -329,13 +304,6 @@ func TestAgentToolLoopAndSnapshot(t *testing.T) {
 	tool.mu.Unlock()
 	if calls != 1 {
 		t.Fatalf("tool calls = %d", calls)
-	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Messages) != 4 {
-		t.Fatalf("snapshot messages = %d", len(snapshot.Messages))
 	}
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)

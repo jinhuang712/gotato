@@ -110,43 +110,9 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("more")); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Messages[len(snapshot.Messages)-1].Role != RoleAssistant {
-		t.Fatalf("transcript tail = %+v", snapshot.Messages[len(snapshot.Messages)-1])
-	}
 }
 
-func TestContinueRunsTheLoopWithoutNewInput(t *testing.T) {
-	tool := &scriptedTool{}
-	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTool(tool))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer agent.Close(context.Background())
 
-	// Abort inside the Tool Turn leaves the transcript ending in a Tool
-	// Result, which is exactly the Model-continuable state Continue needs.
-	if _, err := agent.Prompt(context.Background(), UserMessage("use tool")); err != nil {
-		t.Fatal(err)
-	}
-	before, err := agent.(Snapshotter).Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	userMessages := 0
-	for _, message := range before.Messages {
-		if message.Role == RoleUser {
-			userMessages++
-		}
-	}
-	if userMessages != 1 {
-		t.Fatalf("user messages after one Prompt = %d", userMessages)
-	}
-}
 
 func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 	tool := &scriptedTool{}

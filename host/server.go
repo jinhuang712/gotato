@@ -48,7 +48,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/runs/{run_id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /v1/runs/stream", s.runStream)
 	mux.HandleFunc("GET /v1/conversations/", s.conversation)
-	mux.HandleFunc("POST /v1/conversations/", s.conversationCommand)
 	mux.HandleFunc("POST /v1/agents/", s.agentCommand)
 	mux.HandleFunc("POST /admin/drain", s.drain)
 	return requestLog(mux)
@@ -304,30 +303,6 @@ func (s *Server) conversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, record)
 }
 
-func (s *Server) conversationCommand(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/v1/conversations/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 || parts[1] != "retire" {
-		writeError(w, http.StatusNotFound, "unknown conversation command")
-		return
-	}
-	var body struct {
-		Policy orchestration.RetirementPolicy `json:"policy"`
-	}
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := decodeJSON(r, &body); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	record, err := s.RetireConversation(r.Context(), parts[0], string(body.Policy))
-	if err != nil {
-		writeError(w, statusForError(err), err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, record)
-}
-
 func (s *Server) agentCommand(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v1/agents/")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -408,8 +383,6 @@ func statusForError(err error) int {
 			return http.StatusConflict
 		case gotato.ErrCancelled, gotato.ErrDeadlineExceeded:
 			return http.StatusRequestTimeout
-		case gotato.ErrRetirementFailed:
-			return http.StatusInternalServerError
 		}
 	}
 	return http.StatusInternalServerError

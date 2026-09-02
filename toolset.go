@@ -252,49 +252,6 @@ func (r *toolRegistry) inactiveNames() []string {
 	return names
 }
 
-// activeNames lists the currently active ToolSets. It goes into the Core
-// snapshot so a rehydrated Agent starts with the same visible Tools.
-func (r *toolRegistry) activeNames() []string {
-	names := make([]string, 0, len(r.sets))
-	for _, state := range r.sets {
-		if state.active {
-			names = append(names, state.spec.Name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-// restoreActive re-activates the ToolSets a snapshot recorded. A name the new
-// configuration no longer installs is a definition mismatch and fails
-// construction rather than silently dropping capability the transcript
-// already refers to.
-func (r *toolRegistry) restoreActive(names []string) error {
-	for _, name := range names {
-		found := false
-		for _, state := range r.sets {
-			if state.spec.Name != name {
-				continue
-			}
-			found = true
-			if state.active {
-				break
-			}
-			tools, err := resolveToolSet(context.Background(), state)
-			if err != nil {
-				return err
-			}
-			state.resolved = tools
-			state.active = true
-			break
-		}
-		if !found {
-			return runtimeError(ErrInvalidState, "WithInitialSnapshot", "snapshot activated an unknown ToolSet: "+name, nil)
-		}
-	}
-	return r.rebuild()
-}
-
 func (r *toolRegistry) activeCount() uint32 {
 	var count uint32
 	for _, state := range r.sets {

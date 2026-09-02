@@ -116,7 +116,6 @@ type RunCommand struct {
 	//	*RunCommand_ContinueInput
 	Input              isRunCommand_Input `protobuf_oneof:"input"`
 	ExpectedGeneration *uint64            `protobuf:"varint,6,opt,name=expected_generation,json=expectedGeneration,proto3,oneof" json:"expected_generation,omitempty"`
-	Retirement         string             `protobuf:"bytes,7,opt,name=retirement,proto3" json:"retirement,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -213,13 +212,6 @@ func (x *RunCommand) GetExpectedGeneration() uint64 {
 		return *x.ExpectedGeneration
 	}
 	return 0
-}
-
-func (x *RunCommand) GetRetirement() string {
-	if x != nil {
-		return x.Retirement
-	}
-	return ""
 }
 
 type isRunCommand_Conversation interface {
@@ -944,58 +936,6 @@ func (x *ConversationRequest) GetConversationId() string {
 	return ""
 }
 
-type RetireConversationRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	Policy         string                 `protobuf:"bytes,2,opt,name=policy,proto3" json:"policy,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *RetireConversationRequest) Reset() {
-	*x = RetireConversationRequest{}
-	mi := &file_gotato_v1_agent_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RetireConversationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RetireConversationRequest) ProtoMessage() {}
-
-func (x *RetireConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v1_agent_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RetireConversationRequest.ProtoReflect.Descriptor instead.
-func (*RetireConversationRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *RetireConversationRequest) GetConversationId() string {
-	if x != nil {
-		return x.ConversationId
-	}
-	return ""
-}
-
-func (x *RetireConversationRequest) GetPolicy() string {
-	if x != nil {
-		return x.Policy
-	}
-	return ""
-}
-
 type ConversationRecord struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId  string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
@@ -1004,14 +944,13 @@ type ConversationRecord struct {
 	LiveAgentId     string                 `protobuf:"bytes,4,opt,name=live_agent_id,json=liveAgentId,proto3" json:"live_agent_id,omitempty"`
 	AgentGeneration uint64                 `protobuf:"varint,5,opt,name=agent_generation,json=agentGeneration,proto3" json:"agent_generation,omitempty"`
 	Status          string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	StateVersion    uint64                 `protobuf:"varint,7,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ConversationRecord) Reset() {
 	*x = ConversationRecord{}
-	mi := &file_gotato_v1_agent_proto_msgTypes[14]
+	mi := &file_gotato_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1023,7 +962,7 @@ func (x *ConversationRecord) String() string {
 func (*ConversationRecord) ProtoMessage() {}
 
 func (x *ConversationRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v1_agent_proto_msgTypes[14]
+	mi := &file_gotato_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1036,7 +975,7 @@ func (x *ConversationRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConversationRecord.ProtoReflect.Descriptor instead.
 func (*ConversationRecord) Descriptor() ([]byte, []int) {
-	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ConversationRecord) GetConversationId() string {
@@ -1081,13 +1020,6 @@ func (x *ConversationRecord) GetStatus() string {
 	return ""
 }
 
-func (x *ConversationRecord) GetStateVersion() uint64 {
-	if x != nil {
-		return x.StateVersion
-	}
-	return 0
-}
-
 type CloseAgentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
@@ -1097,7 +1029,7 @@ type CloseAgentRequest struct {
 
 func (x *CloseAgentRequest) Reset() {
 	*x = CloseAgentRequest{}
-	mi := &file_gotato_v1_agent_proto_msgTypes[15]
+	mi := &file_gotato_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1109,7 +1041,7 @@ func (x *CloseAgentRequest) String() string {
 func (*CloseAgentRequest) ProtoMessage() {}
 
 func (x *CloseAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v1_agent_proto_msgTypes[15]
+	mi := &file_gotato_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1122,7 +1054,7 @@ func (x *CloseAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseAgentRequest.ProtoReflect.Descriptor instead.
 func (*CloseAgentRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CloseAgentRequest) GetAgentId() string {
@@ -1140,7 +1072,7 @@ type CloseAgentResponse struct {
 
 func (x *CloseAgentResponse) Reset() {
 	*x = CloseAgentResponse{}
-	mi := &file_gotato_v1_agent_proto_msgTypes[16]
+	mi := &file_gotato_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1152,7 +1084,7 @@ func (x *CloseAgentResponse) String() string {
 func (*CloseAgentResponse) ProtoMessage() {}
 
 func (x *CloseAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v1_agent_proto_msgTypes[16]
+	mi := &file_gotato_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1165,7 +1097,7 @@ func (x *CloseAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseAgentResponse.ProtoReflect.Descriptor instead.
 func (*CloseAgentResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_gotato_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 var File_gotato_v1_agent_proto protoreflect.FileDescriptor
@@ -1175,7 +1107,7 @@ const file_gotato_v1_agent_proto_rawDesc = "" +
 	"\x15gotato/v1/agent.proto\x12\tgotato.v1\"\x11\n" +
 	"\x0fContractRequest\",\n" +
 	"\x10ContractResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\tR\aversion\"\xe7\x02\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\"\xc7\x02\n" +
 	"\n" +
 	"RunCommand\x12\x1d\n" +
 	"\n" +
@@ -1184,10 +1116,7 @@ const file_gotato_v1_agent_proto_rawDesc = "" +
 	"\x10conversation_key\x18\x03 \x01(\tH\x00R\x0fconversationKey\x12\x18\n" +
 	"\x06prompt\x18\x04 \x01(\tH\x01R\x06prompt\x12A\n" +
 	"\x0econtinue_input\x18\x05 \x01(\v2\x18.gotato.v1.ContinueInputH\x01R\rcontinueInput\x124\n" +
-	"\x13expected_generation\x18\x06 \x01(\x04H\x02R\x12expectedGeneration\x88\x01\x01\x12\x1e\n" +
-	"\n" +
-	"retirement\x18\a \x01(\tR\n" +
-	"retirementB\x0e\n" +
+	"\x13expected_generation\x18\x06 \x01(\x04H\x02R\x12expectedGeneration\x88\x01\x01B\x0e\n" +
 	"\fconversationB\a\n" +
 	"\x05inputB\x16\n" +
 	"\x14_expected_generation\"\x0f\n" +
@@ -1247,10 +1176,7 @@ const file_gotato_v1_agent_proto_rawDesc = "" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\x13\n" +
 	"\x11CancelRunResponse\">\n" +
 	"\x13ConversationRequest\x12'\n" +
-	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\"\\\n" +
-	"\x19RetireConversationRequest\x12'\n" +
-	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x16\n" +
-	"\x06policy\x18\x02 \x01(\tR\x06policy\"\x93\x02\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\"\xee\x01\n" +
 	"\x12ConversationRecord\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10conversation_key\x18\x02 \x01(\tR\x0fconversationKey\x12\x1d\n" +
@@ -1258,18 +1184,16 @@ const file_gotato_v1_agent_proto_rawDesc = "" +
 	"agent_name\x18\x03 \x01(\tR\tagentName\x12\"\n" +
 	"\rlive_agent_id\x18\x04 \x01(\tR\vliveAgentId\x12)\n" +
 	"\x10agent_generation\x18\x05 \x01(\x04R\x0fagentGeneration\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12#\n" +
-	"\rstate_version\x18\a \x01(\x04R\fstateVersion\".\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\".\n" +
 	"\x11CloseAgentRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\x14\n" +
-	"\x12CloseAgentResponse2\x84\x04\n" +
+	"\x12CloseAgentResponse2\xa9\x03\n" +
 	"\fAgentService\x12C\n" +
 	"\bContract\x12\x1a.gotato.v1.ContractRequest\x1a\x1b.gotato.v1.ContractResponse\x123\n" +
 	"\x03Run\x12\x15.gotato.v1.RunCommand\x1a\x15.gotato.v1.RunOutcome\x12:\n" +
 	"\tStreamRun\x12\x15.gotato.v1.RunCommand\x1a\x14.gotato.v1.RunUpdate0\x01\x12F\n" +
 	"\tCancelRun\x12\x1b.gotato.v1.CancelRunRequest\x1a\x1c.gotato.v1.CancelRunResponse\x12P\n" +
-	"\x0fGetConversation\x12\x1e.gotato.v1.ConversationRequest\x1a\x1d.gotato.v1.ConversationRecord\x12Y\n" +
-	"\x12RetireConversation\x12$.gotato.v1.RetireConversationRequest\x1a\x1d.gotato.v1.ConversationRecord\x12I\n" +
+	"\x0fGetConversation\x12\x1e.gotato.v1.ConversationRequest\x1a\x1d.gotato.v1.ConversationRecord\x12I\n" +
 	"\n" +
 	"CloseAgent\x12\x1c.gotato.v1.CloseAgentRequest\x1a\x1d.gotato.v1.CloseAgentResponseB?Z=github.com/jinhuang712/gotato/adapter/grpc/gotato/v1;gotatov1b\x06proto3"
 
@@ -1285,25 +1209,24 @@ func file_gotato_v1_agent_proto_rawDescGZIP() []byte {
 	return file_gotato_v1_agent_proto_rawDescData
 }
 
-var file_gotato_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_gotato_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_gotato_v1_agent_proto_goTypes = []any{
-	(*ContractRequest)(nil),           // 0: gotato.v1.ContractRequest
-	(*ContractResponse)(nil),          // 1: gotato.v1.ContractResponse
-	(*RunCommand)(nil),                // 2: gotato.v1.RunCommand
-	(*ContinueInput)(nil),             // 3: gotato.v1.ContinueInput
-	(*RunOutcome)(nil),                // 4: gotato.v1.RunOutcome
-	(*Usage)(nil),                     // 5: gotato.v1.Usage
-	(*RunMetrics)(nil),                // 6: gotato.v1.RunMetrics
-	(*RuntimeError)(nil),              // 7: gotato.v1.RuntimeError
-	(*RunUpdate)(nil),                 // 8: gotato.v1.RunUpdate
-	(*RunEvent)(nil),                  // 9: gotato.v1.RunEvent
-	(*CancelRunRequest)(nil),          // 10: gotato.v1.CancelRunRequest
-	(*CancelRunResponse)(nil),         // 11: gotato.v1.CancelRunResponse
-	(*ConversationRequest)(nil),       // 12: gotato.v1.ConversationRequest
-	(*RetireConversationRequest)(nil), // 13: gotato.v1.RetireConversationRequest
-	(*ConversationRecord)(nil),        // 14: gotato.v1.ConversationRecord
-	(*CloseAgentRequest)(nil),         // 15: gotato.v1.CloseAgentRequest
-	(*CloseAgentResponse)(nil),        // 16: gotato.v1.CloseAgentResponse
+	(*ContractRequest)(nil),     // 0: gotato.v1.ContractRequest
+	(*ContractResponse)(nil),    // 1: gotato.v1.ContractResponse
+	(*RunCommand)(nil),          // 2: gotato.v1.RunCommand
+	(*ContinueInput)(nil),       // 3: gotato.v1.ContinueInput
+	(*RunOutcome)(nil),          // 4: gotato.v1.RunOutcome
+	(*Usage)(nil),               // 5: gotato.v1.Usage
+	(*RunMetrics)(nil),          // 6: gotato.v1.RunMetrics
+	(*RuntimeError)(nil),        // 7: gotato.v1.RuntimeError
+	(*RunUpdate)(nil),           // 8: gotato.v1.RunUpdate
+	(*RunEvent)(nil),            // 9: gotato.v1.RunEvent
+	(*CancelRunRequest)(nil),    // 10: gotato.v1.CancelRunRequest
+	(*CancelRunResponse)(nil),   // 11: gotato.v1.CancelRunResponse
+	(*ConversationRequest)(nil), // 12: gotato.v1.ConversationRequest
+	(*ConversationRecord)(nil),  // 13: gotato.v1.ConversationRecord
+	(*CloseAgentRequest)(nil),   // 14: gotato.v1.CloseAgentRequest
+	(*CloseAgentResponse)(nil),  // 15: gotato.v1.CloseAgentResponse
 }
 var file_gotato_v1_agent_proto_depIdxs = []int32{
 	3,  // 0: gotato.v1.RunCommand.continue_input:type_name -> gotato.v1.ContinueInput
@@ -1317,17 +1240,15 @@ var file_gotato_v1_agent_proto_depIdxs = []int32{
 	2,  // 8: gotato.v1.AgentService.StreamRun:input_type -> gotato.v1.RunCommand
 	10, // 9: gotato.v1.AgentService.CancelRun:input_type -> gotato.v1.CancelRunRequest
 	12, // 10: gotato.v1.AgentService.GetConversation:input_type -> gotato.v1.ConversationRequest
-	13, // 11: gotato.v1.AgentService.RetireConversation:input_type -> gotato.v1.RetireConversationRequest
-	15, // 12: gotato.v1.AgentService.CloseAgent:input_type -> gotato.v1.CloseAgentRequest
-	1,  // 13: gotato.v1.AgentService.Contract:output_type -> gotato.v1.ContractResponse
-	4,  // 14: gotato.v1.AgentService.Run:output_type -> gotato.v1.RunOutcome
-	8,  // 15: gotato.v1.AgentService.StreamRun:output_type -> gotato.v1.RunUpdate
-	11, // 16: gotato.v1.AgentService.CancelRun:output_type -> gotato.v1.CancelRunResponse
-	14, // 17: gotato.v1.AgentService.GetConversation:output_type -> gotato.v1.ConversationRecord
-	14, // 18: gotato.v1.AgentService.RetireConversation:output_type -> gotato.v1.ConversationRecord
-	16, // 19: gotato.v1.AgentService.CloseAgent:output_type -> gotato.v1.CloseAgentResponse
-	13, // [13:20] is the sub-list for method output_type
-	6,  // [6:13] is the sub-list for method input_type
+	14, // 11: gotato.v1.AgentService.CloseAgent:input_type -> gotato.v1.CloseAgentRequest
+	1,  // 12: gotato.v1.AgentService.Contract:output_type -> gotato.v1.ContractResponse
+	4,  // 13: gotato.v1.AgentService.Run:output_type -> gotato.v1.RunOutcome
+	8,  // 14: gotato.v1.AgentService.StreamRun:output_type -> gotato.v1.RunUpdate
+	11, // 15: gotato.v1.AgentService.CancelRun:output_type -> gotato.v1.CancelRunResponse
+	13, // 16: gotato.v1.AgentService.GetConversation:output_type -> gotato.v1.ConversationRecord
+	15, // 17: gotato.v1.AgentService.CloseAgent:output_type -> gotato.v1.CloseAgentResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1354,7 +1275,7 @@ func file_gotato_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gotato_v1_agent_proto_rawDesc), len(file_gotato_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

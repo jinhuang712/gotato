@@ -57,27 +57,8 @@ func TestBlackBoxLocalAgent(t *testing.T) {
 		t.Fatalf("second run = %+v", second)
 	}
 
-	// 6: explicit retirement makes the Conversation Dormant.
-	retired := post(t, client, base+"/v1/conversations/"+conversationID+"/retire", `{"policy":"retain"}`, http.StatusOK)
-	if retired["status"] != "dormant" || retired["live_agent_id"] != nil {
-		t.Fatalf("retired conversation = %+v", retired)
-	}
-
-	// 7: the next request rehydrates with a new AgentID and generation 1.
-	third := post(t, client, base+"/v1/runs", `{"agent_name":"default","conversation_key":"blackbox","prompt":"revived"}`, http.StatusOK)
-	if third["agent_id"] == firstAgent || third["agent_generation"].(float64) != 1 {
-		t.Fatalf("rehydrated run = %+v", third)
-	}
-	if third["final_message"] != "demo response: revived" {
-		t.Fatalf("rehydrated final message = %+v", third["final_message"])
-	}
-	secondAgent := third["agent_id"].(string)
-
-	// 8: the stale generation cannot dispatch.
-	post(t, client, base+"/v1/runs", `{"agent_name":"default","conversation_key":"blackbox","expected_generation":0,"prompt":"stale"}`, http.StatusConflict)
-
-	// 9: closing the live Agent stops new Prompts on that Conversation.
-	closed := post(t, client, base+"/v1/agents/"+secondAgent+"/close", `{}`, http.StatusOK)
+	// 6: closing the live Agent stops new Prompts on that Conversation.
+	closed := post(t, client, base+"/v1/agents/"+firstAgent+"/close", `{}`, http.StatusOK)
 	if closed["status"] != "closed" {
 		t.Fatalf("close response = %+v", closed)
 	}

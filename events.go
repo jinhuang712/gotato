@@ -51,10 +51,8 @@ type LifecycleKind string
 
 const (
 	LifecycleAgentCreated             LifecycleKind = "agent_created"
-	LifecycleAgentRetirementRequested LifecycleKind = "agent_retirement_requested"
 	LifecycleAgentClosing             LifecycleKind = "agent_closing"
 	LifecycleAgentClosed              LifecycleKind = "agent_closed"
-	LifecycleAgentRetirementFailed    LifecycleKind = "agent_retirement_failed"
 )
 
 type LifecycleEvent struct {

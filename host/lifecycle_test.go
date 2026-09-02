@@ -206,7 +206,7 @@ func TestHTTPDrainReportsIncompleteInsteadOfClaimingClosed(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	final, ok := hostServer.Orchestration.Get(conversationID)
-	if !ok || final.Status != orchestration.ConversationDormant || final.LiveAgentID != "" {
+	if !ok || final.Status != orchestration.ConversationClosed || final.LiveAgentID != "" {
 		t.Fatalf("conversation after completed drain = %+v", final)
 	}
 }
@@ -293,7 +293,6 @@ func TestConversationEndpointCarriesNoTranscript(t *testing.T) {
 	first := postJSON(t, server.URL+"/v1/runs",
 		`{"agent_name":"default","conversation_key":"opaque","prompt":"secret words"}`)
 	conversationID := first["conversation_id"].(string)
-	postJSON(t, server.URL+"/v1/conversations/"+conversationID+"/retire", `{"policy":"retain"}`)
 
 	response, err := http.Get(server.URL + "/v1/conversations/" + conversationID)
 	if err != nil {

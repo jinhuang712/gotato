@@ -1,13 +1,11 @@
 package gotato
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
-	"time"
 )
 
 type AgentID string
@@ -45,7 +43,7 @@ type ContentPart struct {
 	MIMEType string      `json:"mime_type,omitempty"`
 	// Signature is an opaque provider artifact, for example encrypted
 	// reasoning content required when replaying a stateless response API.
-	// Core carries it across snapshots but never interprets it.
+	// Core carries it across runtime operations but never interprets it.
 	Signature []byte            `json:"signature,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
@@ -186,33 +184,6 @@ func (r RunResult) Clone() RunResult {
 		out.Error = &e
 	}
 	return out
-}
-
-type CoreSnapshot struct {
-	Version            uint32    `json:"version"`
-	SystemInstructions string    `json:"system_instructions,omitempty"`
-	Messages           []Message `json:"messages"`
-	// ActiveToolSets records which optional ToolSets the Agent had activated.
-	// It is part of conversation state: a transcript that already mentions an
-	// activated ToolSet must rehydrate with those Tools still visible.
-	ActiveToolSets []string  `json:"active_toolsets,omitempty"`
-	StateVersion   uint64    `json:"state_version"`
-	CapturedAt     time.Time `json:"captured_at"`
-}
-
-func (s CoreSnapshot) Clone() CoreSnapshot {
-	out := s
-	out.Messages = make([]Message, len(s.Messages))
-	for i, m := range s.Messages {
-		out.Messages[i] = m.Clone()
-	}
-	out.ActiveToolSets = slices.Clone(s.ActiveToolSets)
-	return out
-}
-
-func (s CoreSnapshot) MarshalJSON() ([]byte, error) {
-	type snapshot CoreSnapshot
-	return json.Marshal(snapshot(s))
 }
 
 func nextID(prefix string) string {
