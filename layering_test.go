@@ -29,8 +29,7 @@ func TestLayering(t *testing.T) {
 		}
 	}
 	forbidden := []string{
-		modulePath + "/orchestration",
-		modulePath + "/host",
+		modulePath + "/service",
 		modulePath + "/adapter",
 		modulePath + "/cmd",
 		modulePath + "/gateway",

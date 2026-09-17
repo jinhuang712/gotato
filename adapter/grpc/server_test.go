@@ -2,14 +2,14 @@ package grpcadapter
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
-	"strings"
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato"
-	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/orchestration"
+	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,156 +17,177 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
+	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
 )
 
-func newTestClient(t *testing.T) (gotatov1.AgentServiceClient, *host.Server) {
+func newTestClient(t *testing.T) gotatov2.SessionServiceClient {
 	t.Helper()
-	o := orchestration.New()
-	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
-		options := []gotato.Option{gotato.WithModel(testkit.EchoModel{})}
-		return gotato.NewAgent(options...)
-	}})
+	runner, err := service.New(service.Config{
+		Store: session.NewMemoryStore(),
+		Specs: []service.AgentSpec{
+			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
+			{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostServer := host.NewServer(o)
-
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	New(hostServer).Register(grpcServer)
+	New(runner).Register(grpcServer)
 	go func() { _ = grpcServer.Serve(listener) }()
 
 	connection, err := grpc.NewClient("passthrough:///bufnet",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		connection.Close()
+		_ = connection.Close()
 		grpcServer.Stop()
-		listener.Close()
-		hostServer.Drain(context.Background())
 	})
-	return gotatov1.NewAgentServiceClient(connection), hostServer
+	return gotatov2.NewSessionServiceClient(connection)
 }
 
-func TestGRPCReportsTheSameContract(t *testing.T) {
-	client, hostServer := newTestClient(t)
-	response, err := client.Contract(context.Background(), &gotatov1.ContractRequest{})
+func TestContractAndAgents(t *testing.T) {
+	client := newTestClient(t)
+	contract, err := client.Contract(context.Background(), &gotatov2.ContractRequest{})
+	if err != nil || contract.GetVersion() != ContractVersion {
+		t.Fatalf("contract = %v err=%v", contract, err)
+	}
+	agents, err := client.Agents(context.Background(), &gotatov2.AgentsRequest{})
+	if err != nil || len(agents.GetAgents()) != 2 || agents.GetAgents()[0] != "echo" {
+		t.Fatalf("agents = %v err=%v", agents, err)
+	}
+}
+
+func TestRunOverGRPC(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	created, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "demo", Metadata: map[string]string{"k": "v"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both adapters answer for one contract; a second adapter must not drift
-	// into a second version of the semantics.
-	if response.GetVersion() != hostServer.Contract() {
-		t.Fatalf("contract = %q, host says %q", response.GetVersion(), hostServer.Contract())
-	}
-}
-
-func TestGRPCRunSettlesThroughTheHostBoundary(t *testing.T) {
-	client, _ := newTestClient(t)
-	outcome, err := client.Run(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-run"},
-		Input:        &gotatov1.RunCommand_Prompt{Prompt: "hello"},
-	})
+	result, err := client.Run(ctx, &gotatov2.RunRequest{SessionId: created.GetId(), Input: &gotatov2.RunRequest_Prompt{Prompt: "use-tool"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome.GetStatus() != string(gotato.RunCompleted) {
-		t.Fatalf("outcome = %+v", outcome)
+	if result.GetStatus() != "completed" || result.GetMetrics().GetToolCalls() != 1 || result.GetMessages() != 4 || result.GetFinalText() != "demo response: use-tool" {
+		t.Fatalf("result = %v", result)
 	}
-	if outcome.GetFinalMessage() != "echo: hello" {
-		t.Fatalf("final message = %q", outcome.GetFinalMessage())
+	doc, err := client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: created.GetId()})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if outcome.GetConversationId() == "" || outcome.GetAgentId() == "" || outcome.GetRunId() == "" {
-		t.Fatalf("outcome lost Core identity: %+v", outcome)
+	var document session.Document
+	if err := json.Unmarshal(doc.GetDocumentJson(), &document); err != nil || len(document.Messages) != 4 || document.Metadata["k"] != "v" {
+		t.Fatalf("document = %+v err=%v", document, err)
+	}
+	report, err := client.Context(ctx, &gotatov2.SessionRequest{SessionId: created.GetId()})
+	if err != nil || report.GetPrefixHash() == "" || report.GetSelectedMessages() != 4 {
+		t.Fatalf("context = %v err=%v", report, err)
+	}
+	oneShot, err := client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "hi"}})
+	if err != nil || oneShot.GetSessionId() == "" || oneShot.GetAgent() != "echo" {
+		t.Fatalf("one-shot = %v err=%v", oneShot, err)
+	}
+	list, err := client.ListSessions(ctx, &gotatov2.ListSessionsRequest{})
+	if err != nil || len(list.GetSessions()) != 2 {
+		t.Fatalf("list = %v err=%v", list, err)
 	}
 }
 
-func TestGRPCStreamPreservesEventOrderAndEndsWithTheOutcome(t *testing.T) {
-	client, _ := newTestClient(t)
-	stream, err := client.StreamRun(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-stream"},
-		Input:        &gotatov1.RunCommand_Prompt{Prompt: "hello"},
-	})
+func TestStreamRunEventsAndCompactFork(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{Agent: "demo", Input: &gotatov2.RunRequest_Prompt{Prompt: "use-tool"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var kinds []string
-	var sequences []uint64
-	var terminal *gotatov1.RunOutcome
+	var result *gotatov2.RunResult
 	for {
-		update, recvErr := stream.Recv()
-		if recvErr == io.EOF {
+		update, err := stream.Recv()
+		if err == io.EOF {
 			break
 		}
-		if recvErr != nil {
-			t.Fatal(recvErr)
+		if err != nil {
+			t.Fatal(err)
 		}
 		if event := update.GetEvent(); event != nil {
-			if terminal != nil {
-				t.Fatal("an Event arrived after the terminal outcome")
-			}
 			kinds = append(kinds, event.GetKind())
-			sequences = append(sequences, event.GetSequence())
-			if event.GetAgentId() == "" || event.GetEventClass() == "" {
-				t.Fatalf("wire Event lost Core identity or class: %+v", event)
-			}
-			if event.GetConversationId() == "" {
-				t.Fatalf("wire Event lost the routing metadata: %+v", event)
-			}
-			continue
 		}
-		terminal = update.GetOutcome()
-	}
-	if terminal == nil || terminal.GetStatus() != string(gotato.RunCompleted) {
-		t.Fatalf("terminal outcome = %+v", terminal)
-	}
-	if len(kinds) == 0 || kinds[0] != string(gotato.EventAgentStart) || kinds[len(kinds)-1] != string(gotato.EventAgentEnd) {
-		t.Fatalf("wire Event order = %v", kinds)
-	}
-	// Sequence is assigned by Core and must survive the wire unchanged.
-	for i := 1; i < len(sequences); i++ {
-		if sequences[i] <= sequences[i-1] {
-			t.Fatalf("wire Event sequence is not strictly increasing: %v", sequences)
+		if r := update.GetResult(); r != nil {
+			result = r
 		}
 	}
-	if sequences[0] != 1 {
-		t.Fatalf("first sequence = %d, want 1", sequences[0])
+	if result == nil || kinds[0] != "agent_start" || kinds[len(kinds)-1] != "agent_end" {
+		t.Fatalf("kinds=%v result=%v", kinds, result)
 	}
-}
-
-func TestGRPCRejectsAnAmbiguousCommand(t *testing.T) {
-	client, _ := newTestClient(t)
-	_, err := client.Run(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-bad"},
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("command with no input = %v", err)
+	id := result.GetSessionId()
+	for _, prompt := range []string{"a", "b"} {
+		if _, err := client.Run(ctx, &gotatov2.RunRequest{SessionId: id, Input: &gotatov2.RunRequest_Prompt{Prompt: prompt}}); err != nil {
+			t.Fatal(err)
+		}
 	}
-}
-
-func TestGRPCConversationRecordCarriesNoTranscript(t *testing.T) {
-	client, _ := newTestClient(t)
-	outcome, err := client.Run(context.Background(), &gotatov1.RunCommand{
-		AgentName:    "default",
-		Conversation: &gotatov1.RunCommand_ConversationKey{ConversationKey: "grpc-opaque"},
-		Input:        &gotatov1.RunCommand_Prompt{Prompt: "secret words"},
-	})
+	events, err := client.Events(ctx, &gotatov2.EventsRequest{SessionId: id, Kind: "context_built"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := client.GetConversation(context.Background(), &gotatov1.ConversationRequest{ConversationId: outcome.GetConversationId()})
-	if err != nil {
+	count := 0
+	for {
+		if _, err := events.Recv(); err != nil {
+			break
+		}
+		count++
+	}
+	if count != 4 {
+		t.Fatalf("context_built events = %d, want 4 (2 turns + 1 + 1)", count)
+	}
+	compact, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, Keep: 2})
+	if err != nil || !compact.GetReplaced() || compact.GetMessagesAfter() != 3 {
+		t.Fatalf("compact = %v err=%v", compact, err)
+	}
+	fork, err := client.ForkSession(ctx, &gotatov2.SessionRequest{SessionId: id})
+	if err != nil || fork.GetParentId() != id || fork.GetMessages() != 3 {
+		t.Fatalf("fork = %v err=%v", fork, err)
+	}
+	if _, err := client.DeleteSession(ctx, &gotatov2.SessionRequest{SessionId: fork.GetId()}); err != nil {
 		t.Fatal(err)
 	}
-	// The wire record is routing only, the same as the HTTP one.
-	if strings.Contains(record.String(), "secret words") {
-		t.Fatalf("wire record leaked the transcript: %s", record.String())
+}
+
+func TestErrorMapping(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		call func() error
+		code codes.Code
+	}{
+		{"missing session", func() error {
+			_, err := client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: "missing"})
+			return err
+		}, codes.NotFound},
+		{"unknown agent", func() error {
+			_, err := client.Run(ctx, &gotatov2.RunRequest{Agent: "nope", Input: &gotatov2.RunRequest_Prompt{Prompt: "x"}})
+			return err
+		}, codes.InvalidArgument},
+		{"empty prompt", func() error {
+			_, err := client.Run(ctx, &gotatov2.RunRequest{})
+			return err
+		}, codes.InvalidArgument},
+		{"cancel inactive", func() error {
+			_, err := client.CancelRun(ctx, &gotatov2.CancelRunRequest{Target: &gotatov2.CancelRunRequest_RunId{RunId: "nope"}})
+			return err
+		}, codes.FailedPrecondition},
+	}
+	for _, tc := range cases {
+		err := tc.call()
+		if status.Code(err) != tc.code {
+			t.Errorf("%s: code = %v (%v), want %v", tc.name, status.Code(err), err, tc.code)
+		}
 	}
 }

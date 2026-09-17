@@ -63,7 +63,7 @@ Gotato does not own durable application Tasks, task dependency graphs, integrati
 
 Applications that run many agents remain responsible for global concurrency, CPU/RAM protection, build/test limits, provider quotas, and other system-level resource policy. Gotato provides cancellable lightweight runs that such schedulers can control.
 
-The `orchestration` package in this repository is an optional service layer built on the runtime: an application-side scheduler, not part of the runtime foundation.
+The `service` package bounds concurrent Runs and serializes Runs per Session; it does not schedule CPU, memory, or provider quotas across agents. That remains the deploying application's responsibility.
 
 ### G-N04 — No Product UI
 
@@ -71,7 +71,7 @@ Gotato does not aim to become an IDE or desktop product. Its official CLI is a r
 
 ### G-N05 — No Mandatory Service Mode
 
-A server mode may exist (the repository contains an HTTP host and a gRPC adapter as an optional service layer), but library and CLI use must not depend on it.
+A server mode exists (`gotato serve`, `gotato-grpc`) and is a first-class way to use Gotato, but library and CLI use never depend on it: all three drive the same `service.Runner`, and the runtime packages never import the service.
 
 ### G-N06 — No Universal Memory Doctrine
 

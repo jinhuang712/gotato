@@ -198,7 +198,7 @@ Gotato must not own application-level concepts such as task graphs, worker pools
 
 Gotato may provide generic lower-level primitives that such systems use: sessions, contexts, events, tools, execution, and CLI access.
 
-Multi-agent coordination in this repository (routing, admission, retirement, remote exposure) is an **optional service layer built on the runtime**, not part of the runtime foundation. Core and standard runtime packages never depend on it.
+The service in this repository (`service`: a Session store, Agents created per Run, admission, cancellation, HTTP and gRPC adapters) is **built on the runtime**, not part of the runtime foundation. Core and standard runtime packages never depend on it, and it adds no Agent semantics: it composes Sessions, Agents, and Contexts exactly as an application would.
 
 ### G-D20 — No Mandatory Background Daemon
 
@@ -249,7 +249,7 @@ Packages remain layered so users depend only on what they need.
 ### G-D27 — Package Direction Must Remain Layered
 
 ```text
-applications / cmd/gotato / optional service layer (orchestration, host, adapters)
+applications / cmd/gotato / service (Runner, HTTP and gRPC adapters)
           |
           v
 standard runtime packages

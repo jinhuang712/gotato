@@ -49,6 +49,7 @@ bin/gotato context inspect "$id" --json
 bin/gotato context compact "$id" --keep 2 --json
 bin/gotato events --session "$id" | jq -r .kind
 bin/gotato tools list --json
+bin/gotato serve --addr 127.0.0.1:8787        # the same runner as an HTTP service
 ```
 
 Stdout is data, stderr is diagnostics, exit codes are documented. The full contract is in [cmd/gotato/README.md](cmd/gotato/README.md).
@@ -76,6 +77,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 - **Tools** are capabilities with identity, schema, execution, and structured results. The **Tool Registry** registers, lists, describes, activates, and deactivates them; the agent picks up changes at each Turn boundary. `ToolSet`s add model-driven staged activation.
 - **Events** are structured facts on a Go-native stream; **Extensions** wrap the loop at bounded stages (context transform, pre/post tool, observer, turn stopper).
 - **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI never calls a paid model.
+- **Service** is the runtime turned outward: a `service.Runner` owns a Session store and a set of `AgentSpec`s; every request loads a Session, builds an Agent, runs it, closes it, saves the Session. Agents are created and discarded per Run; continuity lives in the store, so any process holding the store can serve any Session. HTTP (`service/httpapi`) and gRPC (`adapter/grpc`) are thin adapters over it.
 
 ## Packages
 
@@ -87,10 +89,12 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 | | `toolregistry` | Registry (register/unregister/lookup/list/describe/activate/deactivate, change hooks) |
 | | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
 | providers | `gateway` | OpenAI-compatible Chat Completions and Responses adapters (API key), YAML config |
-| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor` |
-| optional service layer | `orchestration`, `host`, `adapter/grpc`, `cmd/gotato-agent` | multi-agent routing, admission and retirement; HTTP and gRPC exposure; reference daemon. Built on the runtime, never imported by it. |
+| service | `service` | `Runner`: a store of Sessions, an Agent created per Run and discarded; AgentSpecs, per-Session single flight, admission, cancellation, drain |
+| | `service/httpapi` | HTTP adapter over the Runner (sessions, runs, SSE streaming, events, context, compaction) |
+| | `adapter/grpc` (module) | gRPC adapter over the Runner (`SessionService` v2) and the `gotato-grpc` binary |
+| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` |
 
-Dependency direction is enforced by a test: the core imports only the standard library; standard runtime packages never import the service layer.
+Dependency direction is enforced by a test: the core imports only the standard library; standard runtime packages never import the service or adapters. Library, CLI, HTTP, and gRPC all drive the same `service.Runner`.
 
 ## Governance
 

@@ -1,0 +1,183 @@
+syntax = "proto3";
+
+package gotato.v2;
+
+option go_package = "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2;gotatov2";
+
+// SessionService is one protocol adapter over service.Runner: a store of
+// Sessions and Agents created per Run. It defines no Agent or Session
+// semantics of its own; every RPC maps onto one Runner method.
+service SessionService {
+  // Contract reports the adapter contract version.
+  rpc Contract(ContractRequest) returns (ContractResponse);
+
+  // Agents lists the registered AgentSpec names; the first is the default.
+  rpc Agents(AgentsRequest) returns (AgentsResponse);
+
+  // CreateSession creates an empty Session bound to an AgentSpec.
+  rpc CreateSession(CreateSessionRequest) returns (SessionSummary);
+  // GetSession returns the full Session document as JSON.
+  rpc GetSession(SessionRequest) returns (SessionDocument);
+  // ListSessions lists Session summaries, newest first.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // DeleteSession removes a Session.
+  rpc DeleteSession(SessionRequest) returns (DeleteSessionResponse);
+  // ForkSession creates a new Session from an existing one.
+  rpc ForkSession(SessionRequest) returns (SessionSummary);
+
+  // Run executes one Run and returns the settled result. An empty
+  // session_id creates a Session.
+  rpc Run(RunRequest) returns (RunResult);
+  // StreamRun executes one Run while streaming its runtime Events; the
+  // terminal RunResult is the last message on the stream.
+  rpc StreamRun(RunRequest) returns (stream RunUpdate);
+  // CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
+  // Run is not active rather than pretending to cancel.
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+
+  // Events returns the retained runtime Events of a Session.
+  rpc Events(EventsRequest) returns (stream Event);
+  // Context reports what the Model would see for the Session now.
+  rpc Context(SessionRequest) returns (ContextReport);
+  // Compact replaces a Session prefix with a summary.
+  rpc Compact(CompactRequest) returns (CompactResult);
+}
+
+message ContractRequest {}
+message ContractResponse { string version = 1; }
+
+message AgentsRequest {}
+message AgentsResponse { repeated string agents = 1; }
+
+message CreateSessionRequest {
+  string agent = 1;
+  string id = 2;
+  map<string, string> metadata = 3;
+}
+
+message SessionRequest { string session_id = 1; }
+
+message SessionSummary {
+  string id = 1;
+  string parent_id = 2;
+  string created_at = 3;
+  string updated_at = 4;
+  int32 messages = 5;
+  int32 runs = 6;
+  Usage usage = 7;
+  map<string, string> metadata = 8;
+}
+
+// SessionDocument carries the session.Document as JSON so the adapter never
+// redefines the Session schema.
+message SessionDocument { bytes document_json = 1; }
+
+message ListSessionsRequest {}
+message ListSessionsResponse { repeated SessionSummary sessions = 1; }
+message DeleteSessionResponse { bool deleted = 1; }
+
+message RunRequest {
+  string session_id = 1;
+  string agent = 2;
+  oneof input {
+    string prompt = 3;
+    ContinueInput continue_input = 4;
+  }
+  map<string, string> metadata = 5;
+}
+message ContinueInput {}
+
+message RunResult {
+  string session_id = 1;
+  string agent = 2;
+  string model = 3;
+  string run_id = 4;
+  string status = 5;
+  string final_text = 6;
+  Usage usage = 7;
+  RunMetrics metrics = 8;
+  RuntimeError error = 9;
+  bool compacted = 10;
+  int32 messages = 11;
+  int32 events = 12;
+}
+
+message Usage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 total_tokens = 3;
+}
+
+message RunMetrics {
+  int64 elapsed_ms = 1;
+  uint32 turns = 2;
+  uint32 tool_calls = 3;
+  uint64 text_bytes = 4;
+  uint64 reasoning_bytes = 5;
+}
+
+message RuntimeError {
+  string code = 1;
+  string operation = 2;
+  string message = 3;
+}
+
+message RunUpdate {
+  oneof update {
+    Event event = 1;
+    RunResult result = 2;
+  }
+}
+
+// Event preserves runtime identity, class, correlation, and order. The
+// payload travels as JSON with the keys documented in the root package.
+message Event {
+  string agent_id = 1;
+  string run_id = 2;
+  uint64 sequence = 3;
+  string kind = 4;
+  string event_class = 5;
+  uint32 turn = 6;
+  string message_id = 7;
+  string tool_call_id = 8;
+  bytes payload_json = 9;
+  string timestamp = 10;
+}
+
+message CancelRunRequest {
+  oneof target {
+    string run_id = 1;
+    string session_id = 2;
+  }
+}
+message CancelRunResponse {}
+
+message EventsRequest {
+  string session_id = 1;
+  string kind = 2;
+}
+
+// ContextReport carries the modelctx.Report as JSON plus the fields a client
+// needs without decoding it.
+message ContextReport {
+  string session_id = 1;
+  string prefix_hash = 2;
+  int32 approx_tokens = 3;
+  int32 selected_messages = 4;
+  bytes report_json = 5;
+}
+
+message CompactRequest {
+  string session_id = 1;
+  int32 keep = 2;
+}
+
+message CompactResult {
+  string session_id = 1;
+  bool replaced = 2;
+  int32 messages_before = 3;
+  int32 messages_after = 4;
+  int32 tokens_before = 5;
+  int32 tokens_after = 6;
+  bytes compaction_json = 7;
+}

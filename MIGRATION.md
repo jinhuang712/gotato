@@ -37,14 +37,26 @@ Every Turn now emits one protected `context_built` event before the model reques
 
 `run --context SPEC` and the `window:N` / `summary:N` strategies do not exist. Within a session the model sees the whole history; use `--compact-ceiling N` for automatic compaction and `--panel time,cwd` for per-turn dynamic content. The run outcome field `context` is replaced by `compacted`.
 
+### Service: `orchestration` + `host` → `service`; wire contract 2
+
+`orchestration`, `host`, and `cmd/gotato-agent` are removed. The service is `service.Runner` (a Session store plus Agents created per Run) with `service/httpapi` over HTTP (`ContractVersion "2"`) and `adapter/grpc` over gRPC (`gotato.v2.SessionService`, replacing `gotato.v1.AgentService`). The unit of identity is the Session ID; there are no Conversation keys, agent generations, retirement, or spawn groups. Derived work is `session.Fork` plus another Run.
+
+| Before | After |
+|---|---|
+| `POST /v1/runs {"agent_name","conversation_key","prompt"}` | `POST /v1/sessions {"agent"}` then `POST /v1/sessions/{id}/runs {"prompt"}`, or `POST /v1/runs {"prompt","agent"}` for create-and-run |
+| `POST /v1/runs/stream` (SSE) | `POST /v1/sessions/{id}/runs/stream` or `POST /v1/runs/stream` (SSE: `event: <kind>` … `event: result`) |
+| `POST /v1/runs/async`, `GET /v1/runs/{id}`, `POST /v1/runs/progress` | removed; use the stream or a client-side job |
+| `POST /v1/runs/{run_id}/cancel` | same, plus `POST /v1/sessions/{id}/cancel` |
+| `GET /v1/conversations/{id}` | `GET /v1/sessions/{id}` (full document) |
+| `POST /v1/agents/{id}/close`, `/admin/drain` | removed; Agents live for one Run; drain happens on process shutdown |
+| `go run ./cmd/gotato-agent` | `gotato serve` (HTTP) or `go run ./adapter/grpc/cmd/gotato-grpc` |
+
+Removed from the root package: `SpawnID`, `Event.SpawnID`, `Event.OriginRunID`, `AgentName`, `ConversationID`, `ConversationKey`, `AgentGeneration`, `LifecycleEvent.ConversationID`, `LifecycleEvent.Generation`. Store lineage and tenancy in `Session.Metadata`.
+
 ### Gateway: API-key only, Responses instead of Codex
 
 The `pi_oauth` auth type, the `chatgpt.com/backend-api` default, the `originator: pi` / `chatgpt-account-id` headers, and all reading or writing of `~/.pi/agent/auth.json` are removed. The gateway is a service-level adapter and authenticates with `api_key` only. `api: openai-codex-responses` is accepted as an alias for `api: openai-responses`, which now targets `https://api.openai.com/v1/responses` by default; `api: openai-completions` is an alias for `openai-chat-completions`. A YAML file with `auth.type: pi_oauth` fails to load with an explicit message.
 
-### Deprecations (removal planned with the next wire `ContractVersion`)
-
-- `gotato.SpawnID`, `Event.SpawnID`, `Event.OriginRunID` — orchestration provenance is application metadata, not a runtime type. Store lineage in `Session.Metadata` or in your own records.
-
 ### Unchanged
 
-The `Agent` interface, `NewAgent` and every existing `With*` option, message/tool/model/event/extension types, `CoreLimits` semantics (`DefaultLimits()` is newly exported so partial overrides are possible), the `gateway` YAML schema, and the HTTP/gRPC wire contract `ContractVersion "1"`.
+The `Agent` interface, `NewAgent` and every existing `With*` option, message/tool/model/extension types, `CoreLimits` semantics (`DefaultLimits()` is newly exported so partial overrides are possible), and the `gateway` YAML schema apart from the auth change above.

@@ -57,22 +57,16 @@ const (
 //	session_compacted       session_id, replaced_messages, summary_message_id, summarizer
 
 type Event struct {
-	AgentID    AgentID    `json:"agent_id"`
-	RunID      RunID      `json:"run_id"`
-	Sequence   uint64     `json:"sequence"`
-	Kind       EventKind  `json:"kind"`
-	Class      EventClass `json:"event_class"`
-	Turn       TurnNumber `json:"turn,omitempty"`
-	MessageID  MessageID  `json:"message_id,omitempty"`
-	ToolCallID ToolCallID `json:"tool_call_id,omitempty"`
-	// SpawnID and OriginRunID carry application provenance for the optional
-	// orchestration layer. They are not runtime semantics.
-	//
-	// Deprecated: store provenance in Session or application metadata.
-	SpawnID     SpawnID        `json:"spawn_id,omitempty"`
-	OriginRunID RunID          `json:"origin_run_id,omitempty"`
-	Payload     map[string]any `json:"payload,omitempty"`
-	Timestamp   time.Time      `json:"timestamp"`
+	AgentID    AgentID        `json:"agent_id"`
+	RunID      RunID          `json:"run_id"`
+	Sequence   uint64         `json:"sequence"`
+	Kind       EventKind      `json:"kind"`
+	Class      EventClass     `json:"event_class"`
+	Turn       TurnNumber     `json:"turn,omitempty"`
+	MessageID  MessageID      `json:"message_id,omitempty"`
+	ToolCallID ToolCallID     `json:"tool_call_id,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
+	Timestamp  time.Time      `json:"timestamp"`
 }
 
 type LifecycleKind string
@@ -84,12 +78,10 @@ const (
 )
 
 type LifecycleEvent struct {
-	Kind           LifecycleKind   `json:"kind"`
-	AgentID        AgentID         `json:"agent_id"`
-	ConversationID string          `json:"conversation_id,omitempty"`
-	Generation     AgentGeneration `json:"agent_generation,omitempty"`
-	Reason         string          `json:"reason,omitempty"`
-	Timestamp      time.Time       `json:"timestamp"`
+	Kind      LifecycleKind `json:"kind"`
+	AgentID   AgentID       `json:"agent_id"`
+	Reason    string        `json:"reason,omitempty"`
+	Timestamp time.Time     `json:"timestamp"`
 }
 
 type EventStream interface {

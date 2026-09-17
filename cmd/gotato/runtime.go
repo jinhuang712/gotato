@@ -6,30 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/gateway"
-	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
-	"github.com/jinhuang712/gotato/toolregistry"
 )
 
-// Session metadata keys the CLI owns. They are ordinary application metadata
-// from the runtime's point of view.
-const (
-	metaInstruction    = "gotato.instruction"
-	metaModel          = "gotato.model"
-	metaCompactCeiling = "gotato.compact_ceiling"
-	metaPanel          = "gotato.panel"
-	metaToolPrefix     = "gotato.tool."
-)
-
-// modelFlags are the model-selection flags shared by run and compact.
+// modelFlags select the agent (model) and gateway configuration.
 type modelFlags struct {
 	model         string
 	gatewayConfig string
@@ -39,43 +27,9 @@ type modelFlags struct {
 func (c *cli) bindModel(fs interface {
 	StringVar(*string, string, string, string)
 }, flags *modelFlags) {
-	fs.StringVar(&flags.model, "model", "", "model: echo (default), demo, or gateway")
+	fs.StringVar(&flags.model, "model", "", "agent/model: echo (default), demo, or gateway")
 	fs.StringVar(&flags.gatewayConfig, "gateway-config", "", "YAML config for --model gateway (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
-	fs.StringVar(&flags.instruction, "instruction", "", "system instruction for the agent")
-}
-
-// buildModel resolves the Model. The chosen name is returned so it can be
-// recorded in the Session.
-func (c *cli) buildModel(flags modelFlags, s *session.Session) (gotato.Model, string, error) {
-	name := flags.model
-	if name == "" && s != nil {
-		name, _ = s.Get(metaModel)
-	}
-	if name == "" {
-		name = c.getenv("GOTATO_MODEL")
-	}
-	if name == "" {
-		name = "echo"
-	}
-	switch name {
-	case "echo":
-		return testkit.EchoModel{}, name, nil
-	case "demo":
-		return testkit.DemoModel{}, name, nil
-	case "gateway":
-		path := c.gatewayConfigPath(flags)
-		config, err := gateway.LoadYAML(path)
-		if err != nil {
-			return nil, name, fmt.Errorf("gateway config %s: %w", path, err)
-		}
-		client, err := gateway.New(config)
-		if err != nil {
-			return nil, name, err
-		}
-		return client, name, nil
-	default:
-		return nil, name, gotato.ErrorOf(gotato.ErrInvalidArgument, "unknown model "+name+" (use echo, demo, or gateway)")
-	}
+	fs.StringVar(&flags.instruction, "instruction", "", "system instruction stored in the session")
 }
 
 func (c *cli) gatewayConfigPath(flags modelFlags) string {
@@ -88,82 +42,83 @@ func (c *cli) gatewayConfigPath(flags modelFlags) string {
 	return "gateway.yaml"
 }
 
-// builtinRegistry is the Tool surface the CLI offers. Tools are optional
+// builtinTools is the Tool surface every CLI agent offers. Tools are optional
 // capabilities; a Session may deactivate any of them.
-func builtinRegistry() *toolregistry.Registry {
+func builtinTools() []gotato.Tool {
 	now, err := gotato.NewFuncTool("time.now", "Returns the current time in RFC 3339 format.", func(context.Context, struct{}) (string, error) {
 		return time.Now().UTC().Format(time.RFC3339), nil
 	})
 	if err != nil {
 		panic(err)
 	}
-	return toolregistry.New(testkit.DemoEchoTool(), now)
+	return []gotato.Tool{testkit.DemoEchoTool(), now}
 }
 
-// registryFor applies a Session's tool activation metadata to the builtin
-// registry.
-func registryFor(s *session.Session) *toolregistry.Registry {
-	reg := builtinRegistry()
-	if s == nil {
-		return reg
-	}
-	for key, value := range s.Metadata() {
-		if !strings.HasPrefix(key, metaToolPrefix) {
-			continue
-		}
-		id := strings.TrimPrefix(key, metaToolPrefix)
-		if value == "inactive" {
-			_ = reg.Deactivate(id)
-		}
-	}
-	return reg
+// cliRuntime is the CLI's service.Runner plus the diagnostics gathered while
+// building it. The CLI, `gotato serve`, and gotato-grpc all run the same
+// Runner; the CLI simply drives it in-process.
+type cliRuntime struct {
+	runner     *service.Runner
+	store      session.Store
+	storeDir   string
+	gatewayErr error
+	gatewayCfg string
 }
 
-// contextBuilderFor composes the one strategy (append-only full history)
-// with the CLI's dynamic panel. panelSpec is a comma-separated list of
-// "time" and "cwd"; empty means no panel.
-func contextBuilderFor(panelSpec string) (gotato.ContextBuilder, error) {
-	builder := modelctx.FullHistory()
-	items := splitList(panelSpec)
-	if len(items) == 0 {
-		return builder, nil
+const defaultInstruction = "You are a helpful assistant."
+
+// newRuntime builds the Runner: echo and demo are always registered; gateway
+// is registered when its YAML loads.
+func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
+	store, dir, err := c.store()
+	if err != nil {
+		return nil, err
 	}
-	for _, item := range items {
-		if item != "time" && item != "cwd" {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "unknown panel item "+item+" (use time, cwd)")
-		}
+	tools := builtinTools()
+	specs := []service.AgentSpec{
+		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
+		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
-	return modelctx.WithPanel(builder, func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
-		blocks := make([]gotato.Block, 0, len(items))
-		for _, item := range items {
-			switch item {
-			case "time":
-				blocks = append(blocks, modelctx.Time(time.Now()))
-			case "cwd":
-				if wd, err := os.Getwd(); err == nil {
-					blocks = append(blocks, modelctx.Text("cwd", wd))
-				}
-			}
-		}
-		return blocks, nil
-	}), nil
+	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
+	if config, err := gateway.LoadYAML(rt.gatewayCfg); err != nil {
+		rt.gatewayErr = err
+	} else if client, err := gateway.New(config); err != nil {
+		rt.gatewayErr = err
+	} else {
+		specs = append(specs, service.AgentSpec{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools})
+	}
+	runner, err := service.New(service.Config{Store: store, Specs: specs})
+	if err != nil {
+		return nil, err
+	}
+	rt.runner = runner
+	return rt, nil
 }
 
-func splitList(spec string) []string {
-	var out []string
-	for _, item := range strings.Split(spec, ",") {
-		if item = strings.TrimSpace(item); item != "" {
-			out = append(out, item)
-		}
+// resolveAgent validates a --model value against the registered agents. An
+// empty result means "the session's agent, or the default".
+func (rt *cliRuntime) resolveAgent(name string, env func(string) string) (string, error) {
+	if name == "" {
+		name = env("GOTATO_MODEL")
 	}
-	return out
+	if name == "" {
+		return "", nil
+	}
+	if _, ok := rt.runner.Spec(name); ok {
+		return name, nil
+	}
+	if name == "gateway" && rt.gatewayErr != nil {
+		return "", fmt.Errorf("gateway config %s: %w", rt.gatewayCfg, rt.gatewayErr)
+	}
+	return "", gotato.ErrorOf(gotato.ErrInvalidArgument, "unknown model "+name+" (use echo, demo, or gateway)")
 }
 
-// runOutcome is the JSON shape of a completed run command.
+// runOutcome is the JSON shape of the run command.
 type runOutcome struct {
 	SessionID    string               `json:"session_id"`
 	RunID        gotato.RunID         `json:"run_id"`
 	Status       gotato.RunStatus     `json:"status"`
+	Agent        string               `json:"agent"`
 	Model        string               `json:"model"`
 	Compacted    bool                 `json:"compacted"`
 	FinalText    string               `json:"final_text,omitempty"`
@@ -175,120 +130,53 @@ type runOutcome struct {
 	Events       int                  `json:"events"`
 }
 
-// runOptions configures executeRun.
-type runOptions struct {
-	prompt         string
-	continueRun    bool
+func outcomeOf(result service.RunResult) runOutcome {
+	return runOutcome{
+		SessionID:    result.SessionID,
+		RunID:        result.Result.RunID,
+		Status:       result.Result.Status,
+		Agent:        result.Agent,
+		Model:        result.Model,
+		Compacted:    result.Compacted,
+		FinalText:    result.FinalText,
+		FinalMessage: result.Result.FinalMessage,
+		Usage:        result.Result.Usage,
+		Metrics:      result.Result.Metrics,
+		Error:        result.Result.Error,
+		Messages:     result.Messages,
+		Events:       result.Events,
+	}
+}
+
+// sessionSettings are the per-session settings the CLI writes as metadata;
+// the service honors them on every run.
+type sessionSettings struct {
+	instruction    string
 	panel          string
 	compactCeiling int
-	model          modelFlags
-	eventSink      func(gotato.Event) error
 }
 
-// executeRun composes the runtime exactly as an application would: a Session
-// as Transcript, a Recorder, a ContextBuilder, a Tool Registry, one Agent.
-func (c *cli) executeRun(ctx context.Context, s *session.Session, opts runOptions) (runOutcome, error) {
-	model, modelName, err := c.buildModel(opts.model, s)
-	if err != nil {
-		return runOutcome{}, err
+func (s sessionSettings) apply(set func(key, value string)) error {
+	if s.instruction != "" {
+		set(service.MetaInstruction, s.instruction)
 	}
-	panelSpec := opts.panel
-	if panelSpec == "" {
-		panelSpec, _ = s.Get(metaPanel)
-	}
-	builder, err := contextBuilderFor(panelSpec)
-	if err != nil {
-		return runOutcome{}, err
-	}
-	ceiling := opts.compactCeiling
-	if ceiling == 0 {
-		if stored, ok := s.Get(metaCompactCeiling); ok {
-			ceiling, _ = strconv.Atoi(stored)
+	if s.panel != "" {
+		if _, err := service.PanelFromSpec(s.panel, nil); err != nil {
+			return err
 		}
+		set(service.MetaPanel, s.panel)
 	}
-	instruction := opts.model.instruction
-	if instruction == "" {
-		instruction, _ = s.Get(metaInstruction)
+	if s.compactCeiling > 0 {
+		set(service.MetaCompactCeiling, strconv.Itoa(s.compactCeiling))
 	}
-	if instruction == "" {
-		instruction = "You are a helpful assistant."
-	}
-	s.Set(metaModel, modelName)
-	s.Set(metaInstruction, instruction)
-	s.Set(metaPanel, panelSpec)
-	if ceiling > 0 {
-		s.Set(metaCompactCeiling, strconv.Itoa(ceiling))
-	}
-
-	extensions := []any{session.Record(s)}
-	var auto *modelctx.AutoCompactor
-	if ceiling > 0 {
-		auto = modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: ceiling})
-		extensions = append(extensions, auto)
-	}
-	if opts.eventSink != nil {
-		extensions = append(extensions, sinkObserver{fn: opts.eventSink})
-	}
-	agent, err := gotato.NewAgent(
-		gotato.WithModel(model),
-		gotato.WithInstruction(instruction),
-		gotato.WithTranscript(s),
-		gotato.WithContextBuilder(builder),
-		gotato.WithToolSource(registryFor(s)),
-		gotato.WithExtensions(extensions...),
-	)
-	if err != nil {
-		return runOutcome{}, err
-	}
-	defer agent.Close(context.Background())
-
-	var result gotato.RunResult
-	if opts.continueRun {
-		controllable, ok := agent.(gotato.ControllableAgent)
-		if !ok {
-			return runOutcome{}, gotato.ErrorOf(gotato.ErrNotSupported, "agent does not support continue")
-		}
-		result, err = controllable.Continue(ctx)
-	} else {
-		result, err = agent.Prompt(ctx, gotato.UserMessage(opts.prompt))
-	}
-	outcome := runOutcome{
-		SessionID: s.ID(),
-		RunID:     result.RunID,
-		Status:    result.Status,
-		Model:     modelName,
-		Usage:     result.Usage,
-		Metrics:   result.Metrics,
-		Error:     result.Error,
-		Messages:  s.Len(),
-		Events:    len(s.Events()),
-	}
-	if auto != nil {
-		_, runs := auto.Last()
-		outcome.Compacted = runs > 0
-	}
-	if result.FinalMessage != nil {
-		outcome.FinalMessage = result.FinalMessage
-		outcome.FinalText = gotato.TextOf(*result.FinalMessage)
-	}
-	if err != nil && outcome.Error == nil {
-		var runtimeErr *gotato.RuntimeError
-		if errors.As(err, &runtimeErr) {
-			outcome.Error = runtimeErr
-		} else {
-			outcome.Error = gotato.ErrorOf(gotato.ErrInternalInvariant, err.Error())
-		}
-		if outcome.Status == "" {
-			outcome.Status = gotato.RunFailed
-		}
-	}
-	return outcome, nil
+	return nil
 }
 
-type sinkObserver struct{ fn func(gotato.Event) error }
-
-func (o sinkObserver) Observe(_ context.Context, event gotato.Event) error { return o.fn(event) }
-func (o sinkObserver) Advisory() bool                                      { return true }
+func (s sessionSettings) metadata() (map[string]string, error) {
+	out := map[string]string{}
+	err := s.apply(func(key, value string) { out[key] = value })
+	return out, err
+}
 
 // readPrompt returns the prompt from positionals or, when "-" is given, from
 // stdin.
@@ -313,13 +201,4 @@ func (c *cli) readPrompt(positionals []string) (string, error) {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

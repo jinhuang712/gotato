@@ -358,14 +358,14 @@ func TestExitCodes(t *testing.T) {
 
 func TestRunIncompleteExitCode(t *testing.T) {
 	h := newHarness(t)
-	// A 1ns command deadline cancels the run before the model answers.
+	// A 1ns run deadline settles the run as deadline_exceeded.
 	code, out, _ := h.run("run", "--timeout", "1ns", "--json", "hello")
 	if code != ExitRunIncomplete {
 		t.Fatalf("exit = %d\n%s", code, out)
 	}
 	var outcome runOutcome
 	h.mustJSON(out, &outcome)
-	if outcome.Status == gotato.RunCompleted || outcome.Error == nil {
+	if outcome.Status != gotato.RunDeadlineExceeded || outcome.Error == nil || outcome.SessionID == "" {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 }

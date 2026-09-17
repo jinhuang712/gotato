@@ -23,7 +23,7 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 - **Keep Session generic.** No task graphs, project state, worktrees, or product workflow fields. Application semantics live in `Metadata`.
 - **Keep Context as model-view construction**, not a synonym for Session.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it with no server, daemon, or database.
-- **No mandatory daemon.** `cmd/gotato-agent`, `host`, `adapter/grpc`, and `orchestration` are optional service-layer packages. Core and standard runtime packages must never import them.
+- **No mandatory daemon.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service; they are built on the runtime and add no Agent semantics. Core and standard runtime packages must never import them.
 - **No UI logic in Gotato.** CLI output for humans is fine; widgets, TUIs, and desktop state are not.
 - **CLI and library share runtime semantics.** `cmd/gotato` is a thin client of the packages. If you need a behavior in the CLI, add it to a package first.
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
@@ -39,7 +39,7 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
    ```bash
    go test ./session/...                 # focused
    gofmt -l . && go vet ./... && go test -race ./...   # full, root module
-   (cd adapter/grpc && go test ./...)    # when you touched host/orchestration or root types it maps
+   (cd adapter/grpc && go test ./...)    # when you touched service or root types it maps
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.

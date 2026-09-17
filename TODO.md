@@ -18,16 +18,16 @@
 | --- | --- | --- | --- |
 | [T01](#t01-三种-id-用进程内计数器重启后撞车) | 三种 ID 用进程内计数器,重启后撞车 | P0 | 已修复 |
 | [T02](#t02-core-空消息校验放过空文本-part) | Core 空消息校验放过空文本 Part | P0 | 已修复 |
-| [T03](#t03-hostorchestration-的-continue-退化为空-prompt) | Host/Orchestration 的 Continue 退化为空 Prompt | P0 | 未开始 |
+| [T03](#t03-hostorchestration-的-continue-退化为空-prompt) | Host/Orchestration 的 Continue 退化为空 Prompt | P0 | 已由 service 重写消解 |
 | [T04](#t04-部分填写的-withlimits-让-agent-不可用) | 部分填写的 WithLimits 让 Agent 不可用 | P1 | 已修复 |
 | [T05](#t05-每次事件订阅泄漏一个-goroutine) | 每次事件订阅泄漏一个 goroutine | P1 | 已修复 |
-| [T06](#t06-stream-路径不按-runid-过滤fifo-下串事件) | Stream 路径不按 RunID 过滤,FIFO 下串事件 | P1 | 未开始 |
+| [T06](#t06-stream-路径不按-runid-过滤fifo-下串事件) | Stream 路径不按 RunID 过滤,FIFO 下串事件 | P1 | 已由 service 重写消解 |
 | [T07](#t07-commitmessage-每次提交重新序列化整份-transcript) | commitMessage 每次提交重新序列化整份 transcript | P1 | 已修复 |
-| [T08](#t08-drain-超时不-abort进程退出丢失会话状态) | drain 超时不 Abort,进程退出丢失会话状态 | P1 | 未开始 |
+| [T08](#t08-drain-超时不-abort进程退出丢失会话状态) | drain 超时不 Abort,进程退出丢失会话状态 | P1 | 已由 service 重写消解 |
 | [T09](#t09-waitforidle-存在丢失唤醒的窗口) | WaitForIdle 存在丢失唤醒的窗口 | P2 | 未开始 |
 | [T10](#t10-toolprogress-计数器无同步保护) | ToolProgress 计数器无同步保护 | P2 | 未开始 |
-| [T11](#t11-codex-适配器的外部风险与缺测) | Codex 适配器的外部风险与缺测 | P2 | 未开始 |
-| [T12](#t12-管理端点无鉴权请求日志中间件是空实现) | 管理端点无鉴权,请求日志中间件是空实现 | P2 | 未开始 |
+| [T11](#t11-codex-适配器的外部风险与缺测) | Codex 适配器的外部风险与缺测 | P2 | 已修复(去除 Pi 凭据) |
+| [T12](#t12-管理端点无鉴权请求日志中间件是空实现) | 管理端点无鉴权,请求日志中间件是空实现 | P2 | 已由 service 重写消解 |
 | [T13](#t13-文档与代码漂移清单) | 文档与代码漂移清单 | P2 | 未开始 |
 | [T14](#t14-工程卫生cilicenselint) | 工程卫生:CI、LICENSE、lint | P2 | 未开始 |
 | [T15](#t15-小项) | 小项 | P2 | 未开始 |
@@ -36,24 +36,24 @@
 
 | 编号 | 问题 | 依赖决策 | 状态 |
 | --- | --- | --- | --- |
-| [A01](#a01-最小-agent-接口是名义上的) | 最小 Agent 接口是名义上的 | 无 | 待决策 |
-| [A02](#a02-core-并不-tight) | Core 并不 tight | 无 | 待决策 |
-| [A03](#a03-没有压缩长会话必死) | 没有压缩,长会话必死 | D01 | 待决策 |
-| [A04](#a04-持久化只在退休时发生) | 持久化只在退休时发生 | D01 | 待决策 |
+| [A01](#a01-最小-agent-接口是名义上的) | 最小 Agent 接口是名义上的 | 无 | 已由 service 重写消解 |
+| [A02](#a02-core-并不-tight) | Core 并不 tight | 无 | 已实现(session/modelctx/toolregistry/testkit) |
+| [A03](#a03-没有压缩长会话必死) | 没有压缩,长会话必死 | D01 | 已实现(session/modelctx/toolregistry/testkit) |
+| [A04](#a04-持久化只在退休时发生) | 持久化只在退休时发生 | D01 | 已实现(session/modelctx/toolregistry/testkit) |
 | [A05](#a05-provider-表示泄进了-core-身份字段) | Provider 表示泄进了 Core 身份字段 | 无 | 待决策 |
 | [A06](#a06-event-payload-没有-schema) | Event payload 没有 schema | 无 | 待决策 |
-| [A07](#a07-host-层混杂且最不差异化) | Host 层混杂且最不差异化 | D02 | 待决策 |
+| [A07](#a07-host-层混杂且最不差异化) | Host 层混杂且最不差异化 | D02 | 已由 service 重写消解 |
 | [A08](#a08-extension-默认阻塞并在-agent-goroutine-内运行) | Extension 默认阻塞并在 Agent goroutine 内运行 | 无 | 待决策 |
 | [A09](#a09-规范强度高于实现成熟度) | 规范强度高于实现成熟度 | 无 | 待决策 |
-| [A10](#a10-orchestrator-单锁单进程) | Orchestrator 单锁单进程 | D02 | 待决策 |
+| [A10](#a10-orchestrator-单锁单进程) | Orchestrator 单锁单进程 | D02 | 已由 service 重写消解 |
 
 ### 定位决策
 
 | 编号 | 决策 | 建议 | 状态 |
 | --- | --- | --- | --- |
 | [D01](#d01-产品论点的兑现顺序) | 产品论点的兑现顺序 | 先压缩与提交日志,再广度 | 待拍板 |
-| [D02](#d02-embedded-还是-hosted) | Embedded 还是 Hosted | 收紧到 Embedded,Host 作参考部署 | 待拍板 |
-| [D03](#d03-与-pi-的关系) | 与 Pi 的关系 | 二选一,不要悬着 | 待拍板 |
+| [D02](#d02-embedded-还是-hosted) | Embedded 还是 Hosted | 两者都支持:同一 service.Runner,库 / CLI / HTTP / gRPC 一条路径 | 已拍板 |
+| [D03](#d03-与-pi-的关系) | 与 Pi 的关系 | 独立项目:gateway 只认 api_key | 已拍板 |
 | [D04](#d04-广度补哪些) | 广度补哪些 | MCP ToolSet、Anthropic 适配器、testkit、一个真实集成示例 | 待拍板 |
 
 ---

@@ -147,7 +147,7 @@ Root `events.go` (payload keys documented per kind).
 
 ## G-F16 — CLI: `gotato run` `[done]`
 
-`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -`.
+`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--timeout D] [--json | --events jsonl] [--continue] "prompt" | -`. The CLI drives a `service.Runner` in-process: the same code path as `gotato serve` and `gotato-grpc`.
 
 ## G-F17 — CLI: Session Operations `[done]`
 
@@ -187,13 +187,21 @@ Root governance documents, package doc comments, `cmd/gotato/README.md` (exit co
 
 ---
 
-## Optional Service Layer (built on the runtime)
+## Service (the runtime as a service) `[done]`
 
-| Package | Status | Note |
+| Item | Status | Where |
 |---|---|---|
-| `orchestration` | done | routing by agent name and conversation key, admission limits, retirement, drain, spawn groups |
-| `host` | done | protocol-independent `Service` boundary and HTTP handlers |
-| `adapter/grpc` | done, separate module | gRPC over `host.Service` |
-| `cmd/gotato-agent` | done | HTTP reference daemon |
+| Runner: Session store + Agent per Run | done | `service.Runner`, `service.AgentSpec`, `RunRequest`, `RunResult` |
+| per-Session single flight | done | `service.Admission.Queue` (`reject` → busy, `wait` → queue) |
+| capacity bound, drain | done | `Admission.MaxActiveRuns`, `Runner.Drain` (cancels after grace) |
+| cancellation | done | `Runner.CancelRun(runID)`, `Runner.CancelSession(id)` via `Agent.Abort` so the settled result is returned |
+| per-run deadline | done | `RunRequest.Timeout` → `RunDeadline`; settles as `deadline_exceeded` |
+| Session settings honored per run | done | metadata `gotato.agent`, `gotato.instruction`, `gotato.panel`, `gotato.compact_ceiling`, `gotato.tool.<id>` |
+| inspection / compaction / fork | done | `Runner.Inspect`, `Runner.Compact` (under the Session lock), `Runner.Fork`, `Runner.Tools`, `Runner.SetToolActive` |
+| HTTP adapter | done | `service/httpapi` (`ContractVersion "2"`): sessions, runs, SSE stream, events, context, compact, cancel |
+| gRPC adapter | done | `adapter/grpc` module, `gotato.v2.SessionService`, `gotato-grpc` binary |
+| `gotato serve` | done | the CLI runs the same Runner behind `httpapi` |
+| multi-process Session lease | missing | the Session lock is process-local; a Store-level lease is planned for multi-replica deployments |
+| middleware (auth, logging) | by design | wrap the `http.Handler` / use gRPC interceptors; the adapters carry none |
 
-These packages depend on the runtime; the runtime never depends on them. Regrouping them under one `service/` umbrella, with a wire `ContractVersion` bump that removes the deprecated provenance fields from core types, is planned.
+The service depends on the runtime; the runtime never depends on the service (`layering_test.go`).

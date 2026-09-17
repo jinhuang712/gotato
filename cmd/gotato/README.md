@@ -1,6 +1,6 @@
 # `gotato` CLI Contract
 
-The `gotato` command is the official runtime interface for humans, shell automation, and coding agents. It is a thin client of the Gotato packages: every behavior below is composed from `session`, `modelctx`, `toolregistry`, `testkit`, `gateway`, and the root package, exactly as an application would compose them.
+The `gotato` command is the official runtime interface for humans, shell automation, and coding agents. It drives a `service.Runner` in-process: the same object `gotato serve` exposes over HTTP and `gotato-grpc` over gRPC. Nothing below is CLI-only behavior.
 
 ```bash
 go build -o bin/gotato ./cmd/gotato
@@ -16,7 +16,7 @@ go build -o bin/gotato ./cmd/gotato
 | `--jsonl` | one JSON object per line on stdout |
 | `--quiet` | suppress human status lines that are not errors |
 | `--no-color` | accepted; output never contains ANSI color |
-| `--timeout D` | overall deadline for the command (`30s`, `2m`); a run cut short exits 4 |
+| `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For other commands: the command deadline |
 | `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions` |
 | failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}` |
 | flags | accepted before or after positional arguments |
@@ -64,7 +64,7 @@ Creates a session when `--session` is omitted. `-` reads the prompt from stdin. 
 ```json
 {
   "session_id": "…", "run_id": "…", "status": "completed",
-  "model": "demo", "compacted": false,
+  "agent": "demo", "model": "demo", "compacted": false,
   "final_text": "…", "final_message": { … },
   "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
   "metrics": {"elapsed_ms": 0, "turns": 2, "tool_calls": 1, "text_bytes": 23, "reasoning_bytes": 0},
@@ -105,7 +105,7 @@ Compaction permanently replaces the messages before the last `--keep` (aligned t
 
 | Command | Output (`--json`) |
 |---|---|
-| `tools list [--session ID]` | `{session_id?, tools:[{id, name, description, input_schema, sequential, active}]}` |
+| `tools list [--session ID] [--model M]` | `{session_id?, agent?, tools:[{id, name, description, input_schema, sequential, active}]}` |
 | `tools describe <id> [--session ID]` | one tool entry |
 | `tools active [--session ID]` | active tools only |
 | `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>` |
@@ -128,6 +128,27 @@ Default output is JSON Lines, one runtime `Event` per line, in production order:
 ```
 
 `--json` prints one array instead. Event payload keys per kind are documented in `events.go` of the root package.
+
+### `gotato serve`
+
+```text
+gotato serve [--addr HOST:PORT] [--max-runs N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
+```
+
+Serves the same runner over HTTP (`service/httpapi`, contract `2`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
+
+```text
+GET    /healthz  /readyz  /v1/agents
+POST   /v1/sessions            GET /v1/sessions            GET|DELETE /v1/sessions/{id}
+POST   /v1/sessions/{id}/fork  GET /v1/sessions/{id}/events?kind=   GET /v1/sessions/{id}/context
+POST   /v1/sessions/{id}/compact {"keep":N}
+POST   /v1/sessions/{id}/runs {"prompt"|"continue":true,"timeout_ms"?}     → run result
+POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result
+POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
+POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        → create session and run
+```
+
+Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 504 (deadline). Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server stops admitting, waits `--drain-timeout` for active runs, then cancels them.
 
 ### `gotato doctor`
 

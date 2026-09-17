@@ -11,7 +11,7 @@ Legend: `[done]` landed · `[partial]` landed with listed gaps · `[next]` not s
 Goal: make the core the core, and make the seams the new primitives need.
 
 - [x] Governance docs (`PHILOSOPHY`, `DESIGN`, `GOALS`, `FEATURES`, `PROPOSAL`, `AGENTS`, `GITFLOW`) + audit + this plan.
-- [x] `layering_test.go`: root package imports stdlib only; `session`/`modelctx`/`toolregistry`/`testkit` never import `orchestration`/`host`/`adapter`/`cmd`.
+- [x] `layering_test.go`: root package imports stdlib only; `session`/`modelctx`/`toolregistry`/`testkit` never import `service`/`adapter`/`cmd`/`gateway`.
 - [x] Export `DefaultLimits()`; document `WithLimits` zero semantics (fixes TODO T04 ergonomics without changing semantics).
 - [x] Core contracts: `Transcript`, `ContextBuilder` + `ModelContext`, `ToolSource`, `ToolInspector`. Options `WithTranscript`, `WithContextBuilder`, `WithToolSource`.
 - [x] Fix core defects that the new primitives would otherwise inherit: empty-part prompt validation (T02), event subscription goroutine leak (T05), whole-transcript re-serialization per commit (T07 → one pass per Run, incremental per commit), process-local counter IDs (T01 → per-process nonce).
@@ -77,23 +77,25 @@ tools {list,describe,active,activate,deactivate}, events, doctor
 - [x] `testkit`: `FakeModel` (scripted per call), `ReplayModel` (from recorded events / JSON), `FakeTool`, `EventRecorder`, `NewSession` fixture, `EchoModel`, `DemoModel` (moved from `internal/testmodel`).
 - [ ] `FailureInjector` helpers, context fixtures — `[next]`.
 
-## Stage H — Optional Standard Packages `[next]`
+## Stage H — Service `[done]`
 
-Only after the foundation above is stable:
+- [x] `service.Runner`: Session store + Agent per Run, `AgentSpec`s, per-Session single flight (reject/wait), `MaxActiveRuns`, cancellation via `Agent.Abort`, drain, per-run deadline, Session-level overrides (instruction, panel, compaction ceiling, tool activation).
+- [x] `service/httpapi` (contract 2) and `adapter/grpc` `gotato.v2.SessionService` (+ `gotato-grpc` binary) as thin adapters; `gotato serve` in the CLI; the CLI itself drives the Runner in-process.
+- [x] Removed `orchestration`, `host`, `cmd/gotato-agent`, and from core `SpawnID`, `Event.SpawnID`, `Event.OriginRunID`, `AgentName`, `ConversationID`, `ConversationKey`, `AgentGeneration`, `LifecycleEvent.ConversationID/Generation`.
+- [x] Gateway authenticates with API keys only; the Codex adapter became the OpenAI Responses adapter.
 
-1. Move `orchestration`, `host`, `adapter/grpc`, `cmd/gotato-agent` under `service/` (or a separate module) with a `MIGRATION.md` entry; remove `SpawnID`/`Event.SpawnID`/`Event.OriginRunID` from core and bump the wire `ContractVersion`.
-2. `session/sqlite` store (behind its own module to keep the root dependency-free).
-3. MCP tool set (`mcp/`) implemented as a `gotato.ToolSet` / `ToolSource`.
-4. A second provider adapter (Anthropic Messages API) to validate provider neutrality.
-5. Standard tool packages (`tools/fs`, `tools/shell`) as optional imports.
-6. `examples/` covering one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, CLI automation.
-7. Rewrite `docs/` and `specs/` to the whitepaper vocabulary; conformance matrix (TODO A09).
-8. CI workflow: gofmt, vet, `go test -race` for both modules; LICENSE.
+## Stage I — Next `[next]`
+
+1. Store-level Session lease for multi-replica deployments; request IDs / idempotency keys on the adapters.
+2. Anthropic Messages adapter with `CacheBreakpoints` → `cache_control`; usage-calibrated token estimation.
+3. Typed Event payloads; `reasoning_update` event.
+4. `session/sqlite` store (own module); MCP `ToolSet`; `tools/fs`, `tools/shell`.
+5. `examples/`; CI (gofmt, vet, `-race`, both modules); LICENSE; `docs/` and `specs/` rewrite or archive.
 
 ## Acceptance Commands
 
 ```bash
-gofmt -l . && go vet ./... && go test ./...
+gofmt -l . && go vet ./... && go test -race ./...
 (cd adapter/grpc && go test ./...)
 go build -o bin/gotato ./cmd/gotato
 ./bin/gotato doctor --json

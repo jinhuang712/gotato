@@ -7,6 +7,7 @@
 //	gotato tools list|describe|active|activate|deactivate
 //	gotato events --session <id> [--jsonl|--json]
 //	gotato doctor [--json]
+//	gotato serve [--addr HOST:PORT]
 //
 // Stdout carries requested data; diagnostics go to stderr. Exit codes:
 // 0 ok, 1 runtime error, 2 usage error, 3 not found, 4 run did not complete.
@@ -98,6 +99,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 		return c.cmdEvents(rest)
 	case "doctor":
 		return c.cmdDoctor(rest)
+	case "serve":
+		return c.cmdServe(rest)
 	case "version":
 		return c.emit(map[string]any{"version": Version}, Version)
 	case "help", "-h", "--help":
@@ -251,6 +254,7 @@ Commands:
   context    inspect <id> | build <id> | compact <id> [--keep N] [--summarizer truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
+  serve      [--addr HOST:PORT] [--max-runs N] [--queue reject|wait]   HTTP session service
   doctor     [--json]
   version
 

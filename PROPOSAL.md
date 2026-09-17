@@ -42,8 +42,9 @@ Anything that answers an application question (which agent should do this task, 
 +----------------------------------+-----------------------------------+
                                    |
 +----------------------------------v-----------------------------------+
-|  OPTIONAL SERVICE LAYER  (built on the runtime, never imported by it)|
-|  orchestration/   host/   adapter/grpc/   cmd/gotato-agent/          |
+|  SERVICE  (the runtime turned outward; never imported by the runtime)|
+|  service/  Runner: Session store + Agent per Run · AgentSpecs        |
+|  service/httpapi  HTTP adapter      adapter/grpc  gRPC adapter       |
 +----------------------------------+-----------------------------------+
                                    |
 +----------------------------------v-----------------------------------+
@@ -117,12 +118,34 @@ gotato doctor [--json]
 
 The CLI composes `session.FileStore`, `modelctx`, `toolregistry`, `testkit` models, and the `gateway` provider exactly as an application would. It contains no agent semantics of its own. Stdout carries data, stderr carries diagnostics, exit codes are documented, and every command has a machine-readable form. The contract is [cmd/gotato/README.md](cmd/gotato/README.md).
 
-`cmd/gotato-agent` (the HTTP reference service) is an optional service-layer executable, not the runtime interface.
+`gotato serve` runs the same `service.Runner` behind the HTTP adapter; `gotato-grpc` (in the `adapter/grpc` module) behind gRPC. There is one code path from library to CLI to service.
+
+## 5a. The Service
+
+Hosted, Gotato is a store of Sessions and a supply of disposable Agents:
+
+```text
+POST /v1/sessions/{id}/runs {"prompt": "…"}
+        │
+        v
+ service.Runner
+   ① store.Get(id)                      the Session is the unit of identity
+   ② lock(id)                           one Run per Session at a time (reject or wait)
+   ③ agent := NewAgent(spec, WithTranscript(s), WithContextBuilder(…), session.Record(s), AutoCompact(s, …))
+   ④ result := agent.Prompt(ctx, msg)   or StreamRun → SSE / gRPC stream
+   ⑤ agent.Close(); store.Save(s)       the Agent is discarded, the Session persists
+   ⑥ unlock(id)
+```
+
+An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; a live Agent is an optimization, never an identity. There are no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in metadata.
 
 ## 6. Dependency Direction
 
 ```text
-cmd/gotato, cmd/gotato-agent, adapter/grpc, host, orchestration
+cmd/gotato, adapter/grpc (module), service/httpapi
+        |
+        v
+service
         |  may import anything below
         v
 session, modelctx, toolregistry, testkit, gateway
@@ -134,7 +157,7 @@ gotato (root)
 Go
 ```
 
-The direction is enforced by `layering_test.go`: the root package has no non-stdlib imports, and standard runtime packages never import the service layer or the CLI. Optional integrations never become mandatory dependencies of core packages.
+The direction is enforced by `layering_test.go`: the root package has no non-stdlib imports, and standard runtime packages never import `service`, the adapters, or the CLI. Optional integrations never become mandatory dependencies of core packages.
 
 ## 7. Principles for Evolving the Runtime
 
@@ -155,7 +178,7 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 - **Tools**: MCP client as a `ToolSet`/`ToolSource`; optional filesystem, shell, and HTTP tool packages.
 - **Providers**: a second, non-OpenAI adapter to keep the model contract provider-neutral.
 - **Testkit**: failure injection and context fixtures; a fixture-driven scenario runner.
-- **Service layer**: `orchestration`, `host`, `adapter/grpc`, and `cmd/gotato-agent` regrouped under one `service/` umbrella with a wire `ContractVersion` bump that also removes the deprecated provenance fields from core types.
+- **Service**: a Store-level Session lease for multi-replica deployments; request IDs and idempotency keys on the HTTP/gRPC adapters.
 - **Repository**: examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation; CI with `gofmt`, `vet`, and `-race` for both modules; a license.
 
 ## 9. What Belongs Where
@@ -169,5 +192,5 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 | provider wire formats and credentials | `gateway` and future provider packages |
 | deterministic doubles | `testkit` |
 | human/script/agent operation | `cmd/gotato` |
-| routing between agents, admission, retirement, remote exposure | optional service layer |
+| Session store + Agent per Run, admission, cancellation, remote exposure | `service`, `service/httpapi`, `adapter/grpc` |
 | roles, task graphs, project state, UI, global scheduling | the application, never Gotato |
