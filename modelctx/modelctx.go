@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/session"
 )
 
 // Strategy names reported in ModelContext.Metadata["strategy"].
@@ -184,14 +185,16 @@ func metadata(strategy string, source, selected, dropped int, extra map[string]s
 // Report is the inspectable result of building a Context without running a
 // Model.
 type Report struct {
-	Strategy         string              `json:"strategy"`
-	SourceMessages   int                 `json:"source_messages"`
-	SelectedMessages int                 `json:"selected_messages"`
-	DroppedMessages  int                 `json:"dropped_messages"`
-	ApproxTokens     int                 `json:"approx_tokens"`
-	ApproxBytes      int                 `json:"approx_bytes"`
-	Metadata         map[string]string   `json:"metadata,omitempty"`
-	Context          gotato.ModelContext `json:"context"`
+	SessionID        string               `json:"session_id,omitempty"`
+	Strategy         string               `json:"strategy"`
+	SourceMessages   int                  `json:"source_messages"`
+	SelectedMessages int                  `json:"selected_messages"`
+	DroppedMessages  int                  `json:"dropped_messages"`
+	ApproxTokens     int                  `json:"approx_tokens"`
+	ApproxBytes      int                  `json:"approx_bytes"`
+	Metadata         map[string]string    `json:"metadata,omitempty"`
+	Compactions      []session.Compaction `json:"compactions,omitempty"`
+	Context          gotato.ModelContext  `json:"context"`
 }
 
 // Inspect builds the Context for snapshot and describes it. ApproxTokens is a
@@ -223,6 +226,18 @@ func Inspect(ctx context.Context, builder gotato.ContextBuilder, snapshot gotato
 	} else {
 		report.DroppedMessages = len(snapshot.Messages) - len(built.Messages)
 	}
+	return report, nil
+}
+
+// InspectSession is Inspect over a Session's committed history. The report
+// also carries the Session's compaction records.
+func InspectSession(ctx context.Context, builder gotato.ContextBuilder, s *session.Session, systemInstructions string) (Report, error) {
+	report, err := Inspect(ctx, builder, gotato.ContextSnapshot{SystemInstructions: systemInstructions, Messages: s.Messages()})
+	if err != nil {
+		return Report{}, err
+	}
+	report.SessionID = s.ID()
+	report.Compactions = s.Compactions()
 	return report, nil
 }
 

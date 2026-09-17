@@ -1,225 +1,122 @@
 # Gotato
 
-> **Go-native Agent Runtime and Orchestration.**
+> **Gotato is a minimalistic, composable Go agent runtime.**
 
-> Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
-
-**Status:** Phase 1 implementation underway. The repository contains the Core library, a local Reference Agent service, architecture documents, and implementable specifications.
-
-## What Gotato is
-
-Gotato has one Agent semantics and two scales of use:
+Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. It has no built-in UI and no built-in agent organization.
 
 ```text
-Single Agent:
-  Application → Agent Core
-
-Multiple Agents:
-  Application / Orchestration → Agent Core × N
-
-Hosted Service:
-  Client → Protocol Adapter → Host → Orchestration → Agent Core × N
+Less is More.
+Agents should be highly cheap and disposable.
+No agent is a sub-agent. There are only agents.
+Agent as a Goroutine.
+Session is what happened. Context is what the model sees now.
+The CLI is a first-class interface for humans, scripts, and coding agents.
 ```
 
-The single-Agent path is the smallest entry point. The multi-Agent path is not a second Agent implementation: Orchestration retains and routes Core handles, applies admission, retirement, and lifecycle policy, and coordinates results. A Run can finish while its Agent remains available; if the live Agent is retired, a retained Conversation may later rehydrate it with a new AgentID. Hosted mode adds a protocol and process boundary around that same Orchestration. Core does not provide a global lookup, and an AgentID alone cannot recover a lost in-memory Agent.
+## Quick start (library)
 
 ```go
+model := testkit.EchoModel{}                      // any gotato.Model; providers live in gateway/
+s := session.New()                                // what happened
+
 agent, err := gotato.NewAgent(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
-    gotato.WithTools(tools...),
+    gotato.WithTranscript(s),                     // the agent commits to the Session
+    gotato.WithContextBuilder(modelctx.Window(20)), // what the model sees now
+    gotato.WithToolSource(toolregistry.New(tools...)),
+    gotato.WithExtension(session.Record(s)),      // runs, events, usage into the Session
 )
 if err != nil {
     return err
 }
-defer func() { _ = agent.Close(context.Background()) }()
+defer agent.Close(context.Background())
 
-result, err := agent.Prompt(ctx, gotato.UserMessage(input))
+result, err := agent.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 ```
 
-The code above is the atomic Core path. The Core semantics remain the same as the application grows: Orchestration retains and routes multiple Core handles, and Host exposes that Orchestration remotely. Hosting changes access and delivery; it does not create a second Agent implementation.
+The two-line form still works: `gotato.NewAgent(gotato.WithModel(model))` runs against a private in-memory transcript with full-history context. Nothing requires a server, a daemon, or a database.
 
-## Project principles
+## Quick start (CLI)
 
-### Agents are self-contained goroutines: each owns its state and work.
+```bash
+go build -o bin/gotato ./cmd/gotato
+bin/gotato doctor --json
+id=$(bin/gotato session create --json | jq -r .id)
+bin/gotato run --session "$id" --model demo --json "use-tool"
+bin/gotato context inspect "$id" --json
+bin/gotato context compact "$id" --keep 2 --json
+bin/gotato events --session "$id" | jq -r .kind
+bin/gotato tools list --json
+```
 
-Each Agent has one Go-native execution unit. Its private conversation state and current Run are confined to that unit, and its public handle provides the safe way to call it. Application Orchestration and Hosts own external request policy, routing, and scheduling.
+Stdout is data, stderr is diagnostics, exit codes are documented. The full contract is in [cmd/gotato/README.md](cmd/gotato/README.md).
 
-### Infrastructure hosts. Orchestration coordinates. Host exposes. Agent Core executes.
-
-Agent Core executes one Agent's work. Orchestration creates, addresses, routes, and coordinates multiple Agents. A Host exposes Orchestration through a service boundary, while existing infrastructure hosts and connects the process.
-
-### Tight Core, Open Extensions.
-
-The Core keeps the required Agent semantics small. LLM providers, business capabilities, protocol adapters, and orchestration policies attach through explicit contracts.
-
-## The runtime boundaries
+## The runtime
 
 ```text
-Existing Infrastructure
-  hosts and connects the process
-              │
-              ▼
-Host / Protocol Adapter (optional)
-  remote access · wire mapping · delivery
-              │
-              ▼
-Orchestration (required for managed multi-Agent use)
-  identity · routing · admission · lifecycle · coordination
-              │ Agent contract(s)
-              ▼
-Agent Core × N
-  private state · canonical Loop · Tools · Events · cancellation
+Session (session.Session)              "what happened"
+   |   implements gotato.Transcript
+   v
+ContextBuilder (modelctx.*)            "what should the model see now"
+   v
+ModelContext                           this Turn's model view
+   v
+Agent --- Tool Registry (toolregistry.Registry, a gotato.ToolSource)
+   v
+Agentic Loop:  build context -> model -> [tool request -> execute -> observation]* -> final
+   v
+Transcript appends + structured Events (agent_start, context_built, turn_end, tool_*, agent_end)
 ```
 
-For a single embedded Agent, the application may connect directly to Core. The diagram becomes layered only when the application needs multiple Agents or a remote service boundary.
+- An **Agent** is one goroutine with one canonical loop. It owns reusable configuration (model, instruction, tools, context strategy, extensions, limits) and nothing else; mutable state belongs to the Run and the Session.
+- A **Session** records messages, runs, usage, events, compactions, and application metadata. It is persisted through `session.Store` (`MemoryStore`, `FileStore`) and can be forked as a state operation.
+- A **Context** is built per Turn by an explicit strategy (`FullHistory`, `Window`, `SummaryRecent`, `Chain`, or your own `gotato.ContextBuilder`) and is inspectable without running a model. Compaction rewrites a Session prefix into a summary and records exactly what was replaced.
+- **Tools** are capabilities with identity, schema, execution, and structured results. The **Tool Registry** registers, lists, describes, activates, and deactivates them; the agent picks up changes at each Turn boundary. `ToolSet`s add model-driven staged activation.
+- **Events** are structured facts on a Go-native stream; **Extensions** wrap the loop at bounded stages (context transform, pre/post tool, observer, turn stopper).
+- **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI never calls a paid model.
 
-LLM and Tool adapters connect to the sides of Core:
+## Packages
 
-```text
-Agent Core ── LLM Adapter ──► Model provider
-Agent Core ── Tool Adapter ──► application system
-```
+| Layer | Package | Contents |
+|---|---|---|
+| core | `gotato` | Agent, loop, Message, Model, Tool, ToolSet, Transcript, ContextBuilder, ToolSource, Events, Extensions, Errors, Limits. Standard library only. |
+| standard runtime | `session` | Session, Store, MemoryStore, FileStore, Fork, Recorder |
+| | `modelctx` | FullHistory, Window, SummaryRecent, Chain, Inspect, Compact, summarizers |
+| | `toolregistry` | Registry (register/unregister/lookup/list/describe/activate/deactivate, change hooks) |
+| | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
+| providers | `gateway` | OpenAI-compatible chat completions and OpenAI Codex Responses adapters, YAML config |
+| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor` |
+| optional service layer | `orchestration`, `host`, `adapter/grpc`, `cmd/gotato-agent` | multi-agent routing, admission and retirement; HTTP and gRPC exposure; reference daemon. Built on the runtime, never imported by it. |
 
-A protocol adapter may connect a remote client to the Host. It is an implementation detail of the Host boundary, not a fourth semantic layer and not a Core dependency.
+Dependency direction is enforced by a test: the core imports only the standard library; standard runtime packages never import the service layer.
 
-## What stays out of the Core
+## Governance
 
-Gotato Core does not require:
-
-```text
-service discovery
-message brokers
-workflow engines
-long-term memory or retrieval
-artifact platforms
-Kubernetes or a Gateway
-provider SDKs
-```
-
-These concerns can be supplied by the application, Orchestration, adapters, or existing platform. They do not stand between a Go service and its first Agent, but a multi-Agent service must assign identity, routing, and lifecycle ownership somewhere outside Core.
-
-## Initial shape
-
-The first useful path is deliberately small:
-
-```text
-Model
-  + optional Go Tools
-  + short-lived conversation state
-  + Context cancellation
-        ↓
-      Agent Core
-        ↓
-  Response / Events
-```
-
-The Core handles the canonical Model → Tool → Model Loop and bounded local work. It does not require a separate service process. When the application needs multiple Agents, Orchestration becomes the next explicit layer for identity, routing, lifecycle, and coordination. Long-term memory, workflows, and durable distributed state remain separate products or future contracts.
-
-## From Embedded Agent to Hosted Service
-
-The product path is a progression from direct execution to coordinated service:
-
-```text
-Embedded, single:
-  Application → Agent Core
-
-Embedded, multi:
-  Application Orchestration → Agent Core × N
-
-Hosted:
-  Client → Protocol Adapter → Host → Orchestration → Agent Core × N
-```
-
-The initial Hosted PoC may use one process, one Pod, local routing, and an existing Gateway or HTTP/gRPC server. Gotato does not need to implement the platform around it.
-
-## Local Reference Agent
-
-The first implementation includes a deterministic local service assembled from the Gotato library:
-
-```bash
-go run ./cmd/gotato-agent --model demo
-```
-
-Then call it without an API key or external service:
-
-```bash
-curl -X POST http://127.0.0.1:8787/v1/runs \\
-  -H 'content-type: application/json' \\
-  -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}'
-```
-
-The local service also exposes `/v1/runs/stream` for full SSE events and a loop-progress response workflow: `POST /v1/runs/progress` keeps one ordinary HTTP request open and emits newline-delimited JSON frames for `accepted`, each completed `loop`, and the final `result` (it does not stream Model tokens). For clients that cannot keep a response open, `POST /v1/runs/async` returns `202` with a `run_id`, then `GET /v1/runs/{run_id}` returns the current status, metrics, and latest completed-turn heartbeat. Use `POST /v1/runs/{run_id}/cancel` for best-effort cancellation. For example:
-
-```bash
-run_id=$(curl -sS -X POST http://127.0.0.1:8787/v1/runs/async \
-  -H 'content-type: application/json' \
-  -d '{"agent_name":"default","conversation_key":"local","prompt":"hello"}' | jq -r .run_id)
-while true; do
-  response=$(curl -sS http://127.0.0.1:8787/v1/runs/$run_id)
-  echo "$response" | jq .
-  status=$(echo "$response" | jq -r .status)
-  [[ "$status" != "running" ]] && break
-  sleep 2
-done
-```
-
-To keep one request open and receive only loop-level frames, use `curl -N` with the progress endpoint:
-
-```bash
-curl -N -X POST http://127.0.0.1:8787/v1/runs/progress \
-  -H 'content-type: application/json' \
-  -d '{"agent_name":"default","conversation_key":"local-progress","prompt":"use-tool"}'
-```
-
-The SSE `agent_start` event contains the `run_id` needed by the cancel endpoint. It is a Reference Agent for testing library semantics, not yet a production deployment.
-
-For an OpenAI-compatible LLM Gateway, configure the Library adapter with YAML:
-
-```bash
-cp gateway.example.yaml gateway.yaml
-# edit gateway.yaml, or provide ${GOTATO_GATEWAY_API_KEY}
-go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
-```
-
-The first Pi-compatible provider is also available through Codex Responses SSE:
-
-```bash
-cp gateway.codex.example.yaml gateway.yaml
-go run ./cmd/gotato-agent --model gateway --gateway-config gateway.yaml
-```
-
-The local service allows long-running work with `--run-timeout`, `--model-timeout`, and `--tool-timeout` (defaults: 10m, 5m, and 5m; `0` disables a deadline). This reads the OAuth credential from Pi's `auth.json`, derives the ChatGPT account ID, refreshes expired credentials, and preserves encrypted reasoning artifacts for tool-loop replay. The current Codex adapter intentionally starts with SSE; Pi's WebSocket transport/session cache remains a later optimization.
-
-The `gateway` package owns YAML loading, provider authentication, HTTP/SSE encoding, streaming normalization, retries before stream consumption, and provider errors. Core remains provider-neutral.
-
-## Documentation
-
-`docs/` explains why the architecture is shaped this way. `specs/` defines implementable contracts.
-
-| Document | Subject |
+| Document | Role |
 |---|---|
-| [Philosophy](docs/00-philosophy.md) | project principles and boundaries |
-| [Glossary](docs/glossary.md) | shared vocabulary |
-| [Conceptual models](docs/01-conceptual-models.md) | Agent, Core, Host, and adapters |
-| [Agent Core](docs/03-core-runtime.md) | the Go-native runtime |
-| [Tools and ToolSets](docs/06-tools-and-toolsets.md) | capabilities |
-| [Extensions](docs/07-extension-model.md) | Core customization |
-| [Agent Routines](docs/08-agent-routines.md) | advanced concurrency and spawning |
-| [Events and delivery](docs/04-events-and-delivery.md) | Agent facts and Host delivery |
-| [Orchestration and Hosted Agent](docs/02-agents-as-a-service.md) | multi-Agent coordination and service form |
-| [Boundaries and moving parts](docs/05-moving-parts.md) | ownership and adapters |
-| [Agent lifecycle](docs/10-agent-lifecycle.md) | Run, Agent, retirement, and Conversation retention |
-| [Technology stack](docs/09-technology-stack.md) | Core, Orchestration, adapters, and integration |
-| [Specifications](specs/README.md) | normative contracts and acceptance |
+| [PHILOSOPHY.md](PHILOSOPHY.md) | the worldview |
+| [DESIGN.md](DESIGN.md) | durable engineering rules |
+| [GOALS.md](GOALS.md) | goals, non-goals, tradeoffs, compatibility |
+| [FEATURES.md](FEATURES.md) | implementation inventory with status markers |
+| [PROPOSAL.md](PROPOSAL.md) | target architecture and direction |
+| [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
+| [GITFLOW.md](GITFLOW.md) | Git policy |
+| [MIGRATION.md](MIGRATION.md) | breaking changes and how to move |
+
+`docs/` and `specs/` hold the earlier design record; where they disagree with the documents above, the root documents win.
+
+## Development
+
+```bash
+gofmt -l . && go vet ./... && go test -race ./...
+(cd adapter/grpc && go test ./...)
+go build -o bin/gotato ./cmd/gotato && bin/gotato doctor --json
+```
 
 ## Origin
 
-**Inspired by [Pi's Agent Kernel](https://pi.dev), redesigned as a Go-native Agent Runtime.**
-
-Gotato is an independent Go design shaped around a minimal Agent Core and a first-class Orchestration path for multi-Agent services, not a port of Pi's terminal product.
-
-Details and attribution: [shout-out](docs/shout-out.md).
+Inspired by [Pi's Agent Kernel](https://pi.dev), redesigned as a Go-native runtime. Details: [docs/shout-out.md](docs/shout-out.md).
 
 ## License
 

@@ -1,5 +1,7 @@
 # Gotato Documentation
 
+> **Historical design record.** These documents predate the project constitution. Where they disagree with the root documents ([PHILOSOPHY.md](../PHILOSOPHY.md), [DESIGN.md](../DESIGN.md), [GOALS.md](../GOALS.md), [FEATURES.md](../FEATURES.md), [PROPOSAL.md](../PROPOSAL.md)), the root documents win. In particular: Gotato is a minimalistic, composable Go agent runtime; orchestration, host, and protocol adapters are an optional service layer built on the runtime, not part of its identity.
+
 > **Go-native Agent Runtime and Orchestration.**
 
 > Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.

@@ -1,7 +1,8 @@
 package gotato
 
 import (
-	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 	"maps"
 	"slices"
 	"strings"
@@ -191,9 +192,30 @@ func (r RunResult) Clone() RunResult {
 	return out
 }
 
+// nextID returns "<prefix>-<8 hex process nonce><counter hex>". The nonce is
+// drawn once per process from crypto/rand, so IDs stay unique across
+// restarts and across processes that share one Session store, while the
+// counter keeps them ordered and cheap within a process.
 func nextID(prefix string) string {
 	id := atomic.AddUint64(&globalID, 1)
-	return fmt.Sprintf("%s-%d", prefix, id)
+	var buf [8]byte
+	buf[0] = byte(id >> 56)
+	buf[1] = byte(id >> 48)
+	buf[2] = byte(id >> 40)
+	buf[3] = byte(id >> 32)
+	buf[4] = byte(id >> 24)
+	buf[5] = byte(id >> 16)
+	buf[6] = byte(id >> 8)
+	buf[7] = byte(id)
+	return prefix + "-" + processNonce + strings.TrimLeft(hex.EncodeToString(buf[:]), "0")
 }
 
 var globalID uint64
+
+var processNonce = func() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic("gotato: crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(buf[:])
+}()

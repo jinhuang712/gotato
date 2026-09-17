@@ -1,0 +1,164 @@
+# `gotato` CLI Contract
+
+The `gotato` command is the official runtime interface for humans, shell automation, and coding agents. It is a thin client of the Gotato packages: every behavior below is composed from `session`, `modelctx`, `toolregistry`, `testkit`, `gateway`, and the root package, exactly as an application would compose them.
+
+```bash
+go build -o bin/gotato ./cmd/gotato
+```
+
+## Conventions
+
+| Rule | Behavior |
+|---|---|
+| stdout | requested data only |
+| stderr | diagnostics, warnings, human status lines |
+| `--json` | one pretty-printed JSON document on stdout |
+| `--jsonl` | one JSON object per line on stdout |
+| `--quiet` | suppress human status lines that are not errors |
+| `--no-color` | accepted; output never contains ANSI color |
+| `--timeout D` | overall deadline for the command (`30s`, `2m`); a run cut short exits 4 |
+| `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions` |
+| failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}` |
+| flags | accepted before or after positional arguments |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | success; for `run`, the run completed |
+| `1` | runtime error (store, provider, encoding) |
+| `2` | usage error (unknown command, missing argument, invalid flag value, invalid model or strategy) |
+| `3` | not found (session id, tool id) |
+| `4` | the run did not complete: `failed`, `cancelled`, or `deadline_exceeded` (the JSON outcome is still printed) |
+
+### Environment
+
+| Variable | Effect |
+|---|---|
+| `GOTATO_HOME` | base directory; sessions live in `$GOTATO_HOME/sessions` |
+| `GOTATO_MODEL` | default `--model` |
+| `GOTATO_GATEWAY_CONFIG` | default `--gateway-config` (else `gateway.yaml`) |
+
+## Models
+
+| `--model` | Behavior | Credentials |
+|---|---|---|
+| `echo` (default) | answers `echo: <prompt>` | none |
+| `demo` | when the prompt is `use-tool`, calls `demo.echo` then answers `demo response: use-tool`; otherwise `demo response: <prompt>` | none |
+| `gateway` | OpenAI-compatible or Codex provider configured by YAML | per YAML |
+
+The model used for a session is remembered in the session (`gotato.model` metadata) and reused by later runs unless `--model` is given.
+
+## Commands
+
+### `gotato run`
+
+```text
+gotato run [--session ID] [--model M] [--instruction S] [--context SPEC] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
+```
+
+Creates a session when `--session` is omitted. `-` reads the prompt from stdin. `--context` is `full`, `window:N`, or `summary:N` and is remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message).
+
+`--json` outcome:
+
+```json
+{
+  "session_id": "…", "run_id": "…", "status": "completed",
+  "model": "demo", "context": "full",
+  "final_text": "…", "final_message": { … },
+  "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+  "metrics": {"elapsed_ms": 0, "turns": 2, "tool_calls": 1, "text_bytes": 23, "reasoning_bytes": 0},
+  "error": {"code": "…", "message": "…"},
+  "messages": 4, "events": 18
+}
+```
+
+`--events jsonl` streams every runtime event as one JSON line while the run executes (`agent_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `agent_end`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`.
+
+Human mode prints the final text on stdout and a one-line status on stderr.
+
+### `gotato session`
+
+| Command | Output (`--json`) |
+|---|---|
+| `session create [--id ID] [--meta k=v,…] [--instruction S] [--context SPEC]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
+| `session list` | array of summaries, newest first (`--jsonl`: one per line) |
+| `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[], usage, compactions[], metadata` |
+| `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source |
+| `session events <id>` | same as `events --session <id>` |
+| `session resume <id> "prompt"` | same as `run --session <id> "prompt"` |
+| `session delete <id>` | `{"id": "…", "deleted": true}` |
+
+### `gotato context`
+
+| Command | Output (`--json`) |
+|---|---|
+| `context inspect <id> [--context SPEC] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, dropped_messages, approx_tokens, approx_bytes, metadata, compactions[], context{system_instructions, messages[], metadata}` |
+| `context build <id> [--context SPEC]` | the `ModelContext` the model would receive now |
+| `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, compaction{at, replaced_messages, from_message_id, to_message_id, summary_message_id, summarizer, bytes_before, bytes_after}}` |
+
+Compaction permanently replaces the messages before the last `--keep` (aligned to a user message so tool calls stay with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
+
+### `gotato tools`
+
+| Command | Output (`--json`) |
+|---|---|
+| `tools list [--session ID]` | `{session_id?, tools:[{id, name, description, input_schema, sequential, active}]}` |
+| `tools describe <id> [--session ID]` | one tool entry |
+| `tools active [--session ID]` | active tools only |
+| `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>` |
+| `tools deactivate <id> --session ID` | updated entry |
+
+Tool activation is session state: `run --session ID` honors it. Without `--session`, `list`/`describe`/`active` describe the default surface; `activate`/`deactivate` require `--session` (exit 2).
+
+Builtin tools: `demo.echo` (returns its `value`), `time.now` (RFC 3339 UTC).
+
+### `gotato events`
+
+```text
+gotato events --session <id> [--kind KIND] [--json]
+```
+
+Default output is JSON Lines, one runtime `Event` per line, in production order:
+
+```json
+{"agent_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,…},"timestamp":"…"}
+```
+
+`--json` prints one array instead. Event payload keys per kind are documented in `events.go` of the root package.
+
+### `gotato doctor`
+
+```text
+gotato doctor [--json] [--gateway-config PATH]
+```
+
+```json
+{"ok": true, "version": "1", "go": "go1.26.1",
+ "checks": [
+   {"name": "store", "ok": true, "detail": "/…/sessions (3 sessions)"},
+   {"name": "model.echo", "ok": true, "detail": "deterministic, no credentials"},
+   {"name": "model.demo", "ok": true, "detail": "deterministic tool loop, no credentials"},
+   {"name": "model.gateway", "ok": false, "warning": true, "detail": "gateway.yaml not found; --model gateway unavailable"},
+   {"name": "tools", "ok": true, "detail": "demo.echo, time.now"}
+ ]}
+```
+
+`ok` is false (exit 1) only when a non-warning check fails.
+
+## Scenario
+
+```bash
+id=$(gotato session create --json | jq -r .id)
+gotato run --session "$id" --model demo --json "use-tool" | jq .status      # "completed"
+gotato run --session "$id" --json "and again" | jq .messages                # 6
+gotato context inspect "$id" --json | jq '{source_messages, selected_messages}'
+gotato context compact "$id" --keep 2 --json | jq .messages_after           # 3
+gotato events --session "$id" | jq -r .kind | sort | uniq -c
+gotato tools deactivate time.now --session "$id" --json | jq .tool.active   # false
+gotato session fork "$id" --json | jq .parent_id
+```
+
+## Compatibility
+
+Command names, flag names, JSON field names, JSONL shapes, and exit codes are part of the runtime contract. Fields may be added; renames and removals require a `MIGRATION.md` entry.
