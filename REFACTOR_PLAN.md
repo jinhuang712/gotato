@@ -2,7 +2,7 @@
 
 Incremental migration from the audited state ([REFACTOR_AUDIT.md](REFACTOR_AUDIT.md)) to the whitepaper architecture ([PROPOSAL.md](PROPOSAL.md)). Each stage is independently testable and leaves `go test ./...` green. Status is updated as stages land; feature-level status lives in [FEATURES.md](FEATURES.md).
 
-Legend: `[done]` landed on this branch · `[partial]` landed with listed gaps · `[next]` not started.
+Legend: `[done]` landed · `[partial]` landed with listed gaps · `[next]` not started.
 
 ---
 
@@ -14,7 +14,7 @@ Goal: make the core the core, and make the seams the new primitives need.
 - [x] `layering_test.go`: root package imports stdlib only; `session`/`modelctx`/`toolregistry`/`testkit` never import `orchestration`/`host`/`adapter`/`cmd`.
 - [x] Export `DefaultLimits()`; document `WithLimits` zero semantics (fixes TODO T04 ergonomics without changing semantics).
 - [x] Core contracts: `Transcript`, `ContextBuilder` + `ModelContext`, `ToolSource`, `ToolInspector`. Options `WithTranscript`, `WithContextBuilder`, `WithToolSource`.
-- [x] Fix core defects that the new primitives would otherwise inherit: empty-part prompt validation (T02), event subscription goroutine leak (T05), whole-transcript re-serialization per commit (T07 → one pass per Run, incremental per commit).
+- [x] Fix core defects that the new primitives would otherwise inherit: empty-part prompt validation (T02), event subscription goroutine leak (T05), whole-transcript re-serialization per commit (T07 → one pass per Run, incremental per commit), process-local counter IDs (T01 → per-process nonce).
 - [x] Remove dead `modelStreamDone`; deprecate `SpawnID`/`Event.SpawnID`/`Event.OriginRunID`.
 
 Exit: all pre-existing tests pass unchanged except those asserting exact event sequences (updated for `context_built`).
@@ -22,7 +22,7 @@ Exit: all pre-existing tests pass unchanged except those asserting exact event s
 ## Stage B — First-Class Session `[done]`
 
 - [x] `session.Session`: ID, CreatedAt/UpdatedAt, ParentID, Messages, Runs, Events (bounded), Usage, Compactions, Metadata; thread-safe; implements `gotato.Transcript`.
-- [x] `session.Store` interface: Create/Get/Save/List/Delete; `MemoryStore`; `FileStore` (one JSON file per session, `schema_version`).
+- [x] `session.Store` interface: Save/Get/List/Delete; `MemoryStore`; `FileStore` (one JSON file per session, atomic write, `schema_version`).
 - [x] `session.Fork(parent)` copies state and records lineage.
 - [x] `session.Recorder`: `EventObserver` that appends run records, events, and usage into the Session.
 - [x] Tests: agent commits into a Session, reload from FileStore and continue a run, fork independence.

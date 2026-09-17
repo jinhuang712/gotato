@@ -37,7 +37,7 @@ Conventional, descriptive subjects in the imperative mood, under ~72 characters:
 feat: add file-backed session store
 fix: stop leaking a goroutine per event subscription
 refactor: route agent commits through Transcript
-docs: record Stage B as done in FEATURES.md
+docs: mark the file store as done in FEATURES.md
 test: cover context window strategy boundaries
 chore: add CI workflow
 ```

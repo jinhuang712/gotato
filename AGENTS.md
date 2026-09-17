@@ -1,6 +1,6 @@
 # AGENTS.md — Instructions for Coding Agents Working in Gotato
 
-You are working in the Gotato repository: **a minimalistic, composable Go agent runtime.** This file tells you how to work here. It is short on purpose; the constitution is in the documents it points to.
+You are working in the Gotato repository: **a minimalistic, composable Go agent runtime.** This file tells you how to work here. The constitution is in the documents it points to.
 
 ## Read Order
 
@@ -8,12 +8,12 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 1. PHILOSOPHY.md        — the worldview; do not violate it
 2. DESIGN.md            — durable engineering rules (G-Dxx)
 3. GOALS.md             — goals, non-goals, tradeoffs, compatibility
-4. FEATURES.md          — living implementation checklist with status markers
-5. PROPOSAL.md          — target architecture and the refactor path
+4. FEATURES.md          — implementation inventory with status markers
+5. PROPOSAL.md          — architecture, layers, and direction
 6. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 
-`REFACTOR_AUDIT.md` and `REFACTOR_PLAN.md` are implementation artifacts of the ongoing refactor; read them when you touch structure. `docs/` and `specs/` predate the whitepaper: where they disagree with the root documents above, the root documents win.
+`docs/` and `specs/` are the earlier design record; where they disagree with the root documents, the root documents win.
 
 ## Hard Architectural Rules
 
@@ -29,22 +29,22 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep dependencies layered** (DESIGN.md G-D27). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. Check with `go list -deps`.
-- **Do not add a dependency** without first checking whether the standard library or a smaller solution suffices. The root module currently depends only on `gopkg.in/yaml.v3` (used by `gateway`).
+- **Keep dependencies layered** (DESIGN.md G-D27). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
+- **Do not add a dependency** without first checking whether the standard library or a smaller solution suffices. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow
 
 1. **Inspect before editing.** Read the package, its tests, and the FEATURES.md row you are about to change.
 2. **Focused tests first, then full tests.**
    ```bash
-   go test ./session/...            # focused
-   go test ./... && go vet ./...    # full, root module
-   (cd adapter/grpc && go test ./...)   # only when you touched host/orchestration/root types it maps
+   go test ./session/...                 # focused
+   gofmt -l . && go vet ./... && go test -race ./...   # full, root module
+   (cd adapter/grpc && go test ./...)    # when you touched host/orchestration or root types it maps
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
-5. **Use CLI integration tests** (`cmd/gotato/*_test.go`) for user-visible runtime behavior; assert on JSON, not on prose.
-6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `MIGRATION.md` for breaks.
+5. **Use CLI integration tests** (`cmd/gotato/cli_test.go`) for user-visible runtime behavior; assert on JSON, not on prose.
+6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, `cmd/gotato/README.md` for CLI changes, and `MIGRATION.md` for breaks.
 7. **Do not silently break CLI JSON schemas or exit codes.** Add fields; do not rename or remove without a migration note.
 8. **Format**: `gofmt -l .` must print nothing.
 
@@ -53,21 +53,23 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 | Need | Use |
 |---|---|
 | a model that answers a scripted sequence | `testkit.FakeModel` |
-| a model that replays recorded `ModelEvent`s per call | `testkit.ReplayModel` |
+| a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
 | capture every runtime event in order | `testkit.EventRecorder` (install with `gotato.WithExtension`) |
-| a pre-populated session | `testkit.NewSession(...)` |
-| the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel` |
+| a pre-populated session | `testkit.NewSession("q", "a", ...)` |
+| the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
 
 ## CLI Scenario Loop
 
 ```bash
 go build -o ./bin/gotato ./cmd/gotato
+export GOTATO_HOME=$(mktemp -d)
 ./bin/gotato doctor --json
 id=$(./bin/gotato session create --json | jq -r .id)
 ./bin/gotato run --session "$id" --model demo --json "use-tool"
-./bin/gotato events --session "$id" --jsonl | head
+./bin/gotato events --session "$id" | head
 ./bin/gotato context inspect "$id" --json
+./bin/gotato context compact "$id" --keep 2 --json
 ```
 
 Every command above must exit 0 and emit valid JSON on stdout. Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` not found, `4` run did not complete (failed, cancelled, deadline).
@@ -76,7 +78,7 @@ Every command above must exit 0 and emit valid JSON on stdout. Exit codes: `0` o
 
 A change is not complete until:
 
-- relevant tests pass (`go test ./...`, `go vet ./...`, `gofmt -l .` empty) in every module touched;
+- relevant tests pass (`go test -race ./...`, `go vet ./...`, `gofmt -l .` empty) in every module touched;
 - the affected CLI and/or API behavior has actually been exercised (a test, or a CLI scenario whose JSON you inspected);
 - documentation reflects the new state (`FEATURES.md` marker, package docs, README when user-visible);
 - the commit follows `GITFLOW.md`.

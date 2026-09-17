@@ -30,7 +30,7 @@ go agent.Run(ctx, session)
 
 This is a design principle, not a requirement that every public API literally use this exact signature. An agent must not inherently require its own process, container, daemon, service, or scheduler.
 
-In the current implementation the agent is literally one goroutine (`coreAgent.loop`) that owns the run in flight, and the caller's goroutine blocks on `Prompt`/`Continue`. That realization satisfies this rule; alternatives that keep the same property are acceptable.
+The core agent is one goroutine that owns the Run in flight; the caller's goroutine blocks on `Prompt` or `Continue` and may cancel through its `context.Context`. Any realization that keeps this property is acceptable.
 
 ### G-D02 — One Agent Primitive
 
@@ -52,7 +52,7 @@ Reusable configuration may include the model provider, model selection, tool reg
 
 Mutable execution state belongs to a run/session and must not leak into unrelated executions. A new execution must not accidentally inherit a previous run's mutable state.
 
-Concretely: control messages (steer/follow-up) left over at the end of a run are discarded; the transcript an agent commits to is a Session, not a hidden field of the agent that outlives its purpose.
+Concretely: control messages (steer/follow-up) left over at the end of a Run are discarded, and the history an agent commits to is a `Transcript` supplied by the caller (a Session) or a private one that dies with the agent, never state that silently carries over between unrelated executions.
 
 ### G-D11 — `context.Context` Owns Cancellation and Deadlines
 
@@ -76,7 +76,7 @@ Gotato makes three concepts explicit:
 
 An Agent may run against a Session many times. A Session may outlive an individual agent execution. A Context may be rebuilt for every turn.
 
-In code this means: the agent loop reads from and appends to a `Transcript` (the Session's committed history) and hands the model the output of a `ContextBuilder`, never the transcript itself by default identity. Structs must not silently conflate "all historical state" with "model input".
+In code: the agent loop reads from and appends to a `Transcript` (the Session's committed history) and hands the model the output of a `ContextBuilder`. Structs must not conflate "all historical state" with "model input".
 
 ### G-D04 — Session Is a First-Class Runtime Primitive
 
@@ -198,7 +198,7 @@ Gotato must not own application-level concepts such as task graphs, worker pools
 
 Gotato may provide generic lower-level primitives that such systems use: sessions, contexts, events, tools, execution, and CLI access.
 
-Multi-agent coordination code that exists in this repository (routing, admission, retirement) is an **optional service layer built on the runtime**, not part of the runtime foundation, and core packages must never depend on it.
+Multi-agent coordination in this repository (routing, admission, retirement, remote exposure) is an **optional service layer built on the runtime**, not part of the runtime foundation. Core and standard runtime packages never depend on it.
 
 ### G-D20 — No Mandatory Background Daemon
 

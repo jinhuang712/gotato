@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 基线日期 | 2026-09-02 |
+| 基线日期 | 2026-09-02(T01/T02/T04/T05/T07 已在 runtime-foundation 中修复;A02/A03/A04 由 session/modelctx/toolregistry/testkit 包回应) |
 | 来源 | 全仓库代码审阅,配合临时探针测试验证。探针已删除,未入库 |
 | 用法 | 一个问题一个 section。修完勾掉复选框,并把「退出条件」变成仓库里的正式测试 |
 | 分级 | P0 破坏已宣称完成的里程碑;P1 第一个真实接入方就会撞上;P2 质量与一致性 |
@@ -16,13 +16,13 @@
 
 | 编号 | 问题 | 级别 | 状态 |
 | --- | --- | --- | --- |
-| [T01](#t01-三种-id-用进程内计数器重启后撞车) | 三种 ID 用进程内计数器,重启后撞车 | P0 | 未开始 |
-| [T02](#t02-core-空消息校验放过空文本-part) | Core 空消息校验放过空文本 Part | P0 | 未开始 |
+| [T01](#t01-三种-id-用进程内计数器重启后撞车) | 三种 ID 用进程内计数器,重启后撞车 | P0 | 已修复 |
+| [T02](#t02-core-空消息校验放过空文本-part) | Core 空消息校验放过空文本 Part | P0 | 已修复 |
 | [T03](#t03-hostorchestration-的-continue-退化为空-prompt) | Host/Orchestration 的 Continue 退化为空 Prompt | P0 | 未开始 |
-| [T04](#t04-部分填写的-withlimits-让-agent-不可用) | 部分填写的 WithLimits 让 Agent 不可用 | P1 | 未开始 |
-| [T05](#t05-每次事件订阅泄漏一个-goroutine) | 每次事件订阅泄漏一个 goroutine | P1 | 未开始 |
+| [T04](#t04-部分填写的-withlimits-让-agent-不可用) | 部分填写的 WithLimits 让 Agent 不可用 | P1 | 已修复 |
+| [T05](#t05-每次事件订阅泄漏一个-goroutine) | 每次事件订阅泄漏一个 goroutine | P1 | 已修复 |
 | [T06](#t06-stream-路径不按-runid-过滤fifo-下串事件) | Stream 路径不按 RunID 过滤,FIFO 下串事件 | P1 | 未开始 |
-| [T07](#t07-commitmessage-每次提交重新序列化整份-transcript) | commitMessage 每次提交重新序列化整份 transcript | P1 | 未开始 |
+| [T07](#t07-commitmessage-每次提交重新序列化整份-transcript) | commitMessage 每次提交重新序列化整份 transcript | P1 | 已修复 |
 | [T08](#t08-drain-超时不-abort进程退出丢失会话状态) | drain 超时不 Abort,进程退出丢失会话状态 | P1 | 未开始 |
 | [T09](#t09-waitforidle-存在丢失唤醒的窗口) | WaitForIdle 存在丢失唤醒的窗口 | P2 | 未开始 |
 | [T10](#t10-toolprogress-计数器无同步保护) | ToolProgress 计数器无同步保护 | P2 | 未开始 |
