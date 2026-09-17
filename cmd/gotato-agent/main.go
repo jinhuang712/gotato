@@ -14,8 +14,8 @@ import (
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/testmodel"
 	"github.com/jinhuang712/gotato/orchestration"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
 type echoTool struct{}
@@ -65,11 +65,11 @@ func main() {
 	newModel := func() gotato.Model {
 		switch *modelName {
 		case "demo":
-			return testmodel.DemoModel{}
+			return testkit.DemoModel{}
 		case "gateway":
 			return gatewayModel
 		default:
-			return testmodel.EchoModel{}
+			return testkit.EchoModel{}
 		}
 	}
 	// newFactory builds one Agent definition. Definitions differ by the Model
@@ -96,7 +96,7 @@ func main() {
 		{Name: "default", New: newFactory(newModel, "You are the local Gotato reference agent.", defaultTools...)},
 		// A second definition proves routing by Agent name: it is reachable
 		// whatever the --model flag selects for "default".
-		{Name: "demo", New: newFactory(func() gotato.Model { return testmodel.DemoModel{} }, "You are the deterministic demo agent.", echoTool{})},
+		{Name: "demo", New: newFactory(func() gotato.Model { return testkit.DemoModel{} }, "You are the deterministic demo agent.", echoTool{})},
 	}
 
 	queue := orchestration.RejectWhileBusy

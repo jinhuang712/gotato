@@ -16,6 +16,11 @@ type RunID string
 type TurnNumber uint32
 type MessageID string
 type ToolCallID string
+
+// SpawnID identifies a spawn request in the optional orchestration layer.
+//
+// Deprecated: provenance between Runs is application metadata, not a runtime
+// type. It remains only for the orchestration package and its wire contract.
 type SpawnID string
 type AgentGeneration uint64
 

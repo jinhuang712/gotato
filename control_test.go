@@ -112,8 +112,6 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	}
 }
 
-
-
 func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 	tool := &scriptedTool{}
 	model := &recordingModel{

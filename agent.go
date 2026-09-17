@@ -80,14 +80,17 @@ type ControllableAgent interface {
 type Option func(*agentConfig) error
 
 type agentConfig struct {
-	model         Model
-	instruction   string
-	tools         []Tool
-	toolSets      []toolSetConfig
-	rootNamespace string
-	extensions    extensionSet
-	limits        CoreLimits
-	limitsSet     bool
+	model          Model
+	instruction    string
+	tools          []Tool
+	toolSets       []toolSetConfig
+	toolSources    []ToolSource
+	rootNamespace  string
+	extensions     extensionSet
+	limits         CoreLimits
+	limitsSet      bool
+	transcript     Transcript
+	contextBuilder ContextBuilder
 }
 
 func WithModel(model Model) Option {
@@ -173,26 +176,33 @@ func NewAgent(options ...Option) (Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.transcript == nil {
+		cfg.transcript = &memoryTranscript{}
+	}
+	if cfg.contextBuilder == nil {
+		cfg.contextBuilder = FullHistoryContext()
+	}
 
 	a := &coreAgent{
-		id:          AgentID(nextID("agent")),
-		model:       cfg.model,
-		instruction: cfg.instruction,
-		registry:    registry,
-		extensions:  cfg.extensions,
-		limits:      cfg.limits,
-		limitsSet:   cfg.limitsSet,
-		commands:    make(chan agentCommand),
-		closeSignal: make(chan struct{}),
-		done:        make(chan struct{}),
-		ready:       make(chan struct{}),
-		admission:   make(chan struct{}, 1),
-		steer:       make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
-		followUp:    make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
-		events:      newEventHub(),
-		lifecycle:   newLifecycleHub(),
-		stateChange: make(chan struct{}),
-		messages:    nil,
+		id:             AgentID(nextID("agent")),
+		model:          cfg.model,
+		instruction:    cfg.instruction,
+		registry:       registry,
+		transcript:     cfg.transcript,
+		contextBuilder: cfg.contextBuilder,
+		extensions:     cfg.extensions,
+		limits:         cfg.limits,
+		limitsSet:      cfg.limitsSet,
+		commands:       make(chan agentCommand),
+		closeSignal:    make(chan struct{}),
+		done:           make(chan struct{}),
+		ready:          make(chan struct{}),
+		admission:      make(chan struct{}, 1),
+		steer:          make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
+		followUp:       make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
+		events:         newEventHub(),
+		lifecycle:      newLifecycleHub(),
+		stateChange:    make(chan struct{}),
 	}
 	a.setStatus(AgentCreated)
 	go a.loop()
@@ -205,9 +215,17 @@ type coreAgent struct {
 	model       Model
 	instruction string
 	registry    *toolRegistry
+	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
 	limitsSet   bool
+
+	// transcript is the committed history (the Session's record). The Agent
+	// goroutine is its only writer during a Run. transcriptBytes tracks the
+	// encoded size incrementally so a commit never re-encodes the history.
+	transcript      Transcript
+	transcriptBytes uint64
+	contextBuilder  ContextBuilder
 
 	// observerCtx belongs to the Run in flight. Only the Agent goroutine
 	// reads and writes it, so Event observers see the owning Run Context.
@@ -228,7 +246,6 @@ type coreAgent struct {
 
 	stateMu     sync.Mutex
 	stateChange chan struct{}
-	messages    []Message
 
 	runMu          sync.Mutex
 	currentRunID   RunID
@@ -464,7 +481,7 @@ func (a *coreAgent) loop() {
 					continue
 				}
 				if cmd.kind == commandContinue {
-					if err := validateContinuable(a.messages); err != nil {
+					if err := validateContinuable(a.transcript.Messages()); err != nil {
 						cmd.result <- promptResponse{err: err}
 						<-a.admission
 						continue
@@ -547,21 +564,43 @@ func (a *coreAgent) commitMessage(message Message) error {
 	if err != nil {
 		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	if limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(len(a.messages)+1)) {
+	if limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(len(a.transcript.Messages())+1)) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
 	if limitExceededUint64(a.limitsSet, a.limits.MaxMessageBytes, uint64(len(bytes))) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
 	}
-	candidate := append(cloneMessages(a.messages), message)
-	transcript, err := json.Marshal(candidate)
-	if err != nil {
-		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode transcript", err)
+	// The transcript bound is tracked incrementally: one JSON array of n
+	// elements costs the elements plus n-1 separators and two brackets.
+	candidate := a.transcriptBytes + uint64(len(bytes))
+	if len(a.transcript.Messages()) > 0 {
+		candidate++
 	}
-	if limitExceededUint64(a.limitsSet, a.limits.MaxTranscriptBytes, uint64(len(transcript))) {
+	if limitExceededUint64(a.limitsSet, a.limits.MaxTranscriptBytes, candidate+2) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
-	a.messages = candidate
+	if err := a.transcript.Append(message); err != nil {
+		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot append to transcript: "+err.Error(), err)
+	}
+	a.transcriptBytes = candidate
+	return nil
+}
+
+// measureTranscript recomputes the encoded transcript size once per Run so an
+// externally mutated Transcript (a compacted or reloaded Session) is bounded
+// correctly without re-encoding on every commit.
+func (a *coreAgent) measureTranscript() error {
+	messages := a.transcript.Messages()
+	if len(messages) == 0 {
+		a.transcriptBytes = 0
+		return nil
+	}
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		return runtimeError(ErrInternalInvariant, "Run", "cannot encode transcript", err)
+	}
+	// Exclude the surrounding brackets; commitMessage adds them back.
+	a.transcriptBytes = uint64(len(encoded)) - 2
 	return nil
 }
 
@@ -686,6 +725,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 	if err := a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil); err != nil {
 		return fail(err)
 	}
+	if err := a.measureTranscript(); err != nil {
+		return fail(asRuntimeError(err))
+	}
 
 	if prompt != nil {
 		prompt.ID = MessageID(nextID("message"))
@@ -714,23 +756,46 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		}
 		turnStarted := time.Now()
 
-		// Transformers and converters shape what this Turn sends to the
-		// Model. Their output is never committed as the Core transcript.
-		outbound := cloneMessages(a.messages)
+		// The Tool surface is refreshed at the Turn boundary so every Tool the
+		// Model is shown in this request resolves for the whole Turn.
+		if err := a.refreshTools(); err != nil {
+			return fail(asRuntimeError(err))
+		}
+
+		// The ContextBuilder decides what the Model sees now. Transformers and
+		// converters then shape that view further. Neither output is ever
+		// committed as the transcript: Session is what happened, Context is
+		// what the Model sees now.
+		snapshot := ContextSnapshot{
+			AgentID:            a.id,
+			RunID:              runID,
+			Turn:               turn,
+			SystemInstructions: a.instruction,
+			Messages:           cloneMessages(a.transcript.Messages()),
+		}
+		built, buildErr := a.buildContext(runCtx, snapshot)
+		if buildErr != nil {
+			return fail(buildErr)
+		}
+		outbound := built.Messages
 		if !a.extensions.empty() {
-			transformed, extensionErr := a.extensions.transformContext(runCtx, ContextSnapshot{
-				AgentID:            a.id,
-				RunID:              runID,
-				Turn:               turn,
-				SystemInstructions: a.instruction,
-				Messages:           outbound,
-			})
+			view := snapshot
+			view.SystemInstructions = built.SystemInstructions
+			view.Messages = outbound
+			transformed, extensionErr := a.extensions.transformContext(runCtx, view)
 			if extensionErr != nil {
 				return fail(extensionErr)
 			}
 			outbound = transformed
 		}
-		request := ModelRequest{SystemInstructions: a.instruction, Messages: outbound, Tools: a.registry.visibleSpecs()}
+		contextPayload := map[string]any{"messages": len(outbound), "source_messages": len(snapshot.Messages)}
+		for key, value := range built.Metadata {
+			contextPayload[key] = value
+		}
+		if err := a.emit(runID, &sequence, EventContextBuilt, EventProtected, turn, "", "", contextPayload); err != nil {
+			return fail(err)
+		}
+		request := ModelRequest{SystemInstructions: built.SystemInstructions, Messages: outbound, Tools: a.registry.visibleSpecs()}
 		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
 		totalUsage = addUsage(totalUsage, usage)
 		for _, part := range assistant.Parts {
@@ -1108,7 +1173,7 @@ func validatePrompt(message Message) error {
 	if message.Role != RoleUser {
 		return runtimeError(ErrInvalidArgument, "Prompt", "Prompt message must have role user", nil)
 	}
-	if strings.TrimSpace(TextOf(message)) == "" && len(message.Parts) == 0 {
+	if !hasContent(message) {
 		return runtimeError(ErrInvalidArgument, "Prompt", "Prompt message is empty", nil)
 	}
 	return nil
@@ -1118,10 +1183,60 @@ func validateControlMessage(message Message, operation string) error {
 	if message.Role != RoleUser {
 		return runtimeError(ErrInvalidArgument, operation, operation+" message must have role user", nil)
 	}
-	if strings.TrimSpace(TextOf(message)) == "" && len(message.Parts) == 0 {
+	if !hasContent(message) {
 		return runtimeError(ErrInvalidArgument, operation, operation+" message is empty", nil)
 	}
 	return nil
+}
+
+// hasContent reports whether at least one Part carries substance: non-blank
+// text, or binary/JSON data. A Message made only of blank text Parts is empty.
+func hasContent(message Message) bool {
+	for _, part := range message.Parts {
+		switch part.Kind {
+		case ContentText, ContentReasoning:
+			if strings.TrimSpace(part.Text) != "" {
+				return true
+			}
+		default:
+			if len(part.Data) > 0 || strings.TrimSpace(part.Text) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// buildContext runs the ContextBuilder under the same panic guard as an
+// Extension and falls back to the snapshot's system instructions when the
+// builder leaves them empty.
+func (a *coreAgent) buildContext(ctx context.Context, snapshot ContextSnapshot) (ModelContext, *RuntimeError) {
+	var built ModelContext
+	if err := guard("ContextBuilder", func() error {
+		result, failure := a.contextBuilder.Build(ctx, snapshot)
+		built = result
+		return failure
+	}); err != nil {
+		return ModelContext{}, err
+	}
+	if built.SystemInstructions == "" {
+		built.SystemInstructions = snapshot.SystemInstructions
+	}
+	if built.Messages == nil {
+		built.Messages = []Message{}
+	}
+	return built, nil
+}
+
+// refreshTools re-reads every ToolSource. Static Tools and ToolSets are
+// untouched; only the dynamic part of the registry is rebuilt.
+func (a *coreAgent) refreshTools() error {
+	if !a.registry.hasSources() {
+		return nil
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	return a.registry.refreshSources()
 }
 
 // validateContinuable enforces that Continue never synthesizes user input: the

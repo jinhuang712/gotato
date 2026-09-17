@@ -9,8 +9,8 @@ import (
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/host"
-	"github.com/jinhuang712/gotato/internal/testmodel"
 	"github.com/jinhuang712/gotato/orchestration"
+	"github.com/jinhuang712/gotato/testkit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -24,7 +24,7 @@ func newTestClient(t *testing.T) (gotatov1.AgentServiceClient, *host.Server) {
 	t.Helper()
 	o := orchestration.New()
 	err := o.Register(orchestration.Definition{Name: "default", New: func(ctx context.Context, request orchestration.Request) (gotato.Agent, error) {
-		options := []gotato.Option{gotato.WithModel(testmodel.EchoModel{})}
+		options := []gotato.Option{gotato.WithModel(testkit.EchoModel{})}
 		return gotato.NewAgent(options...)
 	}})
 	if err != nil {
@@ -150,8 +150,6 @@ func TestGRPCRejectsAnAmbiguousCommand(t *testing.T) {
 		t.Fatalf("command with no input = %v", err)
 	}
 }
-
-
 
 func TestGRPCConversationRecordCarriesNoTranscript(t *testing.T) {
 	client, _ := newTestClient(t)

@@ -81,6 +81,8 @@ type toolSetState struct {
 type toolRegistry struct {
 	rootNamespace string
 	rootTools     []Tool
+	sources       []ToolSource
+	sourceTools   []Tool
 	sets          []*toolSetState
 	byQualified   map[string]Tool
 	specs         []ToolSpec
@@ -96,8 +98,12 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 	registry := &toolRegistry{
 		rootNamespace: cfg.rootNamespace,
 		rootTools:     cfg.tools,
+		sources:       cfg.toolSources,
 		maxActive:     cfg.limits.MaxActiveToolSets,
 		explicit:      cfg.limitsSet,
+	}
+	if err := registry.collectSources(); err != nil {
+		return nil, err
 	}
 	names := map[string]bool{}
 	for _, entry := range cfg.toolSets {
@@ -183,7 +189,7 @@ func (r *toolRegistry) rebuild() error {
 		specs = append(specs, visible)
 		return nil
 	}
-	for _, tool := range r.rootTools {
+	for _, tool := range r.staticTools() {
 		spec := tool.Spec()
 		if err := validateToolSpec(spec); err != nil {
 			return err
@@ -217,7 +223,7 @@ func (r *toolRegistry) rebuild() error {
 	r.specs = specs
 	// A local Tool name stays reachable when it is unambiguous, so a Model
 	// that answers with the bare name still resolves.
-	for _, tool := range r.rootTools {
+	for _, tool := range r.staticTools() {
 		spec := tool.Spec()
 		for _, alias := range []string{spec.ID, spec.Name} {
 			if alias == "" {
@@ -227,6 +233,57 @@ func (r *toolRegistry) rebuild() error {
 				r.byQualified[alias] = tool
 			}
 		}
+	}
+	return nil
+}
+
+// staticTools is the root surface: Tools installed with WithTool(s) followed
+// by the current Tools of every ToolSource.
+func (r *toolRegistry) staticTools() []Tool {
+	if len(r.sourceTools) == 0 {
+		return r.rootTools
+	}
+	out := make([]Tool, 0, len(r.rootTools)+len(r.sourceTools))
+	out = append(out, r.rootTools...)
+	out = append(out, r.sourceTools...)
+	return out
+}
+
+func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
+
+// collectSources asks every ToolSource for its Tools. A nil Tool or a panic
+// is a resolution failure, exactly as for a ToolSet.
+func (r *toolRegistry) collectSources() (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = runtimeError(ErrToolResolutionFailure, "ToolSource", fmt.Sprintf("ToolSource panicked: %v", recovered), nil)
+		}
+	}()
+	var tools []Tool
+	for _, source := range r.sources {
+		for _, tool := range source.Tools() {
+			if tool == nil {
+				return runtimeError(ErrInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
+			}
+			tools = append(tools, tool)
+		}
+	}
+	r.sourceTools = tools
+	return nil
+}
+
+// refreshSources re-collects the dynamic Tools and rebuilds visibility. On
+// failure the previous surface stays in place.
+func (r *toolRegistry) refreshSources() error {
+	previous := r.sourceTools
+	if err := r.collectSources(); err != nil {
+		r.sourceTools = previous
+		return err
+	}
+	if err := r.rebuild(); err != nil {
+		r.sourceTools = previous
+		_ = r.rebuild()
+		return err
 	}
 	return nil
 }

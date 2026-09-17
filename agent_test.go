@@ -42,12 +42,14 @@ type testModel struct {
 	scripts [][]ModelEvent
 	started chan struct{}
 	block   <-chan struct{}
+	last    ModelRequest
 }
 
 func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
 	m.mu.Lock()
 	index := m.calls
 	m.calls++
+	m.last = request
 	if m.started != nil {
 		select {
 		case m.started <- struct{}{}:
@@ -137,8 +139,6 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	}
 	_ = stream.Close()
 }
-
-
 
 func TestAgentCancelRun(t *testing.T) {
 	started := make(chan struct{}, 1)

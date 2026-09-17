@@ -2,7 +2,6 @@ package gotato
 
 import (
 	"context"
-	"io"
 )
 
 type Model interface {
@@ -49,5 +48,3 @@ type ModelEvent struct {
 	Usage             Usage          `json:"usage,omitempty"`
 	StopReason        StopReason     `json:"stop_reason,omitempty"`
 }
-
-func modelStreamDone() error { return io.EOF }

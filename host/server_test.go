@@ -13,12 +13,12 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
-	"github.com/jinhuang712/gotato/internal/testmodel"
 	"github.com/jinhuang712/gotato/orchestration"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
 func newTestHTTPServer(t *testing.T) (*Server, *httptest.Server) {
-	return newTestHTTPServerWithModel(t, testmodel.EchoModel{})
+	return newTestHTTPServerWithModel(t, testkit.EchoModel{})
 }
 
 func newTestHTTPServerWithModel(t *testing.T, model gotato.Model, tools ...gotato.Tool) (*Server, *httptest.Server) {
@@ -36,8 +36,6 @@ func newTestHTTPServerWithModel(t *testing.T, model gotato.Model, tools ...gotat
 	s := NewServer(o)
 	return s, httptest.NewServer(s.Handler())
 }
-
-
 
 // twoTurnModel makes a Run that provably spans two Turns: the first ends with
 // a Tool Call, the second blocks until released. That is what makes a progress

@@ -30,17 +30,44 @@ const (
 	EventToolSetActivated    EventKind = "toolset_activated"
 	EventTurnEnd             EventKind = "turn_end"
 	EventAgentEnd            EventKind = "agent_end"
+	// EventContextBuilt is emitted once per Turn, after the ContextBuilder
+	// and context Extensions ran and before the Model request is sent.
+	EventContextBuilt EventKind = "context_built"
+	// EventSessionCompacted is recorded when a Session prefix was replaced by
+	// a summary. It is produced by the compaction operation, not by the Loop.
+	EventSessionCompacted EventKind = "session_compacted"
 )
 
+// Payload keys by Kind. Consumers must tolerate unknown keys and kinds.
+//
+//	agent_start             (none)
+//	agent_end               status, error?, stopped_by_extension?, stop_reason?
+//	turn_start              (none)
+//	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,tool_results?}
+//	context_built           messages, source_messages, strategy, selected_messages, dropped_messages (+ builder metadata)
+//	message_start           role, source? (steer|follow_up)
+//	message_update          text
+//	message_end             role?, tool_calls?
+//	tool_execution_start    tool_id
+//	tool_execution_update   text
+//	tool_execution_end      status, executed
+//	tool_result_committed   status
+//	toolset_activated       toolset
+//	session_compacted       session_id, replaced_messages, summary_message_id, summarizer
+
 type Event struct {
-	AgentID     AgentID        `json:"agent_id"`
-	RunID       RunID          `json:"run_id"`
-	Sequence    uint64         `json:"sequence"`
-	Kind        EventKind      `json:"kind"`
-	Class       EventClass     `json:"event_class"`
-	Turn        TurnNumber     `json:"turn,omitempty"`
-	MessageID   MessageID      `json:"message_id,omitempty"`
-	ToolCallID  ToolCallID     `json:"tool_call_id,omitempty"`
+	AgentID    AgentID    `json:"agent_id"`
+	RunID      RunID      `json:"run_id"`
+	Sequence   uint64     `json:"sequence"`
+	Kind       EventKind  `json:"kind"`
+	Class      EventClass `json:"event_class"`
+	Turn       TurnNumber `json:"turn,omitempty"`
+	MessageID  MessageID  `json:"message_id,omitempty"`
+	ToolCallID ToolCallID `json:"tool_call_id,omitempty"`
+	// SpawnID and OriginRunID carry application provenance for the optional
+	// orchestration layer. They are not runtime semantics.
+	//
+	// Deprecated: store provenance in Session or application metadata.
 	SpawnID     SpawnID        `json:"spawn_id,omitempty"`
 	OriginRunID RunID          `json:"origin_run_id,omitempty"`
 	Payload     map[string]any `json:"payload,omitempty"`
@@ -50,9 +77,9 @@ type Event struct {
 type LifecycleKind string
 
 const (
-	LifecycleAgentCreated             LifecycleKind = "agent_created"
-	LifecycleAgentClosing             LifecycleKind = "agent_closing"
-	LifecycleAgentClosed              LifecycleKind = "agent_closed"
+	LifecycleAgentCreated LifecycleKind = "agent_created"
+	LifecycleAgentClosing LifecycleKind = "agent_closing"
+	LifecycleAgentClosed  LifecycleKind = "agent_closed"
 )
 
 type LifecycleEvent struct {
@@ -92,6 +119,7 @@ type eventHub struct {
 type eventSubscription struct {
 	mu      sync.Mutex
 	ch      chan Event
+	done    chan struct{}
 	closed  bool
 	err     error
 	closeFn func(*eventSubscription)
@@ -103,7 +131,7 @@ func (h *eventHub) subscribe(ctx context.Context) (EventStream, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s := &eventSubscription{ch: make(chan Event, 128)}
+	s := &eventSubscription{ch: make(chan Event, 128), done: make(chan struct{})}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -118,10 +146,15 @@ func (h *eventHub) subscribe(ctx context.Context) (EventStream, error) {
 		h.mu.Unlock()
 	}
 	h.mu.Unlock()
-	go func() {
-		<-ctx.Done()
-		s.closeWith(ctx.Err())
-	}()
+	if ctx.Done() != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.closeWith(ctx.Err())
+			case <-s.done:
+			}
+		}()
+	}
 	return s, nil
 }
 
@@ -170,6 +203,7 @@ func (s *eventSubscription) enqueue(ev Event) {
 		s.closed = true
 		s.err = errors.New("gotato: protected event buffer full")
 		close(s.ch)
+		close(s.done)
 		if s.closeFn != nil {
 			s.closeFn(s)
 		}
@@ -187,6 +221,7 @@ func (s *eventSubscription) closeWith(err error) {
 		s.err = err
 	}
 	close(s.ch)
+	close(s.done)
 	closeFn := s.closeFn
 	s.mu.Unlock()
 	if closeFn != nil {
@@ -227,6 +262,7 @@ type lifecycleHub struct {
 type lifecycleSubscription struct {
 	mu      sync.Mutex
 	ch      chan LifecycleEvent
+	done    chan struct{}
 	closed  bool
 	err     error
 	closeFn func(*lifecycleSubscription)
@@ -240,7 +276,7 @@ func (h *lifecycleHub) subscribe(ctx context.Context) (LifecycleStream, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s := &lifecycleSubscription{ch: make(chan LifecycleEvent, 32)}
+	s := &lifecycleSubscription{ch: make(chan LifecycleEvent, 32), done: make(chan struct{})}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -251,7 +287,15 @@ func (h *lifecycleHub) subscribe(ctx context.Context) (LifecycleStream, error) {
 	h.subs[id] = s
 	s.closeFn = func(sub *lifecycleSubscription) { h.mu.Lock(); delete(h.subs, id); h.mu.Unlock() }
 	h.mu.Unlock()
-	go func() { <-ctx.Done(); s.closeWith(ctx.Err()) }()
+	if ctx.Done() != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.closeWith(ctx.Err())
+			case <-s.done:
+			}
+		}()
+	}
 	return s, nil
 }
 
@@ -297,6 +341,7 @@ func (s *lifecycleSubscription) enqueue(ev LifecycleEvent) {
 		s.closed = true
 		s.err = errors.New("gotato: lifecycle event buffer full")
 		close(s.ch)
+		close(s.done)
 		if s.closeFn != nil {
 			s.closeFn(s)
 		}
@@ -314,6 +359,7 @@ func (s *lifecycleSubscription) closeWith(err error) {
 		s.err = err
 	}
 	close(s.ch)
+	close(s.done)
 	closeFn := s.closeFn
 	s.mu.Unlock()
 	if closeFn != nil {

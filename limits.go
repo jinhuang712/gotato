@@ -22,6 +22,12 @@ type CoreLimits struct {
 	ToolCallDeadline  time.Duration
 }
 
+// DefaultLimits returns the limits NewAgent applies when WithLimits is not
+// used. Adjust a copy and pass it to WithLimits to override some fields:
+// after WithLimits a zero count or byte limit admits no work, and a zero
+// deadline disables that deadline.
+func DefaultLimits() CoreLimits { return defaultLimits() }
+
 func defaultLimits() CoreLimits {
 	return CoreLimits{
 		MaxTurns:               32,
