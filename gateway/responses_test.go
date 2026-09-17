@@ -6,15 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 )
 
-func TestCodexResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
-	token := testCodexToken("account-test")
+func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
+	token := testToken("account-test")
 	var request struct {
 		Model        string            `json:"model"`
 		Store        bool              `json:"store"`
@@ -27,11 +25,10 @@ func TestCodexResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer "+token {
 			t.Errorf("authorization = %q", got)
 		}
-		if got := r.Header.Get("chatgpt-account-id"); got != "account-test" {
-			t.Errorf("account id = %q", got)
-		}
-		if got := r.Header.Get("OpenAI-Beta"); got != "responses=experimental" {
-			t.Errorf("OpenAI-Beta = %q", got)
+		for _, header := range []string{"chatgpt-account-id", "originator", "OpenAI-Beta"} {
+			if got := r.Header.Get(header); got != "" {
+				t.Errorf("%s must not be sent: %q", header, got)
+			}
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
@@ -47,7 +44,7 @@ func TestCodexResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "openai-codex-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,47 +91,9 @@ func TestCodexResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	}
 }
 
-func TestCodexResponsesReadsPiOAuthFile(t *testing.T) {
-	token := testCodexToken("account-from-file")
-	authFile := map[string]any{
-		"openai-codex": map[string]any{
-			"type": "oauth", "access": token, "refresh": "unused", "expires": time.Now().Add(time.Hour).UnixMilli(),
-		},
-	}
-	data, err := json.Marshal(authFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := t.TempDir() + "/auth.json"
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("chatgpt-account-id") != "account-from-file" {
-			t.Errorf("account id = %q", r.Header.Get("chatgpt-account-id"))
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
-	}))
-	defer server.Close()
-
-	client, err := New(Config{API: "openai-codex-responses", Endpoint: server.URL, Model: "gpt-test", Auth: AuthConfig{Type: "pi_oauth", File: path}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stream, err := client.Stream(context.Background(), gotato.ModelRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stream.Close()
-	if _, err := stream.Recv(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestCodexResponsesReplaysReasoningArtifact(t *testing.T) {
+func TestResponsesReplaysReasoningArtifact(t *testing.T) {
 	artifact := []byte(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`)
-	body, _, err := encodeCodexRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Signature: artifact}}}, gotato.UserMessage("next")}})
+	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Signature: artifact}}}, gotato.UserMessage("next")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +108,8 @@ func TestCodexResponsesReplaysReasoningArtifact(t *testing.T) {
 	}
 }
 
-func TestCodexResponsesStreamReassemblesToolCall(t *testing.T) {
-	token := testCodexToken("account-test")
+func TestResponsesStreamReassemblesToolCall(t *testing.T) {
+	token := testToken("account-test")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		name := gatewayFunctionName("demo.echo")
@@ -162,7 +121,7 @@ func TestCodexResponsesStreamReassemblesToolCall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "openai-codex-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +160,7 @@ func writeSSE(t *testing.T, w http.ResponseWriter, data string) {
 	}
 }
 
-func testCodexToken(accountID string) string {
+func testToken(accountID string) string {
 	encode := func(value string) string {
 		return base64.RawURLEncoding.EncodeToString([]byte(value))
 	}

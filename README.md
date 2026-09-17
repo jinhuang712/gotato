@@ -86,7 +86,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 | | `modelctx` | FullHistory, WithStatic, WithPanel, blocks, Inspect, Compact, AutoCompact, summarizers |
 | | `toolregistry` | Registry (register/unregister/lookup/list/describe/activate/deactivate, change hooks) |
 | | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
-| providers | `gateway` | OpenAI-compatible chat completions and OpenAI Codex Responses adapters, YAML config |
+| providers | `gateway` | OpenAI-compatible Chat Completions and Responses adapters (API key), YAML config |
 | CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor` |
 | optional service layer | `orchestration`, `host`, `adapter/grpc`, `cmd/gotato-agent` | multi-agent routing, admission and retirement; HTTP and gRPC exposure; reference daemon. Built on the runtime, never imported by it. |
 

@@ -10,9 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -21,34 +18,29 @@ import (
 	gotato "github.com/jinhuang712/gotato"
 )
 
-const (
-	defaultCodexBaseURL = "https://chatgpt.com/backend-api"
-	codexOAuthTokenURL  = "https://auth.openai.com/oauth/token"
-	codexOAuthClientID  = "app_EMoamEEZ73f0CkXaXp7hrann"
-)
+const defaultResponsesBaseURL = "https://api.openai.com/v1"
 
-func (c *Client) streamCodex(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeCodexRequest(c.model, request)
+func (c *Client) streamResponses(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	body, names, err := encodeResponsesRequest(c.model, request)
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.doCodex(ctx, body)
+	response, err := c.doResponses(ctx, body)
 	if err != nil {
 		return nil, err
 	}
-	return &codexStream{
+	return &responsesStream{
 		response: response,
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
-		calls:    make(map[int]*codexCall),
+		calls:    make(map[int]*responsesCall),
 		texts:    make(map[int]bool),
 	}, nil
 }
 
-func (c *Client) doCodex(ctx context.Context, body []byte) (*http.Response, error) {
-	token, accountID, err := c.codexCredentials(ctx)
-	if err != nil {
-		return nil, err
+func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, error) {
+	if strings.TrimSpace(c.apiKey) == "" {
+		return nil, &Error{Message: "gateway: api_key is required for the Responses API"}
 	}
 	for attempt := 0; ; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
@@ -58,13 +50,10 @@ func (c *Client) doCodex(ctx context.Context, body []byte) (*http.Response, erro
 		for key, value := range c.headers {
 			req.Header.Set(key, value)
 		}
-		// These headers are part of the Codex protocol and cannot be replaced
-		// by a generic provider header override.
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("chatgpt-account-id", accountID)
-		req.Header.Set("originator", "pi")
-		req.Header.Set("User-Agent", "gotato-agent/0.1")
-		req.Header.Set("OpenAI-Beta", "responses=experimental")
+		// Protocol headers are set after the configurable ones so a provider
+		// header override cannot break authentication or streaming.
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("User-Agent", "gotato/0.1")
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 
@@ -86,7 +75,7 @@ func (c *Client) doCodex(ctx context.Context, body []byte) (*http.Response, erro
 		}
 		message := readErrorBody(response.Body)
 		_ = response.Body.Close()
-		retryable := codexRetryable(response.StatusCode, message)
+		retryable := responsesRetryable(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
 			delay := c.retryBackoff * time.Duration(attempt+1)
 			if retryAfter := retryAfterDuration(response.Header); retryAfter >= 0 {
@@ -101,8 +90,8 @@ func (c *Client) doCodex(ctx context.Context, body []byte) (*http.Response, erro
 	}
 }
 
-func codexRetryable(status int, message string) bool {
-	if status == http.StatusTooManyRequests && regexpTerminalCodexLimit(message) {
+func responsesRetryable(status int, message string) bool {
+	if status == http.StatusTooManyRequests && regexpTerminalResponsesLimit(message) {
 		return false
 	}
 	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
@@ -111,7 +100,7 @@ func codexRetryable(status int, message string) bool {
 		strings.Contains(strings.ToLower(message), "overloaded") || strings.Contains(strings.ToLower(message), "service unavailable")
 }
 
-func regexpTerminalCodexLimit(message string) bool {
+func regexpTerminalResponsesLimit(message string) bool {
 	lower := strings.ToLower(message)
 	for _, phrase := range []string{"usage limit", "freeusagelimiterror", "gousagelimiterror", "insufficient_quota", "out of budget", "quota exceeded", "available balance"} {
 		if strings.Contains(lower, phrase) {
@@ -143,245 +132,32 @@ func retryAfterDuration(header http.Header) time.Duration {
 	return -1
 }
 
-// piCredential is the subset of Pi's auth.json credential format needed by
-// the Codex adapter. The access token is never included in errors or logs.
-type piCredential struct {
-	Type      string `json:"type"`
-	Access    string `json:"access"`
-	Refresh   string `json:"refresh"`
-	Expires   int64  `json:"expires"`
-	AccountID string `json:"accountId,omitempty"`
+type responsesRequest struct {
+	Model             string              `json:"model"`
+	Store             bool                `json:"store"`
+	Stream            bool                `json:"stream"`
+	Instructions      string              `json:"instructions"`
+	Input             []any               `json:"input"`
+	Text              responsesText       `json:"text"`
+	Include           []string            `json:"include"`
+	ToolChoice        string              `json:"tool_choice"`
+	ParallelToolCalls bool                `json:"parallel_tool_calls"`
+	Tools             []responsesTool     `json:"tools,omitempty"`
+	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
+	Temperature       *float64            `json:"temperature,omitempty"`
+	MaxOutputTokens   uint32              `json:"max_output_tokens,omitempty"`
 }
 
-type piAuthFile map[string]json.RawMessage
-
-func (c *Client) codexCredentials(ctx context.Context) (string, string, error) {
-	c.authMu.Lock()
-	defer c.authMu.Unlock()
-
-	credential := piCredential{Type: "api_key", Access: c.apiKey}
-	if c.auth.Type == "pi_oauth" {
-		path := expandPath(c.auth.File)
-		if path == "" {
-			return "", "", fmt.Errorf("gateway: pi_oauth requires auth.file")
-		}
-		provider := c.auth.Provider
-		if provider == "" {
-			provider = "openai-codex"
-		}
-		if c.codexCredential != nil && c.codexCredentialPath == path && c.codexCredentialName == provider {
-			credential = *c.codexCredential
-		} else {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return "", "", fmt.Errorf("gateway: read Pi auth file %q: %w", path, err)
-			}
-			var file piAuthFile
-			if err := json.Unmarshal(data, &file); err != nil {
-				return "", "", fmt.Errorf("gateway: parse Pi auth file %q: %w", path, err)
-			}
-			raw, ok := file[provider]
-			if !ok {
-				return "", "", fmt.Errorf("gateway: Pi auth file has no provider %q", provider)
-			}
-			if err := json.Unmarshal(raw, &credential); err != nil {
-				return "", "", fmt.Errorf("gateway: parse Pi credential %q: %w", provider, err)
-			}
-			if credential.Type != "" && credential.Type != "oauth" {
-				return "", "", fmt.Errorf("gateway: Pi provider %q is not OAuth", provider)
-			}
-			c.codexCredentialPath = path
-			c.codexCredentialName = provider
-		}
-		if credential.Access == "" {
-			return "", "", fmt.Errorf("gateway: Pi provider %q has no access token", provider)
-		}
-		if tokenExpired(credential.Expires) {
-			if credential.Refresh == "" {
-				return "", "", fmt.Errorf("gateway: Pi provider %q access token is expired and has no refresh token", provider)
-			}
-			refreshed, err := refreshCodexToken(ctx, credential.Refresh, c.httpClient)
-			if err != nil {
-				return "", "", err
-			}
-			credential = refreshed
-			// Keep the refreshed token in the local file when possible. Failure to
-			// persist does not make this request fail; the in-memory token remains
-			// valid for the lifetime of this Client.
-			_ = persistPiCredential(path, provider, credential)
-		}
-		cached := credential
-		c.codexCredential = &cached
-	}
-	if credential.Access == "" {
-		return "", "", fmt.Errorf("gateway: Codex access token is required")
-	}
-	accountID := strings.TrimSpace(c.auth.AccountID)
-	if accountID == "" {
-		accountID = credential.AccountID
-	}
-	if accountID == "" {
-		var err error
-		accountID, err = codexAccountID(credential.Access)
-		if err != nil {
-			return "", "", err
-		}
-	}
-	return credential.Access, accountID, nil
-}
-
-func tokenExpired(expires int64) bool {
-	if expires == 0 {
-		return false
-	}
-	// Pi stores milliseconds since epoch. Accept seconds as a convenience for
-	// hand-written credential files.
-	if expires < 100000000000 {
-		expires *= 1000
-	}
-	return time.Now().Add(30*time.Second).UnixMilli() >= expires
-}
-
-func refreshCodexToken(ctx context.Context, refresh string, client *http.Client) (piCredential, error) {
-	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refresh)
-	form.Set("client_id", codexOAuthClientID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, codexOAuthTokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return piCredential{}, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return piCredential{}, ctx.Err()
-		}
-		return piCredential{}, fmt.Errorf("gateway: Codex token refresh: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return piCredential{}, fmt.Errorf("gateway: Codex token refresh failed (HTTP %d): %s", response.StatusCode, readErrorBody(response.Body))
-	}
-	var payload struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int64  `json:"expires_in"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return piCredential{}, fmt.Errorf("gateway: parse Codex token refresh: %w", err)
-	}
-	if payload.AccessToken == "" || payload.RefreshToken == "" || payload.ExpiresIn <= 0 {
-		return piCredential{}, fmt.Errorf("gateway: Codex token refresh response is missing required fields")
-	}
-	return piCredential{
-		Type:    "oauth",
-		Access:  payload.AccessToken,
-		Refresh: payload.RefreshToken,
-		Expires: time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second).UnixMilli(),
-	}, nil
-}
-
-func persistPiCredential(path, provider string, credential piCredential) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var file piAuthFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(credential)
-	if err != nil {
-		return err
-	}
-	file[provider] = encoded
-	updated, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".gotato-auth-*")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	defer os.Remove(tempName)
-	if err := temp.Chmod(0600); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if _, err := temp.Write(append(updated, '\n')); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempName, path)
-}
-
-func expandPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			if path == "~" {
-				return home
-			}
-			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-		}
-	}
-	return os.ExpandEnv(path)
-}
-
-func codexAccountID(token string) (string, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("gateway: Codex access token is not a JWT and has no account ID")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	if err != nil {
-		return "", fmt.Errorf("gateway: decode Codex access token: %w", err)
-	}
-	var claims struct {
-		Auth struct {
-			AccountID string `json:"chatgpt_account_id"`
-		} `json:"https://api.openai.com/auth"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("gateway: decode Codex access token claims: %w", err)
-	}
-	if claims.Auth.AccountID == "" {
-		return "", fmt.Errorf("gateway: Codex access token has no chatgpt account ID")
-	}
-	return claims.Auth.AccountID, nil
-}
-
-type codexRequest struct {
-	Model             string          `json:"model"`
-	Store             bool            `json:"store"`
-	Stream            bool            `json:"stream"`
-	Instructions      string          `json:"instructions"`
-	Input             []any           `json:"input"`
-	Text              codexText       `json:"text"`
-	Include           []string        `json:"include"`
-	ToolChoice        string          `json:"tool_choice"`
-	ParallelToolCalls bool            `json:"parallel_tool_calls"`
-	Tools             []codexTool     `json:"tools,omitempty"`
-	Reasoning         *codexReasoning `json:"reasoning,omitempty"`
-	Temperature       *float64        `json:"temperature,omitempty"`
-	MaxOutputTokens   uint32          `json:"max_output_tokens,omitempty"`
-}
-
-type codexText struct {
+type responsesText struct {
 	Verbosity string `json:"verbosity"`
 }
 
-type codexReasoning struct {
+type responsesReasoning struct {
 	Effort  string `json:"effort"`
 	Summary string `json:"summary"`
 }
 
-type codexTool struct {
+type responsesTool struct {
 	Type        string          `json:"type"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
@@ -389,19 +165,19 @@ type codexTool struct {
 	Strict      bool            `json:"strict"`
 }
 
-type codexMessage struct {
+type responsesMessage struct {
 	Role    string `json:"role"`
 	Content []any  `json:"content,omitempty"`
 }
 
-type codexOutputMessage struct {
+type responsesOutputMessage struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
 	Content []any  `json:"content"`
 	Status  string `json:"status"`
 }
 
-type codexFunctionCall struct {
+type responsesFunctionCall struct {
 	Type      string `json:"type"`
 	ID        string `json:"id,omitempty"`
 	CallID    string `json:"call_id"`
@@ -409,24 +185,24 @@ type codexFunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-type codexFunctionOutput struct {
+type responsesFunctionOutput struct {
 	Type   string `json:"type"`
 	CallID string `json:"call_id"`
 	Output string `json:"output"`
 }
 
-func encodeCodexRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
 	names := make(map[string]string, len(request.Tools))
 	input := make([]any, 0, len(request.Messages)*2)
 	for _, message := range request.Messages {
-		items, err := convertCodexMessage(message, names)
+		items, err := convertResponsesMessage(message, names)
 		if err != nil {
 			return nil, nil, err
 		}
 		input = append(input, items...)
 	}
 
-	tools := make([]codexTool, 0, len(request.Tools))
+	tools := make([]responsesTool, 0, len(request.Tools))
 	for _, spec := range request.Tools {
 		name := gatewayFunctionName(spec.ID)
 		if previous, exists := names[name]; exists && previous != spec.ID {
@@ -440,20 +216,20 @@ func encodeCodexRequest(model string, request gotato.ModelRequest) ([]byte, map[
 		if !json.Valid(parameters) {
 			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
 		}
-		tools = append(tools, codexTool{Type: "function", Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)})
+		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)})
 	}
 
 	instructions := request.SystemInstructions
 	if instructions == "" {
 		instructions = "You are a helpful assistant."
 	}
-	payload := codexRequest{
+	payload := responsesRequest{
 		Model:             model,
 		Store:             false,
 		Stream:            true,
 		Instructions:      instructions,
 		Input:             input,
-		Text:              codexText{Verbosity: "low"},
+		Text:              responsesText{Verbosity: "low"},
 		Include:           []string{"reasoning.encrypted_content"},
 		ToolChoice:        "auto",
 		ParallelToolCalls: true,
@@ -470,27 +246,27 @@ func encodeCodexRequest(model string, request gotato.ModelRequest) ([]byte, map[
 		if summary == "" {
 			summary = "auto"
 		}
-		payload.Reasoning = &codexReasoning{Effort: request.Options.ReasoningEffort, Summary: summary}
+		payload.Reasoning = &responsesReasoning{Effort: request.Options.ReasoningEffort, Summary: summary}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("gateway: encode Codex request: %w", err)
+		return nil, nil, fmt.Errorf("gateway: encode Responses request: %w", err)
 	}
 	return body, names, nil
 }
 
-func convertCodexMessage(message gotato.Message, names map[string]string) ([]any, error) {
+func convertResponsesMessage(message gotato.Message, names map[string]string) ([]any, error) {
 	role := string(message.Role)
 	switch message.Role {
 	case gotato.RoleUser:
-		content, err := codexInputContent(message.Parts)
+		content, err := responsesInputContent(message.Parts)
 		if err != nil {
 			return nil, err
 		}
 		if len(content) == 0 {
 			return nil, nil
 		}
-		return []any{codexMessage{Role: "user", Content: content}}, nil
+		return []any{responsesMessage{Role: "user", Content: content}}, nil
 	case gotato.RoleAssistant:
 		items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
 		for _, part := range message.Parts {
@@ -508,13 +284,13 @@ func convertCodexMessage(message gotato.Message, names map[string]string) ([]any
 				if part.Text == "" {
 					continue
 				}
-				items = append(items, codexOutputMessage{
+				items = append(items, responsesOutputMessage{
 					Type: "message", Role: "assistant", Status: "completed",
 					Content: []any{map[string]any{"type": "output_text", "text": part.Text, "annotations": []any{}}},
 				})
 			case gotato.ContentImage, gotato.ContentJSON:
 				if len(part.Data) > 0 || part.Text != "" {
-					return nil, fmt.Errorf("gateway: Codex assistant content kind %q is unsupported", part.Kind)
+					return nil, fmt.Errorf("gateway: Responses assistant content kind %q is unsupported", part.Kind)
 				}
 			}
 		}
@@ -531,14 +307,14 @@ func convertCodexMessage(message gotato.Message, names map[string]string) ([]any
 			if !json.Valid([]byte(arguments)) {
 				return nil, fmt.Errorf("gateway: Tool Call %q has invalid arguments", call.ID)
 			}
-			callID, itemID := splitCodexCallID(string(call.ID))
-			items = append(items, codexFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
+			callID, itemID := splitResponsesCallID(string(call.ID))
+			items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
 		}
 		return items, nil
 	case gotato.RoleToolResult:
 		callID := ""
 		if message.ToolResult != nil {
-			callID, _ = splitCodexCallID(string(message.ToolResult.CallID))
+			callID, _ = splitResponsesCallID(string(message.ToolResult.CallID))
 		}
 		if callID == "" {
 			return nil, fmt.Errorf("gateway: Tool result has no Call ID")
@@ -550,13 +326,13 @@ func convertCodexMessage(message gotato.Message, names map[string]string) ([]any
 		if output == "" {
 			output = "(no tool output)"
 		}
-		return []any{codexFunctionOutput{Type: "function_call_output", CallID: callID, Output: output}}, nil
+		return []any{responsesFunctionOutput{Type: "function_call_output", CallID: callID, Output: output}}, nil
 	default:
 		return nil, fmt.Errorf("gateway: unsupported Message role %q", role)
 	}
 }
 
-func codexInputContent(parts []gotato.ContentPart) ([]any, error) {
+func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 	content := make([]any, 0, len(parts))
 	for _, part := range parts {
 		switch part.Kind {
@@ -579,25 +355,25 @@ func codexInputContent(parts []gotato.ContentPart) ([]any, error) {
 			})
 		case gotato.ContentReasoning, gotato.ContentJSON:
 			if part.Text != "" || len(part.Data) > 0 {
-				return nil, fmt.Errorf("gateway: Codex user content kind %q is unsupported", part.Kind)
+				return nil, fmt.Errorf("gateway: Responses user content kind %q is unsupported", part.Kind)
 			}
 		}
 	}
 	return content, nil
 }
 
-func splitCodexCallID(id string) (callID, itemID string) {
+func splitResponsesCallID(id string) (callID, itemID string) {
 	if index := strings.IndexByte(id, '|'); index >= 0 {
 		return id[:index], id[index+1:]
 	}
 	return id, ""
 }
 
-type codexStream struct {
+type responsesStream struct {
 	response  *http.Response
 	reader    *bufio.Reader
 	nameMap   map[string]string
-	calls     map[int]*codexCall
+	calls     map[int]*responsesCall
 	texts     map[int]bool
 	queue     []gotato.ModelEvent
 	finished  bool
@@ -605,7 +381,7 @@ type codexStream struct {
 	closeOnce sync.Once
 }
 
-type codexCall struct {
+type responsesCall struct {
 	id        string
 	callID    string
 	name      string
@@ -613,7 +389,7 @@ type codexCall struct {
 	emitted   bool
 }
 
-type codexOutputItem struct {
+type responsesOutputItem struct {
 	Type             string `json:"type"`
 	ID               string `json:"id"`
 	CallID           string `json:"call_id"`
@@ -630,7 +406,7 @@ type codexOutputItem struct {
 	} `json:"content,omitempty"`
 }
 
-type codexResponse struct {
+type responsesResponse struct {
 	ID                string `json:"id"`
 	Status            string `json:"status"`
 	IncompleteDetails *struct {
@@ -645,25 +421,25 @@ type codexResponse struct {
 			CacheWriteTokens uint64 `json:"cache_write_tokens"`
 		} `json:"input_tokens_details,omitempty"`
 	} `json:"usage,omitempty"`
-	Output []codexOutputItem `json:"output,omitempty"`
+	Output []responsesOutputItem `json:"output,omitempty"`
 	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
 
-type codexEvent struct {
-	Type        string           `json:"type"`
-	OutputIndex int              `json:"output_index"`
-	Delta       string           `json:"delta"`
-	Arguments   string           `json:"arguments"`
-	Item        *codexOutputItem `json:"item,omitempty"`
-	Response    *codexResponse   `json:"response,omitempty"`
-	Code        string           `json:"code,omitempty"`
-	Message     string           `json:"message,omitempty"`
+type responsesEvent struct {
+	Type        string               `json:"type"`
+	OutputIndex int                  `json:"output_index"`
+	Delta       string               `json:"delta"`
+	Arguments   string               `json:"arguments"`
+	Item        *responsesOutputItem `json:"item,omitempty"`
+	Response    *responsesResponse   `json:"response,omitempty"`
+	Code        string               `json:"code,omitempty"`
+	Message     string               `json:"message,omitempty"`
 }
 
-func (s *codexStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
+func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -679,18 +455,18 @@ func (s *codexStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		data, err := nextSSEData(ctx, s.reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return gotato.ModelEvent{}, fmt.Errorf("gateway: Codex stream ended before completion")
+				return gotato.ModelEvent{}, fmt.Errorf("gateway: Responses stream ended before completion")
 			}
 			return gotato.ModelEvent{}, err
 		}
 		if data == "" || data == "[DONE]" {
 			continue
 		}
-		var event codexEvent
+		var event responsesEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid Codex SSE event: %w", err)
+			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid Responses SSE event: %w", err)
 		}
-		s.processCodexEvent(event, []byte(data))
+		s.processResponsesEvent(event, []byte(data))
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
@@ -720,13 +496,13 @@ func nextSSEData(ctx context.Context, reader *bufio.Reader) (string, error) {
 	}
 }
 
-func (s *codexStream) processCodexEvent(event codexEvent, raw []byte) {
+func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte) {
 	switch event.Type {
 	case "response.output_item.added":
 		if event.Item == nil {
 			return
 		}
-		s.ensureCodexCall(event.OutputIndex, event.Item)
+		s.ensureResponsesCall(event.OutputIndex, event.Item)
 	case "response.output_text.delta", "response.refusal.delta":
 		if event.Delta != "" {
 			s.texts[event.OutputIndex] = true
@@ -739,14 +515,14 @@ func (s *codexStream) processCodexEvent(event codexEvent, raw []byte) {
 	case "response.function_call_arguments.delta":
 		call := s.calls[event.OutputIndex]
 		if call == nil {
-			call = &codexCall{}
+			call = &responsesCall{}
 			s.calls[event.OutputIndex] = call
 		}
 		call.arguments += event.Delta
 	case "response.function_call_arguments.done":
 		call := s.calls[event.OutputIndex]
 		if call == nil {
-			call = &codexCall{}
+			call = &responsesCall{}
 			s.calls[event.OutputIndex] = call
 		}
 		call.arguments = event.Arguments
@@ -754,10 +530,10 @@ func (s *codexStream) processCodexEvent(event codexEvent, raw []byte) {
 		if event.Item == nil {
 			return
 		}
-		itemRaw := codexItemRaw(raw)
-		s.finishCodexItem(event.OutputIndex, *event.Item, itemRaw)
+		itemRaw := responsesItemRaw(raw)
+		s.finishResponsesItem(event.OutputIndex, *event.Item, itemRaw)
 	case "response.completed", "response.incomplete":
-		s.finishCodexResponse(event.Response)
+		s.finishResponsesResponse(event.Response)
 	case "response.failed":
 		message := event.Message
 		if event.Response != nil && event.Response.Error != nil {
@@ -767,22 +543,22 @@ func (s *codexStream) processCodexEvent(event codexEvent, raw []byte) {
 			}
 		}
 		if message == "" {
-			message = "Codex response failed"
+			message = "Responses response failed"
 		}
-		s.finishWithError(fmt.Errorf("gateway: Codex response failed: %s", message))
+		s.finishWithError(fmt.Errorf("gateway: Responses response failed: %s", message))
 	case "error":
 		message := event.Message
 		if message == "" {
 			message = event.Code
 		}
 		if message == "" {
-			message = "Codex stream error"
+			message = "Responses stream error"
 		}
-		s.finishWithError(fmt.Errorf("gateway: Codex stream error: %s", message))
+		s.finishWithError(fmt.Errorf("gateway: Responses stream error: %s", message))
 	}
 }
 
-func codexItemRaw(event []byte) []byte {
+func responsesItemRaw(event []byte) []byte {
 	var envelope struct {
 		Item json.RawMessage `json:"item"`
 	}
@@ -792,13 +568,13 @@ func codexItemRaw(event []byte) []byte {
 	return append([]byte(nil), envelope.Item...)
 }
 
-func (s *codexStream) ensureCodexCall(index int, item *codexOutputItem) {
+func (s *responsesStream) ensureResponsesCall(index int, item *responsesOutputItem) {
 	if item.Type != "function_call" {
 		return
 	}
 	call := s.calls[index]
 	if call == nil {
-		call = &codexCall{}
+		call = &responsesCall{}
 		s.calls[index] = call
 	}
 	if item.ID != "" {
@@ -815,7 +591,7 @@ func (s *codexStream) ensureCodexCall(index int, item *codexOutputItem) {
 	}
 }
 
-func (s *codexStream) finishCodexItem(index int, item codexOutputItem, raw []byte) {
+func (s *responsesStream) finishResponsesItem(index int, item responsesOutputItem, raw []byte) {
 	if item.Type == "reasoning" {
 		artifact, err := json.Marshal(item)
 		if err == nil && len(raw) > 0 {
@@ -835,11 +611,11 @@ func (s *codexStream) finishCodexItem(index int, item codexOutputItem, raw []byt
 	if item.Type != "function_call" {
 		return
 	}
-	s.ensureCodexCall(index, &item)
-	s.emitCodexCall(index)
+	s.ensureResponsesCall(index, &item)
+	s.emitResponsesCall(index)
 }
 
-func (s *codexStream) emitCodexCall(index int) {
+func (s *responsesStream) emitResponsesCall(index int) {
 	call := s.calls[index]
 	if call == nil || call.emitted {
 		return
@@ -863,9 +639,9 @@ func (s *codexStream) emitCodexCall(index int) {
 	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: name, Arguments: []byte(arguments)}})
 }
 
-func (s *codexStream) finishCodexResponse(response *codexResponse) {
+func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 	if response == nil {
-		s.finishWithError(fmt.Errorf("gateway: Codex completion has no response"))
+		s.finishWithError(fmt.Errorf("gateway: Responses completion has no response"))
 		return
 	}
 	indices := make([]int, 0, len(s.calls))
@@ -874,7 +650,7 @@ func (s *codexStream) finishCodexResponse(response *codexResponse) {
 	}
 	sort.Ints(indices)
 	for _, index := range indices {
-		s.emitCodexCall(index)
+		s.emitResponsesCall(index)
 	}
 	if response.Usage != nil {
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: gotato.Usage{
@@ -883,7 +659,7 @@ func (s *codexStream) finishCodexResponse(response *codexResponse) {
 			TotalTokens:  response.Usage.TotalTokens,
 		}})
 	}
-	stop := codexStopReason(response.Status, response.IncompleteDetails)
+	stop := responsesStopReason(response.Status, response.IncompleteDetails)
 	for _, call := range s.calls {
 		if call.emitted {
 			stop = gotato.StopToolCalls
@@ -894,7 +670,7 @@ func (s *codexStream) finishCodexResponse(response *codexResponse) {
 	s.finished = true
 }
 
-func codexStopReason(status string, details *struct {
+func responsesStopReason(status string, details *struct {
 	Reason string `json:"reason"`
 }) gotato.StopReason {
 	if status == "incomplete" && details != nil && details.Reason == "max_output_tokens" {
@@ -906,7 +682,7 @@ func codexStopReason(status string, details *struct {
 	return gotato.StopEndTurn
 }
 
-func (s *codexStream) finishWithError(err error) {
+func (s *responsesStream) finishWithError(err error) {
 	if s.finished {
 		return
 	}
@@ -914,7 +690,7 @@ func (s *codexStream) finishWithError(err error) {
 	s.terminal = err
 }
 
-func (s *codexStream) Close() error {
+func (s *responsesStream) Close() error {
 	s.closeOnce.Do(func() {
 		if s.response != nil && s.response.Body != nil {
 			_ = s.response.Body.Close()

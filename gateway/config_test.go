@@ -28,31 +28,30 @@ headers:
 	}
 }
 
-func TestParseYAMLCodexConfig(t *testing.T) {
-	t.Setenv("TEST_GOTATO_PI_HOME", "/tmp/pi")
+func TestParseYAMLResponsesConfig(t *testing.T) {
 	config, err := ParseYAML([]byte(`
-api: openai-codex-responses
+api: openai-responses
 model: gpt-test
-auth:
-  type: pi_oauth
-  provider: openai-codex
-  file: ${TEST_GOTATO_PI_HOME}/auth.json
+api_key: secret
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.API != "openai-codex-responses" || config.Model != "gpt-test" {
+	if config.API != "openai-responses" || config.Model != "gpt-test" {
 		t.Fatalf("config = %+v", config)
-	}
-	if config.Auth.Type != "pi_oauth" || config.Auth.File != "/tmp/pi/auth.json" {
-		t.Fatalf("auth = %+v", config.Auth)
 	}
 	client, err := New(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.endpoint != "https://chatgpt.com/backend-api/codex/responses" {
-		t.Fatalf("endpoint = %q", client.endpoint)
+	if client.endpoint != "https://api.openai.com/v1/responses" {
+		t.Fatalf("endpoint = %s", client.endpoint)
+	}
+	if _, err := ParseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: pi_oauth\n")); err == nil {
+		t.Fatal("pi_oauth must be rejected")
+	}
+	if _, err := New(Config{API: "openai-codex-responses", Model: "m", BaseURL: "https://gw.example.com"}); err != nil {
+		t.Fatalf("legacy alias rejected: %v", err)
 	}
 }
 

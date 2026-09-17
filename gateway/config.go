@@ -14,17 +14,15 @@ import (
 // Environment variables may be referenced as ${NAME}; this is useful for
 // keeping API keys out of the configuration file committed to source control.
 type AuthConfig struct {
-	// Type is currently "api_key" or "pi_oauth". For pi_oauth, File points
-	// to a Pi auth.json and Provider defaults to openai-codex.
-	Type      string `yaml:"type"`
-	File      string `yaml:"file"`
-	Provider  string `yaml:"provider"`
-	AccountID string `yaml:"account_id"`
+	// Type is "api_key" (the only supported scheme). The gateway is a
+	// service-level adapter: it never performs an interactive login or
+	// touches another program's credential files.
+	Type string `yaml:"type"`
 }
 
 type YAMLConfig struct {
-	// API selects the wire protocol. Empty keeps the legacy
-	// openai-completions behavior.
+	// API selects the wire protocol: openai-chat-completions (default) or
+	// openai-responses.
 	API          string            `yaml:"api"`
 	Endpoint     string            `yaml:"endpoint"`
 	BaseURL      string            `yaml:"base_url"`

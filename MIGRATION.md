@@ -37,6 +37,10 @@ Every Turn now emits one protected `context_built` event before the model reques
 
 `run --context SPEC` and the `window:N` / `summary:N` strategies do not exist. Within a session the model sees the whole history; use `--compact-ceiling N` for automatic compaction and `--panel time,cwd` for per-turn dynamic content. The run outcome field `context` is replaced by `compacted`.
 
+### Gateway: API-key only, Responses instead of Codex
+
+The `pi_oauth` auth type, the `chatgpt.com/backend-api` default, the `originator: pi` / `chatgpt-account-id` headers, and all reading or writing of `~/.pi/agent/auth.json` are removed. The gateway is a service-level adapter and authenticates with `api_key` only. `api: openai-codex-responses` is accepted as an alias for `api: openai-responses`, which now targets `https://api.openai.com/v1/responses` by default; `api: openai-completions` is an alias for `openai-chat-completions`. A YAML file with `auth.type: pi_oauth` fails to load with an explicit message.
+
 ### Deprecations (removal planned with the next wire `ContractVersion`)
 
 - `gotato.SpawnID`, `Event.SpawnID`, `Event.OriginRunID` — orchestration provenance is application metadata, not a runtime type. Store lineage in `Session.Metadata` or in your own records.

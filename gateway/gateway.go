@@ -51,49 +51,41 @@ type Config struct {
 }
 
 type Client struct {
-	api                 string
-	endpoint            string
-	apiKey              string
-	model               string
-	auth                AuthConfig
-	httpClient          *http.Client
-	headers             map[string]string
-	maxRetries          int
-	retryBackoff        time.Duration
-	authMu              sync.Mutex
-	codexCredential     *piCredential
-	codexCredentialPath string
-	codexCredentialName string
+	api          string
+	endpoint     string
+	apiKey       string
+	model        string
+	auth         AuthConfig
+	httpClient   *http.Client
+	headers      map[string]string
+	maxRetries   int
+	retryBackoff time.Duration
 }
 
 func New(config Config) (*Client, error) {
-	api := strings.TrimSpace(config.API)
-	if api == "" {
-		api = "openai-completions"
+	api, err := normalizeAPI(config.API)
+	if err != nil {
+		return nil, err
 	}
-	if api != "openai-completions" && api != "openai-codex-responses" {
-		return nil, fmt.Errorf("gateway: unsupported API %q", api)
+	if config.Auth.Type != "" && config.Auth.Type != "api_key" {
+		return nil, fmt.Errorf("gateway: unsupported auth type %q: the gateway authenticates with api_key only", config.Auth.Type)
 	}
 
 	endpoint := strings.TrimSpace(config.Endpoint)
 	if endpoint == "" {
 		base := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
-		if base == "" && api == "openai-codex-responses" {
-			base = defaultCodexBaseURL
+		if base == "" && api == APIResponses {
+			base = defaultResponsesBaseURL
 		}
 		if base == "" {
 			return nil, fmt.Errorf("gateway: BaseURL or Endpoint is required")
 		}
-		path := "/v1/chat/completions"
-		if api == "openai-codex-responses" {
-			path = "/codex/responses"
-			if strings.HasSuffix(base, "/codex") {
-				path = "/responses"
-			} else if strings.HasSuffix(base, "/codex/responses") {
-				path = ""
-			}
-		} else if strings.HasSuffix(base, "/v1") {
-			path = "/chat/completions"
+		path := "/chat/completions"
+		if api == APIResponses {
+			path = "/responses"
+		}
+		if !strings.HasSuffix(base, "/v1") {
+			path = "/v1" + path
 		}
 		endpoint = base + path
 	}
@@ -118,28 +110,33 @@ func New(config Config) (*Client, error) {
 	if client == nil {
 		client = &http.Client{}
 	}
-	if api == "openai-codex-responses" {
-		if config.Auth.Type == "" && config.Auth.File != "" {
-			config.Auth.Type = "pi_oauth"
-		}
-		if config.Auth.Provider == "" {
-			config.Auth.Provider = "openai-codex"
-		}
-		if config.Auth.Type != "" && config.Auth.Type != "api_key" && config.Auth.Type != "pi_oauth" {
-			return nil, fmt.Errorf("gateway: unsupported Codex auth type %q", config.Auth.Type)
-		}
-	}
 	return &Client{
 		api:          api,
 		endpoint:     endpoint,
 		apiKey:       config.APIKey,
 		model:        config.Model,
-		auth:         config.Auth,
 		httpClient:   client,
 		headers:      cloneHeaders(config.Headers),
 		maxRetries:   maxRetries,
 		retryBackoff: backoff,
 	}, nil
+}
+
+// Supported wire protocols. Legacy spellings are accepted as aliases.
+const (
+	APIChatCompletions = "openai-chat-completions"
+	APIResponses       = "openai-responses"
+)
+
+func normalizeAPI(api string) (string, error) {
+	switch strings.TrimSpace(api) {
+	case "", APIChatCompletions, "openai-completions":
+		return APIChatCompletions, nil
+	case APIResponses, "openai-codex-responses":
+		return APIResponses, nil
+	default:
+		return "", fmt.Errorf("gateway: unsupported API %q (use %s or %s)", api, APIChatCompletions, APIResponses)
+	}
 }
 
 func NewFromEnv() (*Client, error) {
@@ -158,8 +155,8 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if c.api == "openai-codex-responses" {
-		return c.streamCodex(ctx, request)
+	if c.api == APIResponses {
+		return c.streamResponses(ctx, request)
 	}
 	body, names, err := encodeRequest(c.model, request)
 	if err != nil {

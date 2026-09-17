@@ -1,11 +1,13 @@
 # Copy this file to gateway.yaml and fill in the deployment-specific values.
 # ${ENV_VAR} references are expanded when the file is loaded.
-api: openai-completions
-endpoint: https://gateway.example.com/v1/chat/completions
-# Alternatively use base_url: https://gateway.example.com/v1
+#
+# api: openai-chat-completions   → POST {base_url}/chat/completions   (default)
+# api: openai-responses          → POST {base_url}/responses          (default base_url https://api.openai.com/v1)
+api: openai-chat-completions
+base_url: https://gateway.example.com/v1
 api_key: ${GOTATO_GATEWAY_API_KEY}
 model: your-model
 max_retries: 2
 retry_backoff: 200ms
 headers:
-  X-Client-Name: gotato-agent
+  X-Client-Name: gotato

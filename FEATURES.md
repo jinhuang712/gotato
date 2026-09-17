@@ -92,7 +92,7 @@ Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Too
 
 ## G-F08 — Provider Packages `[partial]`
 
-`gateway`: OpenAI-compatible chat completions and OpenAI Codex Responses (SSE, retries, YAML config). A second, non-OpenAI provider is planned.
+`gateway`: OpenAI-compatible Chat Completions and Responses APIs (SSE, retries, YAML config, API-key auth only). A second, non-OpenAI provider is planned.
 
 ## G-F09 — Tool Interface `[done]`
 
