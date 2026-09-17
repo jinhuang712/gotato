@@ -725,6 +725,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 	if err := a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil); err != nil {
 		return fail(err)
 	}
+	if err := a.extensions.prepareRun(runCtx, a.transcript); err != nil {
+		return fail(err)
+	}
 	if err := a.measureTranscript(); err != nil {
 		return fail(asRuntimeError(err))
 	}
@@ -777,25 +780,35 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		if buildErr != nil {
 			return fail(buildErr)
 		}
-		outbound := built.Messages
 		if !a.extensions.empty() {
 			view := snapshot
 			view.SystemInstructions = built.SystemInstructions
-			view.Messages = outbound
+			view.Messages = built.Messages
 			transformed, extensionErr := a.extensions.transformContext(runCtx, view)
 			if extensionErr != nil {
 				return fail(extensionErr)
 			}
-			outbound = transformed
+			built.Messages = transformed
 		}
-		contextPayload := map[string]any{"messages": len(outbound), "source_messages": len(snapshot.Messages)}
+		// Layout for prompt caching: static system and tools first, the
+		// append-only history next, the dynamic panel last, attached to the
+		// tail Message so it never disturbs the prefix.
+		request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
+		contextPayload := map[string]any{
+			"messages":        len(request.Messages),
+			"source_messages": len(snapshot.Messages),
+			"prefix_hash":     prefix,
+			"prefix_messages": max(len(request.Messages)-1, 0),
+			"panel_bytes":     len(built.RenderPanel()),
+			"system_bytes":    len(request.SystemInstructions),
+			"tools":           len(request.Tools),
+		}
 		for key, value := range built.Metadata {
 			contextPayload[key] = value
 		}
 		if err := a.emit(runID, &sequence, EventContextBuilt, EventProtected, turn, "", "", contextPayload); err != nil {
 			return fail(err)
 		}
-		request := ModelRequest{SystemInstructions: built.SystemInstructions, Messages: outbound, Tools: a.registry.visibleSpecs()}
 		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
 		totalUsage = addUsage(totalUsage, usage)
 		for _, part := range assistant.Parts {

@@ -21,13 +21,21 @@ model := testkit.DemoModel{}
 
 `AgentID`, `RunID`, and `MessageID` values are no longer `agent-1`, `run-7`, `message-12`. They are `<prefix>-<8 hex process nonce><counter>` (for example `run-3fa9c1e02`) so they stay unique across restarts and across processes that share one Session store. Anything that parsed the numeric suffix must stop; treat IDs as opaque strings. The types and JSON field names are unchanged.
 
+### Request layout and `ModelRequest.CacheBreakpoints`
+
+The agent now assembles every request through `gotato.AssembleRequest`: tools sorted by ID, messages reduced by `gotato.ForModel` (no `ID`, `Usage`, `StopReason`, or `ContentPart.Metadata`), and `CacheBreakpoints` hints added. Adapters that read those runtime fields from `ModelRequest.Messages` must take them from the Session instead. `ModelContext` gained `System` and `Panel` block lists; a builder that only sets `Messages` keeps working.
+
 ### New event kind `context_built`
 
-Every Turn now emits one protected `context_built` event before the model request (payload: `messages`, `source_messages`, `strategy`, `selected_messages`, `dropped_messages`, plus builder metadata). Consumers that assert exact event sequences must include it; consumers must in general tolerate unknown kinds.
+Every Turn now emits one protected `context_built` event before the model request (payload: `messages`, `source_messages`, `prefix_hash`, `prefix_messages`, `panel_bytes`, `system_bytes`, `tools`, `strategy`, `selected_messages`, `dropped_messages`, plus builder metadata). Consumers that assert exact event sequences must include it; consumers must in general tolerate unknown kinds.
 
 ### Prompt validation
 
 `Prompt`, `Steer`, and `FollowUp` now reject a message whose parts are all blank text (`UserMessage("")`, `UserMessage("  ")`) with `invalid_argument`. Previously an empty text part was accepted. Messages with binary or JSON parts are accepted as before.
+
+### CLI
+
+`run --context SPEC` and the `window:N` / `summary:N` strategies do not exist. Within a session the model sees the whole history; use `--compact-ceiling N` for automatic compaction and `--panel time,cwd` for per-turn dynamic content. The run outcome field `context` is replaced by `compacted`.
 
 ### Deprecations (removal planned with the next wire `ContractVersion`)
 

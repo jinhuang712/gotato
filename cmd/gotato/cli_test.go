@@ -155,39 +155,76 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 func TestContextInspectBuildCompact(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
-	h.mustJSON(h.ok("session", "create", "--json", "--context", "window:2"), &created)
+	h.mustJSON(h.ok("session", "create", "--json", "--panel", "time"), &created)
 	id := created["id"].(string)
 	for _, prompt := range []string{"one", "two", "three"} {
 		h.ok("run", "--session", id, "--quiet", prompt)
 	}
-	var report struct {
+	type report struct {
 		Strategy         string `json:"strategy"`
 		SourceMessages   int    `json:"source_messages"`
 		SelectedMessages int    `json:"selected_messages"`
-		DroppedMessages  int    `json:"dropped_messages"`
 		ApproxTokens     int    `json:"approx_tokens"`
+		PanelBytes       int    `json:"panel_bytes"`
+		PrefixHash       string `json:"prefix_hash"`
+		Request          struct {
+			SystemInstructions string                   `json:"system_instructions"`
+			Messages           []gotato.Message         `json:"messages"`
+			Tools              []gotato.ToolSpec        `json:"tools"`
+			CacheBreakpoints   []gotato.CacheBreakpoint `json:"cache_breakpoints"`
+		} `json:"request"`
 	}
-	h.mustJSON(h.ok("context", "inspect", id, "--json"), &report)
-	if report.Strategy != "window:2" || report.SourceMessages != 6 || report.SelectedMessages != 2 || report.DroppedMessages != 4 || report.ApproxTokens == 0 {
-		t.Fatalf("report = %+v", report)
+	var first report
+	h.mustJSON(h.ok("context", "inspect", id, "--json"), &first)
+	if first.Strategy != "full_history" || first.SourceMessages != 6 || first.SelectedMessages != 6 || first.ApproxTokens == 0 || first.PanelBytes == 0 || len(first.PrefixHash) != 16 {
+		t.Fatalf("report = %+v", first)
 	}
-	// An explicit strategy overrides the session setting.
-	h.mustJSON(h.ok("context", "inspect", id, "--json", "--context", "full"), &report)
-	if report.SelectedMessages != 6 {
-		t.Fatalf("full report = %+v", report)
+	if len(first.Request.Tools) != 2 || len(first.Request.CacheBreakpoints) != 3 {
+		t.Fatalf("request = %+v", first.Request)
 	}
-	var built gotato.ModelContext
+	// The stored history ends with an assistant answer, so the panel is
+	// built (panel_bytes > 0) but not attached: it only rides on a user or
+	// tool-result tail, never on an assistant message.
+	for _, message := range first.Request.Messages {
+		if strings.Contains(gotato.TextOf(message), "<panel>") {
+			t.Fatalf("panel attached to %s message", message.Role)
+		}
+	}
+	// The panel is time-dependent, but the prefix hash is not.
+	var second report
+	h.mustJSON(h.ok("context", "inspect", id, "--json"), &second)
+	if second.PrefixHash != first.PrefixHash {
+		t.Fatalf("prefix hash unstable: %s vs %s", first.PrefixHash, second.PrefixHash)
+	}
+	// During a run the new prompt is the tail and carries the panel.
+	out := h.ok("run", "--session", id, "--events", "jsonl", "four")
+	sawPanel := false
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var event gotato.Event
+		if json.Unmarshal([]byte(line), &event) == nil && event.Kind == gotato.EventContextBuilt {
+			if bytes, _ := event.Payload["panel_bytes"].(float64); bytes > 0 {
+				sawPanel = true
+			}
+		}
+	}
+	if !sawPanel {
+		t.Fatal("context_built did not report a panel during the run")
+	}
+	// build prints the request only.
+	var built gotato.ModelRequest
 	h.mustJSON(h.ok("context", "build", id, "--json"), &built)
-	if len(built.Messages) != 2 || gotato.TextOf(built.Messages[0]) != "three" {
-		t.Fatalf("built = %+v", built.Messages)
+	if len(built.Messages) != 8 || built.SystemInstructions == "" {
+		t.Fatalf("built = %+v", built)
 	}
 	var result struct {
 		Replaced       bool `json:"replaced"`
 		MessagesBefore int  `json:"messages_before"`
 		MessagesAfter  int  `json:"messages_after"`
+		TokensBefore   int  `json:"tokens_before"`
+		TokensAfter    int  `json:"tokens_after"`
 	}
 	h.mustJSON(h.ok("context", "compact", id, "--keep", "2", "--json"), &result)
-	if !result.Replaced || result.MessagesBefore != 6 || result.MessagesAfter != 3 {
+	if !result.Replaced || result.MessagesBefore != 8 || result.MessagesAfter != 3 || result.TokensAfter >= result.TokensBefore {
 		t.Fatalf("compact = %+v", result)
 	}
 	var doc struct {
@@ -198,11 +235,40 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	if len(doc.Messages) != 3 || len(doc.Compactions) != 1 {
 		t.Fatalf("doc after compact: %d messages, %d compactions", len(doc.Messages), len(doc.Compactions))
 	}
-	// The compacted session keeps running.
+	// The compacted session keeps running; the session never stores a panel.
 	var outcome runOutcome
-	h.mustJSON(h.ok("run", "--session", id, "--json", "four"), &outcome)
+	h.mustJSON(h.ok("run", "--session", id, "--json", "five"), &outcome)
 	if outcome.Status != gotato.RunCompleted || outcome.Messages != 5 {
 		t.Fatalf("run after compact = %+v", outcome)
+	}
+	h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
+	for _, message := range doc.Messages {
+		if strings.Contains(gotato.TextOf(message), "<panel>") {
+			t.Fatal("panel leaked into the session")
+		}
+	}
+}
+
+func TestAutoCompactViaCLI(t *testing.T) {
+	h := newHarness(t)
+	var created map[string]any
+	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "60"), &created)
+	id := created["id"].(string)
+	var outcome runOutcome
+	compacted := false
+	for i := 0; i < 8 && !compacted; i++ {
+		h.mustJSON(h.ok("run", "--session", id, "--json", strings.Repeat("word ", 20)), &outcome)
+		compacted = outcome.Compacted
+	}
+	if !compacted {
+		t.Fatalf("auto compaction never triggered: %+v", outcome)
+	}
+	var doc struct {
+		Compactions []any `json:"compactions"`
+	}
+	h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
+	if len(doc.Compactions) == 0 {
+		t.Fatal("no compaction recorded")
 	}
 }
 
@@ -267,6 +333,7 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"run"}, ExitUsage},
 		{[]string{"run", "--events", "xml", "hi"}, ExitUsage},
 		{[]string{"run", "--model", "nope", "hi"}, ExitUsage},
+		{[]string{"run", "--panel", "weather", "hi"}, ExitUsage},
 		{[]string{"session", "show", "missing"}, ExitNotFound},
 		{[]string{"context", "inspect", "missing", "--json"}, ExitNotFound},
 		{[]string{"events", "--session", "missing"}, ExitNotFound},

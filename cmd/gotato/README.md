@@ -54,17 +54,17 @@ The model used for a session is remembered in the session (`gotato.model` metada
 ### `gotato run`
 
 ```text
-gotato run [--session ID] [--model M] [--instruction S] [--context SPEC] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
+gotato run [--session ID] [--model M] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
 ```
 
-Creates a session when `--session` is omitted. `-` reads the prompt from stdin. `--context` is `full`, `window:N`, or `summary:N` and is remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message).
+Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--panel` appends a dynamic `<panel>` with the listed items to the tail of each request; `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N. Both are remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message).
 
 `--json` outcome:
 
 ```json
 {
   "session_id": "…", "run_id": "…", "status": "completed",
-  "model": "demo", "context": "full",
+  "model": "demo", "compacted": false,
   "final_text": "…", "final_message": { … },
   "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
   "metrics": {"elapsed_ms": 0, "turns": 2, "tool_calls": 1, "text_bytes": 23, "reasoning_bytes": 0},
@@ -81,7 +81,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 | Command | Output (`--json`) |
 |---|---|
-| `session create [--id ID] [--meta k=v,…] [--instruction S] [--context SPEC]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
+| `session create [--id ID] [--meta k=v,…] [--instruction S] [--panel time,cwd] [--compact-ceiling N]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
 | `session list` | array of summaries, newest first (`--jsonl`: one per line) |
 | `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[], usage, compactions[], metadata` |
 | `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source |
@@ -93,9 +93,11 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 | Command | Output (`--json`) |
 |---|---|
-| `context inspect <id> [--context SPEC] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, dropped_messages, approx_tokens, approx_bytes, metadata, compactions[], context{system_instructions, messages[], metadata}` |
-| `context build <id> [--context SPEC]` | the `ModelContext` the model would receive now |
-| `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, compaction{at, replaced_messages, from_message_id, to_message_id, summary_message_id, summarizer, bytes_before, bytes_after}}` |
+| `context inspect <id> [--panel ITEMS] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, panel_bytes, prefix_hash, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], cache_breakpoints[]}` |
+| `context build <id> [--panel ITEMS]` | the exact `ModelRequest` the agent would send now |
+| `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, tokens_before, tokens_after, compaction{at, replaced_messages, from_message_id, to_message_id, summary_message_id, summarizer, bytes_before, bytes_after}}` |
+
+The request is laid out for prompt caching: system prompt, sorted tools, the append-only history, then the tail message carrying the `<panel>`. `prefix_hash` covers everything but the tail; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
 Compaction permanently replaces the messages before the last `--keep` (aligned to a user message so tool calls stay with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
 
@@ -152,7 +154,7 @@ gotato doctor [--json] [--gateway-config PATH]
 id=$(gotato session create --json | jq -r .id)
 gotato run --session "$id" --model demo --json "use-tool" | jq .status      # "completed"
 gotato run --session "$id" --json "and again" | jq .messages                # 6
-gotato context inspect "$id" --json | jq '{source_messages, selected_messages}'
+gotato context inspect "$id" --json | jq '{approx_tokens, prefix_hash}'
 gotato context compact "$id" --keep 2 --json | jq .messages_after           # 3
 gotato events --session "$id" | jq -r .kind | sort | uniq -c
 gotato tools deactivate time.now --session "$id" --json | jq .tool.active   # false

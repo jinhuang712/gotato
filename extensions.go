@@ -119,6 +119,10 @@ func WithExtension(extension any) Option {
 			c.extensions.stoppers = append(c.extensions.stoppers, typed)
 			installed = true
 		}
+		if typed, ok := extension.(RunPreparer); ok {
+			c.extensions.preparers = append(c.extensions.preparers, typed)
+			installed = true
+		}
 		if !installed {
 			return runtimeError(ErrInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
 		}
@@ -145,11 +149,27 @@ type extensionSet struct {
 	post         []PostToolUse
 	observers    []EventObserver
 	stoppers     []TurnStopper
+	preparers    []RunPreparer
 }
 
 func (s extensionSet) empty() bool {
 	return len(s.transformers) == 0 && len(s.converters) == 0 && len(s.pre) == 0 &&
 		len(s.post) == 0 && len(s.observers) == 0 && len(s.stoppers) == 0
+}
+
+// prepareRun runs every RunPreparer in installation order before the prompt
+// is committed. It is the sanctioned point for rewriting the Transcript.
+func (s extensionSet) prepareRun(ctx context.Context, transcript Transcript) *RuntimeError {
+	for _, preparer := range s.preparers {
+		current := preparer
+		if err := guard("RunPreparer", func() error { return current.PrepareRun(ctx, transcript) }); err != nil {
+			if advisoryFailure(current) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 // advisoryFailure reports whether a failure from this Extension is advisory.

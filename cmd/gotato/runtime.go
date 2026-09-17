@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,10 +22,11 @@ import (
 // Session metadata keys the CLI owns. They are ordinary application metadata
 // from the runtime's point of view.
 const (
-	metaContextStrategy = "gotato.context"
-	metaInstruction     = "gotato.instruction"
-	metaModel           = "gotato.model"
-	metaToolPrefix      = "gotato.tool."
+	metaInstruction    = "gotato.instruction"
+	metaModel          = "gotato.model"
+	metaCompactCeiling = "gotato.compact_ceiling"
+	metaPanel          = "gotato.panel"
+	metaToolPrefix     = "gotato.tool."
 )
 
 // modelFlags are the model-selection flags shared by run and compact.
@@ -117,17 +119,44 @@ func registryFor(s *session.Session) *toolregistry.Registry {
 	return reg
 }
 
-// contextBuilderFor resolves the strategy: explicit spec, then Session
-// metadata, then full history.
-func contextBuilderFor(spec string, s *session.Session, summarizer modelctx.Summarizer) (gotato.ContextBuilder, string, error) {
-	if spec == "" && s != nil {
-		spec, _ = s.Get(metaContextStrategy)
+// contextBuilderFor composes the one strategy (append-only full history)
+// with the CLI's dynamic panel. panelSpec is a comma-separated list of
+// "time" and "cwd"; empty means no panel.
+func contextBuilderFor(panelSpec string) (gotato.ContextBuilder, error) {
+	builder := modelctx.FullHistory()
+	items := splitList(panelSpec)
+	if len(items) == 0 {
+		return builder, nil
 	}
-	if spec == "" {
-		spec = "full"
+	for _, item := range items {
+		if item != "time" && item != "cwd" {
+			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "unknown panel item "+item+" (use time, cwd)")
+		}
 	}
-	builder, err := modelctx.Parse(spec, summarizer)
-	return builder, spec, err
+	return modelctx.WithPanel(builder, func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
+		blocks := make([]gotato.Block, 0, len(items))
+		for _, item := range items {
+			switch item {
+			case "time":
+				blocks = append(blocks, modelctx.Time(time.Now()))
+			case "cwd":
+				if wd, err := os.Getwd(); err == nil {
+					blocks = append(blocks, modelctx.Text("cwd", wd))
+				}
+			}
+		}
+		return blocks, nil
+	}), nil
+}
+
+func splitList(spec string) []string {
+	var out []string
+	for _, item := range strings.Split(spec, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // runOutcome is the JSON shape of a completed run command.
@@ -136,7 +165,7 @@ type runOutcome struct {
 	RunID        gotato.RunID         `json:"run_id"`
 	Status       gotato.RunStatus     `json:"status"`
 	Model        string               `json:"model"`
-	Context      string               `json:"context"`
+	Compacted    bool                 `json:"compacted"`
 	FinalText    string               `json:"final_text,omitempty"`
 	FinalMessage *gotato.Message      `json:"final_message,omitempty"`
 	Usage        gotato.Usage         `json:"usage"`
@@ -148,11 +177,12 @@ type runOutcome struct {
 
 // runOptions configures executeRun.
 type runOptions struct {
-	prompt      string
-	continueRun bool
-	contextSpec string
-	model       modelFlags
-	eventSink   func(gotato.Event) error
+	prompt         string
+	continueRun    bool
+	panel          string
+	compactCeiling int
+	model          modelFlags
+	eventSink      func(gotato.Event) error
 }
 
 // executeRun composes the runtime exactly as an application would: a Session
@@ -162,9 +192,19 @@ func (c *cli) executeRun(ctx context.Context, s *session.Session, opts runOption
 	if err != nil {
 		return runOutcome{}, err
 	}
-	builder, spec, err := contextBuilderFor(opts.contextSpec, s, nil)
+	panelSpec := opts.panel
+	if panelSpec == "" {
+		panelSpec, _ = s.Get(metaPanel)
+	}
+	builder, err := contextBuilderFor(panelSpec)
 	if err != nil {
 		return runOutcome{}, err
+	}
+	ceiling := opts.compactCeiling
+	if ceiling == 0 {
+		if stored, ok := s.Get(metaCompactCeiling); ok {
+			ceiling, _ = strconv.Atoi(stored)
+		}
 	}
 	instruction := opts.model.instruction
 	if instruction == "" {
@@ -174,10 +214,18 @@ func (c *cli) executeRun(ctx context.Context, s *session.Session, opts runOption
 		instruction = "You are a helpful assistant."
 	}
 	s.Set(metaModel, modelName)
-	s.Set(metaContextStrategy, spec)
 	s.Set(metaInstruction, instruction)
+	s.Set(metaPanel, panelSpec)
+	if ceiling > 0 {
+		s.Set(metaCompactCeiling, strconv.Itoa(ceiling))
+	}
 
 	extensions := []any{session.Record(s)}
+	var auto *modelctx.AutoCompactor
+	if ceiling > 0 {
+		auto = modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: ceiling})
+		extensions = append(extensions, auto)
+	}
 	if opts.eventSink != nil {
 		extensions = append(extensions, sinkObserver{fn: opts.eventSink})
 	}
@@ -209,12 +257,15 @@ func (c *cli) executeRun(ctx context.Context, s *session.Session, opts runOption
 		RunID:     result.RunID,
 		Status:    result.Status,
 		Model:     modelName,
-		Context:   spec,
 		Usage:     result.Usage,
 		Metrics:   result.Metrics,
 		Error:     result.Error,
 		Messages:  s.Len(),
 		Events:    len(s.Events()),
+	}
+	if auto != nil {
+		_, runs := auto.Last()
+		outcome.Compacted = runs > 0
 	}
 	if result.FinalMessage != nil {
 		outcome.FinalMessage = result.FinalMessage

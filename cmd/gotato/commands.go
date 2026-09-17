@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -23,7 +24,8 @@ func (c *cli) cmdRun(args []string) int {
 	var flags modelFlags
 	c.bindModel(fs, &flags)
 	sessionID := fs.String("session", "", "continue an existing session (default: a new session is created)")
-	contextSpec := fs.String("context", "", "context strategy: full, window:N, summary:N (default: session setting or full)")
+	panel := fs.String("panel", "", "dynamic panel appended to the tail of each request: time,cwd (default: session setting or none)")
+	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (default: session setting or off)")
 	events := fs.String("events", "", "stream runtime events to stdout: jsonl")
 	continueRun := fs.Bool("continue", false, "continue the session without a new prompt")
 	noSave := fs.Bool("no-save", false, "do not persist the session")
@@ -56,7 +58,7 @@ func (c *cli) cmdRun(args []string) int {
 	} else {
 		s = session.New()
 	}
-	opts := runOptions{prompt: prompt, continueRun: *continueRun, contextSpec: *contextSpec, model: flags}
+	opts := runOptions{prompt: prompt, continueRun: *continueRun, panel: *panel, compactCeiling: *compactCeiling, model: flags}
 	if *events == "jsonl" {
 		opts.eventSink = func(event gotato.Event) error { return c.writeJSONL(event) }
 	}
@@ -124,7 +126,8 @@ func (c *cli) sessionCreate(args []string) int {
 	id := fs.String("id", "", "explicit session id (default: random)")
 	meta := fs.String("meta", "", "initial metadata as key=value,key=value")
 	instruction := fs.String("instruction", "", "system instruction stored in the session")
-	contextSpec := fs.String("context", "", "context strategy stored in the session")
+	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens) stored in the session")
+	panel := fs.String("panel", "", "dynamic panel items stored in the session: time,cwd")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.usageError(err.Error())
 	}
@@ -150,11 +153,14 @@ func (c *cli) sessionCreate(args []string) int {
 	if *instruction != "" {
 		s.Set(metaInstruction, *instruction)
 	}
-	if *contextSpec != "" {
-		if _, err := modelctx.Parse(*contextSpec, nil); err != nil {
+	if *compactCeiling > 0 {
+		s.Set(metaCompactCeiling, strconv.Itoa(*compactCeiling))
+	}
+	if *panel != "" {
+		if _, err := contextBuilderFor(*panel); err != nil {
 			return c.failErr(err)
 		}
-		s.Set(metaContextStrategy, *contextSpec)
+		s.Set(metaPanel, *panel)
 	}
 	if err := store.Save(ctx, s); err != nil {
 		return c.failErr(err)
@@ -327,7 +333,7 @@ func (c *cli) loadSessionArg(fs interface{ Arg(int) string }, positionals []stri
 
 func (c *cli) contextInspect(mode string, args []string) int {
 	fs := c.newFlagSet("context " + mode)
-	spec := fs.String("context", "", "strategy to evaluate (default: session setting or full)")
+	panel := fs.String("panel", "", "dynamic panel items to include: time,cwd (default: session setting)")
 	instruction := fs.String("instruction", "", "system instruction (default: session setting)")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -338,7 +344,11 @@ func (c *cli) contextInspect(mode string, args []string) int {
 		return c.failErr(err)
 	}
 	defer cancel()
-	builder, resolved, err := contextBuilderFor(*spec, s, nil)
+	panelSpec := *panel
+	if panelSpec == "" {
+		panelSpec, _ = s.Get(metaPanel)
+	}
+	builder, err := contextBuilderFor(panelSpec)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -346,16 +356,16 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if system == "" {
 		system, _ = s.Get(metaInstruction)
 	}
-	report, err := modelctx.InspectSession(ctx, builder, s, system)
+	report, err := modelctx.InspectSession(ctx, builder, s, system, registryFor(s).Active())
 	if err != nil {
 		return c.failErr(err)
 	}
-	report.Strategy = resolved
 	if mode == "build" {
 		if c.machine() {
-			return c.writeJSON(report.Context)
+			return c.writeJSON(report.Request)
 		}
-		for _, message := range report.Context.Messages {
+		fmt.Fprintf(c.stdout, "system:\n%s\n\n", report.Request.SystemInstructions)
+		for _, message := range report.Request.Messages {
 			fmt.Fprintf(c.stdout, "%-11s %s\n", message.Role, strings.TrimSpace(gotato.TextOf(message)))
 		}
 		return ExitOK
@@ -363,7 +373,8 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if c.machine() {
 		return c.writeJSON(report)
 	}
-	fmt.Fprintf(c.stdout, "session %s\nstrategy %s\nsource %d · selected %d · dropped %d · ~%d tokens\n", s.ID(), report.Strategy, report.SourceMessages, report.SelectedMessages, report.DroppedMessages, report.ApproxTokens)
+	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · panel %d bytes · tools %d\nprefix_hash %s\n",
+		s.ID(), report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, report.PanelBytes, len(report.Request.Tools), report.PrefixHash)
 	if len(report.Compactions) > 0 {
 		fmt.Fprintf(c.stdout, "compactions %d (last replaced %d messages)\n", len(report.Compactions), report.Compactions[len(report.Compactions)-1].ReplacedMessages)
 	}
@@ -394,7 +405,7 @@ func (c *cli) contextCompact(args []string) int {
 		if err != nil {
 			return c.failErr(err)
 		}
-		summ = modelctx.ModelSummarizer{Model: model, Name_: "model:" + name}
+		summ = modelctx.ModelSummarizer{Model: model, Label: "model:" + name}
 	default:
 		return c.usageError("unknown summarizer " + *summarizer)
 	}
@@ -407,7 +418,7 @@ func (c *cli) contextCompact(args []string) int {
 			return c.failErr(err)
 		}
 	}
-	human := fmt.Sprintf("session %s: %d → %d messages", result.SessionID, result.MessagesBefore, result.MessagesAfter)
+	human := fmt.Sprintf("session %s: %d → %d messages, ~%d → ~%d tokens", result.SessionID, result.MessagesBefore, result.MessagesAfter, result.TokensBefore, result.TokensAfter)
 	if !result.Replaced {
 		human = fmt.Sprintf("session %s: nothing to compact", result.SessionID)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -32,68 +33,76 @@ func snapshot(messages []gotato.Message) gotato.ContextSnapshot {
 	return gotato.ContextSnapshot{SystemInstructions: "sys", Messages: messages}
 }
 
-func TestWindowAlignsToUserBoundary(t *testing.T) {
-	messages := toolConversation()
-	// Asking for the last 4 would cut at index 2 (tool_result); the window
-	// must move to the next user Message at index 4.
-	built, err := modelctx.Window(4).Build(context.Background(), snapshot(messages))
+func TestStaticGoesToSystemAndPanelGoesToTail(t *testing.T) {
+	fixed := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	builder := modelctx.WithPanel(
+		modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", "# Rules\nbe nice")),
+		func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
+			return []gotato.Block{modelctx.Time(fixed), modelctx.JSON("state", map[string]int{"open": 2})}, nil
+		},
+	)
+	report, err := modelctx.Inspect(context.Background(), builder, snapshot(append(toolConversation(), gotato.UserMessage("u3"))), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(built.Messages) != 2 || gotato.TextOf(built.Messages[0]) != "u2" {
-		t.Fatalf("window = %+v", built.Messages)
+	system := report.Request.SystemInstructions
+	if !strings.HasPrefix(system, "sys\n\n<resource path=\"AGENTS.md\">\n# Rules\nbe nice\n</resource>") {
+		t.Fatalf("system = %q", system)
 	}
-	if built.Metadata["strategy"] != modelctx.StrategyWindow || built.Metadata["dropped_messages"] != "4" || built.Metadata["selected_messages"] != "2" {
-		t.Fatalf("metadata = %v", built.Metadata)
+	last := report.Request.Messages[len(report.Request.Messages)-1]
+	text := gotato.TextOf(last)
+	if !strings.Contains(text, "<panel>") || !strings.Contains(text, "<time>2026-09-17T12:00:00Z</time>") || !strings.Contains(text, `<state>{"open":2}</state>`) {
+		t.Fatalf("tail = %q", text)
 	}
-	// A window larger than history is the whole history.
-	built, _ = modelctx.Window(100).Build(context.Background(), snapshot(messages))
-	if len(built.Messages) != 6 {
-		t.Fatalf("large window = %d", len(built.Messages))
+	// The panel is on the tail only; earlier Messages are untouched.
+	for _, message := range report.Request.Messages[:len(report.Request.Messages)-1] {
+		if strings.Contains(gotato.TextOf(message), "<panel>") {
+			t.Fatal("panel leaked into the prefix")
+		}
 	}
-}
-
-func TestSummaryRecentIsProjectionOnly(t *testing.T) {
-	messages := toolConversation()
-	built, err := modelctx.SummaryRecent(2, nil).Build(context.Background(), snapshot(messages))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(built.Messages) != 3 {
-		t.Fatalf("summary_recent = %d messages, want summary + 2", len(built.Messages))
-	}
-	summary := built.Messages[0]
-	if summary.Role != gotato.RoleUser || summary.Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" {
-		t.Fatalf("summary = %+v", summary)
-	}
-	if !strings.Contains(gotato.TextOf(summary), "u1") || !strings.Contains(gotato.TextOf(summary), "[called t]") {
-		t.Fatalf("summary text = %q", gotato.TextOf(summary))
-	}
-	if built.Metadata["summarized"] != "4" || built.Metadata["summarizer"] != "truncate" {
-		t.Fatalf("metadata = %v", built.Metadata)
-	}
-	if len(messages) != 6 {
-		t.Fatal("source mutated")
-	}
-}
-
-func TestChainReportsStrategies(t *testing.T) {
-	built, err := modelctx.Chain(modelctx.Window(4), modelctx.SummaryRecent(1, nil)).Build(context.Background(), snapshot(toolConversation()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if built.Metadata["strategy"] != modelctx.StrategyChain || built.Metadata["chain"] != "window>summary_recent" {
-		t.Fatalf("metadata = %v", built.Metadata)
-	}
-}
-
-func TestInspectReport(t *testing.T) {
-	report, err := modelctx.Inspect(context.Background(), modelctx.Window(2), snapshot(toolConversation()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.SourceMessages != 6 || report.SelectedMessages != 2 || report.DroppedMessages != 4 || report.ApproxTokens <= 0 {
+	if report.PanelBytes == 0 || report.SystemBytes == 0 || report.Metadata["static_blocks"] != "1" || report.Metadata["panel_blocks"] != "2" {
 		t.Fatalf("report = %+v", report)
+	}
+}
+
+func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
+	messages := toolConversation()
+	builder := modelctx.WithPanel(modelctx.FullHistory(), func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
+		return []gotato.Block{modelctx.Time(time.Now())}, nil
+	})
+	tools := []gotato.ToolSpec{{ID: "t", InputSchema: []byte(`{"type":"object"}`)}}
+	first, _ := modelctx.Inspect(context.Background(), builder, snapshot(messages), tools)
+	// Next Turn: the tail Message changed (a new assistant answer appended and
+	// a new user prompt). Everything before the new tail is identical.
+	next := append(append([]gotato.Message{}, messages...), gotato.UserMessage("u3"))
+	second, _ := modelctx.Inspect(context.Background(), builder, snapshot(next), tools)
+	if first.PrefixHash == second.PrefixHash {
+		t.Fatal("prefix must change when a message is appended before the tail")
+	}
+	// Same history, different panel content (time moved on): prefix identical.
+	third, _ := modelctx.Inspect(context.Background(), builder, snapshot(next), tools)
+	if second.PrefixHash != third.PrefixHash {
+		t.Fatalf("prefix hash changed with only the panel: %s vs %s", second.PrefixHash, third.PrefixHash)
+	}
+	// Runtime fields never reach the prompt: IDs and usage differ, hash equal.
+	altered := make([]gotato.Message, len(next))
+	for i, message := range next {
+		altered[i] = message.Clone()
+		altered[i].ID = gotato.MessageID("other-" + string(rune('a'+i)))
+		altered[i].Usage = gotato.Usage{TotalTokens: uint64(i)}
+	}
+	fourth, _ := modelctx.Inspect(context.Background(), builder, snapshot(altered), tools)
+	if fourth.PrefixHash != second.PrefixHash {
+		t.Fatal("runtime fields perturbed the prompt bytes")
+	}
+	wantBreakpoints := []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}, {After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: len(next) - 2}}
+	if len(second.Request.CacheBreakpoints) != 3 {
+		t.Fatalf("breakpoints = %+v", second.Request.CacheBreakpoints)
+	}
+	for i, want := range wantBreakpoints {
+		if second.Request.CacheBreakpoints[i] != want {
+			t.Fatalf("breakpoint %d = %+v, want %+v", i, second.Request.CacheBreakpoints[i], want)
+		}
 	}
 }
 
@@ -106,12 +115,15 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Replaced || result.MessagesBefore != 6 || result.MessagesAfter != 3 {
+	if !result.Replaced || result.MessagesBefore != 6 || result.MessagesAfter != 3 || result.TokensAfter >= result.TokensBefore {
 		t.Fatalf("result = %+v", result)
 	}
 	messages := s.Messages()
 	if messages[0].Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" || gotato.TextOf(messages[1]) != "u2" {
 		t.Fatalf("session after compact = %+v", messages)
+	}
+	if !strings.Contains(gotato.TextOf(messages[0]), "[called t]") {
+		t.Fatalf("summary = %q", gotato.TextOf(messages[0]))
 	}
 	compactions := s.Compactions()
 	if len(compactions) != 1 || compactions[0].ReplacedMessages != 4 || compactions[0].FromMessageID != "m1" || compactions[0].ToMessageID != "m4" || compactions[0].SummaryMessageID != messages[0].ID {
@@ -121,12 +133,12 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	if len(events) != 1 || events[0].Kind != gotato.EventSessionCompacted || events[0].Payload["replaced_messages"] != 4 {
 		t.Fatalf("events = %+v", events)
 	}
-	// Compacting again with nothing to drop is a no-op.
 	again, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 10})
 	if err != nil || again.Replaced {
 		t.Fatalf("second compact = %+v err=%v", again, err)
 	}
-	// An Agent continues against the compacted Session and sees the summary.
+	// An Agent continues against the compacted Session and sees the summary,
+	// but without the runtime metadata tag.
 	model := testkit.NewFakeModel(testkit.Text("ok"))
 	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s))
 	if err != nil {
@@ -137,8 +149,60 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, _ := model.LastRequest()
-	if len(request.Messages) != 4 || request.Messages[0].Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" {
-		t.Fatalf("model saw %d messages: %+v", len(request.Messages), request.Messages)
+	if len(request.Messages) != 4 || !strings.HasPrefix(gotato.TextOf(request.Messages[0]), "Summary of earlier conversation") || request.Messages[0].Parts[0].Metadata != nil {
+		t.Fatalf("model saw %+v", request.Messages)
+	}
+}
+
+func TestCompactNeverSplitsToolCallFromResult(t *testing.T) {
+	s := session.New()
+	for _, message := range toolConversation() {
+		_ = s.Append(message)
+	}
+	// Keep 5 would cut at index 1 (the tool call); the cut must move to u2.
+	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Replaced || result.MessagesAfter != 3 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
+	s := session.New()
+	for i := 0; i < 20; i++ {
+		_ = s.Append(gotato.UserMessage(strings.Repeat("question ", 30)))
+		_ = s.Append(gotato.AssistantMessage(strings.Repeat("answer ", 30)))
+	}
+	before := modelctx.EstimateTokens(s.Messages())
+	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: before / 2, Floor: before / 4})
+	model := testkit.NewFakeModel(testkit.Text("ok"))
+	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(auto))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close(context.Background())
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("next")); err != nil {
+		t.Fatal(err)
+	}
+	last, runs := auto.Last()
+	if runs != 1 || !last.Replaced {
+		t.Fatalf("auto compaction did not run: %+v %d", last, runs)
+	}
+	if got := modelctx.EstimateTokens(s.Messages()); got >= before {
+		t.Fatalf("tokens after = %d, before = %d", got, before)
+	}
+	request, _ := model.LastRequest()
+	if !strings.HasPrefix(gotato.TextOf(request.Messages[0]), "Summary of earlier conversation") {
+		t.Fatalf("model did not see the summary first: %q", gotato.TextOf(request.Messages[0]))
+	}
+	// Below the ceiling nothing happens on the next Run.
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("again")); err != nil {
+		t.Fatal(err)
+	}
+	if _, runs := auto.Last(); runs != 1 {
+		t.Fatalf("compacted again below ceiling: %d", runs)
 	}
 }
 
@@ -152,20 +216,18 @@ func TestModelSummarizer(t *testing.T) {
 		t.Fatalf("summary = %q", gotato.TextOf(summary))
 	}
 	request, _ := model.LastRequest()
-	if request.SystemInstructions == "" || len(request.Messages) != 1 {
+	if request.SystemInstructions == "" || len(request.Messages) != 1 || !strings.Contains(gotato.TextOf(request.Messages[0]), `<conversation format="json">`) {
 		t.Fatalf("request = %+v", request)
 	}
 }
 
-func TestParse(t *testing.T) {
-	for _, spec := range []string{"", "full", "window:3", "summary:2"} {
-		if _, err := modelctx.Parse(spec, nil); err != nil {
-			t.Fatalf("Parse(%q) = %v", spec, err)
-		}
-	}
-	for _, spec := range []string{"window", "window:0", "summary:x", "magic:3"} {
-		if _, err := modelctx.Parse(spec, nil); err == nil {
-			t.Fatalf("Parse(%q) accepted", spec)
-		}
+func TestRenderBlocks(t *testing.T) {
+	got := gotato.RenderBlocks([]gotato.Block{
+		{Tag: "resource", Attrs: map[string]string{"path": "a.md", "lines": "1-2"}, Text: "x"},
+		{Text: "bare"},
+	})
+	want := "<resource lines=\"1-2\" path=\"a.md\">x</resource>\nbare"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -80,7 +81,7 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 		return ModelContext{
 			SystemInstructions: "override",
 			Messages:           snapshot.Messages[len(snapshot.Messages)-1:],
-			Metadata:           map[string]string{"strategy": "last_only", "dropped_messages": itoa(len(snapshot.Messages) - 1)},
+			Metadata:           map[string]string{"strategy": "last_only", "dropped_messages": strconv.Itoa(len(snapshot.Messages) - 1)},
 		}, nil
 	})
 	transcript := &recordingTranscript{messages: []Message{UserMessage("old"), AssistantMessage("older answer")}}

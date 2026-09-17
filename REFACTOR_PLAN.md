@@ -31,13 +31,14 @@ Exit: `gotato run --session <id>` twice against the file store continues the sam
 
 ## Stage C — First-Class Context `[done]`
 
-- [x] `modelctx.FullHistory()`, `Window(n)`, `SummaryRecent(keep)`, `Chain(...)`; each returns `gotato.ModelContext` with `Metadata` (`strategy`, `source_messages`, `selected_messages`, `dropped_messages`).
-- [x] `modelctx.Inspect(builder, snapshot)` report with approximate tokens.
-- [x] `modelctx.Compact(ctx, session, opts)` with `Summarizer` interface; `TruncateSummarizer` (deterministic) and `ModelSummarizer` (uses a `gotato.Model`); records `session.Compaction`; keeps tool_call/tool_result adjacency intact.
-- [x] Loop emits `context_built` (protected) per Turn with the builder metadata.
-- [ ] Selected-reference projection (attach resources by ID) — `[next]`.
+- [x] One selection strategy, `modelctx.FullHistory()`: within a Session the history is append-only and fully visible. Sliding windows and per-Turn summaries were built, then removed: they rewrite the request prefix every Turn and defeat provider prompt caches.
+- [x] Cache-friendly layout in `gotato.AssembleRequest`: system (instruction + static Blocks) → sorted tools → append-only history → tail Message + `<panel>`; `ForModel` strips runtime fields; `CacheBreakpoints` after system/tools/before tail; `prefix_hash` in `context_built`.
+- [x] `modelctx.WithStatic` / `WithPanel` / `Resource` / `Text` / `JSON` / `Time` blocks; `gotato.Block`, `RenderBlocks`.
+- [x] `modelctx.Compact` with `Summarizer` (`TruncateSummarizer`, `ModelSummarizer`), `session.Compaction` record, `session_compacted` event; the cut never splits a tool call from its result.
+- [x] `modelctx.AutoCompact(session, CompactPolicy{Ceiling, Floor})` as a `gotato.RunPreparer`, the sanctioned Transcript-rewrite point at Run start.
+- [x] `modelctx.Inspect` / `InspectSession` report the exact request, token estimate, byte sizes, and prefix hash.
 
-Exit: `gotato context inspect <id> --json` shows source vs selected messages; `gotato context compact <id>` shrinks the session and records a compaction.
+Exit: `gotato context inspect <id> --json` twice yields the same `prefix_hash`; `run --compact-ceiling N` compacts once and continues.
 
 ## Stage D — Tool Registry `[done]`
 
@@ -50,7 +51,7 @@ Exit: `gotato tools list/describe/active/activate/deactivate` operate on a regis
 
 ## Stage E — Structured Events and Streaming `[partial]`
 
-- [x] New kinds `context_built`, `session_compacted`; documented payload keys in `events.go`.
+- [x] New kinds `context_built` (with `prefix_hash`), `session_compacted`; documented payload keys in `events.go`.
 - [x] `testkit.EventRecorder`.
 - [x] `gotato events --session <id> --jsonl` and `gotato run --events jsonl`.
 - [ ] Typed payload structs per kind (TODO A06) — `[next]`, breaking for the gRPC `payload_json`; bundle with Stage H ContractVersion bump.

@@ -49,39 +49,41 @@ Package: `session` (`session.go`, `recorder.go`).
 | SQLite | missing | planned as a separate module |
 | application-defined adapter | done | implement `session.Store` |
 
-## G-F04 — Context Runtime `[partial]`
+## G-F04 — Context Runtime `[done]`
 
 Package: `modelctx`; contract in root `context.go`.
 
+Within a Session the Model sees the whole history, append-only, laid out for prompt caching: static system content first, tools next, history as an append-only prefix, a dynamic `<panel>` on the tail Message. History shrinks only through compaction. Selection strategies that rewrite the prefix every Turn (sliding windows, per-Turn summaries) are deliberately not provided: they defeat provider prompt caches and hide history from the Model.
+
 | Item | Status | Where |
 |---|---|---|
-| ContextBuilder interface | done | `gotato.ContextBuilder`, `gotato.ContextBuilderFunc`, `gotato.ModelContext` |
+| ContextBuilder interface | done | `gotato.ContextBuilder`, `gotato.ContextBuilderFunc`, `gotato.ModelContext{SystemInstructions, System, Messages, Panel, Metadata}` |
 | full-history strategy | done | `modelctx.FullHistory()` (the agent default) |
-| window strategy | done | `modelctx.Window(n)` aligned to user-message boundaries |
-| compacted strategy | done | `modelctx.Compact` rewrites the Session; any strategy then sees the summary |
-| summary + recent strategy | done | `modelctx.SummaryRecent(keep, summarizer)` — projection only |
-| selected-reference projection | missing | planned |
-| custom application strategy | done | implement `gotato.ContextBuilder`; `modelctx.Chain` |
-| CLI strategy spec | done | `modelctx.Parse("full" \| "window:N" \| "summary:N")` |
+| static blocks in the system prompt | done | `modelctx.WithStatic`, `modelctx.Resource/Text/JSON`, `gotato.Block`, `gotato.RenderBlocks` |
+| dynamic panel on the tail | done | `modelctx.WithPanel`, `modelctx.Time`; rendered by `gotato.AssembleRequest` into the last Message, never committed |
+| compacted history | done | `modelctx.Compact` rewrites the Session; `modelctx.AutoCompact` applies a `CompactPolicy` budget at Run start via `gotato.RunPreparer` |
+| cache-friendly request layout | done | `gotato.AssembleRequest`: sorted tools, `ForModel` strips runtime fields, `CacheBreakpoints` after system / tools / before the tail, `prefix_hash` |
+| selected-reference projection | done | `modelctx.Resource` blocks in static or panel position |
+| custom application strategy | done | implement `gotato.ContextBuilder` |
 
 ## G-F05 — Context Inspection `[done]`
 
 | Item | Status | Where |
 |---|---|---|
-| source session state | done | `modelctx.Report.SourceMessages`, `InspectSession` |
-| selected messages | done | `Report.SelectedMessages`, `Report.Context.Messages` |
+| source session state | done | `modelctx.InspectSession` → `Report.SourceMessages` |
+| final model context | done | `Report.Context`, `Report.Request` (exactly what the Agent sends); CLI `gotato context build` |
 | compaction state | done | `Report.Compactions` |
-| approximate token usage | done | `Report.ApproxTokens` (bytes/4); provider-reported usage in `session.Run` |
-| final model context | done | `Report.Context`; CLI `gotato context build` |
+| approximate token usage | done | `Report.ApproxTokens`, `modelctx.EstimateTokens` (bytes/4); provider-reported usage in `session.Run` |
+| cache prefix | done | `Report.PrefixHash`, `Report.SystemBytes`, `Report.PanelBytes`; `context_built` payload `prefix_hash` |
 
-## G-F06 — Context Compaction `[partial]`
+## G-F06 — Context Compaction `[done]`
 
 | Item | Status | Where |
 |---|---|---|
-| compaction trigger hooks | partial | explicit `modelctx.Compact` and `gotato context compact`; automatic trigger on transcript-size pressure is planned |
+| compaction trigger hooks | done | explicit `modelctx.Compact` / `gotato context compact`; automatic `modelctx.AutoCompact(session, CompactPolicy{Ceiling, Floor})` at Run start |
 | summarizer interface | done | `modelctx.Summarizer`, `TruncateSummarizer`, `ModelSummarizer` |
 | compacted segment metadata | done | `session.Compaction{At, ReplacedMessages, FromMessageID, ToMessageID, SummaryMessageID, Summarizer, BytesBefore, BytesAfter}` |
-| explicit replacement/retention | done | `CompactOptions.Keep`; summary message tagged `metadata.compaction=summary`; tool calls never split from results |
+| explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut lands on a user Message so tool calls stay with their results |
 | events | done | `session_compacted` recorded in the Session |
 
 ## G-F07 — Model Interface `[done]`
@@ -126,7 +128,7 @@ Root `events.go` (payload keys documented per kind).
 |---|---|---|
 | run lifecycle | done | `agent_start`, `agent_end` |
 | turn lifecycle | done | `turn_start`, `turn_end` |
-| context built/compacted | done | `context_built`, `session_compacted` |
+| context built/compacted | done | `context_built` (with `prefix_hash`, `panel_bytes`, `system_bytes`), `session_compacted` |
 | model request/response | done | `message_start`, `message_update`, `message_end` |
 | tool lifecycle | done | `tool_execution_start/update/end`, `tool_result_committed`, `toolset_activated` |
 | session updated | partial | recorded by `session.Recorder`; no standalone kind |
@@ -141,11 +143,11 @@ Root `events.go` (payload keys documented per kind).
 
 ## G-F15 — Extensions / Hooks `[done]`
 
-`ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver`, `TurnStopper`, `AdvisoryExtension`; installed with `WithExtension(s)`. "Before finish" is `TurnStopper`; "before/after context build" is `ContextBuilder` followed by `ContextTransformer`.
+`ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver`, `TurnStopper`, `RunPreparer`, `AdvisoryExtension`; installed with `WithExtension(s)`. "Before finish" is `TurnStopper`; "before/after context build" is `ContextBuilder` followed by `ContextTransformer`; `RunPreparer` is the sanctioned point to rewrite the Transcript before a Run.
 
 ## G-F16 — CLI: `gotato run` `[done]`
 
-`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--context SPEC] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -`.
+`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -`.
 
 ## G-F17 — CLI: Session Operations `[done]`
 
@@ -153,7 +155,7 @@ Root `events.go` (payload keys documented per kind).
 
 ## G-F18 — CLI: Context Operations `[done]`
 
-`context inspect | build | compact <session>` with `--json`, `--context`, `--keep`, `--summarizer`.
+`context inspect | build | compact <session>` with `--json`, `--panel`, `--keep`, `--summarizer`; `inspect` reports the exact request, `prefix_hash`, and byte sizes.
 
 ## G-F19 — CLI: Tool Operations `[done]`
 

@@ -246,7 +246,7 @@ Usage:
   gotato [global flags] <command> [flags] [args]
 
 Commands:
-  run        [--session ID] [--model echo|demo|gateway] [--context SPEC] [--json|--events jsonl] "prompt"
+  run        [--session ID] [--model echo|demo|gateway] [--panel time,cwd] [--compact-ceiling N] [--json|--events jsonl] "prompt"
   session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | delete <id>
   context    inspect <id> | build <id> | compact <id> [--keep N] [--summarizer truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID

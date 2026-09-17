@@ -317,7 +317,7 @@ func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 	text := ""
 	for i := len(request.Messages) - 1; i >= 0; i-- {
 		if request.Messages[i].Role == gotato.RoleUser {
-			text = gotato.TextOf(request.Messages[i])
+			text = promptText(request.Messages[i])
 			break
 		}
 	}
@@ -342,7 +342,7 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 			hasToolResult = true
 		}
 		if message.Role == gotato.RoleUser && lastUser == "" {
-			lastUser = gotato.TextOf(message)
+			lastUser = promptText(message)
 			break
 		}
 	}
@@ -350,6 +350,17 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 		return &stream{events: ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: DemoToolID, Arguments: []byte(`{"value":"from-tool"}`)})}, nil
 	}
 	return &stream{events: Text("demo response: " + lastUser)}, nil
+}
+
+// promptText returns the first text part of a Message: the user's prompt
+// without the dynamic <panel> the runtime appends as a separate part.
+func promptText(message gotato.Message) string {
+	for _, part := range message.Parts {
+		if part.Kind == gotato.ContentText {
+			return part.Text
+		}
+	}
+	return ""
 }
 
 // DemoEchoTool is the Tool DemoModel calls: it returns its "value" argument.

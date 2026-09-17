@@ -23,7 +23,8 @@ agent, err := gotato.NewAgent(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
     gotato.WithTranscript(s),                     // the agent commits to the Session
-    gotato.WithContextBuilder(modelctx.Window(20)), // what the model sees now
+    gotato.WithContextBuilder(modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", rules))),
+    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})), // shrink only by compaction
     gotato.WithToolSource(toolregistry.New(tools...)),
     gotato.WithExtension(session.Record(s)),      // runs, events, usage into the Session
 )
@@ -60,7 +61,7 @@ Session (session.Session)              "what happened"
    v
 ContextBuilder (modelctx.*)            "what should the model see now"
    v
-ModelContext                           this Turn's model view
+ModelContext → AssembleRequest         system | tools | append-only history | tail + <panel>
    v
 Agent --- Tool Registry (toolregistry.Registry, a gotato.ToolSource)
    v
@@ -71,7 +72,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 
 - An **Agent** is one goroutine with one canonical loop. It owns reusable configuration (model, instruction, tools, context strategy, extensions, limits) and nothing else; mutable state belongs to the Run and the Session.
 - A **Session** records messages, runs, usage, events, compactions, and application metadata. It is persisted through `session.Store` (`MemoryStore`, `FileStore`) and can be forked as a state operation.
-- A **Context** is built per Turn by an explicit strategy (`FullHistory`, `Window`, `SummaryRecent`, `Chain`, or your own `gotato.ContextBuilder`) and is inspectable without running a model. Compaction rewrites a Session prefix into a summary and records exactly what was replaced.
+- A **Context** is built per Turn and laid out for prompt caching: static system content first, tools next, the append-only history, and a dynamic `<panel>` on the tail. Within a Session the model always sees the whole history; it shrinks only through compaction, which rewrites a prefix into a summary and records exactly what was replaced. `context_built` reports a `prefix_hash` so cache-friendliness is observable.
 - **Tools** are capabilities with identity, schema, execution, and structured results. The **Tool Registry** registers, lists, describes, activates, and deactivates them; the agent picks up changes at each Turn boundary. `ToolSet`s add model-driven staged activation.
 - **Events** are structured facts on a Go-native stream; **Extensions** wrap the loop at bounded stages (context transform, pre/post tool, observer, turn stopper).
 - **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI never calls a paid model.
@@ -82,7 +83,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 |---|---|---|
 | core | `gotato` | Agent, loop, Message, Model, Tool, ToolSet, Transcript, ContextBuilder, ToolSource, Events, Extensions, Errors, Limits. Standard library only. |
 | standard runtime | `session` | Session, Store, MemoryStore, FileStore, Fork, Recorder |
-| | `modelctx` | FullHistory, Window, SummaryRecent, Chain, Inspect, Compact, summarizers |
+| | `modelctx` | FullHistory, WithStatic, WithPanel, blocks, Inspect, Compact, AutoCompact, summarizers |
 | | `toolregistry` | Registry (register/unregister/lookup/list/describe/activate/deactivate, change hooks) |
 | | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
 | providers | `gateway` | OpenAI-compatible chat completions and OpenAI Codex Responses adapters, YAML config |

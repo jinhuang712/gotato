@@ -69,32 +69,36 @@ The illustrative repository shape in the whitepaper spells the context package `
 ## 4. Agent, Session, and Context
 
 ```text
-Session (session.Session)              "what happened"
+Session (session.Session)              "what happened"        append-only
    |  implements gotato.Transcript
    v
-ContextBuilder (gotato.ContextBuilder) "what should the model see now"
-   |  strategies in modelctx/
+ContextBuilder (gotato.ContextBuilder) "what the model sees now"
+   |  modelctx: FullHistory · WithStatic · WithPanel
    v
-ModelContext (gotato.ModelContext)     the one Turn's model view
+ModelContext { SystemInstructions, System[], Messages, Panel[] }
+   |
+   v  gotato.AssembleRequest
+ModelRequest, laid out for prompt caching:
+   ┌ system   instruction + static <blocks>        stable across Runs     ┐ breakpoint
+   ├ tools    sorted ToolSpecs                      stable across Turns   ┤ breakpoint
+   ├ history  m0 … m(n-1)                           append-only prefix    ┤ breakpoint
+   └ tail     m(n) + <panel>dynamic blocks</panel>  changes every Turn    ┘
    |
    v
 Agent (gotato.Agent) ---- Tool Registry (gotato.ToolSource / toolregistry.Registry)
    |
    v
-Agentic Loop (one)
-   |
-   +---- model
-   +---- tools
-   v
-Transcript appends + structured Events (context_built, turn_end, tool_*, agent_end)
+Agentic Loop (one)  →  Transcript appends + Events (context_built carries prefix_hash)
 ```
 
 - **The agent commits to a Transcript, not to itself.** `gotato.WithTranscript(session)` makes the agent append every committed message to the Session. Without the option the agent uses a private in-memory transcript, so the two-line embedded path stays two lines.
-- **The model receives a projection, never the transcript by identity.** `gotato.WithContextBuilder(strategy)` decides the model view per Turn. The default strategy is full history; the difference from an implicit copy is that it is explicit, inspectable (`modelctx.Inspect`, `gotato context inspect`), and observable (`context_built` event).
-- **Compaction is a Session state operation.** `modelctx.Compact` rewrites a Session prefix into a summary and records a `session.Compaction` naming what was replaced and what replaced it. It never happens silently inside the loop.
+- **Within a Session, history is append-only and the Model sees all of it.** There is one selection strategy, full history. Sliding windows and per-Turn summaries are not offered: they rewrite the request prefix every Turn, which defeats provider prompt caches and hides history from the Model.
+- **History shrinks only by compaction.** `modelctx.Compact` rewrites a Session prefix into one summary and records a `session.Compaction` naming what was replaced and what replaced it. `modelctx.AutoCompact` applies a token budget (`CompactPolicy{Ceiling, Floor}`) at the start of a Run, through the `RunPreparer` extension stage, the one point where no Turn is using the Transcript. A compaction costs one cache miss; every Turn until the next one hits.
+- **Static first, dynamic last.** `WithStatic` puts stable content (project rules, resources) into the system prompt; `WithPanel` puts per-Turn content (time, cwd, referenced files, state) into a `<panel>` appended to the tail Message. The panel is never committed to the Session and never disturbs the prefix.
+- **Three formats, three jobs.** Markdown for prose the model reads (instructions, static blocks, summaries); JSON for structured data (tool schemas, arguments, results, `<state>` blocks); XML tags for boundaries and provenance (`<resource path="…">`, `<panel>`), so injected content is cheaply separated from user text.
+- **Only prompt-relevant bytes reach the provider.** `gotato.ForModel` strips message IDs, usage, stop reasons, and runtime metadata; tools are sorted; `CacheBreakpoints` are placed after system, after tools, and before the tail. `context_built` reports `prefix_hash`; two consecutive Turns with the same hash present an identical cacheable prefix.
 - **Forking is a state operation.** `session.Fork` copies state and records the parent Session ID. That is lineage of data, not of agents.
-- **Tools are visible per Turn.** The agent asks every `ToolSource` for its tools at each Turn boundary and keeps that set for the whole Turn. `toolregistry.Registry` implements `ToolSource`; `ToolSet` adds model-driven staged activation.
-- **Mutable state lives in the Run and the Session.** Reusable configuration (model, instruction, tools, context strategy, extensions, limits) lives in the agent. Leftover control messages are discarded at the end of every Run.
+- **Tools are visible per Turn.** The agent asks every `ToolSource` for its tools at each Turn boundary and keeps that set for the whole Turn.
 
 No relationship in this design creates a sub-agent.
 
@@ -103,7 +107,7 @@ No relationship in this design creates a sub-agent.
 `cmd/gotato` is the official runtime interface for humans, shell automation, and coding agents:
 
 ```text
-gotato run [--session ID] [--model echo|demo|gateway] [--context SPEC] [--json | --events jsonl] "prompt"
+gotato run [--session ID] [--model echo|demo|gateway] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] "prompt"
 gotato session create | list | show | fork | events | resume | delete
 gotato context inspect | build | compact <session>
 gotato tools list | describe | active | activate | deactivate
@@ -145,7 +149,7 @@ The direction is enforced by `layering_test.go`: the root package has no non-std
 
 The runtime foundation described above is in place. FEATURES.md is the authoritative inventory; the open items there define the direction:
 
-- **Context**: selected-reference projection (attach resources by ID); automatic compaction on transcript-size pressure using an installed summarizer.
+- **Context**: provider adapters that map `CacheBreakpoints` to explicit cache controls; token estimation from provider usage instead of the bytes/4 heuristic.
 - **Events**: typed payload structs per kind; `reasoning_update` for streaming reasoning deltas.
 - **Persistence**: a SQLite-backed `session.Store` in its own module so the root stays dependency-free.
 - **Tools**: MCP client as a `ToolSet`/`ToolSource`; optional filesystem, shell, and HTTP tool packages.
