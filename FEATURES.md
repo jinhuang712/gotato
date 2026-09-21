@@ -12,7 +12,7 @@ Package: root `gotato` (`agent.go`, `toolbatch.go`, `context.go`, `limits.go`, `
 
 | Item | Status | Where |
 |---|---|---|
-| reusable Agent configuration | done | `NewAgent(...Option)`; `WithModel`, `WithInstruction`, `WithTool(s)`, `WithToolSet`, `WithToolSource`, `WithTranscript`, `WithContextBuilder`, `WithExtension(s)`, `WithLimits`, `WithDeadlines` |
+| reusable Agent configuration | done | `NewAgent(...Option)` returns `RuntimeAgent` (Agent + control + lifecycle + events + inspection); `WithModel`, `WithInstruction`, `WithTool(s)`, `WithToolSet`, `WithToolSource`, `WithTranscript`, `WithContextBuilder`, `WithExtension(s)`, `WithLimits`, `WithDeadlines` |
 | run/turn execution | done | one goroutine per agent, one loop (`executeRun`) |
 | tool-call loop | done | source-ordered preflight, sequential or bounded-parallel execution, source-ordered commit |
 | final result | done | `RunResult.FinalMessage` |
@@ -71,7 +71,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | Item | Status | Where |
 |---|---|---|
 | source session state | done | `modelctx.InspectSession` → `Report.SourceMessages` |
-| final model context | done | `Report.Context`, `Report.Request` (exactly what the Agent sends); CLI `gotato context build` |
+| final model context | done | `Report.Context`, `Report.Request` (exactly what the Agent sends for the committed Session); `InspectOptions` overrides; CLI `gotato context inspect/build --panel/--instruction` |
 | compaction state | done | `Report.Compactions` |
 | approximate token usage | done | `Report.ApproxTokens`, `modelctx.EstimateTokens` (bytes/4); provider-reported usage in `session.Run` |
 | cache prefix | done | `Report.PrefixHash`, `Report.SystemBytes`, `Report.PanelBytes`; `context_built` payload `prefix_hash` |
@@ -83,7 +83,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | compaction trigger hooks | done | explicit `modelctx.Compact` / `gotato context compact`; automatic `modelctx.AutoCompact(session, CompactPolicy{Ceiling, Floor})` at Run start |
 | summarizer interface | done | `modelctx.Summarizer`, `TruncateSummarizer`, `ModelSummarizer` |
 | compacted segment metadata | done | `session.Compaction{At, ReplacedMessages, FromMessageID, ToMessageID, SummaryMessageID, Summarizer, BytesBefore, BytesAfter}` |
-| explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut lands on a user Message so tool calls stay with their results |
+| explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut lands on a user Message so tool calls stay with their results; a no-op reports `MessagesBefore` and omits `compaction` |
 | events | done | `session_compacted` recorded in the Session |
 
 ## G-F07 — Model Interface `[done]`
@@ -147,7 +147,7 @@ Root `events.go` (payload keys documented per kind).
 
 ## G-F16 — CLI: `gotato run` `[done]`
 
-`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--timeout D] [--json | --events jsonl] [--continue] "prompt" | -`. The CLI drives a `service.Runner` in-process: the same code path as `gotato serve` and `gotato-grpc`.
+`run [--session ID] [--model echo|demo|gateway] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--timeout D] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -`. The CLI drives a `service.Runner` in-process: the same code path as `gotato serve` and `gotato-grpc`.
 
 ## G-F17 — CLI: Session Operations `[done]`
 
@@ -192,13 +192,13 @@ Root governance documents, package doc comments, `cmd/gotato/README.md` (exit co
 | Item | Status | Where |
 |---|---|---|
 | Runner: Session store + Agent per Run | done | `service.Runner`, `service.AgentSpec`, `RunRequest`, `RunResult` |
-| per-Session single flight | done | `service.Admission.Queue` (`reject` → busy, `wait` → queue) |
-| capacity bound, drain | done | `Admission.MaxActiveRuns`, `Runner.Drain` (cancels after grace) |
+| per-Session single flight | done | `service.Admission.Queue` (`reject` → busy, `wait` → queue); every Session mutation (run, compact, tool activation, delete) goes through one lock |
+| capacity bound, drain | done | `Admission.MaxActiveRuns`, `Runner.Drain` (cancels started and queued Runs after grace); `Draining()` backs `/readyz` 503 |
 | cancellation | done | `Runner.CancelRun(runID)`, `Runner.CancelSession(id)` via `Agent.Abort` so the settled result is returned |
 | per-run deadline | done | `RunRequest.Timeout` → `RunDeadline`; settles as `deadline_exceeded` |
 | Session settings honored per run | done | metadata `gotato.agent`, `gotato.instruction`, `gotato.panel`, `gotato.compact_ceiling`, `gotato.tool.<id>` |
 | inspection / compaction / fork | done | `Runner.Inspect`, `Runner.Compact` (under the Session lock), `Runner.Fork`, `Runner.Tools`, `Runner.SetToolActive` |
-| HTTP adapter | done | `service/httpapi` (`ContractVersion "2"`): sessions, runs, SSE stream, events, context, compact, cancel |
+| HTTP adapter | done | `service/httpapi` (`ContractVersion "2"`): sessions, runs, SSE stream, events, context, compact, cancel, delete; a settled failed Run is 200 with the outcome, a lost save is 500 |
 | gRPC adapter | done | `adapter/grpc` module, `gotato.v2.SessionService`, `gotato-grpc` binary |
 | `gotato serve` | done | the CLI runs the same Runner behind `httpapi` |
 | multi-process Session lease | missing | the Session lock is process-local; a Store-level lease is planned for multi-replica deployments |

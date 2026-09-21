@@ -48,6 +48,9 @@ type Config struct {
 	Headers      map[string]string
 	MaxRetries   int
 	RetryBackoff time.Duration
+	// NoRetries disables retries entirely. MaxRetries counts retries after
+	// the first attempt; 0 means the default.
+	NoRetries bool
 }
 
 type Client struct {
@@ -55,7 +58,6 @@ type Client struct {
 	endpoint     string
 	apiKey       string
 	model        string
-	auth         AuthConfig
 	httpClient   *http.Client
 	headers      map[string]string
 	maxRetries   int
@@ -95,8 +97,14 @@ func New(config Config) (*Client, error) {
 	if config.MaxRetries < 0 {
 		return nil, fmt.Errorf("gateway: MaxRetries cannot be negative")
 	}
+	if config.NoRetries && config.MaxRetries != 0 {
+		return nil, fmt.Errorf("gateway: NoRetries and MaxRetries are mutually exclusive")
+	}
 	maxRetries := config.MaxRetries
-	if maxRetries == 0 {
+	switch {
+	case config.NoRetries:
+		maxRetries = 0
+	case maxRetries == 0:
 		maxRetries = defaultMaxRetries
 	}
 	backoff := config.RetryBackoff

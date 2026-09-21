@@ -18,8 +18,9 @@ go build -o bin/gotato ./cmd/gotato
 | `--no-color` | accepted; output never contains ANSI color |
 | `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For other commands: the command deadline |
 | `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions` |
-| failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}` |
+| failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}`; this includes usage errors |
 | flags | accepted before or after positional arguments |
+| `--help` | any command or subcommand prints usage on stdout and exits 0 |
 
 ### Exit codes
 
@@ -57,7 +58,7 @@ The model used for a session is remembered in the session (`gotato.model` metada
 gotato run [--session ID] [--model M] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
 ```
 
-Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--panel` appends a dynamic `<panel>` with the listed items to the tail of each request; `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N. Both are remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message).
+Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--panel` appends a dynamic `<panel>` with the listed items to the tail of each request; `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N. Both are remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message). `--no-save` runs without writing the run's messages to the store: with no `--session` nothing is persisted at all, and with an existing session the history stays as it was (settings given alongside are still stored).
 
 `--json` outcome:
 
@@ -84,7 +85,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 | `session create [--id ID] [--meta k=v,…] [--instruction S] [--panel time,cwd] [--compact-ceiling N]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
 | `session list` | array of summaries, newest first (`--jsonl`: one per line) |
 | `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[], usage, compactions[], metadata` |
-| `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source |
+| `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source; an `--id` that already exists is rejected (exit 2) |
 | `session events <id>` | same as `events --session <id>` |
 | `session resume <id> "prompt"` | same as `run --session <id> "prompt"` |
 | `session delete <id>` | `{"id": "…", "deleted": true}` |
@@ -93,9 +94,9 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 | Command | Output (`--json`) |
 |---|---|
-| `context inspect <id> [--panel ITEMS] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, panel_bytes, prefix_hash, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], cache_breakpoints[]}` |
-| `context build <id> [--panel ITEMS]` | the exact `ModelRequest` the agent would send now |
-| `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, tokens_before, tokens_after, compaction{at, replaced_messages, from_message_id, to_message_id, summary_message_id, summarizer, bytes_before, bytes_after}}` |
+| `context inspect <id> [--panel ITEMS] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, panel_bytes, prefix_hash, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], cache_breakpoints[]}`; `--panel`/`--instruction` override the session's stored settings for this inspection only and are not persisted |
+| `context build <id> [--panel ITEMS] [--instruction S]` | the exact `ModelRequest` the agent would send now (same overrides, not persisted) |
+| `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, tokens_before, tokens_after, compaction?}`; `compaction` is present only when `replaced` is true |
 
 The request is laid out for prompt caching: system prompt, sorted tools, the append-only history, then the tail message carrying the `<panel>`. `prefix_hash` covers everything but the tail; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
@@ -148,7 +149,7 @@ POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
 POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        → create session and run
 ```
 
-Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 504 (deadline). Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server stops admitting, waits `--drain-timeout` for active runs, then cancels them.
+Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 500 (a settled run could not be saved), 504 (request deadline). A Run that settles as `failed`, `cancelled`, or `deadline_exceeded` still returns HTTP 200 with the outcome in the body (`result.status`); only request-level failures use those status codes. On the streaming routes every failure, including a bad request, is delivered in-band as `event: error` after the stream has started. `GET /readyz` returns 503 while draining so a rolling deployment can stop sending traffic. Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server stops admitting, waits `--drain-timeout` for active runs, then cancels them (including runs queued behind a busy session).
 
 ### `gotato doctor`
 

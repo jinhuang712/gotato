@@ -55,6 +55,26 @@ api_key: secret
 	}
 }
 
+func TestNoRetriesDisablesRetries(t *testing.T) {
+	client, err := New(Config{Model: "m", BaseURL: "https://gw.example.com/v1", NoRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.maxRetries != 0 {
+		t.Fatalf("maxRetries = %d, want 0", client.maxRetries)
+	}
+	config, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nno_retries: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.NoRetries {
+		t.Fatalf("no_retries not parsed: %+v", config)
+	}
+	if _, err := New(Config{Model: "m", BaseURL: "https://x", NoRetries: true, MaxRetries: 2}); err == nil {
+		t.Fatal("NoRetries with MaxRetries must be rejected")
+	}
+}
+
 func TestLoadYAML(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "gateway-*.yaml")
 	if err != nil {

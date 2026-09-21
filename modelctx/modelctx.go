@@ -133,9 +133,12 @@ func EstimateTokens(messages []gotato.Message) int {
 }
 
 // Report is the inspectable result of building a Context without running a
-// Model. Request is exactly what the Agent would send; PrefixHash covers the
-// system prompt, the tools, and every Message but the last, so two Reports
-// with equal PrefixHash present an identical cacheable prefix.
+// Model. Request is exactly what the Agent would send for the Session as
+// committed right now; when an auto-compaction budget is configured and
+// exceeded, the next Run compacts first, so that request will differ.
+// PrefixHash covers the system prompt, the tools, and every Message but the
+// last, so two Reports with equal PrefixHash present an identical cacheable
+// prefix.
 type Report struct {
 	SessionID        string               `json:"session_id,omitempty"`
 	Strategy         string               `json:"strategy"`

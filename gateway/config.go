@@ -31,6 +31,7 @@ type YAMLConfig struct {
 	Auth         *AuthConfig       `yaml:"auth"`
 	Headers      map[string]string `yaml:"headers"`
 	MaxRetries   int               `yaml:"max_retries"`
+	NoRetries    bool              `yaml:"no_retries"`
 	RetryBackoff string            `yaml:"retry_backoff"`
 }
 
@@ -62,6 +63,7 @@ func ParseYAML(data []byte) (Config, error) {
 		Model:      fileConfig.Model,
 		Headers:    fileConfig.Headers,
 		MaxRetries: fileConfig.MaxRetries,
+		NoRetries:  fileConfig.NoRetries,
 	}
 	if fileConfig.Auth != nil {
 		config.Auth = *fileConfig.Auth
