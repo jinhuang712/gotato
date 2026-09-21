@@ -1,6 +1,8 @@
 # 06. Extensions
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** The Core extension interfaces below predate the Gotato runtime foundation and are kept as design history. Its Orchestration and Host components (`AgentFactory`, `ConversationResolver`, `RetirementPolicy`, and similar) are application-level composition above the runtime, not Gotato components ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). Where this document disagrees with the root documents (for example the implemented interface signatures and `Reset`), the root documents win.
 
 > **Extensions add behavior at named Core stages without taking over Agent state.**
 
@@ -12,7 +14,7 @@ type ContextTransformer interface {
 }
 
 type MessageConverter interface {
-    Convert(context.Context, []Message) ([]ModelMessage, error)
+    Convert(context.Context, []Message) ([]Message, error)
 }
 
 type PreToolUse interface {
@@ -58,7 +60,7 @@ A TurnStopper runs after `turn_end` and before continuation selection. A stop pr
 
 ## 7. Failure and reentrancy
 
-Transformer, converter, Pre, Post, and stopper errors block by default and settle the owning Run according to the failure contract. Tool executor errors use Tool Result semantics. An Extension cannot synchronously call Prompt, Continue, or Reset on the same Agent from an awaited stage.
+Transformer, converter, Pre, Post, and stopper errors block by default and settle the owning Run according to the failure contract. Tool executor errors use Tool Result semantics. An Extension cannot synchronously call Prompt or Continue on the same Agent from an awaited stage.
 
 Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are forbidden.
 

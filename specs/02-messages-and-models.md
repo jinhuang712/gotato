@@ -74,9 +74,10 @@ Usage is provider-neutral; unavailable counts remain zero and are not fabricated
 ```go
 type ModelRequest struct {
     SystemInstructions string
-    Messages []ModelMessage
+    Messages []Message
     Tools []ToolSpec
     Options ModelOptions
+    CacheBreakpoints []CacheBreakpoint
 }
 ```
 

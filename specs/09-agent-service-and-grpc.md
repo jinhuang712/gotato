@@ -1,6 +1,8 @@
 # 09. Orchestration, Host, and Protocol Adapters
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Orchestration, Host, Conversation, and retirement model is application-level composition above the runtime, not a Gotato component ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). The shipped adapter is `gotato.v2.SessionService`; the bidirectional `AgentService` and `RunCommand`/`RunEvent` wire contract below never shipped. Where this document disagrees with the root documents, the root documents win.
 
 > Orchestration makes Agent Cores addressable and coordinated; Host and protocol adapters expose that system through a service boundary.
 
@@ -52,17 +54,32 @@ canonical Event → wire Event
 
 The adapter owns encoding, decoding, stream lifetime, and protocol errors. It is optional for Embedded use and is not a Core dependency.
 
-One possible adapter is a bidirectional gRPC stream:
+The shipped adapter is a Session-oriented gRPC service in [`adapter/grpc/proto/gotato/v2/service.proto`](../adapter/grpc/proto/gotato/v2/service.proto):
 
 ```proto
-service AgentService {
-  rpc Run(stream RunCommand) returns (stream RunEvent);
+// Draft sketch of the shipped surface; the proto file is authoritative.
+service SessionService {
+  rpc Contract(ContractRequest) returns (ContractResponse);
+  rpc Agents(AgentsRequest) returns (AgentsResponse);
+  rpc CreateSession(CreateSessionRequest) returns (SessionSummary);
+  rpc GetSession(SessionRequest) returns (SessionDocument);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc DeleteSession(SessionRequest) returns (DeleteSessionResponse);
+  rpc ForkSession(SessionRequest) returns (SessionSummary);
+  rpc Run(RunRequest) returns (RunResult);              // unary
+  rpc StreamRun(RunRequest) returns (stream RunUpdate); // server streaming
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  rpc Events(EventsRequest) returns (stream Event);
+  rpc Context(SessionRequest) returns (ContextReport);
+  rpc Compact(CompactRequest) returns (CompactResult);
 }
 ```
 
-HTTP, SSE, an existing RPC system, or an in-process Go call may implement the same semantic boundary.
+A bidirectional `AgentService` stream is not part of the shipped contract. HTTP, SSE, an existing RPC system, or an in-process Go call may implement the same semantic boundary.
 
-## 4. Wire contract example
+## 4. Wire contract example (superseded draft)
+
+> This `RunCommand`/`RunEvent` sketch is a pre-foundation draft; it does not correspond to a shipped type. The shipped wire contract is `gotato.v2.SessionService` above, whose `Event` message carries `payload_json` bytes rather than a typed payload.
 
 ```proto
 message RunCommand {

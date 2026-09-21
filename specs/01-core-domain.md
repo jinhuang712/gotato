@@ -1,6 +1,8 @@
 # 01. Core Domain
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Conversation, spawn, and retirement identities are application-level composition above the runtime, not Gotato types ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no `ConversationID`, `ConversationKey`, `SpawnID`, or `AgentGeneration`: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > **Agents are self-contained goroutines: each owns its state and work.**
 
@@ -94,13 +96,12 @@ Steering and follow-up data may be bounded inside the Agent's command protocol, 
 
 ```text
 Idle ──Prompt/Continue──► Busy
-Idle ──Reset─────────────► Idle
 Busy ──terminal──────────► Idle
 Idle/Busy ──close────────► Closing → Closed
 Busy ──new Prompt────────► not accepted by Agent
 ```
 
-`Reset` cannot mutate an Agent while its current execution is active. A Host may choose to wait for `Idle` before sending Reset.
+Core defines no `Reset` transition or API. Control flows through `Steer`, `FollowUp`, and `Abort`; a different model view is a `ContextBuilder`/`ContextTransformer` concern, not an Agent state transition.
 
 ## 6. Run
 

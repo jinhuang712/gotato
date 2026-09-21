@@ -1,6 +1,8 @@
 # 08. Errors and Limits
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its retirement and spawn error ownership and Orchestration limits are application-level composition above the runtime, not Gotato components ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). Where this document disagrees with the root documents (for example `errors.go` and `limits.go`), the root documents win.
 
 > **Agent Core bounds one Agent's work; Orchestration bounds the multi-Agent network.**
 
@@ -29,19 +31,20 @@ invalid_state
 busy
 agent_closed
 agent_closing
-retirement_failed
 model_failure
 model_protocol_failure
 tool_resolution_failure
 tool_argument_validation_failure
 tool_execution_failure
 extension_failure
-agent_spawn_failure
 limit_exceeded
 cancelled
 deadline_exceeded
 internal_invariant_failure
+not_supported
 ```
+
+This is the set implemented in [errors.go](../errors.go). `retirement_failed` and `agent_spawn_failure` are not Core codes: an Orchestration or Host layer classifies its own failures with `ErrorOf` using the codes above.
 
 `busy` means that one Agent goroutine cannot accept another execution command now. It does not prescribe whether the caller should wait, queue, reject, or start another Agent.
 
@@ -80,12 +83,13 @@ type CoreLimits struct {
     MaxMessageBytes uint64
     MaxTranscriptBytes uint64
     MaxToolCalls uint32
-    MaxActiveToolSets uint32
-    MaxVisibleTools uint32
-    MaxParallelTools uint32
     MaxToolResultBytes uint64
     MaxToolProgressBytes uint64
     MaxToolProgressUpdates uint32
+    MaxSteerMessages uint32
+    MaxFollowUpMessages uint32
+    MaxParallelTools uint32
+    MaxActiveToolSets uint32
     RunDeadline time.Duration
     ModelCallDeadline time.Duration
     ToolCallDeadline time.Duration
@@ -120,8 +124,8 @@ Tool Calls               before Tool Use
 Messages                 before transcript commitment
 Transcript bytes         before transcript commitment
 ToolSets                 before activation
-Visible Tools            before Model request
 Parallel Tools           before worker launch
+Steer/Follow-up buffers  before control admission
 Results/progress         before publication or commitment
 Deadlines                before and during owned work
 ```

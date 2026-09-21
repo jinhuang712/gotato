@@ -1,6 +1,8 @@
 # 04. Events and Delivery
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Orchestration and Host delivery model, Routine events, and retirement lifecycle signals are application-level composition above the runtime, not Gotato components ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no spawn or Conversation identity and uses `map[string]any` event payloads ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > **Agents emit immutable facts; Orchestration coordinates them and Hosts project and deliver them.**
 
@@ -46,12 +48,12 @@ type Event struct {
     Turn        TurnNumber
     MessageID   MessageID
     ToolCallID  ToolCallID
-    SpawnID     SpawnID
-    OriginRunID RunID
-    Payload     EventPayload
+    Payload     map[string]any
     Timestamp   time.Time
 }
 ```
+
+`SpawnID`, `OriginRunID`, and a typed `EventPayload` do not exist: spawn and tenancy lineage live in `Session.Metadata`, and payloads are `map[string]any` ([events.go](../events.go)).
 
 `Sequence` starts at 1 per Run, increases strictly, and is assigned during the Agent state transition before publication. Timestamp is diagnostic only. Correlation fields not applicable to a kind are empty.
 

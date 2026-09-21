@@ -1,6 +1,8 @@
 # 16. Agent Lifecycle and Retirement
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Conversation identity, retirement intent, retirement policies, spawn trees, and Host drain are application-level composition above the runtime, not Gotato components ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > Run settlement, Agent closure, Conversation retention, and Host drain are separate contracts.
 
@@ -11,16 +13,11 @@ This specification defines the lifecycle of one Core Agent, the retirement polic
 The identities have different meanings:
 
 ```go
-type AgentID string          // one live Core execution unit
-type ConversationID string   // one addressable application conversation
-type ConversationKey string  // caller-selected lookup key within its namespace
-type RunID string             // one accepted Prompt or Continue
-type SpawnID string           // one creation/correlation request
-type RetirementReason string  // bounded diagnostic reason for a close request
-type AgentGeneration uint64   // optional incarnation number for one Conversation
+type AgentID string   // one live runtime execution unit
+type RunID string     // one accepted Prompt or Continue
 ```
 
-`AgentID` MUST be unique for the lifetime of the system and MUST NOT be reused after Agent closure. `RunID` identifies execution, not Agent lifetime. `ConversationID` remains stable across Agent recreation. `ConversationKey` is a routing key and is not required to be globally unique without its application or tenant namespace.
+`AgentID` MUST be unique for the lifetime of the system and MUST NOT be reused after Agent closure. `RunID` identifies execution, not Agent lifetime. `ConversationID`, `ConversationKey`, `SpawnID`, `RetirementReason`, and `AgentGeneration` are not runtime identities: store lineage and tenancy in `Session.Metadata`, and derive work with `session.Fork` plus another Run ([MIGRATION.md](../MIGRATION.md)).
 
 ## 2. Four lifecycles
 
@@ -56,7 +53,7 @@ Idle/Busy ── close request ───────────► Closing
 Closing ── local work stopped ───────► Closed
 ```
 
-The Agent MAY transition from `Created` directly to `Closed` when construction or startup fails. A `Closed` Agent MUST reject Prompt, Continue, Steer, FollowUp, Reset, and new observation registrations. It MUST start no Model, Tool, Extension, or continuation work.
+The Agent MAY transition from `Created` directly to `Closed` when construction or startup fails. A `Closed` Agent MUST reject Prompt, Continue, Steer, FollowUp, and new observation registrations. It MUST start no Model, Tool, Extension, or continuation work.
 
 An Agent MUST reject new Prompt and Continue commands after it enters `Closing`. The transition into `Closing` and command admission are serialized by the Agent authority: a command accepted before the transition is the current Run, and a command after it is rejected. It MAY accept an idempotent close observation or a control needed to settle the current Run according to the selected close policy.
 
@@ -117,6 +114,8 @@ No Run, Model call, Tool, Extension, or control-driven continuation may begin af
 
 ## 6. Retirement intent and authority
 
+> **Superseded.** `RetirableAgent`, `RequestRetirement`, and the `RetirementReason` identity do not exist in the runtime. An owner that wants to retire an Agent calls `Close` directly; there is no runtime retirement intent to honor.
+
 A Core Agent MAY expose an additive capability for requesting retirement:
 
 ```go
@@ -157,6 +156,8 @@ The default policy for a directly constructed Core Agent MUST be `Retain`. An em
 An Orchestration MUST NOT evict a Busy Agent without an explicit cancellation or abort decision. `AfterIdle` begins its TTL only after Run settlement and while no Run is admitted; a new admission cancels or resets that timer. A capacity or TTL retirement MUST first prevent new admission and then use the close contract.
 
 ## 8. Conversation record and routing
+
+> **Superseded.** `ConversationRecord`, `ConversationID`, `ConversationKey`, `AgentName`, `ConversationStatus`, `LiveAgentID`, and `AgentGeneration` do not exist in the runtime. The unit of identity is the Session ID; retention is a `Session` in the Store, and derived work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)).
 
 A retained Conversation MUST be represented outside Core by an Orchestration-owned record equivalent to:
 

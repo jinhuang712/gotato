@@ -1,6 +1,8 @@
 # 12. Delivery Roadmap
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Slices 5-7 describe a pre-foundation Orchestration/Host/Conversation plan; the shipped baseline is `service.Runner` (a Session store plus an Agent per Run) exposed by `service/httpapi` and `adapter/grpc`, with the Session as the unit of identity ([PROPOSAL.md](../PROPOSAL.md) §5a, [MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > Deliver the atomic Agent Core first, then make multiple Core Agents addressable through Orchestration and expose that system as a Service.
 
@@ -82,7 +84,9 @@ bounded parallel Tools
 
 **Exit:** advanced callers can extend the same Loop without changing the basic Agent interface or forking execution behavior.
 
-## Slice 5 — Embedded Orchestration
+## Slice 5 — Embedded Orchestration (superseded)
+
+> **Superseded.** Slices 5-7 below are the pre-foundation Orchestration/Host/Conversation plan. The shipped baseline is `service.Runner` (a Session store plus an Agent per Run) exposed by `service/httpapi` and `adapter/grpc` as `gotato.v2.SessionService`. Identity is the Session ID; a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([PROPOSAL.md](../PROPOSAL.md) §5a, [MIGRATION.md](../MIGRATION.md)).
 
 ```text
 Agent identity and handle retention
@@ -96,7 +100,7 @@ bounded Event observation and result aggregation
 
 **Exit:** an existing HTTP, gRPC, or Go service can host multiple Agent instances, revisit them by Conversation key, retire idle or ephemeral Agents, and rehydrate retained Conversations while Core remains single-flight per Agent. The application may implement this layer itself or adopt the Gotato Orchestration package; the responsibility is not optional for multi-Agent use.
 
-## Slice 6 — Hosted Agent Service
+## Slice 6 — Hosted Agent Service (superseded)
 
 ```text
 Host semantic interface
@@ -109,7 +113,7 @@ readiness and graceful drain
 
 **Exit:** a remote caller can address and coordinate the same multiple Core Agents through Host and Orchestration without a second Agent implementation or Loop.
 
-## Slice 7 — Orchestration extensions
+## Slice 7 — Orchestration extensions (superseded)
 
 ```text
 bounded Agent handle cache and idle retirement

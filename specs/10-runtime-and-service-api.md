@@ -1,6 +1,8 @@
 # 10. Core, Orchestration, and Host API
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Orchestration, Host, Conversation, and retirement API is application-level composition above the runtime, not a Gotato component ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no Conversations separate from Sessions, no agent generations, and no retirement: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > The Core API executes one Agent. The Orchestration API makes multiple Agents addressable and coordinated. Host exposes that coordination through a service boundary.
 
@@ -43,12 +45,16 @@ agent, err := gotato.NewAgent(
 
 The public Core API MUST NOT require a Runner, Orchestration, Host, SessionService, Registry, Broker, or protocol server for a direct single-Agent call. This is the atomic path; a multi-Agent caller requires an Orchestration owner outside this Core interface. `Close` is the one lifecycle operation required to release a Core execution unit; it does not require a Host or persistence service.
 
-Streaming and control MAY be exposed as additive capabilities:
+Streaming and control MAY be exposed as additive capabilities. The implemented event surface is `EventAgent`/`EventSource` `Subscribe`; there is no `StreamingAgent`:
 
 ```go
-type StreamingAgent interface {
+type EventAgent interface {
     Agent
-    Stream(context.Context, Message) (EventStream, error)
+    Subscribe(context.Context) (EventStream, error)
+}
+
+type EventSource interface {
+    Subscribe(context.Context) (EventStream, error)
 }
 
 type ControllableAgent interface {
@@ -103,6 +109,8 @@ Idle ◄──── terminal result/Event ─── Busy
 Availability describes one Agent's execution state. It does not define external queueing, routing, or process placement.
 
 ## 6. Orchestration API
+
+> **Superseded.** The identifiers in this section were never implemented in the runtime: there are no `ConversationID`/`ConversationKey`, `ConversationStatus`, `ConversationRecord`, `RetirementPolicy`, `AgentGeneration`, `AgentFactory`, `AgentResolver`, or `ConversationOrchestration` types. The unit of identity is the Session ID; a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([PROPOSAL.md](../PROPOSAL.md) §5a, [MIGRATION.md](../MIGRATION.md)). This block is retained only as design history.
 
 Orchestration coordinates multiple Agents through semantic interfaces. It may be application code in Embedded use or a reusable Gotato component in Hosted use:
 
@@ -236,22 +244,36 @@ Queue policy, dispatch timing, protocol acknowledgement, and delivery timing are
 
 ## 12. Package direction
 
-A possible package layout is:
+The shipped package layout is:
 
 ```text
-agent/             public Agent interface and Core implementation
-model/             provider-neutral Model values and contract
-adapter/llm/       LLM provider integrations
-adapter/tool/      application capability integrations
-orchestration/     multi-Agent identity, routing, and lifecycle
-host/              service-facing composition around Orchestration
-adapter/protocol/  optional protocol adapters used by Host
+gotato (root)      Agent · Loop · Message · Model · Tool · ToolSet · Events
+                   Extensions · Errors · Limits · Transcript · ContextBuilder
+session/           Session · Store · MemoryStore · FileStore · Fork
+modelctx/          ContextBuilder strategies · Inspect · Compact
+toolregistry/      Registry (register/unregister/list/activate)
+testkit/           FakeModel · ReplayModel · FakeTool · EventRecorder
+gateway/           provider adapters
+service/           Runner: Session store + Agent per Run · AgentSpecs
+service/httpapi/   HTTP adapter
+adapter/grpc/      gRPC adapter (gotato.v2.SessionService)
+cmd/gotato/        CLI
 ```
 
-Exact names may evolve. The dependency direction must not:
+There is no `agent/`, `model/`, `adapter/llm/`, `orchestration/`, or `host/` package. The dependency direction is enforced by `layering_test.go`:
 
 ```text
-LLM / Tool adapters → Core contracts
-Orchestration / Host / protocol adapters → Orchestration / Core contracts
-Infrastructure hosts everything from outside
+cmd/gotato, adapter/grpc, service/httpapi
+        |
+        v
+service
+        |  may import anything below
+        v
+session, modelctx, toolregistry, testkit, gateway
+        |  import the root package (plus stdlib and narrow deps)
+        v
+gotato (root)
+        |  imports the standard library only
+        v
+Go
 ```

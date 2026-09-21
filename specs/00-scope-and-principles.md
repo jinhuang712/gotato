@@ -1,6 +1,8 @@
 # 00. Scope and Principles
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Orchestration, Host, Conversation, and retirement model is application-level composition above the runtime, not a Gotato component ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > **Go-native Agent Runtime and Orchestration.**
 
@@ -129,7 +131,7 @@ These are communicating units with distinct responsibilities. Each Agent owns it
 
 ## 7. Agent lifecycle
 
-Run settlement does not close an Agent. A Core Agent MUST reject new Runs after it enters `Closing`, complete or explicitly cancel its current Run, close its local resources exactly once, and become `Closed`. Orchestration owns automatic retirement policies such as `AfterRun`, `AfterIdle`, and `Ephemeral`; a direct Core Agent defaults to `Retain`. See [spec 16](16-agent-lifecycle-and-retirement.md).
+Run settlement does not close an Agent. A runtime Agent MUST reject new Runs after it enters `Closing`, complete or explicitly cancel its current Run, close its local resources exactly once, and become `Closed`. Automatic retirement policies such as `AfterRun`, `AfterIdle`, and `Ephemeral` are application-level composition above the runtime, not a Gotato component: a runtime Agent stays usable until its owner closes it ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). See [spec 16](16-agent-lifecycle-and-retirement.md).
 
 ## 8. One canonical Loop
 

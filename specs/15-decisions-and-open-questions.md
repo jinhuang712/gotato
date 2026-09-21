@@ -1,6 +1,8 @@
 # 15. Decisions and Open Questions
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded.** This document predates the Gotato runtime foundation and is kept as design history. Its Orchestration, Host, Conversation, and retirement decisions are application-level composition above the runtime, not Gotato components ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The runtime defines no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in `Session.Metadata` ([MIGRATION.md](../MIGRATION.md)). Where this document disagrees with the root documents, the root documents win.
 
 > **Go-native Agent Runtime and Orchestration.**
 
@@ -10,7 +12,7 @@
 
 ### Product shape
 
-1. Gotato provides an atomic Go-native Agent Core and a first-class Orchestration path for managed multi-Agent use. Hosted Agent Service is the service-facing form of that path.
+1. Gotato is a minimalistic, composable Go-native agent runtime: Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, and Store. Managed multi-Agent coordination is application-level composition above the runtime, not a Gotato product ([PROPOSAL.md](../PROPOSAL.md) §5a, [DESIGN.md](../DESIGN.md) G-D19). The repository's `service` layer is one such application: a Session store plus an Agent per Run, exposed by `service/httpapi` and `adapter/grpc` as `gotato.v2.SessionService`.
 2. An Agent is a callable, goroutine-backed stateful execution unit with private state.
 3. A single Agent may be used through a retained handle; multiple Agents require Orchestration to retain, address, route, and coordinate those handles. Hosted access does not create a second Agent implementation.
 4. Infrastructure is external and replaceable. Gateway, Kubernetes, load balancing, storage, and secrets are integration choices, not Gotato products.
