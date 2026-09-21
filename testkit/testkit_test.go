@@ -149,3 +149,42 @@ func TestSessionFixture(t *testing.T) {
 		t.Fatalf("fixture = %+v", messages)
 	}
 }
+
+func TestFakeToolUsesAreIsolated(t *testing.T) {
+	tool := testkit.NewFakeTool("fake", "result")
+	use := gotato.ToolUse{
+		ArgumentsJSON: []byte(`{"x":1}`),
+		Result:        &gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "r"}}},
+	}
+	if _, err := tool.Execute(context.Background(), use, nil); err != nil {
+		t.Fatal(err)
+	}
+	uses := tool.Uses()
+	uses[0].ArgumentsJSON[0] = 'X'
+	uses[0].Result.Content[0].Text = "mutated"
+
+	again := tool.Uses()
+	if string(again[0].ArgumentsJSON) != `{"x":1}` {
+		t.Fatalf("arguments mutation reached the recording: %s", again[0].ArgumentsJSON)
+	}
+	if again[0].Result == nil || again[0].Result.Content[0].Text != "r" {
+		t.Fatalf("result mutation reached the recording: %+v", again[0].Result)
+	}
+}
+
+func TestEventRecorderEventsAreIsolated(t *testing.T) {
+	recorder := testkit.NewEventRecorder()
+	payload := map[string]any{"summary": map[string]any{"tool_results": []map[string]any{{"status": "ok"}}}}
+	if err := recorder.Observe(context.Background(), gotato.Event{Kind: gotato.EventTurnEnd, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+
+	events := recorder.Events()
+	events[0].Payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"] = "reader"
+
+	again := recorder.Events()
+	status := again[0].Payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"]
+	if status != "ok" {
+		t.Fatalf("payload mutation reached the recording: %v", status)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -229,12 +230,25 @@ func (t *FakeTool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.Too
 	return result.Clone(), nil
 }
 
-// Uses returns the recorded ToolUses.
+// Uses returns the recorded ToolUses, deep-copied so a caller cannot mutate
+// the recording the fake keeps.
 func (t *FakeTool) Uses() []gotato.ToolUse {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	out := make([]gotato.ToolUse, len(t.uses))
-	copy(out, t.uses)
+	for i, use := range t.uses {
+		out[i] = cloneToolUse(use)
+	}
+	return out
+}
+
+func cloneToolUse(use gotato.ToolUse) gotato.ToolUse {
+	out := use
+	out.ArgumentsJSON = slices.Clone(use.ArgumentsJSON)
+	if use.Result != nil {
+		result := use.Result.Clone()
+		out.Result = &result
+	}
 	return out
 }
 
@@ -266,13 +280,53 @@ func (r *EventRecorder) Observe(_ context.Context, event gotato.Event) error {
 // Advisory implements gotato.AdvisoryExtension: recording never fails a Run.
 func (r *EventRecorder) Advisory() bool { return true }
 
-// Events returns a copy of the recorded Events.
+// Events returns a copy of the recorded Events, deep-copied so a caller
+// cannot mutate the recording.
 func (r *EventRecorder) Events() []gotato.Event {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]gotato.Event, len(r.events))
-	copy(out, r.events)
+	for i, event := range r.events {
+		out[i] = cloneEvent(event)
+	}
 	return out
+}
+
+func cloneEvent(event gotato.Event) gotato.Event {
+	event.Payload = clonePayload(event.Payload)
+	return event
+}
+
+func clonePayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = clonePayloadValue(value)
+	}
+	return out
+}
+
+func clonePayloadValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return clonePayload(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayloadValue(item)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayload(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 // Kinds returns the recorded Event kinds in order.
