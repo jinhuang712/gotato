@@ -131,15 +131,16 @@ type CompactOptions struct {
 	Now func() time.Time
 }
 
-// Result reports a Compact call.
+// Result reports a Compact call. Compaction is present only when a
+// replacement actually happened (Replaced is true).
 type Result struct {
-	SessionID      string             `json:"session_id"`
-	Replaced       bool               `json:"replaced"`
-	MessagesBefore int                `json:"messages_before"`
-	MessagesAfter  int                `json:"messages_after"`
-	TokensBefore   int                `json:"tokens_before"`
-	TokensAfter    int                `json:"tokens_after"`
-	Compaction     session.Compaction `json:"compaction,omitempty"`
+	SessionID      string              `json:"session_id"`
+	Replaced       bool                `json:"replaced"`
+	MessagesBefore int                 `json:"messages_before"`
+	MessagesAfter  int                 `json:"messages_after"`
+	TokensBefore   int                 `json:"tokens_before"`
+	TokensAfter    int                 `json:"tokens_after"`
+	Compaction     *session.Compaction `json:"compaction,omitempty"`
 }
 
 // Compact permanently replaces the Messages before the last opts.Keep with
@@ -162,7 +163,14 @@ func Compact(ctx context.Context, s *session.Session, opts CompactOptions) (Resu
 	messages := s.Messages()
 	cut := safeCut(messages, len(messages)-opts.Keep)
 	if cut <= 0 {
-		return Result{SessionID: s.ID(), MessagesAfter: len(messages), TokensBefore: EstimateTokens(messages), TokensAfter: EstimateTokens(messages)}, nil
+		tokens := EstimateTokens(messages)
+		return Result{
+			SessionID:      s.ID(),
+			MessagesBefore: len(messages),
+			MessagesAfter:  len(messages),
+			TokensBefore:   tokens,
+			TokensAfter:    tokens,
+		}, nil
 	}
 	before, _ := json.Marshal(messages)
 	summary, err := summarizer.Summarize(ctx, messages[:cut])
@@ -203,7 +211,7 @@ func Compact(ctx context.Context, s *session.Session, opts CompactOptions) (Resu
 		},
 	})
 	return Result{
-		SessionID: s.ID(), Replaced: true, Compaction: record,
+		SessionID: s.ID(), Replaced: true, Compaction: &record,
 		MessagesBefore: len(messages), MessagesAfter: len(replaced),
 		TokensBefore: EstimateTokens(messages), TokensAfter: EstimateTokens(replaced),
 	}, nil

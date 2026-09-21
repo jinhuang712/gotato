@@ -175,7 +175,10 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 	if err != nil {
 		return nil, statusOf(err)
 	}
-	compaction, _ := json.Marshal(result.Compaction)
+	var compaction []byte
+	if result.Compaction != nil {
+		compaction, _ = json.Marshal(result.Compaction)
+	}
 	return &gotatov2.CompactResult{
 		SessionId:      result.SessionID,
 		Replaced:       result.Replaced,

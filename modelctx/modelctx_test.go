@@ -2,6 +2,7 @@ package modelctx_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,27 @@ func TestCompactNeverSplitsToolCallFromResult(t *testing.T) {
 	}
 	if !result.Replaced || result.MessagesAfter != 3 {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestCompactNoOpReportsFullState(t *testing.T) {
+	s := session.New()
+	for _, message := range toolConversation()[:4] {
+		_ = s.Append(message)
+	}
+	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Replaced || result.MessagesBefore != 4 || result.MessagesAfter != 4 || result.Compaction != nil {
+		t.Fatalf("no-op result = %+v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"compaction"`) {
+		t.Fatalf("empty compaction record leaked into JSON: %s", encoded)
 	}
 }
 
