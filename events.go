@@ -189,16 +189,40 @@ func (s *eventSubscription) enqueue(ev Event) {
 	}
 	select {
 	case s.ch <- ev:
+		return
 	default:
-		if ev.Class == EventCoalescable {
+	}
+	if ev.Class == EventCoalescable {
+		// Progress is optional; drop it rather than displacing state.
+		return
+	}
+	// A protected event must not be lost to a backlog of coalescable progress.
+	// Make room by discarding buffered coalescable events, oldest first.
+	drained := make([]Event, 0, cap(s.ch)+1)
+	for {
+		select {
+		case queued := <-s.ch:
+			if queued.Class != EventCoalescable {
+				drained = append(drained, queued)
+			}
+		default:
+			drained = append(drained, ev)
+			if len(drained) > cap(s.ch) {
+				// Even without progress events the buffer is full: the
+				// subscriber is too slow and the subscription ends.
+				s.closed = true
+				s.err = errors.New("gotato: protected event buffer full")
+				close(s.ch)
+				close(s.done)
+				if s.closeFn != nil {
+					s.closeFn(s)
+				}
+				return
+			}
+			for _, pending := range drained {
+				s.ch <- pending
+			}
 			return
-		}
-		s.closed = true
-		s.err = errors.New("gotato: protected event buffer full")
-		close(s.ch)
-		close(s.done)
-		if s.closeFn != nil {
-			s.closeFn(s)
 		}
 	}
 }
