@@ -158,7 +158,12 @@ func TestWaitPolicyQueuesAndCancelRunAborts(t *testing.T) {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
 		firstDone <- result
 	}()
-	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil })
+	// Wait until the Run reached the Model so cancellation exercises the
+	// settled-cancelled path instead of racing the initial Session load.
+	waitFor(t, func() bool { return model.Calls() == 1 })
+	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+		t.Fatal(err)
+	}
 	// Cancelling the first run settles it as cancelled and frees the lock.
 	first := <-firstDone
 	if first.Result.Status != gotato.RunCanceled {
@@ -301,8 +306,10 @@ func TestQueuedRunIsCancellable(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	// The queued Run becomes the started one; cancelling it settles it as
-	// cancelled instead of leaving it invisible.
+	// Let the first Run leave before cancelling again, so the next
+	// CancelSession can only match the queued Run (its handle is the only one
+	// registered), settling it as cancelled instead of leaving it invisible.
+	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
 	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil })
 	select {
 	case result := <-queued:
@@ -435,6 +442,134 @@ func TestFailedOneShotLeavesNoSession(t *testing.T) {
 	list, err := store.List(context.Background())
 	if err != nil || len(list) != 0 {
 		t.Fatalf("failed one-shot left %d sessions (err=%v)", len(list), err)
+	}
+}
+
+// failingDeleteStore fails every Delete, standing in for a Store whose cleanup
+// cannot remove the one-shot Session.
+type failingDeleteStore struct {
+	session.Store
+	err error
+}
+
+func (s *failingDeleteStore) Delete(context.Context, string) error { return s.err }
+
+func TestFailedOneShotCleanupIsReported(t *testing.T) {
+	delErr := errors.New("store: delete denied")
+	runner, err := service.New(service.Config{
+		Store: &failingDeleteStore{Store: session.NewMemoryStore(), err: delErr},
+		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(context.Background(), service.RunRequest{
+		Prompt:   "x",
+		Metadata: map[string]string{service.MetaPanel: "bogus"},
+	})
+	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		t.Fatalf("err = %v, want invalid_argument", err)
+	}
+	if !errors.Is(err, delErr) {
+		t.Fatalf("cleanup failure not reported: %v", err)
+	}
+}
+
+func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	model := testkit.NewFakeModel(testkit.Text("x"))
+	model.Err = errors.New("model exploded")
+	runner, err := service.New(service.Config{
+		Store: store,
+		Specs: []service.AgentSpec{{Name: "boom", Model: model}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
+	if !errors.Is(err, service.ErrNotPersisted) {
+		t.Fatalf("err = %v, want ErrNotPersisted in the chain", err)
+	}
+	if !strings.Contains(err.Error(), "model exploded") {
+		t.Fatalf("run error lost from the joined error: %v", err)
+	}
+	if result.Result.Status != gotato.RunFailed {
+		t.Fatalf("status = %q err=%v, want failed", result.Result.Status, result.Result.Error)
+	}
+}
+
+// getErrorStore returns a fixed error for one ID, standing in for a Store that
+// is broken rather than missing the Session.
+type getErrorStore struct {
+	session.Store
+	failID string
+	err    error
+}
+
+func (s *getErrorStore) Get(ctx context.Context, id string) (*session.Session, error) {
+	if id == s.failID {
+		return nil, s.err
+	}
+	return s.Store.Get(ctx, id)
+}
+
+func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
+	backing := session.NewMemoryStore()
+	getErr := errors.New("store: unavailable")
+	runner, err := service.New(service.Config{
+		Store: &getErrorStore{Store: backing, failID: "child", err: getErr},
+		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	parent, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Fork(ctx, parent.ID(), "child"); !errors.Is(err, getErr) {
+		t.Fatalf("fork err = %v, want the store error", err)
+	}
+	if _, err := backing.Get(ctx, "child"); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("fork saved a session despite a store error: %v", err)
+	}
+}
+
+func TestForkWithExplicitIDIsExclusive(t *testing.T) {
+	runner, _ := newRunner(t)
+	ctx := context.Background()
+	parent, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 8
+	var wg sync.WaitGroup
+	results := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := runner.Fork(ctx, parent.ID(), "shared-fork")
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for err := range results {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		// A loser either finds the ID taken or is rejected while the winner
+		// holds the lock; neither may overwrite the winner.
+		if !gotato.IsCode(err, gotato.ErrInvalidArgument) && !gotato.IsCode(err, gotato.ErrBusy) {
+			t.Fatalf("unexpected fork err = %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful forks = %d, want exactly 1", succeeded)
 	}
 }
 

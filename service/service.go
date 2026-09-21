@@ -463,10 +463,16 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
 			saveErr := r.store.Save(saveCtx, s)
 			cancelSave()
-			if saveErr != nil && runErr == nil {
-				// The Run succeeded but its Session state is lost: report it as a
-				// persistence failure instead of a clean success.
-				runErr = fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
+			if saveErr != nil {
+				// The Session state is lost whether or not the Run failed: keep
+				// the Run error and add the persistence failure so callers can
+				// observe both (errors.Is still matches each).
+				persistErr := fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
+				if runErr == nil {
+					runErr = persistErr
+				} else {
+					runErr = errors.Join(runErr, persistErr)
+				}
 			}
 		}
 		out = RunResult{
@@ -497,10 +503,13 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	if lockErr != nil {
 		if created && !started {
 			// A one-shot Run that never started must not leave an empty
-			// Session behind.
+			// Session behind. A failed cleanup is reported, not discarded.
 			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
-			_ = r.store.Delete(deleteCtx, s.ID())
+			deleteErr := r.store.Delete(deleteCtx, s.ID())
 			cancelDelete()
+			if deleteErr != nil {
+				lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", s.ID(), deleteErr))
+			}
 		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Cancelled while waiting for the Session lock: report a settled
@@ -845,13 +854,23 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Se
 	}
 	var options []session.Option
 	if newID != "" {
-		if _, err := r.store.Get(ctx, newID); err == nil {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+newID+" already exists")
-		}
 		options = append(options, session.WithID(newID))
 	}
 	child := session.Fork(parent, options...)
-	if err := r.store.Save(ctx, child); err != nil {
+	// The existence check and the write run under the child's Session lock, so
+	// two concurrent forks with the same explicit newID cannot both pass the
+	// check and let the second overwrite the first.
+	err = r.withSessionLock(ctx, child.ID(), func() error {
+		if newID != "" {
+			if _, err := r.store.Get(ctx, newID); err == nil {
+				return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+newID+" already exists")
+			} else if !errors.Is(err, session.ErrNotFound) {
+				return err
+			}
+		}
+		return r.store.Save(ctx, child)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return child, nil
