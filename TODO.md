@@ -25,7 +25,7 @@
 | [T07](#t07-commitmessage-每次提交重新序列化整份-transcript) | commitMessage 每次提交重新序列化整份 transcript | P1 | 已修复 |
 | [T08](#t08-drain-超时不-abort进程退出丢失会话状态) | drain 超时不 Abort,进程退出丢失会话状态 | P1 | 已由 service 重写消解 |
 | [T09](#t09-waitforidle-存在丢失唤醒的窗口) | WaitForIdle 存在丢失唤醒的窗口 | P2 | 未开始 |
-| [T10](#t10-toolprogress-计数器无同步保护) | ToolProgress 计数器无同步保护 | P2 | 未开始 |
+| [T10](#t10-toolprogress-计数器无同步保护) | ToolProgress 计数器无同步保护 | P2 | 已修复(progressMu 保护) |
 | [T11](#t11-codex-适配器的外部风险与缺测) | Codex 适配器的外部风险与缺测 | P2 | 已修复(去除 Pi 凭据) |
 | [T12](#t12-管理端点无鉴权请求日志中间件是空实现) | 管理端点无鉴权,请求日志中间件是空实现 | P2 | 已由 service 重写消解 |
 | [T13](#t13-文档与代码漂移清单) | 文档与代码漂移清单 | P2 | 未开始 |
@@ -367,7 +367,7 @@ Embedded / Hosted 等价性测试在 FIFO 配置下仍通过
 
 ### 证据
 
-- `toolbatch.go:97` 附近的 progress 闭包
+- `toolbatch.go:97`:`progressMu` 保护 `progressUpdates`/`progressBytes` 的 progress 闭包
 
 ### 修法
 

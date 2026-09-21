@@ -83,7 +83,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | compaction trigger hooks | done | explicit `modelctx.Compact` / `gotato context compact`; automatic `modelctx.AutoCompact(session, CompactPolicy{Ceiling, Floor})` at Run start |
 | summarizer interface | done | `modelctx.Summarizer`, `TruncateSummarizer`, `ModelSummarizer` |
 | compacted segment metadata | done | `session.Compaction{At, ReplacedMessages, FromMessageID, ToMessageID, SummaryMessageID, Summarizer, BytesBefore, BytesAfter}` |
-| explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut lands on a user Message so tool calls stay with their results; a no-op reports `MessagesBefore` and omits `compaction` |
+| explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut prefers a user Message but may land on a non-user boundary that still keeps tool calls with their results (`safeCut`); a no-op returns a fully populated non-replaced `Result` and omits `compaction` |
 | events | done | `session_compacted` recorded in the Session |
 
 ## G-F07 — Model Interface `[done]`

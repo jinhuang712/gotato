@@ -25,7 +25,7 @@ agent, err := gotato.NewAgent(
     gotato.WithTranscript(s),                     // the agent commits to the Session
     gotato.WithContextBuilder(modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", rules))),
     gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})), // shrink only by compaction
-    gotato.WithToolSource(toolregistry.New(tools...)),
+    gotato.WithToolSource(toolregistry.MustNew(tools...)),
     gotato.WithExtension(session.Record(s)),      // runs, events, usage into the Session
 )
 if err != nil {

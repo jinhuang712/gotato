@@ -101,7 +101,7 @@ Every Turn now emits one protected `context_built` event before the model reques
 | `POST /v1/runs/{run_id}/cancel` | same, plus `POST /v1/sessions/{id}/cancel` |
 | `GET /v1/conversations/{id}` | `GET /v1/sessions/{id}` (full document) |
 | `POST /v1/agents/{id}/close`, `/admin/drain` | removed; Agents live for one Run; drain happens on process shutdown |
-| `go run ./cmd/gotato-agent` | `gotato serve` (HTTP) or `go run ./adapter/grpc/cmd/gotato-grpc` |
+| `go run ./cmd/gotato-agent` | `gotato serve` (HTTP) or `(cd adapter/grpc && go run ./cmd/gotato-grpc)` |
 
 Removed from the root package: `SpawnID`, `Event.SpawnID`, `Event.OriginRunID`, `AgentName`, `ConversationID`, `ConversationKey`, `AgentGeneration`, `LifecycleEvent.ConversationID`, `LifecycleEvent.Generation`. Store lineage and tenancy in `Session.Metadata`.
 
