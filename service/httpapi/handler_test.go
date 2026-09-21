@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,10 +123,11 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("events = %d %q", status, body)
 	}
-	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-	if len(lines) == 0 {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
 		t.Fatalf("no events returned: %q", body)
 	}
+	lines := strings.Split(trimmed, "\n")
 	for _, line := range lines {
 		var filtered gotato.Event
 		if err := json.Unmarshal([]byte(line), &filtered); err != nil {
@@ -288,5 +291,58 @@ func TestHealthAndAgents(t *testing.T) {
 	status, body = call(t, server, http.MethodGet, "/v1/agents", nil)
 	if status != http.StatusOK || !strings.Contains(string(body), `["echo","demo"]`) {
 		t.Fatalf("agents = %d %s", status, body)
+	}
+}
+
+func TestRunTimeoutOutOfRangeIsRejected(t *testing.T) {
+	server, _ := newServer(t)
+	for _, timeout := range []int64{1 << 62, -1} {
+		status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi", "timeout_ms": timeout})
+		if status != http.StatusBadRequest {
+			t.Fatalf("timeout_ms=%d status = %d (%s), want 400", timeout, status, body)
+		}
+	}
+}
+
+// failingSaveStore fails Save after the first call, so the terminal Session
+// write of a Run fails with a store-internal message.
+type failingSaveStore struct {
+	session.Store
+	mu        sync.Mutex
+	saves     int
+	failAfter int
+}
+
+func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) error {
+	s.mu.Lock()
+	s.saves++
+	fail := s.failAfter > 0 && s.saves > s.failAfter
+	s.mu.Unlock()
+	if fail {
+		return errors.New("store: disk full at /var/secret/path")
+	}
+	return s.Store.Save(ctx, sess)
+}
+
+func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
+	runner, err := service.New(service.Config{
+		Store: &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1},
+		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	t.Cleanup(server.Close)
+
+	status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi"})
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d (%s), want 500", status, body)
+	}
+	if strings.Contains(string(body), "disk full") || strings.Contains(string(body), "/var/secret/path") {
+		t.Fatalf("response leaked store internals: %s", body)
+	}
+	if !strings.Contains(string(body), "Internal Server Error") {
+		t.Fatalf("body = %s, want a stable message", body)
 	}
 }

@@ -30,6 +30,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -50,6 +52,10 @@ const maxBodyBytes = 1 << 20
 
 // errBodyTooLarge marks a request body that exceeded maxBodyBytes.
 var errBodyTooLarge = errors.New("request body too large")
+
+// maxTimeoutMS is the largest timeout_ms whose millisecond-to-Duration
+// conversion cannot overflow.
+const maxTimeoutMS = int64(math.MaxInt64) / int64(time.Millisecond)
 
 // Handler serves the API.
 type Handler struct {
@@ -241,6 +247,9 @@ func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.Ru
 	if !in.Continue && strings.TrimSpace(in.Prompt) == "" {
 		return service.RunRequest{}, errors.New("prompt is required (or continue: true)")
 	}
+	if in.TimeoutMS < 0 || in.TimeoutMS > maxTimeoutMS {
+		return service.RunRequest{}, fmt.Errorf("timeout_ms must be between 0 and %d", maxTimeoutMS)
+	}
 	return service.RunRequest{
 		SessionID: r.PathValue("id"),
 		Agent:     in.Agent,
@@ -301,7 +310,7 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(runErr, service.ErrNotPersisted) {
-		data, _ := json.Marshal(errorResponse{Error: http.StatusText(http.StatusInternalServerError), Message: runErr.Error()})
+		data, _ := json.Marshal(internalError(runErr))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 		return
 	}
@@ -396,11 +405,20 @@ func StatusFor(err error) int {
 }
 
 func failureOf(err error) errorResponse {
-	out := errorResponse{Error: http.StatusText(StatusFor(err)), Message: err.Error()}
+	status := StatusFor(err)
+	out := errorResponse{Error: http.StatusText(status)}
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
 	}
+	if status >= http.StatusInternalServerError {
+		// Keep store and filesystem internals in the server log; the client
+		// gets a stable body.
+		log.Printf("httpapi: %d %s: %v", status, out.Error, err)
+		out.Message = http.StatusText(status)
+		return out
+	}
+	out.Message = err.Error()
 	return out
 }
 
@@ -409,7 +427,21 @@ func writeFailure(w http.ResponseWriter, err error) {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, errorResponse{Error: http.StatusText(status), Message: err.Error()})
+	resp := errorResponse{Error: http.StatusText(status)}
+	if status >= http.StatusInternalServerError {
+		resp = internalError(err)
+	} else {
+		resp.Message = err.Error()
+	}
+	writeJSON(w, status, resp)
+}
+
+// internalError logs the detailed cause and returns a stable body for a 5xx
+// response, so store or filesystem internals never reach the client.
+func internalError(err error) errorResponse {
+	log.Printf("httpapi: internal error: %v", err)
+	message := http.StatusText(http.StatusInternalServerError)
+	return errorResponse{Error: message, Message: message}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
