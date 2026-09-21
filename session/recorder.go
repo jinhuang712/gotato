@@ -32,7 +32,9 @@ func Record(s *Session) *Recorder {
 func (r *Recorder) Advisory() bool { return true }
 
 // Observe implements gotato.EventObserver. Events are delivered by the Agent
-// goroutine in order, so no locking is needed on the pending map.
+// goroutine in order, so no locking is needed on the pending map: one
+// Recorder belongs to one Agent, and sharing it across Agents is not
+// supported.
 func (r *Recorder) Observe(_ context.Context, event gotato.Event) error {
 	r.session.RecordEvent(event)
 	switch event.Kind {
