@@ -3,7 +3,6 @@ package gotato
 import (
 	"context"
 	"fmt"
-	"maps"
 	"runtime/debug"
 	"slices"
 )
@@ -187,8 +186,11 @@ func advisoryFailure(extension any) bool {
 func guard(stage string, call func() error) (err *RuntimeError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			message := fmt.Sprintf("extension panic: %v\n%s", recovered, debug.Stack())
-			err = runtimeError(ErrExtensionFailure, stage, message, nil)
+			// The stack stays on the Cause for logs; Message stays short
+			// because the service layer returns it to HTTP/gRPC clients.
+			err = runtimeError(ErrExtensionFailure, stage,
+				fmt.Sprintf("extension panic: %v", recovered),
+				fmt.Errorf("extension panic: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	if failure := call(); failure != nil {
@@ -288,14 +290,15 @@ func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolRes
 	return result, nil
 }
 
-// observe awaits every observer at the Event boundary. The Payload is cloned
-// per call so an observer cannot mutate what later observers or Event
-// subscribers see.
+// observe awaits every observer at the Event boundary. Each observer receives
+// its own deep copy of the Payload so an observer cannot mutate what later
+// observers or Event subscribers see.
 func (s extensionSet) observe(ctx context.Context, event Event) *RuntimeError {
-	event.Payload = maps.Clone(event.Payload)
 	for _, observer := range s.observers {
 		current := observer
-		if err := guard("EventObserver", func() error { return current.Observe(ctx, event) }); err != nil {
+		view := event
+		view.Payload = clonePayload(event.Payload)
+		if err := guard("EventObserver", func() error { return current.Observe(ctx, view) }); err != nil {
 			if advisoryFailure(current) {
 				continue
 			}
@@ -303,6 +306,41 @@ func (s extensionSet) observe(ctx context.Context, event Event) *RuntimeError {
 		}
 	}
 	return nil
+}
+
+// clonePayload deep-copies an Event Payload. Event Payloads are small and built
+// by Core, so a bounded recursive copy of the map, slice, and map-slice shapes
+// they use is enough to keep nested values from being shared.
+func clonePayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = clonePayloadValue(value)
+	}
+	return out
+}
+
+func clonePayloadValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return clonePayload(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayloadValue(item)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayload(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 // stopTurn asks every stopper whether the Run ends after this Turn.

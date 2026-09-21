@@ -110,6 +110,24 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 			t.Fatalf("stage order = %v, want %v", got, want)
 		}
 	}
+
+	// A Post component may forge identity and invert Executed; Core must
+	// restore both before the Tool Result is committed.
+	var committed *ToolResult
+	for _, message := range agent.Transcript().Messages() {
+		if message.ToolResult != nil {
+			committed = message.ToolResult
+		}
+	}
+	if committed == nil {
+		t.Fatal("no Tool Result was committed")
+	}
+	if committed.CallID != "call-1" {
+		t.Fatalf("committed CallID = %q, want call-1", committed.CallID)
+	}
+	if !committed.Executed {
+		t.Fatal("committed Executed = false, want true")
+	}
 }
 
 func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
@@ -220,6 +238,53 @@ func TestObserverSeesProductionOrder(t *testing.T) {
 	kinds := observer.seen()
 	if len(kinds) == 0 || kinds[0] != EventAgentStart || kinds[len(kinds)-1] != EventAgentEnd {
 		t.Fatalf("observed order = %v", kinds)
+	}
+}
+
+// payloadMutator reaches into a nested Payload value and rewrites it.
+type payloadMutator struct{}
+
+func (payloadMutator) Observe(ctx context.Context, event Event) error {
+	if summary, ok := event.Payload["summary"].(map[string]any); ok {
+		summary["elapsed_ms"] = "mutated"
+	}
+	return nil
+}
+
+func TestObserverPayloadMutationIsIsolated(t *testing.T) {
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
+	agent, err := NewAgent(WithModel(model), WithExtension(payloadMutator{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close(context.Background())
+	events, err := agent.(EventSource).Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close()
+
+	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
+		t.Fatal(err)
+	}
+	var summary map[string]any
+	for {
+		event, nextErr := events.Next(context.Background())
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		if event.Kind == EventTurnEnd {
+			summary, _ = event.Payload["summary"].(map[string]any)
+		}
+		if event.Kind == EventAgentEnd {
+			break
+		}
+	}
+	if summary == nil {
+		t.Fatal("no turn_end summary")
+	}
+	if summary["elapsed_ms"] == "mutated" {
+		t.Fatal("observer mutation leaked into the subscribed Event Payload")
 	}
 }
 
