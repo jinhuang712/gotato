@@ -1,6 +1,8 @@
 # Boundaries and Moving Parts
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)).** The `orchestration` and `host` layers and the Conversation/retirement moving parts listed here were removed. The service is `service.Runner` (a Session store plus Agents created per Run). The unit of identity is the Session ID; there are no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees. Derived work is `session.Fork` plus another Run, with lineage in `Session.Metadata`. Read the rest of this file as the historical design record only.
 
 > This document maps the Agent Core, the Orchestration that coordinates multiple Agents, the Host boundary, the side adapters, and the existing platform around them.
 
@@ -72,20 +74,20 @@ Internally, Core keeps one canonical Loop, private state mutation, Model stream 
 
 ```text
 Agent Factory
-Conversation Record / Resolver
+Session Store / Resolver
 Agent Handle / Router
 Admission Controller
 Request Queue / Scheduler
-Dispatch and Preemption Policy
-Retirement / Close Policy
+Per-Session Lock / Dispatch Policy
+Close Policy
 Event Projector / Delivery Bridge
 Error Mapper
 Drain Policy
 ```
 
-These components create, resolve, coordinate, retire, and close Agent executions. They decide how external requests are handled when an Agent is Busy. They do not edit Agent state or reproduce the Model/Tool Loop.
+These components create, resolve, coordinate, and close Agent executions. They decide how external requests are handled when an Agent is Busy. They do not edit Agent state or reproduce the Model/Tool Loop.
 
-For one directly held Agent they are unnecessary except for explicit Core close. Once multiple Agents must be found, revisited, scheduled, coordinated, or rehydrated, these responsibilities must exist in application code or in these Orchestration components. The reusable Gotato layer is optional for simple Embedded use and is the coordination runtime for Hosted use.
+For one directly held Agent they are unnecessary except for explicit Core close. Once multiple Agents must be found, revisited, scheduled, or coordinated, these responsibilities must exist in application code or in these service components. The reusable Gotato layer is optional for simple Embedded use and is the coordination runtime for Hosted use.
 
 ## 5. Protocol adapters
 
@@ -186,10 +188,10 @@ Caller/Application Orchestration/Host policy:
 external queue and queue size
 reject / wait / priority / preemption
 number of Agent instances
-Conversation routing and retention
-retirement / eviction policy
+Session routing and continuity
+close / eviction policy
 Event delivery bounds
 process placement
 ```
 
-A policy must not change the meaning of an Agent, its conversation state, its Event sequence, its terminal result, or the distinction between Run settlement and Agent closure. Retirement may close a live Agent while retaining its Conversation for later rehydration.
+A policy must not change the meaning of an Agent, its conversation state, its Event sequence, its terminal result, or the distinction between Run settlement and Agent closure. A Session may outlive the disposable Agent that served it; derived work is `session.Fork` plus another Run, with lineage in `Session.Metadata`.

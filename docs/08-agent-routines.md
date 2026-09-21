@@ -19,7 +19,7 @@ Agent handle
 
 The Routine is Core's execution unit, not a resource the caller has to assemble. Callers do not create goroutines or manage channel topology merely to call one Agent. When multiple Routines must be revisited or coordinated, application code or Gotato Orchestration owns the handles and coordination channels.
 
-Run settlement does not close a Routine. A retained Routine remains available until its owner closes it. An ephemeral Routine may be retired after its task settles; a persistent Routine may be closed while its Conversation becomes Dormant. Go garbage collection is not an Agent lifecycle mechanism.
+Run settlement does not close a Routine. A retained Routine remains available until its owner closes it. A short-lived Routine may be closed after its task settles; there is no retirement or Conversation to preserve. Go garbage collection is not an Agent lifecycle mechanism.
 
 ## 2. Single-flight execution
 
@@ -42,7 +42,7 @@ An Agent may create another independent Agent Routine directly or request one th
 Agent A ── spawn request ──► Agent B
 ```
 
-B has independent state, channels, limits, and lifecycle. Spawn provenance may be represented by IDs for correlation; it does not create resource ownership or automatic lifetime inheritance. Orchestration may explicitly choose an Ephemeral child policy that closes B after its terminal Run, or a Persistent child policy that retains B's Conversation for later rehydration.
+B has independent state, channels, limits, and lifecycle. The runtime has no Spawn type; a service or application that wants to correlate B with its origin records that lineage itself in `Session.Metadata` (see §9). That correlation does not create resource ownership or automatic lifetime inheritance, and there is no intrinsic child-retention policy: any per-task or long-lived handling of B is application policy. A derived line of work is `session.Fork` plus another Run.
 
 No Agent directly mutates another Agent. Communication uses the Agent contract or explicit channel-backed coordination.
 
@@ -98,8 +98,8 @@ Application Orchestration / Host bounds the surrounding coordination:
 Agent instances
 queued Prompts
 active Runs
-spawn requests
-retirement and close operations
+derived-work requests
+close operations
 Event delivery
 ```
 
@@ -120,17 +120,15 @@ Collect-all, fail-fast, collect-partial, and first-success are application Orche
 
 ## 9. Events and correlation
 
-Each Routine and Run has its own identity and Event sequence. A spawn request may carry:
+> **Superseded (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)):** `Spawn ID`, origin Run IDs, and intrinsic parent/child retention are not part of the current runtime. Gotato has only agents (PHILOSOPHY G-P03; DESIGN G-D18); there is no Spawn type and no `Event.SpawnID` or `Event.OriginRunID`. The content below is historical.
+
+Each Routine and Run has its own identity and Event sequence. An application that derives one line of work from another records that lineage itself, in `Session.Metadata` (with the parent Session ID from `session.Fork`):
 
 ```text
-origin Agent ID
-origin Run ID
-Spawn ID
-created Agent ID
-created Run ID
+application-defined metadata keys, e.g. origin Session ID / origin Run ID
 ```
 
-These fields describe provenance. They do not merge transcripts or create a parent Event history. `agent_end` remains terminal for the specific Run that produced it.
+That lineage is application data. It does not merge transcripts or create a parent Event history. `agent_end` remains terminal for the specific Run that produced it.
 
 ## 10. Remote placement
 

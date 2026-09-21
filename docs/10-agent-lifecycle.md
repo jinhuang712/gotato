@@ -1,6 +1,8 @@
 # Agent Lifecycle and Retirement
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)).** This document describes the removed Conversation / retirement / rehydration architecture. The current model has no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees. An Agent is created per Run and discarded after it; the Session persists in a `session.Store`; a derived line of work is `session.Fork` plus another Run with lineage in `Session.Metadata`. `SpawnID`, `ConversationID`, `ConversationKey`, `AgentGeneration`, the `Retiring`/`Dormant` Conversation states, and the retirement lifecycle kinds were removed from the root package. Read the rest of this file as the historical design record only.
 
 > A Run may finish without ending its Agent. Orchestration decides when a live Agent is retired; Conversation identity may outlive the Agent that currently serves it.
 

@@ -33,7 +33,7 @@ The same Agent contract and Core Loop apply at every scale. A direct handle is t
                                    │
                                    ▼
                             Orchestration
-             identity · routing · admission · retirement · coordination
+             identity · routing · admission · coordination
                                    │ Agent contract(s)
                                    ▼
                             Agent Core × N
@@ -55,11 +55,11 @@ A protocol adapter may connect a remote client to the Host. It is a replaceable 
 4. [Agent Core](03-core-runtime.md) — the minimal execution runtime
 5. [Tools and ToolSets](06-tools-and-toolsets.md) — business capabilities
 6. [Extension model](07-extension-model.md) — optional Core hooks
-7. [Agent Routines](08-agent-routines.md) — advanced concurrency and spawning
+7. [Agent Routines](08-agent-routines.md) — advanced concurrency and derived work
 8. [Events and delivery](04-events-and-delivery.md) — facts and observation
 9. [Orchestration and Hosted Agent](02-agents-as-a-service.md) — multi-Agent coordination and service form
 10. [Boundaries and moving parts](05-moving-parts.md) — Core, Orchestration, Host, and adapters
-11. [Agent lifecycle](10-agent-lifecycle.md) — closing, retirement, and Conversation retention
+11. [Agent lifecycle](10-agent-lifecycle.md) — closing and Session continuity (superseded)
 12. [Technology stack](09-technology-stack.md) — implementation and integration
 13. [Technical specifications](../specs/README.md) — normative contracts
 
@@ -71,7 +71,7 @@ Core owns the semantics of one Agent: conversation state, the canonical Model �
 
 ### Orchestration
 
-Orchestration owns the coordination semantics of multiple Agents: Conversation identity, handle retention, routing, admission, scheduling, lifecycle, retirement, inter-Agent communication, and result/Event coordination. It does not mutate Core state or reproduce the Core Loop. A retained Conversation may outlive its current Agent handle and rehydrate a new AgentID. For one directly held Agent it may be ordinary application code; for dynamic or Hosted use it is a first-class Gotato layer.
+The service layer (`service.Runner`) owns the coordination semantics around multiple Runs and Sessions: Session creation and identity, handle retention, routing, admission, per-Session locking, scheduling, Session forking, and result/Event coordination. An Agent is created for a Run and discarded after it; the Session persists and is the unit of identity. Derived work is `session.Fork` plus another Run, with lineage recorded in `Session.Metadata`. It does not mutate Core state or reproduce the Core Loop. For one directly held Agent it may be ordinary application code; for dynamic or Hosted use it is a first-class Gotato layer built on `service` and its adapters.
 
 ### Host and existing infrastructure
 

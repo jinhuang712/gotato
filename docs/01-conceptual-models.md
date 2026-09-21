@@ -70,7 +70,7 @@ one Agent execution unit
       └── result and Events
 ```
 
-The execution unit may be implemented by a goroutine. That detail is important to Core correctness but is not a setup requirement for the caller. A Run's terminal `agent_end` does not close the Agent; an explicit close releases the execution unit. External request queues, routing, retirement, and rehydration remain application Orchestration or Host policy. Core does not discover a handle from an AgentID.
+The execution unit may be implemented by a goroutine. That detail is important to Core correctness but is not a setup requirement for the caller. A Run's terminal `agent_end` does not close the Agent; an explicit close releases the execution unit. External request queues and routing remain application or service policy. Core does not discover a handle from an AgentID.
 
 ## 5. Conversation state and Work
 
@@ -86,19 +86,21 @@ local execution limits
 
 This is not a separate Memory product. Long-term memory, retrieval, compaction, artifacts, and cross-session persistence are optional application or extension concerns.
 
-An Agent owns its private state and its accepted current work. It does not own a user's Conversation registry, an external request queue, or shared application resources.
+An Agent owns its private state and its accepted current work. It does not own an application registry of threads, an external request queue, or shared application resources.
 
-A Conversation is an Orchestration-owned addressable thread, not another Core state owner:
+> **Superseded (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)):** the Conversation-as-Orchestration-owner model described below is historical. The current model has no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees. The Session is the unit of identity and continuity; a live Agent is an optimization, never an identity.
+
+A Session is an application-owned addressable record of continuity, not another Core state owner:
 
 ```text
-ConversationID / ConversationKey
-          ↓
-live Agent handle, if present
-          ↓
+Session ID
+     ↓
+live Agent created for a Run, if present
+     ↓
 Agent Core private state
 ```
 
-A retained Conversation may become `Dormant` when its live Agent is retired. Rehydration creates a new AgentID from the Agent definition and persisted Core state. A Conversation may be closed independently of a Run or Agent lifecycle.
+A Session persists after the Agent that served a Run is discarded. Derived work is `session.Fork` plus another Run: `session.Fork` records the parent Session ID, and any further lineage belongs in `Session.Metadata`. Nothing rehydrates a new AgentID from a Conversation snapshot.
 
 ## 6. Run and Turn
 
@@ -138,7 +140,7 @@ Orchestration
 Agent Core × N
 ```
 
-Queueing, priority, preemption, Agent creation, Conversation routing, result aggregation, and retirement are policies around Core. They can be omitted for one directly held Agent, but a multi-Agent application must own them at the application or Host boundary. Orchestration holds, routes, and retires handles; it does not mutate Agent state or reproduce the Loop. A retained Conversation may outlive the handle that currently serves it.
+Queueing, priority, preemption, Session creation, routing, and result aggregation are policies around Core. They can be omitted for one directly held Agent, but a multi-Agent application must own them at the application or service boundary. Orchestration holds, routes, and discards Agent handles; it does not mutate Agent state or reproduce the Loop. A Session outlives the disposable Agent that served it.
 
 ## 9. Adapters
 

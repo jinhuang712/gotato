@@ -1,6 +1,8 @@
 # Orchestration and Hosted Agent Service
 
-**Status:** Draft
+**Status:** Superseded
+
+> **Superseded (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)).** The `orchestration` and `host` packages and the Conversation/retirement service model described here were removed. The service is now `service.Runner` (a Session store plus Agents created per Run), with `service/httpapi` over HTTP (wire contract 2) and `adapter/grpc` over gRPC (`gotato.v2.SessionService`). The unit of identity is the Session ID; there are no Conversation keys, agent generations, retirement, or spawn groups. Derived work is `session.Fork` plus another Run, with lineage in `Session.Metadata`. Read the rest of this file as the historical design record only.
 
 > Orchestration turns independent Agent Cores into an addressable system; Hosted access makes that system available to remote callers.
 
@@ -24,19 +26,19 @@ The same Agent Core can also be used directly:
 Existing Go Service → Agent handle → Agent Core
 ```
 
-Hosted mode changes access, routing, admission, Event delivery, and lifecycle. It does not change the Agent Loop or the meaning of a Run. Agent closure and Conversation retention are separate lifecycle decisions; see [Agent Lifecycle](10-agent-lifecycle.md).
+Hosted mode changes access, routing, admission, Event delivery, and lifecycle. It does not change the Agent Loop or the meaning of a Run. Agent closure and Session continuity are separate decisions; the Session outlives the Agent that served a Run (see [Agent Lifecycle](10-agent-lifecycle.md), superseded).
 
 ## 2. What Orchestration and Host provide
 
 Orchestration coordinates service access to multiple Agents:
 
 ```text
-Conversation identity and handle retention
-Agent creation, routing, and rehydration
+Session identity and handle retention
+Agent creation and routing
 request admission and queue policy
-per-Agent dispatch and coordination
+per-Session dispatch and coordination
 Event observation and delivery
-remote cancellation, retirement, and lifecycle
+remote cancellation and lifecycle
 ```
 
 These are coordination responsibilities, not Core configuration. Orchestration calls Agent Core through stable contracts and does not maintain a parallel transcript or Loop. A single directly held Agent may bypass this layer; a managed multi-Agent service may not.
@@ -74,11 +76,11 @@ Conceptually:
 
 ```text
 RunCommand:  Start | Steer | FollowUp | Cancel
-Start:       existing ConversationID or caller-scoped ConversationKey
-RunEvent:    lifecycle | Message | Tool | terminal result + ConversationID
+Start:       existing Session ID
+RunEvent:    lifecycle | Message | Tool | terminal result + Session ID
 ```
 
-The wire contract is an adapter contract. It must preserve Core identity, correlation, Event class, ordering, and settled meaning without making Protobuf types part of Core. Agent `Close`/retirement is a separate Host lifecycle operation, not an implicit consequence of closing this Run stream; its acknowledgement means Core closure, while delivery of that acknowledgement may settle later.
+The wire contract is an adapter contract. It must preserve Core identity, correlation, Event class, ordering, and settled meaning without making Protobuf types part of Core. Agent `Close` is a separate Host lifecycle operation, not an implicit consequence of closing this Run stream; its acknowledgement means Core closure, while delivery of that acknowledgement may settle later.
 
 ## 5. Command and Agent lifecycle
 
@@ -91,7 +93,7 @@ Active ────── terminal ──────► Terminal
 Active ────── stream close ──► Closed delivery stream
 ```
 
-`Start` contains one Prompt or Continue. Commands after terminal settlement are rejected. The adapter serializes commands in arrival order; Core decides when a command takes effect according to its control boundaries. Closing this delivery stream does not automatically close the Agent or Conversation; the Host documents whether it also requests Run cancellation.
+`Start` contains one Prompt or Continue. Commands after terminal settlement are rejected. The adapter serializes commands in arrival order; Core decides when a command takes effect according to its control boundaries. Closing this delivery stream does not automatically close the Agent; the Host documents whether it also requests Run cancellation.
 
 Whether a second external request waits, queues, is rejected, or becomes a control command is Orchestration policy, possibly exposed through Host.
 
@@ -112,21 +114,21 @@ For one Agent, application code may provide this coordination directly. For dyna
 
 Orchestration owns external bounds for streams, queued requests, Agent instances, and Event delivery. Core owns bounds for one Agent's local work.
 
-## 7. Conversation routing and retirement
+## 7. Session routing and continuity
 
-Orchestration or Host may map an application key to a Conversation record and then to a live Agent handle:
+> **Superseded:** `ConversationStatus` (`Active`/`Retiring`/`Dormant`/`Closed`), `ConversationID`/`ConversationKey`, `AgentGeneration`, and retirement/rehydration are not runtime concepts. A service maps a Session ID to a Session in a `session.Store` and creates a disposable Agent for each Run; derived work is `session.Fork` plus another Run ([PROPOSAL.md §5a](../PROPOSAL.md); [MIGRATION.md](../MIGRATION.md)).
+
+A service layer routes by Session ID to a stored Session, then to a live Agent handle if one currently serves a Run:
 
 ```text
-Agent name + conversation key
-              ↓
-Conversation record / routing table
-              ↓
-live Agent handle, or Agent definition + Core snapshot
+Session ID
+     ↓
+session.Store (committed Session state)
+     ↓
+live Agent handle created for a Run, if present
 ```
 
-This mapping is application or Orchestration state. It does not make the Agent the owner of a user account, registry, or external resource. Without a retained handle or a recoverable Conversation record, an AgentID is only an identifier and cannot restore an in-memory Agent.
-
-A live Agent may be retired after a Run, an idle TTL, or a capacity decision. During retirement the Conversation is `Retiring` and new dispatch is rejected or retried. With retention, Orchestration persists the Core state, closes the live handle, marks the Conversation Dormant, and later creates a new AgentID on rehydration. With Ephemeral or discard policy, it closes the Agent and the Conversation is removed or marked Closed. The initial PoC may use a process-local map; cross-process continuity additionally requires a persistence and routing contract.
+This mapping is application or service state. It does not make the Agent the owner of a user account, registry, or external resource. An `AgentID` is only an identifier and cannot restore an in-memory Agent; continuity comes from the Session in the Store. Cross-process continuity requires a shared Store, not a process-local routing table.
 
 ## 8. Event delivery
 
@@ -154,7 +156,7 @@ client Cancel / stream Context / deadline
              Core Abort
 ```
 
-The Host documents whether closing an attached stream also cancels the Run. Explicit cancellation reaches the current Model, Tools, Extensions, and local work through the Agent boundary. Spawn provenance does not imply cancellation ownership.
+The Host documents whether closing an attached stream also cancels the Run. Explicit cancellation reaches the current Model, Tools, Extensions, and local work through the Agent boundary. There is no runtime Spawn type; any correlation between Agents is application metadata and does not imply cancellation ownership.
 
 ## 10. Protocol adapters
 
@@ -198,11 +200,11 @@ Draining
   ├── new admission rejected
   ├── Orchestration stops new Agent creation/dispatch
   ├── active Runs settle or cancel by deadline
-  ├── live Agents close according to retention policy
+  ├── live Agents close according to host policy
   └── delivery bridges flush or abandon within policy
 ```
 
-The infrastructure consumes these signals. It does not define Agent semantics. Process shutdown is not Conversation closure; retained Conversations may be rehydrated later when the persistence contract exists.
+The infrastructure consumes these signals. It does not define Agent semantics. Process shutdown is not Session deletion; a Session persisted in a `session.Store` may be served later by a new Agent.
 
 ## 13. Deployment forms
 

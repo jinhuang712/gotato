@@ -77,10 +77,10 @@ Orchestration is the coordination layer for multiple Agents, whether it is embed
 
 ```text
 Agent identity and handle retention
-Conversation records and rehydration
+Session records and store continuity
 Agent Factory and routing
 admission and queue policy
-lifecycle, retirement, and cancellation
+lifecycle and cancellation
 multi-Agent coordination
 Event observation and delivery
 ```
@@ -117,8 +117,8 @@ The initial Hosted PoC may use one Host process, one Pod, local routing, and an 
 Core, Orchestration, and Host may expose:
 
 ```text
-Agent ID · Conversation ID · Agent Generation · Run ID
-Turn · Tool Call ID · Spawn ID · lifecycle status
+Agent ID · Session ID · Run ID
+Turn · Tool Call ID · lifecycle status
 request ID · stream ID · terminal status
 ```
 
@@ -133,7 +133,7 @@ agent/             small public Agent interface and Core implementation
 model/             provider-neutral Model values and contract
 adapter/llm/       provider integrations
 adapter/tool/      application capability integrations
-orchestration/     Conversation routing, Agent lifecycle, and coordination
+service/           Session routing, Agent lifecycle, and coordination
 host/              service-facing composition around Orchestration
 adapter/protocol/  optional protocol adapters used by Host
 ```
@@ -148,4 +148,4 @@ Infrastructure hosts everything from outside
 
 ## 9. Testing
 
-Core tests use deterministic Models, Tools, Contexts, and clocks without a network. Orchestration tests exercise identity, handle retention, admission, routing, retirement, rehydration, cancellation, and coordination. Host tests exercise protocol mapping, lifecycle commands, delivery, and drain in-process. Real provider and platform tests are integration suites; they are not prerequisites for Core acceptance.
+Core tests use deterministic Models, Tools, Contexts, and clocks without a network. Service tests exercise identity, handle retention, admission, routing, cancellation, and coordination. Host tests exercise protocol mapping, lifecycle commands, delivery, and drain in-process. Real provider and platform tests are integration suites; they are not prerequisites for Core acceptance.

@@ -33,20 +33,20 @@ Protected Events must remain ordered and reach a consumer or cause that delivery
 
 ```go
 type Event struct {
-    AgentID     AgentID
-    RunID       RunID
-    Sequence    uint64
-    Kind        EventKind
-    Class       EventClass
-    Turn        TurnNumber
-    MessageID   MessageID
-    ToolCallID  ToolCallID
-    SpawnID     SpawnID
-    OriginRunID RunID
-    Payload     EventPayload
-    Timestamp   time.Time
+    AgentID    AgentID
+    RunID      RunID
+    Sequence   uint64
+    Kind       EventKind
+    Class      EventClass
+    Turn       TurnNumber
+    MessageID  MessageID
+    ToolCallID ToolCallID
+    Payload    map[string]any
+    Timestamp  time.Time
 }
 ```
+
+The live `gotato.Event` (events.go) has no `SpawnID` or `OriginRunID` field, and `Payload` is `map[string]any`, not a named `EventPayload` type; `SpawnID` was removed from the root package (see [MIGRATION.md](../MIGRATION.md)).
 
 `Sequence` starts at 1 per Run, increases strictly, and is assigned during the Core state transition before publication. Timestamp is diagnostic. Correlation fields that do not apply to an Event kind are empty.
 
@@ -89,7 +89,7 @@ bounded delivery bridge
 remote client
 ```
 
-The Host declares capacity, Protected Event handling, coalescing, queue-full behavior, and shutdown deadline. It must not silently drop a Protected Event or grow memory without a bound. Orchestration may enrich a projection with the stable ConversationID and AgentGeneration; those are routing metadata, not Core Event state.
+The Host declares capacity, Protected Event handling, coalescing, queue-full behavior, and shutdown deadline. It must not silently drop a Protected Event or grow memory without a bound. A service layer may enrich a projection with application routing metadata (for example a tenant or parent Session ID); those are routing metadata, not Core Event state.
 
 A protocol adapter only maps the Host's semantic Events to a wire representation. It does not define Core Event meaning.
 
@@ -105,17 +105,15 @@ Core does not wait for remote delivery before returning its result. A client may
 
 ## 8. Agent lifecycle signals
 
-Agent closure is separate from Run Events. Core or Orchestration may expose a bounded lifecycle boundary with:
+Agent closure is separate from Run Events. Core or Orchestration may expose a bounded lifecycle boundary. The runtime defines exactly three lifecycle kinds (`gotato.LifecycleKind`):
 
 ```text
 agent_created
-agent_retirement_requested
 agent_closing
 agent_closed
-agent_retirement_failed
 ```
 
-These signals carry AgentID, optional ConversationID, reason, and correlation metadata. They are not inserted into the per-Run Event sequence unless the selected Event contract explicitly defines that behavior. A Host may project them to a remote client, but remote delivery does not determine whether Core closure is complete.
+`agent_retirement_requested` and `agent_retirement_failed` are not emitted: retirement is not part of the current model ([PROPOSAL.md §5a](../PROPOSAL.md); [MIGRATION.md](../MIGRATION.md)). A `gotato.LifecycleEvent` carries Kind, AgentID, Reason, and Timestamp; there is no ConversationID or generation field. These signals are not inserted into the per-Run Event sequence unless the selected Event contract explicitly defines that behavior. A Host may project them to a remote client, but remote delivery does not determine whether Core closure is complete.
 
 ## 9. Cancellation and disconnect
 
@@ -123,17 +121,9 @@ A disconnected client ends delivery. The Host documents whether it also cancels 
 
 Cancellation of another Agent requires an explicit command or selected application Orchestration/Host policy.
 
-## 10. Spawned Agents
+## 10. Derived Agents
 
-A spawned Agent has its own Event channel and sequence. Orchestration or Host may project selected Events onto an origin stream using explicit correlation:
-
-```text
-origin AgentID / RunID
-spawned AgentID / RunID
-SpawnID
-```
-
-The projection must not pretend that independent Agents share one transcript or one Event sequence.
+An Agent created by another Agent is independent: it has its own Event channel and sequence. There is no runtime Spawn type or `SpawnID` (see [MIGRATION.md](../MIGRATION.md)); a service layer that wants to correlate such work records application metadata itself (for example an origin Session ID or Run ID) on `Session.Metadata`. A projection must not pretend that independent Agents share one transcript or one Event sequence.
 
 ## 11. Drain
 

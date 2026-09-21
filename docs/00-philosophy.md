@@ -4,6 +4,8 @@
 
 **Purpose:** Project constitution
 
+> **Superseded in parts (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)):** this constitution predates the implemented runtime. The current model has no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees. The Session is the unit of identity and continuity; a live Agent is created per Run and discarded, and derived work is `session.Fork` plus another Run with lineage in `Session.Metadata`. Passages below that describe Conversation routing, retention, or AgentID rehydration are historical.
+
 > **Go-native Agent Runtime and Orchestration.**
 
 > Gotato turns a self-contained Agent into an embeddable execution unit and, when needed, an addressable multi-Agent service.
@@ -53,7 +55,7 @@ The Agent owns its private conversation state and the Run it has accepted. Its g
 admission · queueing · routing · priority · preemption · lifecycle
 ```
 
-This division keeps the minimal Agent path simple while leaving service-level policy where it belongs. Conversation routing, retirement, and long-term persistence can be added around Core; they are not prerequisites for the first Agent. A retained Conversation may outlive a retired Agent and later rehydrate it with a new AgentID.
+This division keeps the minimal Agent path simple while leaving service-level policy where it belongs. Session continuity, routing, and long-term persistence can be added around Core; they are not prerequisites for the first Agent. A Session outlives the disposable Agent that served it, and derived work is `session.Fork` plus another Run with lineage in `Session.Metadata`.
 
 A single Agent needs only its handle. Once an application has multiple Agents that it must revisit or coordinate, an external coordination owner is unavoidable: fixed application code may hold the handles, while dynamic or remote use needs routing, admission, scheduling, and lifecycle policy in application Orchestration or Host. Core has no global Agent lookup, and an AgentID alone cannot recover a lost in-memory handle.
 
@@ -122,7 +124,7 @@ The service calls Core directly. No Host or Gotato Orchestration package is requ
 Existing Go Service → application / Gotato Orchestration → Agent Core × N
 ```
 
-The application or reusable Gotato Orchestration retains handles, maps Conversation keys, and owns routing, admission, retirement, lifecycle, and coordination. This is Orchestration even when implemented as ordinary application code.
+The application or reusable service layer retains handles, maps Session identities, and owns routing, admission, and coordination. This is orchestration even when implemented as ordinary application code.
 
 ### Agent as a Service
 

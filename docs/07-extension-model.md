@@ -2,6 +2,8 @@
 
 **Status:** Draft
 
+> **Superseded in parts (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)):** the Core extension points below still describe the runtime, but §8's Orchestration/Host components (`AgentFactory`, `ConversationResolver`, `RetirementPolicy`, and similar) are application-level service composition above the runtime, not Gotato components. The runtime has no Conversations separate from Sessions, no retirement, and no `Reset`; derived work is `session.Fork` plus another Run with lineage in `Session.Metadata`.
+
 > Extensions add focused behavior at named Agent stages without taking over the Agent.
 
 ## 1. Why Extensions exist
@@ -77,24 +79,26 @@ Post extensions: C → B → A
 Observers:       registration order
 ```
 
-Blocking Extension failure settles the current Run. An Extension must not synchronously call `Prompt`, `Continue`, or `Reset` on the same Agent from an awaited stage; that would re-enter the Agent execution unit.
+Blocking Extension failure settles the current Run. An Extension must not synchronously call `Prompt` or `Continue` on the same Agent from an awaited stage (Core defines no `Reset` transition; a different model view belongs to a `ContextBuilder` or `ContextTransformer`); that would re-enter the Agent execution unit.
 
 Extensions may schedule application work only with an explicit Context and result channel. Unbounded or fire-and-forget goroutines are not permitted.
 
-## 8. Orchestration and Host policies are not Core Extensions
+## 8. Service and Host policies are not Core Extensions
 
-The following belong to Orchestration or Host:
+> **Superseded:** `AgentFactory`, `ConversationResolver`, `RetirementPolicy`, `AgentCache`, `EventProjector`, `DeliveryBridge`, `ErrorMapper`, and `DrainPolicy` are not typed Gotato components; service policy is ordinary application composition above the runtime ([PROPOSAL.md §5a](../PROPOSAL.md); [MIGRATION.md](../MIGRATION.md)).
+
+The following belong to the service layer or Host:
 
 ```text
-AgentFactory
-ConversationResolver
+AgentSpec / Agent Registry
+Session Store / Resolver
 AdmissionController
-AgentCache
-RetirementPolicy
+Per-Run Agent Construction
+Close Policy
 EventProjector
 DeliveryBridge
 ErrorMapper
 DrainPolicy
 ```
 
-They surround Core operations, retain or retire Agent handles, and coordinate multiple Agents. They are unnecessary for one directly held Agent except for explicit Core close, but required when Agents must be found, coordinated, or rehydrated. They do not alter Core transcript or Loop semantics.
+They surround Core operations, retain or close Agent handles, and coordinate multiple Agents. They are unnecessary for one directly held Agent except for explicit Core close, but required when Agents or Sessions must be found, coordinated, or stored. They do not alter Core transcript or Loop semantics.

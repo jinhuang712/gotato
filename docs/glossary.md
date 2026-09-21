@@ -16,23 +16,31 @@ The Go-native runtime behind an Agent. Core owns the current conversation state,
 
 ### Agent lifecycle
 
-The lifetime of one live Core execution unit: `Created`, `Idle`, `Busy`, `Closing`, and `Closed`. Run settlement does not close an Agent. Explicit close or an owner-selected retirement policy does.
+The lifetime of one live Core execution unit: `Created`, `Idle`, `Busy`, `Closing`, and `Closed`. Run settlement does not close an Agent. An explicit close does.
 
 ### Agent handle
 
 The safe callable reference to a live Agent Core. An `AgentID` identifies the execution unit but is not itself a handle, locator, or recovery record.
 
-### Conversation
+### Session
 
-An Orchestration-owned, addressable application thread. Its stable identity may outlive the live Agent that currently serves it. During retained retirement it may be `Active`, `Retiring`, or `Dormant`; a business close moves it to `Closed`. A retained Conversation needs an Agent definition and recoverable Core state to rehydrate after retirement or restart.
+A first-class runtime primitive: the record of what happened across Turns and Runs. It holds identity, the committed Messages, per-Run records, usage, a bounded window of runtime Events, compaction history, and free-form application `Metadata`. The Session is the unit of identity and continuity; a live Agent is an optimization that serves Runs, never an identity. Persisted by a `session.Store`.
 
-### Conversation state
+### Session Store
 
-The committed Messages and local execution state needed for an Agent's current conversation. Core may keep this state in memory. It is not a long-term Memory product.
+The pluggable storage contract for Sessions (`session.Store`), with in-memory, file-backed, and application-provided implementations (DESIGN G-D05). Because continuity lives in the Store, any process holding it can serve any Session.
+
+### Session Fork
+
+`session.Fork` creates a new Session from an existing Session's state: it copies Messages, Usage, Compactions, and Metadata and records the parent Session ID. It is a state operation, not an agent hierarchy operation; derived work is a Fork plus another Run, and parentage is data lineage (DESIGN G-D06).
+
+### Session state
+
+The committed Messages and local execution state needed for an Agent's current work. Core may keep this state in memory. It is not a long-term Memory product.
 
 ### Work
 
-The private state and currently accepted Run owned by an Agent. Work does not include an Orchestration or Host request queue, routing table, admission policy, or retirement policy.
+The private state and currently accepted Run owned by an Agent. Work does not include a service or Host request queue, routing table, or admission policy.
 
 ### Run
 
@@ -44,7 +52,7 @@ One Model request and the Tool batch produced by that response. A Turn ends afte
 
 ### Agent Routine
 
-The internal running form of an Agent: its private execution unit, state boundary, and result/Event boundary. A Routine may use one goroutine. A spawned Routine is independent of the Routine that created it.
+The internal running form of an Agent: its private execution unit, state boundary, and result/Event boundary. A Routine may use one goroutine. A Routine created by another Routine is independent of it.
 
 ## Capability terms
 
@@ -94,9 +102,9 @@ The boundary adapter that maps wire commands and Events to the Host interface an
 
 The existing environment that hosts and connects processes, such as a Go service, Gateway, Kubernetes, load balancer, storage, and secrets. Infrastructure is outside Gotato's implementation scope.
 
-### Retirement
+### Retirement (historical)
 
-The owner-directed process of closing a live Agent after a Run, idle period, capacity decision, or explicit request. Retirement may preserve the Conversation as `Dormant` or discard it according to policy; it is not the same as Run settlement.
+Removed. The current model has no retirement: an Agent is created for a Run and discarded when it settles, while the Session persists ([PROPOSAL.md §5a](../PROPOSAL.md); [MIGRATION.md](../MIGRATION.md)). An explicit `Close` still releases a directly held Agent. Retained here only for the historical record.
 
 ### Hosted Agent Service
 

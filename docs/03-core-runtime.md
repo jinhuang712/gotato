@@ -2,6 +2,8 @@
 
 **Status:** Draft
 
+> **Superseded in parts (see [PROPOSAL.md §5a](../PROPOSAL.md) and [MIGRATION.md](../MIGRATION.md)):** the Core execution model here matches the runtime, but the Conversation/retirement/Orchestration passages are historical. There are no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees; continuity lives in a `session.Session` held by a `session.Store`, and derived work is `session.Fork` plus another Run with lineage in `Session.Metadata`.
+
 > This document describes the atomic Go-native execution runtime behind every Gotato Agent.
 
 ## 1. The public idea
@@ -65,7 +67,7 @@ Context cancellation and local limits
 canonical Events and Run settlement
 ```
 
-Core does not own external request queues, Conversation registries, service discovery, brokers, long-term memory, or deployment.
+Core does not own external request queues, Session stores, service discovery, brokers, long-term memory, or deployment.
 
 The current conversation state is the minimum state needed for a multi-turn Agent. Core bounds retained Messages and transcript bytes with explicit limits; compaction is an opt-in policy and Core must not silently drop committed history. It is not a separate Memory product.
 
@@ -140,7 +142,7 @@ A Tool Adapter connects a Go service or external system to the Core Tool contrac
 
 Typed function helpers should make a small Go function easy to expose as a Tool. ToolSets and staged discovery are optional capabilities, not requirements for the minimal Agent path.
 
-## 7. Conversation state
+## 7. Session state
 
 Core may keep:
 
@@ -154,7 +156,7 @@ Agent lifecycle state
 local execution limits
 ```
 
-A Core Agent's lifecycle is `Created → Idle ⇄ Busy → Closing → Closed`. The default is to retain the Agent after a Run. Automatic `AfterRun`, `AfterIdle`, and `Ephemeral` retirement policies belong to Orchestration.
+A Core Agent's lifecycle is `Created → Idle ⇄ Busy → Closing → Closed`. The default is to retain the Agent after a Run until its owner closes it; there are no automatic `AfterRun`, `AfterIdle`, or `Ephemeral` retirement policies. The Session persists independently of the disposable Agent.
 
 This state is private to the Agent. Snapshots and results do not alias mutable Core state. Persistence, retrieval, compaction, and cross-session memory belong outside the minimal Core.
 
@@ -227,4 +229,4 @@ Orchestration
 Agent Core × N
 ```
 
-The Host adds remote access, protocol attachment, and delivery lifecycle. Orchestration manages multiple Core Agents, Conversation routing, admission, retirement, and Agent lifecycle. Both use the same Core Agent semantics and do not reproduce the Loop.
+The Host adds remote access, protocol attachment, and delivery lifecycle. The service layer manages multiple Core Agents, Session routing, admission, and Agent lifecycle. Both use the same Core Agent semantics and do not reproduce the Loop.
