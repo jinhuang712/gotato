@@ -1,6 +1,19 @@
 package gotato
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestRuntimeErrorMatchesByCode(t *testing.T) {
+	base := ErrorOf(ErrBusy, "service: session has a run in flight")
+	if !errors.Is(ErrorOf(ErrBusy, "different message"), base) {
+		t.Fatal("errors.Is did not match two errors with the same code")
+	}
+	if errors.Is(ErrorOf(ErrInvalidState, "x"), base) {
+		t.Fatal("errors.Is matched a different code")
+	}
+}
 
 func TestMessageCloneIsolatesToolCallArguments(t *testing.T) {
 	arguments := []byte(`{"a":1}`)

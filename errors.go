@@ -53,6 +53,20 @@ func (e *RuntimeError) Unwrap() error {
 	return e.Cause
 }
 
+// Is reports whether target is a *RuntimeError with the same Code. It lets a
+// caller match a sentinel built with ErrorOf through errors.Is without sharing
+// the sentinel's pointer.
+func (e *RuntimeError) Is(target error) bool {
+	if e == nil {
+		return false
+	}
+	var other *RuntimeError
+	if !errors.As(target, &other) {
+		return false
+	}
+	return e.Code == other.Code
+}
+
 func runtimeError(code ErrorCode, operation, message string, cause error) *RuntimeError {
 	return &RuntimeError{Code: code, Operation: operation, Message: message, Cause: cause}
 }
