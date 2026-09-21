@@ -101,6 +101,12 @@ func TestFuncToolRejectsUnsupportedInput(t *testing.T) {
 	if _, err := NewFuncTool("cycle", "", func(ctx context.Context, in cyclic) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("expected invalid argument for recursive input, got %v", err)
 	}
+	type EmbeddedCycle struct {
+		*EmbeddedCycle
+	}
+	if _, err := NewFuncTool("embedded-cycle", "", func(ctx context.Context, in EmbeddedCycle) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+		t.Fatalf("expected invalid argument for embedded recursive input, got %v", err)
+	}
 	type channels struct {
 		Ch chan int `json:"ch"`
 	}

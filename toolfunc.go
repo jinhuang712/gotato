@@ -159,7 +159,13 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 				embedded = embedded.Elem()
 			}
 			if embedded.Kind() == reflect.Struct {
-				if err := collectFields(embedded, visiting, properties, required); err != nil {
+				if visiting[embedded] {
+					return fmt.Errorf("recursive struct type %s", embedded.String())
+				}
+				visiting[embedded] = true
+				err := collectFields(embedded, visiting, properties, required)
+				delete(visiting, embedded)
+				if err != nil {
 					return err
 				}
 				continue
