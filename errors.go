@@ -64,6 +64,9 @@ func (e *RuntimeError) Is(target error) bool {
 	if !errors.As(target, &other) {
 		return false
 	}
+	if other == nil {
+		return false
+	}
 	return e.Code == other.Code
 }
 
@@ -87,5 +90,5 @@ func codeForContext(err error) ErrorCode {
 
 func IsCode(err error, code ErrorCode) bool {
 	var re *RuntimeError
-	return errors.As(err, &re) && re.Code == code
+	return errors.As(err, &re) && re != nil && re.Code == code
 }

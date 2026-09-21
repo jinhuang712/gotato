@@ -46,3 +46,15 @@ func TestToolResultCloneIsolatesSignature(t *testing.T) {
 		t.Fatal("ToolResult.Clone shares ContentPart.Signature")
 	}
 }
+
+func TestRunResultCloneIsolatesErrorDetails(t *testing.T) {
+	result := RunResult{
+		Status: RunFailed,
+		Error:  &RuntimeError{Code: ErrToolExecutionFailure, Message: "boom", Details: map[string]string{"tool": "echo"}},
+	}
+	clone := result.Clone()
+	clone.Error.Details["tool"] = "changed"
+	if result.Error.Details["tool"] != "echo" {
+		t.Fatal("RunResult.Clone shares RuntimeError.Details with the original")
+	}
+}

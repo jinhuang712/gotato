@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -518,12 +519,17 @@ func (a *coreAgent) loop() {
 					prompt = &cmd.message
 				}
 				result, err := a.executeRun(cmd.ctx, prompt)
-				cmd.result <- promptResponse{result: result, err: err}
+				// Release admission and record Idle before delivering the
+				// result: the caller that receives it must be able to start the
+				// next Run immediately instead of observing this finished
+				// Run's admission token as Busy.
 				<-a.admission
 				if a.closeRequested.Load() {
+					cmd.result <- promptResponse{result: result, err: err}
 					return
 				}
 				a.setStatus(AgentIdle)
+				cmd.result <- promptResponse{result: result, err: err}
 			}
 		}
 	}
@@ -1175,8 +1181,11 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 func executeToolSafely(tool Tool, ctx context.Context, use ToolUse, progress ToolProgress) (result ToolResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("tool panic: %v", recovered)
-			_ = debug.Stack()
+			// Match the Extension guard: a short, client-safe Message with the
+			// captured stack attached to the Cause for logs.
+			err = runtimeError(ErrToolExecutionFailure, "Tool",
+				fmt.Sprintf("tool panic: %v", recovered),
+				fmt.Errorf("tool panic: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	return tool.Execute(ctx, use, progress)
@@ -1450,9 +1459,12 @@ func schemaTypeMatches(typ string, value any) bool {
 	case "boolean":
 		_, ok := value.(bool)
 		return ok
-	case "number", "integer":
+	case "number":
 		_, ok := value.(float64)
 		return ok
+	case "integer":
+		number, ok := value.(float64)
+		return ok && number == math.Trunc(number)
 	case "null":
 		return value == nil
 	default:
@@ -1510,6 +1522,7 @@ func cloneContent(content []ContentPart) []ContentPart {
 	for i, part := range content {
 		out[i] = part
 		out[i].Data = slices.Clone(part.Data)
+		out[i].Signature = slices.Clone(part.Signature)
 		out[i].Metadata = maps.Clone(part.Metadata)
 	}
 	return out

@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -24,7 +25,12 @@ func (m *recordingModel) Stream(ctx context.Context, request ModelRequest) (Mode
 	index := len(m.requests)
 	m.requests = append(m.requests, cloneMessages(request.Messages))
 	m.offered = append(m.offered, cloneToolSpecs(request.Tools))
-	events := m.scripts[min(index, len(m.scripts)-1)]
+	if index >= len(m.scripts) {
+		scripted := len(m.scripts)
+		m.mu.Unlock()
+		return nil, fmt.Errorf("recordingModel: unexpected Model call %d with only %d scripted response(s)", index, scripted)
+	}
+	events := m.scripts[index]
 	m.mu.Unlock()
 	if m.started != nil {
 		m.started <- index
@@ -84,7 +90,7 @@ func finalScript(text string) []ModelEvent {
 }
 
 func TestContinueAppendsNoUserMessage(t *testing.T) {
-	model := &recordingModel{scripts: [][]ModelEvent{finalScript("first"), finalScript("second")}}
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("first"), finalScript("second"), finalScript("third")}}
 	agent, err := NewAgent(WithModel(model))
 	if err != nil {
 		t.Fatal(err)

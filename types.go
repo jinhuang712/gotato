@@ -178,6 +178,7 @@ func (r RunResult) Clone() RunResult {
 	}
 	if r.Error != nil {
 		e := *r.Error
+		e.Details = maps.Clone(r.Error.Details)
 		out.Error = &e
 	}
 	return out

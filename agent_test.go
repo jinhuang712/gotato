@@ -90,49 +90,6 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	if result.Metrics.Turns != 1 || result.Metrics.TextBytes != uint64(len("hello")) {
 		t.Fatalf("run metrics = %+v", result.Metrics)
 	}
-	var kinds []EventKind
-	var turnSummary map[string]any
-	for {
-		event, nextErr := stream.Next(context.Background())
-		if nextErr != nil {
-			t.Fatal(nextErr)
-		}
-		kinds = append(kinds, event.Kind)
-		if event.Kind == EventTurnEnd {
-			var ok bool
-			turnSummary, ok = event.Payload["summary"].(map[string]any)
-			if !ok {
-				t.Fatalf("turn summary = %#v", event.Payload["summary"])
-			}
-		}
-		if event.Kind == EventAgentEnd {
-			break
-		}
-	}
-	if turnSummary == nil || turnSummary["tool_calls"] != 0 {
-		t.Fatalf("unexpected turn summary = %#v", turnSummary)
-	}
-	agentEnds := 0
-	for _, kind := range kinds {
-		if kind == EventAgentEnd {
-			agentEnds++
-		}
-	}
-	if agentEnds != 1 {
-		t.Fatalf("agent_end count = %d in %v", agentEnds, kinds)
-	}
-	messageStart, messageUpdate := -1, -1
-	for i, kind := range kinds {
-		if kind == EventMessageStart && messageStart < 0 {
-			messageStart = i
-		}
-		if kind == EventMessageUpdate && messageUpdate < 0 {
-			messageUpdate = i
-		}
-	}
-	if messageStart < 0 || messageUpdate < 0 || messageStart > messageUpdate {
-		t.Fatalf("message event order = %v", kinds)
-	}
 	if got := agent.(interface{ Status() AgentStatus }).Status(); got != AgentIdle {
 		t.Fatalf("status after Run = %s", got)
 	}
@@ -147,6 +104,64 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	}
 	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, ErrAgentClosed) {
 		t.Fatalf("expected closed error, got %v", err)
+	}
+
+	// Close closed the Event stream, so every Event is buffered and the drain
+	// is deterministic. Each Run must end with exactly one agent_end as its
+	// final Event: a duplicate or late terminal Event must fail this test.
+	var kinds []EventKind
+	var turnSummary map[string]any
+	terminals := map[RunID]int{}
+	lastKind := map[RunID]EventKind{}
+	for {
+		event, nextErr := stream.Next(context.Background())
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		kinds = append(kinds, event.Kind)
+		lastKind[event.RunID] = event.Kind
+		if event.Kind == EventTurnEnd && turnSummary == nil {
+			summary, ok := event.Payload["summary"].(map[string]any)
+			if !ok {
+				t.Fatalf("turn summary = %#v", event.Payload["summary"])
+			}
+			turnSummary = summary
+		}
+		if event.Kind == EventAgentEnd {
+			terminals[event.RunID]++
+		}
+	}
+	if turnSummary == nil || turnSummary["tool_calls"] != 0 {
+		t.Fatalf("unexpected turn summary = %#v", turnSummary)
+	}
+	if len(terminals) != 2 {
+		t.Fatalf("Runs with a terminal Event = %d in %v", len(terminals), kinds)
+	}
+	for run, count := range terminals {
+		if count != 1 {
+			t.Fatalf("agent_end count = %d for run %s in %v", count, run, kinds)
+		}
+		if lastKind[run] != EventAgentEnd {
+			t.Fatalf("run %s ended with %s, want agent_end", run, lastKind[run])
+		}
+	}
+	if len(kinds) == 0 || kinds[len(kinds)-1] != EventAgentEnd {
+		t.Fatalf("final Event = %v", kinds)
+	}
+	messageStart, messageUpdate := -1, -1
+	for i, kind := range kinds {
+		if kind == EventMessageStart && messageStart < 0 {
+			messageStart = i
+		}
+		if kind == EventMessageUpdate && messageUpdate < 0 {
+			messageUpdate = i
+		}
+	}
+	if messageStart < 0 || messageUpdate < 0 || messageStart > messageUpdate {
+		t.Fatalf("message event order = %v", kinds)
 	}
 	_ = stream.Close()
 }
@@ -318,5 +333,45 @@ func TestAgentToolLoop(t *testing.T) {
 	}
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSchemaIntegerTypeRejectsFraction(t *testing.T) {
+	schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
+	if err := validateToolSchema(schema, []byte(`{"count":3}`)); err != nil {
+		t.Fatalf("whole number rejected for an integer schema: %v", err)
+	}
+	if err := validateToolSchema(schema, []byte(`{"count":1.5}`)); err == nil {
+		t.Fatal("fractional value accepted for an integer schema")
+	}
+	if err := validateToolSchema([]byte(`{"type":"number"}`), []byte(`1.5`)); err != nil {
+		t.Fatalf("fractional value rejected for a number schema: %v", err)
+	}
+}
+
+func TestRuntimeErrorTypedNilTargetsDoNotPanic(t *testing.T) {
+	var typedNil *RuntimeError
+	if errors.Is(ErrorOf(ErrBusy, "x"), typedNil) {
+		t.Fatal("a typed-nil target matched")
+	}
+	if IsCode(typedNil, ErrBusy) {
+		t.Fatal("a typed-nil error reported a code")
+	}
+}
+
+func TestForModelDeepCopiesToolResultSignature(t *testing.T) {
+	signature := []byte("sig")
+	message := Message{
+		Role: RoleToolResult,
+		ToolResult: &ToolResult{
+			CallID:  "c1",
+			Status:  ToolResultOK,
+			Content: []ContentPart{{Kind: ContentText, Text: "x", Signature: signature}},
+		},
+	}
+	out := ForModel([]Message{message})
+	out[0].ToolResult.Content[0].Signature[0] = 'X'
+	if message.ToolResult.Content[0].Signature[0] != 's' {
+		t.Fatal("ForModel shares ToolResult ContentPart.Signature with the input")
 	}
 }
