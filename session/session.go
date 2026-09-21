@@ -103,7 +103,14 @@ func WithID(id string) Option { return func(s *Session) { s.id = id } }
 
 // WithEventLimit bounds retained Events. Zero keeps DefaultEventLimit; a
 // negative value disables Event retention.
-func WithEventLimit(limit int) Option { return func(s *Session) { s.eventLimit = limit } }
+func WithEventLimit(limit int) Option {
+	return func(s *Session) {
+		if limit == 0 {
+			limit = DefaultEventLimit
+		}
+		s.eventLimit = limit
+	}
+}
 
 // WithMetadata sets initial application metadata.
 func WithMetadata(metadata map[string]string) Option {

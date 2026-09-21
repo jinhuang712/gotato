@@ -170,6 +170,22 @@ func TestEventLimitBoundsRetention(t *testing.T) {
 	}
 }
 
+func TestEventLimitZeroKeepsDefault(t *testing.T) {
+	s := session.New(session.WithEventLimit(0))
+	if got := s.Snapshot().EventLimit; got != session.DefaultEventLimit {
+		t.Fatalf("event limit = %d, want default %d", got, session.DefaultEventLimit)
+	}
+	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart})
+	if len(s.Events()) != 1 {
+		t.Fatalf("zero limit retained %d events, want 1", len(s.Events()))
+	}
+	disabled := session.New(session.WithEventLimit(-1))
+	disabled.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart})
+	if len(disabled.Events()) != 0 {
+		t.Fatalf("negative limit retained %d events", len(disabled.Events()))
+	}
+}
+
 func TestLoadRejectsFutureSchema(t *testing.T) {
 	_, err := session.Load(session.Document{ID: "x", SchemaVersion: session.SchemaVersion + 1})
 	if !gotato.IsCode(err, gotato.ErrNotSupported) {
