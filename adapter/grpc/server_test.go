@@ -123,7 +123,7 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 			result = r
 		}
 	}
-	if result == nil || kinds[0] != "agent_start" || kinds[len(kinds)-1] != "agent_end" {
+	if result == nil || len(kinds) == 0 || kinds[0] != "agent_start" || kinds[len(kinds)-1] != "agent_end" {
 		t.Fatalf("kinds=%v result=%v", kinds, result)
 	}
 	id := result.GetSessionId()

@@ -173,7 +173,10 @@ func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) 
 	if err != nil {
 		return nil, statusOf(err)
 	}
-	data, _ := json.Marshal(report)
+	data, err := json.Marshal(report)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	return &gotatov2.ContextReport{
 		SessionId:        report.SessionID,
 		PrefixHash:       report.PrefixHash,
@@ -194,7 +197,10 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 	}
 	var compaction []byte
 	if result.Compaction != nil {
-		compaction, _ = json.Marshal(result.Compaction)
+		compaction, err = json.Marshal(result.Compaction)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 	return &gotatov2.CompactResult{
 		SessionId:      result.SessionID,

@@ -89,6 +89,8 @@ message RunRequest {
     string prompt = 3;
     ContinueInput continue_input = 4;
   }
+  // metadata is applied only when this Run creates the Session: it is
+  // ignored when session_id names an existing Session.
   map<string, string> metadata = 5;
 }
 message ContinueInput {}
