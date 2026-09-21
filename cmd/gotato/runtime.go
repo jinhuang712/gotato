@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -24,9 +25,7 @@ type modelFlags struct {
 	instruction   string
 }
 
-func (c *cli) bindModel(fs interface {
-	StringVar(*string, string, string, string)
-}, flags *modelFlags) {
+func bindModel(fs *flag.FlagSet, flags *modelFlags) {
 	fs.StringVar(&flags.model, "model", "", "agent/model: echo (default), demo, or gateway")
 	fs.StringVar(&flags.gatewayConfig, "gateway-config", "", "YAML config for --model gateway (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
 	fs.StringVar(&flags.instruction, "instruction", "", "system instruction stored in the session")
@@ -67,6 +66,11 @@ type cliRuntime struct {
 
 const defaultInstruction = "You are a helpful assistant."
 
+// testAgentSpecs lets in-package tests register deterministic AgentSpecs
+// without changing the production echo/demo/gateway surface. It is empty in
+// the built binary.
+var testAgentSpecs []service.AgentSpec
+
 // newRuntime builds the Runner: echo and demo are always registered; gateway
 // is registered when its YAML loads.
 func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
@@ -79,6 +83,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
 		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
+	specs = append(specs, testAgentSpecs...)
 	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
 	if config, err := gateway.LoadYAML(rt.gatewayCfg); err != nil {
 		rt.gatewayErr = err

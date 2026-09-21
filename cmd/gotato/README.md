@@ -16,7 +16,7 @@ go build -o bin/gotato ./cmd/gotato
 | `--jsonl` | one JSON object per line on stdout |
 | `--quiet` | suppress human status lines that are not errors |
 | `--no-color` | accepted; output never contains ANSI color |
-| `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For other commands: the command deadline |
+| `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For `serve`: a lifetime bound (`30s`): the server drains and shuts down when it elapses. For other commands: the command deadline |
 | `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions` |
 | failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}`; this includes usage errors |
 | flags | accepted before or after positional arguments |

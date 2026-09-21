@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,10 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 	if getenv == nil {
 		c.getenv = func(string) string { return "" }
 	}
+	// Scan the raw arguments for machine-output flags before dispatch. Flag
+	// parsing stops at the command token or a bad flag, so without this a
+	// usage error after `--json` would print no JSON object.
+	c.prescanMachineFlags(args)
 	// Leading global flags are accepted before the command.
 	global := flag.NewFlagSet("gotato", flag.ContinueOnError)
 	global.SetOutput(io.Discard)
@@ -189,6 +194,31 @@ func (c *cli) ctx() (context.Context, context.CancelFunc) {
 }
 
 func (c *cli) machine() bool { return c.json || c.jsonl }
+
+// prescanMachineFlags sets --json/--jsonl from the raw arguments regardless of
+// where they appear, so a usage error after an unknown command or an invalid
+// flag still emits the documented error object. Flag parsing still runs later
+// and can override the value.
+func (c *cli) prescanMachineFlags(args []string) {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		name, value, hasValue := strings.Cut(arg, "=")
+		boolValue := true
+		if hasValue {
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				boolValue = parsed
+			}
+		}
+		switch strings.TrimLeft(name, "-") {
+		case "json":
+			c.json = boolValue
+		case "jsonl":
+			c.jsonl = boolValue
+		}
+	}
+}
 
 // emit prints value as JSON in machine mode, or human text otherwise.
 func (c *cli) emit(value any, human string) int {

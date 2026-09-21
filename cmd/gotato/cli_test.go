@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
 // harness runs the CLI in-process against a temporary store.
@@ -276,8 +279,19 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 	h := newHarness(t)
 	var listing toolListing
 	h.mustJSON(h.ok("tools", "list", "--json"), &listing)
-	if len(listing.Tools) != 2 || !listing.Tools[0].Active || listing.Tools[0].ID != "demo.echo" || len(listing.Tools[0].InputSchema) == 0 {
-		t.Fatalf("listing = %+v", listing)
+	if listing.Agent != "echo" {
+		t.Fatalf("tools list agent = %q, want echo", listing.Agent)
+	}
+	if len(listing.Tools) != 2 {
+		t.Fatalf("tools list = %+v", listing)
+	}
+	byID := map[string]toolView{}
+	for _, view := range listing.Tools {
+		byID[view.ID] = view
+	}
+	echo, ok := byID["demo.echo"]
+	if !ok || !echo.Active || len(echo.InputSchema) == 0 {
+		t.Fatalf("demo.echo = %+v (found=%v)", echo, ok)
 	}
 	var created map[string]any
 	h.mustJSON(h.ok("session", "create", "--json"), &created)
@@ -386,8 +400,17 @@ func TestVersionAndEmptyEventsJSON(t *testing.T) {
 
 func TestRunIncompleteExitCode(t *testing.T) {
 	h := newHarness(t)
-	// A 1ns run deadline settles the run as deadline_exceeded.
-	code, out, _ := h.run("run", "--timeout", "1ns", "--json", "hello")
+	// A model that blocks until the run deadline cancels it makes the
+	// deadline_exceeded outcome deterministic: a fast model can otherwise
+	// finish before the wall-clock timer fires.
+	block := make(chan struct{})
+	defer close(block)
+	model := testkit.NewFakeModel(testkit.Text("unreachable"))
+	model.Block = block
+	testAgentSpecs = []service.AgentSpec{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
+	defer func() { testAgentSpecs = nil }()
+
+	code, out, _ := h.run("run", "--model", "blocking", "--timeout", "20ms", "--json", "hello")
 	if code != ExitRunIncomplete {
 		t.Fatalf("exit = %d\n%s", code, out)
 	}
@@ -413,6 +436,76 @@ func TestStdinPrompt(t *testing.T) {
 	var outcome runOutcome
 	if err := json.Unmarshal(stdout.Bytes(), &outcome); err != nil || outcome.FinalText != "echo: from stdin" {
 		t.Fatalf("outcome = %+v err=%v", outcome, err)
+	}
+}
+
+// TestUsageErrorsHonorMachineFlags covers --json appearing after the command
+// token or a bad subcommand flag, where ordinary flag parsing never reaches it.
+func TestUsageErrorsHonorMachineFlags(t *testing.T) {
+	h := newHarness(t)
+	cases := [][]string{
+		{"bogus", "--json"},
+		{"run", "--bogus", "--json"},
+		{"session", "bogus", "--json"},
+	}
+	for _, args := range cases {
+		code, out, _ := h.run(args...)
+		if code != ExitUsage {
+			t.Errorf("%v exit = %d, want %d", args, code, ExitUsage)
+			continue
+		}
+		var failure map[string]any
+		h.mustJSON(out, &failure)
+		if failure["exit_code"] != float64(ExitUsage) {
+			t.Errorf("%v failure = %v", args, failure)
+		}
+	}
+}
+
+// TestMachineFlagScanIgnoresValues guards against treating a flag value that
+// happens to equal "json"/"jsonl" as the machine-output flag.
+func TestMachineFlagScanIgnoresValues(t *testing.T) {
+	h := newHarness(t)
+	code, out, _ := h.run("run", "--model", "json", "hi")
+	if code != ExitUsage {
+		t.Fatalf("exit = %d", code)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("stdout should be empty without a real --json flag, got %q", out)
+	}
+}
+
+func TestSessionDelete(t *testing.T) {
+	h := newHarness(t)
+	var created map[string]any
+	h.mustJSON(h.ok("session", "create", "--json"), &created)
+	id := created["id"].(string)
+	var result map[string]any
+	h.mustJSON(h.ok("session", "delete", id, "--json"), &result)
+	if result["id"] != id || result["deleted"] != true {
+		t.Fatalf("delete = %v", result)
+	}
+	if code, _, _ := h.run("session", "show", id, "--json"); code != ExitNotFound {
+		t.Fatalf("show after delete exit = %d", code)
+	}
+}
+
+// TestServeHonorsTimeout verifies --timeout bounds the serve lifetime; without
+// it the command would block until a signal.
+func TestServeHonorsTimeout(t *testing.T) {
+	h := newHarness(t)
+	done := make(chan int, 1)
+	go func() {
+		code, _, _ := h.run("serve", "--addr", "127.0.0.1:0", "--timeout", "30ms", "--drain-timeout", "1ms", "--jsonl")
+		done <- code
+	}()
+	select {
+	case code := <-done:
+		if code != ExitOK {
+			t.Fatalf("serve exit = %d", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not honor --timeout")
 	}
 }
 

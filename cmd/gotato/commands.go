@@ -30,7 +30,7 @@ func (c *cli) cmdRun(args []string) int { return c.cmdRunArgs(args, false) }
 func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	fs := c.newFlagSet("run")
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	sessionID := fs.String("session", "", "continue an existing session (default: a new session is created)")
 	panel := fs.String("panel", "", "dynamic panel appended to the tail of each request: time,cwd (stored in the session)")
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (stored in the session)")
@@ -160,7 +160,7 @@ func (c *cli) cmdSession(args []string) int {
 func (c *cli) sessionCreate(args []string) int {
 	fs := c.newFlagSet("session create")
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	id := fs.String("id", "", "explicit session id (default: random)")
 	meta := fs.String("meta", "", "initial metadata as key=value,key=value")
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens) stored in the session")
@@ -306,12 +306,16 @@ func (c *cli) sessionFork(args []string) int {
 }
 
 func (c *cli) sessionDelete(args []string) int {
-	s, store, ctx, cancel, code := c.loadSession(args, "session delete")
+	s, _, ctx, cancel, code := c.loadSession(args, "session delete")
 	if code >= 0 {
 		return code
 	}
 	defer cancel()
-	if err := store.Delete(ctx, s.ID()); err != nil {
+	rt, err := c.newRuntime(modelFlags{})
+	if err != nil {
+		return c.failErr(err)
+	}
+	if err := rt.runner.DeleteSession(ctx, s.ID()); err != nil {
 		return c.failErr(err)
 	}
 	return c.emit(map[string]any{"id": s.ID(), "deleted": true}, "deleted "+s.ID())
@@ -341,7 +345,7 @@ func (c *cli) cmdContext(args []string) int {
 func (c *cli) contextInspect(mode string, args []string) int {
 	fs := c.newFlagSet("context " + mode)
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	panel := fs.String("panel", "", "override the session panel for this inspection: time,cwd")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -384,7 +388,7 @@ func (c *cli) contextInspect(mode string, args []string) int {
 func (c *cli) contextCompact(args []string) int {
 	fs := c.newFlagSet("context compact")
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	keep := fs.Int("keep", 4, "number of recent messages to keep verbatim")
 	summarizer := fs.String("summarizer", "truncate", "truncate (deterministic) or model (uses the session's agent, or --model)")
 	positionals, err := parseInterspersed(fs, args)
@@ -472,7 +476,7 @@ func (c *cli) cmdTools(args []string) int {
 	sub, rest := args[0], args[1:]
 	fs := c.newFlagSet("tools " + sub)
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	sessionID := fs.String("session", "", "session whose tool activation applies")
 	positionals, err := parseInterspersed(fs, rest)
 	if err != nil {
@@ -487,6 +491,21 @@ func (c *cli) cmdTools(args []string) int {
 	agent, err := rt.resolveAgent(flags.model, c.getenv)
 	if err != nil {
 		return c.failErr(err)
+	}
+	// Runner.Tools resolves an empty agent to the session's stored agent, or
+	// the first registered agent when there is no session. Mirror that here so
+	// the listing reports the agent that actually selected the surface.
+	if agent == "" && *sessionID != "" {
+		s, err := rt.store.Get(ctx, *sessionID)
+		if err != nil {
+			return c.failErr(err)
+		}
+		agent, _ = s.Get(service.MetaAgent)
+	}
+	if agent == "" {
+		if names := rt.runner.Agents(); len(names) > 0 {
+			agent = names[0]
+		}
 	}
 	entries, err := rt.runner.Tools(ctx, agent, *sessionID)
 	if err != nil {
@@ -619,7 +638,7 @@ func (c *cli) cmdEvents(args []string) int {
 func (c *cli) cmdServe(args []string) int {
 	fs := c.newFlagSet("serve")
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	addr := fs.String("addr", "127.0.0.1:8787", "listen address")
 	maxRuns := fs.Int("max-runs", 0, "maximum concurrent runs; 0 disables the bound")
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
@@ -652,6 +671,13 @@ func (c *cli) cmdServe(args []string) int {
 	server := &http.Server{Addr: *addr, Handler: httpapi.New(runner), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// --timeout bounds the process lifetime: when it elapses the server drains
+	// and shuts down like a signal. A signal still works when --timeout is 0.
+	if c.timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, c.timeout)
+		defer timeoutCancel()
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
 	c.info("gotato serving on http://%s (store=%s agents=%s contract=%s)", *addr, rt.storeDir, strings.Join(runner.Agents(), ","), httpapi.ContractVersion)
@@ -696,7 +722,7 @@ type doctorCheck struct {
 func (c *cli) cmdDoctor(args []string) int {
 	fs := c.newFlagSet("doctor")
 	var flags modelFlags
-	c.bindModel(fs, &flags)
+	bindModel(fs, &flags)
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
 	}
@@ -717,9 +743,11 @@ func (c *cli) cmdDoctor(args []string) int {
 		probe := session.New()
 		if err := rt.store.Save(ctx, probe); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
+		} else if err := rt.store.Delete(ctx, probe.ID()); err != nil {
+			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": probe cleanup failed: " + err.Error()})
+		} else if list, err := rt.store.List(ctx); err != nil {
+			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": cannot list sessions: " + err.Error()})
 		} else {
-			_ = rt.store.Delete(ctx, probe.ID())
-			list, _ := rt.store.List(ctx)
 			add(doctorCheck{Name: "store", OK: true, Detail: fmt.Sprintf("%s (%d sessions)", rt.storeDir, len(list))})
 		}
 		add(doctorCheck{Name: "model.echo", OK: true, Detail: "deterministic, no credentials"})
