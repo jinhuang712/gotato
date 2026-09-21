@@ -87,7 +87,11 @@ func (c *cli) cmdRun(args []string) int {
 	}
 	outcome := outcomeOf(result)
 	code := ExitOK
-	if outcome.Status != gotato.RunCompleted {
+	switch {
+	case errors.Is(err, service.ErrNotPersisted):
+		// The Run completed but the Session was not saved.
+		code = ExitError
+	case outcome.Status != gotato.RunCompleted:
 		code = ExitRunIncomplete
 	}
 	switch {

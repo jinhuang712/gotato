@@ -89,7 +89,7 @@ func (s *Server) ListSessions(ctx context.Context, _ *gotatov2.ListSessionsReque
 }
 
 func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.DeleteSessionResponse, error) {
-	if err := s.runner.Store().Delete(ctx, request.GetSessionId()); err != nil {
+	if err := s.runner.DeleteSession(ctx, request.GetSessionId()); err != nil {
 		return nil, statusOf(err)
 	}
 	return &gotatov2.DeleteSessionResponse{Deleted: true}, nil
@@ -108,6 +108,9 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 	if err != nil && result.SessionID == "" {
 		return nil, statusOf(err)
 	}
+	if errors.Is(err, service.ErrNotPersisted) {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	return resultOf(result), nil
 }
 
@@ -118,6 +121,9 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 	result, err := s.runner.StreamRun(stream.Context(), runRequestOf(request), sink)
 	if err != nil && result.SessionID == "" {
 		return statusOf(err)
+	}
+	if errors.Is(err, service.ErrNotPersisted) {
+		return status.Error(codes.Internal, err.Error())
 	}
 	return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
 }

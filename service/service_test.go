@@ -385,6 +385,43 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	close(block)
 }
 
+// failingSaveStore wraps a Store and fails Save calls after the first.
+type failingSaveStore struct {
+	session.Store
+	mu        sync.Mutex
+	saves     int
+	failAfter int
+}
+
+func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) error {
+	s.mu.Lock()
+	s.saves++
+	fail := s.failAfter > 0 && s.saves > s.failAfter
+	s.mu.Unlock()
+	if fail {
+		return errors.New("store: disk full")
+	}
+	return s.Store.Save(ctx, sess)
+}
+
+func TestUnpersistedRunIsReported(t *testing.T) {
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	runner, err := service.New(service.Config{
+		Store: store,
+		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
+	if !errors.Is(err, service.ErrNotPersisted) {
+		t.Fatalf("err = %v, want ErrNotPersisted", err)
+	}
+	if result.Result.Status != gotato.RunCompleted || result.FinalText != "echo: hi" {
+		t.Fatalf("run outcome lost: %+v", result)
+	}
+}
+
 func TestFailedOneShotLeavesNoSession(t *testing.T) {
 	runner, store := newRunner(t)
 	_, err := runner.Run(context.Background(), service.RunRequest{

@@ -245,7 +245,11 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, statusForRun(result.Result.Status), result)
+	if errors.Is(err, service.ErrNotPersisted) {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // runStream streams Events as Server-Sent Events (event: <kind>, data: JSON)
@@ -276,6 +280,11 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 	result, runErr := h.runner.StreamRun(r.Context(), request, sink)
 	if runErr != nil && result.SessionID == "" {
 		data, _ := json.Marshal(failureOf(runErr))
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+		return
+	}
+	if errors.Is(runErr, service.ErrNotPersisted) {
+		data, _ := json.Marshal(errorResponse{Error: http.StatusText(http.StatusInternalServerError), Message: runErr.Error()})
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 		return
 	}
@@ -315,17 +324,6 @@ func decode(r *http.Request, into any) error {
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}
 	return nil
-}
-
-func statusForRun(status gotato.RunStatus) int {
-	switch status {
-	case gotato.RunCompleted:
-		return http.StatusOK
-	case gotato.RunCanceled, gotato.RunDeadlineExceeded:
-		return http.StatusOK
-	default:
-		return http.StatusOK
-	}
 }
 
 // StatusFor maps a runtime error to an HTTP status.
