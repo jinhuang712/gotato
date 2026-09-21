@@ -150,6 +150,17 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 			continue
 		}
 		name, options, _ := strings.Cut(tag, ",")
+		for _, option := range strings.Split(options, ",") {
+			switch option {
+			case "", "omitempty":
+			default:
+				// encoding/json options other than omitempty (notably
+				// ",string") change how a field is encoded but have no
+				// representation in the generated Schema. Reject them at
+				// construction rather than emit a Schema the decoder rejects.
+				return fmt.Errorf("unsupported json option %q on field %s", option, field.Name)
+			}
+		}
 		if field.Anonymous && name == "" {
 			embedded := field.Type
 			for embedded.Kind() == reflect.Pointer {
@@ -211,6 +222,18 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 func valueSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]any, error) {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
+	}
+	// A named slice or map can be recursive (`type List []List`). Track it
+	// for the duration of the element walk so re-entry fails instead of
+	// recursing until the stack overflows. structSchema tracks structs the
+	// same way.
+	switch typ.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		if visiting[typ] {
+			return nil, fmt.Errorf("recursive type %s", typ.String())
+		}
+		visiting[typ] = true
+		defer delete(visiting, typ)
 	}
 	if typ == reflect.TypeFor[json.RawMessage]() {
 		return map[string]any{}, nil

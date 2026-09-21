@@ -121,6 +121,33 @@ func TestFuncToolRejectsUnsupportedInput(t *testing.T) {
 	}
 }
 
+type recursiveList []recursiveList
+type recursiveMap map[string]recursiveMap
+
+func TestFuncToolRejectsRecursiveSliceAndMap(t *testing.T) {
+	type withList struct {
+		Items recursiveList `json:"items"`
+	}
+	if _, err := NewFuncTool("list", "", func(ctx context.Context, in withList) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+		t.Fatalf("recursive slice = %v, want invalid_argument", err)
+	}
+	type withMap struct {
+		Items recursiveMap `json:"items"`
+	}
+	if _, err := NewFuncTool("map", "", func(ctx context.Context, in withMap) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+		t.Fatalf("recursive map = %v, want invalid_argument", err)
+	}
+}
+
+func TestFuncToolRejectsUnsupportedJSONOptions(t *testing.T) {
+	type stringly struct {
+		Count int `json:"count,string"`
+	}
+	if _, err := NewFuncTool("stringly", "", func(ctx context.Context, in stringly) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+		t.Fatalf(`json:",string" = %v, want invalid_argument`, err)
+	}
+}
+
 type funcToolModel struct {
 	arguments string
 	calls     int
