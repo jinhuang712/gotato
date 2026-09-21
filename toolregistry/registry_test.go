@@ -3,6 +3,7 @@ package toolregistry_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -141,8 +142,74 @@ func TestRegistryDrivesAgentToolSurface(t *testing.T) {
 	if _, err := agent2.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
-	request, _ := model2.LastRequest()
+	request, ok := model2.LastRequest()
+	if !ok {
+		t.Fatal("model2 recorded no request")
+	}
+	if calls := model2.Calls(); calls != 1 {
+		t.Fatalf("model2 calls = %d, want 1", calls)
+	}
 	if len(request.Tools) != 0 {
 		t.Fatalf("deactivated tool still visible: %+v", request.Tools)
+	}
+}
+
+func TestRegistryCanonicalizesIDAcrossViews(t *testing.T) {
+	reg := toolregistry.MustNew(testkit.NewFakeTool(" spaced ", "S"))
+
+	list := reg.List()
+	if len(list) != 1 || list[0].Spec.ID != "spaced" {
+		t.Fatalf("List = %+v", list)
+	}
+	active := reg.Active()
+	if len(active) != 1 || active[0].ID != "spaced" {
+		t.Fatalf("Active = %+v", active)
+	}
+	tools := reg.Tools()
+	if len(tools) != 1 || tools[0].Spec().ID != "spaced" {
+		t.Fatalf("Tools = %+v", tools)
+	}
+	entry, ok := reg.Describe(" spaced ")
+	if !ok || entry.Spec.ID != "spaced" {
+		t.Fatalf("Describe = %+v %v", entry, ok)
+	}
+	if _, ok := reg.Lookup("spaced"); !ok {
+		t.Fatal("Lookup with the trimmed ID failed")
+	}
+	if _, ok := reg.Lookup(" spaced "); !ok {
+		t.Fatal("Lookup with the raw ID failed")
+	}
+	if err := reg.Deactivate(" spaced "); err != nil {
+		t.Fatalf("Deactivate with the raw ID = %v", err)
+	}
+	if err := reg.Activate("spaced"); err != nil {
+		t.Fatalf("Activate with the trimmed ID = %v", err)
+	}
+	if err := reg.Unregister(" spaced "); err != nil {
+		t.Fatalf("Unregister with the raw ID = %v", err)
+	}
+	err := reg.Activate(" spaced ")
+	if !errors.Is(err, toolregistry.ErrNotFound) || !strings.Contains(err.Error(), "spaced") {
+		t.Fatalf("missing Activate err = %v", err)
+	}
+}
+
+func TestRegistrySpecIsCapturedAtRegister(t *testing.T) {
+	tool := testkit.NewFakeTool("snap", "S")
+	reg := toolregistry.MustNew(tool)
+	tool.WithSchema(`{"type":"string"}`)
+
+	if got := string(reg.List()[0].Spec.InputSchema); got != `{"type":"object"}` {
+		t.Fatalf("List Spec changed after Register: %s", got)
+	}
+	if got := string(reg.Active()[0].InputSchema); got != `{"type":"object"}` {
+		t.Fatalf("Active Spec changed after Register: %s", got)
+	}
+	if got := string(reg.Tools()[0].Spec().InputSchema); got != `{"type":"object"}` {
+		t.Fatalf("Tools Spec changed after Register: %s", got)
+	}
+	described, _ := reg.Describe("snap")
+	if got := string(described.Spec.InputSchema); got != `{"type":"object"}` {
+		t.Fatalf("Describe Spec changed after Register: %s", got)
 	}
 }

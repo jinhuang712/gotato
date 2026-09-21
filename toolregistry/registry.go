@@ -10,11 +10,18 @@
 //	reg.Deactivate("shell")           // registered but hidden from the Model
 //	agent, _ := gotato.NewAgent(gotato.WithModel(m), gotato.WithToolSource(reg))
 //
+// The Registry normalizes a Tool's ID by trimming surrounding whitespace and
+// captures its Spec at Register. That captured Spec is the single source of
+// truth: Describe, List, Active, Tools, and Lookup all report the same
+// canonical ID and Spec, so the views can never disagree. A caller may address
+// a Tool by either the raw or the trimmed ID.
+//
 // Discovery systems, MCP catalogs, and authorization policies are built above
 // or beside the Registry; it does not schedule or orchestrate anything.
 package toolregistry
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -56,8 +63,21 @@ type Entry struct {
 
 type entry struct {
 	tool   gotato.Tool
-	spec   gotato.ToolSpec
 	active bool
+}
+
+// canonicalTool is the Tool the Registry stores and hands out. Spec reports the
+// normalized, cloned snapshot captured at Register, so every view agrees;
+// Execute delegates to the registered Tool.
+type canonicalTool struct {
+	tool gotato.Tool
+	spec gotato.ToolSpec
+}
+
+func (t canonicalTool) Spec() gotato.ToolSpec { return cloneSpec(t.spec) }
+
+func (t canonicalTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgress) (gotato.ToolResult, error) {
+	return t.tool.Execute(ctx, use, progress)
 }
 
 // Registry is safe for concurrent use.
@@ -96,7 +116,7 @@ func (r *Registry) Register(tool gotato.Tool) error {
 		return errors.New("toolregistry: tool is nil")
 	}
 	spec := tool.Spec()
-	id := strings.TrimSpace(spec.ID)
+	id := normalizeID(spec.ID)
 	if id == "" {
 		return errors.New("toolregistry: tool has an empty ID")
 	}
@@ -109,9 +129,10 @@ func (r *Registry) Register(tool gotato.Tool) error {
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %q", ErrDuplicate, id)
 	}
-	// Store a private copy so a caller cannot mutate the registry's view of a
-	// Tool through a slice or map it still holds.
-	r.entries[id] = &entry{tool: tool, spec: cloneSpec(spec), active: true}
+	// Store a canonical wrapper with a private copy of the Spec, so the
+	// Registry has one source of truth and a caller cannot mutate it through a
+	// slice or map it still holds. Execute still reaches the original Tool.
+	r.entries[id] = &entry{tool: canonicalTool{tool: tool, spec: cloneSpec(spec)}, active: true}
 	hooks := r.hooks
 	r.mu.Unlock()
 	notify(hooks, Change{Kind: Registered, ID: id})
@@ -120,6 +141,7 @@ func (r *Registry) Register(tool gotato.Tool) error {
 
 // Unregister removes a Tool.
 func (r *Registry) Unregister(id string) error {
+	id = normalizeID(id)
 	r.mu.Lock()
 	if _, exists := r.entries[id]; !exists {
 		r.mu.Unlock()
@@ -139,11 +161,12 @@ func (r *Registry) Activate(id string) error { return r.setActive(id, true) }
 func (r *Registry) Deactivate(id string) error { return r.setActive(id, false) }
 
 func (r *Registry) setActive(id string, active bool) error {
+	id = normalizeID(id)
 	r.mu.Lock()
 	e, exists := r.entries[id]
 	if !exists {
 		r.mu.Unlock()
-		return ErrNotFound
+		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
 	changed := e.active != active
 	e.active = active
@@ -161,6 +184,7 @@ func (r *Registry) setActive(id string, active bool) error {
 
 // Lookup returns a registered Tool (active or not).
 func (r *Registry) Lookup(id string) (gotato.Tool, bool) {
+	id = normalizeID(id)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	e, ok := r.entries[id]
@@ -172,13 +196,14 @@ func (r *Registry) Lookup(id string) (gotato.Tool, bool) {
 
 // Describe returns the Entry for one Tool.
 func (r *Registry) Describe(id string) (Entry, bool) {
+	id = normalizeID(id)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	e, ok := r.entries[id]
 	if !ok {
 		return Entry{}, false
 	}
-	return Entry{Spec: cloneSpec(e.spec), Active: e.active}, true
+	return Entry{Spec: e.tool.Spec(), Active: e.active}, true
 }
 
 // List returns every Entry sorted by ID.
@@ -187,7 +212,7 @@ func (r *Registry) List() []Entry {
 	defer r.mu.RUnlock()
 	out := make([]Entry, 0, len(r.entries))
 	for _, e := range r.entries {
-		out = append(out, Entry{Spec: cloneSpec(e.spec), Active: e.active})
+		out = append(out, Entry{Spec: e.tool.Spec(), Active: e.active})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Spec.ID < out[j].Spec.ID })
 	return out
@@ -195,11 +220,15 @@ func (r *Registry) List() []Entry {
 
 // Active returns the specs of active Tools sorted by ID.
 func (r *Registry) Active() []gotato.ToolSpec {
-	tools := r.Tools()
-	out := make([]gotato.ToolSpec, 0, len(tools))
-	for _, tool := range tools {
-		out = append(out, cloneSpec(tool.Spec()))
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]gotato.ToolSpec, 0, len(r.entries))
+	for _, e := range r.entries {
+		if e.active {
+			out = append(out, e.tool.Spec())
+		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
@@ -237,6 +266,11 @@ func notify(hooks []func(Change), change Change) {
 		hook(change)
 	}
 }
+
+// normalizeID is the one place a Tool ID is canonicalized: Register trims
+// before storing, and every lookup entry point trims the same way, so a caller
+// can round-trip the raw ToolSpec.ID and still address the Tool.
+func normalizeID(id string) string { return strings.TrimSpace(id) }
 
 // cloneSpec deep-copies the slice and map fields so a spec handed out by the
 // Registry cannot be mutated into the Tool's own state.
