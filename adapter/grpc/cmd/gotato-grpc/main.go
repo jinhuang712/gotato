@@ -55,13 +55,24 @@ func main() {
 	if configPath == "" {
 		configPath = os.Getenv("GOTATO_GATEWAY_CONFIG")
 	}
+	explicit := configPath != ""
 	if configPath == "" {
 		configPath = "gateway.yaml"
 	}
-	if config, err := gateway.LoadYAML(configPath); err == nil {
-		if client, err := gateway.New(config); err == nil {
-			specs = append(specs, service.AgentSpec{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
+	// An explicitly requested gateway config must load; the default path is
+	// best-effort so a fresh checkout still serves echo and demo.
+	config, loadErr := gateway.LoadYAML(configPath)
+	switch {
+	case loadErr != nil && explicit:
+		log.Fatalf("gateway config %s: %v", configPath, loadErr)
+	case loadErr != nil:
+		log.Printf("gateway agent disabled: gateway config %s: %v", configPath, loadErr)
+	default:
+		client, newErr := gateway.New(config)
+		if newErr != nil {
+			log.Fatalf("gateway config %s: %v", configPath, newErr)
 		}
+		specs = append(specs, service.AgentSpec{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
 	}
 	runner, err := service.New(service.Config{Store: store, Specs: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns}})
 	if err != nil {

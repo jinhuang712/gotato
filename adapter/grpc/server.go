@@ -50,14 +50,17 @@ func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.Age
 }
 
 func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSessionRequest) (*gotatov2.SessionSummary, error) {
-	var options []session.Option
 	if request.GetId() != "" {
-		if _, err := s.runner.Store().Get(ctx, request.GetId()); err == nil {
+		created, err := s.runner.CreateSessionExclusive(ctx, request.GetAgent(), request.GetId(), request.GetMetadata())
+		if errors.Is(err, service.ErrSessionExists) {
 			return nil, status.Error(codes.AlreadyExists, "session already exists")
 		}
-		options = append(options, session.WithID(request.GetId()))
+		if err != nil {
+			return nil, statusOf(err)
+		}
+		return summaryOf(session.SummaryOf(created)), nil
 	}
-	created, err := s.runner.CreateSession(ctx, request.GetAgent(), request.GetMetadata(), options...)
+	created, err := s.runner.CreateSession(ctx, request.GetAgent(), request.GetMetadata())
 	if err != nil {
 		return nil, statusOf(err)
 	}
@@ -116,7 +119,11 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 
 func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.SessionService_StreamRunServer) error {
 	sink := func(event gotato.Event) error {
-		return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Event{Event: eventOf(event)}})
+		converted, err := eventOf(event)
+		if err != nil {
+			return err
+		}
+		return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Event{Event: converted}})
 	}
 	result, err := s.runner.StreamRun(stream.Context(), runRequestOf(request), sink)
 	if err != nil && result.SessionID == "" {
@@ -150,7 +157,11 @@ func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.Session
 		if request.GetKind() != "" && string(event.Kind) != request.GetKind() {
 			continue
 		}
-		if err := stream.Send(eventOf(event)); err != nil {
+		converted, err := eventOf(event)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(converted); err != nil {
 			return err
 		}
 	}
@@ -255,10 +266,10 @@ func summaryOf(summary session.Summary) *gotatov2.SessionSummary {
 	}
 }
 
-func eventOf(event gotato.Event) *gotatov2.Event {
+func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 	payload, err := json.Marshal(event.Payload)
 	if err != nil {
-		payload = nil
+		return nil, status.Error(codes.Internal, "cannot encode Event payload: "+err.Error())
 	}
 	return &gotatov2.Event{
 		AgentId:     string(event.AgentID),
@@ -271,7 +282,7 @@ func eventOf(event gotato.Event) *gotatov2.Event {
 		ToolCallId:  string(event.ToolCallID),
 		PayloadJson: payload,
 		Timestamp:   event.Timestamp.UTC().Format(time.RFC3339Nano),
-	}
+	}, nil
 }
 
 // statusOf maps a runtime error onto a gRPC status without inventing new
@@ -282,6 +293,14 @@ func statusOf(err error) error {
 	}
 	if errors.Is(err, session.ErrNotFound) {
 		return status.Error(codes.NotFound, err.Error())
+	}
+	// A caller that cancelled or exceeded its deadline gets CANCELED /
+	// DEADLINE_EXCEEDED, not INTERNAL.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return status.Error(codes.DeadlineExceeded, err.Error())
+	}
+	if errors.Is(err, context.Canceled) {
+		return status.Error(codes.Canceled, err.Error())
 	}
 	var runtimeErr *gotato.RuntimeError
 	code := codes.Internal

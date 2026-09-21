@@ -18,7 +18,9 @@ service SessionService {
   rpc CreateSession(CreateSessionRequest) returns (SessionSummary);
   // GetSession returns the full Session document as JSON.
   rpc GetSession(SessionRequest) returns (SessionDocument);
-  // ListSessions lists Session summaries, newest first.
+  // ListSessions lists Session summaries, newest first. The response is not
+  // paged: it returns every Session the Store holds, so callers must apply a
+  // deadline and size their Store accordingly.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   // DeleteSession removes a Session.
   rpc DeleteSession(SessionRequest) returns (DeleteSessionResponse);
@@ -29,13 +31,17 @@ service SessionService {
   // session_id creates a Session.
   rpc Run(RunRequest) returns (RunResult);
   // StreamRun executes one Run while streaming its runtime Events; the
-  // terminal RunResult is the last message on the stream.
+  // terminal RunResult is the last message on the stream. Delivery is
+  // backpressured by the client's read rate: the adapter sends synchronously
+  // and ends the stream when Send fails or the stream deadline passes.
   rpc StreamRun(RunRequest) returns (stream RunUpdate);
   // CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
   // Run is not active rather than pretending to cancel.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
 
-  // Events returns the retained runtime Events of a Session.
+  // Events returns the retained runtime Events of a Session. It is not
+  // paged: it streams every retained Event matching kind, so it is bounded by
+  // the Session's retention limits and by the stream deadline.
   rpc Events(EventsRequest) returns (stream Event);
   // Context reports what the Model would see for the Session now.
   rpc Context(SessionRequest) returns (ContextReport);

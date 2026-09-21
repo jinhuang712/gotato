@@ -183,11 +183,27 @@ func TestErrorMapping(t *testing.T) {
 			_, err := client.CancelRun(ctx, &gotatov2.CancelRunRequest{Target: &gotatov2.CancelRunRequest_RunId{RunId: "nope"}})
 			return err
 		}, codes.FailedPrecondition},
+		{"session already exists", func() error {
+			if _, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"}); err != nil {
+				return err
+			}
+			_, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"})
+			return err
+		}, codes.AlreadyExists},
 	}
 	for _, tc := range cases {
 		err := tc.call()
 		if status.Code(err) != tc.code {
 			t.Errorf("%s: code = %v (%v), want %v", tc.name, status.Code(err), err, tc.code)
 		}
+	}
+}
+
+func TestStatusOfMapsContextErrors(t *testing.T) {
+	if code := status.Code(statusOf(context.Canceled)); code != codes.Canceled {
+		t.Fatalf("canceled = %v", code)
+	}
+	if code := status.Code(statusOf(context.DeadlineExceeded)); code != codes.DeadlineExceeded {
+		t.Fatalf("deadline = %v", code)
 	}
 }
