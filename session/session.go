@@ -166,7 +166,7 @@ func Load(doc Document) (*Session, error) {
 		updatedAt:   doc.UpdatedAt,
 		messages:    cloneMessages(doc.Messages),
 		runs:        slices.Clone(doc.Runs),
-		events:      slices.Clone(doc.Events),
+		events:      cloneEvents(doc.Events),
 		usage:       doc.Usage,
 		compactions: slices.Clone(doc.Compactions),
 		metadata:    maps.Clone(doc.Metadata),
@@ -197,7 +197,7 @@ func (s *Session) Snapshot() Document {
 		UpdatedAt:     s.updatedAt,
 		Messages:      cloneMessages(s.messages),
 		Runs:          slices.Clone(s.runs),
-		Events:        slices.Clone(s.events),
+		Events:        cloneEvents(s.events),
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
@@ -299,11 +299,11 @@ func (s *Session) Usage() gotato.Usage {
 	return s.usage
 }
 
-// Events returns the retained Events in order.
+// Events returns the retained Events in order, with copied payloads.
 func (s *Session) Events() []gotato.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.events)
+	return cloneEvents(s.events)
 }
 
 // RecordEvent retains one Event, dropping the oldest beyond the limit.
@@ -313,7 +313,7 @@ func (s *Session) RecordEvent(event gotato.Event) {
 	if s.eventLimit < 0 {
 		return
 	}
-	s.events = append(s.events, event)
+	s.events = append(s.events, cloneEvent(event))
 	if excess := len(s.events) - s.eventLimit; excess > 0 {
 		s.events = slices.Clone(s.events[excess:])
 	}
@@ -391,6 +391,32 @@ func cloneMessages(messages []gotato.Message) []gotato.Message {
 	out := make([]gotato.Message, len(messages))
 	for i, message := range messages {
 		out[i] = message.Clone()
+	}
+	return out
+}
+
+// cloneEvents copies the Event list and each Payload map, so a caller cannot
+// mutate committed or persisted state through a returned Event.
+func cloneEvents(events []gotato.Event) []gotato.Event {
+	out := make([]gotato.Event, len(events))
+	for i, event := range events {
+		out[i] = cloneEvent(event)
+	}
+	return out
+}
+
+func cloneEvent(event gotato.Event) gotato.Event {
+	event.Payload = clonePayload(event.Payload)
+	return event
+}
+
+func clonePayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = value
 	}
 	return out
 }

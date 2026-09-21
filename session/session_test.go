@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -190,5 +191,35 @@ func TestLoadRejectsFutureSchema(t *testing.T) {
 	_, err := session.Load(session.Document{ID: "x", SchemaVersion: session.SchemaVersion + 1})
 	if !gotato.IsCode(err, gotato.ErrNotSupported) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(context.Background()); err == nil {
+		t.Fatal("List hid an unreadable session file")
+	}
+}
+
+func TestEventPayloadIsIsolated(t *testing.T) {
+	s := session.New()
+	payload := map[string]any{"text": "original"}
+	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart, Payload: payload})
+	payload["text"] = "mutated by caller"
+
+	events := s.Events()
+	if got := events[0].Payload["text"]; got != "original" {
+		t.Fatalf("caller mutation reached the Event: %v", got)
+	}
+	events[0].Payload["text"] = "mutated by reader"
+	if got := s.Events()[0].Payload["text"]; got != "original" {
+		t.Fatalf("reader mutation reached the Event: %v", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -176,11 +177,39 @@ func (f *FileStore) Save(ctx context.Context, s *Session) error {
 		os.Remove(tmpName)
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	// Flush the directory entry so the rename itself survives a crash.
+	return f.syncDir()
+}
+
+// syncDir fsyncs the store directory so a completed rename is durable.
+func (f *FileStore) syncDir() error {
+	dir, err := os.Open(f.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if err := dir.Sync(); err != nil {
+		// Some filesystems reject fsync on a directory; the rename is still
+		// ordered, so treat that as non-fatal.
+		if errors.Is(err, os.ErrInvalid) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Get implements Store.
@@ -216,6 +245,7 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 		return nil, err
 	}
 	out := make([]Summary, 0, len(entries))
+	var unreadable []string
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
@@ -223,9 +253,13 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 		}
 		s, err := f.Get(ctx, strings.TrimSuffix(name, ".json"))
 		if err != nil {
+			unreadable = append(unreadable, name+": "+err.Error())
 			continue
 		}
 		out = append(out, SummaryOf(s))
+	}
+	if len(unreadable) > 0 {
+		return nil, fmt.Errorf("session: %d unreadable session file(s): %s", len(unreadable), strings.Join(unreadable, "; "))
 	}
 	sortSummaries(out)
 	return out, nil
