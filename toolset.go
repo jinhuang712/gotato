@@ -113,8 +113,12 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 		return nil, err
 	}
 	names := map[string]bool{}
+	activeCount := uint32(0)
 	for _, entry := range cfg.toolSets {
-		spec := entry.set.Spec()
+		spec, err := toolSetSpec(entry.set)
+		if err != nil {
+			return nil, err
+		}
 		// Normalize before the uniqueness check so "files" and " files " are
 		// the same ToolSet and qualified Tool IDs never contain stray spaces.
 		spec.Name = strings.TrimSpace(spec.Name)
@@ -128,6 +132,15 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "duplicate ToolSet name: "+spec.Name, nil)
 		}
 		names[spec.Name] = true
+		if entry.active {
+			activeCount++
+			// Enforce the same ceiling here that stage enforces at activation,
+			// so WithActiveToolSet cannot install more active ToolSets than the
+			// limit admits.
+			if limitExceededUint32(registry.explicit, registry.maxActive, activeCount) {
+				return nil, runtimeError(ErrLimitExceeded, "ToolSet", "maximum active ToolSets exceeded", nil)
+			}
+		}
 		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, active: entry.active})
 	}
 	// Resolving the active ToolSets during construction keeps the first
@@ -147,6 +160,17 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 		return nil, err
 	}
 	return registry, nil
+}
+
+// toolSetSpec reads a ToolSet's Spec, converting an application panic into a
+// RuntimeError so a broken ToolSet fails NewAgent instead of crashing the host.
+func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = runtimeError(ErrExtensionFailure, "ToolSet", fmt.Sprintf("ToolSet.Spec panicked: %v", recovered), nil)
+		}
+	}()
+	return set.Spec(), nil
 }
 
 func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {

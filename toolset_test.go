@@ -366,14 +366,16 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 
 func TestSequentialToolRunsAlone(t *testing.T) {
 	tracker := &concurrencyTracker{}
-	hold := make(chan struct{})
-	close(hold)
+	arrive := make(chan string, 3)
+	aRelease := make(chan struct{})
+	guardRelease := make(chan struct{})
+	bRelease := make(chan struct{})
 	limits := defaultLimits()
 	limits.MaxParallelTools = 4
 	tools := []Tool{
-		&namedTool{id: "a", tracker: tracker},
-		&namedTool{id: "guard", tracker: tracker, seq: true},
-		&namedTool{id: "b", tracker: tracker},
+		&namedTool{id: "a", arrive: arrive, hold: aRelease, tracker: tracker},
+		&namedTool{id: "guard", arrive: arrive, hold: guardRelease, tracker: tracker, seq: true},
+		&namedTool{id: "b", arrive: arrive, hold: bRelease, tracker: tracker},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("a", "guard", "b"), finalScript("done")}}
 	agent, err := NewAgent(WithModel(model), WithTools(tools...), WithLimits(limits))
@@ -381,11 +383,98 @@ func TestSequentialToolRunsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close(context.Background())
-	if _, err := agent.Prompt(context.Background(), UserMessage("run")); err != nil {
+
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := agent.Prompt(context.Background(), UserMessage("run"))
+		done <- runErr
+	}()
+
+	// The Sequential guard splits the batch into single-Tool groups. Each Tool
+	// must therefore be observed in its executor alone: a second arrival while
+	// one is held would mean the guard ran alongside another Tool.
+	expectArrival := func(want string) {
+		t.Helper()
+		select {
+		case got := <-arrive:
+			if got != want {
+				t.Fatalf("Tool arrival = %q, want %q", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("Tool %q did not start", want)
+		}
+	}
+	assertAlone := func() {
+		t.Helper()
+		select {
+		case got := <-arrive:
+			t.Fatalf("Tool %q started while another was still running", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	expectArrival("a")
+	assertAlone()
+	close(aRelease)
+	expectArrival("guard")
+	assertAlone()
+	close(guardRelease)
+	expectArrival("b")
+	close(bRelease)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("sequential batch did not settle")
+	}
+	if tracker.peakValue() != 1 {
+		t.Fatalf("a Sequential Tool ran alongside others: peak = %d", tracker.peakValue())
+	}
+}
+
+func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
+	limits := defaultLimits()
+	limits.MaxActiveToolSets = 1
+	if _, err := NewAgent(WithModel(model), WithLimits(limits),
+		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
+		WithActiveToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
+	); !IsCode(err, ErrLimitExceeded) {
+		t.Fatalf("active ToolSets over the limit = %v, want limit_exceeded", err)
+	}
+	// One active plus one inactive is within the limit, and staging still
+	// obeys it at activation time.
+	agent, err := NewAgent(WithModel(model), WithLimits(limits),
+		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
+		WithToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if tracker.peakValue() > 1 {
-		t.Fatalf("a Sequential Tool ran alongside others: peak = %d", tracker.peakValue())
+	defer agent.Close(context.Background())
+	registry := agent.(*coreAgent).registry
+	if err := registry.stage(context.Background(), "git"); !IsCode(err, ErrLimitExceeded) {
+		t.Fatalf("staging over the active limit = %v, want limit_exceeded", err)
+	}
+}
+
+type panicSpecToolSet struct{}
+
+func (panicSpecToolSet) Spec() ToolSetSpec { panic("broken Spec") }
+
+func (panicSpecToolSet) Tools(context.Context) ([]Tool, error) { return nil, nil }
+
+func TestToolSetSpecPanicBecomesRuntimeError(t *testing.T) {
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
+	_, err := NewAgent(WithModel(model), WithActiveToolSet(panicSpecToolSet{}))
+	if err == nil {
+		t.Fatal("a panicking ToolSet.Spec did not fail NewAgent")
+	}
+	if !IsCode(err, ErrExtensionFailure) {
+		t.Fatalf("ToolSet.Spec panic = %v, want extension_failure", err)
 	}
 }
 
