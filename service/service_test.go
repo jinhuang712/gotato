@@ -385,6 +385,21 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	close(block)
 }
 
+func TestFailedOneShotLeavesNoSession(t *testing.T) {
+	runner, store := newRunner(t)
+	_, err := runner.Run(context.Background(), service.RunRequest{
+		Prompt:   "x",
+		Metadata: map[string]string{service.MetaPanel: "bogus"},
+	})
+	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		t.Fatalf("err = %v, want invalid_argument", err)
+	}
+	list, err := store.List(context.Background())
+	if err != nil || len(list) != 0 {
+		t.Fatalf("failed one-shot left %d sessions (err=%v)", len(list), err)
+	}
+}
+
 func TestSessionMutationsRespectTheLock(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))

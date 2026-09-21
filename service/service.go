@@ -115,6 +115,10 @@ var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknow
 // ErrDraining is returned once Drain has started.
 var ErrDraining = gotato.ErrorOf(gotato.ErrInvalidState, "service: draining")
 
+// ErrNotPersisted reports that a settled Run could not be saved. The Run
+// outcome is still returned; callers must treat the Session state as lost.
+var ErrNotPersisted = errors.New("service: session was not persisted")
+
 // Runner serves Runs against Sessions.
 type Runner struct {
 	store     session.Store
@@ -335,6 +339,8 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	// withSessionLock; the admission policy decides the busy behavior.
 	var out RunResult
 	var runErr error
+	started := false
+	created := request.SessionID == ""
 	lockErr := r.withSessionLock(runCtx, s.ID(), func() error {
 		if request.SessionID != "" {
 			// Re-read under the lock: another Run may have saved meanwhile,
@@ -373,6 +379,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		if err != nil {
 			return err
 		}
+		started = true
 		// Cancellation aborts the Run inside the Agent so Prompt still
 		// returns the settled (cancelled) result; cancelling the caller's
 		// context would abandon the result instead.
@@ -397,8 +404,11 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		}
 		_ = agent.Close(context.Background())
 
-		if saveErr := r.store.Save(context.Background(), s); saveErr != nil && runErr == nil {
-			runErr = saveErr
+		saveErr := r.store.Save(context.Background(), s)
+		if saveErr != nil && runErr == nil {
+			// The Run succeeded but its Session state is lost: report it as a
+			// persistence failure instead of a clean success.
+			runErr = fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
 		}
 		out = RunResult{
 			SessionID: s.ID(),
@@ -426,6 +436,11 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		return nil
 	})
 	if lockErr != nil {
+		if created && !started {
+			// A one-shot Run that never started must not leave an empty
+			// Session behind.
+			_ = r.store.Delete(context.Background(), s.ID())
+		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Cancelled while waiting for the Session lock: report a settled
 			// cancelled Run rather than a bare error.
