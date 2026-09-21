@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -337,6 +338,8 @@ func ForModel(messages []Message) []Message {
 		m.Parts = make([]ContentPart, 0, len(message.Parts))
 		for _, part := range message.Parts {
 			part.Metadata = nil
+			part.Data = slices.Clone(part.Data)
+			part.Signature = slices.Clone(part.Signature)
 			m.Parts = append(m.Parts, part)
 		}
 		if message.ToolResult != nil {

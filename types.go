@@ -81,7 +81,7 @@ func (m Message) Clone() Message {
 		out.Parts[i].Signature = slices.Clone(p.Signature)
 		out.Parts[i].Metadata = maps.Clone(p.Metadata)
 	}
-	out.ToolCalls = slices.Clone(m.ToolCalls)
+	out.ToolCalls = cloneToolCalls(m.ToolCalls)
 	if m.ToolResult != nil {
 		tr := m.ToolResult.Clone()
 		out.ToolResult = &tr
@@ -119,6 +119,7 @@ func (r ToolResult) Clone() ToolResult {
 	for i, p := range r.Content {
 		out.Content[i] = p
 		out.Content[i].Data = slices.Clone(p.Data)
+		out.Content[i].Signature = slices.Clone(p.Signature)
 		out.Content[i].Metadata = maps.Clone(p.Metadata)
 	}
 	out.Metadata = maps.Clone(r.Metadata)
