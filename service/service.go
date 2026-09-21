@@ -116,6 +116,9 @@ var ErrCapacity = gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum acti
 // ErrUnknownAgent is returned for an unregistered AgentSpec name.
 var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent")
 
+// ErrSessionExists is returned when an explicit Session ID is already taken.
+var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session already exists")
+
 // ErrDraining is returned once Drain has started.
 var ErrDraining = gotato.ErrorOf(gotato.ErrInvalidState, "service: draining")
 
@@ -277,6 +280,33 @@ func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[s
 		return nil, err
 	}
 	return s, nil
+}
+
+// CreateSessionExclusive creates a Session with an explicit ID and fails with
+// ErrSessionExists when the ID is taken. The existence check and the write run
+// under the Session lock, so two concurrent creates cannot both succeed.
+func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Session, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required")
+	}
+	var created *session.Session
+	err := r.withSessionLock(ctx, id, func() error {
+		if _, err := r.store.Get(ctx, id); err == nil {
+			return ErrSessionExists
+		} else if !errors.Is(err, session.ErrNotFound) {
+			return err
+		}
+		s, err := r.CreateSession(ctx, agent, metadata, session.WithID(id))
+		if err != nil {
+			return err
+		}
+		created = s
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 // RunRequest is one unit of work.

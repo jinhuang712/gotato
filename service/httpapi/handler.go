@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -42,6 +43,13 @@ import (
 // ContractVersion is the HTTP contract version. Field names and status codes
 // documented here are stable within a version.
 const ContractVersion = "2"
+
+// maxBodyBytes bounds every JSON request body. A larger body is rejected with
+// 413 rather than being buffered.
+const maxBodyBytes = 1 << 20
+
+// errBodyTooLarge marks a request body that exceeded maxBodyBytes.
+var errBodyTooLarge = errors.New("request body too large")
 
 // Handler serves the API.
 type Handler struct {
@@ -120,19 +128,24 @@ func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	var in createSessionRequest
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if err := decode(w, r, &in); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
-	var options []session.Option
 	if in.ID != "" {
-		if _, err := h.runner.Store().Get(r.Context(), in.ID); err == nil {
+		s, err := h.runner.CreateSessionExclusive(r.Context(), in.Agent, in.ID, in.Metadata)
+		if errors.Is(err, service.ErrSessionExists) {
 			writeError(w, http.StatusConflict, fmt.Errorf("session %s already exists", in.ID))
 			return
 		}
-		options = append(options, session.WithID(in.ID))
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, session.SummaryOf(s))
+		return
 	}
-	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata, options...)
+	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -205,8 +218,8 @@ func (h *Handler) contextReport(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 	var in compactRequest
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if err := decode(w, r, &in); err != nil {
+		writeDecodeError(w, err)
 		return
 	}
 	if in.Keep <= 0 {
@@ -220,9 +233,9 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *Handler) runRequest(r *http.Request) (service.RunRequest, error) {
+func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.RunRequest, error) {
 	var in runRequest
-	if err := decode(r, &in); err != nil {
+	if err := decode(w, r, &in); err != nil {
 		return service.RunRequest{}, err
 	}
 	if !in.Continue && strings.TrimSpace(in.Prompt) == "" {
@@ -239,9 +252,9 @@ func (h *Handler) runRequest(r *http.Request) (service.RunRequest, error) {
 }
 
 func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
-	request, err := h.runRequest(r)
+	request, err := h.runRequest(w, r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeDecodeError(w, err)
 		return
 	}
 	result, err := h.runner.Run(r.Context(), request)
@@ -259,9 +272,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 // runStream streams Events as Server-Sent Events (event: <kind>, data: JSON)
 // and ends with a "result" event carrying the RunResult.
 func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
-	request, err := h.runRequest(r)
+	request, err := h.runRequest(w, r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeDecodeError(w, err)
 		return
 	}
 	flusher, _ := w.(http.Flusher)
@@ -318,16 +331,39 @@ func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request) {
 
 // ---- helpers ----------------------------------------------------------------
 
-func decode(r *http.Request, into any) error {
-	if r.Body == nil || r.ContentLength == 0 {
+func decode(w http.ResponseWriter, r *http.Request, into any) error {
+	if r.Body == nil {
 		return nil
 	}
+	if r.ContentLength > maxBodyBytes {
+		return errBodyTooLarge
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(into); err != nil {
+		if errors.Is(err, io.EOF) {
+			// An absent body, including a chunked request with no data, is not
+			// malformed JSON.
+			return nil
+		}
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return errBodyTooLarge
+		}
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}
 	return nil
+}
+
+// writeDecodeError reports a request-parsing failure: 413 for an oversized
+// body, 400 for everything else.
+func writeDecodeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errBodyTooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
+	writeError(w, http.StatusBadRequest, err)
 }
 
 // StatusFor maps a runtime error to an HTTP status.

@@ -237,6 +237,31 @@ func TestStreamRunSSE(t *testing.T) {
 	}
 }
 
+func TestExplicitSessionCreateIsExclusiveAndBodyIsBounded(t *testing.T) {
+	server, _ := newServer(t)
+
+	status, _ := call(t, server, http.MethodPost, "/v1/sessions", map[string]any{"id": "fixed"})
+	if status != http.StatusCreated {
+		t.Fatalf("create = %d", status)
+	}
+	status, body := call(t, server, http.MethodPost, "/v1/sessions", map[string]any{"id": "fixed"})
+	if status != http.StatusConflict || !strings.Contains(string(body), "already exists") {
+		t.Fatalf("duplicate create = %d %s", status, body)
+	}
+
+	// An oversized body is rejected with 413 rather than buffered.
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/v1/sessions", strings.NewReader(`{"agent":"echo"}`+strings.Repeat(" ", 2<<20)))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body = %d", resp.StatusCode)
+	}
+}
+
 func TestHealthAndAgents(t *testing.T) {
 	server, _ := newServer(t)
 	status, body := call(t, server, http.MethodGet, "/healthz", nil)
