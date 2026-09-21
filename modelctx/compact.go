@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -57,7 +58,13 @@ func (t TruncateSummarizer) Summarize(_ context.Context, messages []gotato.Messa
 	}
 	text := b.String()
 	if len(text) > limit {
-		text = text[:limit] + "…"
+		// Cut on a rune boundary: text[:limit] can split a multi-byte rune,
+		// and json.Marshal would then turn the invalid bytes into U+FFFD.
+		cut := limit
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + "…"
 	}
 	return gotato.UserMessage(text), nil
 }
@@ -158,8 +165,14 @@ type Result struct {
 // Compact permanently replaces the Messages before the last opts.Keep with
 // one summary Message, records a session.Compaction, and records a
 // session_compacted Event in the Session. It must not run while a Run is
-// using the Session (AutoCompact runs it at the sanctioned point). It returns
-// Replaced==false when nothing was compacted.
+// using the Session (AutoCompact runs it at the sanctioned point).
+//
+// A cut is chosen at a user Message so a tool call is never separated from its
+// results; when no user Message can anchor the tail, the requested Keep
+// boundary is used instead as long as it keeps the sequence valid (see
+// safeCut). When even that boundary is unsafe, Compact makes no change and
+// returns a fully populated Result with Replaced==false and no Compaction, so
+// the caller can tell a no-op apart from a replacement.
 func Compact(ctx context.Context, s *session.Session, opts CompactOptions) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
@@ -304,11 +317,19 @@ func tailWithinBudget(messages []gotato.Message, budget int) int {
 // when want <= 0. A cut at a user Message never separates a tool call from
 // its results. When no user Message follows want, the last user Message before
 // it is used so the retained tail is always a valid sequence.
+//
+// When no user Message can anchor the retained tail at all — for example a
+// Session that is one user prompt followed by a long assistant/tool tail — the
+// requested boundary is used instead, so the history still shrinks. The
+// boundary is rejected only when it would start the tail on a tool result (or
+// leave a tool call without its result), which would produce an invalid
+// sequence; in that case there is no safe cut and Compact reports a
+// non-replaced Result.
 func safeCut(messages []gotato.Message, want int) int {
 	if want <= 0 {
 		return 0
 	}
-	if want >= len(messages) {
+	if want > len(messages) {
 		want = len(messages)
 	}
 	for i := want; i < len(messages); i++ {
@@ -321,7 +342,16 @@ func safeCut(messages []gotato.Message, want int) int {
 			return i
 		}
 	}
-	return 0
+	if want >= len(messages) {
+		return want
+	}
+	if messages[want].Role == gotato.RoleToolResult {
+		return 0
+	}
+	if want > 0 && messages[want-1].Role == gotato.RoleAssistant && len(messages[want-1].ToolCalls) > 0 {
+		return 0
+	}
+	return want
 }
 
 func isSummary(message gotato.Message) bool {

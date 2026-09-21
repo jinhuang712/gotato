@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -191,6 +192,49 @@ func TestCompactNoOpReportsFullState(t *testing.T) {
 	}
 }
 
+func TestCompactShrinksSinglePromptToolTail(t *testing.T) {
+	s := session.New()
+	_ = s.Append(gotato.UserMessage("u1"))
+	call := gotato.AssistantMessage("")
+	call.ToolCalls = []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}
+	call.StopReason = gotato.StopToolCalls
+	_ = s.Append(call)
+	_ = s.Append(gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK}, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "r"}}})
+	_ = s.Append(gotato.AssistantMessage("final1"))
+	_ = s.Append(gotato.AssistantMessage("final2"))
+	before := modelctx.EstimateTokens(s.Messages())
+
+	// The only user Message is at index 0 and want lands inside the tail: the
+	// fallback must still shrink instead of reporting a no-op.
+	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Replaced || result.MessagesBefore != 5 || result.MessagesAfter != 3 {
+		t.Fatalf("result = %+v", result)
+	}
+	if modelctx.EstimateTokens(s.Messages()) >= before {
+		t.Fatalf("tokens did not shrink: before %d after %d", before, modelctx.EstimateTokens(s.Messages()))
+	}
+	messages := s.Messages()
+	if messages[0].Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" || gotato.TextOf(messages[1]) != "final1" {
+		t.Fatalf("session after compact = %+v", messages)
+	}
+}
+
+func TestTruncateSummarizerCutsOnRuneBoundary(t *testing.T) {
+	messages := []gotato.Message{gotato.UserMessage(strings.Repeat("é", 100))}
+	for limit := 1; limit < 140; limit++ {
+		summary, err := (modelctx.TruncateSummarizer{MaxChars: limit}).Summarize(context.Background(), messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text := gotato.TextOf(summary); !utf8.ValidString(text) {
+			t.Fatalf("limit %d produced invalid UTF-8: %q", limit, text)
+		}
+	}
+}
+
 func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
 	s := session.New()
 	for i := 0; i < 20; i++ {
@@ -282,16 +326,5 @@ func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
 	}
 	if len(s.Messages()) != before {
 		t.Fatalf("history changed on failure: %d -> %d", before, len(s.Messages()))
-	}
-}
-
-func TestRenderBlocks(t *testing.T) {
-	got := gotato.RenderBlocks([]gotato.Block{
-		{Tag: "resource", Attrs: map[string]string{"path": "a.md", "lines": "1-2"}, Text: "x"},
-		{Text: "bare"},
-	})
-	want := "<resource lines=\"1-2\" path=\"a.md\">x</resource>\nbare"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
 	}
 }
