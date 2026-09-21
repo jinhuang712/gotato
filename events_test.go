@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -30,4 +31,25 @@ func TestProtectedEventSurvivesCoalescableBacklog(t *testing.T) {
 		}
 	}
 	t.Fatal("protected event never arrived")
+}
+
+// When the buffer holds nothing but protected events, an arriving protected
+// event cannot make room, so the subscription ends with a buffer-full error
+// instead of silently dropping state.
+func TestProtectedEventBufferFullEndsSubscription(t *testing.T) {
+	hub := newEventHub()
+	stream, err := hub.subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+
+	// One more protected event than the subscription buffer holds.
+	for i := 0; i < cap(stream.(*eventSubscription).ch)+1; i++ {
+		hub.publish(Event{Kind: EventAgentEnd, Class: EventProtected})
+	}
+	_, nextErr := stream.Next(context.Background())
+	if nextErr == nil || !strings.Contains(nextErr.Error(), "protected event buffer full") {
+		t.Fatalf("overflow error = %v", nextErr)
+	}
 }

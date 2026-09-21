@@ -197,29 +197,38 @@ func (s *eventSubscription) enqueue(ev Event) {
 		return
 	}
 	// A protected event must not be lost to a backlog of coalescable progress.
-	// Make room by discarding buffered coalescable events, oldest first.
-	drained := make([]Event, 0, cap(s.ch)+1)
+	// Make room by discarding the oldest coalescable event; only when the
+	// buffer holds nothing but protected events does the subscription end.
+	buffered := make([]Event, 0, cap(s.ch)+1)
 	for {
 		select {
 		case queued := <-s.ch:
-			if queued.Class != EventCoalescable {
-				drained = append(drained, queued)
-			}
+			buffered = append(buffered, queued)
 		default:
-			drained = append(drained, ev)
-			if len(drained) > cap(s.ch) {
-				// Even without progress events the buffer is full: the
-				// subscriber is too slow and the subscription ends.
-				s.closed = true
-				s.err = errors.New("gotato: protected event buffer full")
-				close(s.ch)
-				close(s.done)
-				if s.closeFn != nil {
-					s.closeFn(s)
+			buffered = append(buffered, ev)
+			if len(buffered) > cap(s.ch) {
+				drop := -1
+				for i, queued := range buffered {
+					if queued.Class == EventCoalescable {
+						drop = i
+						break
+					}
 				}
-				return
+				if drop < 0 {
+					// Even without progress events the buffer is full: the
+					// subscriber is too slow and the subscription ends.
+					s.closed = true
+					s.err = errors.New("gotato: protected event buffer full")
+					close(s.ch)
+					close(s.done)
+					if s.closeFn != nil {
+						s.closeFn(s)
+					}
+					return
+				}
+				buffered = append(buffered[:drop], buffered[drop+1:]...)
 			}
-			for _, pending := range drained {
+			for _, pending := range buffered {
 				s.ch <- pending
 			}
 			return
