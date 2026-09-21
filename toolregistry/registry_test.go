@@ -11,7 +11,10 @@ import (
 )
 
 func TestRegistryLifecycle(t *testing.T) {
-	reg := toolregistry.New()
+	reg, err := toolregistry.New()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var changes []toolregistry.Change
 	reg.OnChange(func(change toolregistry.Change) { changes = append(changes, change) })
 
@@ -69,8 +72,51 @@ func TestRegistryLifecycle(t *testing.T) {
 	}
 }
 
+func TestRegistryNormalizesIDsAndIsolatesSpecs(t *testing.T) {
+	var zero toolregistry.Registry
+	if err := zero.Register(testkit.NewFakeTool(" spaced ", "S")); err != nil {
+		t.Fatalf("zero-value Register = %v", err)
+	}
+	if _, ok := zero.Describe("spaced"); !ok {
+		t.Fatal("trimmed ID is not addressable")
+	}
+
+	reg := toolregistry.MustNew()
+	tool := testkit.NewFakeTool("tool", "T").WithSchema(`{"type":"object"}`)
+	if err := reg.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	list := reg.List()
+	list[0].Spec.InputSchema[0] = 'X'
+	list[0].Spec.Metadata = map[string]string{"mutated": "yes"}
+	if got := reg.List()[0].Spec.InputSchema[0]; got != '{' {
+		t.Fatalf("mutating a returned Spec reached the registry: %q", got)
+	}
+	if _, mutated := reg.List()[0].Spec.Metadata["mutated"]; mutated {
+		t.Fatal("mutating a returned Spec Metadata reached the registry")
+	}
+	if _, dup := reg.Describe("tool"); !dup {
+		t.Fatal("Describe lost the entry")
+	}
+	if err := reg.Register(testkit.NewFakeTool("tool", "T")); !errors.Is(err, toolregistry.ErrDuplicate) {
+		t.Fatalf("duplicate err = %v", err)
+	}
+}
+
+func TestNewReportsRegistrationFailure(t *testing.T) {
+	if _, err := toolregistry.New(nil); err == nil {
+		t.Fatal("New dropped a nil Tool instead of failing")
+	}
+	if _, err := toolregistry.New(testkit.NewFakeTool("x", "X"), testkit.NewFakeTool("x", "X")); !errors.Is(err, toolregistry.ErrDuplicate) {
+		t.Fatalf("duplicate New err = %v", err)
+	}
+}
+
 func TestRegistryDrivesAgentToolSurface(t *testing.T) {
-	reg := toolregistry.New(testkit.DemoEchoTool())
+	reg, err := toolregistry.New(testkit.DemoEchoTool())
+	if err != nil {
+		t.Fatal(err)
+	}
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"hi"}`)}),
 		testkit.Text("done"),

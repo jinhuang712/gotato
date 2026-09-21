@@ -221,6 +221,59 @@ func TestFuncToolStringOutputBecomesText(t *testing.T) {
 	}
 }
 
+type embeddedPrivateFields struct {
+	Value string `json:"value"`
+}
+
+type withEmbeddedPrivate struct {
+	embeddedPrivateFields
+	Name string `json:"name"`
+}
+
+type byteArrayInput struct {
+	Hash [4]byte `json:"hash"`
+	Blob []byte  `json:"blob,omitempty"`
+}
+
+func TestFuncToolSchemaForByteArraysAndEmbeddedUnexported(t *testing.T) {
+	arrays, err := NewFuncTool("bytes", "", func(ctx context.Context, in byteArrayInput) (string, error) { return "", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(arrays.Spec().InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	hash, _ := properties["hash"].(map[string]any)
+	if hash["type"] != "array" {
+		t.Fatalf("[4]byte schema = %#v", hash)
+	}
+	items, _ := hash["items"].(map[string]any)
+	if items["type"] != "integer" {
+		t.Fatalf("[4]byte items = %#v", hash["items"])
+	}
+	blob, _ := properties["blob"].(map[string]any)
+	if blob["type"] != "string" {
+		t.Fatalf("[]byte schema = %#v", blob)
+	}
+
+	embedded, err := NewFuncTool("embedded", "", func(ctx context.Context, in withEmbeddedPrivate) (string, error) { return "", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(embedded.Spec().InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	promoted, _ := schema["properties"].(map[string]any)
+	if len(promoted) != 2 {
+		t.Fatalf("promoted properties = %#v", promoted)
+	}
+	if _, ok := promoted["value"]; !ok {
+		t.Fatal("exported field of an embedded unexported struct was dropped")
+	}
+}
+
 type stringlyInput struct {
 	At      time.Time `json:"at"`
 	Address net.IP    `json:"address,omitempty"`

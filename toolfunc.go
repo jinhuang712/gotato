@@ -145,9 +145,6 @@ func structSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]
 func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties map[string]any, required *[]any) error {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if !field.IsExported() {
-			continue
-		}
 		tag := field.Tag.Get("json")
 		if tag == "-" {
 			continue
@@ -159,6 +156,9 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 				embedded = embedded.Elem()
 			}
 			if embedded.Kind() == reflect.Struct {
+				// encoding/json promotes the exported fields of an embedded
+				// struct even when the embedded type itself is unexported, so
+				// traverse it before the exported-field check.
 				if visiting[embedded] {
 					return fmt.Errorf("recursive struct type %s", embedded.String())
 				}
@@ -170,6 +170,9 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 				}
 				continue
 			}
+		}
+		if !field.IsExported() {
+			continue
 		}
 		if name == "" {
 			name = field.Name
@@ -237,6 +240,11 @@ func valueSchema(typ reflect.Type, visiting map[reflect.Type]bool) (map[string]a
 		return nil, fmt.Errorf("unsupported interface type %s", typ.String())
 	case reflect.Slice, reflect.Array:
 		if typ.Elem().Kind() == reflect.Uint8 {
+			// encoding/json encodes []byte as a base64 string but [N]byte as
+			// an array of numbers, so a fixed-size byte array is not a string.
+			if typ.Kind() == reflect.Array {
+				return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}}, nil
+			}
 			return map[string]any{"type": "string"}, nil
 		}
 		items, err := valueSchema(typ.Elem(), visiting)

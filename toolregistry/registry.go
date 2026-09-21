@@ -4,7 +4,7 @@
 // A Registry implements gotato.ToolSource, so an Agent picks up changes at
 // each Turn boundary:
 //
-//	reg := toolregistry.New()
+//	reg, _ := toolregistry.New()
 //	reg.Register(fsRead)
 //	reg.Register(shell)
 //	reg.Deactivate("shell")           // registered but hidden from the Model
@@ -16,6 +16,9 @@ package toolregistry
 
 import (
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,7 +26,7 @@ import (
 	gotato "github.com/jinhuang712/gotato"
 )
 
-// ErrNotFound is returned for an unknown Tool ID.
+// ErrNotFound is returned for an unknown Tool ID. It wraps the ID.
 var ErrNotFound = errors.New("toolregistry: tool not found")
 
 // ErrDuplicate is returned when registering an ID that already exists.
@@ -64,11 +67,25 @@ type Registry struct {
 	hooks   []func(Change)
 }
 
-// New creates an empty Registry. Tools passed here are registered active.
-func New(tools ...gotato.Tool) *Registry {
-	r := &Registry{entries: map[string]*entry{}}
+// New creates a Registry and registers the given Tools in the active state.
+// It returns the first registration failure rather than silently dropping a
+// Tool. A caller with already-validated Tools may use MustNew.
+func New(tools ...gotato.Tool) (*Registry, error) {
+	r := &Registry{}
 	for _, tool := range tools {
-		_ = r.Register(tool)
+		if err := r.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
+}
+
+// MustNew is New for Tools known to be valid; it panics on a registration
+// failure.
+func MustNew(tools ...gotato.Tool) *Registry {
+	r, err := New(tools...)
+	if err != nil {
+		panic(err)
 	}
 	return r
 }
@@ -83,12 +100,18 @@ func (r *Registry) Register(tool gotato.Tool) error {
 	if id == "" {
 		return errors.New("toolregistry: tool has an empty ID")
 	}
+	spec.ID = id
 	r.mu.Lock()
+	if r.entries == nil {
+		r.entries = map[string]*entry{}
+	}
 	if _, exists := r.entries[id]; exists {
 		r.mu.Unlock()
-		return ErrDuplicate
+		return fmt.Errorf("%w: %q", ErrDuplicate, id)
 	}
-	r.entries[id] = &entry{tool: tool, spec: spec, active: true}
+	// Store a private copy so a caller cannot mutate the registry's view of a
+	// Tool through a slice or map it still holds.
+	r.entries[id] = &entry{tool: tool, spec: cloneSpec(spec), active: true}
 	hooks := r.hooks
 	r.mu.Unlock()
 	notify(hooks, Change{Kind: Registered, ID: id})
@@ -100,7 +123,7 @@ func (r *Registry) Unregister(id string) error {
 	r.mu.Lock()
 	if _, exists := r.entries[id]; !exists {
 		r.mu.Unlock()
-		return ErrNotFound
+		return fmt.Errorf("%w: %q", ErrNotFound, id)
 	}
 	delete(r.entries, id)
 	hooks := r.hooks
@@ -155,7 +178,7 @@ func (r *Registry) Describe(id string) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
-	return Entry{Spec: e.spec, Active: e.active}, true
+	return Entry{Spec: cloneSpec(e.spec), Active: e.active}, true
 }
 
 // List returns every Entry sorted by ID.
@@ -164,7 +187,7 @@ func (r *Registry) List() []Entry {
 	defer r.mu.RUnlock()
 	out := make([]Entry, 0, len(r.entries))
 	for _, e := range r.entries {
-		out = append(out, Entry{Spec: e.spec, Active: e.active})
+		out = append(out, Entry{Spec: cloneSpec(e.spec), Active: e.active})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Spec.ID < out[j].Spec.ID })
 	return out
@@ -175,7 +198,7 @@ func (r *Registry) Active() []gotato.ToolSpec {
 	tools := r.Tools()
 	out := make([]gotato.ToolSpec, 0, len(tools))
 	for _, tool := range tools {
-		out = append(out, tool.Spec())
+		out = append(out, cloneSpec(tool.Spec()))
 	}
 	return out
 }
@@ -213,4 +236,14 @@ func notify(hooks []func(Change), change Change) {
 	for _, hook := range hooks {
 		hook(change)
 	}
+}
+
+// cloneSpec deep-copies the slice and map fields so a spec handed out by the
+// Registry cannot be mutated into the Tool's own state.
+func cloneSpec(spec gotato.ToolSpec) gotato.ToolSpec {
+	out := spec
+	out.InputSchema = slices.Clone(spec.InputSchema)
+	out.OutputSchema = slices.Clone(spec.OutputSchema)
+	out.Metadata = maps.Clone(spec.Metadata)
+	return out
 }
