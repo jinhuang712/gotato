@@ -269,6 +269,35 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	}
 }
 
+func TestCallerCancelReportsCancelled(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, store := newRunner(t, service.AgentSpec{Name: "slow", Model: model})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan service.RunResult, 1)
+	go func() {
+		result, _ := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
+		done <- result
+	}()
+	waitFor(t, func() bool { return model.Calls() == 1 })
+	cancel()
+	result := <-done
+	if result.Result.Status != gotato.RunCanceled {
+		t.Fatalf("caller cancel status = %q err=%v, want cancelled", result.Result.Status, result.Result.Error)
+	}
+	stored, err := store.Get(context.Background(), result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := stored.Runs()
+	if len(runs) != 1 || runs[0].Status != gotato.RunCanceled {
+		t.Fatalf("session run record = %+v, want cancelled", runs)
+	}
+	close(block)
+}
+
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

@@ -375,10 +375,24 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			out.Result.Error = gotato.ErrorOf(gotato.ErrInternalInvariant, runErr.Error())
 		}
 		if out.Result.Status == "" {
-			out.Result.Status = gotato.RunFailed
+			out.Result.Status = runStatusForError(runErr)
 		}
 	}
 	return out, runErr
+}
+
+// runStatusForError classifies a terminal error when the Agent itself did not
+// report a status: a caller-cancelled context is a cancelled Run, not a
+// failure, and the Session's Run record says the same.
+func runStatusForError(err error) gotato.RunStatus {
+	switch {
+	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.ErrCancelled):
+		return gotato.RunCanceled
+	case errors.Is(err, context.DeadlineExceeded), gotato.IsCode(err, gotato.ErrDeadlineExceeded):
+		return gotato.RunDeadlineExceeded
+	default:
+		return gotato.RunFailed
+	}
 }
 
 func compacted(auto *modelctx.AutoCompactor) bool {
