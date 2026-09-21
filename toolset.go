@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // ActivationToolName is the local name of the built-in Tool that activates an
@@ -77,7 +78,9 @@ type toolSetState struct {
 }
 
 // toolRegistry owns Tool identity, visibility, and activation for one Agent.
-// The Agent goroutine is its only mutation authority.
+// The Agent goroutine commits visibility changes at batch boundaries; the
+// activation Tool resolves and stages a ToolSet from its own goroutine, so mu
+// guards every mutation of that state.
 type toolRegistry struct {
 	rootNamespace string
 	rootTools     []Tool
@@ -92,6 +95,10 @@ type toolRegistry struct {
 	// pending holds ToolSets activated during the current batch. Visibility
 	// commits at the batch boundary, never inside it.
 	pending []*toolSetState
+	// mu guards sets, pending, resolved, specs, and byQualified. Callers that
+	// run on the Agent goroutine hold the Agent's registryMu, which is the
+	// lock ToolInspector.Tools reads under; mu is the inner lock.
+	mu sync.Mutex
 }
 
 func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
@@ -275,6 +282,8 @@ func (r *toolRegistry) collectSources() (err error) {
 // refreshSources re-collects the dynamic Tools and rebuilds visibility. On
 // failure the previous surface stays in place.
 func (r *toolRegistry) refreshSources() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	previous := r.sourceTools
 	if err := r.collectSources(); err != nil {
 		r.sourceTools = previous
@@ -286,6 +295,18 @@ func (r *toolRegistry) refreshSources() error {
 		return err
 	}
 	return nil
+}
+
+// abortPending discards ToolSets staged by a Run that never reached a commit
+// boundary (a failed or cancelled Run), so a later Run cannot activate a
+// ToolSet the Model never asked for.
+func (r *toolRegistry) abortPending() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, state := range r.pending {
+		state.resolved = nil
+	}
+	r.pending = nil
 }
 
 func (r *toolRegistry) qualify(namespace, local string) string {
@@ -327,6 +348,8 @@ func (r *toolRegistry) visibleSpecs() []ToolSpec { return cloneToolSpecs(r.specs
 // so a failure reaches the Model as a failed Tool Result; visibility changes
 // only at the batch boundary.
 func (r *toolRegistry) stage(ctx context.Context, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, state := range r.sets {
 		if state.spec.Name != name {
 			continue
@@ -356,6 +379,8 @@ func (r *toolRegistry) stage(ctx context.Context, name string) error {
 // commitPending makes staged ToolSets visible. It reports the names it
 // activated so the Loop can emit one Event per activation.
 func (r *toolRegistry) commitPending() ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if len(r.pending) == 0 {
 		return nil, nil
 	}

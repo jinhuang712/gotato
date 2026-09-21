@@ -462,13 +462,16 @@ func (a *coreAgent) WaitForIdle(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	for {
+		// Capture the change signal before reading the Status, so a status
+		// transition that lands in between closes the captured channel and
+		// wakes this loop instead of being missed.
+		a.stateMu.Lock()
+		changed := a.stateChange
+		a.stateMu.Unlock()
 		switch a.Status() {
 		case AgentIdle:
 			return nil
 		case AgentCreated, AgentBusy:
-			a.stateMu.Lock()
-			changed := a.stateChange
-			a.stateMu.Unlock()
 			select {
 			case <-changed:
 			case <-ctx.Done():
@@ -702,6 +705,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		}
 		a.runMu.Unlock()
 	}()
+	// A Run that ends before a commit boundary must not leave a staged ToolSet
+	// behind for the next Run to activate unasked.
+	defer a.registry.abortPending()
 
 	var sequence uint64
 	var totalUsage Usage
@@ -967,8 +973,11 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		}
 
 		// ToolSet activation commits at the batch boundary, so newly active
-		// Tools appear only in the next Model request.
+		// Tools appear only in the next Model request. registryMu serializes
+		// the visibility write with ToolInspector.Tools on other goroutines.
+		a.registryMu.Lock()
 		activated, activationErr := a.registry.commitPending()
+		a.registryMu.Unlock()
 		if activationErr != nil {
 			return fail(asRuntimeError(activationErr))
 		}
