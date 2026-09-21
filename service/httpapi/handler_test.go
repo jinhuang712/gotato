@@ -118,8 +118,21 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions/"+summary.ID+"/events?kind=context_built", nil)
-	if status != http.StatusOK || strings.Count(strings.TrimSpace(string(body)), "\n") != 1 {
+	if status != http.StatusOK {
 		t.Fatalf("events = %d %q", status, body)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) == 0 {
+		t.Fatalf("no events returned: %q", body)
+	}
+	for _, line := range lines {
+		var filtered gotato.Event
+		if err := json.Unmarshal([]byte(line), &filtered); err != nil {
+			t.Fatal(err)
+		}
+		if filtered.Kind != gotato.EventContextBuilt {
+			t.Fatalf("event kind = %q, want context_built", filtered.Kind)
+		}
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions/"+summary.ID+"/context", nil)
@@ -208,6 +221,7 @@ func TestStreamRunSSE(t *testing.T) {
 		t.Fatalf("content-type = %s", ct)
 	}
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	var events []string
 	var resultLine string
 	for scanner.Scan() {
@@ -218,6 +232,9 @@ func TestStreamRunSSE(t *testing.T) {
 		if len(events) > 0 && events[len(events)-1] == "result" && strings.HasPrefix(line, "data: ") {
 			resultLine = strings.TrimPrefix(line, "data: ")
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
 	}
 	if len(events) < 5 || events[0] != "agent_start" || events[len(events)-1] != "result" {
 		t.Fatalf("events = %v", events)

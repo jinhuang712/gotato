@@ -195,8 +195,29 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close(context.Background())
+	events, err := agent.(EventSource).Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close()
 	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); err != nil {
 		t.Fatal(err)
+	}
+	status := any(nil)
+	for {
+		event, nextErr := events.Next(context.Background())
+		if nextErr != nil {
+			t.Fatalf("event stream ended before agent_end: %v", nextErr)
+		}
+		if event.Kind == EventToolExecutionEnd {
+			status = event.Payload["status"]
+		}
+		if event.Kind == EventAgentEnd {
+			break
+		}
+	}
+	if status != ToolResultFailed {
+		t.Fatalf("tool result status = %v, want %q", status, ToolResultFailed)
 	}
 }
 

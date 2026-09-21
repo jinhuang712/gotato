@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/testkit"
@@ -51,6 +52,25 @@ func TestReplayModelExposesScriptExhausted(t *testing.T) {
 	model := testkit.NewReplayModel()
 	if _, err := model.Stream(context.Background(), gotato.ModelRequest{}); !errors.Is(err, testkit.ErrScriptExhausted) || !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFakeModelBlockHonorsCancellation(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("x"))
+	block := make(chan struct{})
+	model.Block = block
+	stream, err := model.Stream(context.Background(), gotato.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := stream.Recv(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked Recv err = %v", err)
+	}
+	close(block)
+	if _, err := stream.Recv(context.Background()); err != nil {
+		t.Fatalf("Recv after unblock: %v", err)
 	}
 }
 

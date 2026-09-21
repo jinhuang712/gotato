@@ -110,6 +110,9 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("more")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
+		t.Fatalf("Continue after a follow-up Run = %v", err)
+	}
 }
 
 func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {

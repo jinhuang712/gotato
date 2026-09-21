@@ -17,10 +17,15 @@ type testStream struct {
 }
 
 func (s *testStream) Recv(ctx context.Context) (ModelEvent, error) {
-	if s.block != nil {
+	s.mu.Lock()
+	block := s.block
+	s.mu.Unlock()
+	if block != nil {
 		select {
-		case <-s.block:
+		case <-block:
+			s.mu.Lock()
 			s.block = nil
+			s.mu.Unlock()
 		case <-ctx.Done():
 			return ModelEvent{}, ctx.Err()
 		}
@@ -107,8 +112,14 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	if turnSummary == nil || turnSummary["tool_calls"] != 0 {
 		t.Fatalf("unexpected turn summary = %#v", turnSummary)
 	}
-	if len(kinds) == 0 || kinds[len(kinds)-1] != EventAgentEnd {
-		t.Fatalf("events did not settle: %v", kinds)
+	agentEnds := 0
+	for _, kind := range kinds {
+		if kind == EventAgentEnd {
+			agentEnds++
+		}
+	}
+	if agentEnds != 1 {
+		t.Fatalf("agent_end count = %d in %v", agentEnds, kinds)
 	}
 	messageStart, messageUpdate := -1, -1
 	for i, kind := range kinds {

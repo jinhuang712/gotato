@@ -169,7 +169,8 @@ func TestWaitPolicyQueuesAndCancelRunAborts(t *testing.T) {
 	if err != nil || second.Result.Status != gotato.RunCompleted {
 		t.Fatalf("second = %+v err=%v", second, err)
 	}
-	// Capacity: a third concurrent run on other sessions is rejected.
+	// Capacity is exercised in TestCapacityAndDrain; a run on a free session
+	// still succeeds here.
 	if _, err := runner.Run(ctx, service.RunRequest{Prompt: "x"}); err != nil {
 		t.Fatal(err)
 	}
