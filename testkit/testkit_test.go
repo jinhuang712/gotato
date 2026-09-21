@@ -47,6 +47,40 @@ func TestReplayModelFailsWhenExhausted(t *testing.T) {
 	}
 }
 
+func TestReplayModelExposesScriptExhausted(t *testing.T) {
+	model := testkit.NewReplayModel()
+	if _, err := model.Stream(context.Background(), gotato.ModelRequest{}); !errors.Is(err, testkit.ErrScriptExhausted) || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFakeModelWithoutScriptsFails(t *testing.T) {
+	model := testkit.NewFakeModel()
+	if _, err := model.Stream(context.Background(), gotato.ModelRequest{}); err == nil {
+		t.Fatal("FakeModel with no scripts returned a stream")
+	}
+}
+
+func TestFakeModelRequestsAreIsolated(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("a"))
+	agent, err := gotato.NewAgent(gotato.WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close(context.Background())
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("q")); err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	if len(requests) == 0 || len(requests[0].Messages) == 0 {
+		t.Fatalf("requests = %+v", requests)
+	}
+	requests[0].Messages[0].Parts[0].Text = "mutated"
+	if gotato.TextOf(model.Requests()[0].Messages[0]) == "mutated" {
+		t.Fatal("mutating a returned request reached the recording")
+	}
+}
+
 func TestLoadReplay(t *testing.T) {
 	model, err := testkit.LoadReplay([]byte(`[[{"kind":"text_delta","text":"hi"},{"kind":"done","stop_reason":"end_turn"}]]`))
 	if err != nil {

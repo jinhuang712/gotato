@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -64,15 +65,14 @@ func (m *FakeModel) Stream(_ context.Context, request gotato.ModelRequest) (gota
 		return nil, m.Err
 	}
 	var events Script
-	if len(m.scripts) > 0 {
-		index := len(m.requests) - 1
-		if index >= len(m.scripts) {
-			index = len(m.scripts) - 1
-		}
-		events = m.scripts[index]
-	} else {
-		events = Text("")
+	if len(m.scripts) == 0 {
+		return nil, errors.New("testkit: FakeModel has no scripts configured")
 	}
+	index := len(m.requests) - 1
+	if index >= len(m.scripts) {
+		index = len(m.scripts) - 1
+	}
+	events = m.scripts[index]
 	return &stream{events: events, block: m.Block}, nil
 }
 
@@ -83,12 +83,14 @@ func (m *FakeModel) Calls() int {
 	return len(m.requests)
 }
 
-// Requests returns the ModelRequests received so far.
+// Requests returns the ModelRequests received so far, with cloned Messages.
 func (m *FakeModel) Requests() []gotato.ModelRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]gotato.ModelRequest, len(m.requests))
-	copy(out, m.requests)
+	for i, request := range m.requests {
+		out[i] = cloneRequest(request)
+	}
 	return out
 }
 
@@ -99,7 +101,18 @@ func (m *FakeModel) LastRequest() (gotato.ModelRequest, bool) {
 	if len(m.requests) == 0 {
 		return gotato.ModelRequest{}, false
 	}
-	return m.requests[len(m.requests)-1], true
+	return cloneRequest(m.requests[len(m.requests)-1]), true
+}
+
+// cloneRequest deep-copies the Message list so a caller cannot mutate the
+// recording the fake keeps.
+func cloneRequest(request gotato.ModelRequest) gotato.ModelRequest {
+	out := request
+	out.Messages = make([]gotato.Message, len(request.Messages))
+	for i, message := range request.Messages {
+		out.Messages[i] = message.Clone()
+	}
+	return out
 }
 
 // ReplayModel replays recorded ModelEvent sequences. Unlike FakeModel it
@@ -129,7 +142,7 @@ func (m *ReplayModel) Stream(context.Context, gotato.ModelRequest) (gotato.Model
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.calls >= len(m.scripts) {
-		return nil, io.ErrUnexpectedEOF
+		return nil, ErrScriptExhausted
 	}
 	events := m.scripts[m.calls]
 	m.calls++
@@ -376,7 +389,8 @@ func DemoEchoTool() gotato.Tool {
 	return tool
 }
 
-// ErrScriptExhausted is returned by helpers when a recording ran out.
-var ErrScriptExhausted = errors.New("testkit: script exhausted")
+// ErrScriptExhausted is returned by ReplayModel when the recording runs out.
+// It wraps io.ErrUnexpectedEOF, so errors.Is matches either sentinel.
+var ErrScriptExhausted = fmt.Errorf("testkit: script exhausted: %w", io.ErrUnexpectedEOF)
 
 func itoa(n int) string { return strconv.Itoa(n) }
