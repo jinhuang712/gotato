@@ -100,8 +100,12 @@ func (m ModelSummarizer) Summarize(ctx context.Context, messages []gotato.Messag
 	if err != nil {
 		return gotato.Message{}, err
 	}
+	if stream == nil {
+		return gotato.Message{}, errors.New("modelctx: Model returned a nil stream")
+	}
 	defer stream.Close()
 	var b strings.Builder
+	completed := false
 	for {
 		event, err := stream.Recv(ctx)
 		if err != nil {
@@ -114,10 +118,18 @@ func (m ModelSummarizer) Summarize(ctx context.Context, messages []gotato.Messag
 			b.WriteString(event.Text)
 		}
 		if event.Kind == gotato.ModelDone {
+			completed = true
 			break
 		}
 	}
-	return gotato.UserMessage("Summary of earlier conversation:\n" + strings.TrimSpace(b.String())), nil
+	if !completed {
+		return gotato.Message{}, errors.New("modelctx: model stream ended before ModelDone")
+	}
+	summary := strings.TrimSpace(b.String())
+	if summary == "" {
+		return gotato.Message{}, errors.New("modelctx: model returned an empty summary")
+	}
+	return gotato.UserMessage("Summary of earlier conversation:\n" + summary), nil
 }
 
 // CompactOptions controls Compact.

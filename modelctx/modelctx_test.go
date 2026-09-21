@@ -243,6 +243,48 @@ func TestModelSummarizer(t *testing.T) {
 	}
 }
 
+type nilStreamModel struct{}
+
+func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
+	return nil, nil
+}
+
+func TestModelSummarizerRejectsIncompleteStream(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
+	if _, err := (modelctx.ModelSummarizer{Model: model}).Summarize(context.Background(), toolConversation()); err == nil {
+		t.Fatal("expected an error when the stream ends before ModelDone")
+	}
+}
+
+func TestModelSummarizerRejectsEmptySummary(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}})
+	if _, err := (modelctx.ModelSummarizer{Model: model}).Summarize(context.Background(), toolConversation()); err == nil {
+		t.Fatal("expected an error for an empty summary")
+	}
+}
+
+func TestModelSummarizerRejectsNilStream(t *testing.T) {
+	if _, err := (modelctx.ModelSummarizer{Model: nilStreamModel{}}).Summarize(context.Background(), toolConversation()); err == nil {
+		t.Fatal("expected an error when the Model returns a nil stream")
+	}
+}
+
+func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
+	s := session.New()
+	_ = s.Append(gotato.UserMessage("u1"))
+	_ = s.Append(gotato.AssistantMessage("a1"))
+	_ = s.Append(gotato.UserMessage("u2"))
+	_ = s.Append(gotato.AssistantMessage("a2"))
+	before := len(s.Messages())
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
+	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 1, Summarizer: modelctx.ModelSummarizer{Model: model}}); err == nil {
+		t.Fatal("expected Compact to fail when the summary stream is incomplete")
+	}
+	if len(s.Messages()) != before {
+		t.Fatalf("history changed on failure: %d -> %d", before, len(s.Messages()))
+	}
+}
+
 func TestRenderBlocks(t *testing.T) {
 	got := gotato.RenderBlocks([]gotato.Block{
 		{Tag: "resource", Attrs: map[string]string{"path": "a.md", "lines": "1-2"}, Text: "x"},
