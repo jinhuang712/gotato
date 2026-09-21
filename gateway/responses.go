@@ -319,7 +319,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 		if callID == "" {
 			return nil, fmt.Errorf("gateway: Tool result has no Call ID")
 		}
-		output := gotato.TextOf(message)
+		output := toolResultText(message)
 		if output == "" && message.ToolResult != nil {
 			output = message.ToolResult.SafeError
 		}

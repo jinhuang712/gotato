@@ -130,3 +130,32 @@ func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
 		t.Fatalf("HTTP attempts = %d", calls.Load())
 	}
 }
+
+func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
+		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
+	}
+	wire, err := convertMessage(message, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.Role != "tool" || wire.Content != `{"summary":"sunny"}` || wire.ToolCallID != "c1" {
+		t.Fatalf("wire = %+v", wire)
+	}
+}
+
+func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
+	}
+	wire, err := convertMessage(message, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.Content != "upstream is down" {
+		t.Fatalf("content = %q", wire.Content)
+	}
+}

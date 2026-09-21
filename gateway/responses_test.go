@@ -169,3 +169,37 @@ func testToken(accountID string) string {
 	})
 	return encode(`{"alg":"none"}`) + "." + encode(string(payload)) + ".signature"
 }
+
+func TestConvertResponsesMessageToolResultKeepsJSONContent(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
+		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
+	}
+	items, err := convertResponsesMessage(message, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	output, ok := items[0].(responsesFunctionOutput)
+	if !ok || output.Output != `{"summary":"sunny"}` {
+		t.Fatalf("output = %#v", items[0])
+	}
+}
+
+func TestConvertResponsesMessageToolResultFallsBackToSafeError(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
+	}
+	items, err := convertResponsesMessage(message, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := items[0].(responsesFunctionOutput)
+	if !ok || output.Output != "upstream is down" {
+		t.Fatalf("output = %#v", items[0])
+	}
+}

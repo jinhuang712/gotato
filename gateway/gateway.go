@@ -287,7 +287,13 @@ func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[strin
 func convertMessage(message gotato.Message, names map[string]string) (wireMessage, error) {
 	role := string(message.Role)
 	if role == string(gotato.RoleToolResult) {
-		content := gotato.TextOf(message)
+		content := toolResultText(message)
+		if content == "" && message.ToolResult != nil {
+			content = message.ToolResult.SafeError
+		}
+		if content == "" {
+			content = "(no tool output)"
+		}
 		callID := ""
 		if message.ToolResult != nil {
 			callID = string(message.ToolResult.CallID)
@@ -312,6 +318,20 @@ func convertMessage(message gotato.Message, names map[string]string) (wireMessag
 		out.ToolCalls = append(out.ToolCalls, wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(call.Arguments)}})
 	}
 	return out, nil
+}
+
+// toolResultText renders a Tool Result Message as text for a provider. Every
+// text-bearing Part kind counts, because a typed Tool returns its output as a
+// ContentJSON Part; gotato.TextOf would drop it.
+func toolResultText(message gotato.Message) string {
+	var b strings.Builder
+	for _, part := range message.Parts {
+		switch part.Kind {
+		case gotato.ContentText, gotato.ContentReasoning, gotato.ContentJSON:
+			b.WriteString(part.Text)
+		}
+	}
+	return b.String()
 }
 
 func gatewayFunctionName(id string) string {
