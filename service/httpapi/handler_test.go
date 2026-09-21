@@ -3,11 +3,13 @@ package httpapi_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/service"
@@ -52,6 +54,38 @@ func call(t *testing.T, server *httptest.Server, method, path string, body any) 
 	var out bytes.Buffer
 	_, _ = out.ReadFrom(resp.Body)
 	return resp.StatusCode, out.Bytes()
+}
+
+func TestReadyzReportsDraining(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, err := service.New(service.Config{
+		Store: session.NewMemoryStore(),
+		Specs: []service.AgentSpec{{Name: "slow", Model: model}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	t.Cleanup(server.Close)
+
+	go func() { _, _ = runner.Run(context.Background(), service.RunRequest{Prompt: "hi"}) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for model.Calls() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() { _ = runner.Drain(drainCtx) }()
+	for !runner.Draining() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	status, body := call(t, server, http.MethodGet, "/readyz", nil)
+	if status != http.StatusServiceUnavailable || !strings.Contains(string(body), `"draining":true`) {
+		t.Fatalf("readyz while draining = %d %s", status, body)
+	}
+	close(block)
 }
 
 func TestSessionLifecycleOverHTTP(t *testing.T) {

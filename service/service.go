@@ -246,6 +246,14 @@ func (r *Runner) ActiveRuns() int {
 	return r.inflight
 }
 
+// Draining reports whether Drain has started. Readiness probes use it to stop
+// receiving traffic before the process exits.
+func (r *Runner) Draining() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.draining
+}
+
 // CreateSession creates and saves a Session bound to an AgentSpec.
 func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Session, error) {
 	spec, ok := r.Spec(agent)

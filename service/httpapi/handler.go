@@ -107,6 +107,10 @@ type errorResponse struct {
 // ---- handlers ---------------------------------------------------------------
 
 func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
+	if h.runner.Draining() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "draining": true, "active_runs": h.runner.ActiveRuns()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "active_runs": h.runner.ActiveRuns()})
 }
 
