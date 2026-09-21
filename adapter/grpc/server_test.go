@@ -207,3 +207,16 @@ func TestStatusOfMapsContextErrors(t *testing.T) {
 		t.Fatalf("deadline = %v", code)
 	}
 }
+
+func TestStreamRunCanceledContextMapsToCanceled(t *testing.T) {
+	client := newTestClient(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "x"}})
+	if err == nil {
+		_, err = stream.Recv()
+	}
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("code = %v (%v)", status.Code(err), err)
+	}
+}
