@@ -283,6 +283,9 @@ type RunRequest struct {
 	Continue bool
 	// Metadata is applied to a new Session.
 	Metadata map[string]string
+	// SkipSave runs without persisting the Session: a new Session lives only
+	// for this Run, and a changed existing Session is left as it was.
+	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
 	// keeps the AgentSpec's RunDeadline.
 	Timeout time.Duration
@@ -327,7 +330,15 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	var s *session.Session
 	var err error
 	if request.SessionID == "" {
-		s, err = r.CreateSession(ctx, request.Agent, request.Metadata)
+		if request.SkipSave {
+			// No persistence: build an in-memory Session for this Run only.
+			s = session.New()
+			for key, value := range request.Metadata {
+				s.Set(key, value)
+			}
+		} else {
+			s, err = r.CreateSession(ctx, request.Agent, request.Metadata)
+		}
 	} else {
 		s, err = r.store.Get(ctx, request.SessionID)
 	}
@@ -348,7 +359,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	var out RunResult
 	var runErr error
 	started := false
-	created := request.SessionID == ""
+	created := request.SessionID == "" && !request.SkipSave
 	lockErr := r.withSessionLock(runCtx, s.ID(), func() error {
 		if request.SessionID != "" {
 			// Re-read under the lock: another Run may have saved meanwhile,
@@ -412,11 +423,13 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		}
 		_ = agent.Close(context.Background())
 
-		saveErr := r.store.Save(context.Background(), s)
-		if saveErr != nil && runErr == nil {
-			// The Run succeeded but its Session state is lost: report it as a
-			// persistence failure instead of a clean success.
-			runErr = fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
+		if !request.SkipSave {
+			saveErr := r.store.Save(context.Background(), s)
+			if saveErr != nil && runErr == nil {
+				// The Run succeeded but its Session state is lost: report it as a
+				// persistence failure instead of a clean success.
+				runErr = fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
+			}
 		}
 		out = RunResult{
 			SessionID: s.ID(),
@@ -600,8 +613,16 @@ func PanelFromSpec(spec string, now func() time.Time) (modelctx.PanelFunc, error
 	}, nil
 }
 
+// InspectOptions override Session settings for one inspection without
+// touching the Session.
+type InspectOptions struct {
+	Instruction string
+	Panel       string
+}
+
 // Inspect reports the Context a Run against the Session would send now.
-func (r *Runner) Inspect(ctx context.Context, sessionID string) (modelctx.Report, error) {
+// Optional InspectOptions override the Session's stored settings.
+func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectOptions) (modelctx.Report, error) {
 	s, err := r.store.Get(ctx, sessionID)
 	if err != nil {
 		return modelctx.Report{}, err
@@ -615,11 +636,20 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string) (modelctx.Report
 	if override, ok := s.Get(MetaInstruction); ok && override != "" {
 		instruction = override
 	}
+	panelSpec, _ := s.Get(MetaPanel)
+	if len(options) > 0 {
+		if options[0].Instruction != "" {
+			instruction = options[0].Instruction
+		}
+		if options[0].Panel != "" {
+			panelSpec = options[0].Panel
+		}
+	}
 	builder := spec.ContextBuilder
 	if builder == nil {
 		builder = modelctx.FullHistory()
 	}
-	if panelSpec, _ := s.Get(MetaPanel); panelSpec != "" {
+	if panelSpec != "" {
 		panel, err := PanelFromSpec(panelSpec, r.now)
 		if err != nil {
 			return modelctx.Report{}, err
@@ -766,11 +796,19 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	})
 }
 
-// Fork creates a new Session from an existing one.
-func (r *Runner) Fork(ctx context.Context, sessionID string, options ...session.Option) (*session.Session, error) {
+// Fork creates a new Session from an existing one. An explicit newID must be
+// free: a fork never overwrites an existing Session.
+func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Session, error) {
 	parent, err := r.store.Get(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	var options []session.Option
+	if newID != "" {
+		if _, err := r.store.Get(ctx, newID); err == nil {
+			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+newID+" already exists")
+		}
+		options = append(options, session.WithID(newID))
 	}
 	child := session.Fork(parent, options...)
 	if err := r.store.Save(ctx, child); err != nil {

@@ -22,7 +22,12 @@ import (
 
 // ---- run ------------------------------------------------------------------
 
-func (c *cli) cmdRun(args []string) int {
+func (c *cli) cmdRun(args []string) int { return c.cmdRunArgs(args, false) }
+
+// cmdRunArgs runs the run command. sessionFromPositional is the
+// `session resume <id> "prompt"` form: flags may appear anywhere and the
+// first positional is the session ID.
+func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	fs := c.newFlagSet("run")
 	var flags modelFlags
 	c.bindModel(fs, &flags)
@@ -31,12 +36,20 @@ func (c *cli) cmdRun(args []string) int {
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (stored in the session)")
 	events := fs.String("events", "", "stream runtime events to stdout: jsonl")
 	continueRun := fs.Bool("continue", false, "continue the session without a new prompt")
+	noSave := fs.Bool("no-save", false, "do not write the run's messages to the store")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	if *events != "" && *events != "jsonl" {
 		return c.usageError("--events accepts only jsonl")
+	}
+	if sessionFromPositional {
+		if len(positionals) == 0 {
+			return c.usageError("session resume needs a session id")
+		}
+		*sessionID = positionals[0]
+		positionals = positionals[1:]
 	}
 	var prompt string
 	if !*continueRun {
@@ -58,7 +71,7 @@ func (c *cli) cmdRun(args []string) int {
 		return c.failErr(err)
 	}
 	settings := sessionSettings{instruction: flags.instruction, panel: *panel, compactCeiling: *compactCeiling}
-	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout}
+	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
 	if *sessionID == "" {
 		request.Metadata, err = settings.metadata()
 		if err != nil {
@@ -132,10 +145,7 @@ func (c *cli) cmdSession(args []string) int {
 	case "events":
 		return c.cmdEvents(append([]string{"--session-positional"}, rest...))
 	case "resume":
-		if len(rest) == 0 {
-			return c.usageError("session resume needs a session id")
-		}
-		return c.cmdRun(append([]string{"--session", rest[0]}, rest[1:]...))
+		return c.cmdRunArgs(rest, true)
 	case "delete", "rm":
 		return c.sessionDelete(rest)
 	default:
@@ -152,7 +162,7 @@ func (c *cli) sessionCreate(args []string) int {
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens) stored in the session")
 	panel := fs.String("panel", "", "dynamic panel items stored in the session: time,cwd")
 	if _, err := parseInterspersed(fs, args); err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
@@ -189,7 +199,7 @@ func (c *cli) sessionCreate(args []string) int {
 func (c *cli) sessionList(args []string) int {
 	fs := c.newFlagSet("session list")
 	if _, err := parseInterspersed(fs, args); err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
@@ -222,7 +232,7 @@ func (c *cli) loadSession(args []string, name string) (*session.Session, session
 	fs := c.newFlagSet(name)
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return nil, nil, nil, nil, c.usageError(err.Error())
+		return nil, nil, nil, nil, c.parseError(err)
 	}
 	if len(positionals) != 1 {
 		return nil, nil, nil, nil, c.usageError(name + " needs exactly one session id")
@@ -270,7 +280,7 @@ func (c *cli) sessionFork(args []string) int {
 	id := fs.String("id", "", "explicit id for the fork")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	if len(positionals) != 1 {
 		return c.usageError("session fork needs exactly one session id")
@@ -281,11 +291,7 @@ func (c *cli) sessionFork(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	var options []session.Option
-	if *id != "" {
-		options = append(options, session.WithID(*id))
-	}
-	child, err := rt.runner.Fork(ctx, positionals[0], options...)
+	child, err := rt.runner.Fork(ctx, positionals[0], *id)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -323,20 +329,23 @@ func (c *cli) cmdContext(args []string) int {
 
 func (c *cli) contextInspect(mode string, args []string) int {
 	fs := c.newFlagSet("context " + mode)
+	var flags modelFlags
+	c.bindModel(fs, &flags)
+	panel := fs.String("panel", "", "override the session panel for this inspection: time,cwd")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	if len(positionals) != 1 {
 		return c.usageError("context " + mode + " needs exactly one session id")
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	rt, err := c.newRuntime(modelFlags{})
+	rt, err := c.newRuntime(flags)
 	if err != nil {
 		return c.failErr(err)
 	}
-	report, err := rt.runner.Inspect(ctx, positionals[0])
+	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectOptions{Instruction: flags.instruction, Panel: *panel})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -369,7 +378,7 @@ func (c *cli) contextCompact(args []string) int {
 	summarizer := fs.String("summarizer", "truncate", "truncate (deterministic) or model (uses the session's agent, or --model)")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	if len(positionals) != 1 {
 		return c.usageError("context compact needs exactly one session id")
@@ -452,7 +461,7 @@ func (c *cli) cmdTools(args []string) int {
 	sessionID := fs.String("session", "", "session whose tool activation applies")
 	positionals, err := parseInterspersed(fs, rest)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
@@ -546,7 +555,7 @@ func (c *cli) cmdEvents(args []string) int {
 	}
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	if positionalSession && len(positionals) > 0 && *sessionID == "" {
 		*sessionID = positionals[0]
@@ -598,7 +607,15 @@ func (c *cli) cmdServe(args []string) int {
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
 	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before cancelling them")
 	if _, err := parseInterspersed(fs, args); err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
+	}
+	switch *queue {
+	case string(service.RejectWhileBusy), string(service.WaitWhileBusy):
+	default:
+		return c.usageError("--queue accepts reject or wait")
+	}
+	if *maxRuns < 0 {
+		return c.usageError("--max-runs cannot be negative")
 	}
 	rt, err := c.newRuntime(flags)
 	if err != nil {
@@ -663,7 +680,7 @@ func (c *cli) cmdDoctor(args []string) int {
 	var flags modelFlags
 	c.bindModel(fs, &flags)
 	if _, err := parseInterspersed(fs, args); err != nil {
-		return c.usageError(err.Error())
+		return c.parseError(err)
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
@@ -687,15 +704,15 @@ func (c *cli) cmdDoctor(args []string) int {
 			list, _ := rt.store.List(ctx)
 			add(doctorCheck{Name: "store", OK: true, Detail: fmt.Sprintf("%s (%d sessions)", rt.storeDir, len(list))})
 		}
-		add(doctorCheck{Name: "agent.echo", OK: true, Detail: "deterministic, no credentials"})
-		add(doctorCheck{Name: "agent.demo", OK: true, Detail: "deterministic tool loop, no credentials"})
+		add(doctorCheck{Name: "model.echo", OK: true, Detail: "deterministic, no credentials"})
+		add(doctorCheck{Name: "model.demo", OK: true, Detail: "deterministic tool loop, no credentials"})
 		if rt.gatewayErr == nil {
 			spec, _ := rt.runner.Spec("gateway")
-			add(doctorCheck{Name: "agent.gateway", OK: true, Detail: rt.gatewayCfg + " → " + spec.ModelName})
+			add(doctorCheck{Name: "model.gateway", OK: true, Detail: rt.gatewayCfg + " → " + spec.ModelName})
 		} else if fileExists(rt.gatewayCfg) {
-			add(doctorCheck{Name: "agent.gateway", OK: false, Detail: rt.gatewayErr.Error()})
+			add(doctorCheck{Name: "model.gateway", OK: false, Detail: rt.gatewayErr.Error()})
 		} else {
-			add(doctorCheck{Name: "agent.gateway", OK: false, Warning: true, Detail: rt.gatewayCfg + " not found; --model gateway unavailable"})
+			add(doctorCheck{Name: "model.gateway", OK: false, Warning: true, Detail: rt.gatewayCfg + " not found; --model gateway unavailable"})
 		}
 		names := make([]string, 0)
 		for _, tool := range builtinTools() {

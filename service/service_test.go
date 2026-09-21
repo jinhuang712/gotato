@@ -236,7 +236,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if err != nil || !compact.Replaced || compact.MessagesAfter != 3 {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
-	child, err := runner.Fork(ctx, result.SessionID)
+	child, err := runner.Fork(ctx, result.SessionID, "")
 	if err != nil || child.ParentID() != result.SessionID || child.Len() != 3 {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}

@@ -82,8 +82,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 	}
 	rest := global.Args()
 	if len(rest) == 0 {
-		c.usage()
-		return ExitUsage
+		c.usageTo(c.stderr)
+		return c.usageError("a command is required")
 	}
 	command, rest := rest[0], rest[1:]
 	switch command {
@@ -190,16 +190,41 @@ func (c *cli) writeJSONL(value any) error {
 func (c *cli) fail(code int, message string) int {
 	fmt.Fprintln(c.stderr, "gotato: "+message)
 	if c.machine() {
-		enc := json.NewEncoder(c.stdout)
-		enc.Encode(map[string]any{"error": message, "exit_code": code})
+		c.writeErrorObject(code, message)
 	}
 	return code
 }
 
+// writeErrorObject mirrors writeJSON: pretty in --json mode, compact in
+// --jsonl mode, so error and data shapes look the same.
+func (c *cli) writeErrorObject(code int, message string) {
+	enc := json.NewEncoder(c.stdout)
+	enc.SetEscapeHTML(false)
+	if !c.jsonl {
+		enc.SetIndent("", "  ")
+	}
+	_ = enc.Encode(map[string]any{"error": message, "exit_code": code})
+}
+
+// usageError reports a usage mistake. In machine mode it also writes the
+// documented error object to stdout, so a script never gets empty output.
 func (c *cli) usageError(message string) int {
 	fmt.Fprintln(c.stderr, "gotato: "+message)
 	fmt.Fprintln(c.stderr, "run 'gotato help' for usage")
+	if c.machine() {
+		c.writeErrorObject(ExitUsage, message)
+	}
 	return ExitUsage
+}
+
+// parseError turns a flag parse failure into the right exit: --help asks for
+// usage, anything else is a usage mistake.
+func (c *cli) parseError(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		c.usage()
+		return ExitOK
+	}
+	return c.usageError(err.Error())
 }
 
 // failErr classifies an error into an exit code.
@@ -241,8 +266,12 @@ func (c *cli) store() (session.Store, string, error) {
 	return store, dir, nil
 }
 
-func (c *cli) usage() {
-	fmt.Fprint(c.stdout, strings.TrimLeft(`
+func (c *cli) usage() { c.usageTo(c.stdout) }
+
+// usageTo writes the human usage text to w. stdout for an explicit help
+// request, stderr for a usage mistake.
+func (c *cli) usageTo(w io.Writer) {
+	fmt.Fprint(w, strings.TrimLeft(`
 gotato — minimalistic, composable Go agent runtime
 
 Usage:

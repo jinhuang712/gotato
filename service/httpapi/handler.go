@@ -167,7 +167,7 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
-	child, err := h.runner.Fork(r.Context(), r.PathValue("id"))
+	child, err := h.runner.Fork(r.Context(), r.PathValue("id"), "")
 	if err != nil {
 		writeFailure(w, err)
 		return

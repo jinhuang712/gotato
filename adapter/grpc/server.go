@@ -96,7 +96,7 @@ func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionReq
 }
 
 func (s *Server) ForkSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionSummary, error) {
-	child, err := s.runner.Fork(ctx, request.GetSessionId())
+	child, err := s.runner.Fork(ctx, request.GetSessionId(), "")
 	if err != nil {
 		return nil, statusOf(err)
 	}
