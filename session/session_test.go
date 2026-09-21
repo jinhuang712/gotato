@@ -52,7 +52,10 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 		t.Fatalf("usage = %+v", usage)
 	}
 	events := s.Events()
-	if len(events) == 0 || events[0].Kind != gotato.EventAgentStart || events[len(events)-1].Kind != gotato.EventAgentEnd {
+	if len(events) == 0 {
+		t.Fatal("no events recorded")
+	}
+	if events[0].Kind != gotato.EventAgentStart || events[len(events)-1].Kind != gotato.EventAgentEnd {
 		t.Fatalf("events = %d first=%s", len(events), events[0].Kind)
 	}
 	var built int
@@ -221,5 +224,91 @@ func TestEventPayloadIsIsolated(t *testing.T) {
 	events[0].Payload["text"] = "mutated by reader"
 	if got := s.Events()[0].Payload["text"]; got != "original" {
 		t.Fatalf("reader mutation reached the Event: %v", got)
+	}
+}
+
+func TestEventPayloadNestedIsIsolated(t *testing.T) {
+	s := session.New()
+	payload := map[string]any{
+		"summary": map[string]any{
+			"tool_results": []map[string]any{{"tool_id": "echo", "status": "ok"}},
+		},
+		"tags": []any{"a", "b"},
+	}
+	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnEnd, Payload: payload})
+
+	// Mutating the caller's nested values must not reach the stored Event.
+	payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"] = "caller"
+	payload["tags"].([]any)[0] = "caller"
+
+	stored := s.Events()
+	summary := stored[0].Payload["summary"].(map[string]any)
+	if status := summary["tool_results"].([]map[string]any)[0]["status"]; status != "ok" {
+		t.Fatalf("caller nested mutation reached the Event: %v", status)
+	}
+	if tag := stored[0].Payload["tags"].([]any)[0]; tag != "a" {
+		t.Fatalf("caller nested slice mutation reached the Event: %v", tag)
+	}
+
+	// Mutating a returned nested value must not reach the stored Event.
+	summary["tool_results"].([]map[string]any)[0]["status"] = "reader"
+	summary["tool_results"] = nil
+	stored[0].Payload["tags"].([]any)[0] = "reader"
+
+	again := s.Events()
+	againSummary := again[0].Payload["summary"].(map[string]any)
+	if status := againSummary["tool_results"].([]map[string]any)[0]["status"]; status != "ok" {
+		t.Fatalf("reader nested mutation reached the Event: %v", status)
+	}
+	if tag := again[0].Payload["tags"].([]any)[0]; tag != "a" {
+		t.Fatalf("reader nested slice mutation reached the Event: %v", tag)
+	}
+}
+
+func TestRecordEventRingBufferKeepsNewest(t *testing.T) {
+	s := session.New(session.WithEventLimit(2))
+	for i := 0; i < 5; i++ {
+		s.RecordEvent(gotato.Event{
+			Kind:     gotato.EventTurnStart,
+			Sequence: uint64(i),
+			Payload:  map[string]any{"seq": i},
+		})
+	}
+	events := s.Events()
+	if len(events) != 2 || events[0].Sequence != 3 || events[1].Sequence != 4 {
+		t.Fatalf("events = %+v", events)
+	}
+	// The payload must stay bound to its own Event across ring overwrites.
+	if events[0].Payload["seq"] != 3 || events[1].Payload["seq"] != 4 {
+		t.Fatalf("payloads = %+v", events)
+	}
+}
+
+func TestRecordEventNormalizesOverfullLoadedDocument(t *testing.T) {
+	doc := session.Document{
+		ID:            "x",
+		SchemaVersion: session.SchemaVersion,
+		EventLimit:    2,
+		Events: []gotato.Event{
+			{Sequence: 1}, {Sequence: 2}, {Sequence: 3}, {Sequence: 4},
+		},
+	}
+	s, err := session.Load(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RecordEvent(gotato.Event{Sequence: 5})
+	events := s.Events()
+	if len(events) != 2 || events[0].Sequence != 4 || events[1].Sequence != 5 {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestSummaryMetadataIsIsolated(t *testing.T) {
+	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
+	summary := session.SummaryOf(s)
+	summary.Metadata["app"] = "mutated"
+	if value, _ := s.Get("app"); value != "test" {
+		t.Fatalf("summary metadata aliased the Session: %v", s.Metadata())
 	}
 }

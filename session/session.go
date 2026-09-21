@@ -80,14 +80,17 @@ type Document struct {
 // Session is what happened. It is safe for concurrent use; the Agent that
 // runs against it must still be the only writer of Messages during a Run.
 type Session struct {
-	mu          sync.RWMutex
-	id          string
-	parentID    string
-	createdAt   time.Time
-	updatedAt   time.Time
-	messages    []gotato.Message
-	runs        []Run
-	events      []gotato.Event
+	mu        sync.RWMutex
+	id        string
+	parentID  string
+	createdAt time.Time
+	updatedAt time.Time
+	messages  []gotato.Message
+	runs      []Run
+	events    []gotato.Event
+	// eventHead is the ring-buffer position of the oldest retained Event once
+	// events is full. It is always 0 until the window reaches eventLimit.
+	eventHead   int
 	usage       gotato.Usage
 	compactions []Compaction
 	metadata    map[string]string
@@ -197,7 +200,7 @@ func (s *Session) Snapshot() Document {
 		UpdatedAt:     s.updatedAt,
 		Messages:      cloneMessages(s.messages),
 		Runs:          slices.Clone(s.runs),
-		Events:        cloneEvents(s.events),
+		Events:        cloneEvents(s.retainedEvents()),
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
@@ -303,21 +306,44 @@ func (s *Session) Usage() gotato.Usage {
 func (s *Session) Events() []gotato.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneEvents(s.events)
+	return cloneEvents(s.retainedEvents())
 }
 
-// RecordEvent retains one Event, dropping the oldest beyond the limit.
+// RecordEvent retains one Event, dropping the oldest beyond the limit. Once the
+// window is full the backing slice is reused as a ring buffer so a streaming
+// producer does not reallocate the whole window on every Event.
 func (s *Session) RecordEvent(event gotato.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.eventLimit < 0 {
 		return
 	}
-	s.events = append(s.events, cloneEvent(event))
-	if excess := len(s.events) - s.eventLimit; excess > 0 {
-		s.events = slices.Clone(s.events[excess:])
+	event = cloneEvent(event)
+	if len(s.events) < s.eventLimit {
+		s.events = append(s.events, event)
+	} else {
+		if len(s.events) > s.eventLimit {
+			// A loaded document held more Events than the limit; normalize.
+			s.events = slices.Clone(s.events[len(s.events)-s.eventLimit:])
+			s.eventHead = 0
+		}
+		s.events[s.eventHead] = event
+		s.eventHead = (s.eventHead + 1) % s.eventLimit
 	}
 	s.touch()
+}
+
+// retainedEvents returns the retained Events in insertion order. When the ring
+// buffer has wrapped it returns a fresh slice; otherwise it aliases s.events
+// and must only be read under the Session lock.
+func (s *Session) retainedEvents() []gotato.Event {
+	if s.eventHead == 0 || s.eventHead >= len(s.events) {
+		return s.events
+	}
+	out := make([]gotato.Event, 0, len(s.events))
+	out = append(out, s.events[s.eventHead:]...)
+	out = append(out, s.events[:s.eventHead]...)
+	return out
 }
 
 // Compactions returns the compaction history.
@@ -395,8 +421,8 @@ func cloneMessages(messages []gotato.Message) []gotato.Message {
 	return out
 }
 
-// cloneEvents copies the Event list and each Payload map, so a caller cannot
-// mutate committed or persisted state through a returned Event.
+// cloneEvents copies the Event list and each Payload map (deep), so a caller
+// cannot mutate committed or persisted state through a returned Event.
 func cloneEvents(events []gotato.Event) []gotato.Event {
 	out := make([]gotato.Event, len(events))
 	for i, event := range events {
@@ -410,13 +436,44 @@ func cloneEvent(event gotato.Event) gotato.Event {
 	return event
 }
 
+// clonePayload deep-copies an Event payload, including nested maps and
+// slices, so a caller cannot mutate committed or persisted state through a
+// returned Event. Only the map/slice shapes an Event payload actually uses are
+// cloned; other values are passed through.
 func clonePayload(payload map[string]any) map[string]any {
 	if payload == nil {
 		return nil
 	}
 	out := make(map[string]any, len(payload))
 	for key, value := range payload {
-		out[key] = value
+		out[key] = clonePayloadValue(value)
 	}
 	return out
+}
+
+func clonePayloadValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return clonePayload(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayloadValue(item)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(typed))
+		for i, item := range typed {
+			out[i] = clonePayload(item)
+		}
+		return out
+	case map[string]string:
+		return maps.Clone(typed)
+	case []string:
+		return slices.Clone(typed)
+	case []byte:
+		return slices.Clone(typed)
+	default:
+		return value
+	}
 }

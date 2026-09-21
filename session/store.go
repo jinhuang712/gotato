@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 )
@@ -39,17 +41,31 @@ type Store interface {
 }
 
 // SummaryOf builds the listing view of a Session.
-func SummaryOf(s *Session) Summary {
-	doc := s.Snapshot()
+func SummaryOf(s *Session) Summary { return s.Summary() }
+
+// Summary returns the listing view without copying Messages or Events.
+func (s *Session) Summary() Summary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), len(s.runs), s.usage, s.metadata)
+}
+
+// summaryOfDocument builds the listing view of a persisted Document without
+// materializing a Session.
+func summaryOfDocument(doc Document) Summary {
+	return summaryOf(doc.ID, doc.ParentID, doc.CreatedAt, doc.UpdatedAt, len(doc.Messages), len(doc.Runs), doc.Usage, doc.Metadata)
+}
+
+func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs int, usage gotato.Usage, metadata map[string]string) Summary {
 	return Summary{
-		ID:        doc.ID,
-		ParentID:  doc.ParentID,
-		CreatedAt: doc.CreatedAt.Format("2006-01-02T15:04:05.000Z07:00"),
-		UpdatedAt: doc.UpdatedAt.Format("2006-01-02T15:04:05.000Z07:00"),
-		Messages:  len(doc.Messages),
-		Runs:      len(doc.Runs),
-		Usage:     doc.Usage,
-		Metadata:  doc.Metadata,
+		ID:        id,
+		ParentID:  parentID,
+		CreatedAt: createdAt.Format("2006-01-02T15:04:05.000Z07:00"),
+		UpdatedAt: updatedAt.Format("2006-01-02T15:04:05.000Z07:00"),
+		Messages:  messages,
+		Runs:      runs,
+		Usage:     usage,
+		Metadata:  maps.Clone(metadata),
 	}
 }
 
@@ -97,11 +113,7 @@ func (m *MemoryStore) List(ctx context.Context) ([]Summary, error) {
 	m.mu.RLock()
 	out := make([]Summary, 0, len(m.docs))
 	for _, doc := range m.docs {
-		s, err := Load(doc)
-		if err != nil {
-			continue
-		}
-		out = append(out, SummaryOf(s))
+		out = append(out, summaryOfDocument(doc))
 	}
 	m.mu.RUnlock()
 	sortSummaries(out)
@@ -217,22 +229,31 @@ func (f *FileStore) Get(ctx context.Context, id string) (*Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	path, err := f.path(id)
+	doc, err := f.readDocument(id)
 	if err != nil {
 		return nil, err
+	}
+	return Load(doc)
+}
+
+// readDocument loads one persisted Document without materializing a Session.
+func (f *FileStore) readDocument(id string) (Document, error) {
+	path, err := f.path(id)
+	if err != nil {
+		return Document{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+			return Document{}, ErrNotFound
 		}
-		return nil, err
+		return Document{}, err
 	}
 	var doc Document
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, err
+		return Document{}, err
 	}
-	return Load(doc)
+	return doc, nil
 }
 
 // List implements Store; results are sorted by UpdatedAt descending.
@@ -251,12 +272,12 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
 			continue
 		}
-		s, err := f.Get(ctx, strings.TrimSuffix(name, ".json"))
+		doc, err := f.readDocument(strings.TrimSuffix(name, ".json"))
 		if err != nil {
 			unreadable = append(unreadable, name+": "+err.Error())
 			continue
 		}
-		out = append(out, SummaryOf(s))
+		out = append(out, summaryOfDocument(doc))
 	}
 	if len(unreadable) > 0 {
 		return nil, fmt.Errorf("session: %d unreadable session file(s): %s", len(unreadable), strings.Join(unreadable, "; "))
