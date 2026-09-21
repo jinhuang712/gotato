@@ -155,7 +155,7 @@ type extensionSet struct {
 
 func (s extensionSet) empty() bool {
 	return len(s.transformers) == 0 && len(s.converters) == 0 && len(s.pre) == 0 &&
-		len(s.post) == 0 && len(s.observers) == 0 && len(s.stoppers) == 0
+		len(s.post) == 0 && len(s.observers) == 0 && len(s.stoppers) == 0 && len(s.preparers) == 0
 }
 
 // prepareRun runs every RunPreparer in installation order before the prompt
@@ -187,8 +187,8 @@ func advisoryFailure(extension any) bool {
 func guard(stage string, call func() error) (err *RuntimeError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			_ = debug.Stack()
-			err = runtimeError(ErrExtensionFailure, stage, fmt.Sprintf("extension panic: %v", recovered), nil)
+			message := fmt.Sprintf("extension panic: %v\n%s", recovered, debug.Stack())
+			err = runtimeError(ErrExtensionFailure, stage, message, nil)
 		}
 	}()
 	if failure := call(); failure != nil {

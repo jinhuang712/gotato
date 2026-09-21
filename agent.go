@@ -350,7 +350,7 @@ func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := a.admissionError(); err != nil {
+	if err := a.admissionError(operation); err != nil {
 		return RunResult{}, err
 	}
 
@@ -373,7 +373,7 @@ func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation
 	case <-ctx.Done():
 		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" was cancelled before admission", ctx.Err())
 	case <-a.closeSignal:
-		return RunResult{}, a.admissionError()
+		return RunResult{}, a.admissionError(operation)
 	}
 
 	select {
@@ -403,7 +403,7 @@ func (a *coreAgent) enqueueControl(target chan Message, message Message, operati
 	if err := validateControlMessage(message, operation); err != nil {
 		return err
 	}
-	if err := a.admissionError(); err != nil {
+	if err := a.admissionError(operation); err != nil {
 		return err
 	}
 	if cap(target) == 0 {
@@ -428,12 +428,12 @@ func (a *coreAgent) Abort() {
 	}
 }
 
-func (a *coreAgent) admissionError() error {
+func (a *coreAgent) admissionError(operation string) error {
 	switch a.Status() {
 	case AgentClosing:
-		return runtimeError(ErrAgentClosing, "Prompt", "Agent is closing", nil)
+		return runtimeError(ErrAgentClosing, operation, "Agent is closing", nil)
 	case AgentClosed:
-		return runtimeError(ErrAgentClosed, "Prompt", "Agent is closed", nil)
+		return runtimeError(ErrAgentClosed, operation, "Agent is closed", nil)
 	default:
 		return nil
 	}
@@ -478,7 +478,7 @@ func (a *coreAgent) WaitForIdle(ctx context.Context) error {
 				return ctx.Err()
 			}
 		default:
-			return a.admissionError()
+			return a.admissionError("WaitForIdle")
 		}
 	}
 }
@@ -496,7 +496,11 @@ func (a *coreAgent) loop() {
 		case cmd := <-a.commands:
 			switch cmd.kind {
 			case commandPrompt, commandContinue:
-				if err := a.admissionError(); err != nil {
+				operation := "Prompt"
+				if cmd.kind == commandContinue {
+					operation = "Continue"
+				}
+				if err := a.admissionError(operation); err != nil {
 					cmd.result <- promptResponse{err: err}
 					<-a.admission
 					continue
