@@ -23,9 +23,16 @@ type CoreLimits struct {
 }
 
 // DefaultLimits returns the limits NewAgent applies when WithLimits is not
-// used. Adjust a copy and pass it to WithLimits to override some fields:
-// after WithLimits a zero count or byte limit admits no work, and a zero
-// deadline disables that deadline.
+// used. Adjust a copy and pass it to WithLimits to override some fields.
+//
+// A zero field is interpreted per field, not uniformly. Once WithLimits makes
+// the limits explicit, a zero MaxTurns, MaxMessages, MaxMessageBytes,
+// MaxTranscriptBytes, MaxToolCalls, or MaxToolResultBytes admits no work of
+// that kind, and a zero MaxToolProgressBytes or MaxToolProgressUpdates
+// suppresses Tool progress reports. MaxActiveToolSets zero admits no ToolSet
+// activation. MaxParallelTools zero or one keeps a batch sequential, and
+// MaxSteerMessages or MaxFollowUpMessages zero leaves that control channel
+// unbuffered. A zero deadline disables that deadline.
 func DefaultLimits() CoreLimits { return defaultLimits() }
 
 func defaultLimits() CoreLimits {

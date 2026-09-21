@@ -38,6 +38,12 @@ type CacheBreakpoint struct {
 	Index int         `json:"index,omitempty"`
 }
 
+// ModelOptions carries per-request sampling and reasoning hints.
+//
+// Reserved: no Core runtime path assigns ModelRequest.Options yet, and there
+// is no With* option for it. A Host or application may set the fields on a
+// ModelRequest directly; gateway adapters read them. The struct is kept so a
+// future option can wire it without a breaking change.
 type ModelOptions struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	MaxTokens        uint32   `json:"max_tokens,omitempty"`

@@ -20,14 +20,18 @@ type ToolSpec struct {
 }
 
 type ToolUse struct {
-	RunID         RunID       `json:"run_id"`
-	Turn          TurnNumber  `json:"turn"`
-	CallID        ToolCallID  `json:"call_id"`
-	QualifiedID   string      `json:"qualified_id"`
-	ArgumentsJSON []byte      `json:"arguments_json"`
-	SourceIndex   uint32      `json:"source_index"`
-	Executed      bool        `json:"executed"`
-	Result        *ToolResult `json:"result,omitempty"`
+	RunID         RunID      `json:"run_id"`
+	Turn          TurnNumber `json:"turn"`
+	CallID        ToolCallID `json:"call_id"`
+	QualifiedID   string     `json:"qualified_id"`
+	ArgumentsJSON []byte     `json:"arguments_json"`
+	SourceIndex   uint32     `json:"source_index"`
+	// Executed and Result are reserved. The Core Loop does not assign them, so
+	// a Tool or PreToolUse extension always sees Executed=false and Result=nil.
+	// They are kept for a future PostToolUse view; see REFACTOR_AUDIT.md
+	// (Stage H) before removing them.
+	Executed bool        `json:"executed"`
+	Result   *ToolResult `json:"result,omitempty"`
 }
 
 type ToolProgress func(string)
