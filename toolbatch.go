@@ -81,6 +81,12 @@ func (a *coreAgent) executeToolGroup(
 	group []int,
 ) (map[int]ToolResult, *RuntimeError) {
 	signals := make(chan toolSignal, len(group)*4+4)
+	// abandon is closed when executeToolGroup returns. A worker that finishes
+	// after the batch was cancelled or abandoned uses it so its final send
+	// never blocks forever, which removes the need for a drainer goroutine
+	// that could outlive the Run when a Tool ignores cancellation.
+	abandon := make(chan struct{})
+	defer close(abandon)
 	for _, index := range group {
 		plan := plans[index]
 		go func(plan toolPlan) {
@@ -106,6 +112,7 @@ func (a *coreAgent) executeToolGroup(
 				progressMu.Unlock()
 				select {
 				case signals <- toolSignal{index: plan.index, update: true, text: text}:
+				case <-abandon:
 				case <-toolCtx.Done():
 				}
 			}
@@ -121,7 +128,10 @@ func (a *coreAgent) executeToolGroup(
 					result.Status = ToolResultOK
 				}
 			}
-			signals <- toolSignal{index: plan.index, result: result}
+			select {
+			case signals <- toolSignal{index: plan.index, result: result}:
+			case <-abandon:
+			}
 		}(plan)
 	}
 
@@ -130,22 +140,21 @@ func (a *coreAgent) executeToolGroup(
 		select {
 		case <-ctx.Done():
 			// Cancellation must settle the Run even when a Tool ignores its
-			// context. Record the missing outcomes as canceled and let a
-			// drainer collect the late results so no worker blocks forever.
-			outstanding := len(group) - len(outcomes)
+			// context. Record the missing outcomes as canceled; abandon (closed
+			// on return) releases any worker still trying to report a late
+			// result.
 			for _, index := range group {
 				if _, done := outcomes[index]; done {
 					continue
 				}
 				outcomes[index] = ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: false}
 			}
-			go drainSignals(signals, outstanding)
 			return outcomes, nil
 		case signal := <-signals:
 			if signal.update {
 				if err := a.emit(runID, sequence, EventToolExecutionUpdate, EventCoalescable, turn, messageID, plans[signal.index].call.ID, map[string]any{"text": signal.text}); err != nil {
-					// Drain the remaining workers so no goroutine outlives the Run.
-					go drainSignals(signals, len(group)-len(outcomes))
+					// Returning closes abandon, so no worker goroutine outlives
+					// the Run.
 					return nil, err
 				}
 				continue
@@ -162,21 +171,11 @@ func (a *coreAgent) executeToolGroup(
 			// it reflects actual completion order. Commitment happens later, in
 			// assistant source order.
 			if err := a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[signal.index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed}); err != nil {
-				go drainSignals(signals, len(group)-len(outcomes))
 				return nil, err
 			}
 		}
 	}
 	return outcomes, nil
-}
-
-func drainSignals(signals chan toolSignal, remaining int) {
-	for remaining > 0 {
-		signal := <-signals
-		if !signal.update {
-			remaining--
-		}
-	}
 }
 
 // preflightTools resolves, validates, and runs the Pre chain over every Tool
