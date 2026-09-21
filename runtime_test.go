@@ -261,15 +261,29 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 		_ = stream.Close()
 		cancel()
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	// Close removes every subscription deterministically; this cannot depend on
+	// goroutine scheduling.
+	core := agent.(*coreAgent)
+	core.events.mu.Lock()
+	remaining := len(core.events.subs)
+	core.events.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("event hub retained %d subscriptions after Close", remaining)
+	}
+	// The per-subscription waiter goroutines must exit too. Poll to the exact
+	// baseline (no slack) so a real leak fails, tolerating transient runtime
+	// goroutines until the deadline.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
 		runtime.GC()
-		if runtime.NumGoroutine() <= before+5 {
+		if runtime.NumGoroutine() <= before {
 			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines before=%d after=%d", before, runtime.NumGoroutine())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("goroutines before=%d after=%d", before, runtime.NumGoroutine())
 }
 
 func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
