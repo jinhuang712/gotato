@@ -2,6 +2,32 @@
 
 Breaking or behavior-visible changes, newest first. Additive changes are not listed.
 
+## Review remediation (2026-09)
+
+### `toolregistry.New` returns an error
+
+`toolregistry.New(tools...)` now returns `(*Registry, error)` and fails on the first invalid or duplicate Tool instead of silently dropping it. Call `New` and check the error, or use `MustNew(tools...)` for Tools known to be valid.
+
+```go
+// before
+reg := toolregistry.New(fsRead, shell)
+// after
+reg, err := toolregistry.New(fsRead, shell)
+if err != nil { /* ... */ }
+// or, when the Tools are already validated
+reg := toolregistry.MustNew(fsRead, shell)
+```
+
+`Registry.Register` and `Registry.Unregister`/`Activate`/`Deactivate` now wrap `ErrDuplicate`/`ErrNotFound` with the offending ID (`errors.Is` still matches), and `List`/`Describe`/`Active` return copied specs. Registering a Tool with a whitespace-padded ID stores the trimmed ID, so `Describe(" spaced ")` no longer resolves a Tool registered as `"spaced"`. A zero-value `Registry` is now usable for `Register`.
+
+### FileStore durability and listing
+
+`session.FileStore.Save` fsyncs the temp file and the store directory before returning, so a successful `Save` is durable across a crash or power loss. `FileStore.List` now returns an error when any session file is unreadable instead of silently omitting it; a single corrupt file fails the listing.
+
+### HTTP body limit
+
+`service/httpapi` rejects a JSON request body larger than 1 MiB with `413 Request Entity Too Large`. `POST /v1/sessions` with an explicit ID is now atomic and returns `409` instead of racing a concurrent create.
+
 ## Runtime foundation (2026-09)
 
 ### `internal/testmodel` → `testkit`
