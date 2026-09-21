@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"fmt"
+	"maps"
 	"runtime/debug"
 	"slices"
 )
@@ -287,8 +288,11 @@ func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolRes
 	return result, nil
 }
 
-// observe awaits every observer at the Event boundary.
+// observe awaits every observer at the Event boundary. The Payload is cloned
+// per call so an observer cannot mutate what later observers or Event
+// subscribers see.
 func (s extensionSet) observe(ctx context.Context, event Event) *RuntimeError {
+	event.Payload = maps.Clone(event.Payload)
 	for _, observer := range s.observers {
 		current := observer
 		if err := guard("EventObserver", func() error { return current.Observe(ctx, event) }); err != nil {
