@@ -340,6 +340,11 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"run", "--model", "gateway", "hi"}, ExitError},
 		{[]string{"help"}, ExitOK},
 		{[]string{"version", "--json"}, ExitOK},
+		{[]string{"version", "--bogus"}, ExitUsage},
+		{[]string{"session", "--help"}, ExitOK},
+		{[]string{"context", "--help"}, ExitOK},
+		{[]string{"tools", "--help"}, ExitOK},
+		{[]string{"session", "--json", "list"}, ExitOK},
 	}
 	for _, tc := range cases {
 		code, out, errOut := h.run(tc.args...)
@@ -353,6 +358,29 @@ func TestExitCodes(t *testing.T) {
 	h.mustJSON(out, &failure)
 	if failure["exit_code"] != float64(ExitNotFound) {
 		t.Fatalf("failure json = %v", failure)
+	}
+}
+
+func TestVersionAndEmptyEventsJSON(t *testing.T) {
+	h := newHarness(t)
+	code, out, _ := h.run("version", "--json")
+	if code != ExitOK {
+		t.Fatalf("version exit = %d", code)
+	}
+	var version map[string]any
+	h.mustJSON(out, &version)
+	if version["version"] != Version {
+		t.Fatalf("version json = %v", version)
+	}
+
+	var created map[string]any
+	h.mustJSON(h.ok("session", "create", "--json"), &created)
+	code, out, _ = h.run("events", "--session", created["id"].(string), "--json")
+	if code != ExitOK {
+		t.Fatalf("events exit = %d", code)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Fatalf("empty events json = %q", out)
 	}
 }
 

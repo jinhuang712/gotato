@@ -129,6 +129,10 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 // ---- session --------------------------------------------------------------
 
 func (c *cli) cmdSession(args []string) int {
+	args, code, done := c.splitLeadingCommonFlags("session", args)
+	if done {
+		return code
+	}
 	if len(args) == 0 {
 		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, delete")
 	}
@@ -182,14 +186,17 @@ func (c *cli) sessionCreate(args []string) int {
 	if err := settings.apply(func(key, value string) { metadata[key] = value }); err != nil {
 		return c.failErr(err)
 	}
-	var options []session.Option
 	if *id != "" {
-		if _, err := rt.store.Get(ctx, *id); err == nil {
+		s, err := rt.runner.CreateSessionExclusive(ctx, agent, *id, metadata)
+		if errors.Is(err, service.ErrSessionExists) {
 			return c.fail(ExitUsage, "session "+*id+" already exists")
 		}
-		options = append(options, session.WithID(*id))
+		if err != nil {
+			return c.failErr(err)
+		}
+		return c.emit(session.SummaryOf(s), s.ID())
 	}
-	s, err := rt.runner.CreateSession(ctx, agent, metadata, options...)
+	s, err := rt.runner.CreateSession(ctx, agent, metadata)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -313,6 +320,10 @@ func (c *cli) sessionDelete(args []string) int {
 // ---- context --------------------------------------------------------------
 
 func (c *cli) cmdContext(args []string) int {
+	args, code, done := c.splitLeadingCommonFlags("context", args)
+	if done {
+		return code
+	}
 	if len(args) == 0 {
 		return c.usageError("context needs a subcommand: inspect, build, compact")
 	}
@@ -451,6 +462,10 @@ type toolListing struct {
 }
 
 func (c *cli) cmdTools(args []string) int {
+	args, code, done := c.splitLeadingCommonFlags("tools", args)
+	if done {
+		return code
+	}
 	if len(args) == 0 {
 		return c.usageError("tools needs a subcommand: list, describe, active, activate, deactivate")
 	}
@@ -584,6 +599,9 @@ func (c *cli) cmdEvents(args []string) int {
 		events = filtered
 	}
 	if c.json {
+		if events == nil {
+			events = []gotato.Event{}
+		}
 		return c.writeJSON(events)
 	}
 	for _, event := range events {
@@ -696,7 +714,7 @@ func (c *cli) cmdDoctor(args []string) int {
 	if err != nil {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
-		probe := session.New(session.WithID(".doctor-probe"))
+		probe := session.New()
 		if err := rt.store.Save(ctx, probe); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
 		} else {

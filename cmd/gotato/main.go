@@ -102,6 +102,14 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(
 	case "serve":
 		return c.cmdServe(rest)
 	case "version":
+		fs := c.newFlagSet("version")
+		if _, err := parseInterspersed(fs, rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				c.usage()
+				return ExitOK
+			}
+			return c.parseError(err)
+		}
 		return c.emit(map[string]any{"version": Version}, Version)
 	case "help", "-h", "--help":
 		c.usage()
@@ -145,6 +153,32 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 			return positionals, nil
 		}
 	}
+}
+
+// splitLeadingCommonFlags consumes the common flags that appear before a
+// group's subcommand (for example `gotato session --json list`) and reports
+// --help. It returns the remaining arguments, and a non-zero exit code with
+// done=true when the caller should return immediately.
+func (c *cli) splitLeadingCommonFlags(name string, args []string) ([]string, int, bool) {
+	if len(args) == 0 {
+		return args, ExitOK, false
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		c.usage()
+		return nil, ExitOK, true
+	}
+	if args[0] == "" || args[0] == "-" || args[0][0] != '-' {
+		return args, ExitOK, false
+	}
+	fs := c.newFlagSet(name)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			c.usage()
+			return nil, ExitOK, true
+		}
+		return nil, c.parseError(err), true
+	}
+	return fs.Args(), ExitOK, false
 }
 
 func (c *cli) ctx() (context.Context, context.CancelFunc) {
