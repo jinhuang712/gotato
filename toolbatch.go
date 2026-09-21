@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync"
 )
 
 // toolPlan is one preflighted Tool Call. Preflight is always source ordered,
@@ -85,18 +86,28 @@ func (a *coreAgent) executeToolGroup(
 		go func(plan toolPlan) {
 			toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
 			defer toolCancel()
+			// A Tool may report progress from any goroutine, so the counters
+			// that bound the reports are guarded.
+			var progressMu sync.Mutex
 			var progressBytes uint64
 			var progressUpdates uint32
 			progress := func(text string) {
+				progressMu.Lock()
 				if (a.limitsSet && a.limits.MaxToolProgressUpdates == 0) || (a.limits.MaxToolProgressUpdates > 0 && progressUpdates >= a.limits.MaxToolProgressUpdates) {
+					progressMu.Unlock()
 					return
 				}
 				if (a.limitsSet && a.limits.MaxToolProgressBytes == 0) || (a.limits.MaxToolProgressBytes > 0 && progressBytes+uint64(len(text)) > a.limits.MaxToolProgressBytes) {
+					progressMu.Unlock()
 					return
 				}
 				progressUpdates++
 				progressBytes += uint64(len(text))
-				signals <- toolSignal{index: plan.index, update: true, text: text}
+				progressMu.Unlock()
+				select {
+				case signals <- toolSignal{index: plan.index, update: true, text: text}:
+				case <-toolCtx.Done():
+				}
 			}
 			executed, toolErr := executeToolSafely(plan.tool, toolCtx, plan.use, progress)
 			var result ToolResult
@@ -116,29 +127,44 @@ func (a *coreAgent) executeToolGroup(
 
 	outcomes := make(map[int]ToolResult, len(group))
 	for len(outcomes) < len(group) {
-		signal := <-signals
-		if signal.update {
-			if err := a.emit(runID, sequence, EventToolExecutionUpdate, EventCoalescable, turn, messageID, plans[signal.index].call.ID, map[string]any{"text": signal.text}); err != nil {
-				// Drain the remaining workers so no goroutine outlives the Run.
+		select {
+		case <-ctx.Done():
+			// Cancellation must settle the Run even when a Tool ignores its
+			// context. Record the missing outcomes as canceled and let a
+			// drainer collect the late results so no worker blocks forever.
+			outstanding := len(group) - len(outcomes)
+			for _, index := range group {
+				if _, done := outcomes[index]; done {
+					continue
+				}
+				outcomes[index] = ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: false}
+			}
+			go drainSignals(signals, outstanding)
+			return outcomes, nil
+		case signal := <-signals:
+			if signal.update {
+				if err := a.emit(runID, sequence, EventToolExecutionUpdate, EventCoalescable, turn, messageID, plans[signal.index].call.ID, map[string]any{"text": signal.text}); err != nil {
+					// Drain the remaining workers so no goroutine outlives the Run.
+					go drainSignals(signals, len(group)-len(outcomes))
+					return nil, err
+				}
+				continue
+			}
+			result := signal.result
+			if ctx.Err() != nil {
+				result.Status = ToolResultCanceled
+				if result.SafeError == "" {
+					result.SafeError = safeError(ctx.Err())
+				}
+			}
+			outcomes[signal.index] = result
+			// The completion Event is emitted here, as the outcome arrives, so
+			// it reflects actual completion order. Commitment happens later, in
+			// assistant source order.
+			if err := a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[signal.index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed}); err != nil {
 				go drainSignals(signals, len(group)-len(outcomes))
 				return nil, err
 			}
-			continue
-		}
-		result := signal.result
-		if ctx.Err() != nil {
-			result.Status = ToolResultCanceled
-			if result.SafeError == "" {
-				result.SafeError = safeError(ctx.Err())
-			}
-		}
-		outcomes[signal.index] = result
-		// The completion Event is emitted here, as the outcome arrives, so
-		// it reflects actual completion order. Commitment happens later, in
-		// assistant source order.
-		if err := a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[signal.index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed}); err != nil {
-			go drainSignals(signals, len(group)-len(outcomes))
-			return nil, err
 		}
 	}
 	return outcomes, nil
