@@ -18,9 +18,13 @@ import (
 // Transcript may be shared between successive Runs and between Agents, but it
 // must not be mutated concurrently with a Run that is using it.
 //
-// Messages returns the committed Messages in order. The Agent treats the
-// returned slice as read-only and never mutates it.
+//	Messages returns the committed Messages in order. The Agent treats the
+//	returned slice as read-only and never mutates it.
+//
+// Len reports the committed Message count without materializing the history,
+// so an Agent can enforce its Message bound without copying.
 type Transcript interface {
+	Len() int
 	Messages() []Message
 	Append(Message) error
 }
@@ -30,6 +34,8 @@ type Transcript interface {
 type memoryTranscript struct {
 	messages []Message
 }
+
+func (t *memoryTranscript) Len() int { return len(t.messages) }
 
 func (t *memoryTranscript) Messages() []Message { return t.messages }
 

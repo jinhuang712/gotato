@@ -18,6 +18,12 @@ type recordingTranscript struct {
 	appends  int
 }
 
+func (t *recordingTranscript) Len() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.messages)
+}
+
 func (t *recordingTranscript) Messages() []Message {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -564,7 +564,7 @@ func (a *coreAgent) commitMessage(message Message) error {
 	if err != nil {
 		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	if limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(len(a.transcript.Messages())+1)) {
+	if limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
 	if limitExceededUint64(a.limitsSet, a.limits.MaxMessageBytes, uint64(len(bytes))) {

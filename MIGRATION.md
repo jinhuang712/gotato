@@ -17,6 +17,24 @@ import "github.com/jinhuang712/gotato/testkit"
 model := testkit.DemoModel{}
 ```
 
+### `Transcript` gained `Len()`
+
+An Agent now enforces `MaxMessages` through `Transcript.Len()` instead of materializing `Messages()`, so a `Session`-backed history is not copied on every commit. The interface is extended:
+
+```go
+type Transcript interface {
+    Len() int
+    Messages() []Message
+    Append(Message) error
+}
+```
+
+`session.Session` and the default in-memory transcript already implement it. A custom Transcript must add `Len() int`.
+
+### Compaction result shape
+
+`modelctx.Compact` now sets `MessagesBefore` on the no-op path too (it was 0), and `Result.Compaction` is a `*session.Compaction` present only when `replaced` is true. A no-op compaction no longer emits an all-zero `compaction` object in the CLI, HTTP, or gRPC JSON.
+
 ### Identifier format
 
 `AgentID`, `RunID`, and `MessageID` values are no longer `agent-1`, `run-7`, `message-12`. They are `<prefix>-<8 hex process nonce><counter>` (for example `run-3fa9c1e02`) so they stay unique across restarts and across processes that share one Session store. Anything that parsed the numeric suffix must stop; treat IDs as opaque strings. The types and JSON field names are unchanged.
