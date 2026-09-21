@@ -115,7 +115,10 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 	names := map[string]bool{}
 	for _, entry := range cfg.toolSets {
 		spec := entry.set.Spec()
-		if strings.TrimSpace(spec.Name) == "" {
+		// Normalize before the uniqueness check so "files" and " files " are
+		// the same ToolSet and qualified Tool IDs never contain stray spaces.
+		spec.Name = strings.TrimSpace(spec.Name)
+		if spec.Name == "" {
 			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "ToolSet name is empty", nil)
 		}
 		if strings.Contains(spec.Name, ".") {
