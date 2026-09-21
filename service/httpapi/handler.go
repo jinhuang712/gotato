@@ -155,7 +155,7 @@ func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := h.runner.Store().Delete(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.runner.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
 		writeFailure(w, err)
 		return
 	}

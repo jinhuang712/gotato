@@ -127,9 +127,8 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 		defer wg.Done()
 		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
 	}()
-	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
-	// The tracker registers the run once agent_start fires.
-	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil || false })
+	waitFor(t, func() bool { return model.Calls() == 1 })
+	// The Run holds the Session lock; a second Run is rejected, not queued.
 	_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
 	if !errors.Is(err, service.ErrBusy) && !gotato.IsCode(err, gotato.ErrBusy) {
 		t.Fatalf("second run err = %v, want busy", err)
@@ -269,6 +268,94 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	}
 }
 
+func TestQueuedRunIsCancellable(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, _ := service.New(service.Config{
+		Store:     session.NewMemoryStore(),
+		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
+	})
+	ctx := context.Background()
+	s, _ := runner.CreateSession(ctx, "slow", nil)
+
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
+	waitFor(t, func() bool { return model.Calls() == 1 })
+
+	queued := make(chan service.RunResult, 1)
+	go func() {
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+		queued <- result
+	}()
+	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
+
+	// The started Run is the one CancelSession prefers.
+	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-queued:
+		t.Fatalf("cancelling the started run settled the queued one: %+v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// The queued Run becomes the started one; cancelling it settles it as
+	// cancelled instead of leaving it invisible.
+	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil })
+	select {
+	case result := <-queued:
+		if result.Result.Status != gotato.RunCanceled {
+			t.Fatalf("queued status = %q err=%v, want cancelled", result.Result.Status, result.Result.Error)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued run was not cancelled")
+	}
+	close(block)
+}
+
+func TestDrainCancelsQueuedRun(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, _ := service.New(service.Config{
+		Store:     session.NewMemoryStore(),
+		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
+	})
+	ctx := context.Background()
+	s, _ := runner.CreateSession(ctx, "slow", nil)
+
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
+	waitFor(t, func() bool { return model.Calls() == 1 })
+
+	queued := make(chan service.RunResult, 1)
+	go func() {
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+		queued <- result
+	}()
+	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
+
+	drainCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := runner.Drain(drainCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("drain err = %v, want deadline", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("drain waited %v for a queued run", elapsed)
+	}
+	select {
+	case result := <-queued:
+		if result.Result.Status != gotato.RunCanceled {
+			t.Fatalf("queued status = %q, want cancelled", result.Result.Status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain left the queued run running")
+	}
+	close(block)
+}
+
 func TestCallerCancelReportsCancelled(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
@@ -296,6 +383,39 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 		t.Fatalf("session run record = %+v, want cancelled", runs)
 	}
 	close(block)
+}
+
+func TestSessionMutationsRespectTheLock(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, _ := newRunner(t, service.AgentSpec{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
+	ctx := context.Background()
+	s, _ := runner.CreateSession(ctx, "slow", nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
+	}()
+	// Calls() > 0 means the Run holds the Session lock and is talking to the Model.
+	waitFor(t, func() bool { return model.Calls() == 1 })
+
+	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); !gotato.IsCode(err, gotato.ErrBusy) {
+		t.Fatalf("SetToolActive during a run err = %v, want busy", err)
+	}
+	if err := runner.DeleteSession(ctx, s.ID()); !gotato.IsCode(err, gotato.ErrBusy) {
+		t.Fatalf("DeleteSession during a run err = %v, want busy", err)
+	}
+	close(block)
+	<-done
+	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); err != nil {
+		t.Fatalf("SetToolActive after the run: %v", err)
+	}
+	entry, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, true)
+	if err != nil || !entry.Active {
+		t.Fatalf("reactivate: %+v err=%v", entry, err)
+	}
 }
 
 func waitFor(t *testing.T, condition func() bool) {

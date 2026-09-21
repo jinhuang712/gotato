@@ -125,17 +125,54 @@ type Runner struct {
 
 	locks *sessionLocks
 
-	mu        sync.Mutex
-	active    map[gotato.RunID]activeRun
-	bySession map[string]gotato.RunID
-	inflight  int
-	draining  bool
-	idle      *sync.Cond
+	mu       sync.Mutex
+	handles  map[string][]*runHandle
+	byRun    map[gotato.RunID]*runHandle
+	inflight int
+	draining bool
+	idle     *sync.Cond
 }
 
-type activeRun struct {
+// runHandle is one admitted Run. It exists from admission until the Run
+// settles, so a Run still waiting on the Session lock is visible to
+// CancelSession and to Drain instead of being an untracked inflight slot.
+type runHandle struct {
 	sessionID string
-	cancel    func()
+
+	mu     sync.Mutex
+	runID  gotato.RunID
+	abort  func()
+	cancel context.CancelFunc
+}
+
+// attachAbort installs the started-Run cancellation path. Until it is
+// installed, cancel stops the pre-start wait instead.
+func (h *runHandle) attachAbort(abort func()) {
+	h.mu.Lock()
+	h.abort = abort
+	h.mu.Unlock()
+}
+
+// attachRunID records the RunID the Agent assigned. The first one wins.
+func (h *runHandle) attachRunID(runID gotato.RunID) {
+	h.mu.Lock()
+	if h.runID == "" {
+		h.runID = runID
+	}
+	h.mu.Unlock()
+}
+
+// stop aborts a started Run, or the pre-start wait when none started yet.
+func (h *runHandle) stop() {
+	h.mu.Lock()
+	abort := h.abort
+	cancel := h.cancel
+	h.mu.Unlock()
+	if abort != nil {
+		abort()
+		return
+	}
+	cancel()
 }
 
 // New validates the configuration and creates a Runner.
@@ -152,8 +189,8 @@ func New(cfg Config) (*Runner, error) {
 		admission: cfg.Admission,
 		now:       cfg.Now,
 		locks:     newSessionLocks(),
-		active:    map[gotato.RunID]activeRun{},
-		bySession: map[string]gotato.RunID{},
+		handles:   map[string][]*runHandle{},
+		byRun:     map[gotato.RunID]*runHandle{},
 	}
 	if r.now == nil {
 		r.now = time.Now
@@ -286,99 +323,143 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		return RunResult{}, err
 	}
 
-	// One Run per Session at a time.
-	if err := r.locks.acquire(ctx, s.ID(), r.admission.Queue == WaitWhileBusy); err != nil {
-		return RunResult{}, err
-	}
-	defer r.locks.release(s.ID())
-	if request.SessionID != "" {
-		// Re-read under the lock: another Run may have saved meanwhile.
-		if fresh, err := r.store.Get(ctx, s.ID()); err == nil {
+	// Register the Run before it can wait on the Session lock, so Drain and
+	// CancelSession reach it for the whole admitted lifetime.
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	handle := &runHandle{sessionID: s.ID(), cancel: cancelRun}
+	r.registerHandle(handle)
+	defer r.unregisterHandle(handle)
+
+	// One Run per Session at a time. Every Session mutation goes through
+	// withSessionLock; the admission policy decides the busy behavior.
+	var out RunResult
+	var runErr error
+	lockErr := r.withSessionLock(runCtx, s.ID(), func() error {
+		if request.SessionID != "" {
+			// Re-read under the lock: another Run may have saved meanwhile,
+			// and a Session deleted in between must not be resurrected from
+			// the stale copy.
+			fresh, err := r.store.Get(ctx, s.ID())
+			if err != nil {
+				return err
+			}
 			s = fresh
 		}
-	}
 
-	agentName := request.Agent
-	if agentName == "" {
-		agentName, _ = s.Get(MetaAgent)
-	}
-	spec, ok := r.Spec(agentName)
-	if !ok {
-		return RunResult{}, ErrUnknownAgent
-	}
-	s.Set(MetaAgent, spec.Name)
-	if spec.ModelName != "" {
-		s.Set(MetaModel, spec.ModelName)
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	tracker := &runTracker{runner: r, sessionID: s.ID()}
-	if request.Timeout > 0 {
-		limits := gotato.DefaultLimits()
-		if spec.Limits != nil {
-			limits = *spec.Limits
+		agentName := request.Agent
+		if agentName == "" {
+			agentName, _ = s.Get(MetaAgent)
 		}
-		limits.RunDeadline = request.Timeout
-		spec.Limits = &limits
-	}
-	agent, auto, err := r.buildAgent(spec, s, sink, tracker)
-	if err != nil {
-		return RunResult{}, err
-	}
-	// Cancellation aborts the Run inside the Agent so Prompt still returns
-	// the settled (cancelled) result; cancelling the caller's context would
-	// abandon the result instead.
-	tracker.cancel = func() {
-		if controllable, ok := agent.(gotato.ControllableAgent); ok {
-			controllable.Abort()
-			return
-		}
-		cancel()
-	}
-
-	var result gotato.RunResult
-	var runErr error
-	if request.Continue {
-		controllable, ok := agent.(gotato.ControllableAgent)
+		spec, ok := r.Spec(agentName)
 		if !ok {
-			runErr = gotato.ErrorOf(gotato.ErrNotSupported, "service: agent does not support continue")
-		} else {
-			result, runErr = controllable.Continue(runCtx)
+			return ErrUnknownAgent
 		}
-	} else {
-		result, runErr = agent.Prompt(runCtx, gotato.UserMessage(request.Prompt))
-	}
-	tracker.untrack()
-	_ = agent.Close(context.Background())
+		s.Set(MetaAgent, spec.Name)
+		if spec.ModelName != "" {
+			s.Set(MetaModel, spec.ModelName)
+		}
 
-	if saveErr := r.store.Save(context.Background(), s); saveErr != nil && runErr == nil {
-		runErr = saveErr
-	}
-	out := RunResult{
-		SessionID: s.ID(),
-		Agent:     spec.Name,
-		Model:     spec.ModelName,
-		Result:    result,
-		Compacted: auto != nil && compacted(auto),
-		Messages:  s.Len(),
-		Events:    len(s.Events()),
-	}
-	if result.FinalMessage != nil {
-		out.FinalText = gotato.TextOf(*result.FinalMessage)
-	}
-	if runErr != nil && out.Result.Error == nil {
-		var runtimeErr *gotato.RuntimeError
-		if errors.As(runErr, &runtimeErr) {
-			out.Result.Error = runtimeErr
+		tracker := &runTracker{runner: r, handle: handle}
+		if request.Timeout > 0 {
+			limits := gotato.DefaultLimits()
+			if spec.Limits != nil {
+				limits = *spec.Limits
+			}
+			limits.RunDeadline = request.Timeout
+			spec.Limits = &limits
+		}
+		agent, auto, err := r.buildAgent(spec, s, sink, tracker)
+		if err != nil {
+			return err
+		}
+		// Cancellation aborts the Run inside the Agent so Prompt still
+		// returns the settled (cancelled) result; cancelling the caller's
+		// context would abandon the result instead.
+		handle.attachAbort(func() {
+			if controllable, ok := agent.(gotato.ControllableAgent); ok {
+				controllable.Abort()
+				return
+			}
+			cancelRun()
+		})
+
+		var result gotato.RunResult
+		if request.Continue {
+			controllable, ok := agent.(gotato.ControllableAgent)
+			if !ok {
+				runErr = gotato.ErrorOf(gotato.ErrNotSupported, "service: agent does not support continue")
+			} else {
+				result, runErr = controllable.Continue(runCtx)
+			}
 		} else {
-			out.Result.Error = gotato.ErrorOf(gotato.ErrInternalInvariant, runErr.Error())
+			result, runErr = agent.Prompt(runCtx, gotato.UserMessage(request.Prompt))
 		}
-		if out.Result.Status == "" {
-			out.Result.Status = runStatusForError(runErr)
+		_ = agent.Close(context.Background())
+
+		if saveErr := r.store.Save(context.Background(), s); saveErr != nil && runErr == nil {
+			runErr = saveErr
 		}
+		out = RunResult{
+			SessionID: s.ID(),
+			Agent:     spec.Name,
+			Model:     spec.ModelName,
+			Result:    result,
+			Compacted: auto != nil && compacted(auto),
+			Messages:  s.Len(),
+			Events:    len(s.Events()),
+		}
+		if result.FinalMessage != nil {
+			out.FinalText = gotato.TextOf(*result.FinalMessage)
+		}
+		if runErr != nil && out.Result.Error == nil {
+			var runtimeErr *gotato.RuntimeError
+			if errors.As(runErr, &runtimeErr) {
+				out.Result.Error = runtimeErr
+			} else {
+				out.Result.Error = gotato.ErrorOf(gotato.ErrInternalInvariant, runErr.Error())
+			}
+			if out.Result.Status == "" {
+				out.Result.Status = runStatusForError(runErr)
+			}
+		}
+		return nil
+	})
+	if lockErr != nil {
+		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
+			// Cancelled while waiting for the Session lock: report a settled
+			// cancelled Run rather than a bare error.
+			return cancelledRunResult(s.ID(), request.Agent, lockErr), lockErr
+		}
+		return RunResult{}, lockErr
 	}
 	return out, runErr
+}
+
+// cancelledRunResult reports a Run cancelled before its Agent started as a
+// settled cancelled Run.
+func cancelledRunResult(sessionID, agent string, err error) RunResult {
+	code := gotato.ErrCancelled
+	if errors.Is(err, context.DeadlineExceeded) {
+		code = gotato.ErrDeadlineExceeded
+	}
+	return RunResult{
+		SessionID: sessionID,
+		Agent:     agent,
+		Result:    gotato.RunResult{Status: runStatusForError(err), Error: gotato.ErrorOf(code, err.Error())},
+	}
+}
+
+// withSessionLock runs fn while holding the Session's single-flight lock. The
+// admission queue policy decides whether a busy Session fails (ErrBusy) or the
+// caller waits. Every Session mutation goes through it: Runs, compaction,
+// tool activation, and deletion.
+func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func() error) error {
+	if err := r.locks.acquire(ctx, sessionID, r.admission.Queue == WaitWhileBusy); err != nil {
+		return err
+	}
+	defer r.locks.release(sessionID)
+	return fn()
 }
 
 // runStatusForError classifies a terminal error when the Agent itself did not
@@ -594,34 +675,38 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	return entries, nil
 }
 
-// SetToolActive records a Session-level activation change and saves it.
+// SetToolActive records a Session-level activation change and saves it under
+// the Session lock, so it cannot lose a concurrent Run or compaction save.
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
-	s, err := r.store.Get(ctx, sessionID)
-	if err != nil {
-		return ToolEntry{}, err
-	}
-	agent, _ := s.Get(MetaAgent)
-	spec, ok := r.Spec(agent)
-	if !ok {
-		return ToolEntry{}, ErrUnknownAgent
-	}
 	var found *gotato.ToolSpec
-	for _, tool := range (&sessionTools{spec: spec}).Tools() {
-		if tool.Spec().ID == toolID {
-			ts := tool.Spec()
-			found = &ts
-			break
+	err := r.withSessionLock(ctx, sessionID, func() error {
+		s, err := r.store.Get(ctx, sessionID)
+		if err != nil {
+			return err
 		}
-	}
-	if found == nil {
-		return ToolEntry{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown tool "+toolID)
-	}
-	if active {
-		s.Set(MetaToolPrefix+toolID, "")
-	} else {
-		s.Set(MetaToolPrefix+toolID, "inactive")
-	}
-	if err := r.store.Save(ctx, s); err != nil {
+		agent, _ := s.Get(MetaAgent)
+		spec, ok := r.Spec(agent)
+		if !ok {
+			return ErrUnknownAgent
+		}
+		for _, tool := range (&sessionTools{spec: spec}).Tools() {
+			if tool.Spec().ID == toolID {
+				ts := tool.Spec()
+				found = &ts
+				break
+			}
+		}
+		if found == nil {
+			return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown tool "+toolID)
+		}
+		if active {
+			s.Set(MetaToolPrefix+toolID, "")
+		} else {
+			s.Set(MetaToolPrefix+toolID, "inactive")
+		}
+		return r.store.Save(ctx, s)
+	})
+	if err != nil {
 		return ToolEntry{}, err
 	}
 	return ToolEntry{Spec: *found, Active: active}, nil
@@ -629,24 +714,33 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 
 // Compact compacts a Session explicitly, under the Session lock.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
-	if err := r.locks.acquire(ctx, sessionID, r.admission.Queue == WaitWhileBusy); err != nil {
-		return modelctx.Result{}, err
-	}
-	defer r.locks.release(sessionID)
-	s, err := r.store.Get(ctx, sessionID)
-	if err != nil {
-		return modelctx.Result{}, err
-	}
-	result, err := modelctx.Compact(ctx, s, opts)
-	if err != nil {
-		return modelctx.Result{}, err
-	}
-	if result.Replaced {
-		if err := r.store.Save(ctx, s); err != nil {
-			return modelctx.Result{}, err
+	var result modelctx.Result
+	err := r.withSessionLock(ctx, sessionID, func() error {
+		s, err := r.store.Get(ctx, sessionID)
+		if err != nil {
+			return err
 		}
+		result, err = modelctx.Compact(ctx, s, opts)
+		if err != nil {
+			return err
+		}
+		if result.Replaced {
+			return r.store.Save(ctx, s)
+		}
+		return nil
+	})
+	if err != nil {
+		return modelctx.Result{}, err
 	}
 	return result, nil
+}
+
+// DeleteSession removes a Session under the Session lock, so a Run in flight
+// is never resurrected by a delete or vice versa.
+func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
+	return r.withSessionLock(ctx, sessionID, func() error {
+		return r.store.Delete(ctx, sessionID)
+	})
 }
 
 // Fork creates a new Session from an existing one.
@@ -671,13 +765,106 @@ func (r *Runner) CancelRun(ctx context.Context, runID gotato.RunID) error {
 		}
 	}
 	r.mu.Lock()
-	entry, ok := r.active[runID]
+	handle := r.byRun[runID]
 	r.mu.Unlock()
-	if !ok {
+	if handle == nil {
 		return gotato.ErrorOf(gotato.ErrInvalidState, "service: run is not active")
 	}
-	entry.cancel()
+	handle.stop()
 	return nil
+}
+
+// CancelSession cancels the Run in flight on a Session, if any.
+func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if !r.cancelSession(sessionID) {
+		return gotato.ErrorOf(gotato.ErrInvalidState, "service: session has no active run")
+	}
+	return nil
+}
+
+// cancelSession cancels the started Run for a Session, or the oldest Run still
+// waiting for its lock when none has started.
+func (r *Runner) cancelSession(sessionID string) bool {
+	r.mu.Lock()
+	waiting := append([]*runHandle(nil), r.handles[sessionID]...)
+	r.mu.Unlock()
+	var chosen *runHandle
+	for _, handle := range waiting {
+		handle.mu.Lock()
+		started := handle.runID != ""
+		handle.mu.Unlock()
+		if started {
+			chosen = handle
+			break
+		}
+	}
+	if chosen == nil && len(waiting) > 0 {
+		chosen = waiting[0]
+	}
+	if chosen == nil {
+		return false
+	}
+	chosen.stop()
+	return true
+}
+
+// cancelAll cancels every admitted Run: started Runs through the Agent, Runs
+// still waiting for a Session lock through their context.
+func (r *Runner) cancelAll() {
+	r.mu.Lock()
+	var all []*runHandle
+	for _, list := range r.handles {
+		all = append(all, list...)
+	}
+	r.mu.Unlock()
+	for _, handle := range all {
+		handle.stop()
+	}
+}
+
+// registerHandle records an admitted Run for the lifetime of the call.
+func (r *Runner) registerHandle(handle *runHandle) {
+	r.mu.Lock()
+	r.handles[handle.sessionID] = append(r.handles[handle.sessionID], handle)
+	r.mu.Unlock()
+}
+
+// unregisterHandle drops an admitted Run and its RunID mapping.
+func (r *Runner) unregisterHandle(handle *runHandle) {
+	r.mu.Lock()
+	list := r.handles[handle.sessionID]
+	for i, candidate := range list {
+		if candidate == handle {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(r.handles, handle.sessionID)
+	} else {
+		r.handles[handle.sessionID] = list
+	}
+	handle.mu.Lock()
+	runID := handle.runID
+	handle.mu.Unlock()
+	if runID != "" && r.byRun[runID] == handle {
+		delete(r.byRun, runID)
+	}
+	r.mu.Unlock()
+}
+
+// attachRunID maps the Agent-assigned RunID to the admitted Run so CancelRun
+// can find it while it is in flight.
+func (r *Runner) attachRunID(handle *runHandle, runID gotato.RunID) {
+	r.mu.Lock()
+	handle.attachRunID(runID)
+	r.byRun[runID] = handle
+	r.mu.Unlock()
 }
 
 // Drain stops admitting Runs and waits for active ones. When ctx ends first,
@@ -700,11 +887,7 @@ func (r *Runner) Drain(ctx context.Context) error {
 	case <-finished:
 		return nil
 	case <-ctx.Done():
-		r.mu.Lock()
-		for _, entry := range r.active {
-			entry.cancel()
-		}
-		r.mu.Unlock()
+		r.cancelAll()
 		<-finished
 		return ctx.Err()
 	}
@@ -732,47 +915,19 @@ func (r *Runner) release() {
 	r.mu.Unlock()
 }
 
-// runTracker is an advisory EventObserver that registers the Run for
-// cancellation the moment its RunID is known (agent_start).
+// runTracker is an advisory EventObserver that attaches the RunID the Agent
+// assigned to the admitted Run handle as soon as agent_start fires.
 type runTracker struct {
-	runner    *Runner
-	sessionID string
-	cancel    func()
-	runID     gotato.RunID
+	runner *Runner
+	handle *runHandle
 }
 
 func (t *runTracker) Advisory() bool { return true }
 
 func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
-	if event.Kind != gotato.EventAgentStart || t.runID != "" {
+	if event.Kind != gotato.EventAgentStart {
 		return nil
 	}
-	t.runID = event.RunID
-	t.runner.mu.Lock()
-	t.runner.active[event.RunID] = activeRun{sessionID: t.sessionID, cancel: t.cancel}
-	t.runner.bySession[t.sessionID] = event.RunID
-	t.runner.mu.Unlock()
+	t.runner.attachRunID(t.handle, event.RunID)
 	return nil
-}
-
-func (t *runTracker) untrack() {
-	t.runner.mu.Lock()
-	if t.runID != "" {
-		delete(t.runner.active, t.runID)
-	}
-	if t.runner.bySession[t.sessionID] == t.runID {
-		delete(t.runner.bySession, t.sessionID)
-	}
-	t.runner.mu.Unlock()
-}
-
-// CancelSession cancels the Run in flight on a Session, if any.
-func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
-	r.mu.Lock()
-	runID, ok := r.bySession[sessionID]
-	r.mu.Unlock()
-	if !ok {
-		return gotato.ErrorOf(gotato.ErrInvalidState, "service: session has no active run")
-	}
-	return r.CancelRun(ctx, runID)
 }
