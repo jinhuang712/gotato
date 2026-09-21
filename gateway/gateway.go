@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -234,7 +235,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 				return nil, ctx.Err()
 			}
 			if attempt < c.maxRetries {
-				if err := wait(ctx, c.retryBackoff*time.Duration(attempt+1)); err != nil {
+				if err := wait(ctx, withJitter(c.retryBackoff*time.Duration(attempt+1))); err != nil {
 					return nil, err
 				}
 				continue
@@ -246,15 +247,86 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		}
 		message := readErrorBody(response.Body)
 		_ = response.Body.Close()
-		retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
+		retryable := retryableStatus(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
-			if err := wait(ctx, c.retryBackoff*time.Duration(attempt+1)); err != nil {
+			if err := wait(ctx, c.retryDelay(response.Header, attempt)); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		return nil, &Error{StatusCode: response.StatusCode, Retryable: retryable, Message: message}
 	}
+}
+
+// retryDelay returns how long to wait before the next attempt. A provider
+// Retry-After/retry-after-ms header wins; otherwise the configured backoff
+// grows linearly with the attempt and carries jitter.
+func (c *Client) retryDelay(header http.Header, attempt int) time.Duration {
+	if retryAfter := retryAfterDuration(header); retryAfter >= 0 {
+		return retryAfter
+	}
+	return withJitter(c.retryBackoff * time.Duration(attempt+1))
+}
+
+// withJitter adds up to 25% to a backoff so a fleet recovering from the same
+// outage does not retry in lockstep. The delay never shrinks below the base.
+func withJitter(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return delay
+	}
+	span := delay / 4
+	if span <= 0 {
+		return delay
+	}
+	return delay + time.Duration(rand.Int63n(int64(span)+1))
+}
+
+// retryableStatus is the shared retry policy for both wire protocols. A 429
+// that names a terminal quota is not retryable; transient 429/5xx responses
+// and known overload phrasing are.
+func retryableStatus(status int, message string) bool {
+	if status == http.StatusTooManyRequests && terminalQuotaLimit(message) {
+		return false
+	}
+	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
+		status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
+		status == http.StatusGatewayTimeout || strings.Contains(strings.ToLower(message), "rate limit") ||
+		strings.Contains(strings.ToLower(message), "overloaded") || strings.Contains(strings.ToLower(message), "service unavailable")
+}
+
+// terminalQuotaLimit reports whether a 429 message names a quota that
+// retrying cannot fix (an exhausted balance or usage cap) rather than a
+// transient rate limit.
+func terminalQuotaLimit(message string) bool {
+	lower := strings.ToLower(message)
+	for _, phrase := range []string{"usage limit", "freeusagelimiterror", "gousagelimiterror", "insufficient_quota", "out of budget", "quota exceeded", "available balance"} {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func retryAfterDuration(header http.Header) time.Duration {
+	if value := strings.TrimSpace(header.Get("retry-after-ms")); value != "" {
+		if millis, err := time.ParseDuration(value + "ms"); err == nil && millis >= 0 {
+			return millis
+		}
+	}
+	value := strings.TrimSpace(header.Get("retry-after"))
+	if value == "" {
+		return -1
+	}
+	if seconds, err := time.ParseDuration(value + "s"); err == nil && seconds >= 0 {
+		return seconds
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		if delay := time.Until(when); delay > 0 {
+			return delay
+		}
+		return 0
+	}
+	return -1
 }
 
 func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {

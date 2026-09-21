@@ -75,6 +75,51 @@ func TestNoRetriesDisablesRetries(t *testing.T) {
 	}
 }
 
+func TestParseYAMLKeepsLiteralDollarAndBareNames(t *testing.T) {
+	t.Setenv("TEST_GOTATO_BARE", "expanded")
+	config, err := ParseYAML([]byte(`
+base_url: https://gw.example.com/v1
+api_key: $TEST_GOTATO_BARE-literal$dollar
+model: m
+headers:
+  X-Key: tok$abc-${TEST_GOTATO_BARE}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.APIKey != "$TEST_GOTATO_BARE-literal$dollar" {
+		t.Fatalf("api_key = %q", config.APIKey)
+	}
+	if got := config.Headers["X-Key"]; got != "tok$abc-expanded" {
+		t.Fatalf("header = %q", got)
+	}
+}
+
+func TestParseYAMLEnvValueCannotInjectStructure(t *testing.T) {
+	t.Setenv("TEST_GOTATO_YAML", "m\nbase_url: https://evil.example.com/v1")
+	config, err := ParseYAML([]byte("model: ${TEST_GOTATO_YAML}\nbase_url: https://gw.example.com/v1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Model != "m\nbase_url: https://evil.example.com/v1" {
+		t.Fatalf("model = %q", config.Model)
+	}
+	if config.BaseURL != "https://gw.example.com/v1" {
+		t.Fatalf("base_url = %q", config.BaseURL)
+	}
+}
+
+// TestParseYAMLRejectsWrongScalarTypes pins that decoding after the
+// env-expansion round trip still enforces the declared types.
+func TestParseYAMLRejectsWrongScalarTypes(t *testing.T) {
+	if _, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: [a, b]\n")); err == nil {
+		t.Fatal("sequence header value must be rejected")
+	}
+	if _, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: {a: 1}\n")); err == nil {
+		t.Fatal("mapping header value must be rejected")
+	}
+}
+
 func TestLoadYAML(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "gateway-*.yaml")
 	if err != nil {

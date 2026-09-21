@@ -150,10 +150,42 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	}
 }
 
+func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
+	token := testToken("account-test")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// A function_call item with a name but no call_id can never be
+		// delivered; it must not make the terminal StopReason StopToolCalls.
+		writeSSE(t, w, `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","name":"`+gatewayFunctionName("demo.echo")+`","arguments":"{}"}}`)
+		writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
+	}))
+	defer server.Close()
+
+	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: token, Model: "gpt-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Tools: []gotato.ToolSpec{{ID: "demo.echo", InputSchema: []byte(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+
+	event, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Kind != gotato.ModelDone || event.StopReason != gotato.StopEndTurn {
+		t.Fatalf("terminal event = %+v", event)
+	}
+}
+
 func writeSSE(t *testing.T, w http.ResponseWriter, data string) {
 	t.Helper()
+	// This runs on the httptest handler goroutine, where t.Fatal is invalid.
 	if _, err := w.Write([]byte("data: " + data + "\n\n")); err != nil {
-		t.Fatal(err)
+		t.Errorf("write SSE: %v", err)
+		return
 	}
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()

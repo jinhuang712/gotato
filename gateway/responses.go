@@ -63,7 +63,7 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 				return nil, ctx.Err()
 			}
 			if attempt < c.maxRetries {
-				if err := wait(ctx, c.retryBackoff*time.Duration(attempt+1)); err != nil {
+				if err := wait(ctx, withJitter(c.retryBackoff*time.Duration(attempt+1))); err != nil {
 					return nil, err
 				}
 				continue
@@ -75,61 +75,15 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 		}
 		message := readErrorBody(response.Body)
 		_ = response.Body.Close()
-		retryable := responsesRetryable(response.StatusCode, message)
+		retryable := retryableStatus(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
-			delay := c.retryBackoff * time.Duration(attempt+1)
-			if retryAfter := retryAfterDuration(response.Header); retryAfter >= 0 {
-				delay = retryAfter
-			}
-			if err := wait(ctx, delay); err != nil {
+			if err := wait(ctx, c.retryDelay(response.Header, attempt)); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		return nil, &Error{StatusCode: response.StatusCode, Retryable: retryable, Message: message}
 	}
-}
-
-func responsesRetryable(status int, message string) bool {
-	if status == http.StatusTooManyRequests && regexpTerminalResponsesLimit(message) {
-		return false
-	}
-	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
-		status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
-		status == http.StatusGatewayTimeout || strings.Contains(strings.ToLower(message), "rate limit") ||
-		strings.Contains(strings.ToLower(message), "overloaded") || strings.Contains(strings.ToLower(message), "service unavailable")
-}
-
-func regexpTerminalResponsesLimit(message string) bool {
-	lower := strings.ToLower(message)
-	for _, phrase := range []string{"usage limit", "freeusagelimiterror", "gousagelimiterror", "insufficient_quota", "out of budget", "quota exceeded", "available balance"} {
-		if strings.Contains(lower, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func retryAfterDuration(header http.Header) time.Duration {
-	if value := strings.TrimSpace(header.Get("retry-after-ms")); value != "" {
-		if millis, err := time.ParseDuration(value + "ms"); err == nil && millis >= 0 {
-			return millis
-		}
-	}
-	value := strings.TrimSpace(header.Get("retry-after"))
-	if value == "" {
-		return -1
-	}
-	if seconds, err := time.ParseDuration(value + "s"); err == nil && seconds >= 0 {
-		return seconds
-	}
-	if when, err := http.ParseTime(value); err == nil {
-		if delay := time.Until(when); delay > 0 {
-			return delay
-		}
-		return 0
-	}
-	return -1
 }
 
 type responsesRequest struct {
@@ -601,14 +555,16 @@ func (s *responsesStream) emitResponsesCall(index int) {
 	if call == nil || call.emitted {
 		return
 	}
-	call.emitted = true
 	name := call.name
 	if original, ok := s.nameMap[name]; ok {
 		name = original
 	}
+	// Validate before marking emitted: a call that cannot be delivered must
+	// not make finishResponsesResponse report StopToolCalls.
 	if name == "" || call.callID == "" {
 		return
 	}
+	call.emitted = true
 	arguments := call.arguments
 	if arguments == "" {
 		arguments = "{}"
