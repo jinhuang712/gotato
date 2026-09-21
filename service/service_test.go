@@ -481,3 +481,49 @@ func waitFor(t *testing.T, condition func() bool) {
 	}
 	t.Fatal("condition not met in time")
 }
+
+// blockingGetStore stalls Get until its context ends, standing in for a slow
+// or hung Store during the pre-lock load.
+type blockingGetStore struct {
+	session.Store
+	once    sync.Once
+	started chan struct{}
+}
+
+func (s *blockingGetStore) Get(ctx context.Context, id string) (*session.Session, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A Run that is admitted but still loading its Session must be reachable by
+// CancelSession; before the handle was registered up front it was invisible.
+func TestCancelSessionReachesRunLoadingSession(t *testing.T) {
+	blocking := &blockingGetStore{Store: session.NewMemoryStore(), started: make(chan struct{})}
+	runner, err := service.New(service.Config{
+		Store: blocking,
+		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, runErr := runner.Run(context.Background(), service.RunRequest{SessionID: "loading-1", Prompt: "hi"})
+		resultCh <- runErr
+	}()
+	<-blocking.started
+
+	if err := runner.CancelSession(context.Background(), "loading-1"); err != nil {
+		t.Fatalf("CancelSession while loading = %v", err)
+	}
+	select {
+	case runErr := <-resultCh:
+		if !errors.Is(runErr, context.Canceled) {
+			t.Fatalf("run error = %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after CancelSession")
+	}
+}

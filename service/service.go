@@ -34,6 +34,10 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
+// persistTimeout bounds the terminal Session write and cleanup delete so a
+// stalled Store cannot pin a settled Run.
+const persistTimeout = 10 * time.Second
+
 // Session metadata keys the service reads. They are ordinary application
 // metadata from the runtime's point of view and may be set by any client.
 const (
@@ -167,6 +171,9 @@ func (h *runHandle) attachRunID(runID gotato.RunID) {
 }
 
 // stop aborts a started Run, or the pre-start wait when none started yet.
+// It always cancels the Run context: Abort() is a no-op until the Agent
+// installs its run stop, so cancelling is what actually reaches a Run that is
+// still loading its Session.
 func (h *runHandle) stop() {
 	h.mu.Lock()
 	abort := h.abort
@@ -174,9 +181,10 @@ func (h *runHandle) stop() {
 	h.mu.Unlock()
 	if abort != nil {
 		abort()
-		return
 	}
-	cancel()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // New validates the configuration and creates a Runner.
@@ -326,7 +334,16 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	}
 	defer r.release()
 
-	// Load or create the Session.
+	// Admitted, then registered immediately: from here on Drain and
+	// CancelSession reach the Run even while it is still loading its Session.
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
+	r.registerHandle(handle)
+	defer r.unregisterHandle(handle)
+
+	// Load or create the Session. runCtx carries the cancellation that
+	// Stop/Drain apply, so a stalled Store load does not outlive them.
 	var s *session.Session
 	var err error
 	if request.SessionID == "" {
@@ -337,22 +354,19 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 				s.Set(key, value)
 			}
 		} else {
-			s, err = r.CreateSession(ctx, request.Agent, request.Metadata)
+			s, err = r.CreateSession(runCtx, request.Agent, request.Metadata)
 		}
 	} else {
-		s, err = r.store.Get(ctx, request.SessionID)
+		s, err = r.store.Get(runCtx, request.SessionID)
 	}
 	if err != nil {
 		return RunResult{}, err
 	}
-
-	// Register the Run before it can wait on the Session lock, so Drain and
-	// CancelSession reach it for the whole admitted lifetime.
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-	handle := &runHandle{sessionID: s.ID(), cancel: cancelRun}
-	r.registerHandle(handle)
-	defer r.unregisterHandle(handle)
+	// A newly created Session has a generated ID; retarget the handle so
+	// CancelSession can find it for the rest of the Run.
+	if s.ID() != handle.sessionID {
+		r.retargetHandle(handle, s.ID())
+	}
 
 	// One Run per Session at a time. Every Session mutation goes through
 	// withSessionLock; the admission policy decides the busy behavior.
@@ -365,7 +379,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			// Re-read under the lock: another Run may have saved meanwhile,
 			// and a Session deleted in between must not be resurrected from
 			// the stale copy.
-			fresh, err := r.store.Get(ctx, s.ID())
+			fresh, err := r.store.Get(runCtx, s.ID())
 			if err != nil {
 				return err
 			}
@@ -413,7 +427,12 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		_ = agent.Close(context.Background())
 
 		if !request.SkipSave {
-			saveErr := r.store.Save(context.Background(), s)
+			// Persist the settled Session even when the Run was cancelled, but
+			// bound the write so a stalled Store cannot pin the Run (and Drain)
+			// forever.
+			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+			saveErr := r.store.Save(saveCtx, s)
+			cancelSave()
 			if saveErr != nil && runErr == nil {
 				// The Run succeeded but its Session state is lost: report it as a
 				// persistence failure instead of a clean success.
@@ -449,7 +468,9 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		if created && !started {
 			// A one-shot Run that never started must not leave an empty
 			// Session behind.
-			_ = r.store.Delete(context.Background(), s.ID())
+			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+			_ = r.store.Delete(deleteCtx, s.ID())
+			cancelDelete()
 		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Cancelled while waiting for the Session lock: report a settled
@@ -882,6 +903,31 @@ func (r *Runner) registerHandle(handle *runHandle) {
 	r.mu.Lock()
 	r.handles[handle.sessionID] = append(r.handles[handle.sessionID], handle)
 	r.mu.Unlock()
+}
+
+// retargetHandle moves an admitted Run to the Session ID it turned out to own.
+// A Run registers before its Session is loaded, so a newly created Session's
+// generated ID has to be attached afterwards.
+func (r *Runner) retargetHandle(handle *runHandle, sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if handle.sessionID == sessionID {
+		return
+	}
+	list := r.handles[handle.sessionID]
+	for i, candidate := range list {
+		if candidate == handle {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(r.handles, handle.sessionID)
+	} else {
+		r.handles[handle.sessionID] = list
+	}
+	handle.sessionID = sessionID
+	r.handles[sessionID] = append(r.handles[sessionID], handle)
 }
 
 // unregisterHandle drops an admitted Run and its RunID mapping.
