@@ -474,26 +474,7 @@ func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 }
 
 func nextSSEData(ctx context.Context, reader *bufio.Reader) (string, error) {
-	var lines []string
-	for {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		line, err := reader.ReadString('\n')
-		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-		if strings.HasPrefix(line, "data:") {
-			lines = append(lines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-		if line == "" && len(lines) > 0 {
-			return strings.Join(lines, "\n"), nil
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) && len(lines) > 0 {
-				return strings.Join(lines, "\n"), nil
-			}
-			return "", err
-		}
-	}
+	return readSSEEvent(ctx, reader)
 }
 
 func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte) {

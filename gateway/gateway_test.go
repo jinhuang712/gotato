@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -128,6 +129,53 @@ func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("HTTP attempts = %d", calls.Load())
+	}
+}
+
+func TestConfigHeadersCannotOverrideProtocolHeaders(t *testing.T) {
+	var auth, accept string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		accept = r.Header.Get("Accept")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	client, err := New(Config{
+		Endpoint: server.URL, Model: "m", APIKey: "secret",
+		Headers: map[string]string{"Authorization": "Bearer attacker", "Accept": "application/json"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if _, err := stream.Recv(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer secret" || accept != "text/event-stream" {
+		t.Fatalf("protocol headers were overridden: auth=%q accept=%q", auth, accept)
+	}
+}
+
+func TestStreamRejectsOversizedSSELine(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("data: " + strings.Repeat("x", maxSSELineBytes+10)))
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if _, err := stream.Recv(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized SSE line err = %v", err)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"sort"
@@ -116,7 +117,19 @@ func New(config Config) (*Client, error) {
 	}
 	client := config.HTTPClient
 	if client == nil {
-		client = &http.Client{}
+		// A stalled upstream must not hold a Run open forever. Overall stream
+		// duration stays governed by the caller's context; these bound only
+		// connection setup and the wait for response headers.
+		client = &http.Client{
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 60 * time.Second,
+				ExpectContinueTimeout: time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		}
 	}
 	return &Client{
 		api:          api,
@@ -204,13 +217,16 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Configurable headers are applied first so protocol headers from this
+		// adapter win; a config entry must not be able to disable
+		// authentication or break SSE negotiation.
+		for key, value := range c.headers {
+			req.Header.Set(key, value)
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 		if c.apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
-		for key, value := range c.headers {
-			req.Header.Set(key, value)
 		}
 		response, err := c.httpClient.Do(req)
 		if err != nil {
@@ -448,16 +464,50 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	return event, nil
 }
 
-func (s *stream) nextData(ctx context.Context) (string, error) {
+// SSE framing limits. They bound what one upstream line or event can allocate,
+// so a misbehaving provider cannot grow the stream buffer without limit.
+const (
+	maxSSELineBytes  = 1 << 20
+	maxSSEEventBytes = 4 << 20
+)
+
+// readBoundedLine reads one '\n'-terminated line without letting a line that
+// never terminates grow the buffer without bound.
+func readBoundedLine(reader *bufio.Reader) (string, error) {
+	var buf []byte
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			return string(buf), err
+		}
+		if b == '\n' {
+			return string(buf), nil
+		}
+		buf = append(buf, b)
+		if len(buf) > maxSSELineBytes {
+			return "", fmt.Errorf("gateway: SSE line exceeds %d bytes", maxSSELineBytes)
+		}
+	}
+}
+
+// readSSEEvent joins the data: lines of one SSE event, enforcing the line and
+// event size limits.
+func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
 	var lines []string
+	total := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		line, err := s.reader.ReadString('\n')
-		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		raw, err := readBoundedLine(reader)
+		line := strings.TrimSuffix(raw, "\r")
 		if strings.HasPrefix(line, "data:") {
-			lines = append(lines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			total += len(payload)
+			if total > maxSSEEventBytes {
+				return "", fmt.Errorf("gateway: SSE event exceeds %d bytes", maxSSEEventBytes)
+			}
+			lines = append(lines, payload)
 		}
 		if line == "" && len(lines) > 0 {
 			return strings.Join(lines, "\n"), nil
@@ -469,6 +519,10 @@ func (s *stream) nextData(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+}
+
+func (s *stream) nextData(ctx context.Context) (string, error) {
+	return readSSEEvent(ctx, s.reader)
 }
 
 func (s *stream) processChunk(chunk wireChunk) {
