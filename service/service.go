@@ -402,22 +402,11 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		// Cancellation aborts the Run inside the Agent so Prompt still
 		// returns the settled (cancelled) result; cancelling the caller's
 		// context would abandon the result instead.
-		handle.attachAbort(func() {
-			if controllable, ok := agent.(gotato.ControllableAgent); ok {
-				controllable.Abort()
-				return
-			}
-			cancelRun()
-		})
+		handle.attachAbort(agent.Abort)
 
 		var result gotato.RunResult
 		if request.Continue {
-			controllable, ok := agent.(gotato.ControllableAgent)
-			if !ok {
-				runErr = gotato.ErrorOf(gotato.ErrNotSupported, "service: agent does not support continue")
-			} else {
-				result, runErr = controllable.Continue(runCtx)
-			}
+			result, runErr = agent.Continue(runCtx)
 		} else {
 			result, runErr = agent.Prompt(runCtx, gotato.UserMessage(request.Prompt))
 		}
@@ -519,7 +508,7 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 
 // buildAgent composes the runtime for one Run from the Spec and the Session's
 // own settings.
-func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker) (gotato.Agent, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker) (gotato.RuntimeAgent, *modelctx.AutoCompactor, error) {
 	instruction := spec.Instruction
 	if override, ok := s.Get(MetaInstruction); ok && override != "" {
 		instruction = override

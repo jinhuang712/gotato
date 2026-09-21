@@ -17,6 +17,14 @@ import "github.com/jinhuang712/gotato/testkit"
 model := testkit.DemoModel{}
 ```
 
+### New `RuntimeAgent` return from `NewAgent`
+
+`gotato.NewAgent` now returns `gotato.RuntimeAgent` (an `Agent` plus the control, lifecycle, event, and inspection interfaces Core always implemented) instead of the bare `Agent`. Code that assigns the result to an `Agent` variable or passes it where an `Agent` is expected is unchanged; code that discovered `ControllableAgent`, `EventSource`, `ToolInspector`, `IdleWaiter`, `RunCanceler`, or `LifecycleAgent` by type assertion can call them directly.
+
+### `Service.Runner.Fork` and `Inspect` signatures
+
+`Runner.Fork(ctx, sessionID, newID string)` takes an explicit new ID (empty for a random one) and rejects an existing ID instead of overwriting it. `Runner.Inspect(ctx, sessionID, options ...InspectOptions)` accepts per-inspection `Instruction`/`Panel` overrides. `service.RunRequest` gained `SkipSave`.
+
 ### `Transcript` gained `Len()`
 
 An Agent now enforces `MaxMessages` through `Transcript.Len()` instead of materializing `Messages()`, so a `Session`-backed history is not copied on every commit. The interface is extended:
@@ -77,4 +85,4 @@ The `pi_oauth` auth type, the `chatgpt.com/backend-api` default, the `originator
 
 ### Unchanged
 
-The `Agent` interface, `NewAgent` and every existing `With*` option, message/tool/model/extension types, `CoreLimits` semantics (`DefaultLimits()` is newly exported so partial overrides are possible), and the `gateway` YAML schema apart from the auth change above.
+The `Agent` interface, `NewAgent` and every existing `With*` option, message/tool/model/extension types, `CoreLimits` semantics (`DefaultLimits()` is newly exported so partial overrides are possible), and the `gateway` YAML schema apart from the auth change above. `NewAgent` returns the larger `RuntimeAgent` interface; see the entry above.

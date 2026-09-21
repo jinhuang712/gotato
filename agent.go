@@ -77,6 +77,23 @@ type ControllableAgent interface {
 	Abort()
 }
 
+// RuntimeAgent is the complete surface NewAgent returns. The minimal Agent
+// stays the two-method contract an implementation must satisfy; a
+// RuntimeAgent additionally guarantees the control, lifecycle, event, and
+// inspection operations the service layer and the CLI rely on, so callers do
+// not have to discover them by type assertion at run time.
+type RuntimeAgent interface {
+	Agent
+	ControllableAgent
+	EventAgent
+	LifecycleAgent
+	RunCanceler
+	IdleWaiter
+	ToolInspector
+	// Transcript returns the committed history this Agent runs against.
+	Transcript() Transcript
+}
+
 type Option func(*agentConfig) error
 
 type agentConfig struct {
@@ -155,7 +172,8 @@ func WithDeadlines(run, model, tool time.Duration) Option {
 	}
 }
 
-func NewAgent(options ...Option) (Agent, error) {
+// NewAgent builds the standard runtime Agent.
+func NewAgent(options ...Option) (RuntimeAgent, error) {
 	cfg := agentConfig{limits: defaultLimits()}
 	for _, option := range options {
 		if option == nil {
