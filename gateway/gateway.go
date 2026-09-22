@@ -236,12 +236,10 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Configurable headers are applied first so protocol headers from this
-		// adapter win; a config entry must not be able to disable
-		// authentication or break SSE negotiation.
-		for key, value := range c.headers {
-			req.Header.Set(key, value)
-		}
+		// Configurable and per-request headers are applied first so protocol
+		// headers from this adapter win; neither may disable authentication
+		// or break SSE negotiation.
+		c.applyHeaders(ctx, req)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 		if c.api == APIAnthropicMessages {
@@ -549,9 +547,14 @@ type wireChunk struct {
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     uint64 `json:"prompt_tokens"`
-		CompletionTokens uint64 `json:"completion_tokens"`
-		TotalTokens      uint64 `json:"total_tokens"`
+		PromptTokens        uint64 `json:"prompt_tokens"`
+		CompletionTokens    uint64 `json:"completion_tokens"`
+		TotalTokens         uint64 `json:"total_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens uint64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details,omitempty"`
+		// PromptCacheHitTokens is DeepSeek's name for cached prompt tokens.
+		PromptCacheHitTokens uint64 `json:"prompt_cache_hit_tokens,omitempty"`
 	} `json:"usage"`
 }
 
@@ -649,6 +652,11 @@ func (s *stream) nextData(ctx context.Context) (string, error) {
 func (s *stream) processChunk(chunk wireChunk) {
 	if chunk.Usage != nil {
 		s.usage = gotato.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
+		cached := chunk.Usage.PromptCacheHitTokens
+		if d := chunk.Usage.PromptTokensDetails; d != nil && d.CachedTokens > cached {
+			cached = d.CachedTokens
+		}
+		s.usage.CacheReadTokens = min(cached, s.usage.InputTokens)
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: s.usage})
 	}
 	for _, choice := range chunk.Choices {

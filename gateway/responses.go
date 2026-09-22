@@ -47,13 +47,10 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 		if err != nil {
 			return nil, err
 		}
-		for key, value := range c.headers {
-			req.Header.Set(key, value)
-		}
+		c.applyHeaders(ctx, req)
 		// Protocol headers are set after the configurable ones so a provider
 		// header override cannot break authentication or streaming.
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		req.Header.Set("User-Agent", "gotato/0.1")
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 
