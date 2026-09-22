@@ -136,6 +136,7 @@ A provider is configuration, not code. Any vendor that speaks a supported wire A
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
 - On the chat and Responses APIs, a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
+- On the chat API, a thinking model's `reasoning_content` is kept as reasoning and sent back on the next call, as DeepSeek requires.
 
 Settings, in the gateway's YAML file (`--gateway-config`, or `GOTATO_GATEWAY_CONFIG`, else `gateway.yaml`):
 

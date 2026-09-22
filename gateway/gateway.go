@@ -418,6 +418,9 @@ func convertMessage(message gotato.Message, names map[string]string) (wireMessag
 		}
 	}
 	out := wireMessage{Role: role, Content: gotato.TextOf(message)}
+	if role == string(gotato.RoleAssistant) {
+		out.ReasoningContent = gotato.ReasoningOf(message)
+	}
 	for _, call := range message.ToolCalls {
 		name, err := assignFunctionName(names, call.ToolID)
 		if err != nil {
@@ -465,10 +468,13 @@ type wireFunction struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 type wireMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
+	// ReasoningContent is the model's thinking (DeepSeek), streamed as
+	// delta.reasoning_content; a thinking model requires it back.
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []wireToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
 }
 type wireToolCall struct {
 	ID       string           `json:"id"`
@@ -498,8 +504,9 @@ type callBuffer struct{ id, name, arguments string }
 type wireChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
@@ -650,6 +657,9 @@ func (s *stream) processChunk(chunk wireChunk) {
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: s.usage})
 	}
 	for _, choice := range chunk.Choices {
+		if choice.Delta.ReasoningContent != "" {
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDelta, Text: choice.Delta.ReasoningContent})
+		}
 		if choice.Delta.Content != "" {
 			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: choice.Delta.Content})
 		}

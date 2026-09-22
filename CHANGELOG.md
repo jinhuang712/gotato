@@ -9,12 +9,22 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 - **A reply that the output limit cut off keeps `StopMaxTokens`, even when it holds Tool calls.** The Tools that finished still run, and a `TurnStopper` sees the cut-off in `TurnSnapshot.Assistant.StopReason`. `TurnSnapshot.StopReason` stays the Turn's own reason, which is `StopToolCalls` once Tools ran. **Breaking:** code that read `Message.StopReason == StopToolCalls` to find Tool calls must read `len(Message.ToolCalls) > 0` instead.
 - **A bad Tool call no longer ends the Run.** A call that names an unknown Tool, or carries arguments that are not valid JSON or fail the Tool's schema, settles as a failed Tool Result that never ran. Its text names the problem and, for an unknown Tool, lists the Tools the model was shown, so the model can correct the call on its next Turn. `MaxTurns` and `MaxToolCalls` still bound a model that keeps getting it wrong. **Breaking:** `Prompt` no longer returns `ErrToolResolutionFailure` or `ErrToolArgumentFailure` for these calls. Read the Tool Result instead: `Status == ToolResultFailed`, `Executed == false`, and a `SafeError` that starts with the error code.
 - **A streamed reply is stored as its blocks, not its fragments.** The Agent kept one `ContentPart` per streamed text or reasoning delta, so a reply was saved and replayed as hundreds of fragments. It now merges contiguous text deltas, and contiguous reasoning deltas, into one Part each; a reasoning block ends when its signature arrives. `message_update` Events still carry each delta. The Responses gateway also joins adjacent text Parts of Sessions saved before this change.
+- **`TextOf` returns text only; `ReasoningOf` returns reasoning.** `gotato.TextOf` used to join text and reasoning Parts, so a model's thinking leaked into final answers (`FinalText`), compaction summaries, CLI output and the `content` the chat gateway sends back. **Breaking:** code that wanted the thinking must call `gotato.ReasoningOf`.
+
+  ```go
+  // before: text and reasoning together
+  all := gotato.TextOf(message)
+  // after
+  answer := gotato.TextOf(message)
+  thinking := gotato.ReasoningOf(message)
+  ```
 
 ### Providers
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.
 - **Tool names on the wire stay readable.** Every adapter sends a Tool ID that providers accept (`^[a-zA-Z0-9_-]{1,64}$`) unchanged, and replaces each other character with `_`, so `demo.echo` goes out as `demo_echo`. Two IDs that end up with the same name, and IDs longer than 64 characters, get a readable prefix plus a short hash. Unsafe IDs used to go out as `gotato_` plus their base64 encoding, which models copied back wrong. Mapping a name back to its Tool ID is unchanged.
 - **The chat and Responses gateways restart a stream that breaks before any output.** A stream that broke after its headers (a connection reset, or a close before `[DONE]` or `response.completed`) used to fail with a raw `unexpected EOF`, or as `model_protocol_failure`. While nothing has reached the caller, the gateway now sends the request again, within `max_retries`. Once output was delivered, it returns a `*gateway.Error` with `Retryable: true` and a message that starts with `stream interrupted:`, which the Loop reports as `model_failure`. A chat stream that ends after a `finish_reason` without `[DONE]` now completes. **Breaking:** code that matched `model_protocol_failure` for a cut stream must match `model_failure`, and can read the cause with `errors.As(err, &gatewayErr)`.
+- **The chat gateway keeps and sends back `reasoning_content`.** It dropped `delta.reasoning_content`, so a thinking model that requires it back failed mid-Run (DeepSeek answers HTTP 400). Reasoning deltas are now stored as reasoning Parts, and an assistant message's reasoning goes back as `reasoning_content`, left out when empty.
 
 ## v0.1.0 — 2026-10-11
 

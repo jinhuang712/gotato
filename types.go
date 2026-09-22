@@ -62,10 +62,19 @@ func AssistantMessage(text string) Message {
 	return Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: text}}}
 }
 
-func TextOf(m Message) string {
+// TextOf returns what a message says: its text Parts, in order. Reasoning is
+// not part of it; ReasoningOf returns that.
+func TextOf(m Message) string { return partsText(m, ContentText) }
+
+// ReasoningOf returns a message's reasoning Parts' text, in order: the
+// model's thinking, which a provider may require back (DeepSeek's
+// reasoning_content) but which is never the answer.
+func ReasoningOf(m Message) string { return partsText(m, ContentReasoning) }
+
+func partsText(m Message, kind ContentKind) string {
 	var b strings.Builder
 	for _, p := range m.Parts {
-		if p.Kind == ContentText || p.Kind == ContentReasoning {
+		if p.Kind == kind {
 			b.WriteString(p.Text)
 		}
 	}
