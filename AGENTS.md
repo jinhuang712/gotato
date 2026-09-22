@@ -76,6 +76,7 @@ When writing or rewriting a project document:
 |---|---|
 | a model that answers a scripted sequence | `testkit.FakeModel` |
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
+| a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
 | capture every runtime event in order | `testkit.EventRecorder` (install with `gotato.WithExtension`) |
 | a pre-populated session | `testkit.NewSession("q", "a", ...)` |

@@ -293,7 +293,7 @@ The CLI runs the same Runner as the service, so anything you try in a terminal b
 
 You test agents without a network or a paid model.
 
-- `testkit` ships a scripted model (`FakeModel`), a model that replays recorded replies (`ReplayModel`), a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models.
+- `testkit` ships a scripted model (`FakeModel`), a model that replays recorded replies (`ReplayModel`), a model that answers from the request it gets (`FuncModel`, for agents that share one model and send in any order), a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models.
 - CLI scenarios run in-process and against the built binary, and assert on JSON.
 
 Gap: the tools that [GOALS.md](GOALS.md) needs are planned and not built: a reference workload, fault injection (crashes, client disconnects), and a harness that runs several instances over one store.
