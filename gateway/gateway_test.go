@@ -278,7 +278,7 @@ func TestFunctionNamesStayReadableWhenProvidersAcceptThem(t *testing.T) {
 		{"spawn-worker2", false},
 		{"demo.echo", true},
 		{"fs/read", true},
-		{"gotato_bash", true},
+		{"gotato_bash", false},
 		{long, true},
 	}
 	seen := map[string]string{}

@@ -3,7 +3,10 @@ package gotato
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -16,8 +19,42 @@ type toolPlan struct {
 	tool       Tool
 	use        ToolUse
 	sequential bool
-	blocked    bool
-	result     ToolResult
+	// blocked marks a call settled at preflight without executing: blocked
+	// by a PreToolUse extension, or rejected as unknown or invalid.
+	blocked bool
+	result  ToolResult
+}
+
+// rejectedPlan settles a call the Model got wrong as a failed, unexecuted
+// Tool Result carrying a message the Model can act on.
+func (a *coreAgent) rejectedPlan(index int, call ToolCall, message string) toolPlan {
+	return toolPlan{
+		index:   index,
+		call:    call,
+		blocked: true,
+		result: ToolResult{
+			CallID:    call.ID,
+			Status:    ToolResultFailed,
+			Content:   []ContentPart{{Kind: ContentText, Text: message}},
+			SafeError: message,
+			Executed:  false,
+		},
+	}
+}
+
+// visibleToolIDs lists the Tools the Model was shown this Turn, for an
+// unknown-tool message.
+func (a *coreAgent) visibleToolIDs() string {
+	specs := a.registry.visibleSpecs()
+	ids := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		ids = append(ids, spec.ID)
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return "(none)"
+	}
+	return strings.Join(ids, ", ")
 }
 
 // toolSignal carries one worker's Event back to the Agent goroutine, which is
@@ -187,16 +224,23 @@ func (a *coreAgent) preflightTools(ctx context.Context, runID RunID, turn TurnNu
 		if limitExceededUint32(a.limitsSet, a.limits.MaxToolCalls, *toolCalls) {
 			return nil, runtimeError(ErrLimitExceeded, "Tool", "maximum Tool Calls exceeded", nil)
 		}
+		// A call the Model got wrong (an unknown Tool, malformed or
+		// schema-invalid arguments) settles as a failed Tool Result the Model
+		// can read and correct; it never ends the Run (GOALS.md G-G04: every
+		// failed tool call returns its reason to the model).
 		tool := a.registry.lookup(call.ToolID)
 		if tool == nil {
-			return nil, runtimeError(ErrToolResolutionFailure, "Tool", "unknown Tool: "+call.ToolID, nil)
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: unknown tool %q; available tools: %s", ErrToolResolutionFailure, call.ToolID, a.visibleToolIDs())))
+			continue
 		}
 		if !json.Valid(call.Arguments) {
-			return nil, runtimeError(ErrToolArgumentFailure, "Tool", "Tool arguments are not valid JSON", nil)
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: arguments for %s are not valid JSON", ErrToolArgumentFailure, call.ToolID)))
+			continue
 		}
 		spec := tool.Spec()
 		if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
-			return nil, runtimeError(ErrToolArgumentFailure, "Tool", err.Error(), err)
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: %s: %v", ErrToolArgumentFailure, call.ToolID, err)))
+			continue
 		}
 		plan := toolPlan{
 			index:      sourceIndex,

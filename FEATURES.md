@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-15 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. How it is built is in [DESIGNS.md](DESIGNS.md), and the terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -106,11 +106,9 @@ A tool is one thing an agent can do, such as a lookup in your database.
 - `gotato.NewFuncTool` turns a Go function into a tool. Its input schema comes from the Go type, and every call is checked against that schema before the tool runs. The check covers `type`, `enum`, `required`, `properties` and `additionalProperties`; other keywords pass through unchecked.
 - Every tool declares its Effect: `read` < `write_local` < `write_external` < `destructive`. A tool that declares nothing counts as destructive. `gotato.ToolWithEffect` sets the Effect on any tool, and `gotato tools list --json` shows a declared Effect (a tool with none shows no `effect` field).
 - A tool result carries a status. A failure carries a safe message for the model.
+- A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
 
-Gaps:
-
-- **A bad tool call fails the whole Run.** When the model names a tool that does not exist, or sends arguments that are not valid JSON or fail the schema check, the Run fails instead of returning the reason to the model so it can correct the call ([TODO.md](TODO.md); [GOALS.md](GOALS.md) G-G04).
-- **Effect cap per Agent** is not built. An Agent cannot yet limit its tools to a highest Effect, such as read only ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+Gap: the **Effect cap per Agent** is not built. An Agent cannot yet limit its tools to a highest Effect, such as read only ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
 
 ### G-F10 — Tool sets and the registry ✅
 
@@ -136,6 +134,7 @@ A provider is configuration, not code. Any vendor that speaks a supported wire A
 - Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff.
 - Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY` and `GOTATO_GATEWAY_MODEL`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
+- A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
 
 Settings, in the gateway's YAML file (`--gateway-config`, or `GOTATO_GATEWAY_CONFIG`, else `gateway.yaml`):
 

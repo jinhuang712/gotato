@@ -7,10 +7,12 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 ### Runtime
 
 - **A reply that the output limit cut off keeps `StopMaxTokens`, even when it holds Tool calls.** The Tools that finished still run, and a `TurnStopper` sees the cut-off in `TurnSnapshot.Assistant.StopReason`. `TurnSnapshot.StopReason` stays the Turn's own reason, which is `StopToolCalls` once Tools ran. **Breaking:** code that read `Message.StopReason == StopToolCalls` to find Tool calls must read `len(Message.ToolCalls) > 0` instead.
+- **A bad Tool call no longer ends the Run.** A call that names an unknown Tool, or carries arguments that are not valid JSON or fail the Tool's schema, settles as a failed Tool Result that never ran. Its text names the problem and, for an unknown Tool, lists the Tools the model was shown, so the model can correct the call on its next Turn. `MaxTurns` and `MaxToolCalls` still bound a model that keeps getting it wrong. **Breaking:** `Prompt` no longer returns `ErrToolResolutionFailure` or `ErrToolArgumentFailure` for these calls. Read the Tool Result instead: `Status == ToolResultFailed`, `Executed == false`, and a `SafeError` that starts with the error code.
 
 ### Providers
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.
+- **Tool names on the wire stay readable.** Every adapter sends a Tool ID that providers accept (`^[a-zA-Z0-9_-]{1,64}$`) unchanged, and replaces each other character with `_`, so `demo.echo` goes out as `demo_echo`. Two IDs that end up with the same name, and IDs longer than 64 characters, get a readable prefix plus a short hash. Unsafe IDs used to go out as `gotato_` plus their base64 encoding, which models copied back wrong. Mapping a name back to its Tool ID is unchanged.
 
 ## v0.1.0 — 2026-10-11
 

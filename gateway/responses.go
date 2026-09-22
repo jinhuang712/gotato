@@ -155,11 +155,10 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, 
 
 	tools := make([]responsesTool, 0, len(request.Tools))
 	for _, spec := range request.Tools {
-		name := gatewayFunctionName(spec.ID)
-		if previous, exists := names[name]; exists && previous != spec.ID {
-			return nil, nil, fmt.Errorf("gateway: Tool IDs collide after encoding: %q and %q", previous, spec.ID)
+		name, err := assignFunctionName(names, spec.ID)
+		if err != nil {
+			return nil, nil, err
 		}
-		names[name] = spec.ID
 		parameters := spec.InputSchema
 		if len(parameters) == 0 {
 			parameters = []byte(`{"type":"object"}`)
@@ -246,11 +245,10 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 			}
 		}
 		for _, call := range message.ToolCalls {
-			name := gatewayFunctionName(call.ToolID)
-			if previous, exists := names[name]; exists && previous != call.ToolID {
-				return nil, fmt.Errorf("gateway: Tool IDs collide after encoding: %q and %q", previous, call.ToolID)
+			name, err := assignFunctionName(names, call.ToolID)
+			if err != nil {
+				return nil, err
 			}
-			names[name] = call.ToolID
 			arguments := string(call.Arguments)
 			if arguments == "" {
 				arguments = "{}"

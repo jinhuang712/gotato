@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -203,12 +204,70 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); !IsCode(err, ErrToolArgumentFailure) {
-		t.Fatalf("expected argument validation failure, got %v", err)
+	// Invalid arguments settle as a failed Tool Result the Model can correct;
+	// the Run continues (GOALS.md G-G04).
+	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
+	if err != nil || result.Status != RunCompleted {
+		t.Fatalf("run = %+v, %v; invalid arguments must not end the Run", result, err)
 	}
 	if executed {
 		t.Fatal("executor ran with missing required field")
 	}
+	var failed *ToolResult
+	for _, m := range agent.Transcript().Messages() {
+		if m.ToolResult != nil {
+			failed = m.ToolResult
+		}
+	}
+	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, "city is required") || !strings.Contains(failed.SafeError, string(ErrToolArgumentFailure)) {
+		t.Fatalf("tool result = %+v", failed)
+	}
+}
+
+func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
+	model := &namedToolModel{tool: "get_wether"}
+	agent, err := NewAgent(
+		WithModel(model),
+		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+			return weatherOutput{}, nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
+	if err != nil || result.Status != RunCompleted {
+		t.Fatalf("run = %+v, %v; an unknown tool must not end the Run", result, err)
+	}
+	var failed *ToolResult
+	for _, m := range agent.Transcript().Messages() {
+		if m.ToolResult != nil {
+			failed = m.ToolResult
+		}
+	}
+	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, `unknown tool "get_wether"`) || !strings.Contains(failed.SafeError, "get_weather") {
+		t.Fatalf("tool result = %+v", failed)
+	}
+	if model.calls != 2 {
+		t.Fatalf("the Model should get a second turn to recover, calls = %d", model.calls)
+	}
+}
+
+type namedToolModel struct {
+	tool  string
+	calls int
+}
+
+func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+	m.calls++
+	if m.calls == 1 {
+		return &testStream{events: []ModelEvent{
+			{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: m.tool, Arguments: []byte(`{}`)}},
+			{Kind: ModelDone, StopReason: StopToolCalls},
+		}}, nil
+	}
+	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "recovered"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
 }
 
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {

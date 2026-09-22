@@ -28,7 +28,6 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
    - the measurement tools every *(to build)* method in GOALS needs: a reference workload, a live run against a real provider, fault injection, and a multi-instance harness;
    - the ⬜ items in FEATURES G-F27: save every Turn, conflict on a stale save, Session ownership across instances, the warm Session and its TTL;
    - the Effect cap (FEATURES G-F09);
-   - the defect "a bad tool call fails the whole Run" ([TODO.md](TODO.md)), which breaks GOALS G-G04;
    - the ownership design session. The maintainer asked for a dedicated discussion before anything is built; DESIGNS → Open questions lists what it must answer, and one requirement is already fixed: a second instance stops before it calls the model.
 3. **Rewrite README.md** last, as a summary of the others, with the new tagline.
 

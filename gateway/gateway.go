@@ -12,9 +12,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -368,11 +365,10 @@ func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[strin
 	}
 	tools := make([]wireTool, 0, len(request.Tools))
 	for _, spec := range request.Tools {
-		name := gatewayFunctionName(spec.ID)
-		if previous, exists := names[name]; exists && previous != spec.ID {
-			return nil, nil, fmt.Errorf("gateway: Tool IDs collide after encoding: %q and %q", previous, spec.ID)
+		name, err := assignFunctionName(names, spec.ID)
+		if err != nil {
+			return nil, nil, err
 		}
-		names[name] = spec.ID
 		parameters := spec.InputSchema
 		if len(parameters) == 0 {
 			parameters = []byte(`{}`)
@@ -422,11 +418,10 @@ func convertMessage(message gotato.Message, names map[string]string) (wireMessag
 	}
 	out := wireMessage{Role: role, Content: gotato.TextOf(message)}
 	for _, call := range message.ToolCalls {
-		name := gatewayFunctionName(call.ToolID)
-		if previous, exists := names[name]; exists && previous != call.ToolID {
-			return wireMessage{}, fmt.Errorf("gateway: Tool IDs collide after encoding: %q and %q", previous, call.ToolID)
+		name, err := assignFunctionName(names, call.ToolID)
+		if err != nil {
+			return wireMessage{}, err
 		}
-		names[name] = call.ToolID
 		out.ToolCalls = append(out.ToolCalls, wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(call.Arguments)}})
 	}
 	return out, nil
@@ -444,39 +439,6 @@ func toolResultText(message gotato.Message) string {
 		}
 	}
 	return b.String()
-}
-
-// gatewayFunctionName returns a Tool's name on the wire. A Tool ID that
-// providers accept as a function name goes unchanged, so the model reads the
-// Tool's own name and calls it by that name. Other IDs, and IDs with the
-// encoded prefix, are encoded.
-func gatewayFunctionName(id string) string {
-	if plainFunctionName(id) && !strings.HasPrefix(id, "gotato_") {
-		return id
-	}
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(id))
-	name := "gotato_" + encoded
-	if len(name) <= 64 {
-		return name
-	}
-	hash := sha256.Sum256([]byte(id))
-	return "gotato_" + hex.EncodeToString(hash[:])[:56]
-}
-
-// plainFunctionName reports whether s matches ^[a-zA-Z0-9_-]{1,64}$, the
-// function names that chat completions, responses, and messages APIs accept.
-func plainFunctionName(s string) bool {
-	if s == "" || len(s) > 64 {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 type wireRequest struct {
