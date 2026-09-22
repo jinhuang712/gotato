@@ -35,6 +35,7 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		nameMap:  names,
 		calls:    make(map[int]*responsesCall),
 		texts:    make(map[int]bool),
+		restart:  restarter{client: c, body: body, open: c.doResponses},
 	}, nil
 }
 
@@ -327,6 +328,7 @@ type responsesStream struct {
 	queue     []gotato.ModelEvent
 	finished  bool
 	terminal  error
+	restart   restarter
 	closeOnce sync.Once
 }
 
@@ -406,10 +408,16 @@ func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		}
 		data, err := nextSSEData(ctx, s.reader)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return gotato.ModelEvent{}, fmt.Errorf("gateway: Responses stream ended before completion")
+			response, rerr := s.restart.recover(ctx, err)
+			if rerr != nil {
+				var gerr *Error
+				if errors.Is(err, io.EOF) && errors.As(rerr, &gerr) {
+					gerr.Message = "Responses stream ended before completion (" + gerr.Message + ")"
+				}
+				return gotato.ModelEvent{}, rerr
 			}
-			return gotato.ModelEvent{}, err
+			s.reopen(response)
+			continue
 		}
 		if data == "" || data == "[DONE]" {
 			continue
@@ -422,7 +430,21 @@ func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
+	s.restart.delivered = true
 	return event, nil
+}
+
+// reopen continues on a re-issued response, discarding everything decoded
+// from the interrupted one (nothing of it reached the caller).
+func (s *responsesStream) reopen(response *http.Response) {
+	if s.response != nil && s.response.Body != nil {
+		_ = s.response.Body.Close()
+	}
+	s.response = response
+	s.reader = bufio.NewReader(response.Body)
+	s.calls = make(map[int]*responsesCall)
+	s.texts = make(map[int]bool)
+	s.queue = nil
 }
 
 func nextSSEData(ctx context.Context, reader *bufio.Reader) (string, error) {

@@ -208,6 +208,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
 		calls:    make(map[int]*callBuffer),
+		restart:  restarter{client: c, body: body, open: c.do},
 	}, nil
 }
 
@@ -488,6 +489,7 @@ type stream struct {
 	finish    gotato.StopReason
 	usage     gotato.Usage
 	finished  bool
+	restart   restarter
 	closeOnce sync.Once
 }
 
@@ -529,8 +531,19 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 			return gotato.ModelEvent{}, io.EOF
 		}
 		data, err := s.nextData(ctx)
+		if errors.Is(err, io.EOF) && s.finish != "" {
+			// A provider that omits [DONE] after a finish_reason still
+			// completed the response.
+			s.finishStream()
+			continue
+		}
 		if err != nil {
-			return gotato.ModelEvent{}, err
+			response, rerr := s.restart.recover(ctx, err)
+			if rerr != nil {
+				return gotato.ModelEvent{}, rerr
+			}
+			s.reopen(response)
+			continue
 		}
 		if data == "[DONE]" {
 			s.finishStream()
@@ -547,7 +560,22 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
+	s.restart.delivered = true
 	return event, nil
+}
+
+// reopen continues on a re-issued response, discarding everything decoded
+// from the interrupted one (nothing of it reached the caller).
+func (s *stream) reopen(response *http.Response) {
+	if s.response != nil && s.response.Body != nil {
+		_ = s.response.Body.Close()
+	}
+	s.response = response
+	s.reader = bufio.NewReader(response.Body)
+	s.calls = make(map[int]*callBuffer)
+	s.queue = nil
+	s.finish = ""
+	s.usage = gotato.Usage{}
 }
 
 // SSE framing limits. They bound what one upstream line or event can allocate,
