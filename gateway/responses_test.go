@@ -269,6 +269,29 @@ func testToken(accountID string) string {
 	return encode(`{"alg":"none"}`) + "." + encode(string(payload)) + ".signature"
 }
 
+// Sessions saved before deltas were coalesced hold a reply as one text Part
+// per fragment; replaying them must still send one output message per
+// block, not one per fragment.
+func TestConvertResponsesMessageJoinsAdjacentText(t *testing.T) {
+	message := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{
+		{Kind: gotato.ContentText, Text: "hel"}, {Kind: gotato.ContentText, Text: "lo"}, {Kind: gotato.ContentText, Text: " world"},
+	}}
+	items, err := convertResponsesMessage(message, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	out, ok := items[0].(responsesOutputMessage)
+	if !ok || len(out.Content) != 1 {
+		t.Fatalf("item = %#v", items[0])
+	}
+	if content, ok := out.Content[0].(map[string]any); !ok || content["text"] != "hello world" {
+		t.Fatalf("content = %#v", out.Content[0])
+	}
+}
+
 func TestConvertResponsesMessageToolResultKeepsJSONContent(t *testing.T) {
 	message := gotato.Message{
 		Role:       gotato.RoleToolResult,

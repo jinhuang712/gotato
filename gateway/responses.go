@@ -220,6 +220,19 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 		return []any{responsesMessage{Role: "user", Content: content}}, nil
 	case gotato.RoleAssistant:
 		items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
+		// Adjacent text Parts are one output message: transcripts saved
+		// before the Agent coalesced deltas hold a reply as its fragments.
+		var text strings.Builder
+		flushText := func() {
+			if text.Len() == 0 {
+				return
+			}
+			items = append(items, responsesOutputMessage{
+				Type: "message", Role: "assistant", Status: "completed",
+				Content: []any{map[string]any{"type": "output_text", "text": text.String(), "annotations": []any{}}},
+			})
+			text.Reset()
+		}
 		for _, part := range message.Parts {
 			switch part.Kind {
 			case gotato.ContentReasoning:
@@ -230,21 +243,17 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 				if err := json.Unmarshal(part.Signature, &reasoning); err != nil {
 					return nil, fmt.Errorf("gateway: assistant reasoning signature is invalid: %w", err)
 				}
+				flushText()
 				items = append(items, reasoning)
 			case gotato.ContentText:
-				if part.Text == "" {
-					continue
-				}
-				items = append(items, responsesOutputMessage{
-					Type: "message", Role: "assistant", Status: "completed",
-					Content: []any{map[string]any{"type": "output_text", "text": part.Text, "annotations": []any{}}},
-				})
+				text.WriteString(part.Text)
 			case gotato.ContentImage, gotato.ContentJSON:
 				if len(part.Data) > 0 || part.Text != "" {
 					return nil, fmt.Errorf("gateway: Responses assistant content kind %q is unsupported", part.Kind)
 				}
 			}
 		}
+		flushText()
 		for _, call := range message.ToolCalls {
 			name, err := assignFunctionName(names, call.ToolID)
 			if err != nil {
