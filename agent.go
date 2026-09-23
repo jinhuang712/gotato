@@ -750,6 +750,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 	var final *Message
 	var toolCalls uint32
 	var turns uint32
+	var truncatedContinuations uint32
 	var textBytes, reasoningBytes uint64
 	runStarted := time.Now()
 	runMetrics := func() RunMetrics {
@@ -942,6 +943,17 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			if injected {
 				continue
 			}
+			// A Turn cut off at the output limit before any Tool Call is not
+			// an answer: the Model ran out of room, often while reasoning.
+			// Within the configured bound the Run continues instead of
+			// settling on it.
+			if assistant.StopReason == StopMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
+				truncatedContinuations++
+				if err := a.commitContinuation(runID, &sequence, turn, UserMessage(TruncatedContinuationText), "truncated"); err != nil {
+					return fail(err)
+				}
+				continue
+			}
 			return settle(false, "")
 		}
 
@@ -1058,15 +1070,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 func (a *coreAgent) consumeControl(runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
 	injected := false
 	commit := func(message Message, source string) *RuntimeError {
-		message.ID = MessageID(nextID("message"))
-		if err := a.commitMessage(message); err != nil {
-			return asRuntimeError(err)
-		}
-		payload := map[string]any{"role": string(message.Role), "source": source}
-		if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, message.ID, "", payload); err != nil {
-			return err
-		}
-		if err := a.emit(runID, sequence, EventMessageEnd, EventProtected, turn, message.ID, "", payload); err != nil {
+		if err := a.commitContinuation(runID, sequence, turn, message, source); err != nil {
 			return err
 		}
 		injected = true
@@ -1098,6 +1102,21 @@ func (a *coreAgent) consumeControl(runID RunID, sequence *uint64, turn TurnNumbe
 		break
 	}
 	return injected, nil
+}
+
+// commitContinuation commits a Message the Loop continues with (a control
+// Message, or the truncation continuation) and emits its message events
+// with the source that produced it.
+func (a *coreAgent) commitContinuation(runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
+	message.ID = MessageID(nextID("message"))
+	if err := a.commitMessage(message); err != nil {
+		return asRuntimeError(err)
+	}
+	payload := map[string]any{"role": string(message.Role), "source": source}
+	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, message.ID, "", payload); err != nil {
+		return err
+	}
+	return a.emit(runID, sequence, EventMessageEnd, EventProtected, turn, message.ID, "", payload)
 }
 
 // discardControl drops control Messages left over when a Run reaches its

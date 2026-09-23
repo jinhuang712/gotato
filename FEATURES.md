@@ -30,6 +30,7 @@ Settings, passed with `gotato.WithLimits`. `gotato.DefaultLimits()` returns the 
 | `MaxParallelTools` | 1 | tools run in order, unless the team knows they are safe to run together |
 | `RunDeadline` | 5 minutes | a Run always ends, even when a call hangs |
 | `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run |
+| `MaxTruncatedContinuations` | 0, off | a model can spend a Turn's whole output limit thinking and stop before it acts. Above 0, the Run asks it to go on, up to that many times, instead of settling on the cut-off reply. |
 
 ### G-F26 — Steering a Run 🚧
 

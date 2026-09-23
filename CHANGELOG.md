@@ -18,6 +18,7 @@ What changed in each Gotato release, from the user's side. Newest first. A break
   answer := gotato.TextOf(message)
   thinking := gotato.ReasoningOf(message)
   ```
+- **A Turn that the output limit cut off can continue.** With `CoreLimits.MaxTruncatedContinuations` above 0, a Turn that stopped at the output limit before any Tool call goes on with `TruncatedContinuationText`, up to that many times per Run, instead of settling the Run on the cut-off reply. Off by default.
 
 ### Providers
 

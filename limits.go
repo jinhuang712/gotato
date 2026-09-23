@@ -13,6 +13,11 @@ type CoreLimits struct {
 	MaxToolProgressUpdates uint32
 	MaxSteerMessages       uint32
 	MaxFollowUpMessages    uint32
+	// MaxTruncatedContinuations bounds, per Run, how many Turns that stopped
+	// at the Model's output limit without a Tool Call are continued with
+	// TruncatedContinuationText instead of settling the Run on a cut-off
+	// Message. Zero (the default) settles as before.
+	MaxTruncatedContinuations uint32
 	// MaxParallelTools bounds the workers one Turn may run at once. Zero or
 	// one keeps a batch sequential.
 	MaxParallelTools  uint32
@@ -21,6 +26,11 @@ type CoreLimits struct {
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
 }
+
+// TruncatedContinuationText is the user Message a Run continues with after a
+// Turn stopped at the output limit without a Tool Call (see
+// CoreLimits.MaxTruncatedContinuations).
+const TruncatedContinuationText = "Your last reply was cut off at the output limit before you acted. Continue from where you stopped: keep any reasoning short and take the next step with a tool call, or give your final answer."
 
 // DefaultLimits returns the limits NewAgent applies when WithLimits is not
 // used. Adjust a copy and pass it to WithLimits to override some fields.
