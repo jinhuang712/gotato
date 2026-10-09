@@ -62,7 +62,7 @@ Gotato is built to be operated by scripts and coding agents as well as humans. S
 
 **Agents should be highly cheap and disposable.**
 
-**No agent is a sub-agent. There are only agents.**
+**There are only agents.**
 
 **Agent as a Goroutine.**
 
