@@ -41,7 +41,8 @@ These root documents are the single source of truth for Gotato's design.
    ```bash
    go test ./session/...                 # focused
    gofmt -l . && go vet ./... && go test -race ./...   # full, root module
-   (cd adapter/grpc && go test ./...)    # when you touched service or root types it maps
+   golangci-lint run ./...               # 0 issues; config in .golangci.yml
+   (cd adapter/grpc && go test ./... && golangci-lint run ./...)  # when you touched service or root types it maps
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.

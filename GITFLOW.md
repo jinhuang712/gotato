@@ -69,6 +69,7 @@ A breaking change to the public Go API, CLI contract, or event kinds must:
 git status --short                # only your intended files are staged
 gofmt -l .                        # empty
 go vet ./...                      # clean
+golangci-lint run ./...           # 0 issues (also in adapter/grpc)
 go test ./...                     # green (also in adapter/grpc when touched)
 go build ./cmd/gotato             # CLI builds
 docs updated?                     # FEATURES.md / README / package docs
