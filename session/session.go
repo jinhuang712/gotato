@@ -11,8 +11,8 @@
 //	agent.Prompt(ctx, gotato.UserMessage("hi"))
 //	store.Save(ctx, s)
 //
-// A Session knows nothing about tasks, projects, roles, or agent hierarchy.
-// Application semantics belong in Metadata.
+// Tasks, projects, roles, and agent hierarchy are application semantics and
+// belong in Metadata.
 package session
 
 import (

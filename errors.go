@@ -74,9 +74,9 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 	return &RuntimeError{Code: code, Operation: operation, Message: message, Cause: cause}
 }
 
-// ErrorOf builds a typed error for a layer outside Core. Orchestration, Host,
-// and protocol adapters classify their own failures with the same codes so a
-// caller reads one error vocabulary across the whole boundary.
+// ErrorOf builds a typed error for a layer outside Core. The service layer,
+// protocol adapters, and applications classify their own failures with the
+// same codes so a caller reads one error vocabulary across the whole boundary.
 func ErrorOf(code ErrorCode, message string) *RuntimeError {
 	return &RuntimeError{Code: code, Message: message}
 }

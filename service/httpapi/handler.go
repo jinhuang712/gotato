@@ -1,6 +1,6 @@
 // Package httpapi exposes a service.Runner over HTTP. It is a protocol
-// adapter: every route maps onto one Runner method and defines no Agent or
-// Session semantics of its own.
+// adapter: every route maps onto one Runner method, and Agent and Session
+// semantics stay in the runtime.
 //
 //	GET    /healthz                         liveness
 //	GET    /readyz                          readiness (503 while draining)

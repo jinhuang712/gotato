@@ -1,6 +1,6 @@
 // Package grpcadapter exposes a service.Runner over gRPC. It is a protocol
-// adapter: every RPC maps onto one Runner method and defines no Agent or
-// Session semantics of its own.
+// adapter: every RPC maps onto one Runner method, and Agent and Session
+// semantics stay in the runtime.
 //
 //	runner, _ := service.New(cfg)
 //	server := grpc.NewServer()

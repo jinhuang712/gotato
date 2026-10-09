@@ -41,7 +41,7 @@ type CacheBreakpoint struct {
 // ModelOptions carries per-request sampling and reasoning hints.
 //
 // Reserved: no Core runtime path assigns ModelRequest.Options yet, and there
-// is no With* option for it. A Host or application may set the fields on a
+// is no With* option for it. An application may set the fields on a
 // ModelRequest directly; gateway adapters read them. The struct is kept so a
 // future option can wire it without a breaking change.
 type ModelOptions struct {

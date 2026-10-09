@@ -164,7 +164,7 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 }
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
-// RuntimeError so a broken ToolSet fails NewAgent instead of crashing the host.
+// RuntimeError so a broken ToolSet fails NewAgent instead of crashing the process.
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

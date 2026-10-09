@@ -1,7 +1,7 @@
 // Package service turns the runtime into a service: a store of Sessions and
 // Agents that are created for one Run and discarded afterwards.
 //
-// The service owns no Agent semantics. For every Run it loads the Session,
+// Agent semantics stay in the runtime. For every Run it loads the Session,
 // takes the Session's lock, builds an Agent from an AgentSpec exactly as an
 // application would (WithTranscript, WithContextBuilder, WithToolSource,
 // session.Record, modelctx.AutoCompact), runs it, closes it, and saves the

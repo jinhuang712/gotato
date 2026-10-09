@@ -16,8 +16,8 @@
 // canonical ID and Spec, so the views can never disagree. A caller may address
 // a Tool by either the raw or the trimmed ID.
 //
-// Discovery systems, MCP catalogs, and authorization policies are built above
-// or beside the Registry; it does not schedule or orchestrate anything.
+// Discovery systems, MCP catalogs, authorization policies, and scheduling are
+// built above or beside the Registry.
 package toolregistry
 
 import (

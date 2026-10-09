@@ -1,8 +1,9 @@
 // Package gateway provides provider streaming Model adapters for Gotato.
 //
-// It deliberately depends only on the provider-neutral gotato Model contract and
-// net/http. Provider authentication, request encoding, retries, SSE decoding, and
-// provider error classification stay inside this package rather than Core.
+// It builds on the provider-neutral gotato Model contract and net/http, and
+// reads its configuration file with yaml.v3. Provider authentication, request
+// encoding, retries, SSE decoding, and provider error classification live here,
+// outside Core.
 package gateway
 
 import (
@@ -34,9 +35,9 @@ const (
 )
 
 type Config struct {
-	// API selects the wire protocol. Empty means openai-completions for
-	// backwards compatibility. Supported values include
-	// openai-completions and openai-codex-responses.
+	// API selects the wire protocol: APIChatCompletions (the default when
+	// empty) or APIResponses. The aliases openai-completions and
+	// openai-codex-responses are also accepted.
 	API string
 	// Endpoint is the complete provider URL. When empty, BaseURL is used.
 	Endpoint string
