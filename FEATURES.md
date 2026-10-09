@@ -89,13 +89,26 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 
 Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Tools, Options}`, `ModelEvent` kinds text/reasoning/tool_call/usage/done; provider errors classified by core; opaque reasoning artifacts carried, never interpreted. Capability discovery is by optional interface.
 
+| Item | Status | Where |
+|---|---|---|
+| provider rate-limit information | missing | planned: limits, remaining, and reset reported with model usage so host services apply their own throttling; `gateway` uses `Retry-After` only for its own retries today |
+
 ## G-F08 — Provider Packages `[partial]`
 
-`gateway`: OpenAI-compatible Chat Completions and Responses APIs (SSE, retries, YAML config, API-key auth only). A second, non-OpenAI provider is planned.
+| Item | Status | Where |
+|---|---|---|
+| OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth) |
+| Anthropic Messages | missing | planned in `gateway` on the standard library like the OpenAI adapters, mapping `CacheBreakpoints` to Anthropic cache control |
 
-## G-F09 — Tool Interface `[done]`
+## G-F09 — Tool Interface `[partial]`
 
-Root `tool.go`, `toolfunc.go`: `Tool`, `ToolSpec`, `ToolUse`, `ToolResult` with status and safe error; schema-subset validation before execution; `NewFuncTool` derives schemas from Go structs.
+Root `tool.go`, `toolfunc.go`.
+
+| Item | Status | Where |
+|---|---|---|
+| Tool contract | done | `Tool`, `ToolSpec`, `ToolUse`, `ToolResult` with status and safe error; schema-subset validation before execution |
+| Go function tools | done | `NewFuncTool` derives schemas from Go structs |
+| effect classification | missing | planned field on `ToolSpec`: `read`, `write_local`, `write_external`, `destructive`, ordered by impact; applications filter the tools an agent loads by it |
 
 ## G-F10 — Tool Registry `[done]`
 
@@ -117,7 +130,7 @@ Tools come from MCP servers (G-F12) and from applications through the `Tool`, `T
 
 ## G-F12 — MCP Integration `[missing]`
 
-Planned as an optional package: client lifecycle, server configuration, tool discovery, adaptation into the Gotato Tool contract, lazy connection, and dynamic Tool Registry updates. `gotato.ToolSet` and `gotato.ToolSource` are the adapter points. MCP is one standard integration among others.
+Planned as an optional package that adapts MCP servers through `gotato.ToolSet` and `gotato.ToolSource`: client lifecycle, server configuration, tool discovery, lazy connection, and dynamic Tool Registry updates. MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) map onto the tool effect field (G-F09). MCP is how standalone Gotato users reach filesystem, shell, and other tools.
 
 ## G-F13 — Runtime Events `[partial]`
 

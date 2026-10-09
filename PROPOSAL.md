@@ -161,8 +161,8 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 
 - **Context**: provider adapters that map `CacheBreakpoints` to explicit cache controls; token estimation from provider usage instead of the bytes/4 heuristic.
 - **Events**: typed payload structs per kind; `reasoning_update` for streaming reasoning deltas.
-- **Tools**: MCP client as a `ToolSet`/`ToolSource`.
-- **Providers**: a second, non-OpenAI adapter to keep the model contract provider-neutral.
+- **Tools**: MCP client as a `ToolSet`/`ToolSource`; an effect classification on `ToolSpec` that MCP annotations map onto.
+- **Providers**: an Anthropic Messages adapter on the standard library; provider rate-limit information in model usage.
 - **Testkit**: failure injection and context fixtures; a fixture-driven scenario runner.
 - **Service**: a Store-level Session lease for multi-replica deployments; request IDs and idempotency keys on the HTTP/gRPC adapters.
 - **Repository**: examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation; CI with `gofmt`, `vet`, and `-race` for both modules.
