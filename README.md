@@ -10,6 +10,23 @@
 
 Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([GOALS.md §2](GOALS.md#2-boundaries)).
 
+## Cost
+
+An idle agent costs a few kilobytes. A working agent's memory follows its transcript, with little on top. Many agents fit in one process.
+
+| Measurement: 100 concurrent agents, 25 tool rounds each, 4 KB of unique tool output per round | Value |
+|---|---|
+| Heap per idle agent | 4–6 KB |
+| Heap per agent after the loop (100 KB of tool output each) | 216–237 KB |
+| Process footprint with all 100 agents active (macOS `vmmap`) | 41 MB |
+| Gotato time per model turn, including tool dispatch | under 50 µs |
+
+For scale: one Claude Code session held 320–390 MB of private memory on the same machine. These numbers exclude model latency, provider clients, and tool subprocesses. Measured on 2026-10-09 with Go 1.26 on Apple silicon. Reproduce them with:
+
+```sh
+go test -run '^$' -bench AgentFootprint -benchtime 1x .
+```
+
 ## Quick start (library)
 
 ```go

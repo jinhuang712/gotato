@@ -29,6 +29,7 @@ Agent configuration and execution stay light enough that applications create and
 | Metric | Target |
 |---|---|
 | `NewAgent` + `Close` with a fake model | allocations and wall time independent of other live agents; zero goroutines left after `Close` |
+| Heap per agent (`BenchmarkAgentFootprint`) | a few KB while idle; proportional to the agent's transcript while it works |
 | Committing one message to a Session | cost independent of transcript length |
 | Event subscription | its goroutine is released on `Close` |
 | Building a Context from a Session | linear in the Session's messages since the last compaction |
