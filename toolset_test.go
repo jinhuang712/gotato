@@ -49,7 +49,7 @@ func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgr
 // in parallel: with one worker it never completes.
 func awaitArrivals(t *testing.T, arrive chan string, count int) {
 	t.Helper()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		select {
 		case <-arrive:
 		case <-time.After(3 * time.Second):
@@ -117,12 +117,12 @@ func TestToolSetStaysHiddenUntilTheNextRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("open the files")); err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestToolSetActivationIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("open")); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestFailedToolSetResolutionExposesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("open")); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestToolSetConstructionValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
 		t.Fatal(err)
 	}
@@ -282,12 +282,12 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	// Reading Events in step with the batch keeps the completion order
 	// deterministic: "slow" is released only after the first completion Event
@@ -381,7 +381,7 @@ func TestSequentialToolRunsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 
 	done := make(chan error, 1)
 	go func() {
@@ -453,7 +453,7 @@ func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	registry := agent.(*coreAgent).registry
 	if err := registry.stage(context.Background(), "git"); !IsCode(err, ErrLimitExceeded) {
 		t.Fatalf("staging over the active limit = %v, want limit_exceeded", err)
@@ -494,7 +494,7 @@ func TestParallelWorkerBoundIsRespected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	done := make(chan error, 1)
 	go func() {
 		_, runErr := agent.Prompt(context.Background(), UserMessage("run"))

@@ -1095,7 +1095,7 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 	if stream == nil {
 		return Message{}, Usage{}, runtimeError(ErrModelFailure, "Model.Stream", "Model returned a nil stream", nil)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	assistant := Message{ID: MessageID(nextID("message")), Role: RoleAssistant}
 	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, assistant.ID, "", map[string]any{"role": string(RoleAssistant)}); err != nil {

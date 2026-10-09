@@ -146,7 +146,7 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("u3")); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestTruncateSummarizerCutsOnRuneBoundary(t *testing.T) {
 
 func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
 	s := session.New()
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_ = s.Append(gotato.UserMessage(strings.Repeat("question ", 30)))
 		_ = s.Append(gotato.AssistantMessage(strings.Repeat("answer ", 30)))
 	}
@@ -248,7 +248,7 @@ func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("next")); err != nil {
 		t.Fatal(err)
 	}

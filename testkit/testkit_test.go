@@ -17,7 +17,7 @@ func TestFakeModelRepeatsLastScriptAndRecordsRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	for i, want := range []string{"a", "b", "b"} {
 		result, err := agent.Prompt(context.Background(), gotato.UserMessage("q"))
 		if err != nil || gotato.TextOf(*result.FinalMessage) != want {
@@ -35,7 +35,7 @@ func TestReplayModelFailsWhenExhausted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("1")); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestFakeModelRequestsAreIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("q")); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}

@@ -110,7 +110,7 @@ func (m ModelSummarizer) Summarize(ctx context.Context, messages []gotato.Messag
 	if stream == nil {
 		return gotato.Message{}, errors.New("modelctx: Model returned a nil stream")
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var b strings.Builder
 	completed := false
 	for {

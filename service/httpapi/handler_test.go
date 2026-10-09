@@ -52,7 +52,7 @@ func call(t *testing.T, server *httptest.Server, method, path string, body any) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out bytes.Buffer
 	_, _ = out.ReadFrom(resp.Body)
 	return resp.StatusCode, out.Bytes()
@@ -219,7 +219,7 @@ func TestStreamRunSSE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("content-type = %s", ct)
 	}
@@ -229,8 +229,8 @@ func TestStreamRunSSE(t *testing.T) {
 	var resultLine string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "event: ") {
-			events = append(events, strings.TrimPrefix(line, "event: "))
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			events = append(events, after)
 		}
 		if len(events) > 0 && events[len(events)-1] == "result" && strings.HasPrefix(line, "data: ") {
 			resultLine = strings.TrimPrefix(line, "data: ")
@@ -276,7 +276,7 @@ func TestExplicitSessionCreateIsExclusiveAndBodyIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body = %d", resp.StatusCode)
 	}

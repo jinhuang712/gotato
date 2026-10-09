@@ -55,7 +55,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var events []gotato.ModelEvent
 	for {
@@ -129,7 +129,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	toolEvent, err := stream.Recv(context.Background())
 	if err != nil {
@@ -169,7 +169,7 @@ func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	event, err := stream.Recv(context.Background())
 	if err != nil {

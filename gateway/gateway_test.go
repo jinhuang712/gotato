@@ -38,7 +38,7 @@ func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var events []gotato.ModelEvent
 	for {
 		event, recvErr := stream.Recv(context.Background())
@@ -84,7 +84,7 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	toolEvent, err := stream.Recv(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestGatewayHonorsRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if _, err := stream.Recv(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if _, err := stream.Recv(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestConfigHeadersCannotOverrideProtocolHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if _, err := stream.Recv(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestStreamRejectsOversizedSSELine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if _, err := stream.Recv(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized SSE line err = %v", err)
 	}

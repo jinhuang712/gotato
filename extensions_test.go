@@ -95,7 +95,7 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("use tool")); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("use tool")); err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestTransformersShapeTheModelViewOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestObserverSeesProductionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
@@ -257,12 +257,12 @@ func TestObserverPayloadMutationIsIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
@@ -295,7 +295,7 @@ func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("hello"))
 	if !IsCode(err, ErrExtensionFailure) {
 		t.Fatalf("blocking observer failure = %v", err)
@@ -324,7 +324,7 @@ func TestAdvisoryObserverFailureDoesNotSettleTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("hello"))
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +341,7 @@ func TestExtensionPanicIsRecovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, ErrExtensionFailure) {
 		t.Fatalf("panicking extension = %v", err)
 	}
@@ -369,12 +369,12 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	result, err := agent.Prompt(context.Background(), UserMessage("use tool"))
 	if err != nil {
@@ -431,7 +431,7 @@ func TestExtensionCannotReenterTheSameAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	observer.agent = agent
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}

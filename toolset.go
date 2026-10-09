@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -384,10 +385,8 @@ func (r *toolRegistry) stage(ctx context.Context, name string) error {
 		if state.active {
 			return nil
 		}
-		for _, queued := range r.pending {
-			if queued == state {
-				return nil
-			}
+		if slices.Contains(r.pending, state) {
+			return nil
 		}
 		if limitExceededUint32(r.explicit, r.maxActive, r.activeCount()+uint32(len(r.pending))+1) {
 			return runtimeError(ErrLimitExceeded, "ToolSet", "maximum active ToolSets exceeded", nil)

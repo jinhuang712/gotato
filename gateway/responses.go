@@ -317,8 +317,8 @@ func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 }
 
 func splitResponsesCallID(id string) (callID, itemID string) {
-	if index := strings.IndexByte(id, '|'); index >= 0 {
-		return id[:index], id[index+1:]
+	if before, after, ok := strings.Cut(id, "|"); ok {
+		return before, after
 	}
 	return id, ""
 }

@@ -682,7 +682,7 @@ func (c *cli) cmdServe(args []string) int {
 	go func() { errCh <- server.ListenAndServe() }()
 	c.info("gotato serving on http://%s (store=%s agents=%s contract=%s)", *addr, rt.storeDir, strings.Join(runner.Agents(), ","), httpapi.ContractVersion)
 	if c.machine() {
-		c.writeJSONL(map[string]any{"kind": "serving", "addr": *addr, "store": rt.storeDir, "agents": runner.Agents(), "contract": httpapi.ContractVersion})
+		_ = c.writeJSONL(map[string]any{"kind": "serving", "addr": *addr, "store": rt.storeDir, "agents": runner.Agents(), "contract": httpapi.ContractVersion})
 	}
 	select {
 	case err := <-errCh:

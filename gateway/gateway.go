@@ -573,8 +573,8 @@ func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
 		}
 		raw, err := readBoundedLine(reader)
 		line := strings.TrimSuffix(raw, "\r")
-		if strings.HasPrefix(line, "data:") {
-			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			payload := strings.TrimSpace(after)
 			total += len(payload)
 			if total > maxSSEEventBytes {
 				return "", fmt.Errorf("gateway: SSE event exceeds %d bytes", maxSSEEventBytes)

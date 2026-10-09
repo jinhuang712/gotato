@@ -226,7 +226,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if kinds[0] != gotato.EventAgentStart || kinds[len(kinds)-1] != gotato.EventAgentEnd {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: result.SessionID, Prompt: "more"}); err != nil {
 			t.Fatal(err)
 		}
@@ -258,7 +258,7 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
 	ctx := context.Background()
 	var last service.RunResult
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		var err error
 		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 20)})
 		if err != nil {
@@ -546,7 +546,7 @@ func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 	const n = 8
 	var wg sync.WaitGroup
 	results := make(chan error, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

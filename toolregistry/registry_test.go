@@ -126,7 +126,7 @@ func TestRegistryDrivesAgentToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestRegistryDrivesAgentToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent2.Close(context.Background())
+	defer func() { _ = agent2.Close(context.Background()) }()
 	if _, err := agent2.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}

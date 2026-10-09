@@ -34,12 +34,12 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	resultCh := make(chan error, 1)
 	go func() {
@@ -110,12 +110,12 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	updates := 0
 	observed := make(chan error, 1)

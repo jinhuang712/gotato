@@ -95,7 +95,7 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 
 	done := make(chan RunResult, 1)
@@ -183,13 +183,13 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	done := make(chan RunResult, 1)
 	go func() {
@@ -248,7 +248,7 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 
 	done := make(chan RunResult, 1)
@@ -297,7 +297,7 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 
 	if err := controllable.FollowUp(UserMessage("one")); err != nil {
@@ -343,7 +343,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 	controllable.Abort() // no active Run: a no-op, not a panic
 
@@ -381,7 +381,7 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent.(ControllableAgent)
 
 	done := make(chan error, 1)

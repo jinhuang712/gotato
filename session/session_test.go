@@ -23,7 +23,7 @@ func runAgent(t *testing.T, s *session.Session, model gotato.Model, prompt strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), gotato.UserMessage(prompt))
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +165,7 @@ func TestForkIsIndependentState(t *testing.T) {
 
 func TestEventLimitBoundsRetention(t *testing.T) {
 	s := session.New(session.WithEventLimit(3))
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart, Sequence: uint64(i)})
 	}
 	events := s.Events()
@@ -267,7 +267,7 @@ func TestEventPayloadNestedIsIsolated(t *testing.T) {
 
 func TestRecordEventRingBufferKeepsNewest(t *testing.T) {
 	s := session.New(session.WithEventLimit(2))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		s.RecordEvent(gotato.Event{
 			Kind:     gotato.EventTurnStart,
 			Sequence: uint64(i),

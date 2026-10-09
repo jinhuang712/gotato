@@ -45,7 +45,7 @@ func TestAgentCommitsToExternalTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestAgentCommitsToExternalTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close(context.Background())
+	defer func() { _ = second.Close(context.Background()) }()
 	if _, err := second.Prompt(context.Background(), UserMessage("again")); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	stream, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("hi"))
 	if !IsCode(err, ErrExtensionFailure) || result.Status != RunFailed {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -173,7 +173,7 @@ func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if got := agent.(ToolInspector).Tools(); len(got) != 0 {
 		t.Fatalf("tools before registration = %v", got)
 	}
@@ -210,7 +210,7 @@ func TestToolSourceToolIsCallable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("use tool"))
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	for _, message := range []Message{UserMessage(""), UserMessage("   "), {Role: RoleUser}} {
 		if _, err := agent.Prompt(context.Background(), message); !IsCode(err, ErrInvalidArgument) {
 			t.Fatalf("Prompt(%+v) err = %v, want invalid_argument", message, err)
@@ -249,10 +249,10 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	runtime.GC()
 	before := runtime.NumGoroutine()
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		ctx, cancel := context.WithCancel(context.Background())
 		stream, err := agent.(EventSource).Subscribe(ctx)
 		if err != nil {
@@ -294,7 +294,7 @@ func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
 		t.Fatalf("prompt with partial override failed: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	var lastErr error
 	for i := 0; i < 10 && lastErr == nil; i++ {
 		_, lastErr = agent.Prompt(context.Background(), UserMessage("hi"))

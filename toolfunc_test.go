@@ -21,7 +21,7 @@ type weatherInput struct {
 		Nested string `json:"nested"`
 	} `json:"extra,omitempty"`
 	Skipped string `json:"-"`
-	private string
+	private string //nolint:unused // fixture: the derived schema must skip unexported fields
 }
 
 type weatherOutput struct {
@@ -177,7 +177,7 @@ func TestWithFuncRunsThroughTheLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); !IsCode(err, ErrToolArgumentFailure) {
 		t.Fatalf("expected argument validation failure, got %v", err)
 	}
@@ -221,12 +221,12 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); err != nil {
 		t.Fatal(err)
 	}

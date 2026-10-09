@@ -174,12 +174,12 @@ func TestAgentCancelRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	events, err := agent.(EventSource).Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer events.Close()
+	defer func() { _ = events.Close() }()
 
 	resultCh := make(chan error, 1)
 	go func() {
@@ -226,7 +226,7 @@ func TestAgentSingleFlight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer agent.Close(context.Background())
+	defer func() { _ = agent.Close(context.Background()) }()
 	first := make(chan error, 1)
 	go func() { _, runErr := agent.Prompt(context.Background(), UserMessage("first")); first <- runErr }()
 	select {

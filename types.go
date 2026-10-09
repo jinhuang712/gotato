@@ -189,7 +189,7 @@ func (r RunResult) Clone() RunResult {
 // restarts and across processes that share one Session store, while the
 // counter keeps them ordered and cheap within a process.
 func nextID(prefix string) string {
-	id := atomic.AddUint64(&globalID, 1)
+	id := globalID.Add(1)
 	var buf [8]byte
 	buf[0] = byte(id >> 56)
 	buf[1] = byte(id >> 48)
@@ -202,7 +202,7 @@ func nextID(prefix string) string {
 	return prefix + "-" + processNonce + strings.TrimLeft(hex.EncodeToString(buf[:]), "0")
 }
 
-var globalID uint64
+var globalID atomic.Uint64
 
 var processNonce = func() string {
 	var buf [4]byte
