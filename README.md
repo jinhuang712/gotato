@@ -126,4 +126,4 @@ Inspired by [Pi](https://pi.dev)'s agent kernel (`@earendil-works/pi-agent-core`
 
 ## License
 
-Not yet selected.
+Gotato is licensed under the [Apache License 2.0](LICENSE).

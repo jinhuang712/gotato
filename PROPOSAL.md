@@ -179,7 +179,7 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 - **Providers**: a second, non-OpenAI adapter to keep the model contract provider-neutral.
 - **Testkit**: failure injection and context fixtures; a fixture-driven scenario runner.
 - **Service**: a Store-level Session lease for multi-replica deployments; request IDs and idempotency keys on the HTTP/gRPC adapters.
-- **Repository**: examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation; CI with `gofmt`, `vet`, and `-race` for both modules; a license.
+- **Repository**: examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation; CI with `gofmt`, `vet`, and `-race` for both modules.
 
 ## 9. What Belongs Where
 
