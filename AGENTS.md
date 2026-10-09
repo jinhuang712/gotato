@@ -1,6 +1,8 @@
 # AGENTS.md — Instructions for Coding Agents Working in Gotato
 
-You are working in the Gotato repository: **a minimalistic, composable Go agent runtime.** This file tells you how to work here. The constitution is in the documents it points to.
+You are working in the Gotato repository: **a minimal, synchronous, Go-native agent runtime** that is useful on its own and embeds into running, multi-instance Go services (GOALS.md G-G01, G-G02, G-G08). This file tells you how to work here. The constitution is in the documents it points to.
+
+Every change passes the feature test: *would a Go service embedding an agent want this on its own?* Anything else belongs to an application built on Gotato.
 
 ## Read Order
 

@@ -1,17 +1,14 @@
 # Gotato
 
-> **Gotato is a minimalistic, composable Go agent runtime.**
+> **Gotato is a minimal, synchronous, Go-native agent runtime.**
 
-Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. UI and agent organization live in the applications built on it.
+## What Gotato is
 
-```text
-Less is More.
-Agents should be highly cheap and disposable.
-There are only agents.
-Agent as a Goroutine.
-Session is what happened. Context is what the model sees now.
-The CLI is a first-class interface for humans, scripts, and coding agents.
-```
+1. **A minimal, synchronous, Go-native agent runtime.** One loop per agent; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
+2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests, with no particular application above it.
+3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from a Session lease (planned).
+
+Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([GOALS.md §2](GOALS.md#2-boundaries)).
 
 ## Quick start (library)
 
@@ -24,7 +21,7 @@ agent, err := gotato.NewAgent(
     gotato.WithInstruction("You are a helpful assistant."),
     gotato.WithTranscript(s),                     // the agent commits to the Session
     gotato.WithContextBuilder(modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", rules))),
-    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})), // shrink only by compaction
+    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})),
     gotato.WithToolSource(toolregistry.MustNew(tools...)),
     gotato.WithExtension(session.Record(s)),      // runs, events, usage into the Session
 )
@@ -36,7 +33,28 @@ defer agent.Close(context.Background())
 result, err := agent.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 ```
 
-The two-line form still works: `gotato.NewAgent(gotato.WithModel(model))` runs against a private in-memory transcript with full-history context. It runs in-process: server, daemon, and database are all optional.
+`gotato.NewAgent(gotato.WithModel(model))` alone runs against a private in-memory transcript with full-history context.
+
+## Embedding in a service
+
+```go
+store, err := session.NewFileStore("/var/lib/myservice/sessions") // or your own session.Store
+if err != nil {
+    return err
+}
+runner, err := service.New(service.Config{
+    Store: store,
+    Specs: []service.AgentSpec{{Name: "default", Model: model, Tools: tools}},
+})
+if err != nil {
+    return err
+}
+mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // optional HTTP surface
+
+out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
+```
+
+Each Run loads the Session, builds an Agent, runs it, closes it, and saves the Session. Any instance holding the Store can serve any Session.
 
 ## Quick start (CLI)
 
@@ -46,65 +64,38 @@ bin/gotato doctor --json
 id=$(bin/gotato session create --json | jq -r .id)
 bin/gotato run --session "$id" --model demo --json "use-tool"
 bin/gotato context inspect "$id" --json
-bin/gotato context compact "$id" --keep 2 --json
-bin/gotato events --session "$id" | jq -r .kind
-bin/gotato tools list --json
-bin/gotato serve --addr 127.0.0.1:8787        # the same runner as an HTTP service
+bin/gotato serve --addr 127.0.0.1:8787        # the same runner over HTTP
 ```
 
-Stdout is data, stderr is diagnostics, exit codes are documented. The full contract is in [cmd/gotato/README.md](cmd/gotato/README.md).
+Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/README.md](cmd/gotato/README.md).
 
-## The runtime
+## Feature status
 
-```text
-Session (session.Session)              "what happened"
-   |   implements gotato.Transcript
-   v
-ContextBuilder (modelctx.*)            "what should the model see now"
-   v
-ModelContext → AssembleRequest         system | tools | append-only history | tail + <panel>
-   v
-Agent --- Tool Registry (toolregistry.Registry, a gotato.ToolSource)
-   v
-Agentic Loop:  build context -> model -> [tool request -> execute -> observation]* -> final
-   v
-Transcript appends + structured Events (agent_start, context_built, turn_end, tool_*, agent_end)
-```
+| Area | Status |
+|---|---|
+| Agent loop, control (Steer, FollowUp, Abort), limits, extensions | done |
+| Session, `session.Store` (memory, file), fork | done |
+| Context: full history, static blocks, panel, compaction, inspection | done |
+| Tool contract, Tool Registry, staged `ToolSet` | done |
+| Events and streaming | done; typed payloads and reasoning deltas planned |
+| Providers: OpenAI Chat Completions and Responses | done |
+| Service: Runner, HTTP, gRPC, admission, drain | done |
+| CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
+| Session lease for multi-instance safety | planned |
+| MCP through `ToolSet`/`ToolSource`, tool effect classification | planned |
+| Anthropic Messages adapter, provider rate-limit information | planned |
 
-- An **Agent** is one goroutine with one canonical loop. It owns reusable configuration (model, instruction, tools, context strategy, extensions, limits) and nothing else; mutable state belongs to the Run and the Session.
-- A **Session** records messages, runs, usage, events, compactions, and application metadata. It is persisted through `session.Store` (`MemoryStore`, `FileStore`) and can be forked as a state operation.
-- A **Context** is built per Turn and laid out for prompt caching: static system content first, tools next, the append-only history, and a dynamic `<panel>` on the tail. Within a Session the model always sees the whole history; it shrinks only through compaction, which rewrites a prefix into a summary and records exactly what was replaced. `context_built` reports a `prefix_hash` so cache-friendliness is observable.
-- **Tools** are capabilities with identity, schema, execution, and structured results. The **Tool Registry** registers, lists, describes, activates, and deactivates them; the agent picks up changes at each Turn boundary. `ToolSet`s add model-driven staged activation.
-- **Events** are structured facts on a Go-native stream; **Extensions** wrap the loop at bounded stages (context transform, pre/post tool, observer, turn stopper).
-- **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI runs without paid model calls.
-- **Service** is the runtime turned outward: a `service.Runner` owns a Session store and a set of `AgentSpec`s; every request loads a Session, builds an Agent, runs it, closes it, saves the Session. Agents are created and discarded per Run; continuity lives in the store, so any process holding the store can serve any Session. HTTP (`service/httpapi`) and gRPC (`adapter/grpc`) are thin adapters over it.
+[FEATURES.md](FEATURES.md) is the authoritative inventory.
 
-## Packages
-
-| Layer | Package | Contents |
-|---|---|---|
-| core | `gotato` | Agent, loop, Message, Model, Tool, ToolSet, Transcript, ContextBuilder, ToolSource, Events, Extensions, Errors, Limits. Standard library only. |
-| standard runtime | `session` | Session, Store, MemoryStore, FileStore, Fork, Recorder |
-| | `modelctx` | FullHistory, WithStatic, WithPanel, blocks, Inspect, Compact, AutoCompact, summarizers |
-| | `toolregistry` | Registry (register/unregister/lookup/list/describe/activate/deactivate, change hooks) |
-| | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
-| providers | `gateway` | OpenAI-compatible Chat Completions and Responses adapters (API key), YAML config |
-| service | `service` | `Runner`: a store of Sessions, an Agent created per Run and discarded; AgentSpecs, per-Session single flight, admission, cancellation, drain |
-| | `service/httpapi` | HTTP adapter over the Runner (sessions, runs, SSE streaming, events, context, compaction) |
-| | `adapter/grpc` (module) | gRPC adapter over the Runner (`SessionService` v2) and the `gotato-grpc` binary |
-| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` |
-
-Dependency direction is enforced by a test: the core imports only the standard library, and standard runtime packages import only inward. Library, CLI, HTTP, and gRPC all drive the same `service.Runner`.
-
-## Governance
+## Documents
 
 | Document | Role |
 |---|---|
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the worldview |
 | [DESIGN.md](DESIGN.md) | durable engineering rules |
-| [GOALS.md](GOALS.md) | goals, non-goals, tradeoffs, compatibility |
+| [GOALS.md](GOALS.md) | goals, boundaries, tradeoffs, compatibility |
 | [FEATURES.md](FEATURES.md) | implementation inventory with status markers |
-| [PROPOSAL.md](PROPOSAL.md) | target architecture and direction |
+| [PROPOSAL.md](PROPOSAL.md) | architecture, layers, and packages |
 | [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
 | [GITFLOW.md](GITFLOW.md) | Git policy |
 | [MIGRATION.md](MIGRATION.md) | breaking changes and how to move |
@@ -114,12 +105,11 @@ Dependency direction is enforced by a test: the core imports only the standard l
 ```bash
 gofmt -l . && go vet ./... && go test -race ./...
 (cd adapter/grpc && go test ./...)
-go build -o bin/gotato ./cmd/gotato && bin/gotato doctor --json
 ```
 
 ## Origin
 
-Inspired by [Pi](https://pi.dev)'s agent kernel (`@earendil-works/pi-agent-core`, created by Mario Zechner and contributors, MIT-licensed), redesigned as a Go-native runtime. Gotato is an independent design, not a Pi port: it expresses Pi's loop semantics (Prompt/Continue, streaming, tool batches, steering and follow-up, abort, interception) through goroutines, channels, `context.Context` cancellation, and explicit extensions. Attribution is retained wherever derived material requires it.
+Inspired by [Pi](https://pi.dev)'s agent kernel (`@earendil-works/pi-agent-core`, created by Mario Zechner and contributors, MIT-licensed), redesigned as a Go-native runtime. Gotato is an independent design: it expresses Pi's loop semantics (Prompt/Continue, streaming, tool batches, steering and follow-up, abort, interception) through goroutines, channels, `context.Context` cancellation, and explicit extensions. Attribution is retained wherever derived material requires it.
 
 - [Pi repository](https://github.com/earendil-works/pi)
 - [`pi-agent-core` on npm](https://www.npmjs.com/package/@earendil-works/pi-agent-core)

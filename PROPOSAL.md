@@ -7,11 +7,11 @@
 
 ## 1. What Gotato Is
 
-> **Gotato is a minimalistic, composable Go agent runtime.**
+> **Gotato is a minimal, synchronous, Go-native agent runtime.**
 
-Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.**
+It is useful on its own and embeds into running Go services deployed across instances; the three defining criteria and the feature test are in [GOALS.md](GOALS.md).
 
-It is deliberately broader than a single agent loop and deliberately smaller than an application framework. Gotato gives an application every primitive it would otherwise rebuild and leaves the application free to decide what it is. UI and agent organization live in applications; inside Gotato every agent is a peer.
+Gotato provides the runtime primitives an agentic Go program needs: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. UI, agent organization, and product semantics live in applications; inside Gotato every agent is a peer.
 
 ## 2. Why the Runtime Is Shaped This Way
 
@@ -35,33 +35,20 @@ Anything that answers an application question (which agent should do this task, 
 
 ## 3. Runtime Layers
 
-```text
-+----------------------------------------------------------------------+
-|  APPLICATIONS                                                        |
-|  cmd/gotato (CLI)   services   automation   tests   multi-agent apps |
-+----------------------------------+-----------------------------------+
-                                   |
-+----------------------------------v-----------------------------------+
-|  SERVICE  (the runtime turned outward; built on top of the runtime)  |
-|  service/  Runner: Session store + Agent per Run · AgentSpecs        |
-|  service/httpapi  HTTP adapter      adapter/grpc  gRPC adapter       |
-+----------------------------------+-----------------------------------+
-                                   |
-+----------------------------------v-----------------------------------+
-|  STANDARD RUNTIME                                                    |
-|  session/        Session · Store · MemoryStore · FileStore · Fork    |
-|  modelctx/       ContextBuilder strategies · Inspect · Compact       |
-|  toolregistry/   Registry (register/unregister/list/activate)        |
-|  testkit/        FakeModel · ReplayModel · FakeTool · EventRecorder  |
-|  gateway/        provider adapters                                   |
-+----------------------------------+-----------------------------------+
-                                   |
-+----------------------------------v-----------------------------------+
-|  CORE  (root package `gotato`, standard library only)                |
-|  Agent · Loop · Message · Model · Tool · ToolSet · Events            |
-|  Extensions · Errors · Limits · Transcript · ContextBuilder          |
-+----------------------------------------------------------------------+
-```
+| Layer | Package | Contents |
+|---|---|---|
+| core | `gotato` | Agent, loop, Message, Model, Tool, ToolSet, Transcript, ContextBuilder, ToolSource, Events, Extensions, Errors, Limits. Standard library only. |
+| standard runtime | `session` | Session, Store, MemoryStore, FileStore, Fork, Recorder |
+| | `modelctx` | FullHistory, WithStatic, WithPanel, blocks, Inspect, Compact, AutoCompact, summarizers |
+| | `toolregistry` | Registry (register, unregister, lookup, list, describe, activate, deactivate, change hooks) |
+| | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
+| providers | `gateway` | OpenAI-compatible Chat Completions and Responses adapters (API key), YAML config |
+| service | `service` | `Runner`: Session store, Agent per Run, AgentSpecs, per-Session single flight, admission, cancellation, drain |
+| | `service/httpapi` | HTTP adapter over the Runner |
+| | `adapter/grpc` (module) | gRPC adapter over the Runner and the `gotato-grpc` binary |
+| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` |
+
+Applications sit above all layers. Dependencies point inward (DESIGN.md G-D27).
 
 ### Package naming
 

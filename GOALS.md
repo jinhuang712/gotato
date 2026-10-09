@@ -2,19 +2,25 @@
 
 Goals, boundaries, tradeoffs, and compatibility principles, constrained by [PHILOSOPHY.md](PHILOSOPHY.md) and [DESIGN.md](DESIGN.md).
 
+Three criteria define Gotato: G-G01, G-G02, and G-G08. Every feature passes one test:
+
+> **Would a Go service embedding an agent want this on its own?**
+
+What passes belongs in Gotato; what fails belongs to an application (§2).
+
 ---
 
 ## 1. Goals
 
-### G-G01 — Primary Goal
+### G-G01 — A Minimal, Synchronous, Go-Native Agent Runtime
 
-> **Make capable agents an ordinary, lightweight, composable runtime primitive in Go.**
+> **Make capable agents an ordinary, lightweight runtime primitive in Go.**
 
-Gotato serves a single embedded Agent and the foundation beneath a much larger application equally well.
+One loop per agent, synchronous calls (`Prompt` returns when the Run settles), and `context.Context` for cancellation. Gotato serves a single embedded Agent and the foundation beneath a much larger application equally well.
 
-### G-G02 — Standard Runtime
+### G-G02 — Valuable on Its Own
 
-Applications get session continuity, context construction, tool registration, structured events, CLI diagnostics, and test utilities from Gotato instead of rebuilding them.
+A developer gets real value from Gotato with no particular application above it: session continuity, context construction, tool registration, structured events, a provider adapter, CLI diagnostics, and test utilities, ready to use.
 
 ### G-G03 — Cheap Execution
 
@@ -42,6 +48,14 @@ Coding agents operate the repository through documented Go APIs, deterministic t
 ### G-G07 — Coherent Repository
 
 Gotato grows as a coherent runtime repository of layered packages with small concepts.
+
+### G-G08 — Embedded and Distributed Deployment
+
+Gotato embeds into an already running Go service, including a distributed one deployed across instances:
+
+- Runs are cancellable through `context.Context`, `Runner.CancelRun`, and `Runner.Drain`.
+- State lives behind `session.Store`; any instance holding the Store serves any Session.
+- Multi-instance safety comes from a Session lease (planned, FEATURES.md §Service); today the per-Session lock is process-local.
 
 ---
 

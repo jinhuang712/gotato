@@ -1,6 +1,6 @@
 # Gotato Philosophy
 
-> **Gotato is a minimalistic, composable Go agent runtime.**
+> **Gotato is a minimal, synchronous, Go-native agent runtime.**
 
 Gotato provides the standard primitives for building agentic applications in Go: broader than a single agent loop, smaller than an application framework. Applications own their interfaces and agent organizations; inside Gotato every agent is a peer.
 
