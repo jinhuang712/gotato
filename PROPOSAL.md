@@ -80,7 +80,7 @@ Agentic Loop (one)  →  Transcript appends + Events (context_built carries pref
 ```
 
 - **The agent commits to a Transcript.** `gotato.WithTranscript(session)` makes the agent append every committed message to the Session. Without the option the agent uses a private in-memory transcript, so the two-line embedded path stays two lines.
-- **Within a Session, history is append-only and the Model sees all of it.** There is one selection strategy, full history, because it keeps the request prefix stable for provider prompt caches. Sliding windows and per-Turn summaries are left out: they rewrite the prefix every Turn and hide history from the Model.
+- **Within a Session, history is append-only and the Model sees all of it.** Full history is the one built-in selection strategy because it keeps the request prefix stable for provider prompt caches; other projections are application `ContextBuilder`s.
 - **History shrinks only by compaction.** `modelctx.Compact` rewrites a Session prefix into one summary and records a `session.Compaction` naming what was replaced and what replaced it. `modelctx.AutoCompact` applies a token budget (`CompactPolicy{Ceiling, Floor}`) at the start of a Run, through the `RunPreparer` extension stage, the one point where no Turn is using the Transcript. A compaction costs one cache miss; every Turn until the next one hits.
 - **Static first, dynamic last.** `WithStatic` puts stable content (project rules, resources) into the system prompt; `WithPanel` puts per-Turn content (time, cwd, referenced files, state) into a `<panel>` appended to the tail Message. The panel lives only in the request, so the Session and the prefix stay unchanged.
 - **Three formats, three jobs.** Markdown for prose the model reads (instructions, static blocks, summaries); JSON for structured data (tool schemas, arguments, results, `<state>` blocks); XML tags for boundaries and provenance (`<resource path="…">`, `<panel>`), so injected content is cheaply separated from user text.
@@ -161,8 +161,7 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 
 - **Context**: provider adapters that map `CacheBreakpoints` to explicit cache controls; token estimation from provider usage instead of the bytes/4 heuristic.
 - **Events**: typed payload structs per kind; `reasoning_update` for streaming reasoning deltas.
-- **Persistence**: a SQLite-backed `session.Store` in its own module so the root stays dependency-free.
-- **Tools**: MCP client as a `ToolSet`/`ToolSource`; optional filesystem, shell, and HTTP tool packages.
+- **Tools**: MCP client as a `ToolSet`/`ToolSource`.
 - **Providers**: a second, non-OpenAI adapter to keep the model contract provider-neutral.
 - **Testkit**: failure injection and context fixtures; a fixture-driven scenario runner.
 - **Service**: a Store-level Session lease for multi-replica deployments; request IDs and idempotency keys on the HTTP/gRPC adapters.
@@ -180,4 +179,5 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 | deterministic doubles | `testkit` |
 | human/script/agent operation | `cmd/gotato` |
 | Session store + Agent per Run, admission, cancellation, remote exposure | `service`, `service/httpapi`, `adapter/grpc` |
-| roles, task graphs, project state, UI, global scheduling | the application |
+| roles, task graphs, scheduling, orchestration, project state, UI, memory systems | the application (GOALS §2) |
+| database-backed stores, concrete tool packages, skill adapters, other context strategies | the application, through `session.Store`, `Tool`/`ToolSet`, and `ContextBuilder` |

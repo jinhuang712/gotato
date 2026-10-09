@@ -65,9 +65,9 @@ Gotato embeds into an already running Go service, including a distributed one de
 
 Gotato provides peer agents. Applications compose roles, teams, and hierarchies.
 
-### G-N02 — Task Graphs Belong to Applications
+### G-N02 — Task Graphs, Scheduling, and Orchestration Belong to Applications
 
-Durable application tasks, task dependency graphs, integration pipelines, and project-level scheduling live in the application.
+Durable application tasks, task dependency graphs, task scheduling, multi-agent orchestration, integration pipelines, and project-level planning live in the application.
 
 ### G-N03 — Global Resource Scheduling Belongs to Applications
 
@@ -90,6 +90,18 @@ Gotato provides Session, Context, persistence interfaces, and compaction primiti
 ### G-N07 — Ordinary Go Is the Workflow Language
 
 Ordinary Go composition is the default. Workflow packages, if any, are optional and keep Agent semantics unchanged.
+
+### G-N08 — Storage Engines Belong to Applications
+
+Gotato defines `session.Store` and ships the in-memory and file stores. An application backs it with the database it already runs, SQLite or otherwise.
+
+### G-N09 — Tool Catalogs Belong to MCP Servers and Applications
+
+Gotato provides the `Tool`, `ToolSet`, and `ToolSource` contracts, the Tool Registry, and MCP integration (G-F12). Filesystem, shell, Git, HTTP, and worktree tools, and adapters for skill formats such as SKILL.md (Agent Skills), come from MCP servers or the application.
+
+### G-N10 — Context Organization Beyond Full History Belongs to Applications
+
+Gotato ships full history, static blocks, a tail panel, and compaction. Retrieval, windowing, summarization pipelines, and other context organization strategies are application `ContextBuilder`s.
 
 ---
 

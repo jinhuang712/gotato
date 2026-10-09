@@ -64,7 +64,7 @@ Session stays generic. Task graphs, agent roles, worktree integration, and produ
 
 ### G-D05 — Session Storage Is Pluggable
 
-Gotato defines storage contracts and lets applications pick the engine: in-memory, JSONL or file-backed, SQLite, or their own. Library use works with the in-memory store alone.
+Gotato defines the `session.Store` contract and ships in-memory and file-backed stores. Applications back it with the database they already run (GOALS G-N08). Library use works with the in-memory store alone.
 
 ### G-D06 — Forking Is a State Operation
 
@@ -72,7 +72,7 @@ A new Session can be created from an existing Session's state, for alternative p
 
 ### G-D07 — Context Is Built Through Explicit Strategies
 
-Context is produced by a small, composable `ContextBuilder` abstraction, able to express full history, sliding window, compacted history, summary plus recent turns, selected references, and application-defined projections. Strategies are inspectable: a caller can ask "what would the model see for this Session now" without running a model.
+Context is produced by a small, composable `ContextBuilder`. Gotato ships full history with static blocks, a tail panel, and compaction; applications implement `ContextBuilder` for any other projection (GOALS G-N10). Strategies are inspectable: a caller can ask "what would the model see for this Session now" without running a model.
 
 ### G-D08 — Compaction Belongs to the Standard Runtime
 
@@ -118,11 +118,11 @@ Extensions add cross-cutting behavior: tracing, metrics, logging, policy checks,
 
 ### G-D12 — Tool Registry Is a First-Class Primitive
 
-The Tool Registry registers, unregisters, looks up, lists, describes, activates, and deactivates tools, supporting both static and dynamic tool surfaces. Discovery, MCP catalogs, authorization, and deferred loading build above or beside it.
+The Tool Registry registers, unregisters, looks up, lists, describes, activates, and deactivates tools, supporting both static and dynamic tool surfaces. `ToolSet` and `ToolSource` plug in staged and external surfaces such as MCP servers; discovery policy and authorization build above them.
 
 ### G-D13 — Tools Are Capabilities
 
-The core Tool contract is small and structured: identity, description, input schema, execution, structured result or error. Filesystem, shell, Git, browser, MCP, and product tools ship as optional packages that each agent opts into.
+The core Tool contract is small and structured: identity, description, input schema, execution, structured result or error. Concrete tools (filesystem, shell, Git, browser, product) come from MCP servers and from applications through that contract (GOALS G-N09).
 
 ---
 

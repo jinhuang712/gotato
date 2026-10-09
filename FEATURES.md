@@ -2,7 +2,7 @@
 
 The standard runtime surface, mapped to packages and files. Update the marker in the same commit that changes the status.
 
-Markers: `[done]` implemented and tested · `[partial]` usable with listed gaps · `[missing]` not started · `[needs-refactor]` exists but conflicts with DESIGN.md
+Markers: `[done]` implemented and tested · `[partial]` usable with listed gaps · `[missing]` not started · `[needs-refactor]` exists but conflicts with DESIGN.md. Row status `application` names a seam an application implements; it stays off Gotato's roadmap.
 
 ---
 
@@ -39,21 +39,20 @@ Package: `session` (`session.go`, `recorder.go`).
 | create/load/save/close lifecycle | done | `Store.Save/Get/List/Delete`; `Snapshot`/`Load` documents with `schema_version` |
 | fork/branch | done | `session.Fork` records `ParentID` |
 
-## G-F03 — Session Store Interfaces `[partial]`
+## G-F03 — Session Store Interfaces `[done]`
 
 | Item | Status | Where |
 |---|---|---|
-| store interface | done | `session.Store` |
+| store interface | done | `session.Store` (`Save`, `Get`, `List`, `Delete`) |
 | in-memory store | done | `session.MemoryStore` |
 | file store | done | `session.FileStore` (one JSON document per session, atomic writes) |
-| SQLite | missing | planned as a separate module |
-| application-defined adapter | done | implement `session.Store` |
+| database-backed store | application | the application implements `session.Store` with the database it already runs |
 
 ## G-F04 — Context Runtime `[done]`
 
 Package: `modelctx`; contract in root `context.go`.
 
-Within a Session the Model sees the whole history, append-only, laid out for prompt caching: static system content first, tools next, history as an append-only prefix, a dynamic `<panel>` on the tail Message. History shrinks only through compaction. Selection strategies that rewrite the prefix every Turn (sliding windows, per-Turn summaries) are deliberately not provided: they defeat provider prompt caches and hide history from the Model.
+Within a Session the Model sees the whole history, append-only, laid out for prompt caching: static system content first, tools next, history as an append-only prefix, a dynamic `<panel>` on the tail Message. History shrinks only through compaction. Full history is the one built-in selection strategy because a stable prefix keeps provider prompt caches warm; other projections are application `ContextBuilder`s.
 
 | Item | Status | Where |
 |---|---|---|
@@ -64,7 +63,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | compacted history | done | `modelctx.Compact` rewrites the Session; `modelctx.AutoCompact` applies a `CompactPolicy` budget at Run start via `gotato.RunPreparer` |
 | cache-friendly request layout | done | `gotato.AssembleRequest`: sorted tools, `ForModel` strips runtime fields, `CacheBreakpoints` after system / tools / before the tail, `prefix_hash` |
 | selected-reference projection | done | `modelctx.Resource` blocks in static or panel position |
-| custom application strategy | done | implement `gotato.ContextBuilder` |
+| other context organization | application | the application implements `gotato.ContextBuilder` |
 
 ## G-F05 — Context Inspection `[done]`
 
@@ -112,9 +111,9 @@ Package: `toolregistry`; contract `gotato.ToolSource`.
 | event hooks for tool-surface changes | done | `Registry.OnChange` |
 | model-driven staged activation | done | `ToolSet` / `activate_toolset` |
 
-## G-F11 — Standard Tool Packages `[missing]`
+## G-F11 — Tool Supply `[done]`
 
-Only `demo.echo` and `time.now` in the CLI. Filesystem, shell, Git, and HTTP packages are planned as optional imports.
+Tools come from MCP servers (G-F12) and from applications through the `Tool`, `ToolSet`, and `ToolSource` contracts; `NewFuncTool` turns a Go function into a Tool. Filesystem, shell, Git, and HTTP tools belong to MCP servers or the application. The CLI ships `demo.echo` and `time.now` for diagnostics.
 
 ## G-F12 — MCP Integration `[missing]`
 
