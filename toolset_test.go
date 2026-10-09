@@ -59,10 +59,9 @@ func awaitArrivals(t *testing.T, arrive chan string, count int) {
 }
 
 type concurrencyTracker struct {
-	mu      sync.Mutex
-	active  int
-	peak    int
-	overlap map[string]bool
+	mu     sync.Mutex
+	active int
+	peak   int
 }
 
 func (c *concurrencyTracker) enter() {
