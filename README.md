@@ -2,7 +2,7 @@
 
 > **Gotato is a minimalistic, composable Go agent runtime.**
 
-Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. It has no built-in UI and no built-in agent organization.
+Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. UI and agent organization live in the applications built on it.
 
 ```text
 Less is More.
@@ -36,7 +36,7 @@ defer agent.Close(context.Background())
 result, err := agent.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 ```
 
-The two-line form still works: `gotato.NewAgent(gotato.WithModel(model))` runs against a private in-memory transcript with full-history context. Nothing requires a server, a daemon, or a database.
+The two-line form still works: `gotato.NewAgent(gotato.WithModel(model))` runs against a private in-memory transcript with full-history context. It runs in-process: server, daemon, and database are all optional.
 
 ## Quick start (CLI)
 
@@ -76,7 +76,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 - A **Context** is built per Turn and laid out for prompt caching: static system content first, tools next, the append-only history, and a dynamic `<panel>` on the tail. Within a Session the model always sees the whole history; it shrinks only through compaction, which rewrites a prefix into a summary and records exactly what was replaced. `context_built` reports a `prefix_hash` so cache-friendliness is observable.
 - **Tools** are capabilities with identity, schema, execution, and structured results. The **Tool Registry** registers, lists, describes, activates, and deactivates them; the agent picks up changes at each Turn boundary. `ToolSet`s add model-driven staged activation.
 - **Events** are structured facts on a Go-native stream; **Extensions** wrap the loop at bounded stages (context transform, pre/post tool, observer, turn stopper).
-- **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI never calls a paid model.
+- **Testing** is deterministic: `testkit` provides fake and replay models, a fake tool, an event recorder, and session fixtures. CI runs without paid model calls.
 - **Service** is the runtime turned outward: a `service.Runner` owns a Session store and a set of `AgentSpec`s; every request loads a Session, builds an Agent, runs it, closes it, saves the Session. Agents are created and discarded per Run; continuity lives in the store, so any process holding the store can serve any Session. HTTP (`service/httpapi`) and gRPC (`adapter/grpc`) are thin adapters over it.
 
 ## Packages
@@ -94,7 +94,7 @@ Transcript appends + structured Events (agent_start, context_built, turn_end, to
 | | `adapter/grpc` (module) | gRPC adapter over the Runner (`SessionService` v2) and the `gotato-grpc` binary |
 | CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` |
 
-Dependency direction is enforced by a test: the core imports only the standard library; standard runtime packages never import the service or adapters. Library, CLI, HTTP, and gRPC all drive the same `service.Runner`.
+Dependency direction is enforced by a test: the core imports only the standard library, and standard runtime packages import only inward. Library, CLI, HTTP, and gRPC all drive the same `service.Runner`.
 
 ## Governance
 

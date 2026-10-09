@@ -1,8 +1,8 @@
 # Gotato Design
 
-DESIGN translates [PHILOSOPHY.md](PHILOSOPHY.md) into durable engineering rules. These rules are intentionally stronger than ordinary implementation suggestions. A change that violates one of them needs either a documented contradiction in the constitution or a documented, migration-friendly breaking change (see G-D30).
+DESIGN turns [PHILOSOPHY.md](PHILOSOPHY.md) into durable engineering rules. A change that conflicts with a rule needs either a documented amendment to the constitution or a documented, migration-friendly breaking change (G-D30).
 
-The vocabulary used here is fixed:
+Vocabulary:
 
 | Term | Meaning |
 |---|---|
@@ -14,7 +14,7 @@ The vocabulary used here is fixed:
 | **Tool** | a capability with identity, description, input schema, execution, structured result |
 | **Tool Registry** | the runtime primitive that owns tool identity, visibility, and activation |
 | **Event** | a structured runtime fact emitted during execution |
-| **Extension** | a hook or middleware that wraps the runtime without replacing it |
+| **Extension** | a hook or middleware that wraps the runtime |
 
 ---
 
@@ -22,43 +22,27 @@ The vocabulary used here is fixed:
 
 ### G-D01 — Agent as a Goroutine
 
-An agent should fit naturally into Go's concurrency model. The intended mental model is:
+An agent fits Go's concurrency model: `go agent.Run(ctx, session)` is the mental model, not a mandated signature. An agent runs inside the caller's process with no process, container, daemon, service, or scheduler of its own.
 
-```go
-go agent.Run(ctx, session)
-```
-
-This is a design principle, not a requirement that every public API literally use this exact signature. An agent must not inherently require its own process, container, daemon, service, or scheduler.
-
-The core agent is one goroutine that owns the Run in flight; the caller's goroutine blocks on `Prompt` or `Continue` and may cancel through its `context.Context`. Any realization that keeps this property is acceptable.
+The core agent is one goroutine that owns the Run in flight; the caller blocks on `Prompt` or `Continue` and cancels through its `context.Context`.
 
 ### G-D02 — One Agent Primitive
 
-Gotato maintains one fundamental agent abstraction and one fundamental execution model.
+Gotato has one agent abstraction and one execution model. Applications configure agents with different prompts, tools, models, context strategies, and lifecycles; planner, worker, supervisor, reviewer, and sub-agent are configurations of that one implementation. Role is application composition.
 
-Different applications may configure agents with different prompts, tools, models, context strategies, or lifecycles, but the runtime must not fork into separate core implementations for planner, worker, supervisor, reviewer, or sub-agent roles.
+### G-D18 — Agent Identity Is Flat
 
-Role is application composition, not Gotato type hierarchy.
+Agent identity carries no parent or child IDs, sub-agent types, delegation trees, or supervisor semantics. Applications record such relationships in their own metadata, for example `Session.Metadata`.
 
-### G-D18 — No Intrinsic Agent Hierarchy
+### G-D10 — Reusable Configuration, Per-Run State
 
-The runtime must not require parent agent IDs, child agent IDs, sub-agent types, delegation trees, or supervisor semantics as part of Agent identity.
+Reusable configuration holds the model provider and selection, tool registry, context builder, hooks, and execution policy. Mutable state belongs to a Run or Session, and every new execution starts clean.
 
-An application may store such relationships as its own metadata (for example in `Session.Metadata`).
-
-### G-D10 — Reusable Agent Configuration and Mutable Run State Are Separate
-
-Reusable configuration may include the model provider, model selection, tool registry, context builder, hooks, and execution policy.
-
-Mutable execution state belongs to a run/session and must not leak into unrelated executions. A new execution must not accidentally inherit a previous run's mutable state.
-
-Concretely: control messages (steer/follow-up) left over at the end of a Run are discarded, and the history an agent commits to is a `Transcript` supplied by the caller (a Session) or a private one that dies with the agent, never state that silently carries over between unrelated executions.
+Concretely: steer and follow-up messages left at the end of a Run are discarded, and the agent commits history to a `Transcript` supplied by the caller (a Session) or to a private one that dies with the agent.
 
 ### G-D11 — `context.Context` Owns Cancellation and Deadlines
 
-Go's standard `context.Context` propagates cancellation and deadlines through agent execution, model calls, tool calls, storage operations where appropriate, and streaming consumers where appropriate.
-
-Gotato must not create a parallel cancellation universe when standard Go semantics are sufficient. Runtime-configured deadlines (`CoreLimits.RunDeadline` etc.) are implemented by deriving standard contexts, never by a second mechanism.
+Standard `context.Context` carries cancellation and deadlines through agent execution, model calls, tool calls, and, where appropriate, storage and stream consumers. Runtime deadlines (`CoreLimits.RunDeadline` and others) are derived contexts; Gotato has one cancellation mechanism, Go's.
 
 ---
 
@@ -66,55 +50,39 @@ Gotato must not create a parallel cancellation universe when standard Go semanti
 
 ### G-D03 — Agent, Session, and Context Are Distinct
 
-Gotato makes three concepts explicit:
+- **Agent — who acts?** The reusable behavior that executes the loop: model access, tools, runtime policies, extensions, loop behavior.
+- **Session — what continuity exists?** What happened across turns and runs: messages, tool interactions, usage, runtime metadata, events, context-management state.
+- **Context — what does the model see now?** The per-turn projection given to a model call: full history, recent history, compacted history, selected resources, summaries, or an application-defined projection.
 
-- **Agent — who acts?** Owns or references the reusable behavior required to execute an agentic loop: model access, tools, runtime policies, extensions, and loop behavior.
-- **Session — what continuity exists?** Represents the logical continuity of an interaction. It records what happened across turns and runs: messages, tool interactions, usage, runtime metadata, events, and context-management state.
-- **Context — what does the model see now?** The turn-specific projection supplied to a model call. It may contain all session history, only recent history, a compacted history, selected resources, summaries, or another application-defined projection.
+An Agent may run against a Session many times, a Session may outlive any agent, and a Context may be rebuilt every turn. In code, the loop appends to a `Transcript` (the Session) and sends the model the output of a `ContextBuilder`; "all history" and "model input" are separate values.
 
-> **Session is what happened. Context is what the model sees now.**
+### G-D04 — Session Is a First-Class Primitive
 
-An Agent may run against a Session many times. A Session may outlive an individual agent execution. A Context may be rebuilt for every turn.
+A Session represents identity, messages, model outputs, tool calls and results, runtime metadata, usage, important execution events, context and compaction metadata, and optional application metadata.
 
-In code: the agent loop reads from and appends to a `Transcript` (the Session's committed history) and hands the model the output of a `ContextBuilder`. Structs must not conflate "all historical state" with "model input".
-
-### G-D04 — Session Is a First-Class Runtime Primitive
-
-A standard Session must be able to represent at least: session identity, messages, model outputs, tool calls and tool results, runtime metadata, usage, important execution events, context/compaction metadata, and optional application metadata.
-
-Session stays generic. Application concepts such as task graphs, agent roles, worktree integration, and product workflow live in `Metadata`.
+Session stays generic. Task graphs, agent roles, worktree integration, and product workflow live in `Metadata`.
 
 ### G-D05 — Session Storage Is Pluggable
 
-Gotato defines storage contracts without forcing one persistence engine. Expected implementations include in-memory storage, JSONL or file-backed storage, SQLite-backed storage, and application-provided stores.
+Gotato defines storage contracts and lets applications pick the engine: in-memory, JSONL or file-backed, SQLite, or their own. Library use works with the in-memory store alone.
 
-A library-only use case must not require a database.
+### G-D06 — Forking Is a State Operation
 
-### G-D06 — Session Forking Is a Generic Primitive
-
-Gotato supports creating a new Session from an existing Session state when practical. Forking is a state operation, not an agent hierarchy operation. The fork records its origin (parent session ID) as lineage metadata only.
+A new Session can be created from an existing Session's state, for alternative paths, model comparisons, isolated bounded work, or derived flows. The fork records its parent Session ID as lineage metadata; agents are untouched.
 
 ### G-D07 — Context Is Built Through Explicit Strategies
 
-Context management must not be buried inside opaque message mutation.
-
-Gotato exposes a small context-building abstraction (`ContextBuilder`) able to support strategies such as full history, sliding window, compacted history, summary + recent turns, selected references, and application-defined projection.
-
-Context strategies are composable and inspectable: a caller must be able to ask "what would the model see for this session right now" without running a model.
+Context is produced by a small, composable `ContextBuilder` abstraction, able to express full history, sliding window, compacted history, summary plus recent turns, selected references, and application-defined projections. Strategies are inspectable: a caller can ask "what would the model see for this Session now" without running a model.
 
 ### G-D08 — Compaction Belongs to the Standard Runtime
 
-Long-running agent sessions inevitably encounter context-window pressure. Gotato provides standard hooks and implementations for compaction without dictating one universal summarization policy.
-
-Compaction preserves traceability: applications must be able to tell what was compacted and what representation replaced it. A compaction is recorded in the Session, never applied silently.
+Gotato provides compaction hooks and implementations, including summarizers, and lets each application choose its summarization policy. Every compaction is recorded in the Session, naming what was replaced and what replaced it.
 
 ---
 
 ## 3. The Loop
 
 ### G-D09 — One Minimal Agentic Loop
-
-At the center of Gotato remains a small loop:
 
 ```text
 input / session state
@@ -138,13 +106,11 @@ input / session state
                  +-------------> build next context / model
 ```
 
-Session, context, streaming, events, and extensions support this loop rather than create competing hidden execution semantics.
+Session, context, streaming, events, and extensions all serve this one loop.
 
-### G-D17 — Extensions Wrap the Runtime; They Do Not Replace It
+### G-D17 — Extensions Wrap the Loop
 
-Gotato supports hooks or middleware for cross-cutting behavior: tracing, metrics, logging, policy checks, result transformation, custom context handling, provider-specific behavior.
-
-Extensions must not silently create a second agent loop with incompatible semantics. The existing extension points (`ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver`, `TurnStopper`) are all bounded stages of the one loop.
+Extensions add cross-cutting behavior: tracing, metrics, logging, policy checks, result transformation, custom context handling, provider-specific behavior. Each runs at a bounded stage of the one loop (`ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver`, `TurnStopper`, `RunPreparer`).
 
 ---
 
@@ -152,61 +118,49 @@ Extensions must not silently create a second agent loop with incompatible semant
 
 ### G-D12 — Tool Registry Is a First-Class Primitive
 
-A standard runtime needs more than an anonymous `[]Tool`.
+The Tool Registry registers, unregisters, looks up, lists, describes, activates, and deactivates tools, supporting both static and dynamic tool surfaces. Discovery, MCP catalogs, authorization, and deferred loading build above or beside it.
 
-Gotato provides a Tool Registry capable of register, unregister, lookup, list, describe, activate, and deactivate. The registry enables both static and dynamic tool surfaces without defining application-level orchestration.
+### G-D13 — Tools Are Capabilities
 
-Tool discovery systems, MCP catalogs, authorization policy, or deferred-loading policy may be built above or beside the registry.
-
-### G-D13 — Tools Are Capabilities, Not Applications
-
-The core Tool contract remains small and structured: identity, description, input contract/schema, execution, structured result/error.
-
-Filesystem, shell, Git, browser, MCP, or product-specific tool packages may be provided in the repository, but they must not make those capabilities mandatory for every agent.
+The core Tool contract is small and structured: identity, description, input schema, execution, structured result or error. Filesystem, shell, Git, browser, MCP, and product tools ship as optional packages that each agent opts into.
 
 ---
 
 ## 5. Models, Streaming, and Events
 
-### G-D14 — Models Use a Small Capability-Aware Contract
+### G-D14 — Small, Capability-Aware Model Contract
 
-Gotato exposes a stable model contract for normal agent execution without pretending every provider has identical capabilities. Provider-specific features are expressed through adapters or optional capability interfaces instead of continuously expanding one universal interface.
-
-Opaque provider artifacts (for example reasoning signatures) are carried, never interpreted, by core.
+One stable model contract covers normal execution. Provider-specific features live in adapters and optional capability interfaces, keeping the core contract small. Core carries opaque provider artifacts (for example reasoning signatures) without interpreting them.
 
 ### G-D15 — Streaming Is a Runtime Primitive
 
-Streaming exposes structured execution progress independent of any UI. Callers consume model deltas, tool lifecycle, context events, usage, errors, and terminal events through a Go-native streaming abstraction (`EventStream`).
+`EventStream` delivers structured execution progress, independent of any UI: model deltas, tool lifecycle, context events, usage, errors, and terminal events.
 
 ### G-D16 — Event Stream Is a First-Class Primitive
 
-Gotato emits structured runtime events that applications observe without parsing logs. Expected event families: agent/run lifecycle, turn lifecycle, context build/compaction, model request/response, tool call/result, usage, error, session update.
+Applications observe structured events directly: agent and run lifecycle, turn lifecycle, context build and compaction, model request and response, tool call and result, usage, errors, session updates. Applications may map them into their own higher-level events.
 
-Applications may map Gotato events into higher-level application events.
+### G-D29 — Observability Is Additive
 
-### G-D29 — Observability Must Be Additive
-
-Logs, traces, metrics, and usage tracking are attachable without changing the core semantics of agent execution. Observability must be rich enough to support debugging but must not become a mandatory centralized service.
+Logs, traces, metrics, and usage attach without changing execution semantics. Observability is rich enough for debugging and optional to deploy.
 
 ---
 
-## 6. What the Runtime Must Not Own
+## 6. Responsibilities Above the Runtime
 
 ### G-D19 — Orchestration Lives in Applications
 
-Task graphs, agent pools, agent roles, workflow dependencies, project integration, desktop state, and multi-agent resource scheduling live in the applications built on Gotato.
+Task graphs, agent pools, agent roles, workflow dependencies, project integration, desktop state, and multi-agent resource scheduling live in applications. Gotato supplies the primitives they use: sessions, contexts, events, tools, execution, and CLI access.
 
-Gotato may provide generic lower-level primitives that such systems use: sessions, contexts, events, tools, execution, and CLI access.
+The `service` package (Session store, Agent per Run, admission, cancellation, HTTP and gRPC adapters) is built on the runtime and composes Sessions, Agents, and Contexts exactly as an application would. Core and standard runtime packages stay independent of it.
 
-The service in this repository (`service`: a Session store, Agents created per Run, admission, cancellation, HTTP and gRPC adapters) is **built on the runtime**, not part of the runtime foundation. Core and standard runtime packages never depend on it, and it adds no Agent semantics: it composes Sessions, Agents, and Contexts exactly as an application would.
+### G-D20 — Library Use Is Self-Contained
 
-### G-D20 — No Mandatory Background Daemon
+Embedding Gotato as a Go library is first-class and needs no companion daemon. The CLI and server are optional ways to run the same runtime.
 
-Embedding Gotato as a Go library remains first-class. A CLI or optional server may exist, but using the standard runtime must not require a companion daemon.
+### G-D21 — UI Lives Above the Runtime
 
-### G-D21 — No Built-In UI
-
-Gotato does not ship a project-specific desktop or terminal user experience as part of its architectural identity. It may provide CLI output intended for humans, but UI products belong above the runtime.
+Desktop and terminal user experiences are products built on Gotato. Gotato's own human-facing surface is CLI output.
 
 ---
 
@@ -214,17 +168,15 @@ Gotato does not ship a project-specific desktop or terminal user experience as p
 
 ### G-D22 — CLI Is a First-Class Runtime Interface
 
-Gotato provides an official CLI (`cmd/gotato`) over its standard runtime primitives. The CLI serves three audiences equally: humans, shell automation, coding agents. Core runtime capabilities must be testable without writing a custom Go program.
+`cmd/gotato` exposes the standard runtime to three equal audiences: humans, shell automation, and coding agents. Every core runtime capability is testable from the CLI without writing a Go program.
 
-### G-D23 — Machine-Readable CLI Semantics Are Mandatory
+### G-D23 — Machine-Readable CLI Semantics
 
-Important CLI commands support stable machine-readable output, including where appropriate `--json`, `--jsonl`, `--quiet`, `--no-color`, `--timeout`.
+Important commands offer stable machine-readable output and controls where appropriate: `--json`, `--jsonl`, `--quiet`, `--no-color`, `--timeout`. Stdout carries data, stderr carries diagnostics, and documented exit codes report success, so callers never scrape human text.
 
-Stdout contains requested data. Diagnostics go to stderr. Exit codes are meaningful and documented. The CLI must not require scraping decorative human text to determine whether an operation succeeded.
+### G-D24 — CLI and Library Share One Runtime
 
-### G-D24 — CLI and Go Library Share the Same Runtime
-
-The CLI is a thin client of Gotato packages, not a separate implementation of agent semantics. A behavior that exists only in CLI code and cannot be exercised through the runtime API is an architectural smell unless it is inherently presentation-specific.
+The CLI is a thin client of the Gotato packages. Every CLI behavior is reachable through the runtime API, except what is inherently presentation.
 
 ---
 
@@ -232,21 +184,17 @@ The CLI is a thin client of Gotato packages, not a separate implementation of ag
 
 ### G-D25 — Testing Is a First-Class Runtime Surface
 
-Gotato makes itself easy for coding agents and normal tests to exercise deterministically. The repository provides test utilities such as fake model, replay model, fake tool, event recorder, session fixtures, context fixtures, and deterministic failure injection where useful.
-
-A coding agent must be able to modify Gotato, run unit tests, run CLI scenarios, inspect structured output, and diagnose failures without a GUI. CI must not depend on paid model calls.
+The repository ships deterministic test utilities: fake and replay models, a fake tool, an event recorder, session and context fixtures, and failure injection where useful. A coding agent can modify Gotato, run unit tests and CLI scenarios, inspect structured output, and diagnose failures from a terminal. CI runs without paid model calls.
 
 ---
 
 ## 9. Repository Structure
 
-### G-D26 — Repository Can Be Broad While Concepts Stay Small
+### G-D26 — Broad Repository, Small Concepts
 
-Gotato may be a substantial repository similar in spirit to a runtime monorepo. `Less is More` constrains the conceptual model and mandatory dependencies, not the number of useful packages.
+The repository may hold many useful packages; `Less is More` constrains the conceptual model and the mandatory dependencies. Packages are layered so users depend only on what they need.
 
-Packages remain layered so users depend only on what they need.
-
-### G-D27 — Package Direction Must Remain Layered
+### G-D27 — Package Direction Is Layered
 
 ```text
 applications / cmd/gotato / service (Runner, HTTP and gRPC adapters)
@@ -263,43 +211,43 @@ core execution packages
 Go standard library + narrow external dependencies
 ```
 
-Provider and tool adapters depend inward. Core packages must not depend outward on product or service packages. The root package imports only the standard library.
+Dependencies point inward: provider and tool adapters depend on core, and the root package imports only the standard library. `layering_test.go` enforces the direction.
 
-### G-D28 — Configuration Should Prefer Go Values and Simple Files
+### G-D28 — Go Values and Simple Files for Configuration
 
-Library usage favors explicit Go construction (`NewAgent(WithModel(...), ...)`). CLI usage may support configuration files and environment variables, but Gotato avoids inventing a configuration language when ordinary Go values or simple structured configuration are sufficient.
+Library use configures with Go values (`NewAgent(WithModel(...), ...)`). The CLI adds configuration files and environment variables, using simple structured formats in place of a custom configuration language.
 
-### G-D30 — Backward Compatibility Is Valuable, but Clarity Wins
+### G-D30 — Compatibility Matters; Clarity Wins
 
-Because Gotato is a reusable runtime, API stability matters. However, preserving a confused abstraction forever is worse than making a well-documented breaking change during an intentional refactor.
-
-Breaking changes are explicit, migration-friendly, and justified against PHILOSOPHY and DESIGN. Material user-facing breaks are recorded in `MIGRATION.md`.
+API stability matters for a reusable runtime, and a well-documented breaking change during an intentional refactor beats preserving a confused abstraction. Breaking changes are explicit, migration-friendly, justified against PHILOSOPHY and DESIGN, and recorded in `MIGRATION.md` when user-facing.
 
 ---
 
-## Governance: Core Admission Questions
+## Governance
+
+### Admission Questions
 
 Before adding a concept to Gotato, ask:
 
-1. Is this reusable agent runtime semantics or one application's policy?
-2. Can an application implement it cleanly using existing primitives?
-3. Does adding it create a new mandatory worldview?
-4. Does it preserve cheap/disposable Agent execution?
-5. Does it preserve the distinction between Agent, Session, and Context?
-6. Does it introduce an intrinsic agent hierarchy?
-7. Does it make CLI and library semantics diverge?
+1. Is this reusable runtime semantics or one application's policy?
+2. Can an application build it cleanly from existing primitives?
+3. Does it introduce a new mandatory worldview?
+4. Does it keep Agent execution cheap and disposable?
+5. Does it keep Agent, Session, and Context distinct?
+6. Does it keep agents peers, free of intrinsic hierarchy?
+7. Does it keep CLI and library semantics identical?
 8. Can it be tested deterministically?
 
-## Architectural Drift Signals
+### Drift Signals
 
-Reconsider the design if:
+Reconsider the design when:
 
-- Gotato starts defining agent roles or sub-agents;
-- Session becomes a project/task database;
-- Context becomes synonymous with all Session history;
-- every Agent requires a daemon or database;
-- the CLI implements behavior unavailable to the library;
-- dynamic tools require a second hidden execution engine;
-- the repository cannot run useful deterministic tests without real model APIs;
-- optional integrations become mandatory dependencies of core packages;
-- an application cannot create a fresh agent run without cleanup from the previous run.
+- agent roles or sub-agents appear in Gotato types;
+- Session starts acting as a project or task database;
+- Context becomes a synonym for all Session history;
+- an Agent needs a daemon or database to run;
+- the CLI implements behavior the library lacks;
+- dynamic tools need a second hidden execution engine;
+- useful deterministic tests need real model APIs;
+- an optional integration becomes a dependency of core packages;
+- a fresh agent run needs cleanup from a previous run.

@@ -5,7 +5,7 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 ## Read Order
 
 ```text
-1. PHILOSOPHY.md        — the worldview; do not violate it
+1. PHILOSOPHY.md        — the worldview every change follows
 2. DESIGN.md            — durable engineering rules (G-Dxx)
 3. GOALS.md             — goals, non-goals, tradeoffs, compatibility
 4. FEATURES.md          — implementation inventory with status markers
@@ -18,19 +18,19 @@ These root documents are the single source of truth for Gotato's design.
 ## Hard Architectural Rules
 
 - **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
-- **Never make Agent roles or hierarchy intrinsic**: no parent/child agent IDs in Agent identity. Applications may store lineage in `Session.Metadata`.
-- **Keep Agent, Session, Context separate.** The agent commits to a `Transcript` (Session); the model receives the output of a `ContextBuilder` (Context). Do not add code paths where "model input" silently equals "all history" by construction.
-- **Keep Session generic.** No task graphs, project state, worktrees, or product workflow fields. Application semantics live in `Metadata`.
-- **Keep Context as model-view construction**, not a synonym for Session.
-- **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it with no server, daemon, or database.
-- **No mandatory daemon.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service; they are built on the runtime and add no Agent semantics. Core and standard runtime packages must never import them.
-- **No UI logic in Gotato.** CLI output for humans is fine; widgets, TUIs, and desktop state are not.
+- **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
+- **Keep Agent, Session, Context separate.** The agent commits to a `Transcript` (Session); the model receives the output of a `ContextBuilder` (Context). Model input is always a built value, separate from the full history.
+- **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
+- **Keep Context as model-view construction**, built from the Session per turn.
+- **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
+- **Keep the service on top.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service by composing it; Agent semantics stay in the runtime. Core and standard runtime packages must never import them.
+- **UI lives in applications.** Gotato's human-facing surface is CLI output; widgets, TUIs, and desktop state belong above it.
 - **CLI and library share runtime semantics.** `cmd/gotato` is a thin client of the packages. If you need a behavior in the CLI, add it to a package first.
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
 - **Keep dependencies layered** (DESIGN.md G-D27). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
-- **Do not add a dependency** without first checking whether the standard library or a smaller solution suffices. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
+- **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow
 

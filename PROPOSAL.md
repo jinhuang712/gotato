@@ -11,7 +11,7 @@
 
 Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.**
 
-It is deliberately broader than a single agent loop and deliberately smaller than an application framework. A useful Gotato installation gives an application every primitive it would otherwise rebuild, and nothing that tells the application what to be. It has no built-in UI. It defines no agent organization: there are no Masters, Operators, Workers, supervisors, or sub-agents inside Gotato, only agents.
+It is deliberately broader than a single agent loop and deliberately smaller than an application framework. Gotato gives an application every primitive it would otherwise rebuild and leaves the application free to decide what it is. UI and agent organization live in applications; inside Gotato every agent is a peer.
 
 ## 2. Why the Runtime Is Shaped This Way
 
@@ -42,7 +42,7 @@ Anything that answers an application question (which agent should do this task, 
 +----------------------------------+-----------------------------------+
                                    |
 +----------------------------------v-----------------------------------+
-|  SERVICE  (the runtime turned outward; never imported by the runtime)|
+|  SERVICE  (the runtime turned outward; built on top of the runtime)  |
 |  service/  Runner: Session store + Agent per Run · AgentSpecs        |
 |  service/httpapi  HTTP adapter      adapter/grpc  gRPC adapter       |
 +----------------------------------+-----------------------------------+
@@ -92,16 +92,16 @@ Agent (gotato.Agent) ---- Tool Registry (gotato.ToolSource / toolregistry.Regist
 Agentic Loop (one)  →  Transcript appends + Events (context_built carries prefix_hash)
 ```
 
-- **The agent commits to a Transcript, not to itself.** `gotato.WithTranscript(session)` makes the agent append every committed message to the Session. Without the option the agent uses a private in-memory transcript, so the two-line embedded path stays two lines.
-- **Within a Session, history is append-only and the Model sees all of it.** There is one selection strategy, full history. Sliding windows and per-Turn summaries are not offered: they rewrite the request prefix every Turn, which defeats provider prompt caches and hides history from the Model.
+- **The agent commits to a Transcript.** `gotato.WithTranscript(session)` makes the agent append every committed message to the Session. Without the option the agent uses a private in-memory transcript, so the two-line embedded path stays two lines.
+- **Within a Session, history is append-only and the Model sees all of it.** There is one selection strategy, full history, because it keeps the request prefix stable for provider prompt caches. Sliding windows and per-Turn summaries are left out: they rewrite the prefix every Turn and hide history from the Model.
 - **History shrinks only by compaction.** `modelctx.Compact` rewrites a Session prefix into one summary and records a `session.Compaction` naming what was replaced and what replaced it. `modelctx.AutoCompact` applies a token budget (`CompactPolicy{Ceiling, Floor}`) at the start of a Run, through the `RunPreparer` extension stage, the one point where no Turn is using the Transcript. A compaction costs one cache miss; every Turn until the next one hits.
-- **Static first, dynamic last.** `WithStatic` puts stable content (project rules, resources) into the system prompt; `WithPanel` puts per-Turn content (time, cwd, referenced files, state) into a `<panel>` appended to the tail Message. The panel is never committed to the Session and never disturbs the prefix.
+- **Static first, dynamic last.** `WithStatic` puts stable content (project rules, resources) into the system prompt; `WithPanel` puts per-Turn content (time, cwd, referenced files, state) into a `<panel>` appended to the tail Message. The panel lives only in the request, so the Session and the prefix stay unchanged.
 - **Three formats, three jobs.** Markdown for prose the model reads (instructions, static blocks, summaries); JSON for structured data (tool schemas, arguments, results, `<state>` blocks); XML tags for boundaries and provenance (`<resource path="…">`, `<panel>`), so injected content is cheaply separated from user text.
 - **Only prompt-relevant bytes reach the provider.** `gotato.ForModel` strips message IDs, usage, stop reasons, and runtime metadata; tools are sorted; `CacheBreakpoints` are placed after system, after tools, and before the tail. `context_built` reports `prefix_hash`; two consecutive Turns with the same hash present an identical cacheable prefix.
-- **Forking is a state operation.** `session.Fork` copies state and records the parent Session ID. That is lineage of data, not of agents.
+- **Forking is a state operation.** `session.Fork` copies state and records the parent Session ID. Lineage belongs to data; agents stay peers.
 - **Tools are visible per Turn.** The agent asks every `ToolSource` for its tools at each Turn boundary and keeps that set for the whole Turn.
 
-No relationship in this design creates a sub-agent.
+Every agent in this design is a peer.
 
 ## 5. The CLI
 
@@ -116,7 +116,7 @@ gotato events --session <id> [--jsonl | --json]
 gotato doctor [--json]
 ```
 
-The CLI composes `session.FileStore`, `modelctx`, `toolregistry`, `testkit` models, and the `gateway` provider exactly as an application would. It contains no agent semantics of its own. Stdout carries data, stderr carries diagnostics, exit codes are documented, and every command has a machine-readable form. The contract is [cmd/gotato/README.md](cmd/gotato/README.md).
+The CLI composes `session.FileStore`, `modelctx`, `toolregistry`, `testkit` models, and the `gateway` provider exactly as an application would; agent semantics live in the packages. Stdout carries data, stderr carries diagnostics, exit codes are documented, and every command has a machine-readable form. The contract is [cmd/gotato/README.md](cmd/gotato/README.md).
 
 `gotato serve` runs the same `service.Runner` behind the HTTP adapter; `gotato-grpc` (in the `adapter/grpc` module) behind gRPC. There is one code path from library to CLI to service.
 
@@ -137,7 +137,7 @@ POST /v1/sessions/{id}/runs {"prompt": "…"}
    ⑥ unlock(id)
 ```
 
-An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; a live Agent is an optimization, never an identity. There are no Conversations separate from Sessions, no agent generations, no retirement, and no spawn trees: a derived line of work is `session.Fork` plus another Run, with lineage in metadata.
+An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; a live Agent is an optimization; identity is the Session. A derived line of work is `session.Fork` plus another Run, with lineage in metadata.
 
 ## 6. Dependency Direction
 
@@ -157,16 +157,16 @@ gotato (root)
 Go
 ```
 
-The direction is enforced by `layering_test.go`: the root package has no non-stdlib imports, and standard runtime packages never import `service`, the adapters, or the CLI. Optional integrations never become mandatory dependencies of core packages.
+The direction is enforced by `layering_test.go`: the root package imports only the standard library, and standard runtime packages import only inward. Optional integrations stay optional for core packages.
 
 ## 7. Principles for Evolving the Runtime
 
 1. **Additive first.** New capability arrives as an option, an interface, or a package. Existing constructors and the two-method `Agent` interface keep working.
 2. **Deprecate before removing.** A symbol that conflicts with the constitution is marked `// Deprecated:` with a replacement named, and removed only with a documented break.
 3. **Document every break** in [MIGRATION.md](MIGRATION.md) with a before/after example.
-4. **Clarity wins.** A confused abstraction is not preserved forever to avoid a version bump (DESIGN G-D30).
+4. **Clarity wins.** A well-documented break beats preserving a confused abstraction (DESIGN G-D30).
 5. **Admission questions before new concepts.** Every proposed concept answers the eight questions in DESIGN.md §Governance before it lands.
-6. **Deterministic tests or it does not exist.** A feature without a fake-model test and, when user-visible, a CLI scenario, is not complete.
+6. **Deterministic tests define done.** A feature is complete when it has a fake-model test and, when user-visible, a CLI scenario.
 
 ## 8. Direction
 
@@ -193,4 +193,4 @@ The runtime foundation described above is in place. FEATURES.md is the authorita
 | deterministic doubles | `testkit` |
 | human/script/agent operation | `cmd/gotato` |
 | Session store + Agent per Run, admission, cancellation, remote exposure | `service`, `service/httpapi`, `adapter/grpc` |
-| roles, task graphs, project state, UI, global scheduling | the application, never Gotato |
+| roles, task graphs, project state, UI, global scheduling | the application |

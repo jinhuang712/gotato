@@ -2,83 +2,57 @@
 
 > **Gotato is a minimalistic, composable Go agent runtime.**
 
-This document holds the beliefs that sit above implementation detail. They do not change merely because a particular feature is convenient to add. Engineering rules derived from these beliefs live in [DESIGN.md](DESIGN.md); the intended runtime surface lives in [FEATURES.md](FEATURES.md); what Gotato is and is not trying to become lives in [GOALS.md](GOALS.md).
+Gotato provides the standard primitives for building agentic applications in Go: broader than a single agent loop, smaller than an application framework. Applications own their interfaces and agent organizations; inside Gotato every agent is a peer.
 
-Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become. It is deliberately broader than a single agent loop and deliberately smaller than an application framework. Interfaces and agent organizations belong to applications: inside Gotato, every agent is a peer.
+These beliefs sit above implementation detail and hold even when a feature would be convenient. [DESIGN.md](DESIGN.md) turns them into engineering rules, [GOALS.md](GOALS.md) states what Gotato aims for, and [FEATURES.md](FEATURES.md) tracks the runtime surface.
 
 ---
 
 ## G-P01 — Less Is More
 
-Gotato should become more useful by requiring less conceptual machinery.
+Gotato grows more useful by requiring less conceptual machinery. Its quality is measured by whether a developer can understand the runtime, compose it with ordinary code, and use only the pieces they need.
 
-Its quality is not measured by the number of abstractions, built-in products, orchestration systems, or configuration layers it accumulates. Its quality is measured by whether a developer can understand the runtime, compose it with ordinary code, and use only the pieces that are actually needed.
+"Less" means a small set of orthogonal concepts in place of overlapping concepts, hidden behaviors, and mandatory subsystems. Every major addition answers one question:
 
-"Less" does not mean artificially removing useful capabilities. It means preferring a small set of orthogonal concepts over a large set of overlapping concepts, hidden behaviors, and mandatory subsystems.
+> Does this make the reusable agent runtime more complete, or does it belong to an application above it?
 
-Every major addition should answer a simple question:
+## G-P02 — Agents Are Cheap and Disposable
 
-> Does this make the reusable agent runtime more complete, or does it make Gotato responsible for an application that should exist above it?
+Creating an agent is as light as starting a unit of work. Applications create an agent for bounded work, use it briefly, and discard it. Long-lived agents are supported; the runtime is designed around short-lived ones.
 
-## G-P02 — Agents Should Be Highly Cheap and Disposable
+Gotato keeps per-agent weight, background services, state, and lifecycle ceremony to the minimum that short-lived agents need.
 
-Creating an agent should not feel like provisioning infrastructure.
+## G-P03 — There Are Only Agents
 
-Applications should be free to create an agent for bounded work, use it briefly, and discard it immediately afterward. Long-lived agents are valid, but they are not the assumption around which the runtime is designed.
+Gotato has one kind of agent. Main, sub, child, supervisor, worker, reviewer, and planner are roles an application gives to peers.
 
-Cheap and disposable is a first-class property. Gotato should continuously resist hidden per-agent weight, mandatory background services, oversized state, and lifecycle ceremony that makes short-lived agents unnatural.
+Delegation, supervision, and "created because another agent asked" are application relationships. The agent primitive stays independent of the topology built around it.
 
-## G-P03 — No Agent Is a Sub-Agent
+## G-P04 — Runtime Primitives, Application Doctrine
 
-Gotato has only agents.
-
-It does not define intrinsic main agents, sub-agents, child agents, supervisor agents, worker agents, reviewer agents, or planner agents.
-
-Applications may create relationships between agents. An agent may delegate to another agent, supervise another agent, or exist because another agent requested work. Those relationships belong to the application. They do not create a different class of agent in Gotato.
-
-This keeps the agent primitive independent from the topology built around it.
-
-## G-P04 — Runtime Primitives, Not Product Doctrine
-
-Gotato should provide reusable primitives without forcing applications into one product model.
-
-A coding environment, a desktop assistant, an automated service, a research system, and an asynchronous multi-agent runtime may all require sessions, contexts, tools, events, and model execution. They should be able to share Gotato without inheriting one another's application semantics.
+Gotato provides reusable primitives; applications choose their product model. A coding environment, a desktop assistant, an automated service, a research system, and an asynchronous multi-agent runtime all share sessions, contexts, tools, events, and model execution while each keeps its own semantics.
 
 ## G-P05 — Composition Over Centralization
 
-Gotato should compose with the host program rather than attempting to become the host program.
+Gotato composes into the host program. Applications replace or extend persistence, providers, tools, context strategies, observability, and execution policy piece by piece, each piece independent wherever that keeps the system easier to understand.
 
-Applications should be able to replace or extend persistence, providers, tools, context strategies, observability, and execution policy without routing every decision through one monolithic global object.
+## G-P06 — Ordinary Go
 
-A useful piece should remain independent when independence makes the system easier to understand.
-
-## G-P06 — Ordinary Go Should Remain Ordinary Go
-
-A developer using Gotato should still feel like they are writing Go.
-
-Gotato should not require a parallel worldview, a proprietary workflow language, or a deep framework-specific inheritance tree. The repository should prefer direct, explicit, unsurprising composition.
+Using Gotato is writing Go: direct, explicit, unsurprising composition with ordinary types, interfaces, and functions. Gotato asks for no parallel worldview, workflow language, or framework inheritance tree.
 
 ## G-P07 — Continuity and Attention Are Different Things
 
-What has happened in an interaction is not the same as what a model should see right now.
-
-Gotato therefore treats long-lived continuity and turn-specific attention as distinct concerns. The runtime should preserve history when continuity matters while allowing each model call to receive only the context that is useful for the current turn.
+What has happened in an interaction and what a model should see right now are separate concerns. Gotato preserves history for continuity and gives each model call the context useful for that turn.
 
 > **Session is what happened. Context is what the model sees now.**
 
-## G-P08 — Explicit Behavior Over Hidden Intelligence
+## G-P08 — Explicit, Inspectable Behavior
 
-The runtime should make important behavior observable and understandable.
+Important behavior is observable. A caller can determine what an agent saw, which tools it had, what it called, what it produced, why it stopped, and what failed. Every convenience is backed by policy the caller can inspect and replace.
 
-A caller should be able to determine what an agent saw, what tools it had, what it called, what it produced, why it stopped, and what failed.
+## G-P09 — Machine Usability Is First-Class
 
-Convenience should not depend on invisible policy that cannot be inspected or replaced.
-
-## G-P09 — Machine Usability Is a First-Class Use Case
-
-Gotato should be easy to operate not only by humans but also by scripts and coding agents.
-
-A project that can be developed, tested, inspected, and debugged through stable machine-readable interfaces is easier to evolve autonomously and easier to validate reliably.
+Gotato is built to be operated by scripts and coding agents as well as humans. Stable, machine-readable interfaces for developing, testing, inspecting, and debugging make the project easier to evolve autonomously and to validate reliably.
 
 ---
 
@@ -96,4 +70,4 @@ A project that can be developed, tested, inspected, and debugged through stable 
 
 **The CLI is a first-class interface for humans, scripts, and coding agents.**
 
-Gotato should be complete enough that higher-level products can build on it directly, and restrained enough that those products do not become part of Gotato itself.
+Gotato is complete enough for higher-level products to build on directly, and restrained enough that those products stay above it.
