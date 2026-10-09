@@ -13,7 +13,7 @@ You are working in the Gotato repository: **a minimalistic, composable Go agent 
 6. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 
-`docs/` and `specs/` are the earlier design record; where they disagree with the root documents, the root documents win.
+These root documents are the single source of truth for Gotato's design.
 
 ## Hard Architectural Rules
 

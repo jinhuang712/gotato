@@ -28,8 +28,8 @@ type ToolUse struct {
 	SourceIndex   uint32     `json:"source_index"`
 	// Executed and Result are reserved. The Core Loop does not assign them, so
 	// a Tool or PreToolUse extension always sees Executed=false and Result=nil.
-	// They are kept for a future PostToolUse view; see REFACTOR_AUDIT.md
-	// (Stage H) before removing them.
+	// They are kept for a future PostToolUse view; removing them changes the
+	// JSON shape and is tracked in TODO.md.
 	Executed bool        `json:"executed"`
 	Result   *ToolResult `json:"result,omitempty"`
 }

@@ -42,7 +42,7 @@ test: cover context window strategy boundaries
 chore: add CI workflow
 ```
 
-A body is optional but welcome when the *why* is not obvious from the diff. Reference the whitepaper rule (`G-D03`, `G-F16`, ...) when a commit exists to satisfy one.
+A body is optional but welcome when the *why* is not obvious from the diff. Reference the constitution rule (`G-D03`, `G-F16`, ...) when a commit exists to satisfy one.
 
 ## Updating and Merging
 

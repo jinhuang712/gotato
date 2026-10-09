@@ -118,7 +118,7 @@ Only `demo.echo` and `time.now` in the CLI. Filesystem, shell, Git, and HTTP pac
 
 ## G-F12 — MCP Integration `[missing]`
 
-Planned. `gotato.ToolSet` and `gotato.ToolSource` are the adapter points.
+Planned as an optional package: client lifecycle, server configuration, tool discovery, adaptation into the Gotato Tool contract, lazy connection, and dynamic Tool Registry updates. `gotato.ToolSet` and `gotato.ToolSource` are the adapter points. MCP is one standard integration among others.
 
 ## G-F13 — Runtime Events `[partial]`
 
@@ -179,11 +179,11 @@ CLI scenario tests in `cmd/gotato/cli_test.go` run in-process and against the bu
 
 ## G-F24 — Examples `[missing]`
 
-README snippets only. Examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation are planned.
+README snippets only. Examples for one-shot, persistent session, compaction, fork, dynamic tools, MCP integration, concurrent agents, and CLI automation are planned. Each demonstrates composition; none presents one blessed application architecture.
 
 ## G-F25 — Documentation as Runtime Contract `[partial]`
 
-Root governance documents, package doc comments, `cmd/gotato/README.md` (exit codes, JSON fields), `MIGRATION.md`. `docs/` and `specs/` remain the earlier design record behind a banner.
+Root governance documents, package doc comments, `cmd/gotato/README.md` (exit codes, JSON fields), `MIGRATION.md`. Goal: a coding agent can discover the intended semantics of every public package and CLI command from the repository itself.
 
 ---
 

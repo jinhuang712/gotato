@@ -90,6 +90,8 @@ A project that can be developed, tested, inspected, and debugged through stable 
 
 **No agent is a sub-agent. There are only agents.**
 
+**Agent as a Goroutine.**
+
 **Session is what happened. Context is what the model sees now.**
 
 **The CLI is a first-class interface for humans, scripts, and coding agents.**

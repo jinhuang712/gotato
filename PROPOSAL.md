@@ -1,7 +1,7 @@
 # Gotato Proposal
 
 **Constitution:** [PHILOSOPHY.md](PHILOSOPHY.md) · [DESIGN.md](DESIGN.md) · [GOALS.md](GOALS.md)
-**Inventory:** [FEATURES.md](FEATURES.md) · **Working notes:** [REFACTOR_AUDIT.md](REFACTOR_AUDIT.md), [REFACTOR_PLAN.md](REFACTOR_PLAN.md)
+**Inventory:** [FEATURES.md](FEATURES.md) · **Open work:** [TODO.md](TODO.md)
 
 ---
 
@@ -65,7 +65,7 @@ Anything that answers an application question (which agent should do this task, 
 
 ### Package naming
 
-The illustrative repository shape in the whitepaper spells the context package `context/` and the testing package `testing/`. Both names collide with the Go standard library in every file that also needs cancellation or `testing.T`, which would force an alias everywhere and break the "ordinary Go" principle. The packages are therefore **`modelctx`** ("what the model sees now") and **`testkit`**; the registry package is **`toolregistry`**. The whitepaper permits the spelling to differ; the concepts do not.
+The context package is **`modelctx`** ("what the model sees now") and the testing package is **`testkit`**, so neither collides with the standard library's `context` or `testing` in files that need both; the registry package is **`toolregistry`**.
 
 ## 4. Agent, Session, and Context
 

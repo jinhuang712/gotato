@@ -109,8 +109,6 @@ Dependency direction is enforced by a test: the core imports only the standard l
 | [GITFLOW.md](GITFLOW.md) | Git policy |
 | [MIGRATION.md](MIGRATION.md) | breaking changes and how to move |
 
-`docs/` and `specs/` hold the earlier design record; where they disagree with the documents above, the root documents win.
-
 ## Development
 
 ```bash
@@ -121,7 +119,10 @@ go build -o bin/gotato ./cmd/gotato && bin/gotato doctor --json
 
 ## Origin
 
-Inspired by [Pi's Agent Kernel](https://pi.dev), redesigned as a Go-native runtime. Details: [docs/shout-out.md](docs/shout-out.md).
+Inspired by [Pi](https://pi.dev)'s agent kernel (`@earendil-works/pi-agent-core`, created by Mario Zechner and contributors, MIT-licensed), redesigned as a Go-native runtime. Gotato is an independent design, not a Pi port: it expresses Pi's loop semantics (Prompt/Continue, streaming, tool batches, steering and follow-up, abort, interception) through goroutines, channels, `context.Context` cancellation, and explicit extensions. Attribution is retained wherever derived material requires it.
+
+- [Pi repository](https://github.com/earendil-works/pi)
+- [`pi-agent-core` on npm](https://www.npmjs.com/package/@earendil-works/pi-agent-core)
 
 ## License
 
