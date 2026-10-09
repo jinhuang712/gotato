@@ -20,7 +20,7 @@ One loop per agent, synchronous calls (`Prompt` returns when the Run settles), a
 
 ### G-G02 — Valuable on Its Own
 
-A developer gets real value from Gotato with no particular application above it: session continuity, context construction, tool registration, structured events, a provider adapter, CLI diagnostics, and test utilities, ready to use.
+A developer gets real value from Gotato alone: session continuity, context construction, tool registration, structured events, a provider adapter, CLI diagnostics, and test utilities, ready to use.
 
 ### G-G03 — Cheap Execution
 
@@ -31,7 +31,7 @@ Agent configuration and execution stay light enough that applications create and
 | `NewAgent` + `Close` with a fake model | allocations and wall time independent of other live agents; zero goroutines left after `Close` |
 | Committing one message to a Session | cost independent of transcript length |
 | Event subscription | its goroutine is released on `Close` |
-| Building a Context from a Session | linear in the selected messages; window strategies scale with the window, not total history |
+| Building a Context from a Session | linear in the Session's messages since the last compaction |
 
 ### G-G04 — Composability
 

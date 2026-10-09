@@ -150,7 +150,7 @@ Logs, traces, metrics, and usage attach without changing execution semantics. Ob
 
 ### G-D19 — Orchestration Lives in Applications
 
-Task graphs, agent pools, agent roles, workflow dependencies, project integration, desktop state, and multi-agent resource scheduling live in applications. Gotato supplies the primitives they use: sessions, contexts, events, tools, execution, and CLI access.
+Roles, task graphs, scheduling, and the other application-owned concerns listed in GOALS.md §2 live in applications. Gotato supplies the primitives they use: sessions, contexts, events, tools, execution, and CLI access.
 
 The `service` package (Session store, Agent per Run, admission, cancellation, HTTP and gRPC adapters) is built on the runtime and composes Sessions, Agents, and Contexts exactly as an application would. Core and standard runtime packages stay independent of it.
 

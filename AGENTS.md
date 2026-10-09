@@ -11,7 +11,7 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 2. DESIGN.md            — durable engineering rules (G-Dxx)
 3. GOALS.md             — goals, non-goals, tradeoffs, compatibility
 4. FEATURES.md          — implementation inventory with status markers
-5. PROPOSAL.md          — architecture, layers, and direction
+5. PROPOSAL.md          — architecture, layers, and packages
 6. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 

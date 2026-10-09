@@ -46,7 +46,7 @@ go build -o bin/gotato ./cmd/gotato
 |---|---|---|
 | `echo` (default) | answers `echo: <prompt>` | none |
 | `demo` | when the prompt is `use-tool`, calls `demo.echo` then answers `demo response: use-tool`; otherwise `demo response: <prompt>` | none |
-| `gateway` | OpenAI-compatible or Codex provider configured by YAML | per YAML |
+| `gateway` | OpenAI-compatible Chat Completions or Responses provider configured by YAML | API key per YAML |
 
 The model used for a session is remembered in the session (`gotato.model` metadata) and reused by later runs unless `--model` is given.
 
@@ -100,7 +100,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 The request is laid out for prompt caching: system prompt, sorted tools, the append-only history, then the tail message carrying the `<panel>`. `prefix_hash` covers everything but the tail; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
-Compaction permanently replaces the messages before the last `--keep` (aligned to a user message so tool calls stay with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
+Compaction permanently replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
 
 ### `gotato tools`
 

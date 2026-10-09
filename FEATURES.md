@@ -72,7 +72,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | source session state | done | `modelctx.InspectSession` → `Report.SourceMessages` |
 | final model context | done | `Report.Context`, `Report.Request` (exactly what the Agent sends for the committed Session); `InspectOptions` overrides; CLI `gotato context inspect/build --panel/--instruction` |
 | compaction state | done | `Report.Compactions` |
-| approximate token usage | done | `Report.ApproxTokens`, `modelctx.EstimateTokens` (bytes/4); provider-reported usage in `session.Run` |
+| approximate token usage | done | `Report.ApproxTokens`, `modelctx.EstimateTokens` (bytes/4); provider-reported usage in `session.Run`; estimation from provider usage is planned |
 | cache prefix | done | `Report.PrefixHash`, `Report.SystemBytes`, `Report.PanelBytes`; `context_built` payload `prefix_hash` |
 
 ## G-F06 — Context Compaction `[done]`
@@ -85,7 +85,7 @@ Within a Session the Model sees the whole history, append-only, laid out for pro
 | explicit replacement/retention | done | `CompactOptions.Keep`; summary tagged `metadata.compaction=summary`; the cut prefers a user Message but may land on a non-user boundary that still keeps tool calls with their results (`safeCut`); a no-op returns a fully populated non-replaced `Result` and omits `compaction` |
 | events | done | `session_compacted` recorded in the Session |
 
-## G-F07 — Model Interface `[done]`
+## G-F07 — Model Interface `[partial]`
 
 Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Tools, Options}`, `ModelEvent` kinds text/reasoning/tool_call/usage/done; provider errors classified by core; opaque reasoning artifacts carried, never interpreted. Capability discovery is by optional interface.
 
@@ -213,7 +213,8 @@ Root governance documents, package doc comments, `cmd/gotato/README.md` (exit co
 | HTTP adapter | done | `service/httpapi` (`ContractVersion "2"`): sessions, runs, SSE stream, events, context, compact, cancel, delete; a settled failed Run is 200 with the outcome, a lost save is 500 |
 | gRPC adapter | done | `adapter/grpc` module, `gotato.v2.SessionService`, `gotato-grpc` binary |
 | `gotato serve` | done | the CLI runs the same Runner behind `httpapi` |
-| multi-process Session lease | missing | the Session lock is process-local; a Store-level lease is planned for multi-replica deployments |
+| multi-process Session lease | missing | the Session lock is process-local; a Store-level lease is planned for multi-instance deployments (GOALS G-G08) |
+| request IDs and idempotency keys | missing | planned on the HTTP and gRPC adapters |
 | middleware (auth, logging) | by design | wrap the `http.Handler` / use gRPC interceptors; the adapters carry none |
 
 The service depends on the runtime; the runtime never depends on the service (`layering_test.go`).

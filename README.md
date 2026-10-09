@@ -5,7 +5,7 @@
 ## What Gotato is
 
 1. **A minimal, synchronous, Go-native agent runtime.** One loop per agent; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
-2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests, with no particular application above it.
+2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
 3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from a Session lease (planned).
 
 Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([GOALS.md §2](GOALS.md#2-boundaries)).

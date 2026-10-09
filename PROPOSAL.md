@@ -92,20 +92,7 @@ Every agent in this design is a peer.
 
 ## 5. The CLI
 
-`cmd/gotato` is the official runtime interface for humans, shell automation, and coding agents:
-
-```text
-gotato run [--session ID] [--model echo|demo|gateway] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] "prompt"
-gotato session create | list | show | fork | events | resume | delete
-gotato context inspect | build | compact <session>
-gotato tools list | describe | active | activate | deactivate
-gotato events --session <id> [--jsonl | --json]
-gotato doctor [--json]
-```
-
-The CLI composes `session.FileStore`, `modelctx`, `toolregistry`, `testkit` models, and the `gateway` provider exactly as an application would; agent semantics live in the packages. Stdout carries data, stderr carries diagnostics, exit codes are documented, and every command has a machine-readable form. The contract is [cmd/gotato/README.md](cmd/gotato/README.md).
-
-`gotato serve` runs the same `service.Runner` behind the HTTP adapter; `gotato-grpc` (in the `adapter/grpc` module) behind gRPC. There is one code path from library to CLI to service.
+`cmd/gotato` is the runtime interface for humans, shell automation, and coding agents. It composes the packages exactly as an application would, and its contract (commands, JSON fields, exit codes) is [cmd/gotato/README.md](cmd/gotato/README.md). `gotato serve` and `gotato-grpc` run the same `service.Runner` over HTTP and gRPC: one code path from library to CLI to service.
 
 ## 5a. The Service
 
@@ -124,48 +111,19 @@ POST /v1/sessions/{id}/runs {"prompt": "…"}
    ⑥ unlock(id)
 ```
 
-An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; a live Agent is an optimization; identity is the Session. A derived line of work is `session.Fork` plus another Run, with lineage in metadata.
+An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; identity is the Session. Today the per-Session lock is process-local; a Session lease (planned) extends it across instances (GOALS.md G-G08). A derived line of work is `session.Fork` plus another Run, with lineage in metadata.
 
 ## 6. Dependency Direction
 
-```text
-cmd/gotato, adapter/grpc (module), service/httpapi
-        |
-        v
-service
-        |  may import anything below
-        v
-session, modelctx, toolregistry, testkit, gateway
-        |  import the root package (plus stdlib and their own narrow deps)
-        v
-gotato (root)
-        |  imports the standard library only
-        v
-Go
-```
+Dependencies point inward, the root package imports only the standard library, and `layering_test.go` enforces both (DESIGN.md G-D27).
 
-The direction is enforced by `layering_test.go`: the root package imports only the standard library, and standard runtime packages import only inward. Optional integrations stay optional for core packages.
+## 7. Evolving the Runtime
 
-## 7. Principles for Evolving the Runtime
-
-1. **Additive first.** New capability arrives as an option, an interface, or a package. Existing constructors and the two-method `Agent` interface keep working.
-2. **Deprecate before removing.** A symbol that conflicts with the constitution is marked `// Deprecated:` with a replacement named, and removed only with a documented break.
-3. **Document every break** in [MIGRATION.md](MIGRATION.md) with a before/after example.
-4. **Clarity wins.** A well-documented break beats preserving a confused abstraction (DESIGN G-D30).
-5. **Admission questions before new concepts.** Every proposed concept answers the eight questions in DESIGN.md §Governance before it lands.
-6. **Deterministic tests define done.** A feature is complete when it has a fake-model test and, when user-visible, a CLI scenario.
+Compatibility and breaking changes follow GOALS.md §4 and DESIGN.md G-D30. New concepts answer the admission questions in DESIGN.md §Governance first, and a feature is done when it has a fake-model test and, when user-visible, a CLI scenario.
 
 ## 8. Direction
 
-The runtime foundation described above is in place. FEATURES.md is the authoritative inventory; the open items there define the direction:
-
-- **Context**: provider adapters that map `CacheBreakpoints` to explicit cache controls; token estimation from provider usage instead of the bytes/4 heuristic.
-- **Events**: typed payload structs per kind; `reasoning_update` for streaming reasoning deltas.
-- **Tools**: MCP client as a `ToolSet`/`ToolSource`; an effect classification on `ToolSpec` that MCP annotations map onto.
-- **Providers**: an Anthropic Messages adapter on the standard library; provider rate-limit information in model usage.
-- **Testkit**: failure injection and context fixtures; a fixture-driven scenario runner.
-- **Service**: a Store-level Session lease for multi-replica deployments; request IDs and idempotency keys on the HTTP/gRPC adapters.
-- **Repository**: examples for one-shot, persistent session, compaction, fork, dynamic tools, concurrent agents, and CLI automation; CI with `gofmt`, `vet`, and `-race` for both modules.
+[FEATURES.md](FEATURES.md) is the authoritative inventory; its `missing` and `partial` items define the direction.
 
 ## 9. What Belongs Where
 
