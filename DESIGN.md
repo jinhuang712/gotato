@@ -82,7 +82,7 @@ In code: the agent loop reads from and appends to a `Transcript` (the Session's 
 
 A standard Session must be able to represent at least: session identity, messages, model outputs, tool calls and tool results, runtime metadata, usage, important execution events, context/compaction metadata, and optional application metadata.
 
-Session must not know application-specific concepts such as Task Graph, Master, Operator, worktree integration, or product workflow. Application semantics go in `Metadata`, not in fields.
+Session stays generic. Application concepts such as task graphs, agent roles, worktree integration, and product workflow live in `Metadata`.
 
 ### G-D05 — Session Storage Is Pluggable
 
@@ -192,9 +192,9 @@ Logs, traces, metrics, and usage tracking are attachable without changing the co
 
 ## 6. What the Runtime Must Not Own
 
-### G-D19 — No Application Orchestration in the Runtime Foundation
+### G-D19 — Orchestration Lives in Applications
 
-Gotato must not own application-level concepts such as task graphs, worker pools, master/operator roles, workflow dependency management, project integration, desktop state, or global multi-agent resource scheduling.
+Task graphs, agent pools, agent roles, workflow dependencies, project integration, desktop state, and multi-agent resource scheduling live in the applications built on Gotato.
 
 Gotato may provide generic lower-level primitives that such systems use: sessions, contexts, events, tools, execution, and CLI access.
 
@@ -294,7 +294,7 @@ Before adding a concept to Gotato, ask:
 
 Reconsider the design if:
 
-- Gotato starts defining Master/Worker/sub-agent roles;
+- Gotato starts defining agent roles or sub-agents;
 - Session becomes a project/task database;
 - Context becomes synonymous with all Session history;
 - every Agent requires a daemon or database;

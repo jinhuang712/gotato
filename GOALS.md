@@ -51,9 +51,9 @@ Gotato should grow into a coherent runtime repository, not a single oversized pa
 
 ## 2. Non-Goals
 
-### G-N01 — No Built-In Agent Organization
+### G-N01 — Agent Organization Belongs to Applications
 
-Gotato does not define Master, Operator, Worker, supervisor, sub-agent, team, swarm, or organizational hierarchy.
+Gotato provides peer agents. Roles, teams, and hierarchies are composed by applications.
 
 ### G-N02 — No Application Task Graph
 

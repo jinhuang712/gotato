@@ -22,7 +22,7 @@ It is deliberately broader than a single agent loop and deliberately smaller tha
 
 Gotato has no built-in UI. A terminal application, desktop application, service, automation system, or another runtime can all build on the same foundation.
 
-Gotato does not define agent organizations. It does not know what a Master, Operator, Worker, supervisor, child agent, or sub-agent is. Applications may create such roles, but inside Gotato they are all simply agents.
+Agent organizations belong to applications: inside Gotato, every agent is a peer.
 
 This document was the project's original architectural baseline. The current documents of record are **PHILOSOPHY** and **DESIGN** (which constrain decisions throughout the lifetime of the repository), **FEATURES** (the standard runtime surface), and **GOALS** (what Gotato is and is not trying to become). Where this whitepaper disagrees with them, they win.
 
@@ -168,7 +168,7 @@ A standard Session should be able to represent at least:
 - context/compaction metadata,
 - and optional application metadata.
 
-Session should not know application-specific concepts such as Task Graph, Master, Operator, worktree integration, or product workflow.
+Session stays generic. Application concepts such as task graphs, agent roles, worktree integration, and product workflow live in `Metadata`.
 
 ## G-D05 — Session Storage Is Pluggable
 
@@ -326,7 +326,7 @@ Expected event families include:
 - error,
 - session update.
 
-Applications such as Mow may map Gotato events into higher-level application events.
+Applications may map Gotato events into higher-level application events.
 
 ## G-D17 — Extensions Wrap the Runtime; They Do Not Replace It
 
@@ -348,13 +348,13 @@ The runtime must not require parent agent IDs, child agent IDs, sub-agent types,
 
 An application may store such relationships as its own metadata.
 
-## G-D19 — No Application Orchestration in the Runtime Foundation
+## G-D19 — Orchestration Lives in Applications
 
-Gotato should not own application-level concepts such as:
+These concepts live in the applications built on Gotato:
 
 - task graphs,
-- worker pools,
-- master/operator roles,
+- agent pools,
+- agent roles,
 - workflow dependency management,
 - project integration,
 - desktop state,
@@ -771,7 +771,7 @@ Applications should be able to use Gotato as:
 - a CLI runtime,
 - a foundation for a desktop product,
 - a foundation for a service,
-- a foundation for an orchestration system such as Mow.
+- a foundation for an orchestration system.
 
 None of those products should need to fork the core agent runtime to create their own role model.
 
@@ -804,9 +804,9 @@ The repository may contain many useful packages while keeping dependencies layer
 
 # 5. NON-GOALS
 
-## G-N01 — No Built-In Agent Organization
+## G-N01 — Agent Organization Belongs to Applications
 
-Gotato does not define Master, Operator, Worker, supervisor, sub-agent, team, swarm, or organizational hierarchy.
+Gotato provides peer agents. Roles, teams, and hierarchies are composed by applications.
 
 ## G-N02 — No Application Task Graph
 
@@ -876,7 +876,7 @@ Applications remain responsible for global scheduling and resource governance.
 +----------------------------------------------------------------------------------+
 |                              APPLICATIONS                                        |
 |                                                                                  |
-|         Mow        CLI apps        services        automation        tests        |
+|    desktop apps    CLI apps        services        automation        tests        |
 |          |             |               |                |               |         |
 +----------+-------------+---------------+----------------+---------------+---------+
                                    |
@@ -1067,7 +1067,7 @@ Before adding a concept to Gotato, ask:
 
 Reconsider the design if:
 
-- Gotato starts defining Master/Worker/sub-agent roles;
+- Gotato starts defining agent roles or sub-agents;
 - Session becomes a project/task database;
 - Context becomes synonymous with all Session history;
 - every Agent requires a daemon or database;

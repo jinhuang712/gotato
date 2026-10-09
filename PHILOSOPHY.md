@@ -4,7 +4,7 @@
 
 This document holds the beliefs that sit above implementation detail. They do not change merely because a particular feature is convenient to add. Engineering rules derived from these beliefs live in [DESIGN.md](DESIGN.md); the intended runtime surface lives in [FEATURES.md](FEATURES.md); what Gotato is and is not trying to become lives in [GOALS.md](GOALS.md).
 
-Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become. It is deliberately broader than a single agent loop and deliberately smaller than an application framework. It has no built-in UI. It does not define agent organizations: it does not know what a Master, Operator, Worker, supervisor, child agent, or sub-agent is. Applications may create such roles, but inside Gotato they are all simply agents.
+Gotato provides the standard runtime primitives needed to build agentic applications in Go without prescribing what those applications must become. It is deliberately broader than a single agent loop and deliberately smaller than an application framework. Interfaces and agent organizations belong to applications: inside Gotato, every agent is a peer.
 
 ---
 

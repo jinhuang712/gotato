@@ -47,8 +47,8 @@ type LifecycleAgent interface {
 	SubscribeLifecycle(context.Context) (LifecycleStream, error)
 }
 
-// RunCanceler lets a Host or Orchestration layer cancel an active Run without
-// closing the Agent or discarding its Conversation state.
+// RunCanceler lets a service layer cancel an active Run without closing the
+// Agent or discarding its Session state.
 type RunCanceler interface {
 	Agent
 	CancelRun(context.Context, RunID) error

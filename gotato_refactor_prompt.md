@@ -53,7 +53,7 @@ The following principles are non-negotiable:
 
 Do not reduce Gotato to a single agent loop library. The standard runtime should include reusable Agent, Session, Context, Tool Registry, Event, CLI, persistence/testing, provider, and extension primitives as defined by the whitepaper.
 
-Do not turn Gotato into Mow. Gotato must not learn Master, Operator, Worker, Task Graph, worktree integration, global multi-agent scheduling, or Mow-specific application semantics.
+Keep Gotato a runtime. Agent roles, task graphs, worktree integration, multi-agent scheduling, and other application semantics live in the applications built on it.
 
 ---
 
@@ -193,7 +193,7 @@ It must include at minimum:
 - machine-readable CLI semantics;
 - testing surface;
 - no intrinsic agent hierarchy;
-- no Mow/application orchestration in Gotato;
+- orchestration lives in applications;
 - no mandatory daemon;
 - no built-in UI;
 - layered package direction.
@@ -444,9 +444,9 @@ WorkerAgent
 
 Applications can wrap/configure `Agent`.
 
-## Keep Mow semantics out
+## Application semantics live in applications
 
-No `TaskGraph`, `Master`, `Operator`, Mow Worker role, integration workspace, or global orchestration concepts in Gotato runtime packages.
+`TaskGraph`, agent role types, integration workspaces, and global orchestration belong to applications, outside the runtime packages.
 
 ## CLI is not a wrapper around private alternate code
 
