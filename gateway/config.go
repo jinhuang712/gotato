@@ -22,8 +22,8 @@ type AuthConfig struct {
 // Environment variables may be referenced as ${NAME}; this is useful for
 // keeping API keys out of the configuration file committed to source control.
 type YAMLConfig struct {
-	// API selects the wire protocol: openai-chat-completions (default) or
-	// openai-responses.
+	// API selects the wire protocol: openai-chat-completions (default),
+	// openai-responses, or anthropic-messages.
 	API          string            `yaml:"api"`
 	Endpoint     string            `yaml:"endpoint"`
 	BaseURL      string            `yaml:"base_url"`

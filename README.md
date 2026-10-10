@@ -95,12 +95,12 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Context: full history, static blocks, panel, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
 | Events and streaming | done; typed payloads and reasoning deltas planned |
-| Providers: OpenAI Chat Completions and Responses | done |
+| Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission, drain | done |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
 | Session lease for multi-instance safety | planned |
 | MCP through `ToolSet`/`ToolSource`, tool effect classification | planned |
-| Anthropic Messages adapter, provider rate-limit information | planned |
+| Provider rate-limit information | planned |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
 

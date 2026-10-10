@@ -93,12 +93,12 @@ Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Too
 |---|---|---|
 | provider rate-limit information | missing | planned: limits, remaining, and reset reported with model usage so host services apply their own throttling; `gateway` uses `Retry-After` only for its own retries today |
 
-## G-F08 — Provider Packages `[partial]`
+## G-F08 — Provider Packages `[done]`
 
 | Item | Status | Where |
 |---|---|---|
 | OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth) |
-| Anthropic Messages | missing | planned in `gateway` on the standard library like the OpenAI adapters, mapping `CacheBreakpoints` to Anthropic cache control |
+| Anthropic Messages | done | `gateway` `anthropic-messages`: standard library, `CacheBreakpoints` mapped to `cache_control` (last four kept), thinking blocks replayed through reasoning artifacts, cache reads and writes in `Usage`, 529 retried |
 
 ## G-F09 — Tool Interface `[partial]`
 

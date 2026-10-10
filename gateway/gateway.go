@@ -1,4 +1,6 @@
-// Package gateway provides provider streaming Model adapters for Gotato.
+// Package gateway provides provider streaming Model adapters for Gotato: the
+// OpenAI-compatible Chat Completions and Responses APIs and the Anthropic
+// Messages API.
 //
 // It builds on the provider-neutral gotato Model contract and net/http, and
 // reads its configuration file with yaml.v3. Provider authentication, request
@@ -32,12 +34,16 @@ import (
 const (
 	defaultMaxRetries   = 2
 	defaultRetryBackoff = 200 * time.Millisecond
+	// statusOverloaded is the non-standard status a provider returns when it
+	// sheds load.
+	statusOverloaded = 529
 )
 
 type Config struct {
 	// API selects the wire protocol: APIChatCompletions (the default when
-	// empty) or APIResponses. The aliases openai-completions and
-	// openai-codex-responses are also accepted.
+	// empty), APIResponses, or APIAnthropicMessages. The aliases
+	// openai-completions, openai-codex-responses, and anthropic are also
+	// accepted.
 	API string
 	// Endpoint is the complete provider URL. When empty, BaseURL is used.
 	Endpoint string
@@ -82,12 +88,18 @@ func New(config Config) (*Client, error) {
 		if base == "" && api == APIResponses {
 			base = defaultResponsesBaseURL
 		}
+		if base == "" && api == APIAnthropicMessages {
+			base = defaultAnthropicBaseURL
+		}
 		if base == "" {
 			return nil, fmt.Errorf("gateway: BaseURL or Endpoint is required")
 		}
 		path := "/chat/completions"
-		if api == APIResponses {
+		switch api {
+		case APIResponses:
 			path = "/responses"
+		case APIAnthropicMessages:
+			path = "/messages"
 		}
 		if !strings.HasSuffix(base, "/v1") {
 			path = "/v1" + path
@@ -157,8 +169,10 @@ func normalizeAPI(api string) (string, error) {
 		return APIChatCompletions, nil
 	case APIResponses, "openai-codex-responses":
 		return APIResponses, nil
+	case APIAnthropicMessages, "anthropic":
+		return APIAnthropicMessages, nil
 	default:
-		return "", fmt.Errorf("gateway: unsupported API %q (use %s or %s)", api, APIChatCompletions, APIResponses)
+		return "", fmt.Errorf("gateway: unsupported API %q (use %s, %s, or %s)", api, APIChatCompletions, APIResponses, APIAnthropicMessages)
 	}
 }
 
@@ -178,8 +192,11 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if c.api == APIResponses {
+	switch c.api {
+	case APIResponses:
 		return c.streamResponses(ctx, request)
+	case APIAnthropicMessages:
+		return c.streamAnthropic(ctx, request)
 	}
 	body, names, err := encodeRequest(c.model, request)
 	if err != nil {
@@ -227,7 +244,15 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
-		if c.apiKey != "" {
+		if c.api == APIAnthropicMessages {
+			// A configured anthropic-version header pins another API version.
+			if req.Header.Get("anthropic-version") == "" {
+				req.Header.Set("anthropic-version", anthropicVersion)
+			}
+			if c.apiKey != "" {
+				req.Header.Set("x-api-key", c.apiKey)
+			}
+		} else if c.apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		}
 		response, err := c.httpClient.Do(req)
@@ -291,7 +316,7 @@ func retryableStatus(status int, message string) bool {
 	}
 	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
 		status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
-		status == http.StatusGatewayTimeout || strings.Contains(strings.ToLower(message), "rate limit") ||
+		status == http.StatusGatewayTimeout || status == statusOverloaded || strings.Contains(strings.ToLower(message), "rate limit") ||
 		strings.Contains(strings.ToLower(message), "overloaded") || strings.Contains(strings.ToLower(message), "service unavailable")
 }
 
