@@ -266,3 +266,33 @@ func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
 		t.Fatalf("content = %q", wire.Content)
 	}
 }
+
+func TestFunctionNamesStayReadableWhenProvidersAcceptThem(t *testing.T) {
+	long := strings.Repeat("a", 65)
+	cases := []struct {
+		id      string
+		encoded bool
+	}{
+		{"bash", false},
+		{"read_file", false},
+		{"spawn-worker2", false},
+		{"demo.echo", true},
+		{"fs/read", true},
+		{"gotato_bash", true},
+		{long, true},
+	}
+	seen := map[string]string{}
+	for _, tc := range cases {
+		name := gatewayFunctionName(tc.id)
+		if got := name != tc.id; got != tc.encoded {
+			t.Errorf("gatewayFunctionName(%q) = %q; encoded %v, want %v", tc.id, name, got, tc.encoded)
+		}
+		if !plainFunctionName(name) {
+			t.Errorf("gatewayFunctionName(%q) = %q is not a valid function name", tc.id, name)
+		}
+		if other, dup := seen[name]; dup {
+			t.Errorf("%q and %q share the wire name %q", other, tc.id, name)
+		}
+		seen[name] = tc.id
+	}
+}

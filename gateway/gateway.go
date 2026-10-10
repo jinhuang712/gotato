@@ -448,7 +448,14 @@ func toolResultText(message gotato.Message) string {
 	return b.String()
 }
 
+// gatewayFunctionName returns a Tool's name on the wire. A Tool ID that
+// providers accept as a function name goes unchanged, so the model reads the
+// Tool's own name and calls it by that name. Other IDs, and IDs with the
+// encoded prefix, are encoded.
 func gatewayFunctionName(id string) string {
+	if plainFunctionName(id) && !strings.HasPrefix(id, "gotato_") {
+		return id
+	}
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(id))
 	name := "gotato_" + encoded
 	if len(name) <= 64 {
@@ -456,6 +463,22 @@ func gatewayFunctionName(id string) string {
 	}
 	hash := sha256.Sum256([]byte(id))
 	return "gotato_" + hex.EncodeToString(hash[:])[:56]
+}
+
+// plainFunctionName reports whether s matches ^[a-zA-Z0-9_-]{1,64}$, the
+// function names that chat completions, responses, and messages APIs accept.
+func plainFunctionName(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type wireRequest struct {
