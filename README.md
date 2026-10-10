@@ -99,7 +99,8 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Service: Runner, HTTP, gRPC, admission, drain | done |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
 | Session lease for multi-instance safety | planned |
-| MCP through `ToolSet`/`ToolSource`, tool effect classification | planned |
+| Tool effect classification (`ToolSpec.Effect`) | done |
+| MCP through `ToolSet`/`ToolSource` | planned |
 | Provider rate-limit information | planned |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.

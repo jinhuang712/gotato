@@ -1349,6 +1349,9 @@ func validateToolSpec(spec ToolSpec) error {
 	if strings.TrimSpace(spec.ID) == "" {
 		return runtimeError(ErrInvalidArgument, "ToolSpec", "Tool ID is empty", nil)
 	}
+	if !spec.Effect.Valid() {
+		return runtimeError(ErrInvalidArgument, "ToolSpec", "unknown Effect "+string(spec.Effect), nil)
+	}
 	if spec.InputSchema != nil {
 		var schema map[string]any
 		if err := json.Unmarshal(spec.InputSchema, &schema); err != nil {

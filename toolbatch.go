@@ -210,6 +210,7 @@ func (a *coreAgent) preflightTools(ctx context.Context, runID RunID, turn TurnNu
 				QualifiedID:   call.ToolID,
 				ArgumentsJSON: slices.Clone(call.Arguments),
 				SourceIndex:   uint32(sourceIndex),
+				Effect:        spec.Effect,
 			},
 		}
 		decision, preErr := a.extensions.beforeTool(ctx, plan.use)

@@ -1,6 +1,6 @@
 # Gotato TODO
 
-Open defects and design decisions, verified against the code. Planned capabilities (MCP, the tool effect field, the Anthropic adapter, rate-limit info, examples, testkit fixtures, a Session lease) are tracked by status marker in [FEATURES.md](FEATURES.md). Remove an item in the commit that resolves it.
+Open defects and design decisions, verified against the code. Planned capabilities (MCP, rate-limit info, examples, testkit fixtures, a Session lease) are tracked by status marker in [FEATURES.md](FEATURES.md). Remove an item in the commit that resolves it.
 
 ## Defects
 

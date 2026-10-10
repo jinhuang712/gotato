@@ -100,7 +100,7 @@ Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Too
 | OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth) |
 | Anthropic Messages | done | `gateway` `anthropic-messages`: standard library, `CacheBreakpoints` mapped to `cache_control` (last four kept), thinking blocks replayed through reasoning artifacts, cache reads and writes in `Usage`, 529 retried |
 
-## G-F09 — Tool Interface `[partial]`
+## G-F09 — Tool Interface `[done]`
 
 Root `tool.go`, `toolfunc.go`.
 
@@ -108,7 +108,7 @@ Root `tool.go`, `toolfunc.go`.
 |---|---|---|
 | Tool contract | done | `Tool`, `ToolSpec`, `ToolUse`, `ToolResult` with status and safe error; schema-subset validation before execution |
 | Go function tools | done | `NewFuncTool` derives schemas from Go structs |
-| effect classification | missing | planned field on `ToolSpec`: `read`, `write_local`, `write_external`, `destructive`, ordered by impact; applications filter the tools an agent loads by it |
+| effect classification | done | `ToolSpec.Effect` (`ToolEffect`): `read` < `write_local` < `write_external` < `destructive`, unspecified ranks as destructive; copied into `ToolUse.Effect` for `PreToolUse`; `ToolWithEffect` sets it on any Tool; `gotato tools --json` shows it |
 
 ## G-F10 — Tool Registry `[done]`
 

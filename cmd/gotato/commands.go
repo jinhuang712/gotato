@@ -448,11 +448,13 @@ type toolView struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	Sequential  bool            `json:"sequential,omitempty"`
+	Effect      string          `json:"effect,omitempty"`
 	Active      bool            `json:"active"`
 }
 
 func viewOf(entry service.ToolEntry) toolView {
-	view := toolView{ID: entry.Spec.ID, Name: entry.Spec.Name, Description: entry.Spec.Description, Sequential: entry.Spec.Sequential, Active: entry.Active}
+	view := toolView{ID: entry.Spec.ID, Name: entry.Spec.Name, Description: entry.Spec.Description, Sequential: entry.Spec.Sequential,
+		Effect: string(entry.Spec.Effect), Active: entry.Active}
 	if json.Valid(entry.Spec.InputSchema) {
 		view.InputSchema = json.RawMessage(entry.Spec.InputSchema)
 	}
