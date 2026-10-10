@@ -106,7 +106,7 @@ Compaction permanently replaces the messages before the last `--keep` (the cut p
 
 | Command | Output (`--json`) |
 |---|---|
-| `tools list [--session ID] [--model M]` | `{session_id?, agent?, tools:[{id, name, description, input_schema, sequential, active}]}` |
+| `tools list [--session ID] [--model M]` | `{session_id?, agent?, tools:[{id, name, description, input_schema, sequential, effect, active}]}` |
 | `tools describe <id> [--session ID]` | one tool entry |
 | `tools active [--session ID]` | active tools only |
 | `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>` |
