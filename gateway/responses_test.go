@@ -40,7 +40,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 		writeSSE(t, w, `{"type":"response.output_item.added","output_index":1,"item":{"type":"message","role":"assistant"}}`)
 		writeSSE(t, w, `{"type":"response.output_text.delta","output_index":1,"delta":"hello"}`)
 		writeSSE(t, w, `{"type":"response.output_item.done","output_index":1,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}`)
-		writeSSE(t, w, `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}`)
+		writeSSE(t, w, `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5,"input_tokens_details":{"cached_tokens":1}}}}`)
 	}))
 	defer server.Close()
 
@@ -77,7 +77,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	if events[2].Kind != gotato.ModelTextDelta || events[2].Text != "hello" {
 		t.Fatalf("text event = %+v", events[2])
 	}
-	if events[3].Kind != gotato.ModelUsage || events[3].Usage.TotalTokens != 5 {
+	if events[3].Kind != gotato.ModelUsage || events[3].Usage.TotalTokens != 5 || events[3].Usage.CacheReadTokens != 1 {
 		t.Fatalf("usage event = %+v", events[3])
 	}
 	if events[4].Kind != gotato.ModelDone || events[4].StopReason != gotato.StopEndTurn {

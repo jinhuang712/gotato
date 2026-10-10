@@ -35,7 +35,7 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	s := session.New()
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
-		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}}}, testkit.Text("done")...),
+		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CacheReadTokens: 6, CacheWriteTokens: 2}}}, testkit.Text("done")...),
 	)
 	result := runAgent(t, s, model, "use-tool")
 	if result.Status != gotato.RunCompleted {
@@ -48,7 +48,7 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	if len(runs) != 1 || runs[0].Status != gotato.RunCompleted || runs[0].Turns != 2 || runs[0].ToolCalls != 1 {
 		t.Fatalf("runs = %+v", runs)
 	}
-	if usage := s.Usage(); usage.TotalTokens != 15 {
+	if usage := s.Usage(); usage.TotalTokens != 15 || usage.CacheReadTokens != 6 || usage.CacheWriteTokens != 2 {
 		t.Fatalf("usage = %+v", usage)
 	}
 	events := s.Events()

@@ -43,7 +43,8 @@ const (
 //	agent_start             (none)
 //	agent_end               status, error?, stopped_by_extension?, stop_reason?
 //	turn_start              (none)
-//	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,tool_results?}
+//	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,
+//	                        cache_read_tokens?,cache_write_tokens?,tool_results?}
 //	context_built           messages, source_messages, prefix_hash, prefix_messages, panel_bytes, system_bytes, tools,
 //	                        strategy, selected_messages, dropped_messages (+ builder metadata)
 //	message_start           role, source? (steer|follow_up)

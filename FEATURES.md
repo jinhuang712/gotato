@@ -17,7 +17,7 @@ Package: root `gotato` (`agent.go`, `toolbatch.go`, `context.go`, `limits.go`, `
 | tool-call loop | done | source-ordered preflight, sequential or bounded-parallel execution, source-ordered commit |
 | final result | done | `RunResult.FinalMessage` |
 | termination reason | done | `RunResult.Status`, `RunResult.Error`, `agent_end` payload `status`/`stop_reason`/`stopped_by_extension` |
-| usage aggregation | done | `RunResult.Usage`; per-run record in `session.Run` |
+| usage aggregation | done | `RunResult.Usage`; per-run record in `session.Run`; prompt-cache reads and writes in `Usage.CacheReadTokens`/`CacheWriteTokens` |
 | cancellation/deadline propagation | done | `context.Context` through model, tools, extensions; `CoreLimits` deadlines derive contexts |
 | control operations | done | `ControllableAgent`: Continue, Steer, FollowUp, Abort |
 | defaults inspectable | done | `DefaultLimits()` |

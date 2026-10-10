@@ -590,11 +590,16 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		s.emitResponsesCall(index)
 	}
 	if response.Usage != nil {
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: gotato.Usage{
+		usage := gotato.Usage{
 			InputTokens:  response.Usage.InputTokens,
 			OutputTokens: response.Usage.OutputTokens,
 			TotalTokens:  response.Usage.TotalTokens,
-		}})
+		}
+		if details := response.Usage.InputTokensDetails; details != nil {
+			usage.CacheReadTokens = details.CachedTokens
+			usage.CacheWriteTokens = details.CacheWriteTokens
+		}
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: usage})
 	}
 	stop := responsesStopReason(response.Status, response.IncompleteDetails)
 	for _, call := range s.calls {

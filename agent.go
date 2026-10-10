@@ -657,6 +657,8 @@ func addUsage(total, current Usage) Usage {
 	total.InputTokens += current.InputTokens
 	total.OutputTokens += current.OutputTokens
 	total.TotalTokens += current.TotalTokens
+	total.CacheReadTokens += current.CacheReadTokens
+	total.CacheWriteTokens += current.CacheWriteTokens
 	return total
 }
 
@@ -681,6 +683,10 @@ func summarizeTurn(assistant Message, usage Usage, elapsed time.Duration, toolRe
 		"input_tokens":    usage.InputTokens,
 		"output_tokens":   usage.OutputTokens,
 		"total_tokens":    usage.TotalTokens,
+	}
+	if usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0 {
+		summary["cache_read_tokens"] = usage.CacheReadTokens
+		summary["cache_write_tokens"] = usage.CacheWriteTokens
 	}
 	if len(toolResults) > 0 {
 		summary["tool_results"] = toolResults

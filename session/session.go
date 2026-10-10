@@ -292,6 +292,8 @@ func (s *Session) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errT
 	s.usage.InputTokens += usage.InputTokens
 	s.usage.OutputTokens += usage.OutputTokens
 	s.usage.TotalTokens += usage.TotalTokens
+	s.usage.CacheReadTokens += usage.CacheReadTokens
+	s.usage.CacheWriteTokens += usage.CacheWriteTokens
 	s.touch()
 }
 

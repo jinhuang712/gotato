@@ -55,6 +55,8 @@ func (r *Recorder) Observe(_ context.Context, event gotato.Event) error {
 				p.usage.InputTokens += toUint64(summary["input_tokens"])
 				p.usage.OutputTokens += toUint64(summary["output_tokens"])
 				p.usage.TotalTokens += toUint64(summary["total_tokens"])
+				p.usage.CacheReadTokens += toUint64(summary["cache_read_tokens"])
+				p.usage.CacheWriteTokens += toUint64(summary["cache_write_tokens"])
 			}
 		}
 	case gotato.EventAgentEnd:

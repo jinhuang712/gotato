@@ -126,10 +126,16 @@ func (r ToolResult) Clone() ToolResult {
 	return out
 }
 
+// Usage counts tokens for one model call or an aggregate of calls.
+// InputTokens covers every prompt token the provider processed, cached or
+// not; CacheReadTokens and CacheWriteTokens are the parts of InputTokens served
+// from and written to the provider's prompt cache.
 type Usage struct {
-	InputTokens  uint64 `json:"input_tokens,omitempty"`
-	OutputTokens uint64 `json:"output_tokens,omitempty"`
-	TotalTokens  uint64 `json:"total_tokens,omitempty"`
+	InputTokens      uint64 `json:"input_tokens,omitempty"`
+	OutputTokens     uint64 `json:"output_tokens,omitempty"`
+	TotalTokens      uint64 `json:"total_tokens,omitempty"`
+	CacheReadTokens  uint64 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens uint64 `json:"cache_write_tokens,omitempty"`
 }
 
 type StopReason string
