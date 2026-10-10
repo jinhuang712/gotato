@@ -12,7 +12,7 @@ Package: root `gotato` (`agent.go`, `toolbatch.go`, `context.go`, `limits.go`, `
 
 | Item | Status | Where |
 |---|---|---|
-| reusable Agent configuration | done | `NewAgent(...Option)` returns `RuntimeAgent` (Agent + control + lifecycle + events + inspection); `WithModel`, `WithInstruction`, `WithTool(s)`, `WithToolSet`, `WithToolSource`, `WithTranscript`, `WithContextBuilder`, `WithExtension(s)`, `WithLimits`, `WithDeadlines` |
+| reusable Agent configuration | done | `NewAgent(...Option)` returns `RuntimeAgent` (Agent + control + lifecycle + events + inspection); `WithModel`, `WithModelOptions`, `WithInstruction`, `WithTool(s)`, `WithToolSet`, `WithToolSource`, `WithTranscript`, `WithContextBuilder`, `WithExtension(s)`, `WithLimits`, `WithDeadlines` |
 | run/turn execution | done | one goroutine per agent, one loop (`executeRun`) |
 | tool-call loop | done | source-ordered preflight, sequential or bounded-parallel execution, source-ordered commit |
 | final result | done | `RunResult.FinalMessage` |

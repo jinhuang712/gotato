@@ -109,6 +109,7 @@ type agentConfig struct {
 	limitsSet      bool
 	transcript     Transcript
 	contextBuilder ContextBuilder
+	modelOptions   ModelOptions
 }
 
 func WithModel(model Model) Option {
@@ -123,6 +124,22 @@ func WithModel(model Model) Option {
 
 func WithInstruction(instruction string) Option {
 	return func(c *agentConfig) error { c.instruction = instruction; return nil }
+}
+
+// WithModelOptions sets the sampling and reasoning hints the Agent sends on
+// every model call. Provider adapters map the fields they support.
+func WithModelOptions(options ModelOptions) Option {
+	return func(c *agentConfig) error {
+		if options.Temperature != nil && *options.Temperature < 0 {
+			return runtimeError(ErrInvalidArgument, "WithModelOptions", "temperature is negative", nil)
+		}
+		if options.Temperature != nil {
+			temperature := *options.Temperature
+			options.Temperature = &temperature
+		}
+		c.modelOptions = options
+		return nil
+	}
 }
 
 func WithTool(tool Tool) Option {
@@ -212,6 +229,7 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
 		limitsSet:      cfg.limitsSet,
+		modelOptions:   cfg.modelOptions,
 		commands:       make(chan agentCommand),
 		closeSignal:    make(chan struct{}),
 		done:           make(chan struct{}),
@@ -238,6 +256,8 @@ type coreAgent struct {
 	extensions  extensionSet
 	limits      CoreLimits
 	limitsSet   bool
+	// modelOptions are sent unchanged with every model call.
+	modelOptions ModelOptions
 
 	// transcript is the committed history (the Session's record). The Agent
 	// goroutine is its only writer during a Run. transcriptBytes tracks the
@@ -834,6 +854,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		// append-only history next, the dynamic panel last, attached to the
 		// tail Message so it never disturbs the prefix.
 		request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
+		request.Options = a.modelOptions
 		contextPayload := map[string]any{
 			"messages":        len(request.Messages),
 			"source_messages": len(snapshot.Messages),

@@ -6,7 +6,6 @@ Open defects and design decisions, verified against the code. Planned capabiliti
 
 - [ ] **`ToolUse.Executed` and `ToolUse.Result` are reserved and never assigned.** A Tool or `PreToolUse` extension always sees `false`/`nil`. Wire them into a `PostToolUse` view or remove them; removal changes the JSON shape and needs a `MIGRATION.md` entry (`tool.go`).
 - [ ] **Provider identity leaks into `ToolCall.ID`.** The Responses adapter packs the provider item ID into the call ID and splits it back with `splitResponsesCallID`, so a provider-private ID is persisted in the Session. Add an opaque, adapter-owned field to `ToolCall` (core clones and serializes it, like `ContentPart.Signature`) and keep `ToolCall.ID` to the call ID (`gateway/responses.go`, `types.go`).
-- [ ] **`ModelOptions` has no runtime path.** `ModelRequest.Options` exists, but core never fills it and there is no `WithModelOptions`; temperature, max tokens, and reasoning effort are configurable only by hand-built requests (`model.go`, `agent.go`).
 
 ## Decisions
 
