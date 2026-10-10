@@ -51,6 +51,9 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	if usage := s.Usage(); usage.TotalTokens != 15 || usage.CacheReadTokens != 6 || usage.CacheWriteTokens != 2 {
 		t.Fatalf("usage = %+v", usage)
 	}
+	if final := s.Messages()[3]; final.Role != gotato.RoleAssistant || final.Usage.TotalTokens != 15 || final.Usage.CacheReadTokens != 6 {
+		t.Fatalf("final assistant usage = %+v", final.Usage)
+	}
 	events := s.Events()
 	if len(events) == 0 {
 		t.Fatal("no events recorded")

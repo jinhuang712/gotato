@@ -1181,6 +1181,7 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 	if !complete {
 		return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "missing completion", nil)
 	}
+	assistant.Usage = usage
 	return assistant, usage, nil
 }
 
