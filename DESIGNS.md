@@ -5,87 +5,115 @@ Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), wh
 
 An **Agent** definition (its model, instruction, tools and limits) and messages from callers go in, through the Go API, HTTP or gRPC. Answers, a stream of **Events** and a **Session** record in your store come out. In between, a **Runner** inside your service hosts the Session. The Session runs one **Loop** over the model and the tools, saves what each **Turn** commits, and leaves memory when it has been idle for its TTL.
 
-This page holds the choices behind that shape: what each one costs, and how a reviewer can check that it still holds. It describes the design we intend. Where the code does not hold a principle yet, its check says "not yet" and links where the gap is tracked: [TODO.md](TODO.md) for a defect, [FEATURES.md](FEATURES.md) for a planned capability, [GOALS.md](GOALS.md) for a check not yet met. Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md), and behavior lives in [FEATURES.md](FEATURES.md).
+This page holds the choices behind that shape: what each one costs, and how a reviewer can check that it still holds. It describes the design we intend. Where the code does not hold a principle yet, the text says "not yet" and links where the gap is tracked: [TODO.md](TODO.md) for a defect, [FEATURES.md](FEATURES.md) for a planned capability, [GOALS.md](GOALS.md) for a check not yet met. Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md), and behavior lives in [FEATURES.md](FEATURES.md).
+
+## TL;DR
+
+- **One loop, no graph.** The Loop calls the model and the tools it asks for. Limits end every Run, `context.Context` cancels everything, and extensions hook in at fixed stages.
+- **An Agent is a definition, and a Session runs it.** Agents are flat, Sessions are generic, and the model sees a Context built from the Transcript, never the Transcript itself.
+- **The store is the truth, and memory is a cache.** A Session may stay warm in memory while it is in use, every Turn is saved, and a stale save never overwrites a newer one. None of this is built yet.
+- **Stable content first.** The Context is laid out so the provider's cache keeps working, and anyone can inspect it.
+- **Tools are the bounds.** Every tool declares its Effect, and an Agent caps it, though the cap is not built yet. A tool refuses unsafe arguments itself. There is no approval system, no shell and no sandbox.
+- **Small and layered.** The core uses only the standard library, dependencies point inward, and the service sits on top of the library.
+- **When principles collide,** never lose a committed Turn, then stay minimal, then stay cheap.
 
 ## Principles
 
 ### Loop
 
-- **One loop, no graph.** The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it (reason: [PHILOSOPHY.md → 1](PHILOSOPHY.md#1-what-actually-changed)). Cost: there is no drawn flow and no control per step, so a fixed sequence is written in Go around the Loop. Holds as: the root package has one execution path, and no workflow, node or edge type exists anywhere in the module.
-- **Limits end every Run.** `CoreLimits` caps Turns, tool calls, bytes and time, and every cap has a default. Cost: a long task must be split, or must raise its limits on purpose. Holds as: every Run settles with a result and a status, including a Run that a limit stopped.
-- **`context.Context` is the only cancellation.** Cost: every API takes a `ctx`, even where a caller would rather not pass one. Holds as: every model call, tool call, store call and stream takes a `ctx`, and limit deadlines are contexts derived from it.
-- **Extensions wrap the Loop at fixed stages.** The stages are `RunPreparer`, `ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver` and `TurnStopper`. Cost: a need that fits no stage waits for a new stage instead of a fork, and every stage runs on the Run's own goroutine, so a slow extension slows the Run. Holds as: each stage is one interface (`RunPreparer` in `context.go`, the rest in `extensions.go`), and adding one is a reviewed change to the root package.
+**One loop, no graph.** The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it (reason: [PHILOSOPHY.md → 1](PHILOSOPHY.md#1-what-actually-changed)). There is no drawn flow and no control per step, so a fixed sequence is written in Go around the Loop. This holds while the root package has one execution path, and no workflow, node or edge type exists anywhere in the module.
+
+**Limits end every Run.** `CoreLimits` caps Turns, tool calls, bytes and time, and every cap has a default. The cost is that a long task must be split, or must raise its limits on purpose. In return, every Run settles with a result and a status, including a Run that a limit stopped.
+
+**`context.Context` is the only cancellation.** Every model call, tool call, store call and stream takes a `ctx`, and the limit deadlines are contexts derived from it. The cost is that every API takes a `ctx`, even where a caller would rather not pass one.
+
+**Extensions wrap the Loop at fixed stages:** `RunPreparer`, `ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse`, `EventObserver` and `TurnStopper`. Each stage is one interface (`RunPreparer` in `context.go`, the rest in `extensions.go`), and adding one is a reviewed change to the root package. The cost is that a need that fits no stage waits for a new stage instead of a fork, and that every stage runs on the Run's own goroutine, so a slow extension slows the Run.
 
 ### Agent and Session
 
-- **An Agent is a definition, and a Session runs it.** An Agent holds no conversation, no state and no status. One Agent runs many Sessions. Cost: callers learn two nouns instead of one. Holds as: the Agent definition has no field that belongs to one conversation.
-- **Agents are flat.** No Gotato type is a sub-agent, a parent, a worker or a supervisor. Roles and lineage live in Session metadata. Cost: a team that wants a hierarchy builds it in its own code. Holds as: no type in the module carries a role or a parent Agent.
-- **A Session stays generic.** Task graphs, project state and product workflow live in its metadata. Cost: an application keeps its own structure in metadata, without typed fields. Holds as: the Session has no field named after one application's concept.
-- **The Transcript and the Context are separate values.** The Loop commits to the Transcript, and the model receives what a `ContextBuilder` builds from it. Cost: the Context is built again on every Turn. Holds as: no code path sends the Transcript to a model without going through a `ContextBuilder`.
+**An Agent is a definition, and a Session runs it.** An Agent holds no conversation, no state and no status, and one Agent runs many Sessions. The Agent definition has no field that belongs to one conversation. The cost is that callers learn two nouns instead of one.
+
+**Agents are flat.** No Gotato type is a sub-agent, a parent, a worker or a supervisor, and no type in the module carries a role or a parent Agent. Roles and lineage live in Session metadata, so a team that wants a hierarchy builds it in its own code.
+
+**A Session stays generic.** Task graphs, project state and product workflow live in its metadata, and the Session has no field named after one application's concept. An application keeps its own structure in metadata, without typed fields.
+
+**The Transcript and the Context are separate values.** The Loop commits to the Transcript, and the model receives what a `ContextBuilder` builds from it. No code path sends the Transcript to a model without going through a `ContextBuilder`. The cost is that the Context is built again on every Turn.
 
 ### State and the store
 
-- **The store is the truth, and memory is a cache.** A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory. The conversation stays in the store. Cost: every committed Turn is a write, and a cold Session is loaded before it answers. Holds as: killing an instance loses no committed Turn, and two instances never both run one Session. Not yet: neither check exists ([GOALS.md](GOALS.md) G-G01 and G-G08), and today the Runner keeps nothing in memory between Runs ([FEATURES.md](FEATURES.md) G-F27, "Warm Session and TTL").
-- **Save every Turn.** Cost: a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session. Holds as: a crash in the middle of a Run loses at most the Turn in flight. Not yet: the Runner saves once, after the Run settles ([TODO.md](TODO.md)).
-- **A save never overwrites a newer one.** A save made from a stale copy fails with a conflict. Cost: callers handle a conflict error. Holds as: two saves from the same starting copy cannot both succeed. Not yet: `Store.Save` replaces the whole document with no revision check ([TODO.md](TODO.md)).
-- **Gotato owns the shape, and adapters own the schema.** A saved Session has a stable, versioned shape (`schema_version`). An adapter in the application, or in an extension package, maps that shape onto MySQL, Postgres, Mongo or any other database, and owns its tables, collections and migrations. Cost: teams write an adapter, because Gotato ships only a memory store and a file store. Holds as: the root module has no database driver, and loading a Session with a newer `schema_version` fails with `ErrNotSupported`.
+**The store is the truth, and memory is a cache.** A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory, and the conversation stays in the store. The cost is a write for every committed Turn, and a load before a cold Session answers. The principle holds when killing an instance loses no committed Turn, and two instances never both run one Session. Not yet: neither check exists ([GOALS.md](GOALS.md) G-G01 and G-G08), and today the Runner keeps nothing in memory between Runs ([FEATURES.md](FEATURES.md) G-F27, "Warm Session and TTL").
+
+**Save every Turn,** so that a crash in the middle of a Run loses at most the Turn in flight. That is a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session. Not yet: the Runner saves once, after the Run settles ([TODO.md](TODO.md)).
+
+**A save never overwrites a newer one.** A save made from a stale copy fails with a conflict, so two saves from the same starting copy cannot both succeed, and callers handle a conflict error. Not yet: `Store.Save` replaces the whole document with no revision check ([TODO.md](TODO.md)).
+
+**Gotato owns the shape, and adapters own the schema.** A saved Session has a stable, versioned shape (`schema_version`). An adapter in the application, or in an extension package, maps that shape onto MySQL, Postgres, Mongo or any other database, and owns its tables, collections and migrations. Teams write an adapter, because Gotato ships only a memory store and a file store. The root module has no database driver, and loading a Session with a newer `schema_version` fails with `ErrNotSupported`.
 
 ### Context and cost
 
-- **Stable content first, changing content last.** Each Context is laid out as the instruction and the Static blocks (fixed reference text), then the tools sorted by ID, then the Transcript, then the Panel (small content that changes every Turn) on the last message. The Panel is never saved. Cost: content that changes every Turn can only go at the end, and any change to the order breaks the provider's cache. Holds as: `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged when only the Panel changes, and checks the cache breakpoints after the system part, the tools and the history.
-- **Cache markers are neutral in the core.** The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`. Cost: a provider feature with no neutral form waits for one. Holds as: the root package names no provider.
-- **The Context is inspectable.** Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. An agent's action is explained by what it saw, so this view is the first tool for debugging. Cost: a `ContextBuilder` must build without side effects. Holds as: `gotato context inspect` and `GET /v1/sessions/{id}/context` return the built Context.
+**Stable content first, changing content last.** Each Context is laid out as the instruction and the Static blocks (fixed reference text), then the tools sorted by ID, then the Transcript, then the Panel (small content that changes every Turn) on the last message. The Panel is never saved. The cost is that content that changes every Turn can only go at the end, and any change to the order breaks the provider's cache. `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged when only the Panel changes, and checks the cache breakpoints after the system part, the tools and the history.
+
+**Cache markers are neutral in the core.** The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`. The root package names no provider, so a provider feature with no neutral form waits for one.
+
+**The Context is inspectable.** Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. An agent's action is explained by what it saw, so this view is the first tool for debugging. `gotato context inspect` and `GET /v1/sessions/{id}/context` return the built Context. The cost is that a `ContextBuilder` must build without side effects.
 
 ### Tools and safety
 
-- **Every tool declares its Effect.** The levels are read, write local, write external and destructive. A tool that declares nothing ranks as destructive. Cost: tool authors classify each tool. Holds as: `ToolEffect` in `tool.go` ranks an unspecified Effect with destructive.
-- **An Agent caps the Effect it allows.** An Agent names its tools and the highest Effect any of them may have, so a read-only Agent cannot change anything. Cost: a write tool needs an Agent that is allowed to write. Holds as: a Run refuses a tool above its Agent's cap before calling it. Not yet: the Effect is recorded on each tool call, but no cap exists or is enforced ([FEATURES.md](FEATURES.md) G-F09, "Effect cap per Agent").
-- **Tools check their own arguments.** A write that is safe for some arguments and not others is refused by the tool itself (see [Decision: no approval system](#decision-no-approval-system--2026-10-15)). Cost: tools are written with care, because the tools are the bounds.
-- **No shell and no sandbox in Gotato.** Tools are Go functions in the service, or tools reached through MCP servers (reason: [PHILOSOPHY.md → 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)). Cost: work that needs a machine is done elsewhere. Holds as: the module ships no tool that runs commands or code. Not yet: MCP support is on the *Later* list ([FEATURES.md](FEATURES.md) → Later, G-F12).
+**Every tool declares its Effect:** read, write local, write external or destructive. A tool that declares nothing ranks as destructive, as `ToolEffect` in `tool.go` ranks it. The cost is that tool authors classify each tool.
+
+**An Agent caps the Effect it allows.** An Agent names its tools and the highest Effect any of them may have, so a read-only Agent cannot change anything, and a write tool needs an Agent that is allowed to write. A Run refuses a tool above its Agent's cap before calling it. Not yet: the Effect is recorded on each tool call, but no cap exists or is enforced ([FEATURES.md](FEATURES.md) G-F09, "Effect cap per Agent").
+
+**Tools check their own arguments.** A write that is safe for some arguments and not others is refused by the tool itself (see [Decision: no approval system](#decision-no-approval-system--2026-10-15)). Tools are written with care, because the tools are the bounds.
+
+**No shell and no sandbox in Gotato.** Tools are Go functions in the service, or tools reached through MCP servers (reason: [PHILOSOPHY.md → 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)), and the module ships no tool that runs commands or code. Work that needs a machine is done elsewhere. Not yet: MCP support is on the *Later* list ([FEATURES.md](FEATURES.md) → Later, G-F12).
 
 ### Models
 
-- **Core types belong to no vendor.** The model contract uses Gotato's own request and event types. Provider data that the core does not understand, such as reasoning signatures, travels through it untouched. Cost: every wire API maps to and from these types. Holds as: the root package imports only the standard library.
-- **Providers are configured by wire API.** See [the decision](#decision-providers-are-configured-by-wire-api--2026-09-17).
+**Core types belong to no vendor.** The model contract uses Gotato's own request and event types, and provider data that the core does not understand, such as reasoning signatures, travels through it untouched. Every wire API maps to and from these types, and the root package imports only the standard library. Providers are configured by wire API; see [the decision](#decision-providers-are-configured-by-wire-api--2026-09-17).
 
 ### Dependencies and layering
 
-- **The core uses only the standard library.** The root package imports only the standard library, and the root module requires only `gopkg.in/yaml.v3`. Cost: Gotato writes its own HTTP client for each wire API, instead of using vendor SDKs. Holds as: `layering_test.go` fails on any non-standard import in the root package, and `go.mod` lists one requirement.
-- **Dependencies point inward.** The core is at the center. `session`, `modelctx`, `toolregistry` and `testkit` build on it. `service` and `service/httpapi` build on those, and `cmd/gotato` and the gRPC adapter sit outside. Cost: a feature that needs the service layer cannot live in the core. Holds as: `layering_test.go` fails when a package outside `cmd/` and `adapter/` imports `service`, `adapter` or `cmd`, apart from `service` itself.
-- **Heavy dependencies live in their own module.** The gRPC adapter is a separate Go module, so gRPC and protobuf never enter a service that does not use them. Cost: two modules to version and release. Holds as: `adapter/grpc/go.mod` exists, and the root `go.mod` does not mention gRPC.
-- **The Go version stays low.** Embedding Gotato never forces a service to upgrade Go. Cost: newer language features wait. Holds as: the root `go.mod` says `go 1.22`.
+**The core uses only the standard library.** The root package imports only the standard library, and the root module requires only `gopkg.in/yaml.v3`. So Gotato writes its own HTTP client for each wire API, instead of using vendor SDKs. `layering_test.go` fails on any non-standard import in the root package, and `go.mod` lists one requirement.
+
+**Dependencies point inward.** The core is at the center. `session`, `modelctx`, `toolregistry` and `testkit` build on it, `service` and `service/httpapi` build on those, and `cmd/gotato` and the gRPC adapter sit outside. A feature that needs the service layer cannot live in the core. `layering_test.go` fails when a package outside `cmd/` and `adapter/` imports `service`, `adapter` or `cmd`, apart from `service` itself.
+
+**Heavy dependencies live in their own module.** The gRPC adapter is a separate Go module (`adapter/grpc/go.mod`), so gRPC and protobuf never enter a service that does not use them, and the root `go.mod` does not mention gRPC. The cost is two modules to version and release.
+
+**The Go version stays low,** so embedding Gotato never forces a service to upgrade Go. The root `go.mod` says `go 1.22`, and newer language features wait.
 
 ### Service layer
 
-- **Library first.** A small `main` runs an Agent with a fake model in-process, with no server, daemon or database. Cost: the service layer cannot add anything the library needs to work. Holds as: the root package's tests build and run Agents in-process with `testkit` fakes, with no network and no store beyond memory.
-- **The service sits on top.** `service`, `service/httpapi` and the gRPC adapter compose the core packages the way an application would. Cost: the service layer repeats some wiring that a framework would hide. Holds as: the layering test above.
-- **The CLI is a thin client.** Every CLI behavior is reachable through the packages. `--json` and `--jsonl` output and the exit codes are part of the contract. Cost: a CLI feature first needs a package API. Holds as: `cmd/gotato` holds presentation only, and `cmd/gotato/cli_test.go` asserts on JSON.
-- **Contracts carry a version.** The HTTP and gRPC contracts each report a contract version, currently `"2"`. Cost: a breaking change to a contract needs a version bump and a [CHANGELOG.md](CHANGELOG.md) entry. Holds as: `GET /healthz` and the gRPC contract call return the version.
+**Library first.** A small `main` runs an Agent with a fake model in-process, with no server, daemon or database. The root package's tests do exactly that, with `testkit` fakes, no network and no store beyond memory. The cost is that the service layer cannot add anything the library needs to work.
+
+**The service sits on top.** `service`, `service/httpapi` and the gRPC adapter compose the core packages the way an application would, and the layering test above keeps it so. The service layer repeats some wiring that a framework would hide.
+
+**The CLI is a thin client.** Every CLI behavior is reachable through the packages, and `cmd/gotato` holds presentation only. Its `--json` and `--jsonl` output and its exit codes are part of the contract, and `cmd/gotato/cli_test.go` asserts on JSON. A CLI feature first needs a package API.
+
+**Contracts carry a version.** The HTTP and gRPC contracts each report a contract version, currently `"2"`, on `GET /healthz` and through the gRPC contract call. The cost is that a breaking change to a contract needs a version bump and a [CHANGELOG.md](CHANGELOG.md) entry.
 
 ### Events and telemetry
 
-- **Events have a stable shape, and bind to no telemetry framework.** An observer in the application, or in an extension package, maps Events onto OpenTelemetry or whatever stack the team already runs. Cost: there is no tracing out of the box. Holds as: the root module imports no telemetry package.
-- **Events and `Usage` carry enough to compute every goal and benchmark.** Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, so a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. Cost: Events carry fields that some teams never read. Holds as: the reference workload computes its numbers from recorded Events alone. Not yet: the reference workload does not exist.
+**Events have a stable shape, and bind to no telemetry framework.** An observer in the application, or in an extension package, maps Events onto OpenTelemetry or whatever stack the team already runs. The root module imports no telemetry package, so there is no tracing out of the box.
+
+**Events and `Usage` carry enough to compute every goal and benchmark.** Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, so a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. The cost is that Events carry fields some teams never read. The check is that the reference workload computes its numbers from recorded Events alone. Not yet: the reference workload does not exist.
 
 ### Failure
 
-- **When a tool fails, or the model gets a tool call wrong,** the call settles as a failed tool result that tells the model why, and the Run goes on. The Turn and tool-call limits bound a model that keeps getting it wrong.
-- **When the model fails,** the Run settles as failed, with the error. The Transcript keeps every Turn committed before the failure, and the caller can continue the Session.
-- **When a limit is reached,** the Run settles with a status that names the limit.
-- **When a Session is busy,** the Runner either rejects the new Run as busy or makes it wait, as the Runner's admission policy says. When the Runner is full, it rejects the Run with a capacity error.
-- **When a save fails,** the Run's error says the result was not persisted. The caller retries or reports it.
-- **When an instance stops gently,** `Drain` stops new Runs, waits for the Runs in flight, and cancels them when its deadline passes.
-- **When an instance dies mid-Run,** the intended result is that at most the Turn in flight is lost. Not yet: today the whole Run is lost ([TODO.md](TODO.md)).
-- **When a message, a cancel or a stream request reaches an instance that is not running the Session,** the result is still open. Today, cancellation and streams work only on the instance that runs the Session. See [Open questions](#open-questions).
+When a tool fails, or the model gets a tool call wrong, the call settles as a failed tool result that tells the model why, and the Run goes on. The Turn and tool-call limits bound a model that keeps getting it wrong. When the model fails, the Run settles as failed, with the error. The Transcript keeps every Turn committed before the failure, and the caller can continue the Session. When a limit is reached, the Run settles with a status that names the limit.
+
+When a Session is busy, the Runner either rejects the new Run as busy or makes it wait, as the Runner's admission policy says. When the Runner is full, it rejects the Run with a capacity error. When a save fails, the Run's error says the result was not persisted, and the caller retries or reports it.
+
+When an instance stops gently, `Drain` stops new Runs, waits for the Runs in flight, and cancels them when its deadline passes. When an instance dies mid-Run, the intended result is that at most the Turn in flight is lost. Not yet: today the whole Run is lost ([TODO.md](TODO.md)). When a message, a cancel or a stream request reaches an instance that is not running the Session, the result is still open, and today cancellation and streams work only on the instance that runs the Session (see [Open questions](#open-questions)).
 
 ### Testing
 
-- **Tests never call a network model.** Fake and replay models, a fake tool and an event recorder cover the Loop. Cost: provider behavior is checked against recorded replies, not live ones. Holds as: CI runs with no provider credentials.
+Tests never call a network model. Fake and replay models, a fake tool and an event recorder cover the Loop, and CI runs with no provider credentials. The cost is that provider behavior is checked against recorded replies, not live ones.
 
 ### Compatibility
 
-- **The contract is named.** It is the exported identifiers of the root package and the standard runtime packages; the CLI's commands, flags, JSON fields, JSONL event shapes and exit codes; the Event kinds and their documented payload keys; and the HTTP and gRPC contracts, which carry their own version. Cost: every change to these is reviewed as a contract change. Holds as: additions are free, and consumers tolerate unknown Event kinds; a rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
-- **Breaks are rare, versioned and written down.** A confusing abstraction can still be fixed by a planned break. Cost: some fixes wait for that break. Holds as: every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md) (GOALS.md G-G06).
+**The contract is named.** It is the exported identifiers of the root package and the standard runtime packages; the CLI's commands, flags, JSON fields, JSONL event shapes and exit codes; the Event kinds and their documented payload keys; and the HTTP and gRPC contracts, which carry their own version. Every change to these is reviewed as a contract change. Additions are free, and consumers tolerate unknown Event kinds. A rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
+
+**Breaks are rare, versioned and written down.** A confusing abstraction can still be fixed by a planned break, so some fixes wait for that break. Every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md) (GOALS.md G-G06).
 
 ## When principles collide
 
@@ -147,23 +175,26 @@ A provider is configuration: an endpoint, a key, a wire API and its models. Gota
 
 ## Open questions
 
-- **Ownership across instances.** This gets its own design discussion before anything is built. One requirement is already fixed: whatever the mechanism, a second instance stops before it calls the model, so it never spends tokens on a Turn it cannot commit. A conflict found only when saving is too late, because both instances have already paid for the model call. The discussion must answer:
+**Ownership across instances** gets its own design discussion before anything is built. One requirement is already fixed: whatever the mechanism, a second instance stops before it calls the model, so it never spends tokens on a Turn it cannot commit. A conflict found only when saving is too late, because both instances have already paid for the model call. The discussion must answer these questions:
 
-  | Question | Options on the table |
-  |---|---|
-  | How is ownership of a Session expressed? | a lease with an expiry; a revision compared on save; both |
-  | Where does ownership live? | in the store; in a separate lock service |
-  | What happens when a message reaches an instance that does not own the Session? | forward it to the owner; wait; reject it as busy; take over |
-  | How is a crashed owner detected? | the lease expires; a heartbeat |
-  | How is a stale owner stopped from writing after it lost ownership? | fencing tokens: each new owner gets a higher number, and older numbers are refused |
-  | How do cancellation and live streams reach the owner? | today both work only on the instance that runs the Session |
-  | How does ownership work with the TTL? | the owner lets go when the TTL frees the Session's memory, or earlier |
+| Question | Options on the table |
+|---|---|
+| How is ownership of a Session expressed? | a lease with an expiry; a revision compared on save; both |
+| Where does ownership live? | in the store; in a separate lock service |
+| What happens when a message reaches an instance that does not own the Session? | forward it to the owner; wait; reject it as busy; take over |
+| How is a crashed owner detected? | the lease expires; a heartbeat |
+| How is a stale owner stopped from writing after it lost ownership? | fencing tokens: each new owner gets a higher number, and older numbers are refused |
+| How do cancellation and live streams reach the owner? | today both work only on the instance that runs the Session |
+| How does ownership work with the TTL? | the owner lets go when the TTL frees the Session's memory, or earlier |
 
-- **What a warm Session holds,** and what happens to a message that arrives while a Run is in progress: it is queued, steered into the Run, or rejected as busy.
-- **How a Turn is saved.** An append of the new Turn, or a rewrite of the whole Session. Today each save also carries up to 1,000 Events inside the Session, so every save grows with the Session's history.
-- **How an adapter proves it meets the store contract,** for example with a conformance suite in `testkit`.
-- **A model catalog** next to the providers, with model names, context sizes and prices.
-- **Compaction.** It exists in the code, and it is not part of an Agent's definition until a later phase.
-- **What the stored record is called.** Today `gotato.Agent` is the Loop, `service.AgentSpec` is the Agent, and `session.Session` is the stored record. Once the name Session belongs to the live unit, the record needs a name of its own. The Agent and the Loop take their glossary names in Phase 3, and the record takes its own in Phase 6, each in a planned break with a [CHANGELOG.md](CHANGELOG.md) entry ([ROADMAP.md](ROADMAP.md)).
+**What a warm Session holds** is open too, and so is what happens to a message that arrives while a Run is in progress: it is queued, steered into the Run, or rejected as busy.
+
+**How a Turn is saved** is either an append of the new Turn or a rewrite of the whole Session. Today each save also carries up to 1,000 Events inside the Session, so every save grows with the Session's history.
+
+**How an adapter proves it meets the store contract** is open, for example with a conformance suite in `testkit`. So is **a model catalog** next to the providers, with model names, context sizes and prices.
+
+**Compaction** exists in the code, and it is not part of an Agent's definition until a later phase.
+
+**What the stored record is called.** Today `gotato.Agent` is the Loop, `service.AgentSpec` is the Agent, and `session.Session` is the stored record. Once the name Session belongs to the live unit, the record needs a name of its own. The Agent and the Loop take their glossary names in Phase 3, and the record takes its own in Phase 6, each in a planned break with a [CHANGELOG.md](CHANGELOG.md) entry ([ROADMAP.md](ROADMAP.md)).
 
 Smaller open decisions about Events and extensions are tracked in [TODO.md](TODO.md) → Decisions.
