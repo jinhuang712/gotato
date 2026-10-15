@@ -24,7 +24,7 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
 ## Next steps
 
 1. **Get FEATURES, DESIGNS and ROADMAP approved.** Ask the maintainer to review all three.
-2. **Settle the Events claim.** The GOALS intro and DESIGNS → Events and telemetry say that every number can be computed from Events and `Usage`. Memory, CPU, startup and footprint cannot, and no Event times a store load or save yet. ROADMAP v0.2 adds those Events and limits the claim to the numbers about a Run; GOALS is approved, so its wording waits for the maintainer.
+2. **Settle the Events claim.** The GOALS intro and DESIGNS → Events and telemetry say that every number can be computed from Events and `Usage`. Memory, CPU, startup and footprint cannot, and no Event times a store load or save yet. ROADMAP Phase 1 adds those Events and limits the claim to the numbers about a Run; GOALS is approved, so its wording waits for the maintainer.
 3. **Rewrite README.md** last, as a summary of the others, with the new tagline.
 
 ## Open questions the maintainer still owns

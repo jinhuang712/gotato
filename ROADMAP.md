@@ -3,32 +3,32 @@
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the open questions in [DESIGNS.md](DESIGNS.md) that the maintainer has placed. Terms are in [GLOSSARY.md](GLOSSARY.md).
 
-Each phase ships as one minor release, with no date. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names.
+Gotato stays at 0.1.x until it is stable, so each phase ships as a 0.1.x release, with no date. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names.
 
 ## The order
 
 The phases, in order, with the design discussion that comes before the store changes:
 
 ```text
-v0.2  Measure         the reference workload and the live run
-v0.3  Effect cap      an Agent limits its tools to a highest Effect
-v0.4  Names           the Agent and the Loop take their glossary names
-      ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
-v0.5  Durable Turns   save every Turn, and refuse a stale save
-v0.6  Ownership       one instance runs a Session at a time
-v0.7  Warm Session    a Session stays in memory while in use, and leaves after its TTL
+Phase 1  Measure         the reference workload and the live run
+Phase 2  Effect cap      an Agent limits its tools to a highest Effect
+Phase 3  Names           the Agent and the Loop take their glossary names
+         ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
+Phase 4  Durable Turns   save every Turn, and refuse a stale save
+Phase 5  Ownership       one instance runs a Session at a time
+Phase 6  Warm Session    a Session stays in memory while in use, and leaves after its TTL
 ```
 
 Why this order:
 
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
-- **The rename comes before the store and ownership work,** so that code is written with the final names. The stored record keeps its name until v0.7 builds the live Session, so it is renamed once.
-- **The design discussion comes before the store changes.** The store contract that v0.5 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
+- **The rename comes before the store and ownership work,** so that code is written with the final names. The stored record keeps its name until Phase 6 builds the live Session, so it is renamed once.
+- **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.**
 
-## v0.2 — Measure
+## Phase 1 — Measure
 
 Builds the tools that most goals need, and gives every benchmark a number.
 
@@ -48,36 +48,36 @@ Exit:
 - G-G04 passes on the reference workload in CI, and the live run counts no failure caused by Gotato.
 - Every benchmark but G-B13 has a number.
 
-## v0.3 — Effect cap
+## Phase 2 — Effect cap
 
 - An Agent names the highest Effect its tools may have.
 - A Run refuses a tool above that Effect before calling it ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
 
 Exit: G-G05 passes.
 
-## v0.4 — Names
+## Phase 3 — Names
 
 - `gotato.Agent` becomes the Loop, and `service.AgentSpec` becomes the Agent.
 - Event kinds and fields that carry the old names, such as `agent_start` and `agent_id`, change with them.
 - The rename ships as one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry. A `// Deprecated:` alias is not possible, because the name `Agent` takes a new meaning.
-- `session.Session`, the stored record, keeps its name until v0.7.
+- `session.Session`, the stored record, keeps its name until Phase 6.
 
 Exit: `gotato.Agent` and `service.AgentSpec` carry their new names, and G-G06 holds for the break, with a contract version bump for the changed Event kinds and fields.
 
 ## Design discussion
 
-After v0.4, the maintainer and contributors answer the questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions):
+After Phase 3, the maintainer and contributors answer the questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions):
 
 - how ownership of a Session works across instances, including what happens to a message that reaches an instance that does not own it;
 - how a Turn is saved: an append of the new Turn, or a rewrite of the whole Session;
 - what a warm Session holds, and what happens to a message that arrives while a Run is in progress;
-- what the stored record is called, once v0.7 gives the name Session to the live unit.
+- what the stored record is called, once Phase 6 gives the name Session to the live unit.
 
 One requirement is already fixed: a second instance stops before it calls the model.
 
 Exit: each answer is a Decision in DESIGNS.md, approved by the maintainer.
 
-## v0.5 — Durable Turns
+## Phase 4 — Durable Turns
 
 - Every Turn a Session commits is saved, so a crash loses at most the Turn in flight.
 - A save made from a stale copy fails with a conflict, instead of overwriting a newer one.
@@ -87,9 +87,9 @@ Exit: each answer is a Decision in DESIGNS.md, approved by the maintainer.
 Exit:
 
 - G-G01 and G-G02 pass.
-- G-B05 and G-B07 show what saving every Turn costs, compared with v0.2.
+- G-B05 and G-B07 show what saving every Turn costs, compared with Phase 1.
 
-## v0.6 — Ownership
+## Phase 5 — Ownership
 
 - One instance runs a Session at a time. A second instance stops before it calls the model.
 - A message that reaches an instance that does not own the Session is forwarded, made to wait or rejected, as the design discussion decided.
@@ -101,7 +101,7 @@ Exit:
 - G-G08 passes for every message an instance accepts.
 - In the harness, a Run is cancelled and streamed from an instance that does not own its Session.
 
-## v0.7 — Warm Session
+## Phase 6 — Warm Session
 
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
@@ -111,7 +111,7 @@ Exit:
 
 - G-G08 passes with messages that arrive mid-Run.
 - G-G06 holds for the rename of the stored record.
-- G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with v0.2.
+- G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Every release
 
