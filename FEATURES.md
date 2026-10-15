@@ -5,91 +5,113 @@ What Gotato does today, what it will do, and what it won't. Each feature is desc
 
 ## TL;DR
 
-The features by group, with their status. The details follow below, in the same order.
+The features by group, with their status: ✅ built, 🚧 built with a gap named, ⬜ planned. The details follow below, in the same order.
 
 **Defining and running agents**
 
-- G-F01 Agents and Runs ✅: define an Agent once and run it; every Run ends within its limits.
-- G-F26 Steering a Run 🚧: add a message to a running Loop, or queue one for when it would stop.
-- G-F02 Sessions ✅: one conversation that keeps its whole history, with per-Session settings.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F01 Agents and Runs | define an Agent once and run it; every Run ends within its limits | ✅ |
+| G-F26 Steering a Run | add a message to a running Loop, or queue one for when it would stop | 🚧 |
+| G-F02 Sessions | one conversation that keeps its whole history, with per-Session settings | ✅ |
 
 **What the model sees**
 
-- G-F04 Context ✅: built on every Turn, stable content first, so the provider's cache keeps working.
-- G-F05 Context inspection 🚧: see what the model would receive, without calling it.
-- G-F06 Compaction ✅: replace an old part of the history with one summary.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F04 Context | built on every Turn, stable content first, so the provider's cache keeps working | ✅ |
+| G-F05 Context inspection | see what the model would receive, without calling it | 🚧 |
+| G-F06 Compaction | replace an old part of the history with one summary | ✅ |
 
 **Tools**
 
-- G-F09 Tools and their Effect 🚧: Go functions with a checked schema and a declared Effect; a bad call goes back to the model.
-- G-F10 Tool sets and the registry ✅: an agent's tools can change while it runs.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F09 Tools and their Effect | Go functions with a checked schema and a declared Effect; a bad call goes back to the model | 🚧 |
+| G-F10 Tool sets and the registry | an agent's tools can change while it runs | ✅ |
 
 **Models**
 
-- G-F07 Models and providers ✅: any provider that speaks Chat Completions, Responses or Anthropic Messages, by configuration.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F07 Models and providers | any provider that speaks Chat Completions, Responses or Anthropic Messages, by configuration | ✅ |
 
 **Storage**
 
-- G-F03 Stores 🚧: in memory, one file per Session, or your own database.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F03 Stores | in memory, one file per Session, or your own database | 🚧 |
 
 **Many instances**
 
-- G-F27 Service: many instances 🚧: busy policy, capacity and drain today; saving every Turn, ownership and the warm Session are planned.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F27 Service: many instances | busy policy, capacity and drain; saving every Turn, ownership and the warm Session are planned | 🚧 |
 
 **Endpoints**
 
-- G-F14 HTTP, gRPC and streaming ✅: talk to Sessions like any other API.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F14 HTTP, gRPC and streaming | talk to Sessions like any other API | ✅ |
 
 **Watching and extending**
 
-- G-F13 Events 🚧: every step of a Run, reported as an Event.
-- G-F15 Extensions ✅: add behavior at fixed points of the Loop.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F13 Events | every step of a Run, reported as an Event | 🚧 |
+| G-F15 Extensions | add behavior at fixed points of the Loop | ✅ |
 
 **The CLI**
 
-- G-F16 The `gotato` CLI ✅: the same Runner as the service, in a terminal.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F16 The `gotato` CLI | the same Runner as the service, in a terminal | ✅ |
 
 **Testing**
 
-- G-F22 Test kit 🚧: fake models and tools, so tests need no network.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F22 Test kit | fake models and tools, so tests need no network | 🚧 |
 
 **Later**
 
-- G-F12 MCP integration: MCP servers as a tool source.
-- Telemetry adapters: Events mapped onto OpenTelemetry.
-- Model catalog: model names, context sizes and prices.
-- Provider rate-limit information, reported with usage.
-- Request IDs and idempotency keys on the endpoints.
-- Streamed reasoning, as it arrives.
-- Typed Event payloads.
-- G-F24 Examples.
-- Token budget per Run.
-- Paging and filtering the Session list.
-- Loading only recent history.
-- Store conformance suite.
+| Feature | What it does | Status |
+|---|---|---|
+| G-F12 MCP integration | MCP servers as a tool source | later |
+| Telemetry adapters | Events mapped onto OpenTelemetry | later |
+| Model catalog | model names, context sizes and prices | later |
+| Provider rate-limit information | limits and reset time, reported with usage | later |
+| Request IDs and idempotency keys | on the HTTP and gRPC endpoints | later |
+| Streamed reasoning | the model's reasoning as it arrives | later |
+| Typed Event payloads | payloads with a fixed, typed shape; how is still open | later |
+| G-F24 Examples | small programs for common uses, such as a persistent Session or forks | later |
+| Token budget per Run | a cap on the tokens one Run may spend | later |
+| Paging and filtering the Session list | for services with many Sessions | later |
+| Loading only recent history | instead of the whole Session | later |
+| Store conformance suite | lets an adapter prove it meets the store contract | later |
 
 **Not planned**
 
-- G-N01 Agent organization belongs to applications.
-- G-N02 Task graphs, scheduling and orchestration belong to applications.
-- G-N03 Global resource scheduling belongs to applications.
-- G-N04 Product UI belongs to applications.
-- G-N05 Service mode is optional.
-- G-N06 Memory architecture belongs to applications.
-- G-N07 Ordinary Go is the workflow language.
-- G-N08 Storage engines belong to applications.
-- G-N09 Tool catalogs belong to MCP servers and applications.
-- G-N10 Context organization beyond full history belongs to applications.
-- G-N11 Telemetry backends belong to applications.
-- G-N12 Tool approval belongs to the tools.
-- G-N13 No cloud coding agent.
-- G-N14 No remote dev environment, shell or sandbox in the pods.
-- G-N15 No general-purpose assistant.
-- G-N16 No separate platform.
-- G-N17 No infrastructure.
-- G-N18 No ready-made clients.
-
-✅ built · 🚧 built, with a gap named · ⬜ planned
+| Feature | What it does | Status |
+|---|---|---|
+| G-N01 Agent organization | roles, teams and hierarchies belong to applications | not planned |
+| G-N02 Task graphs and orchestration | tasks, scheduling and pipelines belong to applications | not planned |
+| G-N03 Global resource scheduling | concurrency, quotas and resource policy belong to applications | not planned |
+| G-N04 Product UI | IDEs and desktop products build on Gotato | not planned |
+| G-N05 A required service | the service is optional; library and CLI use stand on their own | not planned |
+| G-N06 Memory architecture | long-term memory belongs to applications | not planned |
+| G-N07 A workflow language | ordinary Go is the workflow language | not planned |
+| G-N08 Storage engines | adapters onto your database belong to applications | not planned |
+| G-N09 Tool catalogs | tools come from MCP servers and applications | not planned |
+| G-N10 Context organization beyond full history | retrieval and windowing are your own `ContextBuilder` | not planned |
+| G-N11 Telemetry backends | mapping Events onto a backend belongs to applications | not planned |
+| G-N12 Tool approval | tools refuse unsafe arguments themselves | not planned |
+| G-N13 Cloud coding agent | coding stays on developers' machines and in coding products | not planned |
+| G-N14 Remote dev environment, shell or sandbox | work that needs a machine runs elsewhere | not planned |
+| G-N15 General-purpose assistant | Gotato is for purpose-built agents | not planned |
+| G-N16 Separate platform | Gotato is a library inside your services | not planned |
+| G-N17 Infrastructure | discovery, routing and autoscaling already exist | not planned |
+| G-N18 Ready-made clients | bots, schedulers and front ends are the callers' own code | not planned |
 
 Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25 retired.
 
