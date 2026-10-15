@@ -33,7 +33,7 @@ All are listed in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): ow
 
 ## How to work here
 
-- **Follow [AGENTS.md](AGENTS.md)**, especially *Editing the Project Documents*: the maintainer's writing rules (no "company", a TL;DR on top and plain prose below, plain words, no slogans, never compare Gotato to Pi) and the rule to re-read a whole doc before changing it.
+- **Follow [AGENTS.md](AGENTS.md)**, especially *Editing the Project Documents*: the maintainer's writing rules (no "company", a TL;DR outline on top, then `##` groups and `###` items in free prose, plain words, no slogans, never compare Gotato to Pi) and the rule to re-read a whole doc before changing it.
 - **Agree before writing.** Discuss a doc's key points with the maintainer, write it in one pass, have its claims checked against the code (an independent review caught real errors twice), then ask for approval.
 - **Worktrees.** `EnterWorktree` with a name bases the worktree on `origin/main`. To start from local `main`, run `git worktree add .claude/worktrees/<name> -b wt/<name> main`, then `EnterWorktree` with that path. To land, `ExitWorktree` with `keep`, then `git merge --ff-only wt/<name>` on `main`, then remove the worktree and the branch. The `wt` plugin's land script only handles branches named `wt-*`.
 - **Checks before a commit:** `gofmt -l .`, `go vet ./...`, `golangci-lint run ./...`, `go test ./...`, `go build ./cmd/gotato`. If lint reports an issue in a path under a removed worktree, run `golangci-lint cache clean`; it is a stale cache entry.

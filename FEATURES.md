@@ -5,13 +5,89 @@ What Gotato does today, what it will do, and what it won't. Each feature is desc
 
 ## TL;DR
 
-- **Agents and Runs.** You define an Agent in Go and run it in a Session. One Loop calls the model and the tools it asks for, and limits make sure every Run ends.
-- **Sessions and stores.** A Session keeps the whole conversation in a store: memory, a file, or your own database through a small adapter. You can fork it, see what the model would receive, and compact it.
-- **Models.** Any provider that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages works through configuration, with retries and stream restarts built in.
-- **Tools.** A tool is a Go function with a checked input schema and a declared Effect. When the model gets a call wrong, the reason goes back to it and the Run goes on.
-- **Serving.** One Runner serves the Go API, HTTP, gRPC and the CLI, with streamed Events and extensions at fixed points of the Loop. `testkit` lets you test agents without a network.
-- **Not built yet:** the Effect cap, saving every Turn, refusing a stale save, one owner per Session across instances, the warm Session, and steering through the service.
-- **Not planned:** roles and hierarchies, task graphs and orchestration, sandboxes and a separate platform. Those belong to your application.
+The features by group, with their status. The details follow below, in the same order.
+
+**Defining and running agents**
+
+- G-F01 Agents and Runs ✅: define an Agent once and run it; every Run ends within its limits.
+- G-F26 Steering a Run 🚧: add a message to a running Loop, or queue one for when it would stop.
+- G-F02 Sessions ✅: one conversation that keeps its whole history, with per-Session settings.
+
+**What the model sees**
+
+- G-F04 Context ✅: built on every Turn, stable content first, so the provider's cache keeps working.
+- G-F05 Context inspection 🚧: see what the model would receive, without calling it.
+- G-F06 Compaction ✅: replace an old part of the history with one summary.
+
+**Tools**
+
+- G-F09 Tools and their Effect 🚧: Go functions with a checked schema and a declared Effect; a bad call goes back to the model.
+- G-F10 Tool sets and the registry ✅: an agent's tools can change while it runs.
+
+**Models**
+
+- G-F07 Models and providers ✅: any provider that speaks Chat Completions, Responses or Anthropic Messages, by configuration.
+
+**Storage**
+
+- G-F03 Stores 🚧: in memory, one file per Session, or your own database.
+
+**Many instances**
+
+- G-F27 Service: many instances 🚧: busy policy, capacity and drain today; saving every Turn, ownership and the warm Session are planned.
+
+**Endpoints**
+
+- G-F14 HTTP, gRPC and streaming ✅: talk to Sessions like any other API.
+
+**Watching and extending**
+
+- G-F13 Events 🚧: every step of a Run, reported as an Event.
+- G-F15 Extensions ✅: add behavior at fixed points of the Loop.
+
+**The CLI**
+
+- G-F16 The `gotato` CLI ✅: the same Runner as the service, in a terminal.
+
+**Testing**
+
+- G-F22 Test kit 🚧: fake models and tools, so tests need no network.
+
+**Later**
+
+- G-F12 MCP integration: MCP servers as a tool source.
+- Telemetry adapters: Events mapped onto OpenTelemetry.
+- Model catalog: model names, context sizes and prices.
+- Provider rate-limit information, reported with usage.
+- Request IDs and idempotency keys on the endpoints.
+- Streamed reasoning, as it arrives.
+- Typed Event payloads.
+- G-F24 Examples.
+- Token budget per Run.
+- Paging and filtering the Session list.
+- Loading only recent history.
+- Store conformance suite.
+
+**Not planned**
+
+- G-N01 Agent organization belongs to applications.
+- G-N02 Task graphs, scheduling and orchestration belong to applications.
+- G-N03 Global resource scheduling belongs to applications.
+- G-N04 Product UI belongs to applications.
+- G-N05 Service mode is optional.
+- G-N06 Memory architecture belongs to applications.
+- G-N07 Ordinary Go is the workflow language.
+- G-N08 Storage engines belong to applications.
+- G-N09 Tool catalogs belong to MCP servers and applications.
+- G-N10 Context organization beyond full history belongs to applications.
+- G-N11 Telemetry backends belong to applications.
+- G-N12 Tool approval belongs to the tools.
+- G-N13 No cloud coding agent.
+- G-N14 No remote dev environment, shell or sandbox in the pods.
+- G-N15 No general-purpose assistant.
+- G-N16 No separate platform.
+- G-N17 No infrastructure.
+- G-N18 No ready-made clients.
 
 ✅ built · 🚧 built, with a gap named · ⬜ planned
 
