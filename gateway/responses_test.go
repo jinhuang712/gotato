@@ -180,6 +180,73 @@ func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
 	}
 }
 
+// A response that the output limit cut off delivers the calls that finished
+// and drops the one cut short: its arguments are incomplete. The stop stays
+// StopMaxTokens, so the agent learns that the reply was cut off.
+func TestResponsesCutOffDropsTheUnfinishedCallAndReportsMaxTokens(t *testing.T) {
+	name := gatewayFunctionName("demo.echo")
+	calls, stop := responsesCallsAndStop(t,
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"`+name+`"}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"`+name+`","arguments":"{\"value\":\"x\"}"}}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_2","call_id":"call_2","name":"`+name+`"}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":1,"delta":"{\"value\":\"a long"}`,
+		`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`)
+	if stop != gotato.StopMaxTokens {
+		t.Fatalf("stop reason = %q, want %q", stop, gotato.StopMaxTokens)
+	}
+	if len(calls) != 1 || calls[0].ID != "call_1|fc_1" || string(calls[0].Arguments) != `{"value":"x"}` {
+		t.Fatalf("calls = %+v, want only the finished call", calls)
+	}
+}
+
+// A call whose arguments finished before the cut-off is delivered, even
+// without its output_item.done.
+func TestResponsesCutOffDeliversACallWhoseArgumentsFinished(t *testing.T) {
+	name := gatewayFunctionName("demo.echo")
+	calls, stop := responsesCallsAndStop(t,
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"`+name+`"}}`,
+		`{"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"value\":\"x\"}"}`,
+		`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`)
+	if stop != gotato.StopMaxTokens || len(calls) != 1 || string(calls[0].Arguments) != `{"value":"x"}` {
+		t.Fatalf("calls %+v, stop %q; want the finished call and %q", calls, stop, gotato.StopMaxTokens)
+	}
+}
+
+// responsesCallsAndStop streams the given SSE events through a Responses
+// client and returns the Tool calls and the stop reason it reports.
+func responsesCallsAndStop(t *testing.T, events ...string) ([]gotato.ToolCall, gotato.StopReason) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, e := range events {
+			writeSSE(t, w, e)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{API: "openai-responses", Endpoint: server.URL, APIKey: testToken("account-test"), Model: "gpt-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Tools: []gotato.ToolSpec{{ID: "demo.echo", InputSchema: []byte(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	var calls []gotato.ToolCall
+	for {
+		event, err := stream.Recv(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch event.Kind {
+		case gotato.ModelToolCall:
+			calls = append(calls, *event.ToolCall)
+		case gotato.ModelDone:
+			return calls, event.StopReason
+		}
+	}
+}
+
 func writeSSE(t *testing.T, w http.ResponseWriter, data string) {
 	t.Helper()
 	// This runs on the httptest handler goroutine, where t.Fatal is invalid.

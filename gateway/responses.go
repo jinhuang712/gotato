@@ -340,7 +340,10 @@ type responsesCall struct {
 	callID    string
 	name      string
 	arguments string
-	emitted   bool
+	// argumentsDone records that the arguments arrived whole, through
+	// response.function_call_arguments.done or response.output_item.done.
+	argumentsDone bool
+	emitted       bool
 }
 
 type responsesOutputItem struct {
@@ -461,6 +464,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 			s.calls[event.OutputIndex] = call
 		}
 		call.arguments = event.Arguments
+		call.argumentsDone = true
 	case "response.output_item.done":
 		if event.Item == nil {
 			return
@@ -547,6 +551,9 @@ func (s *responsesStream) finishResponsesItem(index int, item responsesOutputIte
 		return
 	}
 	s.ensureResponsesCall(index, &item)
+	if call := s.calls[index]; call != nil {
+		call.argumentsDone = true
+	}
 	s.emitResponsesCall(index)
 }
 
@@ -581,12 +588,18 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		s.finishWithError(fmt.Errorf("gateway: Responses completion has no response"))
 		return
 	}
+	stop := responsesStopReason(response.Status, response.IncompleteDetails)
 	indices := make([]int, 0, len(s.calls))
 	for index := range s.calls {
 		indices = append(indices, index)
 	}
 	sort.Ints(indices)
 	for _, index := range indices {
+		// A call that the output limit cut off has incomplete arguments, so
+		// it is not delivered.
+		if stop == gotato.StopMaxTokens && !s.calls[index].argumentsDone {
+			continue
+		}
 		s.emitResponsesCall(index)
 	}
 	if response.Usage != nil {
@@ -601,9 +614,10 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		}
 		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: usage})
 	}
-	stop := responsesStopReason(response.Status, response.IncompleteDetails)
+	// Delivered calls make the stop StopToolCalls, unless the output limit
+	// cut the response off: StopMaxTokens stays, so the agent learns it.
 	for _, call := range s.calls {
-		if call.emitted {
+		if call.emitted && stop != gotato.StopMaxTokens {
 			stop = gotato.StopToolCalls
 			break
 		}

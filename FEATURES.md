@@ -97,7 +97,7 @@ Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Too
 
 | Item | Status | Where |
 |---|---|---|
-| OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth) |
+| OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth). A Responses reply that the output limit cut off reports `StopMaxTokens` and drops a Tool call cut short. |
 | Anthropic Messages | done | `gateway` `anthropic-messages`: standard library, `CacheBreakpoints` mapped to `cache_control` (last four kept), thinking blocks replayed through reasoning artifacts, cache reads and writes in `Usage`, 529 retried |
 
 ## G-F09 — Tool Interface `[done]`

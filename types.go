@@ -138,6 +138,9 @@ type Usage struct {
 	CacheWriteTokens uint64 `json:"cache_write_tokens,omitempty"`
 }
 
+// StopReason is why a model call or a Turn stopped. A Message's StopReason is
+// the Model's: StopToolCalls when it called Tools, and StopMaxTokens when the
+// output limit cut it off, even next to Tool calls.
 type StopReason string
 
 const (

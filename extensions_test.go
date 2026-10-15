@@ -362,6 +362,52 @@ func (s turnStopper) Stop(ctx context.Context, snapshot TurnSnapshot) (StopDecis
 	return StopDecision{}, nil
 }
 
+// snapshotRecorder keeps every turn's snapshot.
+type snapshotRecorder struct {
+	mu    sync.Mutex
+	snaps []TurnSnapshot
+}
+
+func (r *snapshotRecorder) Stop(_ context.Context, snapshot TurnSnapshot) (StopDecision, error) {
+	r.mu.Lock()
+	r.snaps = append(r.snaps, snapshot)
+	r.mu.Unlock()
+	return StopDecision{}, nil
+}
+
+// A reply that the output limit cut off after a finished Tool call still runs
+// the call, and its Message keeps StopMaxTokens, so a TurnStopper sees the
+// cut-off. The Turn itself ends with StopToolCalls.
+func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
+	tool := &scriptedTool{}
+	model := &testModel{scripts: [][]ModelEvent{
+		{{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
+			{Kind: ModelDone, StopReason: StopMaxTokens}},
+		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+	}}
+	recorder := &snapshotRecorder{}
+	agent, err := NewAgent(WithModel(model), WithTool(tool), WithExtension(recorder))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.Prompt(context.Background(), UserMessage("use tool")); err != nil {
+		t.Fatal(err)
+	}
+	tool.mu.Lock()
+	calls := tool.calls
+	tool.mu.Unlock()
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	if calls != 1 || len(recorder.snaps) == 0 {
+		t.Fatalf("tool calls %d, snapshots %d", calls, len(recorder.snaps))
+	}
+	first := recorder.snaps[0]
+	if first.Assistant.StopReason != StopMaxTokens || first.StopReason != StopToolCalls {
+		t.Fatalf("message stop %q, turn stop %q; want %q and %q", first.Assistant.StopReason, first.StopReason,
+			StopMaxTokens, StopToolCalls)
+	}
+}
+
 func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	tool := &countingTool{}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("never reached")}}

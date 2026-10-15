@@ -883,7 +883,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		if modelErr != nil {
 			return fail(modelErr)
 		}
-		if len(assistant.ToolCalls) > 0 {
+		// A Message with Tool calls stopped for them, unless the output limit
+		// cut it off: StopMaxTokens stays, so a TurnStopper sees the cut-off.
+		if len(assistant.ToolCalls) > 0 && assistant.StopReason != StopMaxTokens {
 			assistant.StopReason = StopToolCalls
 		}
 		if err := a.commitMessage(assistant); err != nil {

@@ -2,6 +2,14 @@
 
 Breaking or behavior-visible changes, newest first. Additive changes are not listed.
 
+## Cut-off replies (2026-10)
+
+### A Message with Tool calls can stop with `StopMaxTokens`
+
+A reply that the output limit cut off keeps `StopMaxTokens` on its `Message`, even when it holds Tool calls: the Tools that finished still run, and a `TurnStopper` sees the cut-off in `TurnSnapshot.Assistant.StopReason`. `TurnSnapshot.StopReason` stays the Turn's own reason, `StopToolCalls` once Tools ran. Code that read `Message.StopReason == StopToolCalls` to find Tool calls reads `len(Message.ToolCalls) > 0` instead.
+
+The Responses gateway no longer delivers a Tool call that the output limit cut short: its arguments are incomplete. It used to deliver it with those arguments and report `StopToolCalls`.
+
 ## Review remediation (2026-09)
 
 ### `toolregistry.New` returns an error
