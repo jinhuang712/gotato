@@ -5,113 +5,166 @@ What Gotato does today, what it will do, and what it won't. Each feature is desc
 
 ## TL;DR
 
-The features by group, with their status: ✅ built, 🚧 built with a gap named, ⬜ planned. The details follow below, in the same order.
+Every capability by group, with the feature it belongs to and its status: ✅ built, 🚧 built with a gap named, ⬜ planned. The details follow below, in the same order.
 
 **Defining and running agents**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F01 Agents and Runs | define an Agent once and run it; every Run ends within its limits | ✅ |
-| G-F26 Steering a Run | add a message to a running Loop, or queue one for when it would stop | 🚧 |
-| G-F02 Sessions | one conversation that keeps its whole history, with per-Session settings | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Define an Agent | from a model, an instruction, tools, a context builder, extensions and limits | G-F01 | ✅ |
+| Run, continue and abort | `Prompt` returns when the Run settles; `Continue` resumes it; `Abort` stops it | G-F01 | ✅ |
+| The Loop | calls the model and the tools it asks for, until it answers or a limit stops it | G-F01 | ✅ |
+| Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
+| Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
+| Limits | Turns, tool calls, messages, bytes and deadlines, each with a default | G-F01 | ✅ |
+| Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
+| Steer | add a message the model reads on its next call | G-F26 | 🚧 |
+| FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
+| Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
+| Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction, panel and ceiling | G-F02 | ✅ |
+| Fork | start a new Session from another one's history | G-F02 | ✅ |
+| One Run per Session | a second Run on a busy Session is rejected or waits | G-F02 | ✅ |
+| Per-Session settings | the Agent, instruction, panel, compaction ceiling and tools, in metadata | G-F02 | ✅ |
 
 **What the model sees**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F04 Context | built on every Turn, stable content first, so the provider's cache keeps working | ✅ |
-| G-F05 Context inspection | see what the model would receive, without calling it | 🚧 |
-| G-F06 Compaction | replace an old part of the history with one summary | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
+| Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
+| Panel | small content that changes every Turn, never saved | G-F04 | ✅ |
+| Cache markers | after the system part, the tools and before the last message; `cache_control` on Anthropic | G-F04 | ✅ |
+| Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
+| Context inspection | the request and its prefix hash, without calling the model | G-F05 | 🚧 |
+| `context_built` Event | the prefix hash of the request each Turn sent | G-F05 | ✅ |
+| Compaction on demand | from the CLI or over HTTP | G-F06 | ✅ |
+| Automatic compaction | at the start of a Run, past the ceiling; off by default | G-F06 | ✅ |
+| Summaries | by truncation or by a model | G-F06 | ✅ |
+| Compaction records | what was replaced, with what, and the sizes before and after | G-F06 | ✅ |
 
 **Tools**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F09 Tools and their Effect | Go functions with a checked schema and a declared Effect; a bad call goes back to the model | 🚧 |
-| G-F10 Tool sets and the registry | an agent's tools can change while it runs | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Go functions as tools | `gotato.NewFuncTool`, with the input schema taken from the Go type | G-F09 | ✅ |
+| Schema check | every call is checked before the tool runs | G-F09 | ✅ |
+| Effect | every tool declares read, write local, write external or destructive | G-F09 | ✅ |
+| Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
+| Effect cap per Agent | limit an Agent's tools to a highest Effect | G-F09 | ⬜ |
+| Tool registry | register, remove, switch on and switch off tools at any time | G-F10 | ✅ |
+| Tool sets | groups of tools the model switches on itself | G-F10 | ✅ |
+| Tools per Session | switch a tool on or off for one Session | G-F10 | ✅ |
 
 **Models**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F07 Models and providers | any provider that speaks Chat Completions, Responses or Anthropic Messages, by configuration | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Three wire APIs | OpenAI Chat Completions, OpenAI Responses and Anthropic Messages | G-F07 | ✅ |
+| Your own model | implement `gotato.Model` | G-F07 | ✅ |
+| Retries | on no response, 429 (not a hard quota), 500, 502 to 504, 529, or an overloaded provider; a provider's `Retry-After` wins | G-F07 | ✅ |
+| Broken-stream restart | a stream that broke before any output is sent again | G-F07 | ✅ |
+| Output-limit report | a reply cut off by the output limit says `max_tokens` | G-F07 | ✅ |
+| Reasoning replay | chat `reasoning_content` is kept and sent back | G-F07 | ✅ |
+| Cache reads | counted on every wire API | G-F07 | ✅ |
+| Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
+| Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
+| Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
 
 **Storage**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F03 Stores | in memory, one file per Session, or your own database | 🚧 |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Memory store | for tests and short-lived programs | G-F03 | ✅ |
+| File store | one JSON file per Session, written atomically | G-F03 | ✅ |
+| Your own store | an adapter with four calls onto the database you run | G-F03 | ✅ |
+| Versioned shape | a document from a newer `schema_version` is refused, never misread | G-F03 | ✅ |
 
 **Many instances**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F27 Service: many instances | busy policy, capacity and drain; saving every Turn, ownership and the warm Session are planned | 🚧 |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Busy policy | a second Run on a busy Session is rejected with 409, or waits | G-F27 | ✅ |
+| Capacity | past `MaxActiveRuns`, a new Run is rejected with 429 | G-F27 | ✅ |
+| Drain | on shutdown, stop taking Runs, wait for the active ones, then cancel them; `/readyz` answers 503 | G-F27 | ✅ |
+| Save every Turn | a crash loses at most the Turn in flight | G-F27 | ⬜ |
+| Conflict on a stale save | an old copy cannot overwrite a newer one | G-F27 | ⬜ |
+| Ownership across instances | one instance runs a Session at a time | G-F27 | ⬜ |
+| Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes | G-F27 | ⬜ |
 
 **Endpoints**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F14 HTTP, gRPC and streaming | talk to Sessions like any other API | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| HTTP API | a handler you mount on your own mux | G-F14 | ✅ |
+| Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
+| gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
+| Go API | call the Runner directly, and subscribe to a Run's Events | G-F14 | ✅ |
+| Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
 
 **Watching and extending**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F13 Events | every step of a Run, reported as an Event | 🚧 |
-| G-F15 Extensions | add behavior at fixed points of the Loop | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
+| Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
+| Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
 
 **The CLI**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F16 The `gotato` CLI | the same Runner as the service, in a terminal | ✅ |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Commands | run, session, context, tools, events, serve, doctor and version | G-F16 | ✅ |
+| Machine-readable output | `--json` and `--jsonl` on stdout, and fixed exit codes | G-F16 | ✅ |
+| Built-in models | `echo` and `demo`, with no credentials | G-F16 | ✅ |
 
 **Testing**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F22 Test kit | fake models and tools, so tests need no network | 🚧 |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Fake models | scripted (`FakeModel`), replayed (`ReplayModel`), or answering from the request (`FuncModel`) | G-F22 | ✅ |
+| Test helpers | a fake tool, an Event recorder and a ready-made Session | G-F22 | ✅ |
+| CLI scenarios | in-process and against the built binary, asserting on JSON | G-F22 | ✅ |
+| Measurement tools | a reference workload, fault injection and a multi-instance harness | G-F22 | ⬜ |
 
 **Later**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-F12 MCP integration | MCP servers as a tool source | later |
-| Telemetry adapters | Events mapped onto OpenTelemetry | later |
-| Model catalog | model names, context sizes and prices | later |
-| Provider rate-limit information | limits and reset time, reported with usage | later |
-| Request IDs and idempotency keys | on the HTTP and gRPC endpoints | later |
-| Streamed reasoning | the model's reasoning as it arrives | later |
-| Typed Event payloads | payloads with a fixed, typed shape; how is still open | later |
-| G-F24 Examples | small programs for common uses, such as a persistent Session or forks | later |
-| Token budget per Run | a cap on the tokens one Run may spend | later |
-| Paging and filtering the Session list | for services with many Sessions | later |
-| Loading only recent history | instead of the whole Session | later |
-| Store conformance suite | lets an adapter prove it meets the store contract | later |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| MCP integration | MCP servers as a tool source | G-F12 | later |
+| Telemetry adapters | Events mapped onto OpenTelemetry | — | later |
+| Model catalog | model names, context sizes and prices | — | later |
+| Provider rate-limit information | limits and reset time, reported with usage | — | later |
+| Request IDs and idempotency keys | on the HTTP and gRPC endpoints | — | later |
+| Streamed reasoning | the model's reasoning as it arrives | — | later |
+| Typed Event payloads | payloads with a fixed, typed shape; how is still open | — | later |
+| Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
+| Token budget per Run | a cap on the tokens one Run may spend | — | later |
+| Paging and filtering the Session list | for services with many Sessions | — | later |
+| Loading only recent history | instead of the whole Session | — | later |
+| Store conformance suite | lets an adapter prove it meets the store contract | — | later |
 
 **Not planned**
 
-| Feature | What it does | Status |
-|---|---|---|
-| G-N01 Agent organization | roles, teams and hierarchies belong to applications | not planned |
-| G-N02 Task graphs and orchestration | tasks, scheduling and pipelines belong to applications | not planned |
-| G-N03 Global resource scheduling | concurrency, quotas and resource policy belong to applications | not planned |
-| G-N04 Product UI | IDEs and desktop products build on Gotato | not planned |
-| G-N05 A required service | the service is optional; library and CLI use stand on their own | not planned |
-| G-N06 Memory architecture | long-term memory belongs to applications | not planned |
-| G-N07 A workflow language | ordinary Go is the workflow language | not planned |
-| G-N08 Storage engines | adapters onto your database belong to applications | not planned |
-| G-N09 Tool catalogs | tools come from MCP servers and applications | not planned |
-| G-N10 Context organization beyond full history | retrieval and windowing are your own `ContextBuilder` | not planned |
-| G-N11 Telemetry backends | mapping Events onto a backend belongs to applications | not planned |
-| G-N12 Tool approval | tools refuse unsafe arguments themselves | not planned |
-| G-N13 Cloud coding agent | coding stays on developers' machines and in coding products | not planned |
-| G-N14 Remote dev environment, shell or sandbox | work that needs a machine runs elsewhere | not planned |
-| G-N15 General-purpose assistant | Gotato is for purpose-built agents | not planned |
-| G-N16 Separate platform | Gotato is a library inside your services | not planned |
-| G-N17 Infrastructure | discovery, routing and autoscaling already exist | not planned |
-| G-N18 Ready-made clients | bots, schedulers and front ends are the callers' own code | not planned |
+| Capability | What it does | Feature | Status |
+|---|---|---|---|
+| Agent organization | roles, teams and hierarchies belong to applications | G-N01 | not planned |
+| Task graphs and orchestration | tasks, scheduling and pipelines belong to applications | G-N02 | not planned |
+| Global resource scheduling | concurrency, quotas and resource policy belong to applications | G-N03 | not planned |
+| Product UI | IDEs and desktop products build on Gotato | G-N04 | not planned |
+| A required service | the service is optional; library and CLI use stand on their own | G-N05 | not planned |
+| Memory architecture | long-term memory belongs to applications | G-N06 | not planned |
+| A workflow language | ordinary Go is the workflow language | G-N07 | not planned |
+| Storage engines | adapters onto your database belong to applications | G-N08 | not planned |
+| Tool catalogs | tools come from MCP servers and applications | G-N09 | not planned |
+| Context organization beyond full history | retrieval and windowing are your own `ContextBuilder` | G-N10 | not planned |
+| Telemetry backends | mapping Events onto a backend belongs to applications | G-N11 | not planned |
+| Tool approval | tools refuse unsafe arguments themselves | G-N12 | not planned |
+| Cloud coding agent | coding stays on developers' machines and in coding products | G-N13 | not planned |
+| Remote dev environment, shell or sandbox | work that needs a machine runs elsewhere | G-N14 | not planned |
+| General-purpose assistant | Gotato is for purpose-built agents | G-N15 | not planned |
+| Separate platform | Gotato is a library inside your services | G-N16 | not planned |
+| Infrastructure | discovery, routing and autoscaling already exist | G-N17 | not planned |
+| Ready-made clients | bots, schedulers and front ends are the callers' own code | G-N18 | not planned |
 
 Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25 retired.
 
