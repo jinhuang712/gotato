@@ -14,9 +14,9 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
 |---|---|---|
 | [PROPOSAL.md](PROPOSAL.md) | approved | |
 | [PHILOSOPHY.md](PHILOSOPHY.md) | approved | |
-| [DESIGNS.md](DESIGNS.md) | **drafted** | re-approval needed for small fixes: `RunPreparer` added to the extension stages, MCP moved to *Later*, references point to FEATURES G-F27 |
+| [DESIGNS.md](DESIGNS.md) | **drafted** | re-approval needed for small fixes: `RunPreparer` added to the extension stages, MCP moved to *Later*, references point to FEATURES G-F27, and *Failure* now says that a failing tool returns a failed result and the Run goes on |
 | [GOALS.md](GOALS.md) | approved | goals that pass or fail, and benchmarks tracked against a reference |
-| [FEATURES.md](FEATURES.md) | **drafted** | rewritten around behavior and checked claim by claim against the code; waiting for review. The gateway and Loop fixes merged on 2026-10-16 added claims to G-F01, G-F07, G-F09 and G-F22 that still need that check. |
+| [FEATURES.md](FEATURES.md) | **drafted** | rewritten around behavior and checked claim by claim against the code, including the claims the 2026-10-16 gateway and Loop fixes added; waiting for review |
 | [GLOSSARY.md](GLOSSARY.md) | no mark | the terms every doc uses; also maps each term to its name in today's code |
 | ROADMAP.md | **not written** | next |
 | [README.md](README.md) | old | rewrite last; it still opens with the old tagline |
@@ -24,7 +24,7 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
 ## Next steps
 
 1. **Get FEATURES and DESIGNS approved.** Ask the maintainer to review both.
-2. **Write ROADMAP.md.** It schedules what GOALS and FEATURES name, with exit criteria that point at GOALS IDs. What it must place:
+2. **Write ROADMAP.md.** It schedules what GOALS and FEATURES name, with exit criteria that point at GOALS IDs. The maintainer decided on 2026-10-16: measurement comes first, each phase ships as a minor version with no dates, and the code takes the glossary's names before the crash-safety work. What it must place:
    - the measurement tools every *(to build)* method in GOALS needs: a reference workload, a live run against a real provider, fault injection, and a multi-instance harness;
    - the ⬜ items in FEATURES G-F27: save every Turn, conflict on a stale save, Session ownership across instances, the warm Session and its TTL;
    - the Effect cap (FEATURES G-F09);

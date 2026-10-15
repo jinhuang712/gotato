@@ -109,7 +109,7 @@ A tool is one thing an agent can do, such as a lookup in your database.
 - A tool result carries a status. A failure carries a safe message for the model.
 - A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
 
-Gap: the **Effect cap per Agent** is not built. An Agent cannot yet limit its tools to a highest Effect, such as read only ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+Gap: the **Effect cap per Agent** is not built. Gotato does not yet limit an Agent's tools to a highest Effect, such as read only. Until it does, a `PreToolUse` extension can refuse a call above a level with `ToolEffect.Within` ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
 
 ### G-F10 — Tool sets and the registry ✅
 

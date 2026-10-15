@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-15 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -69,7 +69,8 @@ This page holds the choices behind that shape: what each one costs, and how a re
 
 ### Failure
 
-- **When the model or a tool fails,** the Run settles as failed, with the error. The Transcript keeps every Turn committed before the failure, and the caller can continue the Session.
+- **When a tool fails, or the model gets a tool call wrong,** the call settles as a failed tool result that tells the model why, and the Run goes on. The Turn and tool-call limits bound a model that keeps getting it wrong.
+- **When the model fails,** the Run settles as failed, with the error. The Transcript keeps every Turn committed before the failure, and the caller can continue the Session.
 - **When a limit is reached,** the Run settles with a status that names the limit.
 - **When a Session is busy,** the Runner either rejects the new Run as busy or makes it wait, as the Runner's admission policy says. When the Runner is full, it rejects the Run with a capacity error.
 - **When a save fails,** the Run's error says the result was not persisted. The caller retries or reports it.
