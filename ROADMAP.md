@@ -7,13 +7,13 @@ Each phase ships as one minor release, with no date. A phase is done when its ex
 
 ## The order
 
-The phases, in order, with the design discussion that comes before the rename and the store changes:
+The phases, in order, with the design discussion that comes before the store changes:
 
 ```text
 v0.2  Measure         the reference workload and the live run
 v0.3  Effect cap      an Agent limits its tools to a highest Effect
+v0.4  Names           the Agent and the Loop take their glossary names
       ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
-v0.4  Names           the code takes the glossary's names
 v0.5  Durable Turns   save every Turn, and refuse a stale save
 v0.6  Ownership       one instance runs a Session at a time
 v0.7  Warm Session    a Session stays in memory while in use, and leaves after its TTL
@@ -22,9 +22,9 @@ v0.7  Warm Session    a Session stays in memory while in use, and leaves after i
 Why this order:
 
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
-- **The Effect cap depends on nothing else.** It adds a setting to the Agent, not a type, so it does not wait for the rename.
-- **The design discussion comes before the rename and the store changes.** It decides what a warm Session holds, so the rename names the stored record and the Session once, in one break. And the store contract that v0.5 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
-- **The rename comes before the store and ownership work,** so that code is written with the final names.
+- **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
+- **The rename comes before the store and ownership work,** so that code is written with the final names. The stored record keeps its name until v0.7 builds the live Session, so it is renamed once.
+- **The design discussion comes before the store changes.** The store contract that v0.5 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.**
 
@@ -55,27 +55,27 @@ Exit:
 
 Exit: G-G05 passes.
 
+## v0.4 — Names
+
+- `gotato.Agent` becomes the Loop, and `service.AgentSpec` becomes the Agent.
+- Event kinds and fields that carry the old names, such as `agent_start` and `agent_id`, change with them.
+- The rename ships as one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry. A `// Deprecated:` alias is not possible, because the name `Agent` takes a new meaning.
+- `session.Session`, the stored record, keeps its name until v0.7.
+
+Exit: `gotato.Agent` and `service.AgentSpec` carry their new names, and G-G06 holds for the break, with a contract version bump for the changed Event kinds and fields.
+
 ## Design discussion
 
-After v0.3, the maintainer and contributors answer the questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions):
+After v0.4, the maintainer and contributors answer the questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions):
 
 - how ownership of a Session works across instances, including what happens to a message that reaches an instance that does not own it;
 - how a Turn is saved: an append of the new Turn, or a rewrite of the whole Session;
 - what a warm Session holds, and what happens to a message that arrives while a Run is in progress;
-- what the stored record is called, once the name Session belongs to the live unit.
+- what the stored record is called, once v0.7 gives the name Session to the live unit.
 
 One requirement is already fixed: a second instance stops before it calls the model.
 
 Exit: each answer is a Decision in DESIGNS.md, approved by the maintainer.
-
-## v0.4 — Names
-
-- `gotato.Agent` becomes the Loop, and `service.AgentSpec` becomes the Agent.
-- `session.Session`, the stored record, takes the name the design discussion chose. The name Session is then free for the Session that v0.7 builds.
-- Event kinds and fields that carry the old names, such as `agent_start` and `agent_id`, change with them.
-- The rename ships as one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry. A `// Deprecated:` alias is not possible, because the name `Agent` takes a new meaning.
-
-Exit: `gotato.Agent`, `service.AgentSpec` and `session.Session` carry their new names, and G-G06 holds for the break, with a contract version bump for the changed Event kinds and fields.
 
 ## v0.5 — Durable Turns
 
@@ -105,10 +105,12 @@ Exit:
 
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
+- The stored record takes the name the design discussion chose, and the live Session takes the name Session. This ships as a planned break, with a [CHANGELOG.md](CHANGELOG.md) entry.
 
 Exit:
 
 - G-G08 passes with messages that arrive mid-Run.
+- G-G06 holds for the rename of the stored record.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with v0.2.
 
 ## Every release
