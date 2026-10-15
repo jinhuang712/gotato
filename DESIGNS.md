@@ -9,115 +9,115 @@ This page holds the choices behind that shape: what each one costs, and how a re
 
 ## TL;DR
 
-The principles by group, with their status: ✅ holds, 🚧 holds with a gap named, ⬜ not yet. Then the decisions and the open questions. The details follow below, in the same order.
+The principles by group, then the decisions and the open questions. The details follow below, in the same order.
 
 **Loop**
 
-| Principle | What it means | Status |
-|---|---|---|
-| One loop, no graph | the Loop calls the model and its tools until it answers; no workflow types | ✅ |
-| Limits end every Run | every cap on Turns, tool calls, bytes and time has a default | ✅ |
-| `context.Context` is the only cancellation | every call and stream takes a `ctx` | ✅ |
-| Extensions wrap the Loop at fixed stages | seven stage interfaces; a new stage is a reviewed change | ✅ |
+| Principle | What it means |
+|---|---|
+| One loop, no graph | the Loop calls the model and its tools until it answers; no workflow types |
+| Limits end every Run | every cap on Turns, tool calls, bytes and time has a default |
+| `context.Context` is the only cancellation | every call and stream takes a `ctx` |
+| Extensions wrap the Loop at fixed stages | seven stage interfaces; a new stage is a reviewed change |
 
 **Agent and Session**
 
-| Principle | What it means | Status |
-|---|---|---|
-| An Agent is a definition, and a Session runs it | an Agent holds no conversation; one Agent runs many Sessions | ✅ |
-| Agents are flat | no sub-agents or roles; lineage lives in Session metadata | ✅ |
-| A Session stays generic | an application's structure lives in metadata | ✅ |
-| The Transcript and the Context are separate values | the model gets what a `ContextBuilder` builds, never the Transcript itself | ✅ |
+| Principle | What it means |
+|---|---|
+| An Agent is a definition, and a Session runs it | an Agent holds no conversation; one Agent runs many Sessions |
+| Agents are flat | no sub-agents or roles; lineage lives in Session metadata |
+| A Session stays generic | an application's structure lives in metadata |
+| The Transcript and the Context are separate values | the model gets what a `ContextBuilder` builds, never the Transcript itself |
 
 **State and the store**
 
-| Principle | What it means | Status |
-|---|---|---|
-| The store is the truth, and memory is a cache | any instance can rebuild a Session from the store | ⬜ |
-| Save every Turn | a crash loses at most the Turn in flight | ⬜ |
-| A save never overwrites a newer one | a save from a stale copy fails with a conflict | ⬜ |
-| Gotato owns the shape, and adapters own the schema | a versioned Session shape, mapped onto your database by your adapter | ✅ |
+| Principle | What it means |
+|---|---|
+| The store is the truth, and memory is a cache | any instance can rebuild a Session from the store |
+| Save every Turn | a crash loses at most the Turn in flight |
+| A save never overwrites a newer one | a save from a stale copy fails with a conflict |
+| Gotato owns the shape, and adapters own the schema | a versioned Session shape, mapped onto your database by your adapter |
 
 **Context and cost**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Stable content first, changing content last | so the provider's prompt cache keeps working | ✅ |
-| Cache markers are neutral in the core | each wire API maps them to its own form | ✅ |
-| The Context is inspectable | see what the model would get, without calling it | ✅ |
+| Principle | What it means |
+|---|---|
+| Stable content first, changing content last | so the provider's prompt cache keeps working |
+| Cache markers are neutral in the core | each wire API maps them to its own form |
+| The Context is inspectable | see what the model would get, without calling it |
 
 **Tools and safety**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Every tool declares its Effect | read, write local, write external or destructive; none counts as destructive | ✅ |
-| An Agent caps the Effect it allows | a Run refuses a tool above the cap | ⬜ |
-| Tools check their own arguments | a tool refuses arguments that are unsafe for it | ✅ |
-| No shell and no sandbox in Gotato | tools are Go functions or MCP servers; MCP is not built yet | 🚧 |
+| Principle | What it means |
+|---|---|
+| Every tool declares its Effect | read, write local, write external or destructive; none counts as destructive |
+| An Agent caps the Effect it allows | a Run refuses a tool above the cap |
+| Tools check their own arguments | a tool refuses arguments that are unsafe for it |
+| No shell and no sandbox in Gotato | tools are Go functions or MCP servers; MCP is not built yet |
 
 **Models**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Core types belong to no vendor | provider data the core does not understand passes through untouched | ✅ |
-| Providers are configured by wire API | a new vendor is a configuration entry | ✅ |
+| Principle | What it means |
+|---|---|
+| Core types belong to no vendor | provider data the core does not understand passes through untouched |
+| Providers are configured by wire API | a new vendor is a configuration entry |
 
 **Dependencies and layering**
 
-| Principle | What it means | Status |
-|---|---|---|
-| The core uses only the standard library | the root module requires only `gopkg.in/yaml.v3` | ✅ |
-| Dependencies point inward | the core never imports the service, the adapters or the CLI | ✅ |
-| Heavy dependencies live in their own module | gRPC is a separate Go module | ✅ |
-| The Go version stays low | the root `go.mod` says `go 1.22` | ✅ |
+| Principle | What it means |
+|---|---|
+| The core uses only the standard library | the root module requires only `gopkg.in/yaml.v3` |
+| Dependencies point inward | the core never imports the service, the adapters or the CLI |
+| Heavy dependencies live in their own module | gRPC is a separate Go module |
+| The Go version stays low | the root `go.mod` says `go 1.22` |
 
 **Service layer**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Library first | a small `main` runs an Agent with a fake model, with no server | ✅ |
-| The service sits on top | the service composes the core the way an application would | ✅ |
-| The CLI is a thin client | every CLI behavior is reachable through the packages | ✅ |
-| Contracts carry a version | HTTP and gRPC report their contract version | ✅ |
+| Principle | What it means |
+|---|---|
+| Library first | a small `main` runs an Agent with a fake model, with no server |
+| The service sits on top | the service composes the core the way an application would |
+| The CLI is a thin client | every CLI behavior is reachable through the packages |
+| Contracts carry a version | HTTP and gRPC report their contract version |
 
 **Events and telemetry**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Events have a stable shape, and bind to no telemetry framework | an observer maps them onto your stack | ✅ |
-| Events and `Usage` carry enough to compute every goal and benchmark | a team gets the numbers from its own telemetry | ⬜ |
+| Principle | What it means |
+|---|---|
+| Events have a stable shape, and bind to no telemetry framework | an observer maps them onto your stack |
+| Events and `Usage` carry enough to compute every goal and benchmark | a team gets the numbers from its own telemetry |
 
 **Failure**
 
-| Case | What happens | Status |
-|---|---|---|
-| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on | ✅ |
-| The model fails | the Run fails, and keeps every Turn it committed | ✅ |
-| A limit is reached | the Run settles with a status that names the limit | ✅ |
-| A Session is busy, or the Runner is full | the new Run waits or is rejected | ✅ |
-| A save fails | the Run's error says the result was not persisted | ✅ |
-| An instance stops gently | it drains its Runs | ✅ |
-| An instance dies mid-Run | at most the Turn in flight is lost | ⬜ |
-| A request reaches an instance that is not running the Session | still open | open |
+| Case | What happens |
+|---|---|
+| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on |
+| The model fails | the Run fails, and keeps every Turn it committed |
+| A limit is reached | the Run settles with a status that names the limit |
+| A Session is busy, or the Runner is full | the new Run waits or is rejected |
+| A save fails | the Run's error says the result was not persisted |
+| An instance stops gently | it drains its Runs |
+| An instance dies mid-Run | at most the Turn in flight is lost |
+| A request reaches an instance that is not running the Session | still open |
 
 **Testing**
 
-| Principle | What it means | Status |
-|---|---|---|
-| Tests never call a network model | fakes and recorded replies cover the Loop | ✅ |
+| Principle | What it means |
+|---|---|
+| Tests never call a network model | fakes and recorded replies cover the Loop |
 
 **Compatibility**
 
-| Principle | What it means | Status |
-|---|---|---|
-| The contract is named | exported identifiers, CLI output, Event kinds, and the HTTP and gRPC contracts | ✅ |
-| Breaks are rare, versioned and written down | every break has a before-and-after entry in the changelog | ✅ |
+| Principle | What it means |
+|---|---|
+| The contract is named | exported identifiers, CLI output, Event kinds, and the HTTP and gRPC contracts |
+| Breaks are rare, versioned and written down | every break has a before-and-after entry in the changelog |
 
 **When principles collide**
 
-| Rule | What it says | Status |
-|---|---|---|
-| The order of priority | never lose a committed Turn, then stay minimal, then stay cheap; the Effect cap is never traded | — |
+| Rule | What it says |
+|---|---|
+| The order of priority | never lose a committed Turn, then stay minimal, then stay cheap; the Effect cap is never traded |
 
 **Decisions**
 
@@ -131,15 +131,15 @@ The principles by group, with their status: ✅ holds, 🚧 holds with a gap nam
 
 **Open questions**
 
-| Question | What is open | Status |
-|---|---|---|
-| Ownership across instances | how one instance runs a Session at a time | open |
-| What a warm Session holds | and what happens to a message that arrives mid-Run | open |
-| How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session | open |
-| How an adapter proves it meets the store contract | for example, with a conformance suite | open |
-| A model catalog | model names, context sizes and prices next to the providers | open |
-| Compaction | when it becomes part of an Agent's definition | open |
-| What the stored record is called | its name once Session means the live unit | open |
+| Question | What is open |
+|---|---|
+| Ownership across instances | how one instance runs a Session at a time |
+| What a warm Session holds | and what happens to a message that arrives mid-Run |
+| How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
+| How an adapter proves it meets the store contract | for example, with a conformance suite |
+| A model catalog | model names, context sizes and prices next to the providers |
+| Compaction | when it becomes part of an Agent's definition |
+| What the stored record is called | its name once Session means the live unit |
 
 ## Loop
 
