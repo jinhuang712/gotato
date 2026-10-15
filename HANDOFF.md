@@ -14,26 +14,22 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
 |---|---|---|
 | [PROPOSAL.md](PROPOSAL.md) | approved | |
 | [PHILOSOPHY.md](PHILOSOPHY.md) | approved | |
-| [DESIGNS.md](DESIGNS.md) | **drafted** | re-approval needed for small fixes: `RunPreparer` added to the extension stages, MCP moved to *Later*, references point to FEATURES G-F27, and *Failure* now says that a failing tool returns a failed result and the Run goes on |
+| [DESIGNS.md](DESIGNS.md) | **drafted** | re-approval needed for small fixes: `RunPreparer` added to the extension stages, MCP moved to *Later*, references point to FEATURES G-F27, *Failure* now says that a failing tool returns a failed result and the Run goes on, and the rename's open question is narrowed to the stored record's name |
 | [GOALS.md](GOALS.md) | approved | goals that pass or fail, and benchmarks tracked against a reference |
 | [FEATURES.md](FEATURES.md) | **drafted** | rewritten around behavior and checked claim by claim against the code, including the claims the 2026-10-16 gateway and Loop fixes added; waiting for review |
 | [GLOSSARY.md](GLOSSARY.md) | no mark | the terms every doc uses; also maps each term to its name in today's code |
-| ROADMAP.md | **not written** | next |
+| [ROADMAP.md](ROADMAP.md) | **drafted** | written 2026-10-16 from the maintainer's decisions, and checked against the other docs and the code; waiting for review |
 | [README.md](README.md) | old | rewrite last; it still opens with the old tagline |
 
 ## Next steps
 
-1. **Get FEATURES and DESIGNS approved.** Ask the maintainer to review both.
-2. **Write ROADMAP.md.** It schedules what GOALS and FEATURES name, with exit criteria that point at GOALS IDs. The maintainer decided on 2026-10-16: measurement comes first, each phase ships as a minor version with no dates, and the code takes the glossary's names before the crash-safety work. What it must place:
-   - the measurement tools every *(to build)* method in GOALS needs: a reference workload, a live run against a real provider, fault injection, and a multi-instance harness;
-   - the ⬜ items in FEATURES G-F27: save every Turn, conflict on a stale save, Session ownership across instances, the warm Session and its TTL;
-   - the Effect cap (FEATURES G-F09);
-   - the ownership design session. The maintainer asked for a dedicated discussion before anything is built; DESIGNS → Open questions lists what it must answer, and one requirement is already fixed: a second instance stops before it calls the model.
+1. **Get FEATURES, DESIGNS and ROADMAP approved.** Ask the maintainer to review all three.
+2. **Settle the Events claim.** The GOALS intro and DESIGNS → Events and telemetry say that every number can be computed from Events and `Usage`. Memory, CPU, startup and footprint cannot, and no Event times a store load or save yet. ROADMAP v0.2 adds those Events and limits the claim to the numbers about a Run; GOALS is approved, so its wording waits for the maintainer.
 3. **Rewrite README.md** last, as a summary of the others, with the new tagline.
 
 ## Open questions the maintainer still owns
 
-All are listed in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): ownership across instances, what a warm Session holds and what happens to a message that arrives mid-Run, how a Turn is saved, store conformance, the model catalog, compaction, and when the code takes the glossary's names.
+All are listed in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): ownership across instances, what a warm Session holds and what happens to a message that arrives mid-Run, how a Turn is saved, store conformance, the model catalog, compaction, and what the stored record is called. [ROADMAP.md](ROADMAP.md) places the design discussion that answers the first three and the last one.
 
 ## How to work here
 

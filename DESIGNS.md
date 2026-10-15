@@ -164,6 +164,6 @@ A provider is configuration: an endpoint, a key, a wire API and its models. Gota
 - **How an adapter proves it meets the store contract,** for example with a conformance suite in `testkit`.
 - **A model catalog** next to the providers, with model names, context sizes and prices.
 - **Compaction.** It exists in the code, and it is not part of an Agent's definition until a later phase.
-- **When the code takes the glossary's names.** Today `gotato.Agent` is the Loop, `service.AgentSpec` is the Agent, and `session.Session` is the stored record. The rename is one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry.
+- **What the stored record is called.** Today `gotato.Agent` is the Loop, `service.AgentSpec` is the Agent, and `session.Session` is the stored record. Once the name Session belongs to the live unit, the record needs a name of its own. The code takes the glossary's names in one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry ([ROADMAP.md](ROADMAP.md), v0.4).
 
 Smaller open decisions about Events and extensions are tracked in [TODO.md](TODO.md) → Decisions.
