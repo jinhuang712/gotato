@@ -121,11 +121,19 @@ Feature IDs are stable. When features merge, the lower ID stays and the others r
 
 You define an Agent once, then run it: a message goes in, the Loop works, and a settled result comes out.
 
-`gotato.NewAgent(options…)` builds an Agent from a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.AgentSpec` names the same parts. `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message, and `Abort` stops a Run, which still settles and returns its result.
+```go
+// error handling left out
+agent, _ := gotato.NewAgent(gotato.WithModel(model), gotato.WithTool(lookup))
+result, _ := agent.Prompt(ctx, gotato.UserMessage("Where is order 42?"))
+fmt.Println(gotato.TextOf(*result.FinalMessage))
+```
 
-Inside a Run, the Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it. A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
-
-Every Run settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. When an extension stops the Run, its reason is in the `agent_end` Event and in the Session's record of the Run.
+- `gotato.NewAgent(options…)` builds an Agent from a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.AgentSpec` names the same parts.
+- `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
+- The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
+- A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
+- Every Run settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped.
+- When an extension stops the Run, its reason is in the `agent_end` Event and in the Session's record of the Run.
 
 The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults:
 
@@ -142,17 +150,29 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 
 ### G-F26 — Steering a Run 🚧
 
-While a Run works, you can change its course without starting over. `Steer` adds a message to the running Loop, and the model reads it on its next call; up to 8 can wait (`MaxSteerMessages`). `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going, and its Turns count toward the same `MaxTurns`; up to 4 can wait (`MaxFollowUpMessages`). A message still waiting when the Run ends is dropped, not kept for the next Run.
+While a Run works, you can change its course without starting over. This is where each kind of message enters a Run:
 
-The gap is that both work only on an Agent you build yourself with `gotato.NewAgent`. The Runner builds a private Agent for each Run, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
+```text
+Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn 4 …
+             ▲                         ▲
+   Steer: read on the next       FollowUp: picked up here,
+   model call                    so the same Run goes on
+```
+
+- `Steer` adds a message to the running Loop, and the model reads it on its next call. Up to 8 can wait (`MaxSteerMessages`).
+- `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns count toward the same `MaxTurns`. Up to 4 can wait (`MaxFollowUpMessages`).
+- A message still waiting when the Run ends is dropped, not kept for the next Run.
+
+**Gap:** both work only on an Agent you build yourself with `gotato.NewAgent`. The Runner builds a private Agent for each Run, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 
 ### G-F02 — Sessions ✅
 
 A Session is one conversation that runs an Agent. It keeps everything that happened, so the next message continues where the last one ended.
 
-You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction, panel and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call. A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction. Forking a Session starts a new one from its history and records the parent.
-
-One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
+- You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction, panel and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
+- A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction.
+- Forking a Session starts a new one from its history and records the parent.
+- One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
 
 Per-Session settings live in the Session's metadata, so one Agent can serve Sessions that differ slightly:
 
@@ -175,45 +195,64 @@ On every Turn, Gotato builds what the model sees from the Session, in a fixed or
 instruction · Static blocks  →  tools, sorted by ID  →  the history  →  the Panel, on the last message
 ```
 
-Static blocks are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers. The Panel is small content that changes every Turn, and it is never saved. `time` and `cwd` are built in, and `modelctx.WithPanel` adds your own.
-
-Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept. Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
+- **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
+- **The Panel** is small content that changes every Turn. It is never saved. `time` and `cwd` are built in, and `modelctx.WithPanel` adds your own.
+- Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept.
+- Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
 ### G-F05 — Context inspection 🚧
 
-You can see what the model would receive now, without calling it. `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and `modelctx.InspectSession` return the request as the Context builder makes it. The report includes the prefix hash, the size of the system part and of the Panel, and an estimate of the tokens (bytes ÷ 4). Every Turn also emits a `context_built` Event with the prefix hash of the request it sent.
+You can see what the model would receive now, without calling it.
 
-The gap is that the report leaves out what extensions change afterwards (`ContextTransformer`, `MessageConverter`), an auto-compaction that has not run yet, and the model options. So a request can differ from its report ([GOALS.md](GOALS.md) G-G03).
+- `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and `modelctx.InspectSession` return the request as the Context builder makes it.
+- The report includes the prefix hash, the size of the system part and of the Panel, and an estimate of the tokens (bytes ÷ 4).
+- Every Turn also emits a `context_built` Event with the prefix hash of the request it sent.
+
+**Gap:** the report leaves out what extensions change afterwards (`ContextTransformer`, `MessageConverter`), an auto-compaction that has not run yet, and the model options. So a request can differ from its report ([GOALS.md](GOALS.md) G-G03).
 
 ### G-F06 — Compaction ✅
 
-An old part of the history can be replaced by one summary, so a long conversation stays within the model's window. You compact on demand with `gotato context compact <id> --keep N` or `POST /v1/sessions/{id}/compact`, or automatically at the start of a Run, when the estimated tokens pass the ceiling. The summary comes from truncation or from a model (`--summarizer truncate|model`). Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
+An old part of the history can be replaced by one summary, so a long conversation stays within the model's window.
 
-The ceiling is set per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it.
+- **On demand:** `gotato context compact <id> --keep N` or `POST /v1/sessions/{id}/compact`.
+- **Automatically:** at the start of a Run, when the estimated tokens pass the ceiling.
+- The summary comes from truncation or from a model (`--summarizer truncate|model`).
+- Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
+
+**Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it.
 
 ## Tools
 
 ### G-F09 — Tools and their Effect 🚧
 
-A tool is one thing an agent can do, such as a lookup in your database. `gotato.NewFuncTool` turns a Go function into a tool. Its input schema comes from the Go type, and every call is checked against that schema before the tool runs. The check covers `type`, `enum`, `required`, `properties` and `additionalProperties`; other keywords pass through unchecked.
+A tool is one thing an agent can do, such as a lookup in your database:
 
-Every tool declares its Effect: `read` < `write_local` < `write_external` < `destructive`. A tool that declares nothing counts as destructive. `gotato.ToolWithEffect` sets the Effect on any tool, and `gotato tools list --json` shows a declared Effect; a tool with none shows no `effect` field.
+```go
+lookup, _ := gotato.NewFuncTool("orders.lookup", "Finds an order by its ID", findOrder)
+lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
+```
 
-A tool result carries a status, and a failure carries a safe message for the model. A call the model gets wrong fails as a tool result too, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
+- `gotato.NewFuncTool` turns a Go function into a tool. Its input schema comes from the Go type, and every call is checked against that schema before the tool runs. The check covers `type`, `enum`, `required`, `properties` and `additionalProperties`; other keywords pass through unchecked.
+- Every tool declares its Effect: `read` < `write_local` < `write_external` < `destructive`. A tool that declares nothing counts as destructive. `gotato.ToolWithEffect` sets the Effect on any tool, and `gotato tools list --json` shows a declared Effect (a tool with none shows no `effect` field).
+- A tool result carries a status. A failure carries a safe message for the model.
+- A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
 
-The gap is the Effect cap per Agent. Gotato does not yet limit an Agent's tools to a highest Effect, such as read only. Until it does, a `PreToolUse` extension can refuse a call above a level with `ToolEffect.Within` ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+**Gap:** the Effect cap per Agent is not built. Gotato does not yet limit an Agent's tools to a highest Effect, such as read only. Until it does, a `PreToolUse` extension can refuse a call above a level with `ToolEffect.Within` ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
 
 ### G-F10 — Tool sets and the registry ✅
 
-The tools an agent has can change while it runs. A registry lets you register, remove, switch on and switch off tools at any time, and the Agent reads its tool sources again at the start of every Turn. A tool set groups tools the model can switch on itself, by calling `activate_toolset`; up to 16 can be active (`MaxActiveToolSets`). For one Session, `gotato tools activate <id> --session ID` and `deactivate` switch a tool, stored as `gotato.tool.<id>`.
+The tools an agent has can change while it runs.
 
-Tools come from your own Go code. The CLI ships `demo.echo` and `time.now` for diagnostics only.
+- A registry lets you register, remove, switch on and switch off tools at any time. The Agent reads its tool sources again at the start of every Turn.
+- A tool set groups tools the model can switch on itself, by calling `activate_toolset`. Up to 16 can be active (`MaxActiveToolSets`).
+- For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`.
+- Tools come from your own Go code. The CLI ships `demo.echo` and `time.now` for diagnostics only.
 
 ## Models
 
 ### G-F07 — Models and providers ✅
 
-A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can always bring your own client by implementing `gotato.Model`. These are the wire APIs:
+A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can always bring your own client by implementing `gotato.Model`.
 
 | Wire API (`api:`) | Also accepted as |
 |---|---|
@@ -221,15 +260,33 @@ A provider is configuration, not code. Any vendor that speaks a supported wire A
 | `openai-responses` | `openai-codex-responses` |
 | `anthropic-messages` | `anthropic` |
 
-Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff. On every wire API, a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
+A provider is a few lines in the gateway's YAML file (`--gateway-config`, or `GOTATO_GATEWAY_CONFIG`, else `gateway.yaml`):
 
-A reply cut off by the output limit reports `max_tokens`, even next to tool calls. On the chat API, a thinking model's `reasoning_content` is kept as reasoning and sent back on the next call, as DeepSeek requires. Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
+```yaml
+api: openai-chat-completions
+base_url: https://gateway.example.com/v1
+api_key: ${GOTATO_GATEWAY_API_KEY}
+model: your-model
+```
 
-A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
+**Retries and broken streams**
 
-`gateway.WithRequestHeaders` adds headers to one Run's requests through its context, for a provider that routes each conversation by a header. Neither these nor the configured `headers` can replace the authentication, content-type or streaming headers. `User-Agent` defaults to `gotato/0.1`.
+- Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff.
+- On every wire API, a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
 
-The gateway reads its settings from a YAML file (`--gateway-config`, or `GOTATO_GATEWAY_CONFIG`, else `gateway.yaml`):
+**What comes back from the wire**
+
+- A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
+- On the chat API, a thinking model's `reasoning_content` is kept as reasoning and sent back on the next call, as DeepSeek requires.
+- Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
+- A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
+
+**Headers**
+
+- `gateway.WithRequestHeaders` adds headers to one Run's requests through its context, for a provider that routes each conversation by a header.
+- Neither these nor the configured `headers` can replace the authentication, content-type or streaming headers. `User-Agent` defaults to `gotato/0.1`.
+
+All the settings in the YAML file:
 
 | Key | Default | Why it exists |
 |---|---|---|
@@ -248,15 +305,24 @@ Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_
 
 ### G-F03 — Stores 🚧
 
-Every Session is saved to a store, and you choose which. The in-memory store is for tests and short-lived programs. The file store writes one JSON file per Session, atomically; the CLI uses it, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`). For the database you already run, you write your own adapter with four calls: save, get, list and delete ([G-N08](#g-n08--storage-engines-belong-to-applications)). A saved Session has a versioned shape (`schema_version`, now 1), and a document from a newer version is refused, never misread.
+Every Session is saved to a store, and you choose which:
 
-The gap is that a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other. The fixes are planned in G-F27.
+| Store | For |
+|---|---|
+| In memory | tests and short-lived programs |
+| One JSON file per Session, written atomically | the CLI, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`) |
+| Your own adapter | the database you run, through four calls: save, get, list and delete ([G-N08](#g-n08--storage-engines-belong-to-applications)) |
+
+- A saved Session has a versioned shape (`schema_version`, now 1).
+- A document from a newer version is refused, never misread.
+
+**Gap:** a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other. The fixes are planned in G-F27.
 
 ## Many instances
 
 ### G-F27 — Service: many instances 🚧
 
-A Runner hosts Sessions inside your service, on as many instances as you run. Three of its capabilities are built, and four are planned:
+A Runner hosts Sessions inside your service, on as many instances as you run.
 
 | Capability | Status | What happens |
 |---|---|---|
@@ -268,9 +334,9 @@ A Runner hosts Sessions inside your service, on as many instances as you run. Th
 | Session ownership across instances | ⬜ | one instance runs a Session at a time, and a second instance stops before it calls the model (G-G08). Cancel and stream requests reach the owner from any instance. |
 | Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes; the store stays the truth |
 
-The gap today is that the lock on a Session works within one instance only, and cancel and stream requests work only on the instance that runs the Session.
+**Gap:** today the lock on a Session works within one instance only, and cancel and stream requests work only on the instance that runs the Session.
 
-The Runner's settings live on `service.Config`, or on `gotato serve`:
+Settings, on `service.Config` or `gotato serve`:
 
 | Setting | Default | Why it exists |
 |---|---|---|
@@ -284,7 +350,9 @@ The Runner's settings live on `service.Config`, or on `gotato serve`:
 
 ### G-F14 — HTTP, gRPC and streaming ✅
 
-A bot, a job or another service talks to Sessions like any other API. For HTTP, you mount the handler from `service/httpapi` on your own mux. It serves these routes:
+A bot, a job or another service talks to Sessions like any other API.
+
+**HTTP.** Mount the handler from `service/httpapi` on your own mux. It serves these routes:
 
 ```text
 GET    /healthz  /readyz  /v1/agents
@@ -296,7 +364,9 @@ POST   /v1/sessions/{id}/cancel  POST /v1/runs/{run_id}/cancel
 POST   /v1/runs                  POST /v1/runs/stream
 ```
 
-A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`. `GET …/events` filters with `?kind=`. A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. Only request-level problems use error codes:
+- A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
+- `GET …/events` filters with `?kind=`.
+- A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. Only request-level problems use error codes:
 
 | Code | When |
 |---|---|
@@ -309,17 +379,28 @@ A run request carries `prompt`, or `continue: true`, and may set its own deadlin
 | 500 | a settled Run could not be saved |
 | 504 | the request's deadline passed |
 
-The `/stream` routes send each Event as server-sent events (`event: <kind>`), and end with `event: result`. The stream answers 200 before the Run is admitted. So only a bad or oversized body gets a status code, and every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
+**Streaming.** The `/stream` routes send each Event as server-sent events (`event: <kind>`), and end with `event: result`.
 
-For gRPC, `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it. Its methods are `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `CancelRun`, `Events`, `Context` and `Compact`. The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`. From Go, you call the Runner directly, and subscribe to a Run's Events as they happen.
+- The stream answers 200 before the Run is admitted.
+- So only a bad or oversized body gets a status code. Every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
 
-Both contracts report their version, now `"2"`, on `GET /healthz` and through `Contract`. Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
+**gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
+
+- Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `CancelRun`, `Events`, `Context`, `Compact`.
+- The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`.
+
+**Go API.** Call the Runner directly, and subscribe to a Run's Events as they happen.
+
+**For all of them:**
+
+- Both contracts report their version, now `"2"`, on `GET /healthz` and through `Contract`.
+- Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
 
 ## Watching and extending
 
 ### G-F13 — Events 🚧
 
-Every step of a Run is reported as an Event, so you can watch, log or measure it. These are the kinds:
+Every step of a Run is reported as an Event, so you can watch, log or measure it.
 
 | Kinds | When |
 |---|---|
@@ -331,13 +412,15 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 | `toolset_activated` | the model switches on a tool set |
 | `session_compacted` | a compaction replaced part of the history; recorded in the Session only, never streamed |
 
-Every Event of a Run carries its Run, its Turn, a sequence number and a timestamp, and the payload keys of each kind are documented with the kind. `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
+- Every Event of a Run carries its Run, its Turn, a sequence number and a timestamp.
+- The payload keys of each kind are documented with the kind.
+- `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
 
-The gap is that payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives.
+**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives.
 
 ### G-F15 — Extensions ✅
 
-Extensions add behavior at fixed points of the Loop, without forking it. You install them with `gotato.WithExtension`, at these stages:
+Extensions add behavior at fixed points of the Loop, without forking it. You install them with `gotato.WithExtension`.
 
 | Stage | Runs |
 |---|---|
@@ -349,13 +432,19 @@ Extensions add behavior at fixed points of the Loop, without forking it. You ins
 | `EventObserver` | for every Event |
 | `TurnStopper` | at the end of a Turn, and may stop the Run |
 
-Each stage runs on the Run's own goroutine, so a slow extension slows the Run. An extension marked advisory may fail without failing the Run.
+- Each stage runs on the Run's own goroutine, so a slow extension slows the Run.
+- An extension marked advisory may fail without failing the Run.
 
 ## The CLI
 
 ### G-F16 — The `gotato` CLI ✅
 
-The CLI runs the same Runner as the service, so anything you try in a terminal behaves the same behind HTTP. The full contract, with every flag and JSON field, is in [cmd/gotato/README.md](cmd/gotato/README.md). These are the commands:
+The CLI runs the same Runner as the service, so anything you try in a terminal behaves the same behind HTTP. The full contract, with every flag and JSON field, is in [cmd/gotato/README.md](cmd/gotato/README.md).
+
+```bash
+id=$(gotato session create --json | jq -r .id)
+gotato run --session "$id" --model demo --json "use-tool"
+```
 
 | Command | Does |
 |---|---|
@@ -368,15 +457,22 @@ The CLI runs the same Runner as the service, so anything you try in a terminal b
 | `doctor` | reports the Go version, and checks the store, the models and the gateway configuration |
 | `version` | prints the version |
 
-With `--json` and `--jsonl`, data goes to stdout and diagnostics to stderr. `--timeout` sets a command's deadline. The exit codes are `0` success, `1` runtime error, `2` usage error, `3` not found and `4` when the Run did not complete. The built-in models need no credentials: `echo` (the default) and `demo`; `gateway` uses the YAML provider. The CLI reads `GOTATO_HOME`, `GOTATO_MODEL` and `GOTATO_GATEWAY_CONFIG` from the environment.
+- `--json` and `--jsonl` print data on stdout, and diagnostics go to stderr. `--timeout` sets a command's deadline.
+- Exit codes: `0` success, `1` runtime error, `2` usage error, `3` not found, `4` the Run did not complete.
+- Built-in models need no credentials: `echo` (the default) and `demo`. `gateway` uses the YAML provider.
+- Environment: `GOTATO_HOME`, `GOTATO_MODEL`, `GOTATO_GATEWAY_CONFIG`.
 
 ## Testing
 
 ### G-F22 — Test kit 🚧
 
-You test agents without a network or a paid model. `testkit` ships a scripted model (`FakeModel`), a model that replays recorded replies (`ReplayModel`), and a model that answers from the request it gets (`FuncModel`, for agents that share one model and send in any order). It also ships a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models. CLI scenarios run in-process and against the built binary, and assert on JSON.
+You test agents without a network or a paid model.
 
-The gap is that the tools [GOALS.md](GOALS.md) needs are planned and not built: a reference workload, fault injection (crashes, client disconnects), and a harness that runs several instances over one store.
+- `testkit` ships a scripted model (`FakeModel`), a model that replays recorded replies (`ReplayModel`), and a model that answers from the request it gets (`FuncModel`, for agents that share one model and send in any order).
+- It also ships a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models.
+- CLI scenarios run in-process and against the built binary, and assert on JSON.
+
+**Gap:** the tools that [GOALS.md](GOALS.md) needs are planned and not built: a reference workload, fault injection (crashes, client disconnects), and a harness that runs several instances over one store.
 
 ## Later
 
