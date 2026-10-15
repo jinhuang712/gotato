@@ -8,7 +8,7 @@
 2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
 3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from Session ownership across instances (planned).
 
-Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([GOALS.md §2](GOALS.md#2-boundaries)).
+Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([FEATURES.md → Not planned](FEATURES.md#not-planned)).
 
 ## Cost
 
@@ -113,8 +113,8 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
 | [DESIGNS.md](DESIGNS.md) | design principles, their costs and checks, and decisions |
 | [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
-| [GOALS.md](GOALS.md) | goals, boundaries, tradeoffs, compatibility |
-| [FEATURES.md](FEATURES.md) | implementation inventory with status markers |
+| [GOALS.md](GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
+| [FEATURES.md](FEATURES.md) | implementation inventory with status markers, and what is not planned |
 | [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
 | [GITFLOW.md](GITFLOW.md) | Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | changes per release, with before/after notes for breaking changes |

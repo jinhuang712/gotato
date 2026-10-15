@@ -25,7 +25,7 @@ This page holds the choices behind that shape: what each one costs, and how a re
 
 ### State and the store
 
-- **The store is the truth, and memory is a cache.** A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory. The conversation stays in the store. Cost: every committed Turn is a write, and a cold Session is loaded before it answers. Holds as: killing an instance loses no committed Turn, checked by a test with two Runners over one shared store. Not yet: the test does not exist ([GOALS.md](GOALS.md) G-G08), and today the Runner keeps nothing in memory between Runs ([FEATURES.md](FEATURES.md) → Service, "warm Session and TTL").
+- **The store is the truth, and memory is a cache.** A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory. The conversation stays in the store. Cost: every committed Turn is a write, and a cold Session is loaded before it answers. Holds as: killing an instance loses no committed Turn, and two instances never both run one Session. Not yet: neither check exists ([GOALS.md](GOALS.md) G-G01 and G-G08), and today the Runner keeps nothing in memory between Runs ([FEATURES.md](FEATURES.md) → Service, "warm Session and TTL").
 - **Save every Turn.** Cost: a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session. Holds as: a crash in the middle of a Run loses at most the Turn in flight. Not yet: the Runner saves once, after the Run settles ([TODO.md](TODO.md)).
 - **A save never overwrites a newer one.** A save made from a stale copy fails with a conflict. Cost: callers handle a conflict error. Holds as: two saves from the same starting copy cannot both succeed. Not yet: `Store.Save` replaces the whole document with no revision check ([TODO.md](TODO.md)).
 - **Gotato owns the shape, and adapters own the schema.** A saved Session has a stable, versioned shape (`schema_version`). An adapter in the application, or in an extension package, maps that shape onto MySQL, Postgres, Mongo or any other database, and owns its tables, collections and migrations. Cost: teams write an adapter, because Gotato ships only a memory store and a file store. Holds as: the root module has no database driver, and loading a Session with a newer `schema_version` fails with `ErrNotSupported`.
@@ -65,6 +65,7 @@ This page holds the choices behind that shape: what each one costs, and how a re
 ### Events and telemetry
 
 - **Events have a stable shape, and bind to no telemetry framework.** An observer in the application, or in an extension package, maps Events onto OpenTelemetry or whatever stack the team already runs. Cost: there is no tracing out of the box. Holds as: the root module imports no telemetry package.
+- **Events and `Usage` carry enough to compute every goal and benchmark.** Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, so a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. Cost: Events carry fields that some teams never read. Holds as: the reference workload computes its numbers from recorded Events alone. Not yet: the reference workload does not exist.
 
 ### Failure
 
@@ -82,7 +83,8 @@ This page holds the choices behind that shape: what each one costs, and how a re
 
 ### Compatibility
 
-- **Breaks are rare, versioned and written down.** A confusing abstraction can still be fixed by a planned break. Cost: some fixes wait for that break. Holds as: every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
+- **The contract is named.** It is the exported identifiers of the root package and the standard runtime packages; the CLI's commands, flags, JSON fields, JSONL event shapes and exit codes; the Event kinds and their documented payload keys; and the HTTP and gRPC contracts, which carry their own version. Cost: every change to these is reviewed as a contract change. Holds as: additions are free, and consumers tolerate unknown Event kinds; a rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
+- **Breaks are rare, versioned and written down.** A confusing abstraction can still be fixed by a planned break. Cost: some fixes wait for that break. Holds as: every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md) (GOALS.md G-G06).
 
 ## When principles collide
 

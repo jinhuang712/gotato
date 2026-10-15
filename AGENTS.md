@@ -1,6 +1,6 @@
 # AGENTS.md — Instructions for Coding Agents Working in Gotato
 
-You are working in the Gotato repository: **a minimal, synchronous, Go-native agent runtime** that is useful on its own and embeds into running, multi-instance Go services (GOALS.md G-G01, G-G02, G-G08). This file tells you how to work here. The constitution is in the documents it points to.
+You are working in the Gotato repository: **a minimal, synchronous, Go-native agent runtime** that is useful on its own and embeds into running, multi-instance Go services (PROPOSAL.md). This file tells you how to work here. The constitution is in the documents it points to.
 
 Every change passes the feature test: *would a Go service embedding an agent want this on its own?* Anything else belongs to an application built on Gotato.
 
@@ -11,8 +11,8 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 2. PHILOSOPHY.md        — the beliefs every change follows
 3. DESIGNS.md           — design principles, their costs and checks, and decisions
 4. GLOSSARY.md          — one name per thing, and its name in today's code
-5. GOALS.md             — goals, non-goals, tradeoffs, compatibility
-6. FEATURES.md          — implementation inventory with status markers
+5. GOALS.md             — goals that pass or fail, and benchmarks tracked against a reference
+6. FEATURES.md          — implementation inventory with status markers, and what is not planned
 7. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 

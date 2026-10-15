@@ -1,149 +1,43 @@
-# Gotato Goals
-
-Goals, boundaries, tradeoffs, and compatibility principles, constrained by [PHILOSOPHY.md](PHILOSOPHY.md) and [DESIGNS.md](DESIGNS.md).
-
-Three criteria define Gotato: G-G01, G-G02, and G-G08. Every feature passes one test:
-
-> **Would a Go service embedding an agent want this on its own?**
-
-What passes belongs in Gotato; what fails belongs to an application (§2).
-
----
-
-## 1. Goals
-
-### G-G01 — A Minimal, Synchronous, Go-Native Agent Runtime
-
-> **Make capable agents an ordinary, lightweight runtime primitive in Go.**
-
-One loop per agent, synchronous calls (`Prompt` returns when the Run settles), and `context.Context` for cancellation. Gotato serves a single embedded Agent and the foundation beneath a much larger application equally well.
-
-### G-G02 — Valuable on Its Own
-
-A developer gets real value from Gotato alone: session continuity, context construction, tool registration, structured events, a provider adapter, CLI diagnostics, and test utilities, ready to use.
-
-### G-G03 — Cheap Execution
-
-Agent configuration and execution stay light enough that applications create and discard bounded agents freely under their own concurrency control. Performance is measured by benchmarks that separate Gotato overhead from model latency, context size, tool processes, and provider behavior.
-
-| Metric | Target |
-|---|---|
-| `NewAgent` + `Close` with a fake model | allocations and wall time independent of other live agents; zero goroutines left after `Close` |
-| Heap per agent (`BenchmarkAgentFootprint`) | a few KB while idle; proportional to the agent's transcript while it works |
-| Committing one message to a Session | cost independent of transcript length |
-| Event subscription | its goroutine is released on `Close` |
-| Building a Context from a Session | linear in the Session's messages since the last compaction |
-
-### G-G04 — Composability
-
-Gotato works as a library, a CLI runtime, and the foundation for desktop products, services, and orchestration systems. Each builds its own role model on the shared core runtime.
-
-### G-G05 — Session and Context
-
-Long-lived continuity is practical, and each model call carries only the context it needs. Session and Context are general enough for applications to project their own semantics onto them.
-
-### G-G06 — Agent-Friendly Development
-
-Coding agents operate the repository through documented Go APIs, deterministic tests, stable CLI commands, machine-readable output, structured events, and clear repository guidance, implementing and validating changes from a terminal.
-
-### G-G07 — Coherent Repository
-
-Gotato grows as a coherent runtime repository of layered packages with small concepts.
-
-### G-G08 — Embedded and Distributed Deployment
-
-Gotato embeds into an already running Go service, including a distributed one deployed across instances:
-
-- Runs are cancellable through `context.Context`, `Runner.CancelRun`, and `Runner.Drain`.
-- State lives behind `session.Store`; any instance holding the Store serves any Session.
-- Multi-instance safety comes from Session ownership across instances (planned, FEATURES.md §Service; the mechanism is open in DESIGNS.md); today the per-Session lock is process-local.
-- Check (not yet met): two instances that share one Store and run the same Session at once never lose a committed Turn. One Run proceeds, and the other waits or fails with a conflict. Measured by a test with two Runners over one shared Store.
-
----
-
-## 2. Boundaries
-
-### G-N01 — Agent Organization Belongs to Applications
-
-Gotato provides peer agents. Applications compose roles, teams, and hierarchies.
-
-### G-N02 — Task Graphs, Scheduling, and Orchestration Belong to Applications
-
-Durable application tasks, task dependency graphs, task scheduling, multi-agent orchestration, integration pipelines, and project-level planning live in the application.
-
-### G-N03 — Global Resource Scheduling Belongs to Applications
-
-Applications that run many agents own global concurrency, CPU and memory protection, build and test limits, provider quotas, and other system-level resource policy. Gotato provides cancellable, lightweight runs those schedulers control.
-
-The `service` package bounds concurrent Runs and serializes Runs per Session; cross-agent CPU, memory, and quota scheduling stays with the deploying application.
-
-### G-N04 — Product UI Belongs to Applications
-
-IDEs and desktop products build on Gotato. Its official CLI is a runtime interface and diagnostic surface.
-
-### G-N05 — Service Mode Is Optional
-
-`gotato serve` and `gotato-grpc` are first-class ways to run Gotato, and library and CLI use stand on their own. All three drive the same `service.Runner`, and the runtime packages are independent of the service.
-
-### G-N06 — Memory Architecture Belongs to Applications
-
-Gotato provides Session, Context, persistence interfaces, and compaction primitives. Applications choose their long-term memory architecture.
-
-### G-N07 — Ordinary Go Is the Workflow Language
-
-Ordinary Go composition is the default. Workflow packages, if any, are optional and keep Agent semantics unchanged.
-
-### G-N08 — Storage Engines Belong to Applications
-
-Gotato defines `session.Store` and the stable shape of a saved Session, and ships the in-memory and file stores. An application backs it with the database it already runs, MySQL, Postgres, Mongo or otherwise, through an adapter that owns the database's schema and migrations.
-
-### G-N09 — Tool Catalogs Belong to MCP Servers and Applications
-
-Gotato provides the `Tool`, `ToolSet`, and `ToolSource` contracts, the Tool Registry, and MCP integration (G-F12). Filesystem, shell, Git, HTTP, and worktree tools, and adapters for skill formats such as SKILL.md (Agent Skills), come from MCP servers or the application.
-
-### G-N10 — Context Organization Beyond Full History Belongs to Applications
-
-Gotato ships full history, static blocks, a tail panel, and compaction. Retrieval, windowing, summarization pipelines, and other context organization strategies are application `ContextBuilder`s.
-
-### G-N11 — Telemetry Backends Belong to Applications
-
-Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or another telemetry framework is an observer in the application or in an extension package.
-
-### G-N12 — Tool Approval Belongs to the Tools
-
-An Agent's tools are written by the team and allowed by name, and an Agent caps the Effect its tools may have. A tool that is risky for some arguments refuses those arguments in its own code. A team that wants an extra check before a call installs a `PreToolUse` extension. Gotato has no built-in approval system.
-
----
-
-## 3. Tradeoffs
-
-### G-T01 — A Larger Standard Runtime in Exchange for Shared Basics
-
-Gotato owns more than an agent loop. Session, Context, Tool Registry, Events, CLI, and Testing add repository size and remove duplicated infrastructure from every application. The constraint is conceptual clarity, not file count.
-
-### G-T02 — More Primitives, Firmer Boundaries
-
-First-class Session and Context stay generic containers. Generic continuity belongs in Gotato; product semantics belong above it.
-
-### G-T03 — Persistence Is Available, Not Required
-
-Gotato ships standard persistence, and every run works without it: the in-memory store is sufficient for library use.
-
-### G-T04 — CLI Stability Is Part of Compatibility
-
-Scripts and coding agents depend on the CLI. Command names, fields, exit codes, and JSON output change only with deliberate compatibility handling.
-
-### G-T05 — Cheap Agents, Bounded Concurrency
-
-Gotato makes agents cheap; safe concurrency limits are set by the application, which owns global scheduling and resource governance.
-
----
-
-## 4. Compatibility Principles
-
-1. **Public Go API.** Exported identifiers in the root package and the standard runtime packages are the contract. Prefer additive change; remove through a documented `// Deprecated:` release first when the cost is reasonable.
-2. **CLI contract.** Command names, flag names, JSON field names, JSONL event shapes, and exit codes are versioned. Additions are free; renames and removals need a migration note.
-3. **Event kinds.** New kinds may be added. Existing kinds and their documented payload keys change only with a migration note. Consumers tolerate unknown kinds.
-4. **Service wire contracts** (HTTP, gRPC) follow their own `ContractVersion`, separate from the runtime contract.
-5. **Breaking changes** are recorded in `CHANGELOG.md` with a before/after example.
-6. **Clarity wins** over preserving a confused abstraction ([DESIGNS.md → Compatibility](DESIGNS.md#compatibility)).
+<!-- what-we-build: approved 2026-10-15 -->
+# Gotato — Goals
+
+GOALS holds two kinds of number. A **goal** is a check Gotato passes or fails, and its number is fixed by its nature: 0 failures, or 100%. A **benchmark** is a number Gotato tracks. Alone it means nothing, so each one names what it is compared with: the previous release, the model's own time, or another stack.
+
+Every number is measured on this repository's own workloads:
+
+- the **reference workload**: a few scripted tasks run in CI with fake models (a short lookup, a 10-Turn conversation, a tool error and its recovery, a Session with 1,000 messages);
+- the **live run**: the same tasks against a real provider with a fixed model, run on demand, because CI has no provider credentials;
+- **fault injection** and a **multi-instance harness** for the checks that need a crash or a second instance.
+
+A method marked *(to build)* does not exist yet; building it is roadmap work. Every number below can also be computed from Events and `Usage` alone, so a team gets the same numbers from its own production telemetry ([DESIGNS.md → Events and telemetry](DESIGNS.md#events-and-telemetry)).
+
+## Goals
+
+| # | Goal | Want it serves | Measure | Method | Status |
+|---|---|---|---|---|---|
+| G-G01 | **Session reconstructable** | No lost conversations | After a crash at any step of a Run, the Session loaded from the store equals the Session at its last committed Turn, and the Context rebuilt from it has the same prefix hash, in 100% of crash points | fault injection at every step of the reference workload *(to build)* | ⬜ Today a crash loses the whole Run. |
+| G-G02 | **No silent stream cutoffs** | Common endpoints | 100% of streams end with a final event. 100% of replies cut by the output limit say so. A client that disconnects mid-stream still gets its Run settled and saved. | fault injection on the HTTP and gRPC streams *(to build)* | ⬜ The final event exists and output-limit cutoffs are reported. Disconnects are not tested. |
+| G-G03 | **Context fidelity** | You see what the model sees | In 100% of Turns, the Context that inspection shows has the same prefix hash as the request the Turn sends | the reference workload compares `context inspect` with each `context_built` Event *(to build)* | ⬜ Both carry the prefix hash; no test compares them. |
+| G-G04 | **No failures caused by Gotato** | "Stable", from the tagline | 0 Runs fail because of Gotato or the store, and 0 tool calls fail because of Gotato. Every failed tool call returns its reason to the model. | the reference workload, with each failure attributed to its cause *(to build)* | ⬜ The data exists (`ToolResult.Status`, stop reasons); nothing counts it. |
+| G-G05 | **Effect cap holds** | Safe tools without a sandbox | 0 tool calls above an Agent's Effect cap run | a test that offers every Effect level to Agents with every cap *(to build)* | ⬜ The cap is not built. |
+| G-G06 | **Breaking changes are written down** | Stable contracts | 100% of breaking changes have a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), and a contract version bump when they touch HTTP or gRPC | review at each release | ⬜ Not audited. |
+| G-G07 | **The cacheable prefix stays stable** | Idle costs almost nothing | Consecutive Turns that only append keep the same prefix hash and the same cache breakpoints | `TestPrefixHashStableAcrossAppendOnlyTurns` | ✅ Passes, 2026-10-15. |
+| G-G08 | **One owner across instances** | One pod at a time | With several instances, concurrent messages and random instance kills, every message lands in exactly one Turn: 0 lost, duplicated or reordered Turns, and 0 model calls by an instance that does not own the Session | multi-instance harness over one shared store *(to build)* | ⬜ The lock is local to one process. |
+
+## Benchmarks
+
+| # | Benchmark | Compared with | Method | Last measured |
+|---|---|---|---|---|
+| G-B01 | **Cache hit rate**: cached input tokens ÷ input tokens, from Turn 2 on | the previous release, and the uncached price: Anthropic charges cached input at 0.1× the base price or less ([Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)) | live run | Not measured. `Usage` records cache reads and writes. |
+| G-B02 | **Token cost per task**: (input + output tokens) × price, per reference task | the previous release, with the same model and task | live run | Not measured. |
+| G-B03 | **Tool-call success rate**, split by cause: the model's arguments, the tool, Gotato | the previous release. Only Gotato's share is a goal (G-G04); the rest belongs to the model and the tools. | live run | Not measured. |
+| G-B04 | **Error rate**, split by cause: the model, the provider after retries, the store, Gotato | the previous release. Only Gotato's and the store's share is a goal (G-G04). | live run | Not measured. |
+| G-B05 | **Gotato's time per Turn**: building the Context, assembling the request, saving | the model's own response time on the same Turn, as a share, and the previous release | reference workload *(to build)* | Not measured. |
+| G-B06 | **Time added before the first token** | the provider's own time to first token | live run | Not measured. |
+| G-B07 | **Cold-load time**: loading a Session from the store before its Turn | the model's own response time, as a share | reference workload, with 10, 100 and 1,000 messages *(to build)* | Not measured. |
+| G-B08 | **Memory per task**: peak heap per Run, and heap per Session in memory | the previous release, and a coding-agent session's 1 GiB starting point ([Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting)) | `BenchmarkAgentFootprint` | About 210 KB with 100 KB of history; 5–7 KB with none. 2026-10-15. |
+| G-B09 | **CPU per Turn**, at 10, 100 and 1,000 messages | the previous release | reference workload *(to build)* | Not measured. |
+| G-B10 | **Startup time**: from process start to ready to serve | the previous release. kagent measured 2.7 s for a Go runtime and 18.2 s for a Python one ([Go vs Python runtime](https://kagent.dev/blog/go-vs-python-runtime)). | a startup benchmark *(to build)* | Not measured. |
+| G-B11 | **Concurrent Runs per instance** before Gotato's time per Turn doubles | the previous release | reference workload under load *(to build)* | Not measured. |
+| G-B12 | **Footprint**: modules and stripped binary of a program that imports the agent, the Runner, a store and the HTTP handler | Google ADK for Go: 128 modules, 14.8 MB | a build script *(to build)* | 3 modules, 3.8 MB. 2026-10-15, Apple M3. |
+| G-B13 | **Time to a first agent**: a developer new to Gotato, from `go get` to an agent answering over HTTP in an existing Go service | nothing yet; the first measurement sets the reference | timed sessions with new developers | Not measured. |

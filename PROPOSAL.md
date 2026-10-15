@@ -190,7 +190,7 @@ Measured 2026-10-15 on an Apple M3, with ADK for Go v2.6.0.
 - **Infrastructure.** Discovery, routing, autoscaling and deployment already exist where your services run.
 - **Ready-made clients.** Bots, schedulers and front ends are the callers' own code. Gotato provides the endpoints they call.
 
-The full list, with reasons: [GOALS.md → Boundaries](GOALS.md#2-boundaries).
+The full list, with reasons: [FEATURES.md → Not planned](FEATURES.md#not-planned).
 
 ## Approach
 

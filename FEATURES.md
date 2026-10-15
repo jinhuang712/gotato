@@ -223,3 +223,81 @@ Root governance documents, package doc comments, `cmd/gotato/README.md` (exit co
 | middleware (auth, logging) | by design | wrap the `http.Handler` / use gRPC interceptors; the adapters carry none |
 
 The service depends on the runtime; the runtime never depends on the service (`layering_test.go`).
+
+## Not planned
+
+What Gotato will not build, and why. Look here before proposing a feature. Each item belongs to the application, an MCP server, or the tools themselves.
+
+### G-N01 — Agent Organization Belongs to Applications
+
+Gotato provides peer agents. Applications compose roles, teams, and hierarchies.
+
+### G-N02 — Task Graphs, Scheduling, and Orchestration Belong to Applications
+
+Durable application tasks, task dependency graphs, task scheduling, multi-agent orchestration, integration pipelines, and project-level planning live in the application.
+
+### G-N03 — Global Resource Scheduling Belongs to Applications
+
+Applications that run many agents own global concurrency, CPU and memory protection, build and test limits, provider quotas, and other system-level resource policy. Gotato provides cancellable, lightweight runs those schedulers control.
+
+The `service` package bounds concurrent Runs and serializes Runs per Session; cross-agent CPU, memory, and quota scheduling stays with the deploying application.
+
+### G-N04 — Product UI Belongs to Applications
+
+IDEs and desktop products build on Gotato. Its official CLI is a runtime interface and diagnostic surface.
+
+### G-N05 — Service Mode Is Optional
+
+`gotato serve` and `gotato-grpc` are first-class ways to run Gotato, and library and CLI use stand on their own. All three drive the same `service.Runner`, and the runtime packages are independent of the service.
+
+### G-N06 — Memory Architecture Belongs to Applications
+
+Gotato provides Session, Context, persistence interfaces, and compaction primitives. Applications choose their long-term memory architecture.
+
+### G-N07 — Ordinary Go Is the Workflow Language
+
+Ordinary Go composition is the default. Workflow packages, if any, are optional and keep Agent semantics unchanged.
+
+### G-N08 — Storage Engines Belong to Applications
+
+Gotato defines `session.Store` and the stable shape of a saved Session, and ships the in-memory and file stores. An application backs it with the database it already runs, MySQL, Postgres, Mongo or otherwise, through an adapter that owns the database's schema and migrations.
+
+### G-N09 — Tool Catalogs Belong to MCP Servers and Applications
+
+Gotato provides the `Tool`, `ToolSet`, and `ToolSource` contracts, the Tool Registry, and MCP integration (G-F12). Filesystem, shell, Git, HTTP, and worktree tools, and adapters for skill formats such as SKILL.md (Agent Skills), come from MCP servers or the application.
+
+### G-N10 — Context Organization Beyond Full History Belongs to Applications
+
+Gotato ships full history, static blocks, a tail panel, and compaction. Retrieval, windowing, summarization pipelines, and other context organization strategies are application `ContextBuilder`s.
+
+### G-N11 — Telemetry Backends Belong to Applications
+
+Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or another telemetry framework is an observer in the application or in an extension package.
+
+### G-N12 — Tool Approval Belongs to the Tools
+
+An Agent's tools are written by the team and allowed by name, and an Agent caps the Effect its tools may have. A tool that is risky for some arguments refuses those arguments in its own code. A team that wants an extra check before a call installs a `PreToolUse` extension. Gotato has no built-in approval system.
+
+### G-N13 — No Cloud Coding Agent
+
+Gotato leaves coding to developers' machines and to coding products. Sessions in the cluster investigate, decide and answer (PHILOSOPHY.md, question 2).
+
+### G-N14 — No Remote Dev Environment, Shell or Sandbox in the Pods
+
+A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product.
+
+### G-N15 — No General-Purpose Assistant
+
+Gotato is for purpose-built agents. A general agent needs people to step in, and a purpose-built agent that needs people needs fixing (PHILOSOPHY.md, question 3).
+
+### G-N16 — No Separate Platform
+
+A platform beside your services is a second system to deploy and operate. Gotato is a library inside the services you already run.
+
+### G-N17 — No Infrastructure
+
+Discovery, routing, autoscaling and deployment already exist where your services run. Gotato behaves correctly when they scale it, and leaves them alone.
+
+### G-N18 — No Ready-Made Clients
+
+Bots, schedulers and front ends are the callers' own code. Gotato provides the HTTP handler, the gRPC service and the Go API they call.
