@@ -3,6 +3,8 @@ package gateway
 import (
 	"strings"
 	"testing"
+
+	gotato "github.com/jinhuang712/gotato"
 )
 
 func TestFunctionNamesStayReadable(t *testing.T) {
@@ -42,5 +44,50 @@ func TestAssignFunctionNameResolvesCollisions(t *testing.T) {
 	}
 	if names[a] != "a_b" || names[b] != "a.b" {
 		t.Fatalf("reverse map = %v", names)
+	}
+}
+
+// A Tool ID that providers accept goes out unchanged even when another ID
+// rewrites to the same name: the rewritten ID takes the hash. Tools are sorted
+// by ID and '.' sorts before '_', so a.b used to claim a_b first, and the
+// chat and Responses adapters named the history's calls before the Tools.
+func TestAcceptedToolIDsKeepTheirNamesInACollision(t *testing.T) {
+	encoders := map[string]func(string, gotato.ModelRequest) ([]byte, map[string]string, error){
+		APIChatCompletions:   encodeRequest,
+		APIResponses:         encodeResponsesRequest,
+		APIAnthropicMessages: encodeAnthropicRequest,
+	}
+	call := gotato.AssistantMessage("")
+	call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: "a.b", Arguments: []byte(`{}`)}}
+	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultOK}}
+	requests := map[string]gotato.ModelRequest{
+		"tools only": {
+			Messages: []gotato.Message{gotato.UserMessage("go")},
+			Tools:    []gotato.ToolSpec{{ID: "a.b"}, {ID: "a_b"}},
+		},
+		"history first": {
+			Messages: []gotato.Message{gotato.UserMessage("go"), call, result},
+			Tools:    []gotato.ToolSpec{{ID: "a.b"}, {ID: "a_b"}},
+		},
+	}
+	for _, api := range wireAPIs {
+		for label, request := range requests {
+			_, names, err := encoders[api]("m", request)
+			if err != nil {
+				t.Fatalf("%s, %s: %v", api, label, err)
+			}
+			if names["a_b"] != "a_b" {
+				t.Errorf("%s, %s: the name a_b belongs to %q, want a_b", api, label, names["a_b"])
+			}
+			hashed := ""
+			for name, id := range names {
+				if id == "a.b" {
+					hashed = name
+				}
+			}
+			if !strings.HasPrefix(hashed, "a_b_") || !plainFunctionName(hashed) {
+				t.Errorf("%s, %s: a.b goes out as %q, want a_b_ plus a hash", api, label, hashed)
+			}
+		}
 	}
 }

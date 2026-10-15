@@ -76,7 +76,10 @@ type anthropicTool struct {
 type blockRef struct{ message, block int }
 
 func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
-	names := make(map[string]string, len(request.Tools))
+	names, err := functionNames(request)
+	if err != nil {
+		return nil, nil, err
+	}
 	payload := anthropicRequest{
 		Model:       model,
 		MaxTokens:   defaultAnthropicMaxTokens,

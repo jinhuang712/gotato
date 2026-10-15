@@ -352,7 +352,10 @@ func retryAfterDuration(header http.Header) time.Duration {
 }
 
 func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
-	names := make(map[string]string, len(request.Tools))
+	names, err := functionNames(request)
+	if err != nil {
+		return nil, nil, err
+	}
 	messages := make([]wireMessage, 0, len(request.Messages)+1)
 	if request.SystemInstructions != "" {
 		messages = append(messages, wireMessage{Role: "system", Content: request.SystemInstructions})

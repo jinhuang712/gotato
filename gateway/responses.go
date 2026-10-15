@@ -144,7 +144,10 @@ type responsesFunctionOutput struct {
 }
 
 func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
-	names := make(map[string]string, len(request.Tools))
+	names, err := functionNames(request)
+	if err != nil {
+		return nil, nil, err
+	}
 	input := make([]any, 0, len(request.Messages)*2)
 	for _, message := range request.Messages {
 		items, err := convertResponsesMessage(message, names)

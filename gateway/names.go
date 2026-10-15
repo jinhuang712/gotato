@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	gotato "github.com/jinhuang712/gotato"
 )
 
 // maxFunctionName is the provider limit on function names
@@ -68,10 +70,40 @@ func shortHash(id string, n int) string {
 	return hex.EncodeToString(sum[:])[:n]
 }
 
+// functionNames names every Tool ID a request uses, its Tools and the Tool
+// Calls in its history, and returns the map from provider name to Tool ID.
+// IDs that providers accept claim their own names first, so when two IDs
+// sanitize to the same name (a.b and a_b), the rewritten one takes the hash
+// and a_b goes out unchanged, whatever order the IDs come in.
+func functionNames(request gotato.ModelRequest) (map[string]string, error) {
+	ids := make([]string, 0, len(request.Tools))
+	for _, spec := range request.Tools {
+		ids = append(ids, spec.ID)
+	}
+	for _, message := range request.Messages {
+		for _, call := range message.ToolCalls {
+			ids = append(ids, call.ToolID)
+		}
+	}
+	names := make(map[string]string, len(ids))
+	for _, id := range ids {
+		if plainFunctionName(id) {
+			names[id] = id
+		}
+	}
+	for _, id := range ids {
+		if _, err := assignFunctionName(names, id); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
+}
+
 // assignFunctionName records the provider name for id in names (provider
-// name -> Tool ID) and returns it. When two IDs sanitize to the same name
-// (a.b and a_b), the later one falls back to a hashed name, so every Tool in
-// a request keeps a distinct name.
+// name -> Tool ID) and returns it. When the name id sanitizes to belongs to
+// another ID, id falls back to a hashed name, so every Tool in a request
+// keeps a distinct name. functionNames runs it over a whole request first,
+// so later calls for the same request only look names up.
 func assignFunctionName(names map[string]string, id string) (string, error) {
 	name := gatewayFunctionName(id)
 	if previous, exists := names[name]; exists && previous != id {
