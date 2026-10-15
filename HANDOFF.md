@@ -16,7 +16,7 @@ The direction, in one line: **agent as a service for Go**, a minimal library tha
 | [PHILOSOPHY.md](PHILOSOPHY.md) | approved | |
 | [DESIGNS.md](DESIGNS.md) | **drafted** | re-approval needed for small fixes: `RunPreparer` added to the extension stages, MCP moved to *Later*, references point to FEATURES G-F27 |
 | [GOALS.md](GOALS.md) | approved | goals that pass or fail, and benchmarks tracked against a reference |
-| [FEATURES.md](FEATURES.md) | **drafted** | rewritten around behavior and checked claim by claim against the code; waiting for review |
+| [FEATURES.md](FEATURES.md) | **drafted** | rewritten around behavior and checked claim by claim against the code; waiting for review. The gateway and Loop fixes merged on 2026-10-16 added claims to G-F01, G-F07, G-F09 and G-F22 that still need that check. |
 | [GLOSSARY.md](GLOSSARY.md) | no mark | the terms every doc uses; also maps each term to its name in today's code |
 | ROADMAP.md | **not written** | next |
 | [README.md](README.md) | old | rewrite last; it still opens with the old tagline |
