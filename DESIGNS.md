@@ -9,107 +9,137 @@ This page holds the choices behind that shape: what each one costs, and how a re
 
 ## TL;DR
 
-The principles by group, then the decisions and the open questions. The details follow below, in the same order. "Not yet" marks a principle the code does not hold yet.
+The principles by group, with their status: ✅ holds, 🚧 holds with a gap named, ⬜ not yet. Then the decisions and the open questions. The details follow below, in the same order.
 
 **Loop**
 
-- One loop, no graph.
-- Limits end every Run.
-- `context.Context` is the only cancellation.
-- Extensions wrap the Loop at fixed stages.
+| Principle | What it means | Status |
+|---|---|---|
+| One loop, no graph | the Loop calls the model and its tools until it answers; no workflow types | ✅ |
+| Limits end every Run | every cap on Turns, tool calls, bytes and time has a default | ✅ |
+| `context.Context` is the only cancellation | every call and stream takes a `ctx` | ✅ |
+| Extensions wrap the Loop at fixed stages | seven stage interfaces; a new stage is a reviewed change | ✅ |
 
 **Agent and Session**
 
-- An Agent is a definition, and a Session runs it.
-- Agents are flat.
-- A Session stays generic.
-- The Transcript and the Context are separate values.
+| Principle | What it means | Status |
+|---|---|---|
+| An Agent is a definition, and a Session runs it | an Agent holds no conversation; one Agent runs many Sessions | ✅ |
+| Agents are flat | no sub-agents or roles; lineage lives in Session metadata | ✅ |
+| A Session stays generic | an application's structure lives in metadata | ✅ |
+| The Transcript and the Context are separate values | the model gets what a `ContextBuilder` builds, never the Transcript itself | ✅ |
 
 **State and the store**
 
-- The store is the truth, and memory is a cache. Not yet.
-- Save every Turn. Not yet.
-- A save never overwrites a newer one. Not yet.
-- Gotato owns the shape, and adapters own the schema.
+| Principle | What it means | Status |
+|---|---|---|
+| The store is the truth, and memory is a cache | any instance can rebuild a Session from the store | ⬜ |
+| Save every Turn | a crash loses at most the Turn in flight | ⬜ |
+| A save never overwrites a newer one | a save from a stale copy fails with a conflict | ⬜ |
+| Gotato owns the shape, and adapters own the schema | a versioned Session shape, mapped onto your database by your adapter | ✅ |
 
 **Context and cost**
 
-- Stable content first, changing content last.
-- Cache markers are neutral in the core.
-- The Context is inspectable.
+| Principle | What it means | Status |
+|---|---|---|
+| Stable content first, changing content last | so the provider's prompt cache keeps working | ✅ |
+| Cache markers are neutral in the core | each wire API maps them to its own form | ✅ |
+| The Context is inspectable | see what the model would get, without calling it | ✅ |
 
 **Tools and safety**
 
-- Every tool declares its Effect.
-- An Agent caps the Effect it allows. Not yet.
-- Tools check their own arguments.
-- No shell and no sandbox in Gotato.
+| Principle | What it means | Status |
+|---|---|---|
+| Every tool declares its Effect | read, write local, write external or destructive; none counts as destructive | ✅ |
+| An Agent caps the Effect it allows | a Run refuses a tool above the cap | ⬜ |
+| Tools check their own arguments | a tool refuses arguments that are unsafe for it | ✅ |
+| No shell and no sandbox in Gotato | tools are Go functions or MCP servers; MCP is not built yet | 🚧 |
 
 **Models**
 
-- Core types belong to no vendor.
-- Providers are configured by wire API.
+| Principle | What it means | Status |
+|---|---|---|
+| Core types belong to no vendor | provider data the core does not understand passes through untouched | ✅ |
+| Providers are configured by wire API | a new vendor is a configuration entry | ✅ |
 
 **Dependencies and layering**
 
-- The core uses only the standard library.
-- Dependencies point inward.
-- Heavy dependencies live in their own module.
-- The Go version stays low.
+| Principle | What it means | Status |
+|---|---|---|
+| The core uses only the standard library | the root module requires only `gopkg.in/yaml.v3` | ✅ |
+| Dependencies point inward | the core never imports the service, the adapters or the CLI | ✅ |
+| Heavy dependencies live in their own module | gRPC is a separate Go module | ✅ |
+| The Go version stays low | the root `go.mod` says `go 1.22` | ✅ |
 
 **Service layer**
 
-- Library first.
-- The service sits on top.
-- The CLI is a thin client.
-- Contracts carry a version.
+| Principle | What it means | Status |
+|---|---|---|
+| Library first | a small `main` runs an Agent with a fake model, with no server | ✅ |
+| The service sits on top | the service composes the core the way an application would | ✅ |
+| The CLI is a thin client | every CLI behavior is reachable through the packages | ✅ |
+| Contracts carry a version | HTTP and gRPC report their contract version | ✅ |
 
 **Events and telemetry**
 
-- Events have a stable shape, and bind to no telemetry framework.
-- Events and `Usage` carry enough to compute every goal and benchmark. Not yet.
+| Principle | What it means | Status |
+|---|---|---|
+| Events have a stable shape, and bind to no telemetry framework | an observer maps them onto your stack | ✅ |
+| Events and `Usage` carry enough to compute every goal and benchmark | a team gets the numbers from its own telemetry | ⬜ |
 
 **Failure**
 
-- A tool fails, or the model gets a tool call wrong: the Run goes on.
-- The model fails: the Run fails, and keeps every Turn it committed.
-- A limit is reached: the Run settles with a status that names the limit.
-- A Session is busy, or the Runner is full: the Run waits or is rejected.
-- A save fails: the Run's error says the result was not persisted.
-- An instance stops gently: it drains its Runs.
-- An instance dies mid-Run: at most the Turn in flight is lost. Not yet.
-- A request reaches an instance that is not running the Session: still open.
+| Case | What happens | Status |
+|---|---|---|
+| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on | ✅ |
+| The model fails | the Run fails, and keeps every Turn it committed | ✅ |
+| A limit is reached | the Run settles with a status that names the limit | ✅ |
+| A Session is busy, or the Runner is full | the new Run waits or is rejected | ✅ |
+| A save fails | the Run's error says the result was not persisted | ✅ |
+| An instance stops gently | it drains its Runs | ✅ |
+| An instance dies mid-Run | at most the Turn in flight is lost | ⬜ |
+| A request reaches an instance that is not running the Session | still open | open |
 
 **Testing**
 
-- Tests never call a network model.
+| Principle | What it means | Status |
+|---|---|---|
+| Tests never call a network model | fakes and recorded replies cover the Loop | ✅ |
 
 **Compatibility**
 
-- The contract is named.
-- Breaks are rare, versioned and written down.
+| Principle | What it means | Status |
+|---|---|---|
+| The contract is named | exported identifiers, CLI output, Event kinds, and the HTTP and gRPC contracts | ✅ |
+| Breaks are rare, versioned and written down | every break has a before-and-after entry in the changelog | ✅ |
 
 **When principles collide**
 
-- Never lose a committed Turn, then stay minimal, then stay cheap.
+| Rule | What it says | Status |
+|---|---|---|
+| The order of priority | never lose a committed Turn, then stay minimal, then stay cheap; the Effect cap is never traded | — |
 
 **Decisions**
 
-- An Agent is a definition, and a Session is the live unit.
-- The store is the truth, and memory is a cache.
-- No approval system.
-- Gotato owns the shapes, and adapters own storage and telemetry.
-- Providers are configured by wire API.
+| Decision | What we chose | Date |
+|---|---|---|
+| An Agent is a definition, and a Session is the live unit | the meaning the labs' agent APIs give both words | 2026-10-15 |
+| The store is the truth, and memory is a cache | a live Session kept warm, with the store as the truth | 2026-10-15 |
+| No approval system | the Effect cap, plus tools that check their own arguments | 2026-10-15 |
+| Gotato owns the shapes, and adapters own storage and telemetry | stable shapes for a Session and its Events, mapped by adapters | 2026-10-15 |
+| Providers are configured by wire API | one implementation per wire API | 2026-09-17 |
 
 **Open questions**
 
-- Ownership across instances.
-- What a warm Session holds.
-- How a Turn is saved.
-- How an adapter proves it meets the store contract.
-- A model catalog.
-- Compaction.
-- What the stored record is called.
+| Question | What is open | Status |
+|---|---|---|
+| Ownership across instances | how one instance runs a Session at a time | open |
+| What a warm Session holds | and what happens to a message that arrives mid-Run | open |
+| How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session | open |
+| How an adapter proves it meets the store contract | for example, with a conformance suite | open |
+| A model catalog | model names, context sizes and prices next to the providers | open |
+| Compaction | when it becomes part of an Agent's definition | open |
+| What the stored record is called | its name once Session means the live unit | open |
 
 ## Loop
 
