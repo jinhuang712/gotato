@@ -5,7 +5,7 @@ Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), wh
 
 An **Agent** definition (its model, instruction, tools and limits) and messages from callers go in, through the Go API, HTTP or gRPC. Answers, a stream of **Events** and a **Session** record in your store come out. In between, a **Runner** inside your service hosts the Session. The Session runs one **Loop** over the model and the tools, saves what each **Turn** commits, and leaves memory when it has been idle for its TTL.
 
-This page holds the choices behind that shape: what each one costs, and how a reviewer can check that it still holds. It describes the design we intend. Where the code does not hold a principle yet, the text says "not yet" and links where the gap is tracked: [TODO.md](TODO.md) for a defect, [FEATURES.md](FEATURES.md) for a planned capability, [GOALS.md](GOALS.md) for a check not yet met. Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md), and behavior lives in [FEATURES.md](FEATURES.md).
+This page holds the choices behind that shape: what each one costs, and how a reviewer can check that it still holds. It describes the design we intend, not the state of the code: what is built is tracked in [FEATURES.md](FEATURES.md), open defects in [TODO.md](TODO.md), and the checks in [GOALS.md](GOALS.md). Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md), and behavior lives in [FEATURES.md](FEATURES.md).
 
 ## TL;DR
 
@@ -181,15 +181,15 @@ The Loop commits to the Transcript, and the model receives what a `ContextBuilde
 
 ### The store is the truth, and memory is a cache
 
-A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory, and the conversation stays in the store. The cost is a write for every committed Turn, and a load before a cold Session answers. The principle holds when killing an instance loses no committed Turn, and two instances never both run one Session. Not yet: neither check exists ([GOALS.md](GOALS.md) G-G01 and G-G08), and today the Runner keeps nothing in memory between Runs ([FEATURES.md](FEATURES.md) G-F27, "Warm Session and TTL").
+A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it: any instance can rebuild the Session from the store. The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory, and the conversation stays in the store. The cost is a write for every committed Turn, and a load before a cold Session answers. The principle holds when killing an instance loses no committed Turn ([GOALS.md](GOALS.md) G-G01), and two instances never both run one Session (G-G08).
 
 ### Save every Turn
 
-Saving after each committed Turn means a crash in the middle of a Run loses at most the Turn in flight. That is a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session. Not yet: the Runner saves once, after the Run settles ([TODO.md](TODO.md)).
+Saving after each committed Turn means a crash in the middle of a Run loses at most the Turn in flight. That is a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session.
 
 ### A save never overwrites a newer one
 
-A save made from a stale copy fails with a conflict, so two saves from the same starting copy cannot both succeed, and callers handle a conflict error. Not yet: `Store.Save` replaces the whole document with no revision check ([TODO.md](TODO.md)).
+A save made from a stale copy fails with a conflict, so two saves from the same starting copy cannot both succeed, and callers handle a conflict error.
 
 ### Gotato owns the shape, and adapters own the schema
 
@@ -217,7 +217,7 @@ The levels are read, write local, write external and destructive. A tool that de
 
 ### An Agent caps the Effect it allows
 
-An Agent names its tools and the highest Effect any of them may have, so a read-only Agent cannot change anything, and a write tool needs an Agent that is allowed to write. A Run refuses a tool above its Agent's cap before calling it. Not yet: the Effect is recorded on each tool call, but no cap exists or is enforced ([FEATURES.md](FEATURES.md) G-F09, "Effect cap per Agent").
+An Agent names its tools and the highest Effect any of them may have, so a read-only Agent cannot change anything, and a write tool needs an Agent that is allowed to write. A Run refuses a tool above its Agent's cap before calling it.
 
 ### Tools check their own arguments
 
@@ -225,7 +225,7 @@ A write that is safe for some arguments and not others is refused by the tool it
 
 ### No shell and no sandbox in Gotato
 
-Tools are Go functions in the service, or tools reached through MCP servers (reason: [PHILOSOPHY.md → 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)), and the module ships no tool that runs commands or code. Work that needs a machine is done elsewhere. Not yet: MCP support is on the *Later* list ([FEATURES.md](FEATURES.md) → Later, G-F12).
+Tools are Go functions in the service, or tools reached through MCP servers (reason: [PHILOSOPHY.md → 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)), and the module ships no tool that runs commands or code. Work that needs a machine is done elsewhere.
 
 ## Models
 
@@ -281,7 +281,7 @@ An observer in the application, or in an extension package, maps Events onto Ope
 
 ### Events and `Usage` carry enough to compute every goal and benchmark
 
-Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, so a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. The cost is that Events carry fields some teams never read. The check is that the reference workload computes its numbers from recorded Events alone. Not yet: the reference workload does not exist.
+Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, so a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. The cost is that Events carry fields some teams never read. The check is that the reference workload computes its numbers from recorded Events alone.
 
 ## Failure
 
@@ -311,11 +311,11 @@ The Run's error says the result was not persisted. The caller retries or reports
 
 ### An instance dies mid-Run
 
-The intended result is that at most the Turn in flight is lost. Not yet: today the whole Run is lost ([TODO.md](TODO.md)).
+At most the Turn in flight is lost.
 
 ### A request reaches an instance that is not running the Session
 
-What happens to a message, a cancel or a stream request there is still open. Today, cancellation and streams work only on the instance that runs the Session (see [Open questions](#open-questions)).
+What happens to a message, a cancel or a stream request there is still open (see [Open questions](#open-questions)).
 
 ## Testing
 
