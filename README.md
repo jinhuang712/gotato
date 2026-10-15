@@ -6,7 +6,7 @@
 
 1. **A minimal, synchronous, Go-native agent runtime.** One loop per agent; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
 2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
-3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from a Session lease (planned).
+3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from Session ownership across instances (planned).
 
 Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([GOALS.md §2](GOALS.md#2-boundaries)).
 
@@ -98,7 +98,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission, drain | done |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
-| Session lease for multi-instance safety | planned |
+| Session ownership across instances | planned |
 | Tool effect classification (`ToolSpec.Effect`) | done |
 | MCP through `ToolSet`/`ToolSource` | planned |
 | Provider rate-limit information | planned |
@@ -109,14 +109,15 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 
 | Document | Role |
 |---|---|
-| [PHILOSOPHY.md](PHILOSOPHY.md) | the worldview |
-| [DESIGN.md](DESIGN.md) | durable engineering rules |
+| [PROPOSAL.md](PROPOSAL.md) | why Gotato exists, and what it refuses to become |
+| [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
+| [DESIGNS.md](DESIGNS.md) | design principles, their costs and checks, and decisions |
+| [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
 | [GOALS.md](GOALS.md) | goals, boundaries, tradeoffs, compatibility |
 | [FEATURES.md](FEATURES.md) | implementation inventory with status markers |
-| [PROPOSAL.md](PROPOSAL.md) | architecture, layers, and packages |
 | [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
 | [GITFLOW.md](GITFLOW.md) | Git policy |
-| [MIGRATION.md](MIGRATION.md) | breaking changes and how to move |
+| [CHANGELOG.md](CHANGELOG.md) | changes per release, with before/after notes for breaking changes |
 
 ## Development
 

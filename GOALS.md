@@ -1,6 +1,6 @@
 # Gotato Goals
 
-Goals, boundaries, tradeoffs, and compatibility principles, constrained by [PHILOSOPHY.md](PHILOSOPHY.md) and [DESIGN.md](DESIGN.md).
+Goals, boundaries, tradeoffs, and compatibility principles, constrained by [PHILOSOPHY.md](PHILOSOPHY.md) and [DESIGNS.md](DESIGNS.md).
 
 Three criteria define Gotato: G-G01, G-G02, and G-G08. Every feature passes one test:
 
@@ -56,7 +56,8 @@ Gotato embeds into an already running Go service, including a distributed one de
 
 - Runs are cancellable through `context.Context`, `Runner.CancelRun`, and `Runner.Drain`.
 - State lives behind `session.Store`; any instance holding the Store serves any Session.
-- Multi-instance safety comes from a Session lease (planned, FEATURES.md §Service); today the per-Session lock is process-local.
+- Multi-instance safety comes from Session ownership across instances (planned, FEATURES.md §Service; the mechanism is open in DESIGNS.md); today the per-Session lock is process-local.
+- Check (not yet met): two instances that share one Store and run the same Session at once never lose a committed Turn. One Run proceeds, and the other waits or fails with a conflict. Measured by a test with two Runners over one shared Store.
 
 ---
 
@@ -94,7 +95,7 @@ Ordinary Go composition is the default. Workflow packages, if any, are optional 
 
 ### G-N08 — Storage Engines Belong to Applications
 
-Gotato defines `session.Store` and ships the in-memory and file stores. An application backs it with the database it already runs, SQLite or otherwise.
+Gotato defines `session.Store` and the stable shape of a saved Session, and ships the in-memory and file stores. An application backs it with the database it already runs, MySQL, Postgres, Mongo or otherwise, through an adapter that owns the database's schema and migrations.
 
 ### G-N09 — Tool Catalogs Belong to MCP Servers and Applications
 
@@ -103,6 +104,14 @@ Gotato provides the `Tool`, `ToolSet`, and `ToolSource` contracts, the Tool Regi
 ### G-N10 — Context Organization Beyond Full History Belongs to Applications
 
 Gotato ships full history, static blocks, a tail panel, and compaction. Retrieval, windowing, summarization pipelines, and other context organization strategies are application `ContextBuilder`s.
+
+### G-N11 — Telemetry Backends Belong to Applications
+
+Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or another telemetry framework is an observer in the application or in an extension package.
+
+### G-N12 — Tool Approval Belongs to the Tools
+
+An Agent's tools are written by the team and allowed by name, and an Agent caps the Effect its tools may have. A tool that is risky for some arguments refuses those arguments in its own code. A team that wants an extra check before a call installs a `PreToolUse` extension. Gotato has no built-in approval system.
 
 ---
 
@@ -136,5 +145,5 @@ Gotato makes agents cheap; safe concurrency limits are set by the application, w
 2. **CLI contract.** Command names, flag names, JSON field names, JSONL event shapes, and exit codes are versioned. Additions are free; renames and removals need a migration note.
 3. **Event kinds.** New kinds may be added. Existing kinds and their documented payload keys change only with a migration note. Consumers tolerate unknown kinds.
 4. **Service wire contracts** (HTTP, gRPC) follow their own `ContractVersion`, separate from the runtime contract.
-5. **Breaking changes** are recorded in `MIGRATION.md` with a before/after example.
-6. **Clarity wins** over preserving a confused abstraction (G-D30).
+5. **Breaking changes** are recorded in `CHANGELOG.md` with a before/after example.
+6. **Clarity wins** over preserving a confused abstraction ([DESIGNS.md → Compatibility](DESIGNS.md#compatibility)).

@@ -42,7 +42,7 @@ test: cover context window strategy boundaries
 chore: add CI workflow
 ```
 
-A body is optional but welcome when the *why* is not obvious from the diff. Reference the constitution rule (`G-D03`, `G-F16`, ...) when a commit exists to satisfy one.
+A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F16`, ...) when a commit exists to satisfy one.
 
 ## Updating and Merging
 
@@ -55,7 +55,7 @@ A body is optional but welcome when the *why* is not obvious from the diff. Refe
 A breaking change to the public Go API, CLI contract, or event kinds must:
 
 1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
-2. add or update an entry in `MIGRATION.md` with a before/after snippet;
+2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
 3. prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low.
 
 ## Generated Files

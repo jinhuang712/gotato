@@ -2,7 +2,7 @@
 
 The standard runtime surface, mapped to packages and files. Update the marker in the same commit that changes the status.
 
-Markers: `[done]` implemented and tested · `[partial]` usable with listed gaps · `[missing]` not started · `[needs-refactor]` exists but conflicts with DESIGN.md. Row status `application` names a seam an application implements; it stays off Gotato's roadmap.
+Markers: `[done]` implemented and tested · `[partial]` usable with listed gaps · `[missing]` not started · `[needs-refactor]` exists but conflicts with DESIGNS.md. Row status `application` names a seam an application implements; it stays off Gotato's roadmap.
 
 ---
 
@@ -97,6 +97,8 @@ Root `model.go`: `Model.Stream`, `ModelRequest{SystemInstructions, Messages, Too
 
 | Item | Status | Where |
 |---|---|---|
+| providers configured by wire API | done | `gateway` YAML: each provider is an endpoint, a key and an `api` (`openai-chat-completions`, `openai-responses`, `anthropic-messages`), so any vendor that speaks one of these APIs works without new code |
+| model catalog | missing | planned: model names, context sizes and prices alongside the provider configuration |
 | OpenAI Chat Completions and Responses | done | `gateway` (SSE, retries, YAML config, API-key auth). A Responses reply that the output limit cut off reports `StopMaxTokens` and drops a Tool call cut short. |
 | Anthropic Messages | done | `gateway` `anthropic-messages`: standard library, `CacheBreakpoints` mapped to `cache_control` (last four kept), thinking blocks replayed through reasoning artifacts, cache reads and writes in `Usage`, 529 retried |
 
@@ -109,6 +111,7 @@ Root `tool.go`, `toolfunc.go`.
 | Tool contract | done | `Tool`, `ToolSpec`, `ToolUse`, `ToolResult` with status and safe error; schema-subset validation before execution |
 | Go function tools | done | `NewFuncTool` derives schemas from Go structs |
 | effect classification | done | `ToolSpec.Effect` (`ToolEffect`): `read` < `write_local` < `write_external` < `destructive`, unspecified ranks as destructive; copied into `ToolUse.Effect` for `PreToolUse`; `ToolWithEffect` sets it on any Tool; `gotato tools --json` shows it |
+| Effect cap per Agent | missing | planned: an Agent sets the highest Effect its tools may have, and a Run refuses a tool above it before calling it; `AgentSpec` has no such field yet (DESIGNS.md → Tools and safety) |
 
 ## G-F10 — Tool Registry `[done]`
 
@@ -195,7 +198,7 @@ README snippets only. Examples for one-shot, persistent session, compaction, for
 
 ## G-F25 — Documentation as Runtime Contract `[partial]`
 
-Root governance documents, package doc comments, `cmd/gotato/README.md` (exit codes, JSON fields), `MIGRATION.md`. Goal: a coding agent can discover the intended semantics of every public package and CLI command from the repository itself.
+Root governance documents, package doc comments, `cmd/gotato/README.md` (exit codes, JSON fields), `CHANGELOG.md`. Goal: a coding agent can discover the intended semantics of every public package and CLI command from the repository itself.
 
 ---
 
@@ -213,7 +216,9 @@ Root governance documents, package doc comments, `cmd/gotato/README.md` (exit co
 | HTTP adapter | done | `service/httpapi` (`ContractVersion "2"`): sessions, runs, SSE stream, events, context, compact, cancel, delete; a settled failed Run is 200 with the outcome, a lost save is 500 |
 | gRPC adapter | done | `adapter/grpc` module, `gotato.v2.SessionService`, `gotato-grpc` binary |
 | `gotato serve` | done | the CLI runs the same Runner behind `httpapi` |
-| multi-process Session lease | missing | the Session lock is process-local; a Store-level lease is planned for multi-instance deployments (GOALS G-G08) |
+| stale-write detection on save | missing | `Store.Save` replaces the whole document; a save does not detect a concurrent write from another instance (TODO.md) |
+| Session ownership across instances | missing | the Session lock is process-local; the mechanism (a lease, a revision checked on save, or both) is an open question in DESIGNS.md (GOALS G-G08) |
+| warm Session and TTL | missing | planned: a Runner keeps a Session in memory while it is in use and frees it after its TTL (60 idle minutes by default); the Store stays the truth; today nothing is kept between Runs (DESIGNS.md → State and the store) |
 | request IDs and idempotency keys | missing | planned on the HTTP and gRPC adapters |
 | middleware (auth, logging) | by design | wrap the `http.Handler` / use gRPC interceptors; the adapters carry none |
 

@@ -1,141 +1,209 @@
-# Gotato Proposal
+<!-- what-we-build: approved 2026-10-15 -->
+# Gotato — Proposal
 
-**Constitution:** [PHILOSOPHY.md](PHILOSOPHY.md) · [DESIGN.md](DESIGN.md) · [GOALS.md](GOALS.md)
-**Inventory:** [FEATURES.md](FEATURES.md) · **Open work:** [TODO.md](TODO.md)
+> **Agent as a service for Go.**
+>
+> A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.
 
----
+Proposed 2026-08-27, rewritten 2026-10-15. Why it is shaped this way: [PHILOSOPHY.md](PHILOSOPHY.md). How it is built: [DESIGNS.md](DESIGNS.md). Terms: [GLOSSARY.md](GLOSSARY.md).
 
-## 1. What Gotato Is
+## In short
 
-> **Gotato is a minimal, synchronous, Go-native agent runtime.**
+Gotato runs purpose-built agents inside the Go services you already operate. It does one thing: it makes the agent session small, cheap and safe to run on many pods.
 
-It is useful on its own and embeds into running Go services deployed across instances; the three defining criteria and the feature test are in [GOALS.md](GOALS.md).
+For most scenarios, a cloud-hosted full session, with a machine for each conversation, is a waste of resources. A purpose-built agent looks things up, decides and answers. For that, a session needs two parts:
 
-Gotato provides the runtime primitives an agentic Go program needs: **Agent, Session, Context, Model, Tool, Tool Registry, Event, Extension, Provider, Persistence, CLI, and Testing.** It is broader than a single agent loop and smaller than an application framework. UI, agent organization, and product semantics live in applications; inside Gotato every agent is a peer.
+- a **loop** that calls the model and the tools it asks for;
+- a **runtime** around the loop that keeps the conversation's state, saves it to your store, and lets it go when it is idle.
 
-## 2. Why the Runtime Is Shaped This Way
+> **A Gotato Session is a minimal agentic loop and a runtime.**
 
-Every agentic application needs the same things: a loop that alternates model calls and tool executions, a record of what happened, a decision about what the model should see now, a registry of capabilities, structured facts about execution, and a way to test all of it without paying a provider. When each application rebuilds these, they diverge in subtle ways and cannot be composed.
+## Pain points
 
-Gotato owns exactly that set. The constraint that keeps it small is conceptual: each primitive answers one question and nothing else.
+When a Go service needs an agent today, four things get in the way.
 
-| Primitive | Question it answers |
-|---|---|
-| Agent | who acts? |
-| Session | what happened? |
-| Context | what does the model see now? |
-| Tool / Tool Registry | what can the agent do, and which of it is visible? |
-| Event | what is happening, as structured facts? |
-| Extension | how do I wrap the loop without replacing it? |
-| Store | where does continuity live? |
-| CLI | how do humans, scripts, and coding agents drive all of the above? |
-| Testkit | how is any of this exercised deterministically? |
+### 1. The agent stack is not Go
 
-Anything that answers an application question (which agent should do this task, how many agents may run, where a project lives, what the UI shows) is built above the runtime.
+The established agent stacks are written in Python, TypeScript or Rust. A Go service that adopts one takes on:
 
-## 3. Runtime Layers
+- a second language and a second build;
+- a second deployment;
+- a second set of dependencies to keep up to date.
 
-| Layer | Package | Contents |
-|---|---|---|
-| core | `gotato` | Agent, loop, Message, Model, Tool, ToolSet, Transcript, ContextBuilder, ToolSource, Events, Extensions, Errors, Limits. Standard library only. |
-| standard runtime | `session` | Session, Store, MemoryStore, FileStore, Fork, Recorder |
-| | `modelctx` | FullHistory, WithStatic, WithPanel, blocks, Inspect, Compact, AutoCompact, summarizers |
-| | `toolregistry` | Registry (register, unregister, lookup, list, describe, activate, deactivate, change hooks) |
-| | `testkit` | FakeModel, ReplayModel, FakeTool, EventRecorder, session fixtures, EchoModel, DemoModel |
-| providers | `gateway` | OpenAI-compatible Chat Completions and Responses adapters (API key), YAML config |
-| service | `service` | `Runner`: Session store, Agent per Run, AgentSpecs, per-Session single flight, admission, cancellation, drain |
-| | `service/httpapi` | HTTP adapter over the Runner |
-| | `adapter/grpc` (module) | gRPC adapter over the Runner and the `gotato-grpc` binary |
-| CLI | `cmd/gotato` | `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` |
+The agent ends up as a separate system beside the service it works for.
 
-Applications sit above all layers. Dependencies point inward (DESIGN.md G-D27).
+### 2. Graph frameworks are heavy for the work
 
-### Package naming
-
-The context package is **`modelctx`** ("what the model sees now") and the testing package is **`testkit`**, so neither collides with the standard library's `context` or `testing` in files that need both; the registry package is **`toolregistry`**.
-
-## 4. Agent, Session, and Context
+Agents are often assembled on graph frameworks such as LangGraph, Deep Agents or Langflow, with a node or a branch for each case. These setups are expensive to run, slow, and hard to develop and debug. In our experience they do not do clearly better than one loop:
 
 ```text
-Session (session.Session)              "what happened"        append-only
-   |  implements gotato.Transcript
-   v
-ContextBuilder (gotato.ContextBuilder) "what the model sees now"
-   |  modelctx: FullHistory · WithStatic · WithPanel
-   v
-ModelContext { SystemInstructions, System[], Messages, Panel[] }
-   |
-   v  gotato.AssembleRequest
-ModelRequest, laid out for prompt caching:
-   ┌ system   instruction + static <blocks>        stable across Runs     ┐ breakpoint
-   ├ tools    sorted ToolSpecs                      stable across Turns   ┤ breakpoint
-   ├ history  m0 … m(n-1)                           append-only prefix    ┤ breakpoint
-   └ tail     m(n) + <panel>dynamic blocks</panel>  changes every Turn    ┘
-   |
-   v
-Agent (gotato.Agent) ---- Tool Registry (gotato.ToolSource / toolregistry.Registry)
-   |
-   v
-Agentic Loop (one)  →  Transcript appends + Events (context_built carries prefix_hash)
+call the model ──► run the tools it asked for ──► repeat until it answers
 ```
 
-- **The agent commits to a Transcript.** `gotato.WithTranscript(session)` makes the agent append every committed message to the Session. Without the option the agent uses a private in-memory transcript, so the two-line embedded path stays two lines.
-- **Within a Session, history is append-only and the Model sees all of it.** Full history is the one built-in selection strategy because it keeps the request prefix stable for provider prompt caches; other projections are application `ContextBuilder`s.
-- **History shrinks only by compaction.** `modelctx.Compact` rewrites a Session prefix into one summary and records a `session.Compaction` naming what was replaced and what replaced it. `modelctx.AutoCompact` applies a token budget (`CompactPolicy{Ceiling, Floor}`) at the start of a Run, through the `RunPreparer` extension stage, the one point where no Turn is using the Transcript. A compaction costs one cache miss; every Turn until the next one hits.
-- **Static first, dynamic last.** `WithStatic` puts stable content (project rules, resources) into the system prompt; `WithPanel` puts per-Turn content (time, cwd, referenced files, state) into a `<panel>` appended to the tail Message. The panel lives only in the request, so the Session and the prefix stay unchanged.
-- **Three formats, three jobs.** Markdown for prose the model reads (instructions, static blocks, summaries); JSON for structured data (tool schemas, arguments, results, `<state>` blocks); XML tags for boundaries and provenance (`<resource path="…">`, `<panel>`), so injected content is cheaply separated from user text.
-- **Only prompt-relevant bytes reach the provider.** `gotato.ForModel` strips message IDs, usage, stop reasons, and runtime metadata; tools are sorted; `CacheBreakpoints` are placed after system, after tools, and before the tail. `context_built` reports `prefix_hash`; two consecutive Turns with the same hash present an identical cacheable prefix.
-- **Forking is a state operation.** `session.Fork` copies state and records the parent Session ID. Lineage belongs to data; agents stay peers.
-- **Tools are visible per Turn.** The agent asks every `ToolSource` for its tools at each Turn boundary and keeps that set for the whole Turn.
+Time spent drawing and debugging the graph is time not spent on the parts only the team can build: auth, tool sets, MCP servers and monitoring.
 
-Every agent in this design is a peer.
+### 3. The conversation lives in one process
 
-## 5. The CLI
-
-`cmd/gotato` is the runtime interface for humans, shell automation, and coding agents. It composes the packages exactly as an application would, and its contract (commands, JSON fields, exit codes) is [cmd/gotato/README.md](cmd/gotato/README.md). `gotato serve` and `gotato-grpc` run the same `service.Runner` over HTTP and gRPC: one code path from library to CLI to service.
-
-## 5a. The Service
-
-Hosted, Gotato is a store of Sessions and a supply of disposable Agents:
+A Go service on Kubernetes runs on many pods, which the autoscaler adds and removes. An agent stack that keeps the conversation in process memory loses it when its pod goes away:
 
 ```text
-POST /v1/sessions/{id}/runs {"prompt": "…"}
-        │
-        v
- service.Runner
-   ① store.Get(id)                      the Session is the unit of identity
-   ② lock(id)                           one Run per Session at a time (reject or wait)
-   ③ agent := NewAgent(spec, WithTranscript(s), WithContextBuilder(…), session.Record(s), AutoCompact(s, …))
-   ④ result := agent.Prompt(ctx, msg)   or StreamRun → SSE / gRPC stream
-   ⑤ agent.Close(); store.Save(s)       the Agent is discarded, the Session persists
-   ⑥ unlock(id)
+pod A: conversation in memory ──► rolling deploy ──► gone
+next message ──► pod B ──► "never seen this conversation"
 ```
 
-An `AgentSpec` is reusable configuration (model, instruction, tools, context builder, extensions, limits, compaction budget); a Session chooses its Spec by name and may override instruction, panel, compaction ceiling, and tool activation through metadata. Because continuity lives in the Store, any process holding the Store can serve any Session; identity is the Session. Today the per-Session lock is process-local; a Session lease (planned) extends it across instances (GOALS.md G-G08). A derived line of work is `session.Fork` plus another Run, with lineage in metadata.
+Pinning each conversation to one pod sends the next message to the right place, until that pod goes away. It also gives up much of what scaling is for.
 
-## 6. Dependency Direction
+### 4. A simple task carries a coding agent's weight
 
-Dependencies point inward, the root package imports only the standard library, and `layering_test.go` enforces both (DESIGN.md G-D27).
+Coding-agent harnesses are built to write code, so each session brings a machine with it. Anthropic's hosting guide for its Agent SDK starts each session at:
 
-## 7. Evolving the Runtime
+```text
+1 GiB RAM · 5 GiB disk · 1 CPU · one subprocess
+```
 
-Compatibility and breaking changes follow GOALS.md §4 and DESIGN.md G-D30. New concepts answer the admission questions in DESIGN.md §Governance first, and a feature is done when it has a fake-model test and, when user-visible, a CLI scenario.
+The guide calls the 1 GiB "a floor, not the ceiling". A conversation is idle most of the time, so this cost runs while nothing happens.
 
-## 8. Direction
+## The shift
 
-[FEATURES.md](FEATURES.md) is the authoritative inventory; its `missing` and `partial` items define the direction.
+Each of these pains has started to ease, because six things changed, most of them recently.
 
-## 9. What Belongs Where
+**1. From one model call to an agent loop.** An AI feature used to be one prompt and one reply. Now an agent calls the model and its tools many times for one request, and keeps the conversation for the next one.
 
-| Concern | Belongs in |
-|---|---|
-| the loop, messages, model/tool contracts, events, extensions, limits | core (`gotato`) |
-| continuity, persistence, fork, compaction records | `session` |
-| what the model sees now, inspection, compaction operation | `modelctx` |
-| tool identity, visibility, activation | `toolregistry`, `ToolSet` |
-| provider wire formats and credentials | `gateway` and future provider packages |
-| deterministic doubles | `testkit` |
-| human/script/agent operation | `cmd/gotato` |
-| Session store + Agent per Run, admission, cancellation, remote exposure | `service`, `service/httpapi`, `adapter/grpc` |
-| roles, task graphs, scheduling, orchestration, project state, UI, memory systems | the application (GOALS §2) |
-| database-backed stores, concrete tool packages, skill adapters, other context strategies | the application, through `session.Store`, `Tool`/`ToolSet`, and `ContextBuilder` |
+**2. From graph frameworks to a thin harness.** The labs settled on one shape, a loop around the model, its tools and its context, and ship it as a product. As models get better at planning and at recovering from errors, they take over the work that graph nodes used to do. [PHILOSOPHY.md](PHILOSOPHY.md) argues this.
+
+> "The Agent SDK gives you the same tools, agent loop, and context management that power Claude Code." — Anthropic, *Agent SDK overview*
+
+**3. From a machine to a loop and its state.** Early agent stacks gave each conversation a whole machine. The labs now keep the loop apart from the environment, and make the environment optional:
+
+```text
+before                               now
+┌──────── one conversation ────┐     ┌──── one conversation ────┐
+│ loop + state                 │     │ loop + state             │
+│ filesystem · shell · sandbox │     └──────────────────────────┘
+│ one process, 1 GiB or more   │       environment: optional
+└──────────────────────────────┘
+```
+
+> "The harness can work without an environment, and your application can receive progress through streaming or webhooks." — OpenAI, *Agents API: architecture*
+
+**4. From a laptop process to many pods.** Agents are moving from a developer's machine into services, and services already run on many pods.
+
+**5. From Python, TypeScript and Rust to Go.** Agent tooling now arrives in the language that cloud services run on: Google ADK for Go, Eino, Genkit for Go. kagent measured the same minimal agent at 253 Mi idle on its Python runtime and 7 Mi on its Go runtime.
+
+**6. From coding agents to purpose-built agents.** Coding agents are the best known. Most agent work inside a running system is narrower, and needs tools and data rather than a machine:
+
+- the hard cases inside a pipeline, after rules and a single model call run out;
+- investigations, started by an alert or a schedule, that end in a report;
+- conversations with users that need the service's own tools and records.
+
+[PHILOSOPHY.md](PHILOSOPHY.md) explains why this work needs no machine of its own.
+
+## The idea
+
+Gotato splits an agent in two. An **Agent** is a definition, written once. A **Session** is one conversation that runs it:
+
+```text
+Agent      a definition: model · instruction · tools · limits
+  │ runs many
+  ▼
+Session    one conversation: a loop and a runtime
+  ├─ loop        calls the model and the tools
+  ├─ Transcript  everything that happened, saved to your store
+  ├─ status      idle · running · failed
+  └─ TTL         leaves memory after 60 idle minutes, by default
+```
+
+A few words in the diagram need a line each:
+
+- a **Turn** is one model call and the tools it asked for;
+- the **TTL** (time to live) is how long an idle Session stays in memory;
+- a **Runner** is the part of your service that hosts Sessions.
+
+Between messages, a Session is its record in your store. A pod keeps it in memory while it is in use, and lets it go after its TTL. The conversation stays in your store, so any pod can load it again and continue.
+
+A Session needs no process, shell or sandbox of its own. A Go service hosts Sessions the way it serves any other request.
+
+## What we want
+
+Gotato should behave like any other library in the service: easy to add, safe to scale, simple to follow. These are what Gotato is built toward. [DESIGNS.md](DESIGNS.md) marks the ones the code does not meet yet.
+
+### It fits into your service
+
+- **A library, not a new stack.** Gotato arrives with `go get`. It builds, tests and deploys with the service, on the CI/CD the team already runs.
+- **A small footprint.** The core uses only the Go standard library. Gotato adds a few modules and a few megabytes to a service, and runs on Go 1.22.
+- **Your storage and your telemetry.** Gotato defines stable shapes for a Session and for its Events, the facts it reports as it works. Your adapter maps them onto the database you run, such as MySQL, Postgres or Mongo, and onto the telemetry stack you run.
+- **Any model provider.** A provider is configuration: an endpoint, a key, a wire API (the request format it speaks) and its models. Any vendor that speaks a supported wire API works without new code.
+- **Common endpoints.** Gotato provides an HTTP handler, a gRPC service and a Go API. A bot, a job or another service talks to a Session like any other API.
+
+### It runs on many pods
+
+- **No lost conversations.** A Session saves every Turn it completes. When its pod goes away, another pod loads it and continues.
+- **One pod at a time.** Two pods never run or write the same Session at once.
+- **Idle costs almost nothing.** A waiting Session holds no process and no sandbox, and after its TTL it holds no memory either. Each request to the model is laid out so that the provider can reuse its cached prefix from one Turn to the next, which lowers the token bill.
+
+### It stays simple
+
+Gotato owns the loop and the Session. Everything that differs from team to team plugs in:
+
+```text
+Gotato:  loop ── Session ── Context
+you:     store · model provider · tools · MCP servers · auth · telemetry
+```
+
+- **One loop, no workflow language.** The model plans the steps, and ordinary Go code decides when to call an agent.
+- **You see what the model sees.** The Context is built from the Transcript on every Turn, and you can inspect it exactly as it is sent.
+- **Safe tools without a sandbox.** Each tool declares its Effect: read, write local, write external or destructive. An Agent allows only the tools it names, up to the highest Effect it permits, and each tool checks its own arguments.
+
+### It stays stable
+
+- **Stable contracts.** The Go API, the HTTP and gRPC contracts and the shape of a saved Session change only through versioned breaks, with before-and-after notes in [CHANGELOG.md](CHANGELOG.md).
+
+## Where Gotato fits
+
+Several good options exist for building agents, and each makes a different choice. Gotato's choice is the smallest library that still runs on many pods.
+
+- **Lab harness libraries**, such as the Claude Agent SDK, offer the full coding-agent harness in Python or TypeScript, with one subprocess per session. In Gotato, a Session is a goroutine while it works and a record in your store while it waits.
+- **Lab-hosted agents**, such as Claude Managed Agents and the OpenAI Agents API, run the loop for you and keep the session on their side. Gotato runs the loop inside your service, with any provider.
+- **Go composition frameworks**, such as Eino, offer components and graphs to assemble, and leave conversation storage to the application. Gotato offers one loop with Sessions built in.
+- **Batteries-included Go toolkits**, such as Google ADK for Go, offer agents, workflows, sub-agents, A2A, database sessions and a REST server. Gotato offers one loop and one Session.
+
+The footprint follows from that choice. A program that imports each library's agent, runner, session store and HTTP server, and does nothing else, measures:
+
+```text
+                                   Gotato    Google ADK for Go
+modules in the build graph         3         128
+non-standard-library packages      23        370
+binary, stripped                   3.8 MB    14.8 MB
+minimum Go version                 1.22      1.26.6
+```
+
+Measured 2026-10-15 on an Apple M3, with ADK for Go v2.6.0.
+
+## What we don't want
+
+- **A cloud coding agent.** Gotato leaves coding to developers' machines and to coding products. Sessions in the cluster investigate, decide and answer.
+- **A remote dev environment.** Shells, browsers and build tools stay out of the pods. A Session acts only through the tools its Agent allows.
+- **A general-purpose assistant.** Gotato is for purpose-built agents. A general agent needs people to step in, and a purpose-built one should not.
+- **A workflow or graph language.** One loop covers the work, and ordinary Go code covers what comes before and after it.
+- **An approval system.** The team chooses and writes the tools, and each tool checks its own arguments. A step that needs a person is a tool that hands the step over, for example by opening a ticket.
+- **A separate platform.** A platform beside your services is a second system to deploy and operate.
+- **Infrastructure.** Discovery, routing, autoscaling and deployment already exist where your services run.
+- **Ready-made clients.** Bots, schedulers and front ends are the callers' own code. Gotato provides the endpoints they call.
+
+The full list, with reasons: [GOALS.md → Boundaries](GOALS.md#2-boundaries).
+
+## Approach
+
+- **Go**, with a core that uses only the standard library.
+- **An Agent** defines, **a Session** runs it, and **a Runner** hosts Sessions inside your service.
+- **The store is the truth.** A Session lives in your store, and memory only keeps it warm.
+- **Stable shapes** for a Session and its Events, which your adapters map onto your database and your telemetry.
+- **Tools** are Go functions or MCP servers, each with an Effect.
+- **Models** come through providers configured by wire API, or through your own client.
+
+## Sources
+
+- Anthropic, *Agent SDK overview* — https://code.claude.com/docs/en/agent-sdk/overview
+- Anthropic, *Hosting the Agent SDK* — https://code.claude.com/docs/en/agent-sdk/hosting
+- OpenAI, *Agents API: architecture* — https://developers.openai.com/api/docs/guides/agents-api/architecture
+- kagent, *Go vs Python runtime* — https://kagent.dev/blog/go-vs-python-runtime

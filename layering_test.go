@@ -11,9 +11,9 @@ import (
 
 const modulePath = "github.com/jinhuang712/gotato"
 
-// TestLayering enforces DESIGN.md G-D27: the root package imports only the
-// standard library, and standard runtime packages never import the optional
-// service layer or the CLI.
+// TestLayering enforces DESIGNS.md → Dependencies and layering: the root
+// package imports only the standard library, and standard runtime packages
+// never import the optional service layer or the CLI.
 func TestLayering(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Dir(file)

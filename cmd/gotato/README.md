@@ -185,4 +185,4 @@ gotato session fork "$id" --json | jq .parent_id
 
 ## Compatibility
 
-Command names, flag names, JSON field names, JSONL shapes, and exit codes are part of the runtime contract. Fields may be added; renames and removals require a `MIGRATION.md` entry.
+Command names, flag names, JSON field names, JSONL shapes, and exit codes are part of the runtime contract. Fields may be added; renames and removals require a breaking-change entry in `CHANGELOG.md`.

@@ -7,12 +7,13 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 ## Read Order
 
 ```text
-1. PHILOSOPHY.md        — the worldview every change follows
-2. DESIGN.md            — durable engineering rules (G-Dxx)
-3. GOALS.md             — goals, non-goals, tradeoffs, compatibility
-4. FEATURES.md          — implementation inventory with status markers
-5. PROPOSAL.md          — architecture, layers, and packages
-6. relevant package docs and tests (start with the *_test.go next to what you change)
+1. PROPOSAL.md          — why Gotato exists, and what it refuses to become
+2. PHILOSOPHY.md        — the beliefs every change follows
+3. DESIGNS.md           — design principles, their costs and checks, and decisions
+4. GLOSSARY.md          — one name per thing, and its name in today's code
+5. GOALS.md             — goals, non-goals, tradeoffs, compatibility
+6. FEATURES.md          — implementation inventory with status markers
+7. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 
 These root documents are the single source of truth for Gotato's design.
@@ -21,9 +22,9 @@ These root documents are the single source of truth for Gotato's design.
 
 - **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
 - **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
-- **Keep Agent, Session, Context separate.** The agent commits to a `Transcript` (Session); the model receives the output of a `ContextBuilder` (Context). Model input is always a built value, separate from the full history.
+- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. The code still uses older names (`gotato.Agent` is the Loop); GLOSSARY.md maps them.
 - **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
-- **Keep Context as model-view construction**, built from the Session per turn.
+- **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
 - **Keep the service on top.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service by composing it; Agent semantics stay in the runtime. Core and standard runtime packages must never import them.
 - **UI lives in applications.** Gotato's human-facing surface is CLI output; widgets, TUIs, and desktop state belong above it.
@@ -31,7 +32,7 @@ These root documents are the single source of truth for Gotato's design.
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep dependencies layered** (DESIGN.md G-D27). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
+- **Keep dependencies layered** (DESIGNS.md → Dependencies and layering). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow
@@ -47,9 +48,27 @@ These root documents are the single source of truth for Gotato's design.
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
 5. **Use CLI integration tests** (`cmd/gotato/cli_test.go`) for user-visible runtime behavior; assert on JSON, not on prose.
-6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, `cmd/gotato/README.md` for CLI changes, and `MIGRATION.md` for breaks.
+6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, `cmd/gotato/README.md` for CLI changes, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
 7. **Do not silently break CLI JSON schemas or exit codes.** Add fields; do not rename or remove without a migration note.
 8. **Format**: `gofmt -l .` must print nothing.
+
+## Editing the Project Documents
+
+When the user points out a change to a document, re-read the whole document before editing. A wrong word or row usually comes from an idea that appears in other places too. Find every place the idea appears, and rewrite them together so the document stays consistent. Do not patch only the spot the user pointed at.
+
+When writing or rewriting a project document:
+
+- **Use the GLOSSARY.md terms.** One name per thing. Explain a term the first time a reader meets it.
+- **Keep the tone calm, pragmatic and narrative.** State Gotato's own stance ("we consider …"). Never claim what other people or teams want or do.
+- **Never write "company".** Say "you", "your", "the team" or "the service". Examples stay generic, with no real organization's names or internal details.
+- **Write few sentences.** Carry the argument with bullets, blockquotes, small text blocks and ASCII diagrams. Introduce every diagram or code block with a sentence that says what it shows. Include code only when it is very simple.
+- **Use a table only for a real side-by-side comparison,** never as the default layout.
+- **Use plain words, not slogans.** Bold a stance line only when the maintainer said or approved it.
+- **In PROPOSAL.md,** the pain points come before the shift, and *What we want* describes needs; it does not answer the pains one by one. The proposal is a pitch.
+- **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
+- **Quote only where the quote does real work,** and check every quote word for word against the original.
+- **Never name Pi or compare Gotato to it** ("pi-like"). The README's origin note is attribution and stays.
+- **Keep the review mark.** PROPOSAL, PHILOSOPHY and DESIGNS open with `<!-- what-we-build: approved|drafted YYYY-MM-DD -->`. Any edit sets the mark back to `drafted`, with the date, until the maintainer approves again.
 
 ## Deterministic Testing Toolkit
 
