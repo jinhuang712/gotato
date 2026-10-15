@@ -136,7 +136,7 @@ A provider is configuration, not code. Any vendor that speaks a supported wire A
 - Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY` and `GOTATO_GATEWAY_MODEL`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
-- On the chat and Responses APIs, a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
+- On every wire API (chat, Responses and Anthropic Messages), a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
 - On the chat API, a thinking model's `reasoning_content` is kept as reasoning and sent back on the next call, as DeepSeek requires.
 - `gateway.WithRequestHeaders` adds headers to one Run's requests through its context, for a provider that routes each conversation by a header. Neither these nor the configured `headers` can replace the authentication, content-type or streaming headers. `User-Agent` defaults to `gotato/0.1`.
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.

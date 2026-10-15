@@ -41,6 +41,7 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
 		blocks:   make(map[int]*anthropicBlockState),
+		restart:  restarter{client: c, body: body, open: c.do},
 	}, nil
 }
 
@@ -326,6 +327,7 @@ type anthropicStream struct {
 	usage     anthropicUsage
 	stop      gotato.StopReason
 	finished  bool
+	restart   restarter
 	closeOnce sync.Once
 }
 
@@ -339,10 +341,16 @@ func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		}
 		data, err := readSSEEvent(ctx, s.reader)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return gotato.ModelEvent{}, fmt.Errorf("gateway: stream ended before message_stop: %w", io.ErrUnexpectedEOF)
+			response, rerr := s.restart.recover(ctx, err)
+			if rerr != nil {
+				var gerr *Error
+				if errors.Is(err, io.EOF) && errors.As(rerr, &gerr) {
+					gerr.Message = "Anthropic stream ended before message_stop (" + gerr.Message + ")"
+				}
+				return gotato.ModelEvent{}, rerr
 			}
-			return gotato.ModelEvent{}, err
+			s.reopen(response)
+			continue
 		}
 		if data == "" {
 			continue
@@ -357,7 +365,22 @@ func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
+	s.restart.delivered = true
 	return event, nil
+}
+
+// reopen continues on a re-issued response, discarding everything decoded
+// from the interrupted one (nothing of it reached the caller).
+func (s *anthropicStream) reopen(response *http.Response) {
+	if s.response != nil && s.response.Body != nil {
+		_ = s.response.Body.Close()
+	}
+	s.response = response
+	s.reader = bufio.NewReader(response.Body)
+	s.blocks = make(map[int]*anthropicBlockState)
+	s.queue = nil
+	s.usage = anthropicUsage{}
+	s.stop = ""
 }
 
 func (s *anthropicStream) process(event anthropicEvent) error {

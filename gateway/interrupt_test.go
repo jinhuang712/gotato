@@ -286,3 +286,73 @@ func TestResponsesStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 		t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
 	}
 }
+
+const anthropicStart = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n"
+
+func TestAnthropicStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			dropConnection(t, w, anthropicStart)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		bw := bufio.NewWriter(w)
+		for _, data := range []string{
+			`{"type":"message_start","message":{"usage":{"input_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+			`{"type":"message_stop"}`,
+		} {
+			fmt.Fprintf(bw, "data: %s\n\n", data)
+		}
+		_ = bw.Flush()
+	}))
+	defer server.Close()
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 1, RetryBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	events, err := recvAll(t, stream)
+	if err != nil || textOf(events) != "ok" || events[len(events)-1].Kind != gotato.ModelDone {
+		t.Fatalf("events = %+v, err = %v", events, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("HTTP attempts = %d, want 2", calls.Load())
+	}
+}
+
+func TestAnthropicStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		dropConnection(t, w, anthropicStart+
+			"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"+
+			"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n")
+	}))
+	defer server.Close()
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	events, err := recvAll(t, stream)
+	var gerr *Error
+	if textOf(events) != "partial" || !errors.As(err, &gerr) || !gerr.Retryable {
+		t.Fatalf("events = %+v, err = %v", events, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
+	}
+}

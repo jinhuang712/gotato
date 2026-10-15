@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -275,7 +276,7 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m"})
+			client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", MaxRetries: 1, RetryBackoff: time.Millisecond})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -292,7 +293,7 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 					t.Fatalf("err = %v", err)
 				}
 			case "truncated":
-				if !errors.Is(err, io.ErrUnexpectedEOF) {
+				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable || !strings.Contains(gatewayErr.Message, "before message_stop") {
 					t.Fatalf("err = %v", err)
 				}
 			}
