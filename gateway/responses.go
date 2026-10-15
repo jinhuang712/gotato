@@ -259,13 +259,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 			if err != nil {
 				return nil, err
 			}
-			arguments := string(call.Arguments)
-			if arguments == "" {
-				arguments = "{}"
-			}
-			if !json.Valid([]byte(arguments)) {
-				return nil, fmt.Errorf("gateway: Tool Call %q has invalid arguments", call.ID)
-			}
+			arguments := string(replayArguments(call.Arguments))
 			callID, itemID := splitResponsesCallID(string(call.ID))
 			items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
 		}

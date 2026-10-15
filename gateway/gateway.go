@@ -426,9 +426,22 @@ func convertMessage(message gotato.Message, names map[string]string) (wireMessag
 		if err != nil {
 			return wireMessage{}, err
 		}
-		out.ToolCalls = append(out.ToolCalls, wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(call.Arguments)}})
+		out.ToolCalls = append(out.ToolCalls, wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}})
 	}
 	return out, nil
+}
+
+// replayArguments returns a past Tool Call's arguments in a form every wire
+// API accepts back: the arguments themselves when they are a JSON object, and
+// {} otherwise. A call whose arguments are not an object (most often one the
+// output limit cut off) never ran; the failed Tool Result after it tells the
+// model why. Sending the broken text back would make the provider refuse the
+// whole request, and so end the Run the Loop meant to continue.
+func replayArguments(arguments []byte) []byte {
+	if trimmed := bytes.TrimSpace(arguments); len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
+		return arguments
+	}
+	return []byte(`{}`)
 }
 
 // toolResultText renders a Tool Result Message as text for a provider. Every

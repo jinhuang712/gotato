@@ -206,14 +206,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string) (string, [
 			if err != nil {
 				return "", nil, err
 			}
-			input := call.Arguments
-			if len(input) == 0 {
-				input = []byte(`{}`)
-			}
-			if !json.Valid(input) {
-				return "", nil, fmt.Errorf("gateway: Tool Call %q has invalid arguments", call.ID)
-			}
-			blocks = append(blocks, anthropicBlock{"type": "tool_use", "id": string(call.ID), "name": name, "input": json.RawMessage(input)})
+			blocks = append(blocks, anthropicBlock{"type": "tool_use", "id": string(call.ID), "name": name, "input": json.RawMessage(replayArguments(call.Arguments))})
 		}
 		return "assistant", blocks, nil
 	default:
