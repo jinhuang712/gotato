@@ -49,3 +49,81 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 		t.Fatalf("text bytes = %d", result.Metrics.TextBytes)
 	}
 }
+
+// A reasoning block that streams no deltas still ends with its own
+// ModelReasoningDone: an Anthropic redacted_thinking block, a thinking block
+// with its display omitted, a Responses reasoning item without a summary. The
+// Agent signed the last reasoning Part on every Done, so the second block's
+// signature overwrote the first block's, and the first block was lost on
+// replay. Each Done that finds no unsigned reasoning Part starts a new one.
+func TestReasoningDoneWithoutDeltasKeepsEachBlock(t *testing.T) {
+	first := []byte(`{"type":"thinking","thinking":"think","signature":"s1"}`)
+	second := []byte(`{"type":"redacted_thinking","data":"d2"}`)
+	for _, tc := range []struct {
+		name   string
+		events []ModelEvent
+		want   []ContentPart
+	}{
+		{
+			name: "thinking then redacted",
+			events: []ModelEvent{
+				{Kind: ModelReasoningDelta, Text: "thi"},
+				{Kind: ModelReasoningDelta, Text: "nk"},
+				{Kind: ModelReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelTextDelta, Text: "answer"},
+				{Kind: ModelDone, StopReason: StopEndTurn},
+			},
+			want: []ContentPart{
+				{Kind: ContentReasoning, Text: "think", Signature: first},
+				{Kind: ContentReasoning, Signature: second},
+				{Kind: ContentText, Text: "answer"},
+			},
+		},
+		{
+			name: "two blocks without deltas",
+			events: []ModelEvent{
+				{Kind: ModelReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelTextDelta, Text: "answer"},
+				{Kind: ModelDone, StopReason: StopEndTurn},
+			},
+			want: []ContentPart{
+				{Kind: ContentReasoning, Signature: first},
+				{Kind: ContentReasoning, Signature: second},
+				{Kind: ContentText, Text: "answer"},
+			},
+		},
+		{
+			name: "signed block after text",
+			events: []ModelEvent{
+				{Kind: ModelReasoningDelta, Text: "think"},
+				{Kind: ModelReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelTextDelta, Text: "answer"},
+				{Kind: ModelReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelDone, StopReason: StopEndTurn},
+			},
+			want: []ContentPart{
+				{Kind: ContentReasoning, Text: "think", Signature: first},
+				{Kind: ContentText, Text: "answer"},
+				{Kind: ContentReasoning, Signature: second},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &testModel{scripts: [][]ModelEvent{tc.events}}
+			agent, err := NewAgent(WithModel(model))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = agent.Close(context.Background()) }()
+			result, err := agent.Prompt(context.Background(), UserMessage("go"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := result.FinalMessage.Parts; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("parts = %#v\nwant %#v", got, tc.want)
+			}
+		})
+	}
+}

@@ -1178,6 +1178,10 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning, Text: modelEvent.Text})
 			}
 		case ModelReasoningDone:
+			// The Done signs the block its deltas opened. A block that
+			// streamed no deltas (redacted, or with its display omitted)
+			// finds the last reasoning Part already signed, and gets a Part
+			// of its own instead of overwriting that signature.
 			partIndex := -1
 			for i := len(assistant.Parts) - 1; i >= 0; i-- {
 				if assistant.Parts[i].Kind == ContentReasoning {
@@ -1185,7 +1189,7 @@ func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *ui
 					break
 				}
 			}
-			if partIndex == -1 {
+			if partIndex == -1 || len(assistant.Parts[partIndex].Signature) > 0 {
 				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning})
 				partIndex = len(assistant.Parts) - 1
 			}
