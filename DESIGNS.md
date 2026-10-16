@@ -85,7 +85,7 @@ The principles by group, then the decisions and the open questions. The details 
 | Principle | What it means |
 |---|---|
 | Events have a stable shape, and bind to no telemetry framework | an observer maps them onto your stack |
-| Events and `Usage` carry enough to compute every goal and benchmark | a team gets the numbers from its own telemetry |
+| Events and `Usage` carry enough to compute every number about a Run | a team gets those numbers from its own telemetry |
 
 **Failure**
 
@@ -134,7 +134,7 @@ The principles by group, then the decisions and the open questions. The details 
 | Question | What is open |
 |---|---|
 | Ownership across instances | how one instance runs a Session at a time |
-| What a warm Session holds | and what happens to a message that arrives mid-Run |
+| What a warm Session holds | what happens to a message that arrives mid-Run, and which Events report it |
 | How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
 | How an adapter proves it meets the store contract | for example, with a conformance suite |
 | A model catalog | model names, context sizes and prices next to the providers |
@@ -404,12 +404,12 @@ An observer in the application, or in an extension package, maps Events onto Ope
 - **Cost:** there is no tracing out of the box.
 - **Check:** the root module imports no telemetry package.
 
-### Events and `Usage` carry enough to compute every goal and benchmark
+### Events and `Usage` carry enough to compute every number about a Run
 
-Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`. So a team gets the numbers in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state.
+Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, down to the store's time to load and save a Session. So a team gets the numbers about a Run in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. Memory, startup time and footprint describe the process, not a Run, and come from benchmarks.
 
 - **Cost:** Events carry fields that some teams never read.
-- **Check:** the reference workload computes its numbers from recorded Events alone.
+- **Check:** the reference workload computes its numbers about a Run from recorded Events alone.
 
 ## Failure
 
@@ -560,6 +560,20 @@ This gets its own design discussion before anything is built. One requirement is
 ### What a warm Session holds
 
 What a warm Session keeps in memory is open, and so is what happens to a message that arrives while a Run is in progress: it is queued, steered into the Run, or rejected as busy.
+
+The Events that report a message's way into a Session are open with it, because their names and fields follow from that choice. Today only the moment the Loop commits a message has one. This table shows each step of the way in:
+
+| Step | What happens | Event |
+|---|---|---|
+| A `Steer` or `FollowUp` reaches the Loop | it waits in a bounded buffer | none |
+| The buffer is full | the caller gets `limit_exceeded` | none |
+| The Loop commits it | a Steer between Turns, a FollowUp where the Run would settle | `message_start` and `message_end`, with `source` |
+| The Run ends before the Loop reads it | it is dropped | none |
+| A new Run reaches a busy Session | it is rejected as busy, or waits for the lock | none |
+| The Runner is full | the Run is rejected | none |
+| A caller asks to cancel | the Run settles as cancelled | only `agent_end`, so the time from the request to the cancel is unknown |
+
+Some of these steps happen before any Run starts, so their Events cannot belong to a Run. They may need a stream of the Runner's own, which ties this question to [Ownership across instances](#ownership-across-instances).
 
 ### How a Turn is saved
 

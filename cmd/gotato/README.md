@@ -74,7 +74,7 @@ Creates a session when `--session` is omitted. `-` reads the prompt from stdin. 
 }
 ```
 
-`--events jsonl` streams every runtime event as one JSON line while the run executes (`agent_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `agent_end`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`.
+`--events jsonl` streams every runtime event as one JSON line while the run executes (`session_loaded` or, for a new session, `session_saved`, then `agent_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `agent_end` and `session_saved`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`. The `session_*` lines time the store and carry `elapsed_ms`.
 
 Human mode prints the final text on stdout and a one-line status on stderr.
 

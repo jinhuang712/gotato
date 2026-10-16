@@ -28,14 +28,14 @@ Why this order:
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.**
 
-## Phase 1 — Measure 🚧
+## Phase 1 — Measure ✅
 
 Builds the tools that most goals need, and gives every benchmark a number. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
 - ✅ the reference workload: its tasks and fake models in `testkit` (`ReferenceTasks`), and a driver beside `service` (`service/workload`) that runs them through the Runner. The tasks are a short lookup, a 10-Turn conversation, a tool error and its recovery, and Sessions with 10, 100 and 1,000 messages, run alone and under load;
-- 🚧 the live run: the same tasks against a real provider, with a fixed model and its price, run on demand. G-B05 and G-B07 take the model's own time from it. `gotato-workload -live` runs it; it has not been run against a provider yet;
-- ⬜ Events that time each store load and save. Until they exist, `service/workload` times the store with a timer around it;
-- ⬜ a startup benchmark, and a build script that measures the footprint;
+- ✅ the live run: the same tasks against a real provider, with a fixed model and its price, run on demand with `gotato-workload -live`. G-B05 and G-B07 take the model's own time from it. First run on 2026-10-16, against `gpt-6.1-sol`;
+- ✅ Events that time each store load and save: the Runner emits `session_loaded` and `session_saved`, and `service/workload` reads the store's time from them. A Run now loads its Session once, not twice;
+- ✅ a startup benchmark, and a build script that measures the footprint, both on a reference service in `bench/refservice`;
 - ✅ a test that inspects each Turn's Context through the Go API, from that Turn's own Transcript, and compares its prefix hash with the Turn's `context_built` Event;
 - ✅ Context inspection that applies the extensions, says when an auto-compaction is pending, and shows the model options, so its prefix hash matches the request (the G-F05 gap);
 - ✅ each failed Run and tool call attributed to its cause: the model, the provider, the tool, the store or Gotato.
@@ -45,8 +45,8 @@ Every number about a Run is computed from recorded Events and `Usage`, so a team
 Exit:
 
 - ✅ G-G03 passes in CI.
-- 🚧 G-G04 passes on the reference workload in CI, and the live run counts no failure caused by Gotato. It passes in CI; the live run is left.
-- ⬜ Every benchmark but G-B13 has a number. G-B01 to G-B04 and G-B06 wait for the live run, G-B10 for the startup benchmark, and G-B11 for a sweep of `gotato-workload -concurrency`.
+- ✅ G-G04 passes on the reference workload in CI, and the live run counts no failure caused by Gotato.
+- ✅ Every benchmark but G-B13 has a number. G-B01's is 0 and likely unfair: the endpoint seems to cache only with a key the gateway does not send yet ([TODO.md](TODO.md)).
 
 ## Phase 2 — Effect cap
 

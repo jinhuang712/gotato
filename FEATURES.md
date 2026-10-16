@@ -106,6 +106,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
 | Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
+| Store Events | `session_loaded` and `session_saved` time each load and save a Run makes | G-F13 | ✅ |
 | Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
 
@@ -126,6 +127,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | CLI scenarios | in-process and against the built binary, asserting on JSON | G-F22 | ✅ |
 | Reference workload | six tasks with fake models, played through a Runner and measured | G-F22 | ✅ |
 | Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
+| Reference service | the smallest service that embeds Gotato, timed from start to ready and measured for size | G-F22 | ✅ |
 | Fault injection and a multi-instance harness | crashes, client disconnects, and several instances over one store | G-F22 | ⬜ |
 
 **Later**
@@ -475,12 +477,14 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 | `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, `tool_result_committed` | a tool runs and its result is kept |
 | `toolset_activated` | the model switches on a tool set |
 | `session_compacted` | a compaction replaced part of the history; recorded in the Session only, never streamed |
+| `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or saved it, with the message count and the store's time in `elapsed_ms`; streamed, never recorded in the Session |
 
 - Every Event of a Run carries its Run, its Turn, a sequence number and a timestamp.
 - The payload keys of each kind are documented with the kind.
 - `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
+- The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has no Run and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
 
-**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives.
+**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet; they are decided with what happens to a message mid-Run ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 
 ### G-F15 — Extensions ✅
 
@@ -550,10 +554,11 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 - how many plays passed their check;
 - every failed Run, tool call and check, with its cause: the model, the provider, the tool, the store, a limit, an extension, a cancel, or Gotato;
 - token usage, the cost at your price, and the cache hit rate;
-- Gotato's time per Turn next to the model's, and the time to load a Session;
+- Gotato's time per Turn next to the model's, and the store's time to load and save a Session;
+- the time Gotato adds before the first request, next to the model's own time to its first token;
 - whether each Turn's Context matches an inspection of its Transcript.
 
-The numbers about a Run come from its Events, as a team would compute them from its own telemetry. The store's time is the exception: no Event reports it yet, so a timer around the store measures it.
+The numbers about a Run come from its Events, the store's time included, as a team would compute them from its own telemetry.
 
 `go test ./service/workload` runs the workload in CI, and `BenchmarkReferenceTasks` measures it.
 
@@ -567,6 +572,13 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 - `-tasks`, `-plays`, `-concurrency` and `-store DIR` shape the run, with or without `-live`.
 - It exits 3 when a failure was caused by Gotato or the store, or a Turn's Context differed from its inspection.
 - The live run calls a paid model, so it runs on demand, never in CI.
+
+**The reference service.** `bench/refservice` is the smallest service a team would write around Gotato: the agent, the Runner, a file store, the HTTP handler and a gateway model, in a Go module of its own. Two tools measure it:
+
+```bash
+(cd bench/refservice && go test -run '^$' -bench Startup -benchtime 20x .)   # start to the first 200 from /healthz
+bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
+```
 
 **Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built.
 
