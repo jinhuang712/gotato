@@ -21,10 +21,10 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
 | Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
-| Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction, panel and ceiling | G-F02 | ✅ |
+| Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's history | G-F02 | ✅ |
 | One Run per Session | a second Run on a busy Session is rejected or waits | G-F02 | ✅ |
-| Per-Session settings | the Agent, instruction, panel, compaction ceiling and tools, in metadata | G-F02 | ✅ |
+| Per-Session settings | the Agent, instruction, compaction ceiling and tools, in metadata | G-F02 | ✅ |
 
 **What the model sees**
 
@@ -32,7 +32,6 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
 | Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
-| Panel | small content that changes every Turn, never saved | G-F04 | ✅ |
 | Cache markers | after the system part, the tools and before the last message; `cache_control` on Anthropic | G-F04 | ✅ |
 | Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
@@ -228,7 +227,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 A Session is one conversation that runs an Agent. It keeps everything that happened, so the next message continues where the last one ended.
 
-- You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction, panel and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
+- You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
 - A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction.
 - Forking a Session starts a new one from its history and records the parent.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
@@ -239,7 +238,6 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 |---|---|---|
 | `gotato.agent` | the Agent this Session runs | one Runner serves several Agents |
 | `gotato.instruction` | replaces the Agent's instruction for this Session | a caller tailors one conversation without a new Agent |
-| `gotato.panel` | panel items for this Session: `time`, `cwd` | some conversations need the time or the directory, others do not |
 | `gotato.compact_ceiling` | this Session's compaction budget, in estimated tokens | a long-lived Session can compact sooner or later than the default |
 | `gotato.tool.<id>` | a tool switched on or off for this Session | a caller narrows or widens one conversation's tools |
 | `gotato.model` | the model last used; written by Gotato, for information | shows which model produced the history |
@@ -251,11 +249,11 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 On every Turn, Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix from one Turn to the next:
 
 ```text
-instruction · Static blocks  →  tools, sorted by ID  →  the history  →  the Panel, on the last message
+instruction · Static blocks  →  tools, sorted by ID  →  the history
 ```
 
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
-- **The Panel** is small content that changes every Turn. It is never saved. `time` and `cwd` are built in, and `modelctx.WithPanel` adds your own.
+- **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
 - Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept.
 - Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewAgent`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
@@ -266,7 +264,7 @@ You can see what the model would receive now, without calling it.
 
 - `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method return the request the Session's next Turn would send.
 - The Runner builds the Agent a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
-- The report includes the prefix hash, the size of the system part and of the Panel, and an estimate of the tokens (bytes ÷ 4).
+- The report includes the prefix hash, the size of the system part, and an estimate of the tokens (bytes ÷ 4).
 - `compaction_pending` says the next Run compacts the Session first, because it is past `compact_ceiling`. That Run then sends a shorter request than the report shows.
 - Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
 
@@ -470,7 +468,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 **For all of them:**
 
-- Both contracts report their version, now `"2"`, on `GET /healthz` and through `Contract`.
+- Both contracts report their version, now `"3"`, on `GET /healthz` and through `Contract`.
 - Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
 
 ## Watching and extending
@@ -527,7 +525,7 @@ gotato run --session "$id" --model demo --json "use-tool"
 
 | Command | Does |
 |---|---|
-| `run [--session ID] [--model M] "prompt"` | runs a prompt, in a new or an existing Session. `--continue` resumes without a prompt, `--no-save` leaves the store untouched, `--events jsonl` streams the Events, and `--panel` and `--compact-ceiling` set this Session's panel and ceiling. |
+| `run [--session ID] [--model M] "prompt"` | runs a prompt, in a new or an existing Session. `--continue` resumes without a prompt, `--no-save` leaves the store untouched, `--events jsonl` streams the Events, and `--compact-ceiling` sets this Session's ceiling. |
 | `session create \| list \| show \| fork \| events \| resume \| delete` | manages Sessions |
 | `context inspect \| build \| compact <id>` | shows or compacts what the model sees |
 | `tools list \| describe \| active \| activate \| deactivate` | shows and switches tools |
@@ -655,7 +653,7 @@ Gotato provides the tool contract, tool sets and the registry. Filesystem, Git, 
 
 ### G-N10 — Context Organization Beyond Full History Belongs to Applications
 
-Gotato ships full history, Static blocks, the Panel and compaction. Retrieval, windowing, summarization pipelines and other ways to choose what the model sees are the application's own `ContextBuilder`.
+Gotato ships full history, Static blocks and compaction. Retrieval, windowing, summarization pipelines and other ways to choose what the model sees are the application's own `ContextBuilder`.
 
 ### G-N11 — Telemetry Backends Belong to Applications
 

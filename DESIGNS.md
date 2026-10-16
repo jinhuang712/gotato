@@ -259,15 +259,16 @@ A saved Session has a stable, versioned shape (`schema_version`). An adapter in 
 
 ### Stable content first, changing content last
 
-Each Context is laid out in this order, from the most stable part to the part that changes every Turn:
+Each Context is laid out in this order, from the most stable part to the part that grows:
 
 ```text
-instruction · Static blocks  →  tools, sorted by ID  →  Transcript  →  Panel, on the last message
+instruction · Static blocks  →  tools, sorted by ID  →  Transcript
 ```
 
-- Static blocks are fixed reference text. The Panel is small content that changes every Turn, and it is never saved.
-- **Cost:** content that changes every Turn can only go at the end, and any change to the order breaks the provider's cache.
-- **Check:** `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged when only the Panel changes, and checks the cache breakpoints after the system part, the tools and the history.
+- Static blocks are fixed reference text.
+- Nothing that changes every Turn is added. Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
+- **Cost:** the model learns a changing fact only by calling a tool, and any change to the order breaks the provider's cache.
+- **Check:** `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged when only runtime fields such as message IDs change, and checks the cache breakpoints after the system part, the tools and the history.
 
 ### Cache markers are neutral in the core
 
@@ -390,7 +391,7 @@ Every CLI behavior is reachable through the packages. `--json` and `--jsonl` out
 
 ### Contracts carry a version
 
-The HTTP and gRPC contracts each report a contract version, currently `"2"`.
+The HTTP and gRPC contracts each report a contract version, currently `"3"`. It counts breaking changes to what the service returns, JSON payloads included; the protobuf package stays `gotato.v2` until its schema itself breaks.
 
 - **Cost:** a breaking change to a contract needs a version bump and a [CHANGELOG.md](CHANGELOG.md) entry.
 - **Check:** `GET /healthz` and the gRPC contract call return the version.

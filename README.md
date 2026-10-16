@@ -92,7 +92,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 |---|---|
 | Agent loop, control (Steer, FollowUp, Abort), limits, extensions | done |
 | Session, `session.Store` (memory, file), fork | done |
-| Context: full history, static blocks, panel, compaction, inspection | done |
+| Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
 | Events and streaming | done; typed payloads and reasoning deltas planned |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |

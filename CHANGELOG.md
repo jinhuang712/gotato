@@ -6,6 +6,20 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ### Runtime
 
+- **The panel is gone.** It re-rendered small content that changes every Turn, such as the time, onto the last message of every request. Such content is never cached, so it cost its full price on every Turn, and after a tool call it was appended to the tool's output. A request is now the system prompt, the tools and the history. A fact the model needs now, such as the current time, comes from a tool it calls. A Session that still carries `gotato.panel` in its metadata runs as before, without a panel. **Breaking:**
+  - Go: `ModelContext.Panel`, `ModelContext.RenderPanel`, `gotato.PanelTag`, `modelctx.WithPanel`, `modelctx.PanelFunc`, `modelctx.Time`, `modelctx.Report.PanelBytes`, `service.MetaPanel`, `service.PanelFromSpec`, `service.InspectOptions.Panel` and `service.Config.Now`, which only the time panel read, are removed.
+  - CLI: `--panel` is gone from `run`, `session create` and `context inspect` (exit 2 if given).
+  - HTTP and gRPC: the contract version is now `"3"`. The context report (`GET /v1/sessions/{id}/context`, the gRPC `report_json`) has no `panel_bytes`, and the `context_built` payload has no `panel_bytes`.
+
+  ```go
+  // before: the time on every request
+  builder := modelctx.WithPanel(modelctx.FullHistory(), func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
+      return []gotato.Block{modelctx.Time(time.Now())}, nil
+  })
+  // after: a tool the model calls when it needs the time
+  clock, _ := gotato.NewFuncTool("clock.now", "Returns the current time in RFC 3339 UTC.",
+      func(context.Context, struct{}) (string, error) { return time.Now().UTC().Format(time.RFC3339), nil })
+  ```
 - **A reply that the output limit cut off keeps `StopMaxTokens`, even when it holds Tool calls.** The Tools that finished still run, and a `TurnStopper` sees the cut-off in `TurnSnapshot.Assistant.StopReason`. `TurnSnapshot.StopReason` stays the Turn's own reason, which is `StopToolCalls` once Tools ran. **Breaking:** code that read `Message.StopReason == StopToolCalls` to find Tool calls must read `len(Message.ToolCalls) > 0` instead.
 - **A bad Tool call no longer ends the Run.** A call that names an unknown Tool, or carries arguments that are not valid JSON or fail the Tool's schema, settles as a failed Tool Result that never ran. Its text names the problem and, for an unknown Tool, lists the Tools the model was shown, so the model can correct the call on its next Turn. On that Turn, every gateway sends the call back with `{}` in place of arguments that are not a JSON object, so the provider accepts the request. `MaxTurns` and `MaxToolCalls` still bound a model that keeps getting it wrong. **Breaking:** `Prompt` no longer returns `ErrToolResolutionFailure` or `ErrToolArgumentFailure` for these calls. Read the Tool Result instead: `Status == ToolResultFailed`, `Executed == false`, and a `SafeError` that starts with the error code.
 - **A streamed reply is stored as its blocks, not its fragments.** The Agent kept one `ContentPart` per streamed text or reasoning delta, so a reply was saved and replayed as hundreds of fragments. It now merges contiguous text deltas, and contiguous reasoning deltas, into one Part each; a reasoning block ends when its signature arrives. `message_update` Events still carry each text delta. The Responses gateway also joins adjacent text Parts of Sessions saved before this change.

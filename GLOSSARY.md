@@ -52,7 +52,6 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Compaction** | Replacing an old part of the Transcript with one summary. | summarization, pruning | `modelctx.Compact`, `modelctx.AutoCompact` |
 | **Fork** | Copying a Session's saved state to start a new Session. | branch, clone | `session.Fork`, `Runner.Fork` |
 | **Static block** | Labeled reference content that an Agent places after its instruction, such as a schema or a runbook. It stays the same for every Turn, so the provider's prompt cache reuses it. | resource, reference | `modelctx.WithStatic`, set through `AgentSpec.ContextBuilder` |
-| **Panel** | Content that changes every Turn, added to the end of the Context and never saved. | | `modelctx.WithPanel` |
 
 ## Watching and extending
 

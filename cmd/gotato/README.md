@@ -55,10 +55,10 @@ The model used for a session is remembered in the session (`gotato.model` metada
 ### `gotato run`
 
 ```text
-gotato run [--session ID] [--model M] [--instruction S] [--panel time,cwd] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
+gotato run [--session ID] [--model M] [--instruction S] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
 ```
 
-Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--panel` appends a dynamic `<panel>` with the listed items to the tail of each request; `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N. Both are remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message). `--no-save` runs without writing the run's messages to the store: with no `--session` nothing is persisted at all, and with an existing session the history stays as it was (settings given alongside are still stored).
+Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N, and is remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message). `--no-save` runs without writing the run's messages to the store: with no `--session` nothing is persisted at all, and with an existing session the history stays as it was (settings given alongside are still stored).
 
 `--json` outcome:
 
@@ -82,7 +82,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 | Command | Output (`--json`) |
 |---|---|
-| `session create [--id ID] [--meta k=v,…] [--instruction S] [--panel time,cwd] [--compact-ceiling N]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
+| `session create [--id ID] [--meta k=v,…] [--instruction S] [--compact-ceiling N]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
 | `session list` | array of summaries, newest first (`--jsonl`: one per line) |
 | `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[], usage, compactions[], metadata` |
 | `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source; an `--id` that already exists is rejected (exit 2) |
@@ -94,11 +94,11 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 | Command | Output (`--json`) |
 |---|---|
-| `context inspect <id> [--panel ITEMS] [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, panel_bytes, prefix_hash, compaction_pending, compact_ceiling?, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], options?, cache_breakpoints[]}`; `compaction_pending` is true when the next run compacts the session first, past `compact_ceiling`; `--panel`/`--instruction` override the session's stored settings for this inspection only and are not persisted |
-| `context build <id> [--panel ITEMS] [--instruction S]` | the exact `ModelRequest` the agent would send now (same overrides, not persisted) |
+| `context inspect <id> [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, prefix_hash, compaction_pending, compact_ceiling?, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], options?, cache_breakpoints[], cache_key?}`; `compaction_pending` is true when the next run compacts the session first, past `compact_ceiling`; `--instruction` overrides the session's stored instruction for this inspection only and is not persisted |
+| `context build <id> [--instruction S]` | the exact `ModelRequest` the agent would send now (same overrides, not persisted) |
 | `context compact <id> [--keep N] [--summarizer truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, tokens_before, tokens_after, compaction?}`; `compaction` is present only when `replaced` is true |
 
-The agent builds the report with the code its turns run, so the request includes its extensions, its tools and its model options, and `prefix_hash` equals the one the next turn's `context_built` event reports. The request is laid out for prompt caching: system prompt, sorted tools, the append-only history, then the tail message carrying the `<panel>`. `prefix_hash` covers everything but the tail; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
+The agent builds the report with the code its turns run, so the request includes its extensions, its tools and its model options, and `prefix_hash` equals the one the next turn's `context_built` event reports. The request is laid out for prompt caching: system prompt, sorted tools, then the append-only history. `prefix_hash` covers everything but the last message; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
 Compaction permanently replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
 
@@ -136,7 +136,7 @@ Default output is JSON Lines, one runtime `Event` per line, in production order:
 gotato serve [--addr HOST:PORT] [--max-runs N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
 ```
 
-Serves the same runner over HTTP (`service/httpapi`, contract `2`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
+Serves the same runner over HTTP (`service/httpapi`, contract `3`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
 
 ```text
 GET    /healthz  /readyz  /v1/agents
