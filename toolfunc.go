@@ -55,10 +55,10 @@ func NewFuncToolWithProgress[In any, Out any](name, description string, fn func(
 }
 
 // WithFunc registers an ordinary Go function as a Tool during construction. A
-// type the schema generator cannot describe fails NewAgent instead of failing
+// type the schema generator cannot describe fails NewSession instead of failing
 // at the first Model request.
 func WithFunc[In any, Out any](name, description string, fn func(context.Context, In) (Out, error)) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		tool, err := NewFuncTool(name, description, fn)
 		if err != nil {
 			return err

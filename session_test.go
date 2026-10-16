@@ -70,13 +70,13 @@ func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	return &testStream{events: events, block: block}, nil
 }
 
-func TestAgentPromptEventsAndClose(t *testing.T) {
+func TestSessionPromptEventsAndClose(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hello"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := agent.(EventSource).Subscribe(context.Background())
+	stream, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	if result.Metrics.Turns != 1 || result.Metrics.TextBytes != uint64(len("hello")) {
 		t.Fatalf("run metrics = %+v", result.Metrics)
 	}
-	if got := agent.(interface{ Status() AgentStatus }).Status(); got != AgentIdle {
+	if got := agent.Status(); got != SessionIdle {
 		t.Fatalf("status after Run = %s", got)
 	}
 	if _, err := agent.Prompt(context.Background(), UserMessage("again")); err != nil {
@@ -99,15 +99,15 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := agent.(interface{ Status() AgentStatus }).Status(); got != AgentClosed {
+	if got := agent.Status(); got != SessionClosed {
 		t.Fatalf("status after Close = %s", got)
 	}
-	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, ErrAgentClosed) {
+	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, ErrSessionClosed) {
 		t.Fatalf("expected closed error, got %v", err)
 	}
 
 	// Close closed the Event stream, so every Event is buffered and the drain
-	// is deterministic. Each Run must end with exactly one agent_end as its
+	// is deterministic. Each Run must end with exactly one run_end as its
 	// final Event: a duplicate or late terminal Event must fail this test.
 	var kinds []EventKind
 	var turnSummary map[string]any
@@ -130,7 +130,7 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 			}
 			turnSummary = summary
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			terminals[event.RunID]++
 		}
 	}
@@ -142,13 +142,13 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	}
 	for run, count := range terminals {
 		if count != 1 {
-			t.Fatalf("agent_end count = %d for run %s in %v", count, run, kinds)
+			t.Fatalf("run_end count = %d for run %s in %v", count, run, kinds)
 		}
-		if lastKind[run] != EventAgentEnd {
-			t.Fatalf("run %s ended with %s, want agent_end", run, lastKind[run])
+		if lastKind[run] != EventRunEnd {
+			t.Fatalf("run %s ended with %s, want run_end", run, lastKind[run])
 		}
 	}
-	if len(kinds) == 0 || kinds[len(kinds)-1] != EventAgentEnd {
+	if len(kinds) == 0 || kinds[len(kinds)-1] != EventRunEnd {
 		t.Fatalf("final Event = %v", kinds)
 	}
 	messageStart, messageUpdate := -1, -1
@@ -166,16 +166,16 @@ func TestAgentPromptEventsAndClose(t *testing.T) {
 	_ = stream.Close()
 }
 
-func TestAgentCancelRun(t *testing.T) {
+func TestSessionCancelRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,15 +197,11 @@ func TestAgentCancelRun(t *testing.T) {
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
-		if event.Kind == EventAgentStart {
+		if event.Kind == EventRunStart {
 			runID = event.RunID
 		}
 	}
-	canceler, ok := agent.(RunCanceler)
-	if !ok {
-		t.Fatal("Agent does not support Run cancellation")
-	}
-	if err := canceler.CancelRun(context.Background(), runID); err != nil {
+	if err := agent.CancelRun(context.Background(), runID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -218,11 +214,11 @@ func TestAgentCancelRun(t *testing.T) {
 	}
 }
 
-func TestAgentSingleFlight(t *testing.T) {
+func TestSessionSingleFlight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	model := &testModel{started: started, block: release, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,19 +239,19 @@ func TestAgentSingleFlight(t *testing.T) {
 	}
 }
 
-func TestAgentCloseWhileBusyIsBounded(t *testing.T) {
+func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	release := make(chan struct{})
 	model := &testModel{block: release, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	promptDone := make(chan error, 1)
 	go func() { _, runErr := agent.Prompt(context.Background(), UserMessage("blocking")); promptDone <- runErr }()
 	deadline := time.Now().Add(time.Second)
-	for agent.(interface{ Status() AgentStatus }).Status() != AgentBusy {
+	for agent.Status() != SessionBusy {
 		if time.Now().After(deadline) {
-			t.Fatal("Agent did not become Busy")
+			t.Fatal("Session did not become Busy")
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -264,7 +260,7 @@ func TestAgentCloseWhileBusyIsBounded(t *testing.T) {
 	if err := agent.Close(closeCtx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected bounded Close timeout, got %v", err)
 	}
-	if got := agent.(interface{ Status() AgentStatus }).Status(); got != AgentClosing {
+	if got := agent.Status(); got != SessionClosing {
 		t.Fatalf("status after timeout = %s", got)
 	}
 	close(release)
@@ -276,7 +272,7 @@ func TestAgentCloseWhileBusyIsBounded(t *testing.T) {
 	if err := agent.Close(waitCtx); err != nil {
 		t.Fatal(err)
 	}
-	if got := agent.(interface{ Status() AgentStatus }).Status(); got != AgentClosed {
+	if got := agent.Status(); got != SessionClosed {
 		t.Fatalf("status after close = %s", got)
 	}
 }
@@ -312,9 +308,9 @@ func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
 }
 
-func TestAgentToolLoop(t *testing.T) {
+func TestSessionToolLoop(t *testing.T) {
 	tool := &scriptedTool{}
-	agent, err := NewAgent(WithModel(&toolModel{}), WithTool(tool))
+	agent, err := NewSession(WithModel(&toolModel{}), WithTool(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

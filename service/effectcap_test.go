@@ -15,7 +15,7 @@ type toolList []gotato.Tool
 
 func (l toolList) Tools() []gotato.Tool { return l }
 
-func TestAgentSpecMaxEffectHidesToolsAboveIt(t *testing.T) {
+func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	ctx := context.Background()
 	lookup := testkit.NewFakeTool("lookup", "found")
 	refund := testkit.NewFakeTool("refund", "refunded")
@@ -28,7 +28,7 @@ func TestAgentSpecMaxEffectHidesToolsAboveIt(t *testing.T) {
 		),
 		testkit.Text("done"),
 	)
-	runner, _ := newRunner(t, service.AgentSpec{
+	runner, _ := newRunner(t, service.Agent{
 		Name:        "capped",
 		Model:       model,
 		Tools:       []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.EffectRead), gotato.ToolWithEffect(refund, gotato.EffectWriteExternal)},
@@ -68,8 +68,8 @@ func TestAgentSpecMaxEffectHidesToolsAboveIt(t *testing.T) {
 
 func TestNewRejectsAnUnknownMaxEffect(t *testing.T) {
 	_, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
-		Specs: []service.AgentSpec{{Name: "a", Model: testkit.EchoModel{}, MaxEffect: "mutate"}},
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}, MaxEffect: "mutate"}},
 	})
 	if err == nil {
 		t.Fatal("New accepted an unknown MaxEffect")

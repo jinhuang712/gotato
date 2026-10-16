@@ -37,7 +37,7 @@ func TestTruncatedTurnContinuesWithinTheBound(t *testing.T) {
 			model := testkit.NewFakeModel(tc.scripts...)
 			limits := gotato.DefaultLimits()
 			limits.MaxTruncatedContinuations = tc.bound
-			agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithLimits(limits))
+			agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithLimits(limits))
 			if err != nil {
 				t.Fatal(err)
 			}

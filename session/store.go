@@ -34,17 +34,17 @@ type Summary struct {
 // Store persists Sessions. Implementations must be safe for concurrent use.
 // Save overwrites; Get returns ErrNotFound for unknown IDs.
 type Store interface {
-	Save(context.Context, *Session) error
-	Get(context.Context, string) (*Session, error)
+	Save(context.Context, *Record) error
+	Get(context.Context, string) (*Record, error)
 	List(context.Context) ([]Summary, error)
 	Delete(context.Context, string) error
 }
 
 // SummaryOf builds the listing view of a Session.
-func SummaryOf(s *Session) Summary { return s.Summary() }
+func SummaryOf(s *Record) Summary { return s.Summary() }
 
 // Summary returns the listing view without copying Messages or Events.
-func (s *Session) Summary() Summary {
+func (s *Record) Summary() Summary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), len(s.runs), s.usage, s.metadata)
@@ -80,7 +80,7 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore { return &MemoryStore{docs: map[string]Document{}} }
 
 // Save implements Store.
-func (m *MemoryStore) Save(ctx context.Context, s *Session) error {
+func (m *MemoryStore) Save(ctx context.Context, s *Record) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (m *MemoryStore) Save(ctx context.Context, s *Session) error {
 }
 
 // Get implements Store.
-func (m *MemoryStore) Get(ctx context.Context, id string) (*Session, error) {
+func (m *MemoryStore) Get(ctx context.Context, id string) (*Record, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (f *FileStore) path(id string) (string, error) {
 }
 
 // Save implements Store.
-func (f *FileStore) Save(ctx context.Context, s *Session) error {
+func (f *FileStore) Save(ctx context.Context, s *Record) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (f *FileStore) syncDir() error {
 }
 
 // Get implements Store.
-func (f *FileStore) Get(ctx context.Context, id string) (*Session, error) {
+func (f *FileStore) Get(ctx context.Context, id string) (*Record, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (f *FileStore) Get(ctx context.Context, id string) (*Session, error) {
 	return Load(doc)
 }
 
-// readDocument loads one persisted Document without materializing a Session.
+// readDocument loads one persisted Document without materializing a Record.
 func (f *FileStore) readDocument(id string) (Document, error) {
 	path, err := f.path(id)
 	if err != nil {

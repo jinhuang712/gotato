@@ -22,7 +22,7 @@ These root documents are the single source of truth for Gotato's design.
 
 - **Never introduce `sub-agent`, `ChildAgent`, `SupervisorAgent`, `WorkerAgent`, or any role as a Gotato runtime type.** There are only agents. Roles are application composition.
 - **Keep Agent identity flat.** Roles, hierarchy, and lineage belong to applications, stored in `Session.Metadata`.
-- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. The code still uses older names (`gotato.Agent` is the Loop); GLOSSARY.md maps them.
+- **Keep Agent, Session, Transcript and Context separate.** An Agent is a definition; a Session runs it and commits to its Transcript; the model receives the output of a `ContextBuilder` (the Context). Model input is always a built value, separate from the full history. In code, the Agent is `service.Agent`, the live Session `gotato.Session` and its Record `session.Record`; GLOSSARY.md maps every term.
 - **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
 - **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
@@ -78,7 +78,7 @@ When writing or rewriting a project document:
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
 | capture every runtime event in order | `testkit.EventRecorder` (install with `gotato.WithExtension`) |
-| a pre-populated session | `testkit.NewSession("q", "a", ...)` |
+| a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
 | the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()` |
 | play tasks through a Runner and measure them (GOALS.md) | `workload.Run` in `service/workload`; `go run ./cmd/gotato-workload` prints the report |

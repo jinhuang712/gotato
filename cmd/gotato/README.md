@@ -74,7 +74,7 @@ Creates a session when `--session` is omitted. `-` reads the prompt from stdin. 
 }
 ```
 
-`--events jsonl` streams every runtime event as one JSON line while the run executes (`session_loaded` or, for a new session, `session_saved`, then `agent_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `agent_end` and `session_saved`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`. The `session_*` lines time the store and carry `elapsed_ms`.
+`--events jsonl` streams every runtime event as one JSON line while the run executes (`session_loaded` or, for a new session, `session_saved`, then `run_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `run_end` and `session_saved`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`. The `session_*` lines time the store and carry `elapsed_ms`.
 
 Human mode prints the final text on stdout and a one-line status on stderr.
 
@@ -127,7 +127,7 @@ gotato events --session <id> [--kind KIND] [--json]
 Default output is JSON Lines, one runtime `Event` per line, in production order:
 
 ```json
-{"agent_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,…},"timestamp":"…"}
+{"session_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,…},"timestamp":"…"}
 ```
 
 `--json` prints one array instead. Event payload keys per kind are documented in `events.go` of the root package.
@@ -138,7 +138,7 @@ Default output is JSON Lines, one runtime `Event` per line, in production order:
 gotato serve [--addr HOST:PORT] [--max-runs N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
 ```
 
-Serves the same runner over HTTP (`service/httpapi`, contract `3`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
+Serves the same runner over HTTP (`service/httpapi`, contract `4`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
 
 ```text
 GET    /healthz  /readyz  /v1/agents
@@ -160,7 +160,7 @@ gotato doctor [--json] [--gateway-config PATH]
 ```
 
 ```json
-{"ok": true, "version": "1", "go": "go1.26.1",
+{"ok": true, "version": "2", "go": "go1.26.1",
  "checks": [
    {"name": "store", "ok": true, "detail": "/…/sessions (3 sessions)"},
    {"name": "model.echo", "ok": true, "detail": "deterministic, no credentials"},

@@ -233,7 +233,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 	case gotato.RoleAssistant:
 		items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
 		// Adjacent text Parts are one output message: transcripts saved
-		// before the Agent coalesced deltas hold a reply as its fragments.
+		// before Gotato coalesced deltas hold a reply as its fragments.
 		var text strings.Builder
 		flushText := func() {
 			if text.Len() == 0 {

@@ -66,10 +66,10 @@ type cliRuntime struct {
 
 const defaultInstruction = "You are a helpful assistant."
 
-// testAgentSpecs lets in-package tests register deterministic AgentSpecs
+// testAgents lets in-package tests register deterministic Agents
 // without changing the production echo/demo/gateway surface. It is empty in
 // the built binary.
-var testAgentSpecs []service.AgentSpec
+var testAgents []service.Agent
 
 // newRuntime builds the Runner: echo and demo are always registered; gateway
 // is registered when its YAML loads.
@@ -79,20 +79,20 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 		return nil, err
 	}
 	tools := builtinTools()
-	specs := []service.AgentSpec{
+	specs := []service.Agent{
 		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
 		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
-	specs = append(specs, testAgentSpecs...)
+	specs = append(specs, testAgents...)
 	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
 	if config, err := gateway.LoadYAML(rt.gatewayCfg); err != nil {
 		rt.gatewayErr = err
 	} else if client, err := gateway.New(config); err != nil {
 		rt.gatewayErr = err
 	} else {
-		specs = append(specs, service.AgentSpec{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools})
+		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools})
 	}
-	runner, err := service.New(service.Config{Store: store, Specs: specs})
+	runner, err := service.New(service.Config{Store: store, Agents: specs})
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (rt *cliRuntime) resolveAgent(name string, env func(string) string) (string
 	if name == "" {
 		return "", nil
 	}
-	if _, ok := rt.runner.Spec(name); ok {
+	if _, ok := rt.runner.Agent(name); ok {
 		return name, nil
 	}
 	if name == "gateway" && rt.gatewayErr != nil {

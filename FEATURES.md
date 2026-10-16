@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. How it is built is in [DESIGNS.md](DESIGNS.md), when the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -185,21 +185,23 @@ Feature IDs are stable. When features merge, the lower ID stays and the others r
 
 ### G-F01 — Agents and Runs ✅
 
-You define an Agent once, then run it: a message goes in, the Loop works, and a settled result comes out.
+You define an Agent once, then run Sessions of it: a message goes in, the Loop works, and a settled result comes out.
 
 ```go
 // error handling left out
-agent, _ := gotato.NewAgent(gotato.WithModel(model), gotato.WithTool(lookup))
-result, _ := agent.Prompt(ctx, gotato.UserMessage("Where is order 42?"))
+s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(lookup))
+defer s.Close(ctx)
+result, _ := s.Prompt(ctx, gotato.UserMessage("Where is order 42?"))
 fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```
 
-- `gotato.NewAgent(options…)` builds an Agent from a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.AgentSpec` names the same parts.
+- `gotato.NewSession(options…)` builds a live Session from an Agent's parts: a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.Agent` names the same parts, and the Runner builds the Session.
+- A `gotato.Session` is one concrete type. Its ID is the Session ID: it comes from its Transcript when that is a `session.Record`, and is generated otherwise. `Status` and `Done` report where it is in its life.
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
 - Every Run settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped.
-- When an extension stops the Run, its reason is in the `agent_end` Event and in the Session's record of the Run.
+- When an extension stops the Run, its reason is in the `run_end` Event and in the Session's Record of the Run.
 
 The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults:
 
@@ -229,7 +231,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns count toward the same `MaxTurns`. Up to 4 can wait (`MaxFollowUpMessages`).
 - A message still waiting when the Run ends is dropped, not kept for the next Run.
 
-**Gap:** both work only on an Agent you build yourself with `gotato.NewAgent`. The Runner builds a private Agent for each Run, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
+**Gap:** both work only on a Session you build yourself with `gotato.NewSession`. The Runner builds a live Session for each Run and keeps it to itself, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 
 ### G-F29 — Runtime notices ⬜
 
@@ -256,7 +258,7 @@ A Run that reaches `MaxTurns` now fails with `limit_exceeded`, and the caller ge
 A Session is one conversation that runs an Agent. It keeps everything that happened, so the next message continues where the last one ended.
 
 - You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
-- A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction.
+- A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction. The Store keeps them as the Session's Record, `session.Record`.
 - Forking a Session starts a new one from its history and records the parent. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
 
@@ -284,7 +286,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the history
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
 - **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
 - Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept.
-- Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewAgent`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
+- Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewSession`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
 ### G-F05 — Context inspection ✅
@@ -292,15 +294,15 @@ instruction · Static blocks  →  tools, sorted by ID  →  the history
 You can see what the model would receive now, without calling it.
 
 - `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method return the request the Session's next Turn would send.
-- The Runner builds the Agent a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
+- The Runner builds the live Session a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
 - The report includes the prefix hash, the size of the system part, and an estimate of the tokens (bytes ÷ 4).
 - `compaction_pending` says the next Run compacts the Session first, because it is past `compact_ceiling`. That Run then sends a shorter request than the report shows.
 - Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
 
-In Go, the same request comes from the Agent itself:
+In Go, the same request comes from the Session itself:
 
 ```go
-inspection, _ := agent.InspectContext(ctx) // fails with ErrBusy during a Run
+inspection, _ := s.InspectContext(ctx) // fails with ErrBusy during a Run
 report := modelctx.ReportOf(inspection)
 ```
 
@@ -345,22 +347,22 @@ lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
 **The Effect cap.** An Agent can name the highest Effect its tools may have. Here the refund tool is never offered, because the Agent only reads:
 
 ```go
-agent, _ := gotato.NewAgent(gotato.WithModel(model), gotato.WithTools(lookup, refund),
+s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup, refund),
 	gotato.WithMaxEffect(gotato.EffectRead))
 ```
 
 - A tool above the cap is hidden: it is in no model request, no inspected Context and no tool listing. That includes the tools of a ToolSet the model activates later. The tool that activates a ToolSet declares `read`, so every cap keeps it.
 - A model that calls a hidden tool by a guessed name gets the failed result of an unknown tool, which lists only the visible tools, and the Run goes on.
 - A tool that declares no Effect counts as destructive, so any cap below `destructive` hides it.
-- No cap is the default. In a service, `service.AgentSpec.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent ([DESIGNS.md → The Effect cap hides tools](DESIGNS.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- No cap is the default. In a service, `service.Agent.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent ([DESIGNS.md → The Effect cap hides tools](DESIGNS.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
 - The cap is shown by `gotato tools list` (`max_effect` in `--json`), and by `GET /v1/agents` and the gRPC `Agents` call, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
 - The check is G-G05: every cap against tools of every Effect ([GOALS.md](GOALS.md)).
 
 ### G-F10 — Tool sets and the registry ✅
 
-The tools an agent has can change while it runs.
+The tools a Session offers can change while it runs.
 
-- A registry lets you register, remove, switch on and switch off tools at any time. The Agent reads its tool sources again at the start of every Turn.
+- A registry lets you register, remove, switch on and switch off tools at any time. The Session reads its tool sources again at the start of every Turn.
 - A tool set groups tools the model can switch on itself, by calling `activate_toolset`. Up to 16 can be active (`MaxActiveToolSets`).
 - For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`.
 - Tools come from your own Go code. The CLI ships `demo.echo` and `time.now` for diagnostics only.
@@ -453,7 +455,7 @@ A Gotato service runs far from its callers, on networks and providers it does no
 
 ### G-F03 — Stores 🚧
 
-Every Session is saved to a store, and you choose which:
+Every Session is saved to a store as its Record (`session.Record`), and you choose which store:
 
 | Store | For |
 |---|---|
@@ -552,7 +554,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 **For all of them:**
 
-- Both contracts report their version, now `"3"`, on `GET /healthz` and through `Contract`.
+- Both contracts report their version, now `"4"`, on `GET /healthz` and through `Contract`.
 - Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
 - **Access hooks (planned, not built).** Wrapping the handler shows only the URL, not who owns a Session, and `StatusFor` has no code for "not allowed", so a refusal from a store adapter would answer 500. Planned: the caller's identity travels in `context.Context` to every extension and every store call, and a new "not allowed" error from either answers 403 on HTTP and the matching code on gRPC. Who may touch which Session stays the application's rule; Gotato builds the places to enforce it, not the rule.
 
@@ -564,7 +566,7 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 
 | Kinds | When |
 |---|---|
-| `agent_start`, `agent_end` | a Run starts, and settles with its status and stop reason |
+| `run_start`, `run_end` | a Run starts, and settles with its status and stop reason |
 | `turn_start`, `turn_end` | a Turn starts, and ends with its usage |
 | `context_built` | the Context for a Turn is built, with its prefix hash and sizes |
 | `message_start`, `message_update`, `message_end` | the model's reply arrives |
@@ -573,10 +575,10 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 | `session_compacted` | a compaction replaced part of the history; recorded in the Session only, never streamed |
 | `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or saved it, with the message count and the store's time in `elapsed_ms`; streamed, never recorded in the Session |
 
-- Every Event of a Run carries its Run, its Turn, a sequence number and a timestamp.
+- Every Event carries its Session's ID as `session_id`. An Event of a Run also carries its Run, its Turn, a sequence number and a timestamp.
 - The payload keys of each kind are documented with the kind.
 - `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
-- The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has no Run and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
+- The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
 
 **Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet; they are decided with what happens to a message mid-Run ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 

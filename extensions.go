@@ -10,7 +10,7 @@ import (
 // ContextSnapshot is the read-only view a ContextTransformer receives. It
 // carries copies: an Extension cannot mutate committed history through it.
 type ContextSnapshot struct {
-	AgentID            AgentID
+	SessionID          SessionID
 	RunID              RunID
 	Turn               TurnNumber
 	SystemInstructions string
@@ -21,7 +21,7 @@ type ContextSnapshot struct {
 // Assistant.StopReason is why the Model stopped, StopMaxTokens for a reply
 // the output limit cut off. StopReason is why the Turn stopped.
 type TurnSnapshot struct {
-	AgentID     AgentID
+	SessionID   SessionID
 	RunID       RunID
 	Turn        TurnNumber
 	Assistant   Message
@@ -90,9 +90,9 @@ type AdvisoryExtension interface {
 
 // WithExtension installs one Extension. A value may implement several
 // Extension interfaces; it is installed into each of them. The resulting
-// order is immutable for the Agent lifetime.
+// order is immutable for the Session lifetime.
 func WithExtension(extension any) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if extension == nil {
 			return runtimeError(ErrInvalidArgument, "WithExtension", "extension is nil", nil)
 		}
@@ -134,7 +134,7 @@ func WithExtension(extension any) Option {
 
 // WithExtensions installs several Extensions in the given order.
 func WithExtensions(extensions ...any) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		for _, extension := range extensions {
 			if err := WithExtension(extension)(c); err != nil {
 				return err
@@ -184,7 +184,7 @@ func advisoryFailure(extension any) bool {
 }
 
 // guard runs one Extension stage, converting a panic into an ordinary error so
-// a misbehaving Extension cannot take down the Agent goroutine.
+// a misbehaving Extension cannot take down the Session goroutine.
 func guard(stage string, call func() error) (err *RuntimeError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

@@ -119,7 +119,7 @@ func TestDemoToolLoopAndEvents(t *testing.T) {
 		}
 		kinds[string(event.Kind)]++
 	}
-	if kinds["agent_start"] != 1 || kinds["agent_end"] != 1 || kinds["context_built"] != 2 || kinds["tool_execution_end"] != 1 {
+	if kinds["run_start"] != 1 || kinds["run_end"] != 1 || kinds["context_built"] != 2 || kinds["tool_execution_end"] != 1 {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	// --kind filters.
@@ -140,11 +140,11 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 	if len(lines) < 5 {
 		t.Fatalf("too few lines: %d", len(lines))
 	}
-	// The Runner saves the new Session before the Loop's agent_start.
+	// The Runner saves the new Session before the Loop's run_start.
 	var first, second gotato.Event
 	h.mustJSON(lines[0], &first)
 	h.mustJSON(lines[1], &second)
-	if first.Kind != gotato.EventSessionSaved || second.Kind != gotato.EventAgentStart {
+	if first.Kind != gotato.EventSessionSaved || second.Kind != gotato.EventRunStart {
 		t.Fatalf("first line kinds = %s, %s", first.Kind, second.Kind)
 	}
 	var last struct {
@@ -310,8 +310,8 @@ func TestToolsListReportsTheEffectCap(t *testing.T) {
 	h := newHarness(t)
 	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.EffectRead)
 	push := testkit.NewFakeTool("push", "pushed") // declares no Effect, so it ranks as destructive
-	testAgentSpecs = []service.AgentSpec{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.EffectRead}}
-	defer func() { testAgentSpecs = nil }()
+	testAgents = []service.Agent{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.EffectRead}}
+	defer func() { testAgents = nil }()
 
 	var listing toolListing
 	h.mustJSON(h.ok("tools", "list", "--model", "reader", "--json"), &listing)
@@ -420,8 +420,8 @@ func TestRunIncompleteExitCode(t *testing.T) {
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("unreachable"))
 	model.Block = block
-	testAgentSpecs = []service.AgentSpec{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
-	defer func() { testAgentSpecs = nil }()
+	testAgents = []service.Agent{{Name: "blocking", Model: model, ModelName: "blocking", Instruction: defaultInstruction}}
+	defer func() { testAgents = nil }()
 
 	code, out, _ := h.run("run", "--model", "blocking", "--timeout", "20ms", "--json", "hello")
 	if code != ExitRunIncomplete {

@@ -19,14 +19,14 @@ func TestProtectedEventSurvivesCoalescableBacklog(t *testing.T) {
 	for range 300 {
 		hub.publish(Event{Kind: EventToolExecutionUpdate, Class: EventCoalescable})
 	}
-	hub.publish(Event{Kind: EventAgentEnd, Class: EventProtected})
+	hub.publish(Event{Kind: EventRunEnd, Class: EventProtected})
 
 	for range 200 {
 		event, nextErr := stream.Next(context.Background())
 		if nextErr != nil {
 			t.Fatalf("subscription ended before the protected event: %v", nextErr)
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			return
 		}
 	}
@@ -46,7 +46,7 @@ func TestProtectedEventBufferFullEndsSubscription(t *testing.T) {
 
 	// One more protected event than the subscription buffer holds.
 	for i := 0; i < cap(stream.(*eventSubscription).ch)+1; i++ {
-		hub.publish(Event{Kind: EventAgentEnd, Class: EventProtected})
+		hub.publish(Event{Kind: EventRunEnd, Class: EventProtected})
 	}
 	_, nextErr := stream.Next(context.Background())
 	if nextErr == nil || !strings.Contains(nextErr.Error(), "protected event buffer full") {

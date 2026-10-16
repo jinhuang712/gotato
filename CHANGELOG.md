@@ -4,18 +4,50 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Phase 2 of [ROADMAP.md](ROADMAP.md), the Effect cap. All changes are additions, and the HTTP and gRPC contract version stays `"3"`.
+Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`.
+
+### Names
+
+- **The code now uses the names in [GLOSSARY.md](GLOSSARY.md).** The Agent is a definition, `service.Agent`. The object you build and talk to is the live Session, `gotato.Session`: one concrete type, with the interfaces the old `gotato.Agent` was split into removed, because nothing implemented them but the core. What the store keeps is the Session's Record, `session.Record`. The Loop stays a concept. No `// Deprecated:` aliases are kept. **Breaking:**
+
+  | Before | After |
+  |---|---|
+  | `service.AgentSpec`, `service.Config.Specs`, `Runner.Spec(name)` | `service.Agent`, `service.Config.Agents`, `Runner.Agent(name)` |
+  | `gotato.NewAgent(…) (RuntimeAgent, error)` | `gotato.NewSession(…) (*gotato.Session, error)` |
+  | `gotato.Agent`, `RuntimeAgent`, `ControllableAgent`, `EventAgent`, `LifecycleAgent`, `AgentLifecycle`, `RunCanceler`, `IdleWaiter`, `ToolInspector`, `ContextInspector`, `EventSource`, `LifecycleSource` | removed; every method is on `*gotato.Session` |
+  | `gotato.AgentID` | `gotato.SessionID` |
+  | `gotato.AgentStatus`, `AgentCreated` … `AgentClosed` | `gotato.SessionStatus`, `SessionCreated` … `SessionClosed` |
+  | `ErrAgentClosed`, `ErrAgentClosing` (`agent_closed`, `agent_closing`) | `ErrSessionClosed`, `ErrSessionClosing` (`session_closed`, `session_closing`) |
+  | `EventAgentStart`, `EventAgentEnd` (`agent_start`, `agent_end`) | `EventRunStart`, `EventRunEnd` (`run_start`, `run_end`) |
+  | `LifecycleAgentCreated`, `…Closing`, `…Closed` (`agent_created`, …) | `LifecycleSessionCreated`, `…Closing`, `…Closed` (`session_created`, …) |
+  | `AgentID` (`agent_id`) on `Event`, `LifecycleEvent` and the extension inputs | `SessionID` (`session_id`) |
+  | `session.Session` | `session.Record` |
+  | `session.Record(s)`, the recorder | `session.NewRecorder(r)` |
+  | `testkit.NewSession` | `testkit.NewRecord` |
+  | `BenchmarkAgentFootprint`, `heap-B/agent` | `BenchmarkSessionFootprint`, `heap-B/session` |
+
+  ```go
+  // before
+  agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(session.Record(s)))
+  runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "default", Model: model}}})
+  // after
+  live, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r), gotato.WithExtension(session.NewRecorder(r)))
+  runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "default", Model: model}}})
+  ```
+- **A live Session's ID is its Session ID, and every Event carries it.** `gotato.Session` takes its ID from its Transcript when the Transcript has an `ID() string` method, as a `session.Record` does, and generates one otherwise. The Runner's own Events carry it too, so `session_loaded` now has a Session, though still no Run. **Breaking:** the `session_id` payload key of `session_loaded`, `session_saved` and `session_compacted` is gone; read `Event.SessionID` instead.
+- **A Run record no longer has `agent_id`.** It held a counter that meant nothing after a restart, and nothing read it. `Record.RecordRunStart` takes the Run's ID and time only. A Record saved before still loads; the old key is ignored, and its stored Events keep their old kinds and `agent_id`.
+- Error messages say "Session is closed" and "Session is already processing a Run" where they said "Agent".
 
 ### Runtime
 
-- **An Agent can cap the Effect of its tools.** `gotato.WithMaxEffect(effect)` and `service.AgentSpec.MaxEffect` name the highest Effect a tool may have. A tool above the cap is never shown to the model, including the tools of a ToolSet activated later, and a call to it fails as a call to an unknown tool. A tool that declares no Effect counts as destructive, so any lower cap hides it. A Session cannot switch on a hidden tool: `Runner.Tools` does not list it, and `Runner.SetToolActive` reports it as unknown. There is no cap by default, so an Agent that names none behaves as before. An unknown Effect fails `NewAgent` and `service.New`.
+- **An Agent can cap the Effect of its tools.** `gotato.WithMaxEffect(effect)` and `service.Agent.MaxEffect` name the highest Effect a tool may have. A tool above the cap is never shown to the model, including the tools of a ToolSet activated later, and a call to it fails as a call to an unknown tool. A tool that declares no Effect counts as destructive, so any lower cap hides it. A Session cannot switch on a hidden tool: `Runner.Tools` does not list it, and `Runner.SetToolActive` reports it as unknown. There is no cap by default, so an Agent that names none behaves as before. An unknown Effect fails `NewSession` and `service.New`.
 - **The tool that activates a ToolSet declares `read`.** It changes only which tools the model sees, so every cap keeps it. Its `ToolSpec`, and the `ToolUse` a `PreToolUse` extension gets for it, now carry `EffectRead` instead of no Effect.
 
 ### Contracts
 
-- HTTP: `GET /v1/agents` adds `max_effect`, an object from Agent name to cap. An Agent without a cap has no entry.
-- gRPC: `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning. The generated code also picks up comments that `service.proto` had gained since the last generation.
-- CLI: `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
+- HTTP: the contract version is now `"4"`. Every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and the kinds `run_start` and `run_end`. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry.
+- gRPC: the contract version is now `"4"`. `Event.agent_id = 1` is now `session_id = 1`, with the same field number. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation.
+- CLI: the contract version that `doctor` reports is now `"2"`, because `events` and `run --events jsonl` print `run_start`, `run_end` and `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
 ## v0.1.2 — 2026-10-16
 

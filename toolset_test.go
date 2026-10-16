@@ -113,12 +113,12 @@ func activationScript(name string) []ModelEvent {
 func TestToolSetStaysHiddenUntilTheNextRequest(t *testing.T) {
 	set := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "write"}}}
 	model := &recordingModel{scripts: [][]ModelEvent{activationScript("files"), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithToolSet(set))
+	agent, err := NewSession(WithModel(model), WithToolSet(set))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestToolSetStaysHiddenUntilTheNextRequest(t *testing.T) {
 			}
 			activations++
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			break
 		}
 	}
@@ -175,7 +175,7 @@ func TestToolSetActivationIsIdempotent(t *testing.T) {
 		{Kind: ModelDone, StopReason: StopToolCalls},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{batch, finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithToolSet(files))
+	agent, err := NewSession(WithModel(model), WithToolSet(files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestToolSetActivationIsIdempotent(t *testing.T) {
 func TestFailedToolSetResolutionExposesNothing(t *testing.T) {
 	set := &stubToolSet{name: "files", err: errors.New("catalog is down")}
 	model := &recordingModel{scripts: [][]ModelEvent{activationScript("files"), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithToolSet(set))
+	agent, err := NewSession(WithModel(model), WithToolSet(set))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,29 +220,29 @@ func TestFailedToolSetResolutionExposesNothing(t *testing.T) {
 
 func TestToolSetConstructionValidation(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
-	if _, err := NewAgent(WithModel(model),
+	if _, err := NewSession(WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "write"}}}),
 	); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("duplicate ToolSet name = %v", err)
 	}
-	if _, err := NewAgent(WithModel(model),
+	if _, err := NewSession(WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files.deep", tools: []Tool{&namedTool{id: "read"}}}),
 	); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("dotted ToolSet name = %v", err)
 	}
-	if _, err := NewAgent(WithModel(model),
+	if _, err := NewSession(WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "read"}}}),
 	); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("duplicate local Tool name = %v", err)
 	}
-	if _, err := NewAgent(WithModel(model), WithToolSet(nil)); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("nil ToolSet = %v", err)
 	}
-	if _, err := NewAgent(WithModel(model), WithRootNamespace("a.b")); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(model), WithRootNamespace("a.b")); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("dotted root namespace = %v", err)
 	}
-	agent, err := NewAgent(WithModel(model), WithRootNamespace("core"), WithTool(&namedTool{id: "ping"}))
+	agent, err := NewSession(WithModel(model), WithRootNamespace("core"), WithTool(&namedTool{id: "ping"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,12 +278,12 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	limits := defaultLimits()
 	limits.MaxParallelTools = 2
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("slow", "fast"), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTools(first, second), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithTools(first, second), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 				commits = append(commits, event.ToolCallID)
 			}
 			mu.Unlock()
-			if event.Kind == EventAgentEnd {
+			if event.Kind == EventRunEnd {
 				observed <- nil
 				return
 			}
@@ -347,7 +347,7 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Event stream did not reach agent_end")
+		t.Fatal("Event stream did not reach run_end")
 	}
 	if tracker.peakValue() != 2 {
 		t.Fatalf("parallel peak = %d", tracker.peakValue())
@@ -377,7 +377,7 @@ func TestSequentialToolRunsAlone(t *testing.T) {
 		&namedTool{id: "b", arrive: arrive, hold: bRelease, tracker: tracker},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("a", "guard", "b"), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTools(tools...), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithTools(tools...), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
 	limits := defaultLimits()
 	limits.MaxActiveToolSets = 1
-	if _, err := NewAgent(WithModel(model), WithLimits(limits),
+	if _, err := NewSession(WithModel(model), WithLimits(limits),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
 		WithActiveToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
 	); !IsCode(err, ErrLimitExceeded) {
@@ -446,7 +446,7 @@ func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
 	}
 	// One active plus one inactive is within the limit, and staging still
 	// obeys it at activation time.
-	agent, err := NewAgent(WithModel(model), WithLimits(limits),
+	agent, err := NewSession(WithModel(model), WithLimits(limits),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
 		WithToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
 	)
@@ -454,7 +454,7 @@ func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	registry := agent.(*coreAgent).registry
+	registry := agent.registry
 	if err := registry.stage(context.Background(), "git"); !IsCode(err, ErrLimitExceeded) {
 		t.Fatalf("staging over the active limit = %v, want limit_exceeded", err)
 	}
@@ -468,9 +468,9 @@ func (panicSpecToolSet) Tools(context.Context) ([]Tool, error) { return nil, nil
 
 func TestToolSetSpecPanicBecomesRuntimeError(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
-	_, err := NewAgent(WithModel(model), WithActiveToolSet(panicSpecToolSet{}))
+	_, err := NewSession(WithModel(model), WithActiveToolSet(panicSpecToolSet{}))
 	if err == nil {
-		t.Fatal("a panicking ToolSet.Spec did not fail NewAgent")
+		t.Fatal("a panicking ToolSet.Spec did not fail NewSession")
 	}
 	if !IsCode(err, ErrExtensionFailure) {
 		t.Fatalf("ToolSet.Spec panic = %v, want extension_failure", err)
@@ -490,7 +490,7 @@ func TestParallelWorkerBoundIsRespected(t *testing.T) {
 		&namedTool{id: "four", arrive: arrive, hold: release, tracker: tracker},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("one", "two", "three", "four"), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTools(tools...), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithTools(tools...), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@
 
 ## What Gotato is
 
-1. **A minimal, synchronous, Go-native agent runtime.** One loop per agent; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
+1. **A minimal, synchronous, Go-native agent runtime.** One Loop per Session; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
 2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
 3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from Session ownership across instances (planned).
 
@@ -12,45 +12,45 @@ Every feature passes one test: *would a Go service embedding an agent want this 
 
 ## Cost
 
-An idle agent costs a few kilobytes. A working agent's memory follows its transcript, with little on top. Many agents fit in one process.
+An idle Session costs a few kilobytes. A working Session's memory follows its transcript, with little on top. Many Sessions fit in one process.
 
-| Measurement: 100 concurrent agents, 25 tool rounds each, 4 KB of unique tool output per round | Value |
+| Measurement: 100 concurrent Sessions, 25 tool rounds each, 4 KB of unique tool output per round | Value |
 |---|---|
-| Heap per idle agent | 4–6 KB |
-| Heap per agent after the loop (100 KB of tool output each) | 216–237 KB |
-| Process footprint with all 100 agents active (macOS `vmmap`) | 41 MB |
+| Heap per idle Session | 4–6 KB |
+| Heap per Session after the loop (100 KB of tool output each) | 216–237 KB |
+| Process footprint with all 100 Sessions active (macOS `vmmap`) | 41 MB |
 | Gotato time per model turn, including tool dispatch | under 50 µs |
 
 For scale: one Claude Code session held 320–390 MB of private memory on the same machine. These numbers exclude model latency, provider clients, and tool subprocesses. Measured on 2026-10-09 with Go 1.26 on Apple silicon. Reproduce them with:
 
 ```sh
-go test -run '^$' -bench AgentFootprint -benchtime 1x .
+go test -run '^$' -bench SessionFootprint -benchtime 1x .
 ```
 
 ## Quick start (library)
 
 ```go
 model := testkit.EchoModel{}                      // any gotato.Model; providers live in gateway/
-s := session.New()                                // what happened
+record := session.New()                           // what the store keeps: what happened
 
-agent, err := gotato.NewAgent(
+s, err := gotato.NewSession(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
-    gotato.WithTranscript(s),                     // the agent commits to the Session
+    gotato.WithTranscript(record),                // the Session commits to its Record and takes its ID
     gotato.WithContextBuilder(modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", rules))),
-    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})),
+    gotato.WithExtension(modelctx.AutoCompact(record, modelctx.CompactPolicy{Ceiling: 60000})),
     gotato.WithToolSource(toolregistry.MustNew(tools...)),
-    gotato.WithExtension(session.Record(s)),      // runs, events, usage into the Session
+    gotato.WithExtension(session.NewRecorder(record)), // runs, events, usage into the Record
 )
 if err != nil {
     return err
 }
-defer agent.Close(context.Background())
+defer s.Close(context.Background())
 
-result, err := agent.Prompt(ctx, gotato.UserMessage("inspect this repository"))
+result, err := s.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 ```
 
-`gotato.NewAgent(gotato.WithModel(model))` alone runs against a private in-memory transcript with full-history context.
+`gotato.NewSession(gotato.WithModel(model))` alone runs against a private in-memory transcript with full-history context.
 
 ## Embedding in a service
 
@@ -60,8 +60,8 @@ if err != nil {
     return err
 }
 runner, err := service.New(service.Config{
-    Store: store,
-    Specs: []service.AgentSpec{{Name: "default", Model: model, Tools: tools}},
+    Store:  store,
+    Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
 })
 if err != nil {
     return err
@@ -71,7 +71,7 @@ mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // option
 out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
 ```
 
-Each Run loads the Session, builds an Agent, runs it, closes it, and saves the Session. Any instance holding the Store can serve any Session.
+Each Run loads the Session's Record, builds a live Session from the Agent, runs it, closes it, and saves the Record. Any instance holding the Store can serve any Session.
 
 ## Quick start (CLI)
 
@@ -90,8 +90,8 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 
 | Area | Status |
 |---|---|
-| Agent loop, control (Steer, FollowUp, Abort), limits, extensions | done |
-| Session, `session.Store` (memory, file), fork | done |
+| Live Session and its Loop, control (Steer, FollowUp, Abort), limits, extensions | done |
+| Session Record, `session.Store` (memory, file), fork | done |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
 | Events and streaming | done; typed payloads and reasoning deltas planned |

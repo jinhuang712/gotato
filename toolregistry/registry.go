@@ -1,14 +1,14 @@
 // Package toolregistry is the Gotato Tool Registry: it owns Tool identity,
 // visibility, and activation for a static or dynamic Tool surface.
 //
-// A Registry implements gotato.ToolSource, so an Agent picks up changes at
+// A Registry implements gotato.ToolSource, so a live Session picks up changes at
 // each Turn boundary:
 //
 //	reg, _ := toolregistry.New()
 //	reg.Register(fsRead)
 //	reg.Register(shell)
 //	reg.Deactivate("shell")           // registered but hidden from the Model
-//	agent, _ := gotato.NewAgent(gotato.WithModel(m), gotato.WithToolSource(reg))
+//	s, _ := gotato.NewSession(gotato.WithModel(m), gotato.WithToolSource(reg))
 //
 // The Registry normalizes a Tool's ID by trimming surrounding whitespace and
 // captures its Spec at Register. That captured Spec is the single source of

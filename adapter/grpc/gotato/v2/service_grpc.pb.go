@@ -39,14 +39,14 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // SessionService is one protocol adapter over service.Runner: a store of
-// Sessions and Agents created per Run. It defines no Agent or Session
+// Session Records, and live Sessions built per Run. It defines no Agent or Session
 // semantics of its own; every RPC maps onto one Runner method.
 type SessionServiceClient interface {
 	// Contract reports the adapter contract version.
 	Contract(ctx context.Context, in *ContractRequest, opts ...grpc.CallOption) (*ContractResponse, error)
-	// Agents lists the registered AgentSpec names; the first is the default.
+	// Agents lists the registered Agent names; the first is the default.
 	Agents(ctx context.Context, in *AgentsRequest, opts ...grpc.CallOption) (*AgentsResponse, error)
-	// CreateSession creates an empty Session bound to an AgentSpec.
+	// CreateSession creates an empty Session bound to an Agent.
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*SessionSummary, error)
 	// GetSession returns the full Session document as JSON.
 	GetSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionDocument, error)
@@ -240,14 +240,14 @@ func (c *sessionServiceClient) Compact(ctx context.Context, in *CompactRequest, 
 // for forward compatibility.
 //
 // SessionService is one protocol adapter over service.Runner: a store of
-// Sessions and Agents created per Run. It defines no Agent or Session
+// Session Records, and live Sessions built per Run. It defines no Agent or Session
 // semantics of its own; every RPC maps onto one Runner method.
 type SessionServiceServer interface {
 	// Contract reports the adapter contract version.
 	Contract(context.Context, *ContractRequest) (*ContractResponse, error)
-	// Agents lists the registered AgentSpec names; the first is the default.
+	// Agents lists the registered Agent names; the first is the default.
 	Agents(context.Context, *AgentsRequest) (*AgentsResponse, error)
-	// CreateSession creates an empty Session bound to an AgentSpec.
+	// CreateSession creates an empty Session bound to an Agent.
 	CreateSession(context.Context, *CreateSessionRequest) (*SessionSummary, error)
 	// GetSession returns the full Session document as JSON.
 	GetSession(context.Context, *SessionRequest) (*SessionDocument, error)

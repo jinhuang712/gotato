@@ -41,7 +41,7 @@ func WithActiveToolSet(set ToolSet) Option {
 }
 
 func withToolSet(set ToolSet, active bool) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if set == nil {
 			return runtimeError(ErrInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
 		}
@@ -53,7 +53,7 @@ func withToolSet(set ToolSet, active bool) Option {
 // WithRootNamespace qualifies individual root Tools under one namespace. The
 // default is an empty namespace, where a root Tool keeps its declared ID.
 func WithRootNamespace(namespace string) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		namespace = strings.TrimSpace(namespace)
 		if strings.Contains(namespace, ".") {
 			return runtimeError(ErrInvalidArgument, "WithRootNamespace", "namespace cannot contain a dot", nil)
@@ -78,8 +78,8 @@ type toolSetState struct {
 	resolved []Tool
 }
 
-// toolRegistry owns Tool identity, visibility, and activation for one Agent.
-// The Agent goroutine commits visibility changes at batch boundaries; the
+// toolRegistry owns Tool identity, visibility, and activation for one Session.
+// The Session goroutine commits visibility changes at batch boundaries; the
 // activation Tool resolves and stages a ToolSet from its own goroutine, so mu
 // guards every mutation of that state.
 type toolRegistry struct {
@@ -99,12 +99,12 @@ type toolRegistry struct {
 	// commits at the batch boundary, never inside it.
 	pending []*toolSetState
 	// mu guards sets, pending, resolved, specs, and byQualified. Callers that
-	// run on the Agent goroutine hold the Agent's registryMu, which is the
+	// run on the Session goroutine hold the Session's registryMu, which is the
 	// lock ToolInspector.Tools reads under; mu is the inner lock.
 	mu sync.Mutex
 }
 
-func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
+func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 	registry := &toolRegistry{
 		rootNamespace: cfg.rootNamespace,
 		rootTools:     cfg.tools,
@@ -149,7 +149,7 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 	}
 	// Resolving the active ToolSets during construction keeps the first
 	// Model request deterministic and surfaces a broken ToolSet before the
-	// Agent accepts any command.
+	// Session accepts any command.
 	for _, state := range registry.sets {
 		if !state.active {
 			continue
@@ -167,7 +167,7 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 }
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
-// RuntimeError so a broken ToolSet fails NewAgent instead of crashing the process.
+// RuntimeError so a broken ToolSet fails NewSession instead of crashing the process.
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

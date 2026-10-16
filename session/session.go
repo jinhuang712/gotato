@@ -1,15 +1,15 @@
-// Package session is the Gotato Session primitive: the record of what
-// happened in an interaction across Turns and Runs.
+// Package session holds a Session's Record, what the Store keeps of it, and
+// the Stores that keep it.
 //
-// A Session holds identity, the committed Messages, per-Run records, usage,
-// a bounded window of runtime Events, compaction history, and free-form
-// application metadata. It implements gotato.Transcript, so an Agent commits
-// to it directly:
+// A Record holds the Session's identity, the committed Messages, per-Run
+// records, usage, a bounded window of runtime Events, compaction history, and
+// free-form application metadata. It implements gotato.Transcript, so a live
+// gotato.Session commits to it directly and takes its ID:
 //
-//	s := session.New()
-//	agent, _ := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(session.Record(s)))
-//	agent.Prompt(ctx, gotato.UserMessage("hi"))
-//	store.Save(ctx, s)
+//	r := session.New()
+//	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r), gotato.WithExtension(session.NewRecorder(r)))
+//	s.Prompt(ctx, gotato.UserMessage("hi"))
+//	store.Save(ctx, r)
 //
 // Tasks, projects, roles, and agent hierarchy are application semantics and
 // belong in Metadata.
@@ -33,10 +33,9 @@ const SchemaVersion = 1
 // dropped first; Runs, Messages, and Usage are never dropped.
 const DefaultEventLimit = 1000
 
-// Run is the per-Run record kept in a Session.
+// Run is the per-Run record kept in a Record.
 type Run struct {
 	RunID      gotato.RunID     `json:"run_id"`
-	AgentID    gotato.AgentID   `json:"agent_id,omitempty"`
 	Status     gotato.RunStatus `json:"status"`
 	Error      string           `json:"error,omitempty"`
 	StartedAt  time.Time        `json:"started_at"`
@@ -60,8 +59,8 @@ type Compaction struct {
 	BytesAfter       int              `json:"bytes_after"`
 }
 
-// Document is the serializable form of a Session. Stores persist it; Snapshot
-// and Load convert to and from a live Session.
+// Document is the serializable form of a Record. Stores persist it; Snapshot
+// and Load convert to and from a Record.
 type Document struct {
 	SchemaVersion int               `json:"schema_version"`
 	ID            string            `json:"id"`
@@ -77,9 +76,10 @@ type Document struct {
 	EventLimit    int               `json:"event_limit,omitempty"`
 }
 
-// Session is what happened. It is safe for concurrent use; the Agent that
-// runs against it must still be the only writer of Messages during a Run.
-type Session struct {
+// Record is what the Store keeps of a Session: what happened in it. It is safe
+// for concurrent use; the live gotato.Session that runs against it must still
+// be the only writer of Messages during a Run.
+type Record struct {
 	mu        sync.RWMutex
 	id        string
 	parentID  string
@@ -99,15 +99,15 @@ type Session struct {
 }
 
 // Option configures New.
-type Option func(*Session)
+type Option func(*Record)
 
 // WithID sets the Session ID. Default: a random 16-byte hex ID.
-func WithID(id string) Option { return func(s *Session) { s.id = id } }
+func WithID(id string) Option { return func(s *Record) { s.id = id } }
 
 // WithEventLimit bounds retained Events. Zero keeps DefaultEventLimit; a
 // negative value disables Event retention.
 func WithEventLimit(limit int) Option {
-	return func(s *Session) {
+	return func(s *Record) {
 		if limit == 0 {
 			limit = DefaultEventLimit
 		}
@@ -117,15 +117,15 @@ func WithEventLimit(limit int) Option {
 
 // WithMetadata sets initial application metadata.
 func WithMetadata(metadata map[string]string) Option {
-	return func(s *Session) { s.metadata = maps.Clone(metadata) }
+	return func(s *Record) { s.metadata = maps.Clone(metadata) }
 }
 
 // WithClock overrides the clock (tests).
-func WithClock(now func() time.Time) Option { return func(s *Session) { s.now = now } }
+func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = now } }
 
-// New creates an empty Session.
-func New(options ...Option) *Session {
-	s := &Session{eventLimit: DefaultEventLimit, now: time.Now}
+// New creates an empty Record.
+func New(options ...Option) *Record {
+	s := &Record{eventLimit: DefaultEventLimit, now: time.Now}
 	for _, option := range options {
 		if option != nil {
 			option(s)
@@ -151,8 +151,8 @@ func NewID() string {
 	return hex.EncodeToString(buf[:])
 }
 
-// Load rebuilds a live Session from a persisted Document.
-func Load(doc Document) (*Session, error) {
+// Load rebuilds a Record from a persisted Document.
+func Load(doc Document) (*Record, error) {
 	if doc.SchemaVersion == 0 {
 		doc.SchemaVersion = SchemaVersion
 	}
@@ -162,7 +162,7 @@ func Load(doc Document) (*Session, error) {
 	if doc.ID == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: document has no id")
 	}
-	s := &Session{
+	s := &Record{
 		id:          doc.ID,
 		parentID:    doc.ParentID,
 		createdAt:   doc.CreatedAt,
@@ -189,7 +189,7 @@ func Load(doc Document) (*Session, error) {
 }
 
 // Snapshot returns a deep-copied Document of the current state.
-func (s *Session) Snapshot() Document {
+func (s *Record) Snapshot() Document {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return Document{
@@ -209,37 +209,37 @@ func (s *Session) Snapshot() Document {
 }
 
 // ID returns the Session identity.
-func (s *Session) ID() string { return s.id }
+func (s *Record) ID() string { return s.id }
 
 // ParentID returns the Session this one was forked from, or "".
-func (s *Session) ParentID() string { return s.parentID }
+func (s *Record) ParentID() string { return s.parentID }
 
 // CreatedAt returns the creation time.
-func (s *Session) CreatedAt() time.Time { return s.createdAt }
+func (s *Record) CreatedAt() time.Time { return s.createdAt }
 
 // UpdatedAt returns the time of the last mutation.
-func (s *Session) UpdatedAt() time.Time {
+func (s *Record) UpdatedAt() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.updatedAt
 }
 
 // Messages implements gotato.Transcript. The returned slice is a copy.
-func (s *Session) Messages() []gotato.Message {
+func (s *Record) Messages() []gotato.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneMessages(s.messages)
 }
 
 // Len returns the number of committed Messages without copying them.
-func (s *Session) Len() int {
+func (s *Record) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.messages)
 }
 
 // Append implements gotato.Transcript.
-func (s *Session) Append(message gotato.Message) error {
+func (s *Record) Append(message gotato.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, message.Clone())
@@ -248,9 +248,9 @@ func (s *Session) Append(message gotato.Message) error {
 }
 
 // ReplaceMessages swaps the whole committed history. It exists for state
-// operations such as compaction and must not run while an Agent Run is using
-// this Session.
-func (s *Session) ReplaceMessages(messages []gotato.Message) {
+// operations such as compaction and must not run while a Run is using this
+// Record.
+func (s *Record) ReplaceMessages(messages []gotato.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = cloneMessages(messages)
@@ -258,22 +258,22 @@ func (s *Session) ReplaceMessages(messages []gotato.Message) {
 }
 
 // Runs returns the Run records.
-func (s *Session) Runs() []Run {
+func (s *Record) Runs() []Run {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.runs)
 }
 
 // RecordRunStart adds a running Run record.
-func (s *Session) RecordRunStart(runID gotato.RunID, agentID gotato.AgentID, at time.Time) {
+func (s *Record) RecordRunStart(runID gotato.RunID, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.runs = append(s.runs, Run{RunID: runID, AgentID: agentID, Status: gotato.RunRunning, StartedAt: at.UTC()})
+	s.runs = append(s.runs, Run{RunID: runID, Status: gotato.RunRunning, StartedAt: at.UTC()})
 	s.touch()
 }
 
 // RecordRunEnd finalizes the matching Run record and aggregates usage.
-func (s *Session) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errText, stopReason string, turns, toolCalls uint32, usage gotato.Usage, at time.Time) {
+func (s *Record) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errText, stopReason string, turns, toolCalls uint32, usage gotato.Usage, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := len(s.runs) - 1; i >= 0; i-- {
@@ -298,14 +298,14 @@ func (s *Session) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errT
 }
 
 // Usage returns the aggregated usage across recorded Runs.
-func (s *Session) Usage() gotato.Usage {
+func (s *Record) Usage() gotato.Usage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.usage
 }
 
 // Events returns the retained Events in order, with copied payloads.
-func (s *Session) Events() []gotato.Event {
+func (s *Record) Events() []gotato.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneEvents(s.retainedEvents())
@@ -314,7 +314,7 @@ func (s *Session) Events() []gotato.Event {
 // RecordEvent retains one Event, dropping the oldest beyond the limit. Once the
 // window is full the backing slice is reused as a ring buffer so a streaming
 // producer does not reallocate the whole window on every Event.
-func (s *Session) RecordEvent(event gotato.Event) {
+func (s *Record) RecordEvent(event gotato.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.eventLimit < 0 {
@@ -338,7 +338,7 @@ func (s *Session) RecordEvent(event gotato.Event) {
 // retainedEvents returns the retained Events in insertion order. When the ring
 // buffer has wrapped it returns a fresh slice; otherwise it aliases s.events
 // and must only be read under the Session lock.
-func (s *Session) retainedEvents() []gotato.Event {
+func (s *Record) retainedEvents() []gotato.Event {
 	if s.eventHead == 0 || s.eventHead >= len(s.events) {
 		return s.events
 	}
@@ -349,14 +349,14 @@ func (s *Session) retainedEvents() []gotato.Event {
 }
 
 // Compactions returns the compaction history.
-func (s *Session) Compactions() []Compaction {
+func (s *Record) Compactions() []Compaction {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.compactions)
 }
 
 // RecordCompaction appends a compaction record.
-func (s *Session) RecordCompaction(record Compaction) {
+func (s *Record) RecordCompaction(record Compaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.compactions = append(s.compactions, record)
@@ -364,14 +364,14 @@ func (s *Session) RecordCompaction(record Compaction) {
 }
 
 // Metadata returns a copy of the application metadata.
-func (s *Session) Metadata() map[string]string {
+func (s *Record) Metadata() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return maps.Clone(s.metadata)
 }
 
 // Get returns one metadata value.
-func (s *Session) Get(key string) (string, bool) {
+func (s *Record) Get(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	value, ok := s.metadata[key]
@@ -379,7 +379,7 @@ func (s *Session) Get(key string) (string, bool) {
 }
 
 // Set writes one metadata value. An empty value deletes the key.
-func (s *Session) Set(key, value string) {
+func (s *Record) Set(key, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if value == "" {
@@ -390,13 +390,13 @@ func (s *Session) Set(key, value string) {
 	s.touch()
 }
 
-func (s *Session) touch() { s.updatedAt = s.now().UTC() }
+func (s *Record) touch() { s.updatedAt = s.now().UTC() }
 
-// Fork creates a new Session from the current state of parent. The fork has
-// its own ID, records the parent ID, copies Messages, Usage, Compactions, and
-// Metadata, and starts with empty Run and Event records. It is a state
-// operation: no relationship between Agents is implied.
-func Fork(parent *Session, options ...Option) *Session {
+// Fork creates the Record of a new Session from the current state of parent.
+// The fork has its own ID, records the parent ID, copies Messages, Usage,
+// Compactions, and Metadata, and starts with empty Run and Event records. It
+// is a state operation: no relationship between Sessions is implied.
+func Fork(parent *Record, options ...Option) *Record {
 	doc := parent.Snapshot()
 	child := New(options...)
 	child.mu.Lock()

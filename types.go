@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 )
 
-type AgentID string
+type SessionID string
 type RunID string
 type TurnNumber uint32
 type MessageID string

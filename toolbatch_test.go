@@ -20,7 +20,7 @@ func (t stalledTool) Execute(context.Context, ToolUse, ToolProgress) (ToolResult
 	return ToolResult{Status: ToolResultOK}, nil
 }
 
-// A Tool that ignores its context must not pin the Agent goroutine: Abort has
+// A Tool that ignores its context must not pin the Session goroutine: Abort has
 // to settle the Run even though the worker never returns.
 func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 	blocked := make(chan struct{})
@@ -30,12 +30,12 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	agent, err := NewAgent(WithModel(model), WithTool(stalledTool{blocked: blocked}))
+	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		}
 	}
 
-	agent.(ControllableAgent).Abort()
+	agent.Abort()
 	select {
 	case promptErr := <-resultCh:
 		if !IsCode(promptErr, ErrCancelled) {
@@ -106,12 +106,12 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	agent, err := NewAgent(WithModel(model), WithTool(&concurrentProgressTool{workers: workers, updates: perWorker}))
+	agent, err := NewSession(WithModel(model), WithTool(&concurrentProgressTool{workers: workers, updates: perWorker}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 			if event.Kind == EventToolExecutionUpdate {
 				updates++
 			}
-			if event.Kind == EventAgentEnd {
+			if event.Kind == EventRunEnd {
 				observed <- nil
 				return
 			}
@@ -145,7 +145,7 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("event stream did not reach agent_end")
+		t.Fatal("event stream did not reach run_end")
 	}
 	if updates != want {
 		t.Fatalf("progress updates = %d, want %d", updates, want)

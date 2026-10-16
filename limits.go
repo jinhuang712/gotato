@@ -32,7 +32,7 @@ type CoreLimits struct {
 // CoreLimits.MaxTruncatedContinuations).
 const TruncatedContinuationText = "Your last reply was cut off at the output limit before you acted. Continue from where you stopped: keep any reasoning short and take the next step with a tool call, or give your final answer."
 
-// DefaultLimits returns the limits NewAgent applies when WithLimits is not
+// DefaultLimits returns the limits NewSession applies when WithLimits is not
 // used. Adjust a copy and pass it to WithLimits to override some fields.
 //
 // A zero field is interpreted per field, not uniformly. Once WithLimits makes

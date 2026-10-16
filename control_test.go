@@ -91,7 +91,7 @@ func finalScript(text string) []ModelEvent {
 
 func TestContinueAppendsNoUserMessage(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("first"), finalScript("second"), finalScript("third")}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,15 +100,11 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	controllable, ok := agent.(ControllableAgent)
-	if !ok {
-		t.Fatal("Agent does not expose control commands")
-	}
-	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
+	if _, err := agent.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
 		t.Fatalf("Continue after an assistant Message = %v", err)
 	}
 
-	if err := controllable.FollowUp(UserMessage("carry on")); err != nil {
+	if err := agent.FollowUp(UserMessage("carry on")); err != nil {
 		t.Fatal(err)
 	}
 	// The follow-up settles inside its own Run, leaving the transcript ending
@@ -116,7 +112,7 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("more")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
+	if _, err := agent.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
 		t.Fatalf("Continue after a follow-up Run = %v", err)
 	}
 }
@@ -128,12 +124,12 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewAgent(WithModel(model), WithTool(tool))
+	agent, err := NewSession(WithModel(model), WithTool(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 
 	done := make(chan RunResult, 1)
 	go func() {
@@ -179,13 +175,13 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	controllable := agent
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +223,7 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 		if event.Kind == EventMessageEnd && event.Payload["source"] == "steer" {
 			steered++
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			terminals++
 			break
 		}
@@ -244,12 +240,12 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewAgent(WithModel(model), WithTool(tool))
+	agent, err := NewSession(WithModel(model), WithTool(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 
 	done := make(chan RunResult, 1)
 	go func() {
@@ -293,12 +289,12 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	limits.MaxFollowUpMessages = 1
 	limits.MaxSteerMessages = 0
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 
 	if err := controllable.FollowUp(UserMessage("one")); err != nil {
 		t.Fatal(err)
@@ -316,21 +312,21 @@ func TestControlBuffersAreBounded(t *testing.T) {
 
 func TestControlCommandsRejectedAfterClose(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.Steer(UserMessage("late")); !IsCode(err, ErrAgentClosed) {
+	if err := controllable.Steer(UserMessage("late")); !IsCode(err, ErrSessionClosed) {
 		t.Fatalf("Steer after Close = %v", err)
 	}
-	if err := controllable.FollowUp(UserMessage("late")); !IsCode(err, ErrAgentClosed) {
+	if err := controllable.FollowUp(UserMessage("late")); !IsCode(err, ErrSessionClosed) {
 		t.Fatalf("FollowUp after Close = %v", err)
 	}
-	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrAgentClosed) {
+	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrSessionClosed) {
 		t.Fatalf("Continue after Close = %v", err)
 	}
 }
@@ -339,12 +335,12 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 	controllable.Abort() // no active Run: a no-op, not a panic
 
 	done := make(chan error, 1)
@@ -366,7 +362,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("aborted Run did not return")
 	}
-	if got := agent.(AgentLifecycle).Status(); got != AgentIdle {
+	if got := agent.Status(); got != SessionIdle {
 		t.Fatalf("status after Abort = %s", got)
 	}
 }
@@ -377,12 +373,12 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	controllable := agent.(ControllableAgent)
+	controllable := agent
 
 	done := make(chan error, 1)
 	go func() {

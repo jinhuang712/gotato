@@ -17,12 +17,12 @@ type requestHeadersKey struct{}
 // WithRequestHeaders returns a context whose Model requests carry extra HTTP
 // headers. It is how a host attaches per-conversation metadata that a static
 // configuration cannot express, such as a provider's session-routing header
-// with one stable value per Agent Session:
+// with one stable value per Session:
 //
 //	ctx = gateway.WithRequestHeaders(ctx, map[string]string{"x-session": sessionID})
-//	agent.Prompt(ctx, message)
+//	session.Prompt(ctx, message)
 //
-// The Agent passes its Run context to Model.Stream, so the headers reach
+// A Session passes its Run context to Model.Stream, so the headers reach
 // every request of that Run. Headers from nested calls merge, the innermost
 // value winning. They are applied after Config.Headers and before the
 // adapter's protocol headers, so they can override configuration but never

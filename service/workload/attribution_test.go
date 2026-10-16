@@ -77,11 +77,11 @@ func TestRunFailureAttribution(t *testing.T) {
 func TestContextCheckReportsAMismatch(t *testing.T) {
 	task := testkit.LookupTask()
 	store := session.NewMemoryStore()
-	runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: task.Name, Model: task.Model, Tools: task.Tools}}})
+	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: task.Name, Model: task.Model, Tools: task.Tools}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := testkit.NewSession("where is order 42?", "it shipped")
+	s := testkit.NewRecord("where is order 42?", "it shipped")
 	s.Set(service.MetaAgent, task.Name)
 	var report TaskReport
 	checkContext(context.Background(), runner, store, s, []build{{messages: 1, prefix: "not-the-hash"}, {messages: 9, prefix: "x"}}, &report)

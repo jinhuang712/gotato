@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -75,7 +75,7 @@ The principles by group, then the decisions and the open questions. The details 
 
 | Principle | What it means |
 |---|---|
-| Library first | a small `main` runs an Agent with a fake model, with no server |
+| Library first | a small `main` runs a Session with a fake model, with no server |
 | The service sits on top | the service composes the core the way an application would |
 | The CLI is a thin client | every CLI behavior is reachable through the packages |
 | Contracts carry a version | HTTP and gRPC report their contract version |
@@ -125,6 +125,7 @@ The principles by group, then the decisions and the open questions. The details 
 |---|---|---|
 | An Agent is a definition, and a Session is the live unit | the meaning the labs' agent APIs give both words | 2026-10-15 |
 | The store is the truth, and memory is a cache | a live Session kept warm, with the store as the truth | 2026-10-15 |
+| The live Session is `gotato.Session`, and its record is `session.Record` | one concrete type a caller holds, named after the thing; the Loop stays a concept | 2026-10-16 |
 | No approval system | the Effect cap, plus tools that check their own arguments | 2026-10-15 |
 | The Effect cap hides tools, and only an Agent sets it | the model never sees a tool above the cap; another cap is another Agent | 2026-10-16 |
 | Gotato owns the shapes, and adapters own storage and telemetry | stable shapes for a Session and its Events, mapped by adapters | 2026-10-15 |
@@ -140,7 +141,6 @@ The principles by group, then the decisions and the open questions. The details 
 | How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
 | A model catalog | model names, context sizes and prices next to the providers |
 | Compaction | how a Session is compacted, before its TTL and otherwise, and when it becomes part of an Agent's definition |
-| What the stored record is called | its name once Session means the live unit |
 
 ## Loop
 
@@ -377,10 +377,10 @@ Embedding Gotato never forces a service to upgrade Go.
 
 ### Library first
 
-A small `main` runs an Agent with a fake model in-process, with no server, daemon or database.
+A small `main` builds a Session with `gotato.NewSession` and runs it with a fake model in-process, with no server, daemon or database.
 
 - **Cost:** the service layer cannot add anything the library needs to work.
-- **Check:** the root package's tests build and run Agents in-process with `testkit` fakes, with no network and no store beyond memory.
+- **Check:** the root package's tests build and run Sessions in-process with `testkit` fakes, with no network and no store beyond memory.
 
 ### The service sits on top
 
@@ -398,7 +398,7 @@ Every CLI behavior is reachable through the packages. `--json` and `--jsonl` out
 
 ### Contracts carry a version
 
-The HTTP and gRPC contracts each report a contract version, currently `"3"`. It counts breaking changes to what the service returns, JSON payloads included; the protobuf package stays `gotato.v2` until its schema itself breaks.
+The HTTP and gRPC contracts each report a contract version, currently `"4"`. It counts breaking changes to what the service returns, JSON payloads included; the protobuf package stays `gotato.v2` until its schema itself breaks.
 
 - **Cost:** a breaking change to a contract needs a version bump and a [CHANGELOG.md](CHANGELOG.md) entry.
 - **Check:** `GET /healthz` and the gRPC contract call return the version.
@@ -519,6 +519,22 @@ A Session behaves like a live unit while it is in use, and like a record while i
 
 An earlier version of Gotato kept agents in memory for their whole life, and a later one replaced them with a stored record. This decision brings a long-lived unit back. It is safe this time, because a Session's identity is its record, not the memory that holds it.
 
+### The live Session is `gotato.Session`, and its record is `session.Record` — 2026-10-16
+
+The object a caller builds and talks to already has what the glossary gives a Session: an ID, a Status and its state machine, a queue for Steer and FollowUp, a Transcript, a `ContextBuilder` and its tools. It lacks only saving itself and a TTL, which Phase 6 adds. So it takes the name Session, and the stored record takes the name Record.
+
+| Option | For | Against |
+|---|---|---|
+| **`gotato.Session` for the live unit, `session.Record` for what the store keeps** (chosen) | The type is named after the thing a caller holds. Phase 6 grows the same type, so the name does not change again. | The record's name is settled before Phase 6, so this rename is larger. |
+| `gotato.Loop` | Matches the old plan for this rename. | The Loop is a concept, the cycle inside a Session, not a thing a caller holds. |
+| A role name, such as `gotato.Executor` | The smallest change. The record keeps its name. | In Phase 6, the Session either wraps the Executor or the type is renamed again. |
+
+Three choices come with it:
+
+- **One concrete type, no interfaces.** `gotato.NewSession` returns a `*Session`. There is one implementation, and no caller implements the interfaces the old type was split into, so they go. A caller that wants a fake defines its own small interface, as Go code usually does.
+- **One ID.** A live Session's ID is its Session ID: it comes from its record, or is generated when there is none. Every Event carries it as `session_id`.
+- **Today a live Session lives for one Run.** The Runner builds one from the record, runs it and closes it, so it behaves like a Session whose TTL is zero, and the store stays the truth. Phase 6 keeps it warm.
+
 ### No approval system — 2026-10-15
 
 Gotato is for purpose-built agents, whose tools the team chooses and writes (reason: [PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
@@ -609,7 +625,7 @@ The Events that report a message's way into a Session are open with it, because 
 | The Run ends before the Loop reads it | it is dropped | none |
 | A new Run reaches a busy Session | it is rejected as busy, or waits for the lock | none |
 | The Runner is full | the Run is rejected | none |
-| A caller asks to cancel | the Run settles as cancelled | only `agent_end`, so the time from the request to the cancel is unknown |
+| A caller asks to cancel | the Run settles as cancelled | only `run_end`, so the time from the request to the cancel is unknown |
 
 Some of these steps happen before any Run starts, so their Events cannot belong to a Run. They may need a stream of the Runner's own, which ties this question to [Ownership across instances](#ownership-across-instances).
 
@@ -626,9 +642,5 @@ A catalog next to the providers would list model names, context sizes and prices
 Compaction exists in the code, and it is not part of an Agent's definition until a later phase.
 
 One part is decided: a warm Session is compacted before it leaves memory at its TTL, on by default, and a setting turns it off ([The store is the truth, and memory is a cache](#the-store-is-the-truth-and-memory-is-a-cache)). How a Session is compacted is still open: who writes the summary, what is kept word for word, and how this relates to the ceiling that compacts at the start of a Run. That discussion belongs to a later phase.
-
-### What the stored record is called
-
-Today `gotato.Agent` is the Loop, `service.AgentSpec` is the Agent, and `session.Session` is the stored record. Once the name Session belongs to the live unit, the record needs a name of its own. The Agent and the Loop take their glossary names in Phase 3, and the record takes its own in Phase 6, each in a planned break with a [CHANGELOG.md](CHANGELOG.md) entry ([ROADMAP.md](ROADMAP.md)).
 
 Smaller open decisions about Events and extensions are tracked in [TODO.md](TODO.md) → Decisions.

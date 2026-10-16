@@ -16,89 +16,22 @@ import (
 	"time"
 )
 
-type Agent interface {
-	Prompt(context.Context, Message) (RunResult, error)
-	Close(context.Context) error
-}
-
-type AgentStatus string
+// SessionStatus is where a live Session is in its life: created, idle while
+// it waits for a Run, busy during one, then closing and closed.
+type SessionStatus string
 
 const (
-	AgentCreated AgentStatus = "created"
-	AgentIdle    AgentStatus = "idle"
-	AgentBusy    AgentStatus = "busy"
-	AgentClosing AgentStatus = "closing"
-	AgentClosed  AgentStatus = "closed"
+	SessionCreated SessionStatus = "created"
+	SessionIdle    SessionStatus = "idle"
+	SessionBusy    SessionStatus = "busy"
+	SessionClosing SessionStatus = "closing"
+	SessionClosed  SessionStatus = "closed"
 )
 
-type AgentLifecycle interface {
-	Agent
-	Status() AgentStatus
-	Done() <-chan struct{}
-}
+// Option configures a Session built by NewSession.
+type Option func(*sessionConfig) error
 
-type EventAgent interface {
-	Agent
-	Subscribe(context.Context) (EventStream, error)
-}
-
-type LifecycleAgent interface {
-	Agent
-	SubscribeLifecycle(context.Context) (LifecycleStream, error)
-}
-
-// RunCanceler lets a service layer cancel an active Run without closing the
-// Agent or discarding its Session state.
-type RunCanceler interface {
-	Agent
-	CancelRun(context.Context, RunID) error
-}
-
-type IdleWaiter interface {
-	WaitForIdle(context.Context) error
-}
-
-// ControllableAgent adds the control operations that share the one canonical
-// Loop. They are additive: the minimal Agent path stays two methods.
-//
-// Continue runs the Loop without appending a user Message and is valid only
-// when the transcript already ends in a Model-continuable state.
-//
-// Steer and FollowUp deliver a bounded control Message consumed at a defined
-// safe boundary. Neither interrupts the Model or Tool work in flight. Steer is
-// consumed at the next Turn boundary; FollowUp is consumed only where the Run
-// would otherwise settle.
-//
-// Abort cancels the current Run without closing the Agent.
-type ControllableAgent interface {
-	Agent
-	Continue(context.Context) (RunResult, error)
-	Steer(Message) error
-	FollowUp(Message) error
-	Abort()
-}
-
-// RuntimeAgent is the complete surface NewAgent returns. The minimal Agent
-// stays the two-method contract an implementation must satisfy; a
-// RuntimeAgent additionally guarantees the control, lifecycle, event, and
-// inspection operations the service layer and the CLI rely on, so callers do
-// not have to discover them by type assertion at run time.
-type RuntimeAgent interface {
-	Agent
-	ControllableAgent
-	EventAgent
-	LifecycleAgent
-	RunCanceler
-	IdleWaiter
-	ToolInspector
-	ContextInspector
-	// Transcript returns the committed history this Agent runs against.
-	Transcript() Transcript
-}
-
-type Option func(*agentConfig) error
-
-type agentConfig struct {
+type sessionConfig struct {
 	model          Model
 	instruction    string
 	tools          []Tool
@@ -116,7 +49,7 @@ type agentConfig struct {
 }
 
 func WithModel(model Model) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if model == nil {
 			return runtimeError(ErrInvalidArgument, "WithModel", "model is nil", nil)
 		}
@@ -126,13 +59,13 @@ func WithModel(model Model) Option {
 }
 
 func WithInstruction(instruction string) Option {
-	return func(c *agentConfig) error { c.instruction = instruction; return nil }
+	return func(c *sessionConfig) error { c.instruction = instruction; return nil }
 }
 
-// WithModelOptions sets the sampling and reasoning hints the Agent sends on
+// WithModelOptions sets the sampling and reasoning hints the Session sends on
 // every model call. Provider adapters map the fields they support.
 func WithModelOptions(options ModelOptions) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if options.Temperature != nil && *options.Temperature < 0 {
 			return runtimeError(ErrInvalidArgument, "WithModelOptions", "temperature is negative", nil)
 		}
@@ -145,21 +78,21 @@ func WithModelOptions(options ModelOptions) Option {
 	}
 }
 
-// WithCacheKey sets the ModelRequest.CacheKey the Agent sends on every model
+// WithCacheKey sets the ModelRequest.CacheKey the Session sends on every model
 // call: a stable value for one conversation, such as a hash of its Session ID,
 // so the provider serves its Turns from one prompt cache. It never changes the
 // prompt.
 func WithCacheKey(key string) Option {
-	return func(c *agentConfig) error { c.cacheKey = key; return nil }
+	return func(c *sessionConfig) error { c.cacheKey = key; return nil }
 }
 
-// WithMaxEffect caps the Effect of the Tools the Agent offers. A Tool above
+// WithMaxEffect caps the Effect of the Tools the Session offers. A Tool above
 // the cap, including one in a ToolSet activated later, is never shown to the
 // Model, and a call to it fails as a call to an unknown Tool. A Tool that
 // declares no Effect ranks as EffectDestructive, so any lower cap hides it.
 // EffectUnspecified means no cap, which is the default.
 func WithMaxEffect(effect ToolEffect) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if !effect.Valid() {
 			return runtimeError(ErrInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
 		}
@@ -169,7 +102,7 @@ func WithMaxEffect(effect ToolEffect) Option {
 }
 
 func WithTool(tool Tool) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if tool == nil {
 			return runtimeError(ErrInvalidArgument, "WithTool", "tool is nil", nil)
 		}
@@ -179,7 +112,7 @@ func WithTool(tool Tool) Option {
 }
 
 func WithTools(tools ...Tool) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		for _, tool := range tools {
 			if tool == nil {
 				return runtimeError(ErrInvalidArgument, "WithTools", "tool is nil", nil)
@@ -191,7 +124,7 @@ func WithTools(tools ...Tool) Option {
 }
 
 func WithLimits(limits CoreLimits) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if limits.RunDeadline < 0 || limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
 			return runtimeError(ErrInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
 		}
@@ -205,7 +138,7 @@ func WithLimits(limits CoreLimits) Option {
 // duration disables that deadline. Other local limits retain their defaults
 // and are not made explicit by this option.
 func WithDeadlines(run, model, tool time.Duration) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if run < 0 || model < 0 || tool < 0 {
 			return runtimeError(ErrInvalidArgument, "WithDeadlines", "deadlines cannot be negative", nil)
 		}
@@ -216,9 +149,12 @@ func WithDeadlines(run, model, tool time.Duration) Option {
 	}
 }
 
-// NewAgent builds the standard runtime Agent.
-func NewAgent(options ...Option) (RuntimeAgent, error) {
-	cfg := agentConfig{limits: defaultLimits()}
+// NewSession builds a live Session from an Agent's parts, given as options,
+// and starts it. A Model is required. The Session takes its ID from its
+// Transcript when the Transcript has an ID, as a session.Record does, and
+// generates one otherwise. Close it when it is no longer needed.
+func NewSession(options ...Option) (*Session, error) {
+	cfg := sessionConfig{limits: defaultLimits()}
 	for _, option := range options {
 		if option == nil {
 			continue
@@ -228,7 +164,7 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 		}
 	}
 	if cfg.model == nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewAgent", "a Model is required", nil)
+		return nil, runtimeError(ErrInvalidArgument, "NewSession", "a Model is required", nil)
 	}
 	if err := validateLimits(cfg.limits); err != nil {
 		return nil, err
@@ -244,9 +180,13 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 	if cfg.contextBuilder == nil {
 		cfg.contextBuilder = FullHistoryContext()
 	}
+	id := SessionID(nextID("session"))
+	if record, ok := cfg.transcript.(interface{ ID() string }); ok && record.ID() != "" {
+		id = SessionID(record.ID())
+	}
 
-	a := &coreAgent{
-		id:             AgentID(nextID("agent")),
+	a := &Session{
+		id:             id,
 		model:          cfg.model,
 		instruction:    cfg.instruction,
 		registry:       registry,
@@ -257,7 +197,7 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 		limitsSet:      cfg.limitsSet,
 		modelOptions:   cfg.modelOptions,
 		cacheKey:       cfg.cacheKey,
-		commands:       make(chan agentCommand),
+		commands:       make(chan sessionCommand),
 		closeSignal:    make(chan struct{}),
 		done:           make(chan struct{}),
 		ready:          make(chan struct{}),
@@ -268,14 +208,21 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 		lifecycle:      newLifecycleHub(),
 		stateChange:    make(chan struct{}),
 	}
-	a.setStatus(AgentCreated)
+	a.setStatus(SessionCreated)
 	go a.loop()
 	<-a.ready
 	return a, nil
 }
 
-type coreAgent struct {
-	id          AgentID
+// Session is a live Session: one conversation running one Agent. Prompt,
+// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe streams its
+// Events; Status, Done and SubscribeLifecycle report its life; Tools and
+// InspectContext show what its next Turn would send.
+//
+// Until the Runner keeps Sessions warm, it builds one from a session.Record
+// for each Run and closes it afterwards; the Record stays the truth.
+type Session struct {
+	id          SessionID
 	model       Model
 	instruction string
 	registry    *toolRegistry
@@ -287,18 +234,18 @@ type coreAgent struct {
 	modelOptions ModelOptions
 	cacheKey     string
 
-	// transcript is the committed history (the Session's record). The Agent
+	// transcript is the committed history, such as a session.Record. The Session
 	// goroutine is its only writer during a Run. transcriptBytes tracks the
 	// encoded size incrementally so a commit never re-encodes the history.
 	transcript      Transcript
 	transcriptBytes uint64
 	contextBuilder  ContextBuilder
 
-	// observerCtx belongs to the Run in flight. Only the Agent goroutine
+	// observerCtx belongs to the Run in flight. Only the Session goroutine
 	// reads and writes it, so Event observers see the owning Run Context.
 	observerCtx context.Context
 
-	commands    chan agentCommand
+	commands    chan sessionCommand
 	closeSignal chan struct{}
 	closeOnce   sync.Once
 	done        chan struct{}
@@ -322,15 +269,15 @@ type coreAgent struct {
 	lifecycle *lifecycleHub
 }
 
-type agentCommandKind uint8
+type sessionCommandKind uint8
 
 const (
-	commandPrompt agentCommandKind = iota + 1
+	commandPrompt sessionCommandKind = iota + 1
 	commandContinue
 )
 
-type agentCommand struct {
-	kind    agentCommandKind
+type sessionCommand struct {
+	kind    sessionCommandKind
 	ctx     context.Context
 	message Message
 	result  chan promptResponse
@@ -341,19 +288,19 @@ type promptResponse struct {
 	err    error
 }
 
-func (a *coreAgent) ID() AgentID { return a.id }
+func (a *Session) ID() SessionID { return a.id }
 
-func (a *coreAgent) Status() AgentStatus {
-	status := decodeAgentStatus(a.status.Load())
-	if a.closeRequested.Load() && status != AgentClosed {
-		return AgentClosing
+func (a *Session) Status() SessionStatus {
+	status := decodeSessionStatus(a.status.Load())
+	if a.closeRequested.Load() && status != SessionClosed {
+		return SessionClosing
 	}
 	return status
 }
 
-func (a *coreAgent) Done() <-chan struct{} { return a.done }
+func (a *Session) Done() <-chan struct{} { return a.done }
 
-func (a *coreAgent) CancelRun(ctx context.Context, runID RunID) error {
+func (a *Session) CancelRun(ctx context.Context, runID RunID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -374,15 +321,15 @@ func (a *coreAgent) CancelRun(ctx context.Context, runID RunID) error {
 	return nil
 }
 
-func (a *coreAgent) Subscribe(ctx context.Context) (EventStream, error) {
+func (a *Session) Subscribe(ctx context.Context) (EventStream, error) {
 	return a.events.subscribe(ctx)
 }
 
-func (a *coreAgent) SubscribeLifecycle(ctx context.Context) (LifecycleStream, error) {
+func (a *Session) SubscribeLifecycle(ctx context.Context) (LifecycleStream, error) {
 	return a.lifecycle.subscribe(ctx)
 }
 
-func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, error) {
+func (a *Session) Prompt(ctx context.Context, message Message) (RunResult, error) {
 	if err := validatePrompt(message); err != nil {
 		return RunResult{}, err
 	}
@@ -391,11 +338,11 @@ func (a *coreAgent) Prompt(ctx context.Context, message Message) (RunResult, err
 
 // Continue runs the Loop without appending a user Message. It is valid only
 // when the committed transcript already ends in a Model-continuable state.
-func (a *coreAgent) Continue(ctx context.Context) (RunResult, error) {
+func (a *Session) Continue(ctx context.Context) (RunResult, error) {
 	return a.submit(ctx, commandContinue, "Continue", Message{})
 }
 
-func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation string, message Message) (RunResult, error) {
+func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation string, message Message) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -406,7 +353,7 @@ func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation
 	select {
 	case a.admission <- struct{}{}:
 	default:
-		return RunResult{}, runtimeError(ErrBusy, operation, "Agent is already processing a Run", nil)
+		return RunResult{}, runtimeError(ErrBusy, operation, "Session is already processing a Run", nil)
 	}
 	releaseAdmission := true
 	defer func() {
@@ -415,7 +362,7 @@ func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation
 		}
 	}()
 
-	cmd := agentCommand{kind: kind, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
+	cmd := sessionCommand{kind: kind, ctx: ctx, message: message, result: make(chan promptResponse, 1)}
 	select {
 	case a.commands <- cmd:
 		releaseAdmission = false
@@ -433,22 +380,22 @@ func (a *coreAgent) submit(ctx context.Context, kind agentCommandKind, operation
 	}
 }
 
-// Steer delivers guidance for the Run in flight. The Agent commits it at the
+// Steer delivers guidance for the Run in flight. The Session commits it at the
 // next Turn boundary; it never interrupts the current Model or Tool work. A
 // Steer that arrives where the Run would settle keeps the Run going for one
 // more Turn rather than being dropped.
-func (a *coreAgent) Steer(message Message) error {
+func (a *Session) Steer(message Message) error {
 	return a.enqueueControl(a.steer, message, "Steer")
 }
 
 // FollowUp supplies the continuation to use where the Run would otherwise
 // settle. It is not a general external request queue: the buffer is bounded
-// and belongs to this Agent.
-func (a *coreAgent) FollowUp(message Message) error {
+// and belongs to this Session.
+func (a *Session) FollowUp(message Message) error {
 	return a.enqueueControl(a.followUp, message, "FollowUp")
 }
 
-func (a *coreAgent) enqueueControl(target chan Message, message Message, operation string) error {
+func (a *Session) enqueueControl(target chan Message, message Message, operation string) error {
 	if err := validateControlMessage(message, operation); err != nil {
 		return err
 	}
@@ -466,9 +413,9 @@ func (a *coreAgent) enqueueControl(target chan Message, message Message, operati
 	}
 }
 
-// Abort cancels the current Run. It does not close the Agent, and it is a
+// Abort cancels the current Run. It does not close the Session, and it is a
 // no-op when no Run is active.
-func (a *coreAgent) Abort() {
+func (a *Session) Abort() {
 	a.runMu.Lock()
 	stop := a.currentRunStop
 	a.runMu.Unlock()
@@ -477,25 +424,25 @@ func (a *coreAgent) Abort() {
 	}
 }
 
-func (a *coreAgent) admissionError(operation string) error {
+func (a *Session) admissionError(operation string) error {
 	switch a.Status() {
-	case AgentClosing:
-		return runtimeError(ErrAgentClosing, operation, "Agent is closing", nil)
-	case AgentClosed:
-		return runtimeError(ErrAgentClosed, operation, "Agent is closed", nil)
+	case SessionClosing:
+		return runtimeError(ErrSessionClosing, operation, "Session is closing", nil)
+	case SessionClosed:
+		return runtimeError(ErrSessionClosed, operation, "Session is closed", nil)
 	default:
 		return nil
 	}
 }
 
-func (a *coreAgent) Close(ctx context.Context) error {
+func (a *Session) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	a.closeOnce.Do(func() {
 		a.closeRequested.Store(true)
-		a.setStatus(AgentClosing)
-		a.lifecycle.publish(LifecycleEvent{Kind: LifecycleAgentClosing, AgentID: a.id, Timestamp: time.Now()})
+		a.setStatus(SessionClosing)
+		a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionClosing, SessionID: a.id, Timestamp: time.Now()})
 		close(a.closeSignal)
 	})
 	select {
@@ -506,7 +453,7 @@ func (a *coreAgent) Close(ctx context.Context) error {
 	}
 }
 
-func (a *coreAgent) WaitForIdle(ctx context.Context) error {
+func (a *Session) WaitForIdle(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -518,9 +465,9 @@ func (a *coreAgent) WaitForIdle(ctx context.Context) error {
 		changed := a.stateChange
 		a.stateMu.Unlock()
 		switch a.Status() {
-		case AgentIdle:
+		case SessionIdle:
 			return nil
-		case AgentCreated, AgentBusy:
+		case SessionCreated, SessionBusy:
 			select {
 			case <-changed:
 			case <-ctx.Done():
@@ -532,9 +479,9 @@ func (a *coreAgent) WaitForIdle(ctx context.Context) error {
 	}
 }
 
-func (a *coreAgent) loop() {
-	a.setStatus(AgentIdle)
-	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleAgentCreated, AgentID: a.id, Timestamp: time.Now()})
+func (a *Session) loop() {
+	a.setStatus(SessionIdle)
+	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionCreated, SessionID: a.id, Timestamp: time.Now()})
 	close(a.ready)
 	defer a.finishClose()
 
@@ -561,7 +508,7 @@ func (a *coreAgent) loop() {
 						continue
 					}
 				}
-				a.setStatus(AgentBusy)
+				a.setStatus(SessionBusy)
 				var prompt *Message
 				if cmd.kind == commandPrompt {
 					prompt = &cmd.message
@@ -576,23 +523,23 @@ func (a *coreAgent) loop() {
 					cmd.result <- promptResponse{result: result, err: err}
 					return
 				}
-				a.setStatus(AgentIdle)
+				a.setStatus(SessionIdle)
 				cmd.result <- promptResponse{result: result, err: err}
 			}
 		}
 	}
 }
 
-func (a *coreAgent) finishClose() {
-	a.setStatus(AgentClosed)
-	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleAgentClosed, AgentID: a.id, Timestamp: time.Now()})
+func (a *Session) finishClose() {
+	a.setStatus(SessionClosed)
+	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionClosed, SessionID: a.id, Timestamp: time.Now()})
 	a.events.close()
 	a.lifecycle.close()
 	a.doneOnce.Do(func() { close(a.done) })
 }
 
-func (a *coreAgent) setStatus(status AgentStatus) {
-	a.status.Store(encodeAgentStatus(status))
+func (a *Session) setStatus(status SessionStatus) {
+	a.status.Store(encodeSessionStatus(status))
 	a.stateMu.Lock()
 	old := a.stateChange
 	a.stateChange = make(chan struct{})
@@ -600,41 +547,41 @@ func (a *coreAgent) setStatus(status AgentStatus) {
 	a.stateMu.Unlock()
 }
 
-func encodeAgentStatus(status AgentStatus) uint32 {
+func encodeSessionStatus(status SessionStatus) uint32 {
 	switch status {
-	case AgentCreated:
+	case SessionCreated:
 		return 1
-	case AgentIdle:
+	case SessionIdle:
 		return 2
-	case AgentBusy:
+	case SessionBusy:
 		return 3
-	case AgentClosing:
+	case SessionClosing:
 		return 4
-	case AgentClosed:
+	case SessionClosed:
 		return 5
 	default:
 		return 0
 	}
 }
 
-func decodeAgentStatus(status uint32) AgentStatus {
+func decodeSessionStatus(status uint32) SessionStatus {
 	switch status {
 	case 1:
-		return AgentCreated
+		return SessionCreated
 	case 2:
-		return AgentIdle
+		return SessionIdle
 	case 3:
-		return AgentBusy
+		return SessionBusy
 	case 4:
-		return AgentClosing
+		return SessionClosing
 	case 5:
-		return AgentClosed
+		return SessionClosed
 	default:
-		return AgentCreated
+		return SessionCreated
 	}
 }
 
-func (a *coreAgent) commitMessage(message Message) error {
+func (a *Session) commitMessage(message Message) error {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
@@ -668,7 +615,7 @@ func (a *coreAgent) commitMessage(message Message) error {
 // measureTranscript recomputes the encoded transcript size once per Run so an
 // externally mutated Transcript (a compacted or reloaded Session) is bounded
 // correctly without re-encoding on every commit.
-func (a *coreAgent) measureTranscript() error {
+func (a *Session) measureTranscript() error {
 	messages := a.transcript.Messages()
 	if len(messages) == 0 {
 		a.transcriptBytes = 0
@@ -686,9 +633,9 @@ func (a *coreAgent) measureTranscript() error {
 // emit assigns the next Run sequence number, awaits local Event observers, and
 // publishes the Event. A blocking observer failure settles the owning Run, so
 // the caller must not continue past a non-nil result.
-func (a *coreAgent) emit(runID RunID, seq *uint64, kind EventKind, class EventClass, turn TurnNumber, messageID MessageID, callID ToolCallID, payload map[string]any) *RuntimeError {
+func (a *Session) emit(runID RunID, seq *uint64, kind EventKind, class EventClass, turn TurnNumber, messageID MessageID, callID ToolCallID, payload map[string]any) *RuntimeError {
 	*seq++
-	event := Event{AgentID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()}
+	event := Event{SessionID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()}
 	var failure *RuntimeError
 	if len(a.extensions.observers) > 0 {
 		ctx := a.observerCtx
@@ -744,7 +691,7 @@ func summarizeTurn(assistant Message, usage Usage, elapsed time.Duration, toolRe
 
 // executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
 // appends no user Message and picks up the committed transcript as it stands.
-func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
+func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -805,13 +752,13 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			result.Status = RunDeadlineExceeded
 		}
 		// The terminal Event is emitted even when an observer already failed:
-		// a Run may not end without exactly one agent_end.
-		_ = a.emit(runID, &sequence, EventAgentEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
+		// a Run may not end without exactly one run_end.
+		_ = a.emit(runID, &sequence, EventRunEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
 		a.discardControl()
 		return result, err
 	}
 
-	if err := a.emit(runID, &sequence, EventAgentStart, EventProtected, 0, "", "", nil); err != nil {
+	if err := a.emit(runID, &sequence, EventRunStart, EventProtected, 0, "", "", nil); err != nil {
 		return fail(err)
 	}
 	if err := a.extensions.prepareRun(runCtx, a.transcript); err != nil {
@@ -855,7 +802,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 		}
 
 		snapshot := ContextSnapshot{
-			AgentID:            a.id,
+			SessionID:          a.id,
 			RunID:              runID,
 			Turn:               turn,
 			SystemInstructions: a.instruction,
@@ -915,7 +862,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 					payload["stop_reason"] = reason
 				}
 			}
-			_ = a.emit(runID, &sequence, EventAgentEnd, EventProtected, turn, "", "", payload)
+			_ = a.emit(runID, &sequence, EventRunEnd, EventProtected, turn, "", "", payload)
 			a.discardControl()
 			return result, nil
 		}
@@ -930,7 +877,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			// A TurnStopper runs after turn_end and before continuation
 			// selection. A stop preserves the Turn and settles the Run.
 			decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-				AgentID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
+				SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
 			})
 			if stopErr != nil {
 				return fail(stopErr)
@@ -1053,7 +1000,7 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			return fail(err)
 		}
 		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-			AgentID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopToolCalls,
+			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopToolCalls,
 		})
 		if stopErr != nil {
 			return fail(stopErr)
@@ -1073,9 +1020,9 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 }
 
 // consumeControl commits the control Messages that apply at this boundary. It
-// runs inside the Agent execution unit, so committing them keeps the Agent
+// runs inside the Session execution unit, so committing them keeps the Session
 // goroutine as the only mutation authority for the transcript.
-func (a *coreAgent) consumeControl(runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
+func (a *Session) consumeControl(runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
 	injected := false
 	commit := func(message Message, source string) *RuntimeError {
 		if err := a.commitContinuation(runID, sequence, turn, message, source); err != nil {
@@ -1115,7 +1062,7 @@ func (a *coreAgent) consumeControl(runID RunID, sequence *uint64, turn TurnNumbe
 // commitContinuation commits a Message the Loop continues with (a control
 // Message, or the truncation continuation) and emits its message events
 // with the source that produced it.
-func (a *coreAgent) commitContinuation(runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
+func (a *Session) commitContinuation(runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
 	message.ID = MessageID(nextID("message"))
 	if err := a.commitMessage(message); err != nil {
 		return asRuntimeError(err)
@@ -1128,9 +1075,9 @@ func (a *coreAgent) commitContinuation(runID RunID, sequence *uint64, turn TurnN
 }
 
 // discardControl drops control Messages left over when a Run reaches its
-// terminal Event. Nothing may continue after agent_end, so a leftover control
+// terminal Event. Nothing may continue after run_end, so a leftover control
 // Message must not silently reappear inside the next Run.
-func (a *coreAgent) discardControl() {
+func (a *Session) discardControl() {
 	for {
 		select {
 		case <-a.steer:
@@ -1141,7 +1088,7 @@ func (a *coreAgent) discardControl() {
 	}
 }
 
-func (a *coreAgent) readAssistant(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, request ModelRequest) (Message, Usage, *RuntimeError) {
+func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, request ModelRequest) (Message, Usage, *RuntimeError) {
 	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
 	defer cancel()
 	stream, err := a.model.Stream(modelCtx, request)
@@ -1365,7 +1312,7 @@ func hasContent(message Message) bool {
 // buildContext runs the ContextBuilder under the same panic guard as an
 // Extension and falls back to the snapshot's system instructions when the
 // builder leaves them empty.
-func (a *coreAgent) buildContext(ctx context.Context, snapshot ContextSnapshot) (ModelContext, *RuntimeError) {
+func (a *Session) buildContext(ctx context.Context, snapshot ContextSnapshot) (ModelContext, *RuntimeError) {
 	var built ModelContext
 	if err := guard("ContextBuilder", func() error {
 		result, failure := a.contextBuilder.Build(ctx, snapshot)
@@ -1390,7 +1337,7 @@ func (a *coreAgent) buildContext(ctx context.Context, snapshot ContextSnapshot) 
 // The request is laid out for prompt caching: static system and tools first,
 // the append-only history last. A Turn and InspectContext both call it, so an
 // inspection shows the bytes a Turn sends.
-func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (ModelContext, ModelRequest, string, *RuntimeError) {
+func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (ModelContext, ModelRequest, string, *RuntimeError) {
 	built, err := a.buildContext(ctx, snapshot)
 	if err != nil {
 		return ModelContext{}, ModelRequest{}, "", err
@@ -1411,7 +1358,7 @@ func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) 
 	return built, request, prefix, nil
 }
 
-// InspectContext builds the request the Agent's next Turn would send for its
+// InspectContext builds the request the Session's next Turn would send for its
 // Transcript as committed now, without calling the Model. It runs the code a
 // Turn runs: the Tool sources are read again, the ContextBuilder builds the
 // Context, the ContextTransformer and MessageConverter Extensions shape it,
@@ -1422,7 +1369,7 @@ func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) 
 // The snapshot it builds from has no RunID and is Turn 1, as at the start of
 // a Run. A ContextTransformer whose output depends on the Run or the Turn, or
 // a ToolSet the Model activated during a Run, makes a later Turn differ.
-func (a *coreAgent) InspectContext(ctx context.Context) (ContextInspection, error) {
+func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1437,14 +1384,14 @@ func (a *coreAgent) InspectContext(ctx context.Context) (ContextInspection, erro
 	select {
 	case a.admission <- struct{}{}:
 	default:
-		return ContextInspection{}, runtimeError(ErrBusy, "InspectContext", "Agent is processing a Run", nil)
+		return ContextInspection{}, runtimeError(ErrBusy, "InspectContext", "Session is processing a Run", nil)
 	}
 	defer func() { <-a.admission }()
 	if err := a.refreshTools(); err != nil {
 		return ContextInspection{}, asRuntimeError(err)
 	}
 	snapshot := ContextSnapshot{
-		AgentID:            a.id,
+		SessionID:          a.id,
 		Turn:               1,
 		SystemInstructions: a.instruction,
 		Messages:           cloneMessages(a.transcript.Messages()),
@@ -1463,7 +1410,7 @@ func (a *coreAgent) InspectContext(ctx context.Context) (ContextInspection, erro
 
 // refreshTools re-reads every ToolSource. Static Tools and ToolSets are
 // untouched; only the dynamic part of the registry is rebuilt.
-func (a *coreAgent) refreshTools() error {
+func (a *Session) refreshTools() error {
 	if !a.registry.hasSources() {
 		return nil
 	}

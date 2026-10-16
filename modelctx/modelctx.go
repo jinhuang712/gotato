@@ -18,7 +18,7 @@
 // a Run (AutoCompact).
 //
 //	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
-//	agent, _ := gotato.NewAgent(
+//	live, _ := gotato.NewSession(
 //	    gotato.WithModel(m),
 //	    gotato.WithTranscript(s),
 //	    gotato.WithContextBuilder(builder),
@@ -98,7 +98,7 @@ func EstimateTokens(messages []gotato.Message) int {
 // Model. Request is what the next Turn sends for the Session as committed
 // right now.
 //
-// A Report from ReportOf is built by the Agent itself, with the code its
+// A Report from ReportOf is built by the live Session itself, with the code its
 // Turns run, so it includes the ContextTransformer and MessageConverter
 // Extensions, the visible Tools and the model options; service.Runner.Inspect,
 // the CLI and the HTTP and gRPC endpoints return that kind. A Report from
@@ -126,8 +126,8 @@ type Report struct {
 	Request           gotato.ModelRequest  `json:"request"`
 }
 
-// ReportOf describes an Agent's ContextInspection. Use it with the
-// gotato.ContextInspector the core Agent implements.
+// ReportOf describes the ContextInspection a gotato.Session returns from
+// InspectContext.
 func ReportOf(inspection gotato.ContextInspection) Report {
 	encoded, _ := json.Marshal(inspection.Request)
 	return Report{
@@ -168,7 +168,7 @@ func Inspect(ctx context.Context, builder gotato.ContextBuilder, snapshot gotato
 
 // InspectSession is Inspect over a Session's committed history; the report
 // also carries the Session's compaction records.
-func InspectSession(ctx context.Context, builder gotato.ContextBuilder, s *session.Session, systemInstructions string, tools []gotato.ToolSpec) (Report, error) {
+func InspectSession(ctx context.Context, builder gotato.ContextBuilder, s *session.Record, systemInstructions string, tools []gotato.ToolSpec) (Report, error) {
 	report, err := Inspect(ctx, builder, gotato.ContextSnapshot{SystemInstructions: systemInstructions, Messages: s.Messages()}, tools)
 	if err != nil {
 		return Report{}, err

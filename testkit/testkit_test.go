@@ -13,7 +13,7 @@ import (
 
 func TestFakeModelRepeatsLastScriptAndRecordsRequests(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"))
-	agent, err := gotato.NewAgent(gotato.WithModel(model))
+	agent, err := gotato.NewSession(gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestFakeModelRepeatsLastScriptAndRecordsRequests(t *testing.T) {
 
 func TestReplayModelFailsWhenExhausted(t *testing.T) {
 	model := testkit.NewReplayModel(testkit.Text("only"))
-	agent, err := gotato.NewAgent(gotato.WithModel(model))
+	agent, err := gotato.NewSession(gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestFakeModelWithoutScriptsFails(t *testing.T) {
 
 func TestFakeModelRequestsAreIsolated(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"))
-	agent, err := gotato.NewAgent(gotato.WithModel(model))
+	agent, err := gotato.NewSession(gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "fake", Arguments: []byte(`{"x":1}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTool(tool), gotato.WithExtension(recorder))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(tool), gotato.WithExtension(recorder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		t.Fatalf("uses = %+v", tool.Uses())
 	}
 	kinds := recorder.Kinds()
-	if kinds[0] != gotato.EventAgentStart || kinds[len(kinds)-1] != gotato.EventAgentEnd {
+	if kinds[0] != gotato.EventRunStart || kinds[len(kinds)-1] != gotato.EventRunEnd {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	if len(recorder.OfKind(gotato.EventToolExecutionEnd)) != 1 {
@@ -143,7 +143,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 }
 
 func TestSessionFixture(t *testing.T) {
-	s := testkit.NewSession("q", "a", "q2")
+	s := testkit.NewRecord("q", "a", "q2")
 	messages := s.Messages()
 	if len(messages) != 3 || messages[1].Role != gotato.RoleAssistant || messages[2].ID != "fixture-3" {
 		t.Fatalf("fixture = %+v", messages)

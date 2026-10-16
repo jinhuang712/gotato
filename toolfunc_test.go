@@ -168,7 +168,7 @@ func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (Model
 
 func TestWithFuncRunsThroughTheLoop(t *testing.T) {
 	var seen weatherInput
-	agent, err := NewAgent(
+	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen","unit":"celsius"}`}),
 		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			seen = in
@@ -193,7 +193,7 @@ func TestWithFuncRunsThroughTheLoop(t *testing.T) {
 
 func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	executed := false
-	agent, err := NewAgent(
+	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"unit":"celsius"}`}),
 		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			executed = true
@@ -226,7 +226,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 
 func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 	model := &namedToolModel{tool: "get_wether"}
-	agent, err := NewAgent(
+	agent, err := NewSession(
 		WithModel(model),
 		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, nil
@@ -271,7 +271,7 @@ func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (Mode
 }
 
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
-	agent, err := NewAgent(
+	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen"}`}),
 		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, errors.New("upstream is down")
@@ -281,7 +281,7 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,12 +293,12 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	for {
 		event, nextErr := events.Next(context.Background())
 		if nextErr != nil {
-			t.Fatalf("event stream ended before agent_end: %v", nextErr)
+			t.Fatalf("event stream ended before run_end: %v", nextErr)
 		}
 		if event.Kind == EventToolExecutionEnd {
 			status = event.Payload["status"]
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			break
 		}
 	}

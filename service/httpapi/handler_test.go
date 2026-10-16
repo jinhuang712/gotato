@@ -24,7 +24,7 @@ func newServer(t *testing.T) (*httptest.Server, *service.Runner) {
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
-		Specs: []service.AgentSpec{
+		Agents: []service.Agent{
 			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
 			{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 		},
@@ -63,8 +63,8 @@ func TestReadyzReportsDraining(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
-		Specs: []service.AgentSpec{{Name: "slow", Model: model}},
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "slow", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -239,9 +239,9 @@ func TestStreamRunSSE(t *testing.T) {
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	// A one-shot Run saves the new Session before agent_start and the
-	// settled one after agent_end.
-	if len(events) < 5 || events[0] != "session_saved" || events[1] != "agent_start" ||
+	// A one-shot Run saves the new Session before run_start and the
+	// settled one after run_end.
+	if len(events) < 5 || events[0] != "session_saved" || events[1] != "run_start" ||
 		events[len(events)-2] != "session_saved" || events[len(events)-1] != "result" {
 		t.Fatalf("events = %v", events)
 	}
@@ -288,7 +288,7 @@ func TestExplicitSessionCreateIsExclusiveAndBodyIsBounded(t *testing.T) {
 func TestHealthAndAgents(t *testing.T) {
 	server, _ := newServer(t)
 	status, body := call(t, server, http.MethodGet, "/healthz", nil)
-	if status != http.StatusOK || !strings.Contains(string(body), `"contract":"3"`) {
+	if status != http.StatusOK || !strings.Contains(string(body), `"contract":"4"`) {
 		t.Fatalf("healthz = %d %s", status, body)
 	}
 	status, body = call(t, server, http.MethodGet, "/v1/agents", nil)
@@ -300,7 +300,7 @@ func TestHealthAndAgents(t *testing.T) {
 func TestAgentsReportMaxEffect(t *testing.T) {
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
-		Specs: []service.AgentSpec{
+		Agents: []service.Agent{
 			{Name: "open", Model: testkit.EchoModel{}},
 			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.EffectRead},
 		},
@@ -342,7 +342,7 @@ type failingSaveStore struct {
 	failAfter int
 }
 
-func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) error {
+func (s *failingSaveStore) Save(ctx context.Context, sess *session.Record) error {
 	s.mu.Lock()
 	s.saves++
 	fail := s.failAfter > 0 && s.saves > s.failAfter
@@ -355,8 +355,8 @@ func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) erro
 
 func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store: &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1},
-		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:  &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
 		t.Fatal(err)

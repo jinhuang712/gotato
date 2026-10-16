@@ -17,20 +17,20 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-func newRunner(t *testing.T, specs ...service.AgentSpec) (*service.Runner, session.Store) {
+func newRunner(t *testing.T, specs ...service.Agent) (*service.Runner, session.Store) {
 	t.Helper()
 	store := session.NewMemoryStore()
 	if len(specs) == 0 {
-		specs = []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
+		specs = []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}
 	}
-	runner, err := service.New(service.Config{Store: store, Specs: specs})
+	runner, err := service.New(service.Config{Store: store, Agents: specs})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return runner, store
 }
 
-func TestRunCreatesSessionAndAgentIsDisposable(t *testing.T) {
+func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	runner, store := newRunner(t)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hello", Metadata: map[string]string{"tenant": "a"}})
@@ -76,8 +76,8 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 		testkit.Text("done"),
 	)
 	runner, store := newRunner(t,
-		service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}},
-		service.AgentSpec{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
+		service.Agent{Name: "echo", Model: testkit.EchoModel{}},
+		service.Agent{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 	)
 	ctx := context.Background()
 	// A Session created before the panel was removed may still carry its
@@ -121,7 +121,7 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, _ := newRunner(t, service.AgentSpec{Name: "slow", Model: model})
+	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, "slow", nil)
 
@@ -148,7 +148,7 @@ func TestWaitPolicyQueuesAndCancelRunAborts(t *testing.T) {
 	store := session.NewMemoryStore()
 	runner, err := service.New(service.Config{
 		Store:     store,
-		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 2},
 	})
 	if err != nil {
@@ -192,7 +192,7 @@ func TestCapacityAndDrain(t *testing.T) {
 	store := session.NewMemoryStore()
 	runner, _ := service.New(service.Config{
 		Store:     store,
-		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{MaxActiveRuns: 1},
 	})
 	ctx := context.Background()
@@ -228,10 +228,10 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The Runner's store Events frame the Loop's: the new Session is saved
-	// before agent_start and the settled one after agent_end.
+	// before run_start and the settled one after run_end.
 	last := len(kinds) - 1
-	if kinds[0] != gotato.EventSessionSaved || kinds[1] != gotato.EventAgentStart ||
-		kinds[last-1] != gotato.EventAgentEnd || kinds[last] != gotato.EventSessionSaved {
+	if kinds[0] != gotato.EventSessionSaved || kinds[1] != gotato.EventRunStart ||
+		kinds[last-1] != gotato.EventRunEnd || kinds[last] != gotato.EventSessionSaved {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	for range 3 {
@@ -263,7 +263,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
 	ctx := context.Background()
 	var last service.RunResult
 	for range 6 {
@@ -288,7 +288,7 @@ func TestQueuedRunIsCancellable(t *testing.T) {
 	model.Block = block
 	runner, _ := service.New(service.Config{
 		Store:     session.NewMemoryStore(),
-		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
@@ -336,7 +336,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	model.Block = block
 	runner, _ := service.New(service.Config{
 		Store:     session.NewMemoryStore(),
-		Specs:     []service.AgentSpec{{Name: "slow", Model: model}},
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
 		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
@@ -376,7 +376,7 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, store := newRunner(t, service.AgentSpec{Name: "slow", Model: model})
+	runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan service.RunResult, 1)
@@ -409,7 +409,7 @@ type failingSaveStore struct {
 	failAfter int
 }
 
-func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) error {
+func (s *failingSaveStore) Save(ctx context.Context, sess *session.Record) error {
 	s.mu.Lock()
 	s.saves++
 	fail := s.failAfter > 0 && s.saves > s.failAfter
@@ -423,8 +423,8 @@ func (s *failingSaveStore) Save(ctx context.Context, sess *session.Session) erro
 func TestUnpersistedRunIsReported(t *testing.T) {
 	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
 	runner, err := service.New(service.Config{
-		Store: store,
-		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:  store,
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -440,7 +440,7 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 
 func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
-	runner, _ := newRunner(t, service.AgentSpec{Name: "echo", Model: model})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: model})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -468,7 +468,7 @@ func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 
 func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
-	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: model})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: model})
 	ctx := context.Background()
 	parent, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -511,7 +511,7 @@ type countingStore struct {
 	gets int
 }
 
-func (s *countingStore) Get(ctx context.Context, id string) (*session.Session, error) {
+func (s *countingStore) Get(ctx context.Context, id string) (*session.Record, error) {
 	s.mu.Lock()
 	s.gets++
 	s.mu.Unlock()
@@ -520,7 +520,7 @@ func (s *countingStore) Get(ctx context.Context, id string) (*session.Session, e
 
 func TestRunLoadsTheSessionOnce(t *testing.T) {
 	store := &countingStore{Store: session.NewMemoryStore()}
-	runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,7 +562,7 @@ func (l *eventLog) kinds() []gotato.EventKind {
 
 func TestStoreEventsFrameTheRun(t *testing.T) {
 	observer := &eventLog{}
-	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{observer}})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{observer}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -580,14 +580,14 @@ func TestStoreEventsFrameTheRun(t *testing.T) {
 	}
 	loaded, saved := events[0], events[len(events)-1]
 	if loaded.Kind != gotato.EventSessionLoaded || loaded.RunID != "" || loaded.Sequence != 0 ||
-		loaded.Payload["session_id"] != first.SessionID || loaded.Payload["messages"] != first.Messages {
+		string(loaded.SessionID) != first.SessionID || loaded.Payload["messages"] != first.Messages {
 		t.Fatalf("first Event = %+v, want session_loaded of the %d stored messages", loaded, first.Messages)
 	}
 	if elapsed, ok := loaded.Payload["elapsed_ms"].(float64); !ok || elapsed < 0 {
 		t.Fatalf("session_loaded elapsed_ms = %#v", loaded.Payload["elapsed_ms"])
 	}
 	end := events[len(events)-2]
-	if saved.Kind != gotato.EventSessionSaved || saved.RunID != result.Result.RunID || saved.AgentID != end.AgentID ||
+	if saved.Kind != gotato.EventSessionSaved || saved.RunID != result.Result.RunID || saved.SessionID != end.SessionID ||
 		saved.Sequence != end.Sequence+1 || saved.Payload["messages"] != result.Messages {
 		t.Fatalf("last Event = %+v after %+v, want session_saved right after the Run's last Event", saved, end)
 	}
@@ -613,7 +613,7 @@ func TestStoreEventsFrameTheRun(t *testing.T) {
 
 func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
-	runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}}})
+	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,11 +640,11 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	}
 }
 
-// unbuildableSpec is a Spec whose Agent cannot be built: a Run creates its
-// Session, then fails before the Agent starts.
-func unbuildableSpec() service.AgentSpec {
+// unbuildableSpec is an Agent whose live Session cannot be built: a Run creates
+// the Record, then fails before the live Session starts.
+func unbuildableSpec() service.Agent {
 	negative := -1.0
-	return service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.Option{
+	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.Option{
 		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &negative}),
 	}}
 }
@@ -673,8 +673,8 @@ func (s *failingDeleteStore) Delete(context.Context, string) error { return s.er
 func TestFailedOneShotCleanupIsReported(t *testing.T) {
 	delErr := errors.New("store: delete denied")
 	runner, err := service.New(service.Config{
-		Store: &failingDeleteStore{Store: session.NewMemoryStore(), err: delErr},
-		Specs: []service.AgentSpec{unbuildableSpec()},
+		Store:  &failingDeleteStore{Store: session.NewMemoryStore(), err: delErr},
+		Agents: []service.Agent{unbuildableSpec()},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -693,8 +693,8 @@ func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("x"))
 	model.Err = errors.New("model exploded")
 	runner, err := service.New(service.Config{
-		Store: store,
-		Specs: []service.AgentSpec{{Name: "boom", Model: model}},
+		Store:  store,
+		Agents: []service.Agent{{Name: "boom", Model: model}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -719,7 +719,7 @@ type getErrorStore struct {
 	err    error
 }
 
-func (s *getErrorStore) Get(ctx context.Context, id string) (*session.Session, error) {
+func (s *getErrorStore) Get(ctx context.Context, id string) (*session.Record, error) {
 	if id == s.failID {
 		return nil, s.err
 	}
@@ -730,8 +730,8 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	backing := session.NewMemoryStore()
 	getErr := errors.New("store: unavailable")
 	runner, err := service.New(service.Config{
-		Store: &getErrorStore{Store: backing, failID: "child", err: getErr},
-		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+		Store:  &getErrorStore{Store: backing, failID: "child", err: getErr},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -790,7 +790,7 @@ func TestSessionMutationsRespectTheLock(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
-	runner, _ := newRunner(t, service.AgentSpec{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
+	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model, Tools: []gotato.Tool{testkit.DemoEchoTool()}})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, "slow", nil)
 
@@ -839,7 +839,7 @@ type blockingGetStore struct {
 	started chan struct{}
 }
 
-func (s *blockingGetStore) Get(ctx context.Context, id string) (*session.Session, error) {
+func (s *blockingGetStore) Get(ctx context.Context, id string) (*session.Record, error) {
 	s.once.Do(func() { close(s.started) })
 	<-ctx.Done()
 	return nil, ctx.Err()
@@ -850,8 +850,8 @@ func (s *blockingGetStore) Get(ctx context.Context, id string) (*session.Session
 func TestCancelSessionReachesRunLoadingSession(t *testing.T) {
 	blocking := &blockingGetStore{Store: session.NewMemoryStore(), started: make(chan struct{})}
 	runner, err := service.New(service.Config{
-		Store: blocking,
-		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
+		Store:  blocking,
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -890,7 +890,7 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 func TestInspectMatchesTheNextRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
 	maxTokens := gotato.ModelOptions{MaxTokens: 256}
-	runner, store := newRunner(t, service.AgentSpec{
+	runner, store := newRunner(t, service.Agent{
 		Name:        "orders",
 		Model:       model,
 		Instruction: "You track orders.",
@@ -940,7 +940,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

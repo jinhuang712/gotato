@@ -26,7 +26,7 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 		{Kind: ModelTextDelta, Text: "!"},
 		{Kind: ModelDone, StopReason: StopEndTurn},
 	}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 // A reasoning block that streams no deltas still ends with its own
 // ModelReasoningDone: an Anthropic redacted_thinking block, a thinking block
 // with its display omitted, a Responses reasoning item without a summary. The
-// Agent signed the last reasoning Part on every Done, so the second block's
+// Session signed the last reasoning Part on every Done, so the second block's
 // signature overwrote the first block's, and the first block was lost on
 // replay. Each Done that finds no unsigned reasoning Part starts a new one.
 func TestReasoningDoneWithoutDeltasKeepsEachBlock(t *testing.T) {
@@ -112,7 +112,7 @@ func TestReasoningDoneWithoutDeltasKeepsEachBlock(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := &testModel{scripts: [][]ModelEvent{tc.events}}
-			agent, err := NewAgent(WithModel(model))
+			agent, err := NewSession(WithModel(model))
 			if err != nil {
 				t.Fatal(err)
 			}

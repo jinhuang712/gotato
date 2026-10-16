@@ -233,7 +233,7 @@ func (c *cli) sessionList(args []string) int {
 	return ExitOK
 }
 
-func (c *cli) loadSession(args []string, name string) (*session.Session, session.Store, context.Context, context.CancelFunc, int) {
+func (c *cli) loadSession(args []string, name string) (*session.Record, session.Store, context.Context, context.CancelFunc, int) {
 	fs := c.newFlagSet(name)
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -417,7 +417,7 @@ func (c *cli) contextCompact(args []string) int {
 			}
 			agent, _ = s.Get(service.MetaAgent)
 		}
-		spec, ok := rt.runner.Spec(agent)
+		spec, ok := rt.runner.Agent(agent)
 		if !ok {
 			return c.failErr(service.ErrUnknownAgent)
 		}
@@ -512,7 +512,7 @@ func (c *cli) cmdTools(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	spec, _ := rt.runner.Spec(agent)
+	spec, _ := rt.runner.Agent(agent)
 	listing := toolListing{SessionID: *sessionID, Agent: agent, MaxEffect: string(spec.MaxEffect), Tools: []toolView{}}
 	for _, entry := range entries {
 		listing.Tools = append(listing.Tools, viewOf(entry))
@@ -664,12 +664,12 @@ func (c *cli) cmdServe(args []string) int {
 		return c.failErr(err)
 	}
 	// Rebuild with admission settings: the Runner is cheap to construct.
-	specs := make([]service.AgentSpec, 0)
+	specs := make([]service.Agent, 0)
 	for _, name := range rt.runner.Agents() {
-		spec, _ := rt.runner.Spec(name)
+		spec, _ := rt.runner.Agent(name)
 		specs = append(specs, spec)
 	}
-	runner, err := service.New(service.Config{Store: rt.store, Specs: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, Queue: service.QueuePolicy(*queue)}})
+	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, Queue: service.QueuePolicy(*queue)}})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -758,7 +758,7 @@ func (c *cli) cmdDoctor(args []string) int {
 		add(doctorCheck{Name: "model.echo", OK: true, Detail: "deterministic, no credentials"})
 		add(doctorCheck{Name: "model.demo", OK: true, Detail: "deterministic tool loop, no credentials"})
 		if rt.gatewayErr == nil {
-			spec, _ := rt.runner.Spec("gateway")
+			spec, _ := rt.runner.Agent("gateway")
 			add(doctorCheck{Name: "model.gateway", OK: true, Detail: rt.gatewayCfg + " → " + spec.ModelName})
 		} else if fileExists(rt.gatewayCfg) {
 			add(doctorCheck{Name: "model.gateway", OK: false, Detail: rt.gatewayErr.Error()})

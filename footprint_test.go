@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	footprintAgents  = 100
-	footprintRounds  = 25
-	footprintPayload = 4096
+	footprintSessions = 100
+	footprintRounds   = 25
+	footprintPayload  = 4096
 )
 
 // footprintModel requests one tool call per turn for footprintRounds turns,
@@ -74,19 +74,19 @@ func heapInUse() uint64 {
 	return stats.HeapInuse
 }
 
-// BenchmarkAgentFootprint measures heap per agent: idle, and after a 25-round
-// tool loop with 100 KB of unique tool output per agent, with 100 agents
-// running concurrently.
+// BenchmarkSessionFootprint measures heap per live Session: idle, and after a
+// 25-round tool loop with 100 KB of unique tool output per Session, with 100
+// Sessions running concurrently.
 //
-//	go test -run '^$' -bench AgentFootprint -benchtime 1x .
-func BenchmarkAgentFootprint(b *testing.B) {
+//	go test -run '^$' -bench SessionFootprint -benchtime 1x .
+func BenchmarkSessionFootprint(b *testing.B) {
 	ctx := context.Background()
 	for range b.N {
 		base := heapInUse()
 
-		agents := make([]gotato.RuntimeAgent, footprintAgents)
+		agents := make([]*gotato.Session, footprintSessions)
 		for i := range agents {
-			agent, err := gotato.NewAgent(
+			agent, err := gotato.NewSession(
 				gotato.WithModel(&footprintModel{}),
 				gotato.WithInstruction("You are a worker."),
 				gotato.WithTranscript(session.New()),
@@ -119,8 +119,8 @@ func BenchmarkAgentFootprint(b *testing.B) {
 		}
 		runtime.KeepAlive(agents)
 
-		b.ReportMetric(float64(idle-base)/footprintAgents, "idle-heap-B/agent")
-		b.ReportMetric(float64(active-base)/footprintAgents, "active-heap-B/agent")
+		b.ReportMetric(float64(idle-base)/footprintSessions, "idle-heap-B/session")
+		b.ReportMetric(float64(active-base)/footprintSessions, "active-heap-B/session")
 		b.ReportMetric(float64(footprintRounds*footprintPayload), "transcript-tool-B/agent")
 	}
 }

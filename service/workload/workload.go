@@ -239,7 +239,7 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 	if cfg.Model != nil {
 		model = cfg.Model
 	}
-	spec := service.AgentSpec{
+	spec := service.Agent{
 		Name:        task.Name,
 		Model:       model,
 		ModelName:   cfg.ModelName,
@@ -247,14 +247,14 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		Tools:       task.Tools,
 		Limits:      task.Limits,
 	}
-	runner, err := service.New(service.Config{Store: cfg.Store, Specs: []service.AgentSpec{spec}})
+	runner, err := service.New(service.Config{Store: cfg.Store, Agents: []service.Agent{spec}})
 	if err != nil {
 		return TaskReport{}, err
 	}
 	// The inspector rebuilds each Turn's Transcript in a store of its own and
 	// inspects it with the same Spec.
 	inspectStore := session.NewMemoryStore()
-	inspector, err := service.New(service.Config{Store: inspectStore, Specs: []service.AgentSpec{spec}})
+	inspector, err := service.New(service.Config{Store: inspectStore, Agents: []service.Agent{spec}})
 	if err != nil {
 		return TaskReport{}, err
 	}
@@ -319,7 +319,7 @@ type play struct {
 	builds      []build
 	failures    []failure
 	stats       *stats
-	final       *session.Session
+	final       *session.Record
 }
 
 // build is one Turn's context_built Event: how many committed Messages the
@@ -352,7 +352,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 
 	// Every number about a Run comes from its Events, as a team would
 	// compute it from its own telemetry. The model's time runs from a Turn's
-	// context_built to its reply's message_end, or to agent_end when the
+	// context_built to its reply's message_end, or to run_end when the
 	// call failed; a tool's time runs from tool_execution_start to
 	// tool_execution_end; the store's time is in session_loaded and
 	// session_saved.
@@ -413,7 +413,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 					p.laterCached += number(summary["cache_read_tokens"])
 				}
 				turn++
-			case gotato.EventAgentEnd:
+			case gotato.EventRunEnd:
 				if !waiting.IsZero() {
 					p.stats.addModel(event.Timestamp.Sub(waiting))
 					waiting = time.Time{}
@@ -473,7 +473,7 @@ type toolCall struct {
 // checkContext inspects, for every Turn, the Transcript that Turn was built
 // from (the Session's first Messages, since a reference task never compacts)
 // and compares its prefix hash with the Turn's context_built Event (G-G03).
-func checkContext(ctx context.Context, inspector *service.Runner, store session.Store, final *session.Session, builds []build, report *TaskReport) {
+func checkContext(ctx context.Context, inspector *service.Runner, store session.Store, final *session.Record, builds []build, report *TaskReport) {
 	messages := final.Messages()
 	mismatch := func(detail string) {
 		report.ContextMismatches++

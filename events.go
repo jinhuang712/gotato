@@ -18,7 +18,7 @@ const (
 type EventKind string
 
 const (
-	EventAgentStart          EventKind = "agent_start"
+	EventRunStart            EventKind = "run_start"
 	EventTurnStart           EventKind = "turn_start"
 	EventMessageStart        EventKind = "message_start"
 	EventMessageUpdate       EventKind = "message_update"
@@ -29,7 +29,7 @@ const (
 	EventToolResultCommitted EventKind = "tool_result_committed"
 	EventToolSetActivated    EventKind = "toolset_activated"
 	EventTurnEnd             EventKind = "turn_end"
-	EventAgentEnd            EventKind = "agent_end"
+	EventRunEnd              EventKind = "run_end"
 	// EventContextBuilt is emitted once per Turn, after the ContextBuilder
 	// and context Extensions ran and before the Model request is sent.
 	EventContextBuilt EventKind = "context_built"
@@ -38,18 +38,18 @@ const (
 	EventSessionCompacted EventKind = "session_compacted"
 	// EventSessionLoaded and EventSessionSaved time a store load and save.
 	// The service Runner emits them for each load and save a Run makes:
-	// session_loaded before agent_start, and session_saved after agent_end.
+	// session_loaded before run_start, and session_saved after run_end.
 	// They reach the same places as the Loop's Events but are not recorded
-	// in the Session. An Event emitted before the Run starts has no
-	// AgentID, no RunID and sequence 0.
+	// in the Session. An Event emitted before the Run starts has a
+	// SessionID, but no RunID and sequence 0.
 	EventSessionLoaded EventKind = "session_loaded"
 	EventSessionSaved  EventKind = "session_saved"
 )
 
 // Payload keys by Kind. Consumers must tolerate unknown keys and kinds.
 //
-//	agent_start             (none)
-//	agent_end               status, error?, stopped_by_extension?, stop_reason?
+//	run_start               (none)
+//	run_end                 status, error?, stopped_by_extension?, stop_reason?
 //	turn_start              (none)
 //	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,
 //	                        cache_read_tokens?,cache_write_tokens?,tool_results?}
@@ -63,12 +63,12 @@ const (
 //	tool_execution_end      status, executed
 //	tool_result_committed   status
 //	toolset_activated       toolset
-//	session_compacted       session_id, replaced_messages, summary_message_id, summarizer
-//	session_loaded          session_id, messages, elapsed_ms (fractional), failed?
-//	session_saved           session_id, messages, elapsed_ms (fractional), failed?
+//	session_compacted       replaced_messages, summary_message_id, summarizer
+//	session_loaded          messages, elapsed_ms (fractional), failed?
+//	session_saved           messages, elapsed_ms (fractional), failed?
 
 type Event struct {
-	AgentID    AgentID        `json:"agent_id"`
+	SessionID  SessionID      `json:"session_id"`
 	RunID      RunID          `json:"run_id"`
 	Sequence   uint64         `json:"sequence"`
 	Kind       EventKind      `json:"kind"`
@@ -83,14 +83,14 @@ type Event struct {
 type LifecycleKind string
 
 const (
-	LifecycleAgentCreated LifecycleKind = "agent_created"
-	LifecycleAgentClosing LifecycleKind = "agent_closing"
-	LifecycleAgentClosed  LifecycleKind = "agent_closed"
+	LifecycleSessionCreated LifecycleKind = "session_created"
+	LifecycleSessionClosing LifecycleKind = "session_closing"
+	LifecycleSessionClosed  LifecycleKind = "session_closed"
 )
 
 type LifecycleEvent struct {
 	Kind      LifecycleKind `json:"kind"`
-	AgentID   AgentID       `json:"agent_id"`
+	SessionID SessionID     `json:"session_id"`
 	Reason    string        `json:"reason,omitempty"`
 	Timestamp time.Time     `json:"timestamp"`
 }
@@ -103,14 +103,6 @@ type EventStream interface {
 type LifecycleStream interface {
 	Next(context.Context) (LifecycleEvent, error)
 	Close() error
-}
-
-type EventSource interface {
-	Subscribe(context.Context) (EventStream, error)
-}
-
-type LifecycleSource interface {
-	SubscribeLifecycle(context.Context) (LifecycleStream, error)
 }
 
 type eventHub struct {

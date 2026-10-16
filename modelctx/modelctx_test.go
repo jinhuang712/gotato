@@ -121,10 +121,10 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	if err != nil || again.Replaced {
 		t.Fatalf("second compact = %+v err=%v", again, err)
 	}
-	// An Agent continues against the compacted Session and sees the summary,
+	// A live Session continues against the compacted Record and sees the summary,
 	// but without the runtime metadata tag.
 	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
 	before := modelctx.EstimateTokens(s.Messages())
 	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: before / 2, Floor: before / 4})
 	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(auto))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(auto))
 	if err != nil {
 		t.Fatal(err)
 	}

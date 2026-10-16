@@ -62,7 +62,7 @@ func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 			}
 			slices.Sort(want)
 			model := testkit.NewFakeModel(testkit.ToolCalls(calls...), testkit.Text("done"))
-			agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTools(tools...), gotato.WithMaxEffect(ceiling))
+			agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(tools...), gotato.WithMaxEffect(ceiling))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -132,7 +132,7 @@ func TestEffectCapHidesToolsOfAnActivatedToolSet(t *testing.T) {
 			gotato.ToolCall{ID: "c", ToolID: "ops.push", Arguments: []byte(`{}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestNoEffectCapOffersEveryTool(t *testing.T) {
 	slices.Sort(want)
 	for _, extra := range [][]gotato.Option{nil, {gotato.WithMaxEffect(gotato.EffectUnspecified)}} {
 		options := append([]gotato.Option{gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tools...)}, extra...)
-		agent, err := gotato.NewAgent(options...)
+		agent, err := gotato.NewSession(options...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,7 +181,7 @@ func TestNoEffectCapOffersEveryTool(t *testing.T) {
 }
 
 func TestWithMaxEffectRejectsAnUnknownEffect(t *testing.T) {
-	_, err := gotato.NewAgent(gotato.WithModel(testkit.NewFakeModel()), gotato.WithMaxEffect("mutate"))
+	_, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel()), gotato.WithMaxEffect("mutate"))
 	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
 		t.Fatalf("WithMaxEffect(mutate) = %v, want ErrInvalidArgument", err)
 	}

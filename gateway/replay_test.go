@@ -153,7 +153,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			agent, err := gotato.NewAgent(gotato.WithModel(client), gotato.WithTool(echo))
+			agent, err := gotato.NewSession(gotato.WithModel(client), gotato.WithTool(echo))
 			if err != nil {
 				t.Fatal(err)
 			}

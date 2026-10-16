@@ -358,9 +358,9 @@ func (r *EventRecorder) Reset() {
 	r.mu.Unlock()
 }
 
-// NewSession creates a Session pre-populated with alternating user and
-// assistant text Messages, e.g. NewSession("hi", "hello", "how are you?").
-func NewSession(turns ...string) *session.Session {
+// NewRecord creates a Session Record pre-populated with alternating user and
+// assistant text Messages, e.g. NewRecord("hi", "hello", "how are you?").
+func NewRecord(turns ...string) *session.Record {
 	s := session.New()
 	for i, text := range turns {
 		var message gotato.Message

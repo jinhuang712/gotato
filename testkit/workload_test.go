@@ -10,9 +10,9 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// play runs a task on a plain Agent and returns the Session and each Run's
+// play runs a task on a plain live Session and returns its Record and each Run's
 // final text.
-func play(t *testing.T, task testkit.Task) (*session.Session, []string) {
+func play(t *testing.T, task testkit.Task) (*session.Record, []string) {
 	t.Helper()
 	s := session.New()
 	for _, message := range task.History {
@@ -31,7 +31,7 @@ func play(t *testing.T, task testkit.Task) (*session.Session, []string) {
 	if task.Limits != nil {
 		options = append(options, gotato.WithLimits(*task.Limits))
 	}
-	agent, err := gotato.NewAgent(options...)
+	agent, err := gotato.NewSession(options...)
 	if err != nil {
 		t.Fatal(err)
 	}

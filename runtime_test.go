@@ -38,10 +38,10 @@ func (t *recordingTranscript) Append(message Message) error {
 	return nil
 }
 
-func TestAgentCommitsToExternalTranscript(t *testing.T) {
+func TestSessionCommitsToExternalTranscript(t *testing.T) {
 	transcript := &recordingTranscript{}
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hello"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model), WithTranscript(transcript))
+	agent, err := NewSession(WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +56,8 @@ func TestAgentCommitsToExternalTranscript(t *testing.T) {
 	if transcript.appends != 2 {
 		t.Fatalf("appends = %d", transcript.appends)
 	}
-	// A second Agent against the same Transcript continues the history.
-	second, err := NewAgent(WithModel(model), WithTranscript(transcript))
+	// A second Session against the same Transcript continues the history.
+	second, err := NewSession(WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,12 +91,12 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 		}, nil
 	})
 	transcript := &recordingTranscript{messages: []Message{UserMessage("old"), AssistantMessage("older answer")}}
-	agent, err := NewAgent(WithModel(model), WithInstruction("base"), WithTranscript(transcript), WithContextBuilder(builder))
+	agent, err := NewSession(WithModel(model), WithInstruction("base"), WithTranscript(transcript), WithContextBuilder(builder))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	stream, err := agent.(EventSource).Subscribe(context.Background())
+	stream, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 			copied := event
 			built = &copied
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			break
 		}
 	}
@@ -138,7 +138,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 	builder := ContextBuilderFunc(func(context.Context, ContextSnapshot) (ModelContext, error) {
 		return ModelContext{}, errors.New("boom")
 	})
-	agent, err := NewAgent(WithModel(model), WithContextBuilder(builder))
+	agent, err := NewSession(WithModel(model), WithContextBuilder(builder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,12 +169,12 @@ func (s *dynamicSource) set(tools ...Tool) {
 func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 	source := &dynamicSource{}
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model), WithToolSource(source))
+	agent, err := NewSession(WithModel(model), WithToolSource(source))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	if got := agent.(ToolInspector).Tools(); len(got) != 0 {
+	if got := agent.Tools(); len(got) != 0 {
 		t.Fatalf("tools before registration = %v", got)
 	}
 	if _, err := agent.Prompt(context.Background(), UserMessage("one")); err != nil {
@@ -191,7 +191,7 @@ func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 	if len(request.Tools) != 1 || request.Tools[0].ID != "demo.echo" {
 		t.Fatalf("model saw tools %+v", request.Tools)
 	}
-	if got := agent.(ToolInspector).Tools(); len(got) != 1 || got[0].ID != "demo.echo" {
+	if got := agent.Tools(); len(got) != 1 || got[0].ID != "demo.echo" {
 		t.Fatalf("inspector = %+v", got)
 	}
 	source.set()
@@ -206,7 +206,7 @@ func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 func TestToolSourceToolIsCallable(t *testing.T) {
 	tool := &scriptedTool{}
 	source := &dynamicSource{tools: []Tool{tool}}
-	agent, err := NewAgent(WithModel(&toolModel{}), WithToolSource(source))
+	agent, err := NewSession(WithModel(&toolModel{}), WithToolSource(source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestToolSourceToolIsCallable(t *testing.T) {
 
 func TestPromptRejectsBlankParts(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 
 func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	before := runtime.NumGoroutine()
 	for range 500 {
 		ctx, cancel := context.WithCancel(context.Background())
-		stream, err := agent.(EventSource).Subscribe(ctx)
+		stream, err := agent.Subscribe(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -263,7 +263,7 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	}
 	// Close removes every subscription deterministically; this cannot depend on
 	// goroutine scheduling.
-	core := agent.(*coreAgent)
+	core := agent
 	core.events.mu.Lock()
 	remaining := len(core.events.subs)
 	core.events.mu.Unlock()
@@ -290,7 +290,7 @@ func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTurns = 3
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTranscriptBytes = 400
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: strings.Repeat("x", 100)}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewAgent(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

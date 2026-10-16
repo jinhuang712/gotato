@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the open questions in [DESIGNS.md](DESIGNS.md) that the maintainer has placed. Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -12,7 +12,7 @@ The phases, in order, with the design discussion that comes before the store cha
 ```text
 Phase 1  Measure         the reference workload and the live run
 Phase 2  Effect cap      an Agent hides the tools above its highest Effect
-Phase 3  Names           the Agent and the Loop take their glossary names
+Phase 3  Names           the Agent, the live Session and its Record take their glossary names
          ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
 Phase 4  Durable Turns   save every Turn, and refuse a stale save
 Phase 5  Ownership       one instance runs a Session at a time
@@ -27,7 +27,7 @@ Why this order:
 
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
-- **The rename comes before the store and ownership work,** so that code is written with the final names. The stored record keeps its name until Phase 6 builds the live Session, so it is renamed once.
+- **The rename comes before the store and ownership work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
@@ -62,7 +62,7 @@ Exit:
 
 Built, and ships in the next 0.1.x release.
 
-- ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.AgentSpec.MaxEffect`. There is no cap by default.
+- ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
 - ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
 - ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
 - ✅ `gotato tools list`, `GET /v1/agents` and the gRPC `Agents` call report the cap.
@@ -71,14 +71,20 @@ Exit:
 
 - ✅ G-G05 passes.
 
-## Phase 3 — Names
+## Phase 3 — Names ✅
 
-- `gotato.Agent` becomes the Loop, and `service.AgentSpec` becomes the Agent.
-- Event kinds and fields that carry the old names, such as `agent_start` and `agent_id`, change with them.
-- The rename ships as one planned break, with a [CHANGELOG.md](CHANGELOG.md) entry. A `// Deprecated:` alias is not possible, because the name `Agent` takes a new meaning.
-- `session.Session`, the stored record, keeps its name until Phase 6.
+Built, and ships in the next 0.1.x release.
 
-Exit: `gotato.Agent` and `service.AgentSpec` carry their new names, and G-G06 holds for the break, with a contract version bump for the changed Event kinds and fields.
+- ✅ `service.AgentSpec` becomes `service.Agent`.
+- ✅ The old `gotato.Agent` becomes `gotato.Session`, the live Session: one concrete type, with the interfaces it was split into removed. The Loop stays a concept ([DESIGNS.md → The live Session is `gotato.Session`](DESIGNS.md#the-live-session-is-gotatosession-and-its-record-is-sessionrecord--2026-10-16)).
+- ✅ `session.Session`, the stored record, becomes `session.Record`.
+- ✅ A live Session's ID is its Session ID, and Events carry it as `session_id`. `agent_start` and `agent_end` become `run_start` and `run_end`.
+- ✅ The rename ships as one planned break, with no `// Deprecated:` aliases, and a [CHANGELOG.md](CHANGELOG.md) entry.
+
+Exit:
+
+- ✅ No exported identifier, Event kind or field carries the old meaning of Agent.
+- ✅ G-G06 holds for the break: the HTTP and gRPC contract version is `"4"`, and the CLI contract version is `"2"`.
 
 ## Design discussion
 
@@ -87,8 +93,7 @@ After Phase 3, the maintainer and contributors answer the questions in [DESIGNS.
 - how ownership of a Session works across instances, including what happens to a message that reaches an instance that does not own it;
 - how a Turn is saved: an append of the new Turn, or a rewrite of the whole Session;
 - what a warm Session holds, and what happens to a message that arrives while a Run is in progress;
-- how Gotato tells the model something that is not the user's words: runtime notices (FEATURES.md G-F29), and the Events on a message's way into a Session. They follow from the answer to the question above;
-- what the stored record is called, once Phase 6 gives the name Session to the live unit.
+- how Gotato tells the model something that is not the user's words: runtime notices (FEATURES.md G-F29), and the Events on a message's way into a Session. They follow from the answer to the question above.
 
 One requirement is already fixed: a second instance stops before it calls the model.
 
@@ -127,12 +132,11 @@ Exit:
 - A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
 - Runtime notices (G-F29) ship as the design discussion decided.
 - Longer prompt cache retention, and a keepalive for a warm Session's cache (G-F33), are designed with the warm Session.
-- The stored record takes the name the design discussion chose, and the live Session takes the name Session. This ships as a planned break, with a [CHANGELOG.md](CHANGELOG.md) entry.
+- `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
 
 Exit:
 
 - G-G08 passes with messages that arrive mid-Run.
-- G-G06 holds for the rename of the stored record.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Phase 7 — Structured output

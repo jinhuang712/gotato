@@ -78,7 +78,7 @@ func main() {
 	// defaultInstruction and builtinTools; this twin must expose the same
 	// agents, so the instruction and Tool surface are mirrored here.
 	tools := builtinTools()
-	specs := []service.AgentSpec{
+	specs := []service.Agent{
 		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
 		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
 	}
@@ -109,9 +109,9 @@ func main() {
 			break
 		}
 		client = created
-		specs = append(specs, service.AgentSpec{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
+		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
 	}
-	runner, err := service.New(service.Config{Store: store, Specs: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns}})
+	runner, err := service.New(service.Config{Store: store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns}})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -12,12 +12,12 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-func runAgent(t *testing.T, s *session.Session, model gotato.Model, prompt string) gotato.RunResult {
+func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt string) gotato.RunResult {
 	t.Helper()
-	agent, err := gotato.NewAgent(
+	agent, err := gotato.NewSession(
 		gotato.WithModel(model),
 		gotato.WithTranscript(s),
-		gotato.WithExtension(session.Record(s)),
+		gotato.WithExtension(session.NewRecorder(s)),
 		gotato.WithTool(testkit.DemoEchoTool()),
 	)
 	if err != nil {
@@ -31,13 +31,37 @@ func runAgent(t *testing.T, s *session.Session, model gotato.Model, prompt strin
 	return result
 }
 
+// A live Session over a Record takes the Record's ID, and every Event it
+// records carries it. Without a Record it generates its own.
+func TestLiveSessionTakesItsRecordID(t *testing.T) {
+	r := session.New(session.WithID("order-42"))
+	runSession(t, r, testkit.EchoModel{}, "hi")
+	events := r.Events()
+	if len(events) == 0 {
+		t.Fatal("no Events recorded")
+	}
+	for _, event := range events {
+		if event.SessionID != "order-42" {
+			t.Fatalf("%s carries session_id %q, want order-42", event.Kind, event.SessionID)
+		}
+	}
+	live, err := gotato.NewSession(gotato.WithModel(testkit.EchoModel{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = live.Close(context.Background()) }()
+	if live.ID() == "" {
+		t.Fatal("a Session without a Record has no ID")
+	}
+}
+
 func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	s := session.New()
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
 		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CacheReadTokens: 6, CacheWriteTokens: 2}}}, testkit.Text("done")...),
 	)
-	result := runAgent(t, s, model, "use-tool")
+	result := runSession(t, s, model, "use-tool")
 	if result.Status != gotato.RunCompleted {
 		t.Fatalf("status = %s", result.Status)
 	}
@@ -58,7 +82,7 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("no events recorded")
 	}
-	if events[0].Kind != gotato.EventAgentStart || events[len(events)-1].Kind != gotato.EventAgentEnd {
+	if events[0].Kind != gotato.EventRunStart || events[len(events)-1].Kind != gotato.EventRunEnd {
 		t.Fatalf("events = %d first=%s", len(events), events[0].Kind)
 	}
 	var built int
@@ -79,7 +103,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	}
 	ctx := context.Background()
 	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
-	runAgent(t, s, testkit.EchoModel{}, "first")
+	runSession(t, s, testkit.EchoModel{}, "first")
 	if err := store.Save(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +119,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 		t.Fatalf("metadata lost: %v", loaded.Metadata())
 	}
 	model := testkit.NewFakeModel(testkit.Text("second answer"))
-	runAgent(t, loaded, model, "second")
+	runSession(t, loaded, model, "second")
 	request, _ := model.LastRequest()
 	if len(request.Messages) != 3 || gotato.TextOf(request.Messages[0]) != "first" {
 		t.Fatalf("continued run saw %d messages", len(request.Messages))
@@ -121,7 +145,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 func TestMemoryStore(t *testing.T) {
 	store := session.NewMemoryStore()
 	ctx := context.Background()
-	s := testkit.NewSession("a", "b")
+	s := testkit.NewRecord("a", "b")
 	if err := store.Save(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +165,7 @@ func TestMemoryStore(t *testing.T) {
 }
 
 func TestForkIsIndependentState(t *testing.T) {
-	parent := testkit.NewSession("q1", "a1")
+	parent := testkit.NewRecord("q1", "a1")
 	parent.Set("owner", "parent")
 	child := session.Fork(parent)
 	if child.ID() == parent.ID() || child.ParentID() != parent.ID() {

@@ -11,17 +11,17 @@ import (
 	"strings"
 )
 
-// Transcript is the committed history an Agent runs against: it is the
-// Session's record of what happened. The Agent appends every committed
+// Transcript is the committed history a Session runs against: it is the
+// Session's Record of what happened. The Session appends every committed
 // Message to it and reads it back when it builds the next Context.
 //
-// The Agent goroutine is the only writer while a Run is in flight. A
-// Transcript may be shared between successive Runs and between Agents, but it
+// The Session goroutine is the only writer while a Run is in flight. A
+// Transcript may be shared between successive Runs and between Sessions, but it
 // must not be mutated concurrently with a Run that is using it.
 //
-// Messages returns the committed Messages in order. The Agent treats the
+// Messages returns the committed Messages in order. The Session treats the
 // returned slice as read-only and never mutates it. Len reports the committed
-// Message count without materializing the history, so an Agent can enforce its
+// Message count without materializing the history, so a Session can enforce its
 // Message bound without copying.
 type Transcript interface {
 	Len() int
@@ -30,7 +30,7 @@ type Transcript interface {
 }
 
 // memoryTranscript is the default Transcript: a private slice that lives and
-// dies with the Agent. It preserves the pre-Session behavior of NewAgent.
+// dies with the Session.
 type memoryTranscript struct {
 	messages []Message
 }
@@ -44,10 +44,10 @@ func (t *memoryTranscript) Append(message Message) error {
 	return nil
 }
 
-// WithTranscript makes the Agent commit to an external Transcript instead of
-// a private in-memory one. Use it to run an Agent against a Session.
+// WithTranscript makes the Session commit to an external Transcript, such as
+// the session.Record it is loaded from, instead of a private in-memory one.
 func WithTranscript(transcript Transcript) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if transcript == nil {
 			return runtimeError(ErrInvalidArgument, "WithTranscript", "transcript is nil", nil)
 		}
@@ -175,7 +175,7 @@ func (c ModelContext) RenderSystem() string {
 
 // ContextBuilder decides what the Model sees now. It receives a read-only
 // snapshot of the committed Transcript and returns the layout for this Turn.
-// The Agent applies ContextTransformer and MessageConverter Extensions to the
+// The Session applies ContextTransformer and MessageConverter Extensions to the
 // builder's Messages afterwards, so a builder is the primary strategy and
 // Extensions remain post-processing.
 type ContextBuilder interface {
@@ -213,7 +213,7 @@ func FullHistoryContext() ContextBuilder {
 // WithContextBuilder selects the strategy that turns the Transcript into the
 // Model's Context for each Turn. The default is FullHistoryContext.
 func WithContextBuilder(builder ContextBuilder) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if builder == nil {
 			return runtimeError(ErrInvalidArgument, "WithContextBuilder", "builder is nil", nil)
 		}
@@ -222,7 +222,7 @@ func WithContextBuilder(builder ContextBuilder) Option {
 	}
 }
 
-// RunPreparer is an Extension stage that runs inside the Agent goroutine at
+// RunPreparer is an Extension stage that runs inside the Session goroutine at
 // the start of every Run, before the prompt is committed. It is the one safe
 // point to rewrite the Transcript (for example to compact a Session that has
 // grown past a token budget), because no Turn is using it yet.
@@ -230,7 +230,7 @@ type RunPreparer interface {
 	PrepareRun(context.Context, Transcript) error
 }
 
-// ToolSource supplies Tools whose set may change between Turns. The Agent
+// ToolSource supplies Tools whose set may change between Turns. The Session
 // asks every installed ToolSource for its Tools at the start of each Turn and
 // keeps that set for the whole Turn, so a Tool the Model was shown can always
 // be resolved when the Model calls it.
@@ -244,7 +244,7 @@ type ToolSource interface {
 
 // WithToolSource installs a dynamic Tool source.
 func WithToolSource(source ToolSource) Option {
-	return func(c *agentConfig) error {
+	return func(c *sessionConfig) error {
 		if source == nil {
 			return runtimeError(ErrInvalidArgument, "WithToolSource", "source is nil", nil)
 		}
@@ -253,15 +253,10 @@ func WithToolSource(source ToolSource) Option {
 	}
 }
 
-// ToolInspector reports the Tools an Agent currently exposes to its Model.
-// The core Agent implements it; the result is a snapshot sorted by ID.
-type ToolInspector interface {
-	Tools() []ToolSpec
-}
-
-// Tools implements ToolInspector. It is safe to call from any goroutine while
-// the Agent is idle; during a Run it reflects the set of the most recent Turn.
-func (a *coreAgent) Tools() []ToolSpec {
+// Tools reports the Tools the Session exposes to its Model, as a snapshot
+// sorted by ID. While the Session is idle it is the set its next Turn offers;
+// during a Run it reflects the set of the most recent Turn.
+func (a *Session) Tools() []ToolSpec {
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
 	specs := a.registry.visibleSpecs()
@@ -269,7 +264,7 @@ func (a *coreAgent) Tools() []ToolSpec {
 	return specs
 }
 
-// ContextInspection is the request an Agent's next Turn would send, built
+// ContextInspection is the request a Session's next Turn would send, built
 // without calling the Model.
 type ContextInspection struct {
 	// SourceMessages is the number of committed Messages it was built from.
@@ -283,18 +278,12 @@ type ContextInspection struct {
 	PrefixHash string `json:"prefix_hash"`
 }
 
-// ContextInspector reports what an Agent's next Turn would send. The core
-// Agent implements it with the code its Turns run.
-type ContextInspector interface {
-	InspectContext(context.Context) (ContextInspection, error)
-}
-
-// Transcript returns the Transcript this Agent commits to.
-func (a *coreAgent) Transcript() Transcript { return a.transcript }
+// Transcript returns the Transcript this Session commits to.
+func (a *Session) Transcript() Transcript { return a.transcript }
 
 // AssembleRequest lays out one ModelRequest from a built Context and the
 // visible Tools, in cache-friendly order, and reports the prefix hash. It is
-// what the Agent sends; it is exported so inspection tools show exactly the
+// what the Session sends; it is exported so inspection tools show exactly the
 // same bytes.
 //
 //   - Messages are reduced to what a provider needs (ForModel).

@@ -173,7 +173,7 @@ type Result struct {
 // safeCut). When even that boundary is unsafe, Compact makes no change and
 // returns a fully populated Result with Replaced==false and no Compaction, so
 // the caller can tell a no-op apart from a replacement.
-func Compact(ctx context.Context, s *session.Session, opts CompactOptions) (Result, error) {
+func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
 	}
@@ -222,12 +222,12 @@ func Compact(ctx context.Context, s *session.Session, opts CompactOptions) (Resu
 	s.ReplaceMessages(replaced)
 	s.RecordCompaction(record)
 	s.RecordEvent(gotato.Event{
+		SessionID: gotato.SessionID(s.ID()),
 		Kind:      gotato.EventSessionCompacted,
 		Class:     gotato.EventProtected,
 		MessageID: summary.ID,
 		Timestamp: record.At,
 		Payload: map[string]any{
-			"session_id":         s.ID(),
 			"replaced_messages":  cut,
 			"summary_message_id": string(summary.ID),
 			"summarizer":         summarizer.Name(),
@@ -256,14 +256,14 @@ type CompactPolicy struct {
 // AutoCompactor is a gotato.RunPreparer that applies a CompactPolicy to one
 // Session. Install it with gotato.WithExtension next to WithTranscript(s).
 type AutoCompactor struct {
-	session *session.Session
+	session *session.Record
 	policy  CompactPolicy
 	last    Result
 	runs    int
 }
 
 // AutoCompact creates an AutoCompactor.
-func AutoCompact(s *session.Session, policy CompactPolicy) *AutoCompactor {
+func AutoCompact(s *session.Record, policy CompactPolicy) *AutoCompactor {
 	if policy.Floor <= 0 || policy.Floor >= policy.Ceiling {
 		policy.Floor = policy.Ceiling / 2
 	}

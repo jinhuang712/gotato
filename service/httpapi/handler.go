@@ -4,7 +4,7 @@
 //
 //	GET    /healthz                         liveness
 //	GET    /readyz                          readiness (503 while draining)
-//	GET    /v1/agents                       registered AgentSpec names, and each one's max_effect if set
+//	GET    /v1/agents                       registered Agent names, and each one's max_effect if set
 //	POST   /v1/sessions                     {agent?, metadata?}           → session summary
 //	GET    /v1/sessions                     → [summary]
 //	GET    /v1/sessions/{id}                → session document
@@ -44,7 +44,7 @@ import (
 
 // ContractVersion is the HTTP contract version. Field names and status codes
 // documented here are stable within a version.
-const ContractVersion = "3"
+const ContractVersion = "4"
 
 // maxBodyBytes bounds every JSON request body. A larger body is rejected with
 // 413 rather than being buffered.
@@ -132,7 +132,7 @@ func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
 	names := h.runner.Agents()
 	caps := map[string]gotato.ToolEffect{}
 	for _, name := range names {
-		if spec, ok := h.runner.Spec(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
+		if spec, ok := h.runner.Agent(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
 			caps[name] = spec.MaxEffect
 		}
 	}

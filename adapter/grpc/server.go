@@ -27,7 +27,7 @@ import (
 // ContractVersion is the gRPC contract version. It counts breaking changes to
 // what the service returns, JSON payloads included; the protobuf package
 // stays gotato.v2 until its schema itself breaks.
-const ContractVersion = "3"
+const ContractVersion = "4"
 
 // Server implements gotatov2.SessionServiceServer.
 type Server struct {
@@ -51,7 +51,7 @@ func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.Age
 	names := s.runner.Agents()
 	caps := map[string]string{}
 	for _, name := range names {
-		if spec, ok := s.runner.Spec(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
+		if spec, ok := s.runner.Agent(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
 			caps[name] = string(spec.MaxEffect)
 		}
 	}
@@ -287,7 +287,7 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 		return nil, status.Error(codes.Internal, "cannot encode Event payload: "+err.Error())
 	}
 	return &gotatov2.Event{
-		AgentId:     string(event.AgentID),
+		SessionId:   string(event.SessionID),
 		RunId:       string(event.RunID),
 		Sequence:    event.Sequence,
 		Kind:        string(event.Kind),
@@ -323,9 +323,9 @@ func statusOf(err error) error {
 		switch runtimeErr.Code {
 		case gotato.ErrInvalidArgument, gotato.ErrToolArgumentFailure:
 			code = codes.InvalidArgument
-		case gotato.ErrBusy, gotato.ErrInvalidState, gotato.ErrAgentClosing:
+		case gotato.ErrBusy, gotato.ErrInvalidState, gotato.ErrSessionClosing:
 			code = codes.FailedPrecondition
-		case gotato.ErrAgentClosed:
+		case gotato.ErrSessionClosed:
 			code = codes.NotFound
 		case gotato.ErrCancelled:
 			code = codes.Canceled

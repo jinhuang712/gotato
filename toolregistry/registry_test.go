@@ -113,7 +113,7 @@ func TestNewReportsRegistrationFailure(t *testing.T) {
 	}
 }
 
-func TestRegistryDrivesAgentToolSurface(t *testing.T) {
+func TestRegistryDrivesSessionToolSurface(t *testing.T) {
 	reg, err := toolregistry.New(testkit.DemoEchoTool())
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestRegistryDrivesAgentToolSurface(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"hi"}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithToolSource(reg))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSource(reg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestRegistryDrivesAgentToolSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	model2 := testkit.NewFakeModel(testkit.Text("no tools"))
-	agent2, err := gotato.NewAgent(gotato.WithModel(model2), gotato.WithToolSource(reg))
+	agent2, err := gotato.NewSession(gotato.WithModel(model2), gotato.WithToolSource(reg))
 	if err != nil {
 		t.Fatal(err)
 	}

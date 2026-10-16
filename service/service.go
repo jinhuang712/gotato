@@ -1,16 +1,17 @@
-// Package service turns the runtime into a service: a store of Sessions and
-// Agents that are created for one Run and discarded afterwards.
+// Package service turns the runtime into a service: named Agents, a Store of
+// Session Records, and a live Session built for each Run.
 //
-// Agent semantics stay in the runtime. For every Run it loads the Session,
-// takes the Session's lock, builds an Agent from an AgentSpec exactly as an
-// application would (WithTranscript, WithContextBuilder, WithToolSource,
-// session.Record, modelctx.AutoCompact), runs it, closes it, and saves the
-// Session. Continuity lives in the Store, so any process holding the Store
-// can serve any Session; an Agent is never the unit of identity.
+// Session semantics stay in the runtime. For every Run the Runner loads the
+// Session's Record, takes the Session's lock, builds a live gotato.Session
+// from the Agent exactly as an application would (WithTranscript,
+// WithContextBuilder, WithToolSource, session.NewRecorder,
+// modelctx.AutoCompact), runs it, closes it, and saves the Record.
+// Continuity lives in the Store, so any process holding the Store can serve
+// any Session.
 //
 //	runner, _ := service.New(service.Config{
-//	    Store: store,
-//	    Specs: []service.AgentSpec{{Name: "default", Model: model, Tools: tools}},
+//	    Store:  store,
+//	    Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
 //	})
 //	result, _ := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hello"})
 //
@@ -43,26 +44,27 @@ const persistTimeout = 10 * time.Second
 // Session metadata keys the service reads. They are ordinary application
 // metadata from the runtime's point of view and may be set by any client.
 const (
-	MetaAgent          = "gotato.agent"           // AgentSpec name used for this Session
-	MetaInstruction    = "gotato.instruction"     // overrides AgentSpec.Instruction
+	MetaAgent          = "gotato.agent"           // Agent name used for this Session
+	MetaInstruction    = "gotato.instruction"     // overrides Agent.Instruction
 	MetaCompactCeiling = "gotato.compact_ceiling" // estimated-token budget for auto compaction
 	MetaModel          = "gotato.model"           // informational: model name last used
 	MetaCacheKey       = "gotato.cache_key"       // the prompt cache key; a fork keeps its parent's
-	// MetaToolPrefix + <tool id> = "inactive" hides one of the Spec's Tools
+	// MetaToolPrefix + <tool id> = "inactive" hides one of the Agent's Tools
 	// from the Model for this Session. Tool activation is Session state.
 	MetaToolPrefix = "gotato.tool."
 )
 
-// ToolEntry describes one Tool of a Spec as seen by a Session.
+// ToolEntry describes one Tool of an Agent as seen by a Session.
 type ToolEntry struct {
 	Spec   gotato.ToolSpec `json:"spec"`
 	Active bool            `json:"active"`
 }
 
-// AgentSpec is the reusable configuration the service instantiates per Run.
-// Sharing a Model client between Specs and Runs is expected; nothing here is
-// mutable Run state.
-type AgentSpec struct {
+// Agent is a named, reusable definition: the model, instruction, tools and
+// limits its Sessions run. The Runner builds a live Session from it for each
+// Run. Sharing a Model client between Agents and Runs is expected; nothing
+// here is mutable Run state.
+type Agent struct {
 	Name        string
 	Model       gotato.Model
 	ModelName   string
@@ -106,7 +108,7 @@ type Admission struct {
 // Config configures a Runner.
 type Config struct {
 	Store     session.Store
-	Specs     []AgentSpec
+	Agents    []Agent
 	Admission Admission
 }
 
@@ -117,7 +119,7 @@ var ErrBusy = gotato.ErrorOf(gotato.ErrBusy, "service: session has a run in flig
 // ErrCapacity is returned when MaxActiveRuns is reached.
 var ErrCapacity = gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum active runs reached")
 
-// ErrUnknownAgent is returned for an unregistered AgentSpec name.
+// ErrUnknownAgent is returned for an unregistered Agent name.
 var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent")
 
 // ErrSessionExists is returned when an explicit Session ID is already taken.
@@ -133,7 +135,7 @@ var ErrNotPersisted = errors.New("service: session was not persisted")
 // Runner serves Runs against Sessions.
 type Runner struct {
 	store     session.Store
-	specs     map[string]AgentSpec
+	agents    map[string]Agent
 	order     []string
 	admission Admission
 
@@ -167,7 +169,7 @@ func (h *runHandle) attachAbort(abort func()) {
 	h.mu.Unlock()
 }
 
-// attachRunID records the RunID the Agent assigned. The first one wins.
+// attachRunID records the RunID the Session assigned. The first one wins.
 func (h *runHandle) attachRunID(runID gotato.RunID) {
 	h.mu.Lock()
 	if h.runID == "" {
@@ -177,7 +179,7 @@ func (h *runHandle) attachRunID(runID gotato.RunID) {
 }
 
 // stop aborts a started Run, or the pre-start wait when none started yet.
-// It always cancels the Run context: Abort() is a no-op until the Agent
+// It always cancels the Run context: Abort() is a no-op until the Session
 // installs its run stop, so cancelling is what actually reaches a Run that is
 // still loading its Session.
 func (h *runHandle) stop() {
@@ -198,12 +200,12 @@ func New(cfg Config) (*Runner, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("service: Store is required")
 	}
-	if len(cfg.Specs) == 0 {
-		return nil, errors.New("service: at least one AgentSpec is required")
+	if len(cfg.Agents) == 0 {
+		return nil, errors.New("service: at least one Agent is required")
 	}
 	r := &Runner{
 		store:     cfg.Store,
-		specs:     map[string]AgentSpec{},
+		agents:    map[string]Agent{},
 		admission: cfg.Admission,
 		locks:     newSessionLocks(),
 		handles:   map[string][]*runHandle{},
@@ -216,22 +218,22 @@ func New(cfg Config) (*Runner, error) {
 		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
 	}
 	r.idle = sync.NewCond(&r.mu)
-	for _, spec := range cfg.Specs {
+	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
 		if name == "" {
-			return nil, errors.New("service: AgentSpec.Name is empty")
+			return nil, errors.New("service: Agent.Name is empty")
 		}
 		if spec.Model == nil {
-			return nil, fmt.Errorf("service: AgentSpec %q has no Model", name)
+			return nil, fmt.Errorf("service: Agent %q has no Model", name)
 		}
-		if _, dup := r.specs[name]; dup {
-			return nil, fmt.Errorf("service: duplicate AgentSpec %q", name)
+		if _, dup := r.agents[name]; dup {
+			return nil, fmt.Errorf("service: duplicate Agent %q", name)
 		}
 		if !spec.MaxEffect.Valid() {
-			return nil, fmt.Errorf("service: AgentSpec %q has unknown MaxEffect %q", name, spec.MaxEffect)
+			return nil, fmt.Errorf("service: Agent %q has unknown MaxEffect %q", name, spec.MaxEffect)
 		}
 		spec.Name = name
-		r.specs[name] = spec
+		r.agents[name] = spec
 		r.order = append(r.order, name)
 	}
 	return r, nil
@@ -240,15 +242,15 @@ func New(cfg Config) (*Runner, error) {
 // Store returns the Session store.
 func (r *Runner) Store() session.Store { return r.store }
 
-// Agents lists the registered AgentSpec names; the first is the default.
+// Agents lists the registered Agent names; the first is the default.
 func (r *Runner) Agents() []string { return append([]string(nil), r.order...) }
 
-// Spec returns one AgentSpec.
-func (r *Runner) Spec(name string) (AgentSpec, bool) {
+// Agent returns one registered Agent; an empty name means the default.
+func (r *Runner) Agent(name string) (Agent, bool) {
 	if name == "" {
 		name = r.order[0]
 	}
-	spec, ok := r.specs[name]
+	spec, ok := r.agents[name]
 	return spec, ok
 }
 
@@ -267,8 +269,8 @@ func (r *Runner) Draining() bool {
 	return r.draining
 }
 
-// CreateSession creates and saves a Session bound to an AgentSpec.
-func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Session, error) {
+// CreateSession creates and saves a Session bound to an Agent.
+func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Record, error) {
 	s, _, err := r.newSession(agent, metadata, options...)
 	if err != nil {
 		return nil, err
@@ -279,11 +281,11 @@ func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[s
 	return s, nil
 }
 
-// newSession builds a Session bound to an AgentSpec, without saving it.
-func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.Option) (*session.Session, AgentSpec, error) {
-	spec, ok := r.Spec(agent)
+// newSession builds a Session bound to an Agent, without saving it.
+func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.Option) (*session.Record, Agent, error) {
+	spec, ok := r.Agent(agent)
 	if !ok {
-		return nil, AgentSpec{}, ErrUnknownAgent
+		return nil, Agent{}, ErrUnknownAgent
 	}
 	s := session.New(options...)
 	for key, value := range metadata {
@@ -296,11 +298,11 @@ func (r *Runner) newSession(agent string, metadata map[string]string, options ..
 // CreateSessionExclusive creates a Session with an explicit ID and fails with
 // ErrSessionExists when the ID is taken. The existence check and the write run
 // under the Session lock, so two concurrent creates cannot both succeed.
-func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Session, error) {
+func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Record, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required")
 	}
-	var created *session.Session
+	var created *session.Record
 	err := r.withSessionLock(ctx, id, func() error {
 		if _, err := r.store.Get(ctx, id); err == nil {
 			return ErrSessionExists
@@ -324,8 +326,8 @@ func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, m
 type RunRequest struct {
 	// SessionID names the Session. Empty creates a new Session.
 	SessionID string
-	// Agent selects the AgentSpec for a new Session; an existing Session
-	// keeps the Spec it was created with unless Agent is set.
+	// Agent selects the Agent for a new Session; an existing Session
+	// keeps the Agent it was created with unless Agent is set.
 	Agent string
 	// Prompt is the user input. Empty with Continue=true resumes the loop.
 	Prompt   string
@@ -336,7 +338,7 @@ type RunRequest struct {
 	// for this Run, and a changed existing Session is left as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
-	// keeps the AgentSpec's RunDeadline.
+	// keeps the Agent's RunDeadline.
 	Timeout time.Duration
 }
 
@@ -386,7 +388,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
-	var s *session.Session
+	var s *session.Record
 	sessionID := request.SessionID
 	if sessionID == "" {
 		if request.SkipSave {
@@ -437,7 +439,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		if agentName == "" {
 			agentName, _ = s.Get(MetaAgent)
 		}
-		spec, ok := r.Spec(agentName)
+		spec, ok := r.Agent(agentName)
 		if request.SessionID != "" {
 			observers := &spec
 			if !ok {
@@ -462,23 +464,23 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			limits.RunDeadline = request.Timeout
 			spec.Limits = &limits
 		}
-		agent, auto, err := r.buildAgent(spec, s, sink, tracker, InspectOptions{})
+		live, auto, err := r.buildSession(spec, s, sink, tracker, InspectOptions{})
 		if err != nil {
 			return err
 		}
 		started = true
-		// Cancellation aborts the Run inside the Agent so Prompt still
+		// Cancellation aborts the Run inside the live Session so Prompt still
 		// returns the settled (cancelled) result; cancelling the caller's
 		// context would abandon the result instead.
-		handle.attachAbort(agent.Abort)
+		handle.attachAbort(live.Abort)
 
 		var result gotato.RunResult
 		if request.Continue {
-			result, runErr = agent.Continue(runCtx)
+			result, runErr = live.Continue(runCtx)
 		} else {
-			result, runErr = agent.Prompt(runCtx, gotato.UserMessage(request.Prompt))
+			result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
 		}
-		_ = agent.Close(context.Background())
+		_ = live.Close(context.Background())
 
 		if !request.SkipSave {
 			// Persist the settled Session even when the Run was cancelled, but
@@ -571,7 +573,7 @@ func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func(
 	return fn()
 }
 
-// runStatusForError classifies a terminal error when the Agent itself did not
+// runStatusForError classifies a terminal error when the Session itself did not
 // report a status: a caller-cancelled context is a cancelled Run, not a
 // failure, and the Session's Run record says the same.
 func runStatusForError(err error) gotato.RunStatus {
@@ -590,10 +592,10 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 	return runs > 0
 }
 
-// buildAgent composes the runtime for one Run from the Spec and the Session's
-// own settings. override replaces the Session's instruction for an
+// buildSession builds the live Session for one Run from its Agent and its
+// Record's own settings. override replaces the Session's instruction for an
 // inspection; a Run passes none.
-func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (gotato.RuntimeAgent, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildSession(spec Agent, s *session.Record, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	instruction := spec.Instruction
 	if stored, ok := s.Get(MetaInstruction); ok && stored != "" {
 		instruction = stored
@@ -613,7 +615,7 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		}
 	}
 	var auto *modelctx.AutoCompactor
-	extensions := []any{session.Record(s)}
+	extensions := []any{session.NewRecorder(s)}
 	if tracker != nil {
 		extensions = append(extensions, tracker)
 	}
@@ -642,7 +644,7 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		options = append(options, gotato.WithLimits(*spec.Limits))
 	}
 	options = append(options, spec.Options...)
-	agent, err := gotato.NewAgent(options...)
+	agent, err := gotato.NewSession(options...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -653,7 +655,7 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 // Session, so the provider serves a conversation from one prompt cache. It is
 // a hash of the Session ID, because an ID the caller chose may name a user or
 // a tenant, and the key goes to the provider. A Session forked by the Runner
-// keeps its parent's key instead (MetaCacheKey), and a Spec may set another
+// keeps its parent's key instead (MetaCacheKey), and an Agent may set another
 // with gotato.WithCacheKey in its Options.
 func CacheKey(sessionID string) string {
 	sum := sha256.Sum256([]byte(sessionID))
@@ -663,7 +665,7 @@ func CacheKey(sessionID string) string {
 // sessionCacheKey is the cache key a Session's Turns carry: the one in its
 // metadata (MetaCacheKey), which a fork inherits from its parent, or else
 // CacheKey of its ID.
-func sessionCacheKey(s *session.Session) string {
+func sessionCacheKey(s *session.Record) string {
 	if key, ok := s.Get(MetaCacheKey); ok && key != "" {
 		return key
 	}
@@ -682,8 +684,8 @@ type InspectOptions struct {
 }
 
 // Inspect reports the Context a Run against the Session would send now. It
-// builds the Agent a Run would build and asks it, so the report includes the
-// Spec's Extensions, Tools and model options, and says whether the next Run
+// builds the live Session a Run would build and asks it, so the report includes the
+// Agent's Extensions, Tools and model options, and says whether the next Run
 // compacts the Session first. Optional InspectOptions override the Session's
 // stored settings. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectOptions) (modelctx.Report, error) {
@@ -692,7 +694,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 		return modelctx.Report{}, err
 	}
 	agentName, _ := s.Get(MetaAgent)
-	spec, ok := r.Spec(agentName)
+	spec, ok := r.Agent(agentName)
 	if !ok {
 		return modelctx.Report{}, ErrUnknownAgent
 	}
@@ -700,12 +702,12 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if len(options) > 0 {
 		override = options[0]
 	}
-	agent, auto, err := r.buildAgent(spec, s, nil, nil, override)
+	live, auto, err := r.buildSession(spec, s, nil, nil, override)
 	if err != nil {
 		return modelctx.Report{}, err
 	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	inspection, err := agent.InspectContext(ctx)
+	defer func() { _ = live.Close(context.Background()) }()
+	inspection, err := live.InspectContext(ctx)
 	if err != nil {
 		return modelctx.Report{}, err
 	}
@@ -719,13 +721,13 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	return report, nil
 }
 
-// sessionTools is the ToolSource an Agent sees for one Session: the Spec's
+// sessionTools is the ToolSource a live Session sees: its Agent's
 // static Tools and ToolSources within its MaxEffect, minus the ones the
 // Session deactivated. It is re-read at every Turn boundary like any
 // ToolSource.
 type sessionTools struct {
-	spec    AgentSpec
-	session *session.Session
+	spec    Agent
+	session *session.Record
 }
 
 func (t *sessionTools) Tools() []gotato.Tool {
@@ -746,7 +748,7 @@ func (t *sessionTools) Tools() []gotato.Tool {
 	return tools
 }
 
-// allowed reports whether a Tool is within the Spec's MaxEffect.
+// allowed reports whether a Tool is within the Agent's MaxEffect.
 func (t *sessionTools) allowed(spec gotato.ToolSpec) bool {
 	return t.spec.MaxEffect == gotato.EffectUnspecified || spec.Effect.Within(t.spec.MaxEffect)
 }
@@ -759,11 +761,11 @@ func (t *sessionTools) active(id string) bool {
 	return value != "inactive"
 }
 
-// Tools describes the Tool surface of an AgentSpec as a Session sees it.
-// sessionID may be empty for the Spec's default surface. A Tool above the
-// Spec's MaxEffect is not listed.
+// Tools describes the Tool surface of an Agent as a Session sees it.
+// sessionID may be empty for the Agent's default surface. A Tool above the
+// Agent's MaxEffect is not listed.
 func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntry, error) {
-	var s *session.Session
+	var s *session.Record
 	if sessionID != "" {
 		var err error
 		s, err = r.store.Get(ctx, sessionID)
@@ -774,7 +776,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 			agent, _ = s.Get(MetaAgent)
 		}
 	}
-	spec, ok := r.Spec(agent)
+	spec, ok := r.Agent(agent)
 	if !ok {
 		return nil, ErrUnknownAgent
 	}
@@ -797,7 +799,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			return err
 		}
 		agent, _ := s.Get(MetaAgent)
-		spec, ok := r.Spec(agent)
+		spec, ok := r.Agent(agent)
 		if !ok {
 			return ErrUnknownAgent
 		}
@@ -857,7 +859,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 
 // Fork creates a new Session from an existing one. An explicit newID must be
 // free: a fork never overwrites an existing Session.
-func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Session, error) {
+func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
 	parent, err := r.store.Get(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -946,7 +948,7 @@ func (r *Runner) cancelSession(sessionID string) bool {
 	return true
 }
 
-// cancelAll cancels every admitted Run: started Runs through the Agent, Runs
+// cancelAll cancels every admitted Run: started Runs through their live Session, Runs
 // still waiting for a Session lock through their context.
 func (r *Runner) cancelAll() {
 	r.mu.Lock()
@@ -1016,7 +1018,7 @@ func (r *Runner) unregisterHandle(handle *runHandle) {
 	r.mu.Unlock()
 }
 
-// attachRunID maps the Agent-assigned RunID to the admitted Run so CancelRun
+// attachRunID maps the Session-assigned RunID to the admitted Run so CancelRun
 // can find it while it is in flight.
 func (r *Runner) attachRunID(handle *runHandle, runID gotato.RunID) {
 	r.mu.Lock()
@@ -1073,14 +1075,13 @@ func (r *Runner) release() {
 	r.mu.Unlock()
 }
 
-// runTracker is an advisory EventObserver that attaches the RunID the Agent
-// assigned to the admitted Run handle as soon as agent_start fires.
+// runTracker is an advisory EventObserver that attaches the RunID the Session
+// assigned to the admitted Run handle as soon as run_start fires.
 type runTracker struct {
 	runner *Runner
 	handle *runHandle
 
 	mu       sync.Mutex
-	agentID  gotato.AgentID
 	runID    gotato.RunID
 	sequence uint64
 }
@@ -1089,9 +1090,9 @@ func (t *runTracker) Advisory() bool { return true }
 
 func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
 	t.mu.Lock()
-	t.agentID, t.runID, t.sequence = event.AgentID, event.RunID, max(t.sequence, event.Sequence)
+	t.runID, t.sequence = event.RunID, max(t.sequence, event.Sequence)
 	t.mu.Unlock()
-	if event.Kind != gotato.EventAgentStart {
+	if event.Kind != gotato.EventRunStart {
 		return nil
 	}
 	t.runner.attachRunID(t.handle, event.RunID)
@@ -1103,12 +1104,12 @@ func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
 func (t *runTracker) stamp(event *gotato.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	event.AgentID, event.RunID, event.Sequence = t.agentID, t.runID, t.sequence+1
+	event.RunID, event.Sequence = t.runID, t.sequence+1
 }
 
 // saveSession saves a Session for a Run and emits session_saved with the
 // time the store took.
-func (r *Runner) saveSession(ctx context.Context, s *session.Session, spec *AgentSpec, sink func(gotato.Event) error, tracker *runTracker) error {
+func (r *Runner) saveSession(ctx context.Context, s *session.Record, spec *Agent, sink func(gotato.Event) error, tracker *runTracker) error {
 	began := time.Now()
 	err := r.store.Save(ctx, s)
 	event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), time.Since(began), err)
@@ -1125,21 +1126,20 @@ func (r *Runner) saveSession(ctx context.Context, s *session.Session, spec *Agen
 // paths and hosts, and Events reach HTTP and gRPC clients.
 func storeEvent(kind gotato.EventKind, sessionID string, messages int, elapsed time.Duration, err error) gotato.Event {
 	payload := map[string]any{
-		"session_id": sessionID,
 		"messages":   messages,
 		"elapsed_ms": float64(elapsed.Microseconds()) / 1000,
 	}
 	if err != nil {
 		payload["failed"] = true
 	}
-	return gotato.Event{Kind: kind, Class: gotato.EventProtected, Payload: payload, Timestamp: time.Now()}
+	return gotato.Event{SessionID: gotato.SessionID(sessionID), Kind: kind, Class: gotato.EventProtected, Payload: payload, Timestamp: time.Now()}
 }
 
 // emitRunnerEvent delivers an Event the Runner produces itself to the Run's
-// sink and to the EventObservers among the Spec's Extensions, the same places
-// the Agent's Events reach. A nil spec reaches the sink only. Every delivery
-// is advisory: a failing or panicking observer never fails the Run.
-func (r *Runner) emitRunnerEvent(ctx context.Context, spec *AgentSpec, sink func(gotato.Event) error, event gotato.Event) {
+// sink and to the EventObservers among the Agent's Extensions, the same places
+// the live Session's Events reach. A nil spec reaches the sink only. Every
+// delivery is advisory: a failing or panicking observer never fails the Run.
+func (r *Runner) emitRunnerEvent(ctx context.Context, spec *Agent, sink func(gotato.Event) error, event gotato.Event) {
 	if sink != nil {
 		deliver(func() error { return sink(event) })
 	}

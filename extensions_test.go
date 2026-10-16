@@ -91,7 +91,7 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 	first := &toolStages{name: "first", trace: recorder, tag: "first"}
 	second := &toolStages{name: "second", trace: recorder, tag: "second"}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTool(tool), WithExtensions(first, second))
+	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtensions(first, second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
 	blocker := &toolStages{name: "blocker", trace: recorder, block: true}
 	after := &toolStages{name: "after", trace: recorder}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithTool(tool), WithExtensions(blocker, after))
+	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtensions(blocker, after))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestTransformersShapeTheModelViewOnly(t *testing.T) {
 			return append(messages, UserMessage("converted"))
 		},
 	}
-	agent, err := NewAgent(WithModel(model), WithExtension(shaper))
+	agent, err := NewSession(WithModel(model), WithExtension(shaper))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func (o *eventObserver) seen() []EventKind {
 func TestObserverSeesProductionOrder(t *testing.T) {
 	observer := &eventObserver{}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(observer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestObserverSeesProductionOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	kinds := observer.seen()
-	if len(kinds) == 0 || kinds[0] != EventAgentStart || kinds[len(kinds)-1] != EventAgentEnd {
+	if len(kinds) == 0 || kinds[0] != EventRunStart || kinds[len(kinds)-1] != EventRunEnd {
 		t.Fatalf("observed order = %v", kinds)
 	}
 }
@@ -253,12 +253,12 @@ func (payloadMutator) Observe(ctx context.Context, event Event) error {
 
 func TestObserverPayloadMutationIsIsolated(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(payloadMutator{}))
+	agent, err := NewSession(WithModel(model), WithExtension(payloadMutator{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestObserverPayloadMutationIsIsolated(t *testing.T) {
 		if event.Kind == EventTurnEnd {
 			summary, _ = event.Payload["summary"].(map[string]any)
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			break
 		}
 	}
@@ -291,7 +291,7 @@ func TestObserverPayloadMutationIsIsolated(t *testing.T) {
 func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 	observer := &eventObserver{failOn: EventTurnStart}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(observer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 	}
 	terminal := 0
 	for _, kind := range observer.seen() {
-		if kind == EventAgentEnd {
+		if kind == EventRunEnd {
 			terminal++
 		}
 	}
@@ -320,7 +320,7 @@ func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 func TestAdvisoryObserverFailureDoesNotSettleTheRun(t *testing.T) {
 	observer := &eventObserver{failOn: EventTurnStart, advisory: true}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(observer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestAdvisoryObserverFailureDoesNotSettleTheRun(t *testing.T) {
 func TestExtensionPanicIsRecovered(t *testing.T) {
 	observer := &eventObserver{panicOn: EventTurnStart}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(observer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestExtensionPanicIsRecovered(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, ErrExtensionFailure) {
 		t.Fatalf("panicking extension = %v", err)
 	}
-	if got := agent.(AgentLifecycle).Status(); got != AgentIdle {
+	if got := agent.Status(); got != SessionIdle {
 		t.Fatalf("status after a panicking extension = %s", got)
 	}
 }
@@ -386,7 +386,7 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
 	recorder := &snapshotRecorder{}
-	agent, err := NewAgent(WithModel(model), WithTool(tool), WithExtension(recorder))
+	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtension(recorder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,12 +411,12 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	tool := &countingTool{}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("never reached")}}
-	agent, err := NewAgent(WithModel(model), WithTool(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
+	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.(EventSource).Subscribe(context.Background())
+	events, err := agent.Subscribe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +441,7 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
-		if event.Kind == EventAgentEnd {
+		if event.Kind == EventRunEnd {
 			terminal = event
 			break
 		}
@@ -452,7 +452,7 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 }
 
 type reentrantObserver struct {
-	agent Agent
+	agent *Session
 	err   error
 	once  sync.Once
 }
@@ -469,10 +469,10 @@ func (o *reentrantObserver) Observe(ctx context.Context, event Event) error {
 
 func (o *reentrantObserver) Advisory() bool { return true }
 
-func TestExtensionCannotReenterTheSameAgent(t *testing.T) {
+func TestExtensionCannotReenterTheSameSession(t *testing.T) {
 	observer := &reentrantObserver{}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewAgent(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(observer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,10 +487,10 @@ func TestExtensionCannotReenterTheSameAgent(t *testing.T) {
 }
 
 func TestWithExtensionRejectsUnknownValues(t *testing.T) {
-	if _, err := NewAgent(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("value implementing no Extension interface = %v", err)
 	}
-	if _, err := NewAgent(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("nil extension = %v", err)
 	}
 }

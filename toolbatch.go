@@ -27,7 +27,7 @@ type toolPlan struct {
 
 // rejectedPlan settles a call the Model got wrong as a failed, unexecuted
 // Tool Result carrying a message the Model can act on.
-func (a *coreAgent) rejectedPlan(index int, call ToolCall, message string) toolPlan {
+func (a *Session) rejectedPlan(index int, call ToolCall, message string) toolPlan {
 	return toolPlan{
 		index:   index,
 		call:    call,
@@ -44,7 +44,7 @@ func (a *coreAgent) rejectedPlan(index int, call ToolCall, message string) toolP
 
 // visibleToolIDs lists the Tools the Model was shown this Turn, for an
 // unknown-tool message.
-func (a *coreAgent) visibleToolIDs() string {
+func (a *Session) visibleToolIDs() string {
 	specs := a.registry.visibleSpecs()
 	ids := make([]string, 0, len(specs))
 	for _, spec := range specs {
@@ -57,7 +57,7 @@ func (a *coreAgent) visibleToolIDs() string {
 	return strings.Join(ids, ", ")
 }
 
-// toolSignal carries one worker's Event back to the Agent goroutine, which is
+// toolSignal carries one worker's Event back to the Session goroutine, which is
 // the only place Events are sequenced and observers are awaited.
 type toolSignal struct {
 	index  int
@@ -68,7 +68,7 @@ type toolSignal struct {
 
 // parallelWorkers turns the configured bound into a worker count. Zero and one
 // both mean sequential.
-func (a *coreAgent) parallelWorkers() int {
+func (a *Session) parallelWorkers() int {
 	if a.limits.MaxParallelTools <= 1 {
 		return 1
 	}
@@ -107,8 +107,8 @@ func groupPlans(plans []toolPlan, workers int) [][]int {
 
 // executeToolGroup runs one group of admitted Tools and returns their outcomes
 // by plan index. Completion Events are emitted in actual completion order
-// while the Agent goroutine waits here; results commit in source order later.
-func (a *coreAgent) executeToolGroup(
+// while the Session goroutine waits here; results commit in source order later.
+func (a *Session) executeToolGroup(
 	ctx context.Context,
 	runID RunID,
 	sequence *uint64,
@@ -217,7 +217,7 @@ func (a *coreAgent) executeToolGroup(
 
 // preflightTools resolves, validates, and runs the Pre chain over every Tool
 // Call in source order.
-func (a *coreAgent) preflightTools(ctx context.Context, runID RunID, turn TurnNumber, calls []ToolCall, toolCalls *uint32) ([]toolPlan, *RuntimeError) {
+func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumber, calls []ToolCall, toolCalls *uint32) ([]toolPlan, *RuntimeError) {
 	plans := make([]toolPlan, 0, len(calls))
 	for sourceIndex, call := range calls {
 		*toolCalls++

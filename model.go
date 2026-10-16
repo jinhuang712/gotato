@@ -44,7 +44,7 @@ type CacheBreakpoint struct {
 	Index int         `json:"index,omitempty"`
 }
 
-// ModelOptions carries per-request sampling and reasoning hints. An Agent
+// ModelOptions carries per-request sampling and reasoning hints. A Session
 // sends the options from WithModelOptions on every model call, and gateway
 // adapters map the fields their provider supports.
 type ModelOptions struct {

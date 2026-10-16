@@ -41,7 +41,7 @@ const (
 )
 
 // Version is the CLI contract version reported by doctor.
-const Version = "1"
+const Version = "2"
 
 func main() {
 	os.Exit(Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))

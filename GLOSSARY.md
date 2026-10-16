@@ -8,15 +8,16 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Agent** | A named, reusable definition: model, instruction, Static blocks, tools, the highest Effect its tools may have, limits, and the TTL of its Sessions. It holds no conversation, no state and no status. One Agent runs many Sessions. | agent spec, agent config, template, sub-agent, child agent, worker, supervisor (roles belong to applications) | `service.AgentSpec`. `gotato.Agent` is the Loop today. |
-| **Session** | The minimal unit a system interacts with: one conversation running one Agent. It is a Loop and a Runtime. It has an ID, a Status, a message queue and a state machine, and it holds its Transcript, its Context and its environment (its tools and connections). It manages itself: it saves itself, checks its own health and holds its connections. After a time to live (TTL: 60 idle minutes unless its Agent sets another) it is compacted, unless that is turned off, and leaves memory; its record stays in the Store, and any Instance can load it again. Everything inside it is hidden behind its API, which can still show its Context and Transcript for inspection. | conversation, thread, actor, instance | Split across `session.Session` (the stored record), `gotato.Agent` (the Loop, created per Run) and `service.Runner` (the lock and the run handle). |
-| **Loop** | The cycle inside a Session that calls the model and runs the tools it asks for, until the Run ends. Also called the agentic loop. | | `gotato.Agent` (`executeRun`) |
+| **Agent** | A named, reusable definition: model, instruction, Static blocks, tools, the highest Effect its tools may have, limits, and the TTL of its Sessions. It holds no conversation, no state and no status. One Agent runs many Sessions. | agent spec, agent config, template, sub-agent, child agent, worker, supervisor (roles belong to applications) | `service.Agent`. With the Go API alone, the options passed to `gotato.NewSession`. |
+| **Session** | The minimal unit a system interacts with: one conversation running one Agent. It is a Loop and a Runtime. It has an ID, a Status, a message queue and a state machine, and it holds its Transcript, its Context and its environment (its tools and connections). It manages itself: it saves itself, checks its own health and holds its connections. After a time to live (TTL: 60 idle minutes unless its Agent sets another) it is compacted, unless that is turned off, and leaves memory; its Record stays in the Store, and any Instance can load it again. Everything inside it is hidden behind its API, which can still show its Context and Transcript for inspection. | conversation, thread, actor, instance | `gotato.Session`, the live Session. Until Phase 6 keeps it warm, the Runner builds one from the Record for each Run. `service.Runner` holds the lock and the run handle. |
+| **Record** | What the Store keeps of a Session: its ID, metadata, Transcript, Runs, usage, recent Events and compactions. Any Instance loads a Session from it. | the Session itself, snapshot | `session.Record` |
+| **Loop** | The cycle inside a Session that calls the model and runs the tools it asks for, until the Run ends. Also called the agentic loop. It is a concept, not a type. | | `executeRun` in `gotato.Session` |
 | **Harness** | The industry's word for the code around a model: its loop, its tools and its context handling. In Gotato, the harness is a Session's Loop and Runtime. | framework | |
-| **Runtime** | The part of a Session around its Loop: its Status, its queue, its state machine, its saving and its TTL. A Session is a Loop and a Runtime. | | Not built as one piece. Today a Run's status lives in `RunResult`, and saving lives in `service.Runner`. |
-| **Transcript** | A Session's stored history: every committed Message, in order. | history, log | `gotato.Transcript`, implemented by `session.Session` |
+| **Runtime** | The part of a Session around its Loop: its Status, its queue, its state machine, its saving and its TTL. A Session is a Loop and a Runtime. | | In part: `gotato.Session` holds the Status, its state machine and the Steer and FollowUp queue. Saving lives in `service.Runner`, and the TTL comes in Phase 6. |
+| **Transcript** | A Session's stored history: every committed Message, in order. | history, log | `gotato.Transcript`, implemented by `session.Record` |
 | **Context** | What the model sees on one Turn, built from the Transcript. | prompt, model view | `gotato.ModelContext`, built by a `ContextBuilder` |
 | **Runner** | The part of a Go service that hosts Sessions: it starts them from Agents, routes messages to them, loads them from the Store and applies limits. | host, server | `service.Runner` |
-| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `RunResult.Status` covers a Run only. |
+| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `RunResult.Status` for one Run. |
 
 ## Execution
 
@@ -26,10 +27,10 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Turn** | One model call plus the tool calls it asked for. | step, iteration | `turn_start`, `turn_end` events |
 | **Message** | One entry in the Transcript: user input, an assistant reply or a tool result. | | `gotato.Message` |
 | **Limits** | Caps on a Run: Turns, bytes, tool calls and deadlines. | quotas | `gotato.CoreLimits` |
-| **Continue** | Resume a Loop without new input. | | `Agent.Continue` |
-| **Steer** | Insert a Message into a running Loop, to change its course. | | `Agent.Steer` |
-| **FollowUp** | Queue a Message to handle after the current Run. | | `Agent.FollowUp` |
-| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Agent.Abort`, `Runner.CancelRun` |
+| **Continue** | Resume a Loop without new input. | | `Session.Continue` |
+| **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |
+| **FollowUp** | Queue a Message to handle after the current Run. | | `Session.FollowUp` |
+| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelRun` |
 
 ## Configuration and capabilities
 
@@ -43,16 +44,16 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Tool Registry** | The catalog of Tools, with which of them are active. | | `toolregistry.Registry` |
 | **ToolSource** | Anything that supplies Tools at the start of each Turn. | | `gotato.ToolSource` |
 | **Effect** | How much a Tool can change: read, write local, write external or destructive. | side effect, risk level | `gotato.ToolEffect` |
-| **Effect cap** | The highest Effect an Agent's Tools may have. The model never sees a Tool above it. Only the Agent sets it, and there is none by default. | permission, policy, approval | `gotato.WithMaxEffect`, `service.AgentSpec.MaxEffect` |
+| **Effect cap** | The highest Effect an Agent's Tools may have. The model never sees a Tool above it. Only the Agent sets it, and there is none by default. | permission, policy, approval | `gotato.WithMaxEffect`, `service.Agent.MaxEffect` |
 
 ## State and history
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Store** | Where Sessions are saved: memory, a file, or your own database. The Store is the truth, and a Runner's memory is only a cache. | repository, persistence | `session.Store` |
+| **Store** | Where Sessions are saved, as Records: memory, a file, or your own database. The Store is the truth, and a Runner's memory is only a cache. | repository, persistence | `session.Store` |
 | **Compaction** | Replacing an old part of the Transcript with one summary. | summarization, pruning | `modelctx.Compact`, `modelctx.AutoCompact` |
 | **Fork** | Copying a Session's saved state to start a new Session. | branch, clone | `session.Fork`, `Runner.Fork` |
-| **Static block** | Labeled reference content that an Agent places after its instruction, such as a schema or a runbook. It stays the same for every Turn, so the provider's prompt cache reuses it. | resource, reference | `modelctx.WithStatic`, set through `AgentSpec.ContextBuilder` |
+| **Static block** | Labeled reference content that an Agent places after its instruction, such as a schema or a runbook. It stays the same for every Turn, so the provider's prompt cache reuses it. | resource, reference | `modelctx.WithStatic`, set through `service.Agent.ContextBuilder` |
 
 ## Watching and extending
 

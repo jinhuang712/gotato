@@ -1123,7 +1123,7 @@ func (*RunUpdate_Result) isRunUpdate_Update() {}
 // payload travels as JSON with the keys documented in the root package.
 type Event struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Sequence      uint64                 `protobuf:"varint,3,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -1167,9 +1167,9 @@ func (*Event) Descriptor() ([]byte, []int) {
 	return file_gotato_v2_service_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *Event) GetAgentId() string {
+func (x *Event) GetSessionId() string {
 	if x != nil {
-		return x.AgentId
+		return x.SessionId
 	}
 	return ""
 }
@@ -1726,9 +1726,10 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\tRunUpdate\x12(\n" +
 	"\x05event\x18\x01 \x01(\v2\x10.gotato.v2.EventH\x00R\x05event\x12.\n" +
 	"\x06result\x18\x02 \x01(\v2\x14.gotato.v2.RunResultH\x00R\x06resultB\b\n" +
-	"\x06update\"\xa0\x02\n" +
-	"\x05Event\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x15\n" +
+	"\x06update\"\xa4\x02\n" +
+	"\x05Event\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x04R\bsequence\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x1f\n" +

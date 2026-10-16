@@ -5,16 +5,16 @@ package gotato.v2;
 option go_package = "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2;gotatov2";
 
 // SessionService is one protocol adapter over service.Runner: a store of
-// Sessions and Agents created per Run. It defines no Agent or Session
+// Session Records, and live Sessions built per Run. It defines no Agent or Session
 // semantics of its own; every RPC maps onto one Runner method.
 service SessionService {
   // Contract reports the adapter contract version.
   rpc Contract(ContractRequest) returns (ContractResponse);
 
-  // Agents lists the registered AgentSpec names; the first is the default.
+  // Agents lists the registered Agent names; the first is the default.
   rpc Agents(AgentsRequest) returns (AgentsResponse);
 
-  // CreateSession creates an empty Session bound to an AgentSpec.
+  // CreateSession creates an empty Session bound to an Agent.
   rpc CreateSession(CreateSessionRequest) returns (SessionSummary);
   // GetSession returns the full Session document as JSON.
   rpc GetSession(SessionRequest) returns (SessionDocument);
@@ -145,7 +145,7 @@ message RunUpdate {
 // Event preserves runtime identity, class, correlation, and order. The
 // payload travels as JSON with the keys documented in the root package.
 message Event {
-  string agent_id = 1;
+  string session_id = 1;
   string run_id = 2;
   uint64 sequence = 3;
   string kind = 4;

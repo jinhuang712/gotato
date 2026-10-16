@@ -8,12 +8,12 @@ import (
 )
 
 // Recorder is an EventObserver Extension that writes what happened into a
-// Session: Run records, usage, and the Event stream itself. Install it with
-// gotato.WithExtension(session.Record(s)) next to gotato.WithTranscript(s).
+// Record: Run records, usage, and the Event stream itself. Install it with
+// gotato.WithExtension(session.NewRecorder(r)) next to gotato.WithTranscript(r).
 //
 // It is advisory: a Recorder failure never settles a Run.
 type Recorder struct {
-	session *Session
+	session *Record
 	pending map[gotato.RunID]*runProgress
 }
 
@@ -23,24 +23,24 @@ type runProgress struct {
 	usage     gotato.Usage
 }
 
-// Record creates a Recorder for s.
-func Record(s *Session) *Recorder {
+// NewRecorder creates a Recorder for s.
+func NewRecorder(s *Record) *Recorder {
 	return &Recorder{session: s, pending: map[gotato.RunID]*runProgress{}}
 }
 
 // Advisory implements gotato.AdvisoryExtension.
 func (r *Recorder) Advisory() bool { return true }
 
-// Observe implements gotato.EventObserver. Events are delivered by the Agent
+// Observe implements gotato.EventObserver. Events are delivered by the Session
 // goroutine in order, so no locking is needed on the pending map: one
-// Recorder belongs to one Agent, and sharing it across Agents is not
+// Recorder belongs to one live Session, and sharing it across Sessions is not
 // supported.
 func (r *Recorder) Observe(_ context.Context, event gotato.Event) error {
 	r.session.RecordEvent(event)
 	switch event.Kind {
-	case gotato.EventAgentStart:
+	case gotato.EventRunStart:
 		r.pending[event.RunID] = &runProgress{}
-		r.session.RecordRunStart(event.RunID, event.AgentID, event.Timestamp)
+		r.session.RecordRunStart(event.RunID, event.Timestamp)
 	case gotato.EventTurnStart:
 		if p := r.pending[event.RunID]; p != nil {
 			p.turns++
@@ -59,7 +59,7 @@ func (r *Recorder) Observe(_ context.Context, event gotato.Event) error {
 				p.usage.CacheWriteTokens += toUint64(summary["cache_write_tokens"])
 			}
 		}
-	case gotato.EventAgentEnd:
+	case gotato.EventRunEnd:
 		p := r.pending[event.RunID]
 		if p == nil {
 			p = &runProgress{}

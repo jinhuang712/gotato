@@ -24,7 +24,7 @@ func newTestClient(t *testing.T) gotatov2.SessionServiceClient {
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
-		Specs: []service.AgentSpec{
+		Agents: []service.Agent{
 			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
 			{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{gotato.ToolWithEffect(testkit.DemoEchoTool(), gotato.EffectRead)}, MaxEffect: gotato.EffectRead},
 		},
@@ -127,10 +127,10 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 		}
 	}
 	// The Runner's store Events frame the Loop's: a one-shot Run saves its
-	// new Session before agent_start and the settled one after agent_end.
+	// new Session before run_start and the settled one after run_end.
 	last := len(kinds) - 1
-	if result == nil || len(kinds) < 4 || kinds[0] != "session_saved" || kinds[1] != "agent_start" ||
-		kinds[last-1] != "agent_end" || kinds[last] != "session_saved" {
+	if result == nil || len(kinds) < 4 || kinds[0] != "session_saved" || kinds[1] != "run_start" ||
+		kinds[last-1] != "run_end" || kinds[last] != "session_saved" {
 		t.Fatalf("kinds=%v result=%v", kinds, result)
 	}
 	id := result.GetSessionId()
