@@ -66,7 +66,7 @@ When writing or rewriting a project document:
 - **In PROPOSAL.md,** the pain points come before the shift, and *What we want* describes needs; it does not answer the pains one by one. The proposal is a pitch.
 - **Link other documents as Markdown links:** [PHILOSOPHY.md](PHILOSOPHY.md).
 - **Quote only where the quote does real work,** and check every quote word for word against the original.
-- **Never name Pi or compare Gotato to it** ("pi-like"). The README's origin note is attribution and stays.
+- **Never describe Gotato by another project's name** ("X-like", "the Go version of X"). The one project it was inspired by is credited in the README's Origin section, and only there.
 - **Keep the review mark.** PROPOSAL, PHILOSOPHY and DESIGNS open with `<!-- what-we-build: approved|drafted YYYY-MM-DD -->`. Any edit sets the mark back to `drafted`, with the date, until the maintainer approves again.
 
 ## Deterministic Testing Toolkit
