@@ -438,7 +438,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			limits.RunDeadline = request.Timeout
 			spec.Limits = &limits
 		}
-		agent, auto, err := r.buildAgent(spec, s, sink, tracker)
+		agent, auto, err := r.buildAgent(spec, s, sink, tracker, InspectOptions{})
 		if err != nil {
 			return err
 		}
@@ -567,17 +567,25 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 }
 
 // buildAgent composes the runtime for one Run from the Spec and the Session's
-// own settings.
-func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker) (gotato.RuntimeAgent, *modelctx.AutoCompactor, error) {
+// own settings. override replaces the Session's instruction and panel for an
+// inspection; a Run passes none.
+func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (gotato.RuntimeAgent, *modelctx.AutoCompactor, error) {
 	instruction := spec.Instruction
-	if override, ok := s.Get(MetaInstruction); ok && override != "" {
-		instruction = override
+	if stored, ok := s.Get(MetaInstruction); ok && stored != "" {
+		instruction = stored
+	}
+	if override.Instruction != "" {
+		instruction = override.Instruction
 	}
 	builder := spec.ContextBuilder
 	if builder == nil {
 		builder = modelctx.FullHistory()
 	}
-	if panelSpec, _ := s.Get(MetaPanel); panelSpec != "" {
+	panelSpec, _ := s.Get(MetaPanel)
+	if override.Panel != "" {
+		panelSpec = override.Panel
+	}
+	if panelSpec != "" {
 		panel, err := PanelFromSpec(panelSpec, r.now)
 		if err != nil {
 			return nil, nil, err
@@ -669,8 +677,11 @@ type InspectOptions struct {
 	Panel       string
 }
 
-// Inspect reports the Context a Run against the Session would send now.
-// Optional InspectOptions override the Session's stored settings.
+// Inspect reports the Context a Run against the Session would send now. It
+// builds the Agent a Run would build and asks it, so the report includes the
+// Spec's Extensions, Tools and model options, and says whether the next Run
+// compacts the Session first. Optional InspectOptions override the Session's
+// stored settings. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectOptions) (modelctx.Report, error) {
 	s, err := r.store.Get(ctx, sessionID)
 	if err != nil {
@@ -681,39 +692,27 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if !ok {
 		return modelctx.Report{}, ErrUnknownAgent
 	}
-	instruction := spec.Instruction
-	if override, ok := s.Get(MetaInstruction); ok && override != "" {
-		instruction = override
-	}
-	panelSpec, _ := s.Get(MetaPanel)
+	var override InspectOptions
 	if len(options) > 0 {
-		if options[0].Instruction != "" {
-			instruction = options[0].Instruction
-		}
-		if options[0].Panel != "" {
-			panelSpec = options[0].Panel
-		}
+		override = options[0]
 	}
-	builder := spec.ContextBuilder
-	if builder == nil {
-		builder = modelctx.FullHistory()
+	agent, auto, err := r.buildAgent(spec, s, nil, nil, override)
+	if err != nil {
+		return modelctx.Report{}, err
 	}
-	if panelSpec != "" {
-		panel, err := PanelFromSpec(panelSpec, r.now)
-		if err != nil {
-			return modelctx.Report{}, err
-		}
-		builder = modelctx.WithPanel(builder, panel)
+	defer func() { _ = agent.Close(context.Background()) }()
+	inspection, err := agent.InspectContext(ctx)
+	if err != nil {
+		return modelctx.Report{}, err
 	}
-	return modelctx.InspectSession(ctx, builder, s, instruction, r.visibleTools(spec, s))
-}
-
-func (r *Runner) visibleTools(spec AgentSpec, s *session.Session) []gotato.ToolSpec {
-	var specs []gotato.ToolSpec
-	for _, tool := range (&sessionTools{spec: spec, session: s}).Tools() {
-		specs = append(specs, tool.Spec())
+	report := modelctx.ReportOf(inspection)
+	report.SessionID = s.ID()
+	report.Compactions = s.Compactions()
+	if auto != nil {
+		report.CompactionPending = auto.Pending()
+		report.CompactCeiling = auto.Ceiling()
 	}
-	return specs
+	return report, nil
 }
 
 // sessionTools is the ToolSource an Agent sees for one Session: the Spec's

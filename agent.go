@@ -91,6 +91,7 @@ type RuntimeAgent interface {
 	RunCanceler
 	IdleWaiter
 	ToolInspector
+	ContextInspector
 	// Transcript returns the committed history this Agent runs against.
 	Transcript() Transcript
 }
@@ -826,10 +827,6 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			return fail(asRuntimeError(err))
 		}
 
-		// The ContextBuilder decides what the Model sees now. Transformers and
-		// converters then shape that view further. Neither output is ever
-		// committed as the transcript: Session is what happened, Context is
-		// what the Model sees now.
 		snapshot := ContextSnapshot{
 			AgentID:            a.id,
 			RunID:              runID,
@@ -837,25 +834,10 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			SystemInstructions: a.instruction,
 			Messages:           cloneMessages(a.transcript.Messages()),
 		}
-		built, buildErr := a.buildContext(runCtx, snapshot)
-		if buildErr != nil {
-			return fail(buildErr)
+		built, request, prefix, assembleErr := a.assembleTurn(runCtx, snapshot)
+		if assembleErr != nil {
+			return fail(assembleErr)
 		}
-		if !a.extensions.empty() {
-			view := snapshot
-			view.SystemInstructions = built.SystemInstructions
-			view.Messages = built.Messages
-			transformed, extensionErr := a.extensions.transformContext(runCtx, view)
-			if extensionErr != nil {
-				return fail(extensionErr)
-			}
-			built.Messages = transformed
-		}
-		// Layout for prompt caching: static system and tools first, the
-		// append-only history next, the dynamic panel last, attached to the
-		// tail Message so it never disturbs the prefix.
-		request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
-		request.Options = a.modelOptions
 		contextPayload := map[string]any{
 			"messages":        len(request.Messages),
 			"source_messages": len(snapshot.Messages),
@@ -1373,6 +1355,84 @@ func (a *coreAgent) buildContext(ctx context.Context, snapshot ContextSnapshot) 
 		built.Messages = []Message{}
 	}
 	return built, nil
+}
+
+// assembleTurn builds the request one Turn sends. The ContextBuilder decides
+// what the Model sees now, and the ContextTransformer and MessageConverter
+// Extensions shape that view further. Neither output is ever committed as the
+// transcript: Session is what happened, Context is what the Model sees now.
+// The request is laid out for prompt caching: static system and tools first,
+// the append-only history next, the dynamic panel last, attached to the tail
+// Message so it never disturbs the prefix. A Turn and InspectContext both
+// call it, so an inspection shows the bytes a Turn sends.
+func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (ModelContext, ModelRequest, string, *RuntimeError) {
+	built, err := a.buildContext(ctx, snapshot)
+	if err != nil {
+		return ModelContext{}, ModelRequest{}, "", err
+	}
+	if !a.extensions.empty() {
+		view := snapshot
+		view.SystemInstructions = built.SystemInstructions
+		view.Messages = built.Messages
+		transformed, err := a.extensions.transformContext(ctx, view)
+		if err != nil {
+			return ModelContext{}, ModelRequest{}, "", err
+		}
+		built.Messages = transformed
+	}
+	request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
+	request.Options = a.modelOptions
+	return built, request, prefix, nil
+}
+
+// InspectContext builds the request the Agent's next Turn would send for its
+// Transcript as committed now, without calling the Model. It runs the code a
+// Turn runs: the Tool sources are read again, the ContextBuilder builds the
+// Context, the ContextTransformer and MessageConverter Extensions shape it,
+// and the request carries the visible Tools and the model options. It runs no
+// RunPreparer and emits no Event. It fails with ErrBusy while a Run is in
+// flight.
+//
+// The snapshot it builds from has no RunID and is Turn 1, as at the start of
+// a Run. A ContextTransformer whose output depends on the Run or the Turn, or
+// a ToolSet the Model activated during a Run, makes a later Turn differ.
+func (a *coreAgent) InspectContext(ctx context.Context) (ContextInspection, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ContextInspection{}, runtimeError(codeForContext(err), "InspectContext", "context ended", err)
+	}
+	if err := a.admissionError("InspectContext"); err != nil {
+		return ContextInspection{}, err
+	}
+	// Holding the admission token keeps a Run from starting while the
+	// Context is built from the Transcript and the Tool registry.
+	select {
+	case a.admission <- struct{}{}:
+	default:
+		return ContextInspection{}, runtimeError(ErrBusy, "InspectContext", "Agent is processing a Run", nil)
+	}
+	defer func() { <-a.admission }()
+	if err := a.refreshTools(); err != nil {
+		return ContextInspection{}, asRuntimeError(err)
+	}
+	snapshot := ContextSnapshot{
+		AgentID:            a.id,
+		Turn:               1,
+		SystemInstructions: a.instruction,
+		Messages:           cloneMessages(a.transcript.Messages()),
+	}
+	built, request, prefix, err := a.assembleTurn(ctx, snapshot)
+	if err != nil {
+		return ContextInspection{}, err
+	}
+	return ContextInspection{
+		SourceMessages: len(snapshot.Messages),
+		Context:        built,
+		Request:        request,
+		PrefixHash:     prefix,
+	}, nil
 }
 
 // refreshTools re-reads every ToolSource. Static Tools and ToolSets are

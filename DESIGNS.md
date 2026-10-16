@@ -278,10 +278,10 @@ The core marks where a provider may cache, and each wire API maps the marks to i
 
 ### The Context is inspectable
 
-Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. An agent's action is explained by what it saw, so this view is the first tool for debugging.
+Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. An agent's action is explained by what it saw, so this view is the first tool for debugging. The Agent builds the view with the code its Turns run, so the two cannot drift apart.
 
-- **Cost:** a `ContextBuilder` must build without side effects.
-- **Check:** `gotato context inspect` and `GET /v1/sessions/{id}/context` return the built Context.
+- **Cost:** a `ContextBuilder`, the context extensions and every tool source must build without side effects, because inspection runs them too.
+- **Check:** the reference workload compares every Turn's prefix hash with an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
 
 ## Tools and safety
 

@@ -272,11 +272,11 @@ func AutoCompact(s *session.Session, policy CompactPolicy) *AutoCompactor {
 
 // PrepareRun implements gotato.RunPreparer.
 func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) error {
-	if a.session == nil || a.policy.Ceiling <= 0 {
+	if a.session == nil {
 		return nil
 	}
 	messages := a.session.Messages()
-	if EstimateTokens(messages) <= a.policy.Ceiling {
+	if !a.due(messages) {
 		return nil
 	}
 	keep := tailWithinBudget(messages, a.policy.Floor)
@@ -293,6 +293,21 @@ func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) err
 
 // Last returns the most recent automatic compaction and how many happened.
 func (a *AutoCompactor) Last() (Result, int) { return a.last, a.runs }
+
+// Pending reports whether the next Run compacts the Session before its first
+// Turn, because the Session's estimated tokens are past the ceiling.
+func (a *AutoCompactor) Pending() bool {
+	return a.session != nil && a.due(a.session.Messages())
+}
+
+// Ceiling returns the estimated-token budget past which a Run compacts first;
+// 0 means automatic compaction is off.
+func (a *AutoCompactor) Ceiling() int { return max(a.policy.Ceiling, 0) }
+
+// due is the one test PrepareRun and Pending share.
+func (a *AutoCompactor) due(messages []gotato.Message) bool {
+	return a.policy.Ceiling > 0 && EstimateTokens(messages) > a.policy.Ceiling
+}
 
 // tailWithinBudget returns how many trailing Messages fit in budget tokens,
 // at least one.

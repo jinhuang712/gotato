@@ -35,7 +35,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Panel | small content that changes every Turn, never saved | G-F04 | ✅ |
 | Cache markers | after the system part, the tools and before the last message; `cache_control` on Anthropic | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
-| Context inspection | the request and its prefix hash, without calling the model | G-F05 | 🚧 |
+| Context inspection | the request the next Turn sends, with its prefix hash, without calling the model | G-F05 | ✅ |
 | `context_built` Event | the prefix hash of the request each Turn sent | G-F05 | ✅ |
 | Compaction on demand | from the CLI or over HTTP | G-F06 | ✅ |
 | Automatic compaction | at the start of a Run, past the ceiling; off by default | G-F06 | ✅ |
@@ -253,15 +253,24 @@ instruction · Static blocks  →  tools, sorted by ID  →  the history  →  t
 - Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept.
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
-### G-F05 — Context inspection 🚧
+### G-F05 — Context inspection ✅
 
 You can see what the model would receive now, without calling it.
 
-- `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and `modelctx.InspectSession` return the request as the Context builder makes it.
+- `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method return the request the Session's next Turn would send.
+- The Runner builds the Agent a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
 - The report includes the prefix hash, the size of the system part and of the Panel, and an estimate of the tokens (bytes ÷ 4).
-- Every Turn also emits a `context_built` Event with the prefix hash of the request it sent.
+- `compaction_pending` says the next Run compacts the Session first, because it is past `compact_ceiling`. That Run then sends a shorter request than the report shows.
+- Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
 
-**Gap:** the report leaves out what extensions change afterwards (`ContextTransformer`, `MessageConverter`), an auto-compaction that has not run yet, and the model options. So a request can differ from its report ([GOALS.md](GOALS.md) G-G03).
+In Go, the same request comes from the Agent itself:
+
+```go
+inspection, _ := agent.InspectContext(ctx) // fails with ErrBusy during a Run
+report := modelctx.ReportOf(inspection)
+```
+
+**Limits:** inspection builds as a Run's first Turn does. It cannot know a tool set the model switches on later in a Run, or a `ContextTransformer` whose output depends on the Run or the Turn. The extensions and tool sources run during inspection too, so they must not have side effects.
 
 ### G-F06 — Compaction ✅
 

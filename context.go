@@ -284,6 +284,26 @@ func (a *coreAgent) Tools() []ToolSpec {
 	return specs
 }
 
+// ContextInspection is the request an Agent's next Turn would send, built
+// without calling the Model.
+type ContextInspection struct {
+	// SourceMessages is the number of committed Messages it was built from.
+	SourceMessages int `json:"source_messages"`
+	// Context is the built Context, after the ContextTransformer and
+	// MessageConverter Extensions.
+	Context ModelContext `json:"context"`
+	// Request is what the Model would receive, model options included.
+	Request ModelRequest `json:"request"`
+	// PrefixHash is the hash a context_built Event reports for this request.
+	PrefixHash string `json:"prefix_hash"`
+}
+
+// ContextInspector reports what an Agent's next Turn would send. The core
+// Agent implements it with the code its Turns run.
+type ContextInspector interface {
+	InspectContext(context.Context) (ContextInspection, error)
+}
+
 // Transcript returns the Transcript this Agent commits to.
 func (a *coreAgent) Transcript() Transcript { return a.transcript }
 

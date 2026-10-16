@@ -21,6 +21,8 @@ What changed in each Gotato release, from the user's side. Newest first. A break
   ```
 - **A Turn that the output limit cut off can continue.** With `CoreLimits.MaxTruncatedContinuations` above 0, a Turn that stopped at the output limit before any Tool call goes on with `TruncatedContinuationText`, up to that many times per Run, instead of settling the Run on the cut-off reply. Off by default.
 
+- **Context inspection shows what the next Turn sends.** `Runner.Inspect`, and with it `gotato context inspect` and `build`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method, now builds the Agent a Run would build and asks it. The request it reports includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options (`request.options`), so its `prefix_hash` equals the one the next Turn's `context_built` Event reports. The report gains `compaction_pending` and `compact_ceiling`. In Go, the core Agent implements `ContextInspector` (`InspectContext`, which fails with `ErrBusy` during a Run), and `modelctx.ReportOf` turns its `ContextInspection` into a report; `AutoCompactor` gains `Pending` and `Ceiling`. Inspection runs the context extensions and the tool sources, so they must not have side effects. **Breaking:** `RuntimeAgent` now includes `ContextInspector`, so a type of your own that implements `RuntimeAgent` must add `InspectContext`.
+
 ### Providers
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.
