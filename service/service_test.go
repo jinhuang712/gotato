@@ -466,6 +466,44 @@ func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
 	}
 }
 
+func TestForkKeepsTheParentsCacheKey(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
+	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: model})
+	ctx := context.Background()
+	parent, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := runner.Fork(ctx, parent.SessionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grandchild, err := runner.Fork(ctx, child.ID(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{child.ID(), grandchild.ID()} {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "branch"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A fork starts with its parent's history, so it reads the parent's cached
+	// prefix: every generation carries the first parent's key.
+	want := service.CacheKey(parent.SessionID)
+	for i, request := range model.Requests() {
+		if request.CacheKey != want {
+			t.Fatalf("request %d cache key = %q, want the parent's %q", i, request.CacheKey, want)
+		}
+	}
+	stored, err := store.Get(ctx, grandchild.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := stored.Get(service.MetaCacheKey); key != want {
+		t.Fatalf("stored %s = %q, want %q", service.MetaCacheKey, key, want)
+	}
+}
+
 // countingStore wraps a Store and counts its loads.
 type countingStore struct {
 	session.Store

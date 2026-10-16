@@ -47,6 +47,7 @@ const (
 	MetaInstruction    = "gotato.instruction"     // overrides AgentSpec.Instruction
 	MetaCompactCeiling = "gotato.compact_ceiling" // estimated-token budget for auto compaction
 	MetaModel          = "gotato.model"           // informational: model name last used
+	MetaCacheKey       = "gotato.cache_key"       // the prompt cache key; a fork keeps its parent's
 	// MetaToolPrefix + <tool id> = "inactive" hides one of the Spec's Tools
 	// from the Model for this Session. Tool activation is Session state.
 	MetaToolPrefix = "gotato.tool."
@@ -624,7 +625,7 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		gotato.WithTranscript(s),
 		gotato.WithContextBuilder(builder),
 		gotato.WithExtensions(extensions...),
-		gotato.WithCacheKey(CacheKey(s.ID())),
+		gotato.WithCacheKey(sessionCacheKey(s)),
 	}
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s}))
 	if spec.Limits != nil {
@@ -641,11 +642,22 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 // CacheKey is the ModelRequest.CacheKey the Runner gives every Turn of a
 // Session, so the provider serves a conversation from one prompt cache. It is
 // a hash of the Session ID, because an ID the caller chose may name a user or
-// a tenant, and the key goes to the provider. A Spec may set another with
-// gotato.WithCacheKey in its Options.
+// a tenant, and the key goes to the provider. A Session forked by the Runner
+// keeps its parent's key instead (MetaCacheKey), and a Spec may set another
+// with gotato.WithCacheKey in its Options.
 func CacheKey(sessionID string) string {
 	sum := sha256.Sum256([]byte(sessionID))
 	return "gotato-" + hex.EncodeToString(sum[:16])
+}
+
+// sessionCacheKey is the cache key a Session's Turns carry: the one in its
+// metadata (MetaCacheKey), which a fork inherits from its parent, or else
+// CacheKey of its ID.
+func sessionCacheKey(s *session.Session) string {
+	if key, ok := s.Get(MetaCacheKey); ok && key != "" {
+		return key
+	}
+	return CacheKey(s.ID())
 }
 
 type sinkObserver struct{ fn func(gotato.Event) error }
@@ -838,6 +850,9 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Se
 		options = append(options, session.WithID(newID))
 	}
 	child := session.Fork(parent, options...)
+	// The child starts with its parent's history, so it keeps its parent's
+	// cache key and its first Turn reads the parent's cached prefix.
+	child.Set(MetaCacheKey, sessionCacheKey(parent))
 	// The existence check and the write run under the child's Session lock, so
 	// two concurrent forks with the same explicit newID cannot both pass the
 	// check and let the second overwrite the first.
