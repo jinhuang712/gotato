@@ -9,7 +9,7 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 ```text
 1. PROPOSAL.md          — why Gotato exists, and what it refuses to become
 2. PHILOSOPHY.md        — the beliefs every change follows
-3. DESIGNS.md           — design principles, their costs and checks, and decisions
+3. DESIGNS.md           — design principles, and the decisions that follow from them
 4. GLOSSARY.md          — one name per thing, and its name in today's code
 5. GOALS.md             — goals that pass or fail, and benchmarks tracked against a reference
 6. FEATURES.md          — implementation inventory with status markers, and what is not planned

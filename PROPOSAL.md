@@ -125,7 +125,7 @@ A Session needs no process, shell or sandbox of its own. A Go service hosts Sess
 
 ## What we want
 
-Gotato should behave like any other library in the service: easy to add, safe to scale, simple to follow. These are what Gotato is built toward. [DESIGNS.md](DESIGNS.md) marks the ones the code does not meet yet.
+Gotato should behave like any other library in the service: easy to add, safe to scale, simple to follow. These are what Gotato is built toward. [FEATURES.md](FEATURES.md) marks the ones the code does not meet yet.
 
 ### It fits into your service
 

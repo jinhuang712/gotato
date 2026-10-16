@@ -112,7 +112,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 |---|---|
 | [PROPOSAL.md](PROPOSAL.md) | why Gotato exists, and what it refuses to become |
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
-| [DESIGNS.md](DESIGNS.md) | design principles, their costs and checks, and decisions |
+| [DESIGNS.md](DESIGNS.md) | design principles, and the decisions that follow from them |
 | [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
 | [GOALS.md](GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
 | [FEATURES.md](FEATURES.md) | implementation inventory with status markers, and what is not planned |
