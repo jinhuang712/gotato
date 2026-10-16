@@ -139,6 +139,14 @@ type Timing struct {
 	GotatoPerTurnMS float64 `json:"gotato_per_turn_ms"`
 	// LoadPerRunMS is the cold-load time before each Run (G-B07).
 	LoadPerRunMS float64 `json:"load_per_run_ms"`
+	// BeforeRequestPerRunMS is the time from a Run's start to its first
+	// context_built, when the first request goes to the model: what Gotato
+	// adds before the first token (G-B06).
+	BeforeRequestPerRunMS float64 `json:"before_request_per_run_ms"`
+	// ModelFirstTokenMS is the model's own time to its first text token, from
+	// a Turn's context_built to its first message_update, averaged over the
+	// Turns that stream text (G-B06).
+	ModelFirstTokenMS float64 `json:"model_first_token_ms"`
 	// GotatoToModel and LoadToModel compare GotatoMS and LoadMS with the
 	// model's own time. They are absent when the model took no measurable
 	// time, as with the fake models.
@@ -356,6 +364,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	turn := 0
 	for _, prompt := range task.Prompts {
 		started := time.Now()
+		requested, streaming := false, false
 		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}, func(event gotato.Event) error {
 			switch event.Kind {
 			case gotato.EventSessionLoaded:
@@ -367,7 +376,18 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 			case gotato.EventContextBuilt:
 				prefix, _ := event.Payload["prefix_hash"].(string)
 				p.builds = append(p.builds, build{messages: int(number(event.Payload["source_messages"])), prefix: prefix})
-				waiting = event.Timestamp
+				waiting, streaming = event.Timestamp, false
+				if !requested {
+					p.stats.addBeforeRequest(event.Timestamp.Sub(started))
+					requested = true
+				}
+			case gotato.EventMessageUpdate:
+				// The first text delta of a Turn: the model's time to its
+				// first token.
+				if !streaming && !waiting.IsZero() {
+					p.stats.addFirstToken(event.Timestamp.Sub(waiting))
+					streaming = true
+				}
 			case gotato.EventMessageEnd:
 				// The model's reply carries tool_calls; a prompt or a steered
 				// message carries its role instead.

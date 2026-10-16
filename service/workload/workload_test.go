@@ -53,6 +53,10 @@ func TestReferenceWorkload(t *testing.T) {
 		if task.ContextTurns != task.Turns {
 			t.Errorf("%s: %d Turns compared with an inspection, want %d", task.Task, task.ContextTurns, task.Turns)
 		}
+		// Every task's last reply streams text, so G-B06 has both halves.
+		if task.Time.BeforeRequestPerRunMS <= 0 || task.Time.ModelFirstTokenMS < 0 || task.Time.ModelFirstTokenMS > task.Time.ModelMS {
+			t.Errorf("%s: before request %v ms per Run, first token %v ms", task.Task, task.Time.BeforeRequestPerRunMS, task.Time.ModelFirstTokenMS)
+		}
 		if task.CacheHitRate != nil || task.CostUSD != 0 {
 			t.Errorf("%s: a fake model reports no usage, so no cache rate or cost: %+v", task.Task, task)
 		}

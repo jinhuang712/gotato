@@ -9,6 +9,10 @@ import (
 type stats struct {
 	mu                           sync.Mutex
 	run, model, tool, load, save time.Duration
+	// beforeRequest sums each Run's time to its first request; firstToken
+	// sums the model's time to its first text token over firstTokens Turns.
+	beforeRequest, firstToken time.Duration
+	firstTokens               int
 }
 
 func (s *stats) addTo(field *time.Duration, elapsed time.Duration) {
@@ -23,6 +27,15 @@ func (s *stats) addTool(elapsed time.Duration)  { s.addTo(&s.tool, elapsed) }
 func (s *stats) addLoad(elapsed time.Duration)  { s.addTo(&s.load, elapsed) }
 func (s *stats) addSave(elapsed time.Duration)  { s.addTo(&s.save, elapsed) }
 
+func (s *stats) addBeforeRequest(elapsed time.Duration) { s.addTo(&s.beforeRequest, elapsed) }
+
+func (s *stats) addFirstToken(elapsed time.Duration) {
+	s.addTo(&s.firstToken, elapsed)
+	s.mu.Lock()
+	s.firstTokens++
+	s.mu.Unlock()
+}
+
 func (s *stats) add(other *stats) {
 	if other == nil {
 		return
@@ -34,6 +47,9 @@ func (s *stats) add(other *stats) {
 	s.tool += other.tool
 	s.load += other.load
 	s.save += other.save
+	s.beforeRequest += other.beforeRequest
+	s.firstToken += other.firstToken
+	s.firstTokens += other.firstTokens
 }
 
 func (s *stats) timing(elapsed time.Duration, turns, runs int) Timing {
@@ -52,6 +68,10 @@ func (s *stats) timing(elapsed time.Duration, turns, runs int) Timing {
 	}
 	if runs > 0 {
 		t.LoadPerRunMS = t.LoadMS / float64(runs)
+		t.BeforeRequestPerRunMS = ms(s.beforeRequest) / float64(runs)
+	}
+	if s.firstTokens > 0 {
+		t.ModelFirstTokenMS = ms(s.firstToken) / float64(s.firstTokens)
 	}
 	// Below a millisecond the model's time is a fake model's, and a ratio
 	// against it says nothing.
