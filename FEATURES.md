@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-16 -->
+<!-- what-we-build: approved 2026-10-16 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. How it is built is in [DESIGNS.md](DESIGNS.md), when the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md).
