@@ -124,7 +124,9 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Fake models | scripted (`FakeModel`), replayed (`ReplayModel`), or answering from the request (`FuncModel`) | G-F22 | ✅ |
 | Test helpers | a fake tool, an Event recorder and a ready-made Session | G-F22 | ✅ |
 | CLI scenarios | in-process and against the built binary, asserting on JSON | G-F22 | ✅ |
-| Measurement tools | a reference workload, fault injection and a multi-instance harness | G-F22 | ⬜ |
+| Reference workload | six tasks with fake models, played through a Runner and measured | G-F22 | ✅ |
+| Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
+| Fault injection and a multi-instance harness | crashes, client disconnects, and several instances over one store | G-F22 | ⬜ |
 
 **Later**
 
@@ -526,15 +528,47 @@ gotato run --session "$id" --model demo --json "use-tool"
 
 ## Testing
 
-### G-F22 — Test kit 🚧
+### G-F22 — Test kit and measurement 🚧
 
-You test agents without a network or a paid model.
+You test agents without a network or a paid model, and measure Gotato on a fixed workload.
 
 - `testkit` ships a scripted model (`FakeModel`), a model that replays recorded replies (`ReplayModel`), and a model that answers from the request it gets (`FuncModel`, for agents that share one model and send in any order).
 - It also ships a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models.
 - CLI scenarios run in-process and against the built binary, and assert on JSON.
 
-**Gap:** the tools that [GOALS.md](GOALS.md) needs are planned and not built: a reference workload, fault injection (crashes, client disconnects), and a harness that runs several instances over one store.
+**The reference workload.** `testkit.ReferenceTasks` returns the tasks [GOALS.md](GOALS.md) measures, each with a fake model and a check of its answers:
+
+| Task | What it does |
+|---|---|
+| `lookup` | one question, one `orders.lookup` call, one answer |
+| `conversation` | ten prompts on one Session, three lookups, and a last question only the history answers |
+| `tool_error` | a call the schema check refuses, a lookup that fails, and a recovery |
+| `history_10`, `history_100`, `history_1000` | a lookup in a Session that already holds that many messages |
+
+`service/workload` plays the tasks through a Runner, one at a time or under load, and reports what it saw:
+
+- how many plays passed their check;
+- every failed Run, tool call and check, with its cause: the model, the provider, the tool, the store, a limit, an extension, a cancel, or Gotato;
+- token usage, the cost at your price, and the cache hit rate;
+- Gotato's time per Turn next to the model's, and the time to load a Session;
+- whether each Turn's Context matches an inspection of its Transcript.
+
+The numbers about a Run come from its Events, as a team would compute them from its own telemetry. The store's time is the exception: no Event reports it yet, so a timer around the store measures it.
+
+`go test ./service/workload` runs the workload in CI, and `BenchmarkReferenceTasks` measures it.
+
+**The live run.** `gotato-workload` runs the same workload and prints the report as JSON. With `-live`, it plays the tasks against the provider in your gateway configuration:
+
+```bash
+go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,3.75
+```
+
+- `-price` is the model's price in US dollars per million tokens: input, output, cache read and cache write.
+- `-tasks`, `-plays`, `-concurrency` and `-store DIR` shape the run, with or without `-live`.
+- It exits 3 when a failure was caused by Gotato or the store, or a Turn's Context differed from its inspection.
+- The live run calls a paid model, so it runs on demand, never in CI.
+
+**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built.
 
 ## Later
 

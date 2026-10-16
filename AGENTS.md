@@ -80,6 +80,8 @@ When writing or rewriting a project document:
 | capture every runtime event in order | `testkit.EventRecorder` (install with `gotato.WithExtension`) |
 | a pre-populated session | `testkit.NewSession("q", "a", ...)` |
 | the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
+| the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()` |
+| play tasks through a Runner and measure them (GOALS.md) | `workload.Run` in `service/workload`; `go run ./cmd/gotato-workload` prints the report |
 
 ## CLI Scenario Loop
 

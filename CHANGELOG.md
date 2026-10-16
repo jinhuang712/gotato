@@ -23,6 +23,10 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 - **Context inspection shows what the next Turn sends.** `Runner.Inspect`, and with it `gotato context inspect` and `build`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method, now builds the Agent a Run would build and asks it. The request it reports includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options (`request.options`), so its `prefix_hash` equals the one the next Turn's `context_built` Event reports. The report gains `compaction_pending` and `compact_ceiling`. In Go, the core Agent implements `ContextInspector` (`InspectContext`, which fails with `ErrBusy` during a Run), and `modelctx.ReportOf` turns its `ContextInspection` into a report; `AutoCompactor` gains `Pending` and `Ceiling`. Inspection runs the context extensions and the tool sources, so they must not have side effects. **Breaking:** `RuntimeAgent` now includes `ContextInspector`, so a type of your own that implements `RuntimeAgent` must add `InspectContext`.
 
+### Measurement
+
+- **The reference workload and the live run.** `testkit.ReferenceTasks` returns the tasks GOALS.md measures, each with a fake model and a check of its answers: a lookup, a 10-prompt conversation, a tool error and its recovery, and lookups in Sessions of 10, 100 and 1,000 messages. `service/workload` plays them through a Runner, one at a time or under load, and reports failures by cause, token usage and cost, the cache hit rate, Gotato's time per Turn next to the model's, the time to load a Session, and whether each Turn's Context matches its inspection. `gotato-workload` prints that report as JSON, and with `-live` plays the tasks against the provider in your gateway configuration, at the price you pass with `-price`.
+
 ### Providers
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.

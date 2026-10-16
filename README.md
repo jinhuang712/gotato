@@ -101,6 +101,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Session ownership across instances | planned |
 | Tool effect classification (`ToolSpec.Effect`) | done |
 | MCP through `ToolSet`/`ToolSource` | planned |
+| Measurement: the reference workload and the live run (`gotato-workload`) | done; fault injection and a multi-instance harness planned |
 | Provider rate-limit information | planned |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
