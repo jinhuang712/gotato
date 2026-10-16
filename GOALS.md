@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-16 -->
+<!-- what-we-build: approved 2026-10-16 -->
 # Gotato — Goals
 
 GOALS holds two kinds of number. A **goal** is a check Gotato passes or fails, and its number is fixed by its nature: 0 failures, or 100%. A **benchmark** is a number Gotato tracks. Alone it means nothing, so each one names what it is compared with: the previous release, the model's own time, or another stack.
