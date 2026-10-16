@@ -229,7 +229,7 @@ A Session is one conversation that runs an Agent. It keeps everything that happe
 
 - You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
 - A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction.
-- Forking a Session starts a new one from its history and records the parent.
+- Forking a Session starts a new one from its history and records the parent. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
 
 Per-Session settings live in the Session's metadata, so one Agent can serve Sessions that differ slightly:
@@ -241,6 +241,7 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | `gotato.compact_ceiling` | this Session's compaction budget, in estimated tokens | a long-lived Session can compact sooner or later than the default |
 | `gotato.tool.<id>` | a tool switched on or off for this Session | a caller narrows or widens one conversation's tools |
 | `gotato.model` | the model last used; written by Gotato, for information | shows which model produced the history |
+| `gotato.cache_key` | the prompt cache key this Session's requests carry, in place of the hash of its ID; written by a fork, from its parent | a fork shares its parent's prefix, so it should share its cache |
 
 ## What the model sees
 
