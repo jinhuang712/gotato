@@ -110,24 +110,19 @@ func RenderBlocks(blocks []Block) string {
 	return b.String()
 }
 
-// PanelTag wraps the dynamic panel appended to the tail of a request.
-const PanelTag = "panel"
-
 // ModelContext is what the Model sees for one Turn, laid out for prompt
-// caching: the most static content first, the most dynamic content last.
+// caching: the most static content first, the history last.
 //
 //	SystemInstructions + System  →  system prompt      (stable across Runs)
 //	tools                        →  tool definitions   (stable across Turns)
 //	Messages                     →  history            (append-only prefix)
-//	Panel                        →  <panel> appended to the last Message (changes every Turn)
 //
 // It is a projection built from the Transcript by a ContextBuilder; nothing
-// in it is committed back. In particular the Panel never enters the Session.
+// in it is committed back.
 type ModelContext struct {
 	SystemInstructions string    `json:"system_instructions,omitempty"`
 	System             []Block   `json:"system,omitempty"`
 	Messages           []Message `json:"messages"`
-	Panel              []Block   `json:"panel,omitempty"`
 	// Metadata describes how the Context was built so the decision can be
 	// inspected. Builders set at least "strategy", "source_messages",
 	// "selected_messages", and "dropped_messages".
@@ -139,7 +134,6 @@ func (c ModelContext) Clone() ModelContext {
 	out := c
 	out.Messages = cloneMessages(c.Messages)
 	out.System = cloneBlocks(c.System)
-	out.Panel = cloneBlocks(c.Panel)
 	if c.Metadata != nil {
 		out.Metadata = make(map[string]string, len(c.Metadata))
 		for k, v := range c.Metadata {
@@ -177,15 +171,6 @@ func (c ModelContext) RenderSystem() string {
 		return rendered
 	}
 	return c.SystemInstructions + "\n\n" + rendered
-}
-
-// RenderPanel returns the dynamic panel as one <panel> element, or "" when
-// there is no panel.
-func (c ModelContext) RenderPanel() string {
-	if len(c.Panel) == 0 {
-		return ""
-	}
-	return "<" + PanelTag + ">\n" + RenderBlocks(c.Panel) + "\n</" + PanelTag + ">"
 }
 
 // ContextBuilder decides what the Model sees now. It receives a read-only
@@ -313,8 +298,6 @@ func (a *coreAgent) Transcript() Transcript { return a.transcript }
 // same bytes.
 //
 //   - Messages are reduced to what a provider needs (ForModel).
-//   - The panel is appended as a text part to the last Message, so it never
-//     changes the prefix and never creates a second consecutive user turn.
 //   - Cache breakpoints are placed after the system prompt, after the tools,
 //     and before the last Message.
 //   - PrefixHash covers system + tools + every Message but the last: two
@@ -322,12 +305,6 @@ func (a *coreAgent) Transcript() Transcript { return a.transcript }
 //     prefix to the provider.
 func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string) {
 	messages := ForModel(built.Messages)
-	if panel := built.RenderPanel(); panel != "" && len(messages) > 0 {
-		last := &messages[len(messages)-1]
-		if last.Role != RoleAssistant {
-			last.Parts = append(last.Parts, ContentPart{Kind: ContentText, Text: "\n\n" + panel})
-		}
-	}
 	request := ModelRequest{
 		SystemInstructions: built.RenderSystem(),
 		Messages:           messages,

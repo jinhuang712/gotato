@@ -854,7 +854,6 @@ func (a *coreAgent) executeRun(ctx context.Context, prompt *Message) (RunResult,
 			"source_messages": len(snapshot.Messages),
 			"prefix_hash":     prefix,
 			"prefix_messages": max(len(request.Messages)-1, 0),
-			"panel_bytes":     len(built.RenderPanel()),
 			"system_bytes":    len(request.SystemInstructions),
 			"tools":           len(request.Tools),
 		}
@@ -1373,9 +1372,8 @@ func (a *coreAgent) buildContext(ctx context.Context, snapshot ContextSnapshot) 
 // Extensions shape that view further. Neither output is ever committed as the
 // transcript: Session is what happened, Context is what the Model sees now.
 // The request is laid out for prompt caching: static system and tools first,
-// the append-only history next, the dynamic panel last, attached to the tail
-// Message so it never disturbs the prefix. A Turn and InspectContext both
-// call it, so an inspection shows the bytes a Turn sends.
+// the append-only history last. A Turn and InspectContext both call it, so an
+// inspection shows the bytes a Turn sends.
 func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (ModelContext, ModelRequest, string, *RuntimeError) {
 	built, err := a.buildContext(ctx, snapshot)
 	if err != nil {

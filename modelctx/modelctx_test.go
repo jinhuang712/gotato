@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -35,43 +34,31 @@ func snapshot(messages []gotato.Message) gotato.ContextSnapshot {
 	return gotato.ContextSnapshot{SystemInstructions: "sys", Messages: messages}
 }
 
-func TestStaticGoesToSystemAndPanelGoesToTail(t *testing.T) {
-	fixed := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
-	builder := modelctx.WithPanel(
-		modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", "# Rules\nbe nice")),
-		func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
-			return []gotato.Block{modelctx.Time(fixed), modelctx.JSON("state", map[string]int{"open": 2})}, nil
-		},
+func TestStaticGoesToSystemAndHistoryGoesAsCommitted(t *testing.T) {
+	builder := modelctx.WithStatic(modelctx.FullHistory(),
+		modelctx.Resource("AGENTS.md", "# Rules\nbe nice"),
+		modelctx.JSON("state", map[string]int{"open": 2}),
 	)
-	report, err := modelctx.Inspect(context.Background(), builder, snapshot(append(toolConversation(), gotato.UserMessage("u3"))), nil)
+	history := append(toolConversation(), gotato.UserMessage("u3"))
+	report, err := modelctx.Inspect(context.Background(), builder, snapshot(history), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	system := report.Request.SystemInstructions
-	if !strings.HasPrefix(system, "sys\n\n<resource path=\"AGENTS.md\">\n# Rules\nbe nice\n</resource>") {
+	if system != "sys\n\n<resource path=\"AGENTS.md\">\n# Rules\nbe nice\n</resource>\n<state>{\"open\":2}</state>" {
 		t.Fatalf("system = %q", system)
 	}
-	last := report.Request.Messages[len(report.Request.Messages)-1]
-	text := gotato.TextOf(last)
-	if !strings.Contains(text, "<panel>") || !strings.Contains(text, "<time>2026-09-17T12:00:00Z</time>") || !strings.Contains(text, `<state>{"open":2}</state>`) {
-		t.Fatalf("tail = %q", text)
+	if last := report.Request.Messages[len(report.Request.Messages)-1]; gotato.TextOf(last) != "u3" {
+		t.Fatalf("tail = %q; the last Message goes as committed", gotato.TextOf(last))
 	}
-	// The panel is on the tail only; earlier Messages are untouched.
-	for _, message := range report.Request.Messages[:len(report.Request.Messages)-1] {
-		if strings.Contains(gotato.TextOf(message), "<panel>") {
-			t.Fatal("panel leaked into the prefix")
-		}
-	}
-	if report.PanelBytes == 0 || report.SystemBytes == 0 || report.Metadata["static_blocks"] != "1" || report.Metadata["panel_blocks"] != "2" {
+	if report.SystemBytes == 0 || report.Metadata["static_blocks"] != "2" {
 		t.Fatalf("report = %+v", report)
 	}
 }
 
 func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	messages := toolConversation()
-	builder := modelctx.WithPanel(modelctx.FullHistory(), func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
-		return []gotato.Block{modelctx.Time(time.Now())}, nil
-	})
+	builder := modelctx.FullHistory()
 	tools := []gotato.ToolSpec{{ID: "t", InputSchema: []byte(`{"type":"object"}`)}}
 	first, _ := modelctx.Inspect(context.Background(), builder, snapshot(messages), tools)
 	// Next Turn: the tail Message changed (a new assistant answer appended and
@@ -80,11 +67,6 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	second, _ := modelctx.Inspect(context.Background(), builder, snapshot(next), tools)
 	if first.PrefixHash == second.PrefixHash {
 		t.Fatal("prefix must change when a message is appended before the tail")
-	}
-	// Same history, different panel content (time moved on): prefix identical.
-	third, _ := modelctx.Inspect(context.Background(), builder, snapshot(next), tools)
-	if second.PrefixHash != third.PrefixHash {
-		t.Fatalf("prefix hash changed with only the panel: %s vs %s", second.PrefixHash, third.PrefixHash)
 	}
 	// Runtime fields never reach the prompt: IDs and usage differ, hash equal.
 	altered := make([]gotato.Message, len(next))

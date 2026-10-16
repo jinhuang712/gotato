@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,7 +45,6 @@ const persistTimeout = 10 * time.Second
 const (
 	MetaAgent          = "gotato.agent"           // AgentSpec name used for this Session
 	MetaInstruction    = "gotato.instruction"     // overrides AgentSpec.Instruction
-	MetaPanel          = "gotato.panel"           // comma list: time,cwd
 	MetaCompactCeiling = "gotato.compact_ceiling" // estimated-token budget for auto compaction
 	MetaModel          = "gotato.model"           // informational: model name last used
 	// MetaToolPrefix + <tool id> = "inactive" hides one of the Spec's Tools
@@ -70,8 +68,7 @@ type AgentSpec struct {
 	Instruction string
 	Tools       []gotato.Tool
 	ToolSources []gotato.ToolSource
-	// ContextBuilder defaults to modelctx.FullHistory(); a Session panel is
-	// layered on top of it.
+	// ContextBuilder defaults to modelctx.FullHistory().
 	ContextBuilder gotato.ContextBuilder
 	Extensions     []any
 	Limits         *gotato.CoreLimits
@@ -106,7 +103,6 @@ type Config struct {
 	Store     session.Store
 	Specs     []AgentSpec
 	Admission Admission
-	Now       func() time.Time
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -135,7 +131,6 @@ type Runner struct {
 	specs     map[string]AgentSpec
 	order     []string
 	admission Admission
-	now       func() time.Time
 
 	locks *sessionLocks
 
@@ -205,13 +200,9 @@ func New(cfg Config) (*Runner, error) {
 		store:     cfg.Store,
 		specs:     map[string]AgentSpec{},
 		admission: cfg.Admission,
-		now:       cfg.Now,
 		locks:     newSessionLocks(),
 		handles:   map[string][]*runHandle{},
 		byRun:     map[gotato.RunID]*runHandle{},
-	}
-	if r.now == nil {
-		r.now = time.Now
 	}
 	if r.admission.Queue == "" {
 		r.admission.Queue = RejectWhileBusy
@@ -592,7 +583,7 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 }
 
 // buildAgent composes the runtime for one Run from the Spec and the Session's
-// own settings. override replaces the Session's instruction and panel for an
+// own settings. override replaces the Session's instruction for an
 // inspection; a Run passes none.
 func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (gotato.RuntimeAgent, *modelctx.AutoCompactor, error) {
 	instruction := spec.Instruction
@@ -605,17 +596,6 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 	builder := spec.ContextBuilder
 	if builder == nil {
 		builder = modelctx.FullHistory()
-	}
-	panelSpec, _ := s.Get(MetaPanel)
-	if override.Panel != "" {
-		panelSpec = override.Panel
-	}
-	if panelSpec != "" {
-		panel, err := PanelFromSpec(panelSpec, r.now)
-		if err != nil {
-			return nil, nil, err
-		}
-		builder = modelctx.WithPanel(builder, panel)
 	}
 	policy := spec.Compact
 	if raw, ok := s.Get(MetaCompactCeiling); ok {
@@ -673,44 +653,10 @@ type sinkObserver struct{ fn func(gotato.Event) error }
 func (o sinkObserver) Observe(_ context.Context, event gotato.Event) error { return o.fn(event) }
 func (o sinkObserver) Advisory() bool                                      { return true }
 
-// PanelFromSpec builds the dynamic panel for a comma-separated list of items:
-// "time" (RFC 3339 UTC) and "cwd" (the service process's working directory).
-func PanelFromSpec(spec string, now func() time.Time) (modelctx.PanelFunc, error) {
-	if now == nil {
-		now = time.Now
-	}
-	var items []string
-	for _, item := range strings.Split(spec, ",") {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		if item != "time" && item != "cwd" {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown panel item "+item+" (use time, cwd)")
-		}
-		items = append(items, item)
-	}
-	return func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
-		blocks := make([]gotato.Block, 0, len(items))
-		for _, item := range items {
-			switch item {
-			case "time":
-				blocks = append(blocks, modelctx.Time(now()))
-			case "cwd":
-				if wd, err := os.Getwd(); err == nil {
-					blocks = append(blocks, modelctx.Text("cwd", wd))
-				}
-			}
-		}
-		return blocks, nil
-	}, nil
-}
-
 // InspectOptions override Session settings for one inspection without
 // touching the Session.
 type InspectOptions struct {
 	Instruction string
-	Panel       string
 }
 
 // Inspect reports the Context a Run against the Session would send now. It

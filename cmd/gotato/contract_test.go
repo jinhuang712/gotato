@@ -102,8 +102,8 @@ func TestContextInspectOverridesTheSession(t *testing.T) {
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--json", "hello"), &outcome)
 
-	out := h.ok("context", "inspect", outcome.SessionID, "--instruction", "be terse", "--panel", "time", "--json")
-	if !strings.Contains(out, "be terse") || !strings.Contains(out, `"panel_bytes": 50`) {
+	out := h.ok("context", "inspect", outcome.SessionID, "--instruction", "be terse", "--json")
+	if !strings.Contains(out, "be terse") || strings.Contains(out, "panel") {
 		t.Fatalf("override missing from the report: %s", out)
 	}
 	// The Session itself was not rewritten.

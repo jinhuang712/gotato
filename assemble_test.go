@@ -1,7 +1,6 @@
 package gotato
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -14,7 +13,6 @@ func TestAssembleRequestLayout(t *testing.T) {
 			{ID: "m2", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: "hello"}}, StopReason: StopEndTurn},
 			{ID: "m3", Role: RoleUser, Parts: []ContentPart{{Kind: ContentText, Text: "now"}}},
 		},
-		Panel: []Block{{Tag: "time", Text: "T"}},
 	}
 	tools := []ToolSpec{{ID: "b", InputSchema: []byte(`{"type":"object"}`)}, {ID: "a", InputSchema: []byte(`{"type":"object"}`)}}
 	request, hash := AssembleRequest(built, tools)
@@ -28,12 +26,9 @@ func TestAssembleRequestLayout(t *testing.T) {
 	if request.Messages[0].ID != "" || request.Messages[0].Usage.TotalTokens != 0 || request.Messages[0].Parts[0].Metadata != nil || request.Messages[1].StopReason != "" {
 		t.Fatalf("runtime fields leaked: %+v", request.Messages[:2])
 	}
-	tail := TextOf(request.Messages[2])
-	if !strings.HasPrefix(tail, "now") || !strings.Contains(tail, "<panel>\n<time>T</time>\n</panel>") {
-		t.Fatalf("tail = %q", tail)
-	}
-	if len(request.Messages[2].Parts) != 2 {
-		t.Fatalf("panel must be a separate part on the tail, got %d parts", len(request.Messages[2].Parts))
+	// The last Message goes as committed: nothing is appended to it.
+	if tail := request.Messages[2]; TextOf(tail) != "now" || len(tail.Parts) != 1 {
+		t.Fatalf("tail = %+v", tail)
 	}
 	if len(hash) != 16 {
 		t.Fatalf("hash = %q", hash)
@@ -53,28 +48,24 @@ func TestAssembleRequestLayout(t *testing.T) {
 	}
 }
 
-func TestAssembleRequestPanelSkipsAssistantTail(t *testing.T) {
-	built := ModelContext{Messages: []Message{AssistantMessage("a")}, Panel: []Block{{Tag: "t", Text: "x"}}}
+func TestAssembleRequestSingleMessageHasNoMessageBreakpoint(t *testing.T) {
+	built := ModelContext{Messages: []Message{AssistantMessage("a")}}
 	request, _ := AssembleRequest(built, nil)
-	if len(request.Messages[0].Parts) != 1 {
-		t.Fatal("panel must not be attached to an assistant message")
-	}
 	if len(request.CacheBreakpoints) != 0 {
 		t.Fatalf("breakpoints for a bare single-message request = %+v", request.CacheBreakpoints)
 	}
 }
 
-func TestAssembleRequestToolResultTailCarriesPanel(t *testing.T) {
+func TestAssembleRequestLeavesAToolResultAsTheToolReturnedIt(t *testing.T) {
 	built := ModelContext{
 		Messages: []Message{
 			UserMessage("u"),
-			{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultOK}, Parts: []ContentPart{{Kind: ContentText, Text: "r"}}},
+			{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultOK}, Parts: []ContentPart{{Kind: ContentJSON, Text: `{"r":1}`}}},
 		},
-		Panel: []Block{{Tag: "t", Text: "x"}},
 	}
 	request, _ := AssembleRequest(built, nil)
-	if !strings.Contains(TextOf(request.Messages[1]), "<panel>") {
-		t.Fatal("panel should ride on a tool_result tail so no extra user turn is created")
+	if parts := request.Messages[1].Parts; len(parts) != 1 || parts[0].Text != `{"r":1}` {
+		t.Fatalf("tool result parts = %+v", parts)
 	}
 }
 

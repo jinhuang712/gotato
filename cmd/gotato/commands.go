@@ -32,7 +32,6 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	var flags modelFlags
 	bindModel(fs, &flags)
 	sessionID := fs.String("session", "", "continue an existing session (default: a new session is created)")
-	panel := fs.String("panel", "", "dynamic panel appended to the tail of each request: time,cwd (stored in the session)")
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compact the session when its history exceeds this many estimated tokens (stored in the session)")
 	events := fs.String("events", "", "stream runtime events to stdout: jsonl")
 	continueRun := fs.Bool("continue", false, "continue the session without a new prompt")
@@ -70,7 +69,7 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	settings := sessionSettings{instruction: flags.instruction, panel: *panel, compactCeiling: *compactCeiling}
+	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
 	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
 	if *sessionID == "" {
 		request.Metadata, err = settings.metadata()
@@ -164,7 +163,6 @@ func (c *cli) sessionCreate(args []string) int {
 	id := fs.String("id", "", "explicit session id (default: random)")
 	meta := fs.String("meta", "", "initial metadata as key=value,key=value")
 	compactCeiling := fs.Int("compact-ceiling", 0, "auto-compaction budget (estimated tokens) stored in the session")
-	panel := fs.String("panel", "", "dynamic panel items stored in the session: time,cwd")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
 	}
@@ -182,7 +180,7 @@ func (c *cli) sessionCreate(args []string) int {
 	if err != nil {
 		return c.usageError(err.Error())
 	}
-	settings := sessionSettings{instruction: flags.instruction, panel: *panel, compactCeiling: *compactCeiling}
+	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
 	if err := settings.apply(func(key, value string) { metadata[key] = value }); err != nil {
 		return c.failErr(err)
 	}
@@ -346,7 +344,6 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	fs := c.newFlagSet("context " + mode)
 	var flags modelFlags
 	bindModel(fs, &flags)
-	panel := fs.String("panel", "", "override the session panel for this inspection: time,cwd")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -360,7 +357,7 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectOptions{Instruction: flags.instruction, Panel: *panel})
+	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectOptions{Instruction: flags.instruction})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -377,8 +374,8 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if c.machine() {
 		return c.writeJSON(report)
 	}
-	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · panel %d bytes · tools %d\nprefix_hash %s\n",
-		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, report.PanelBytes, len(report.Request.Tools), report.PrefixHash)
+	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · tools %d\nprefix_hash %s\n",
+		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, len(report.Request.Tools), report.PrefixHash)
 	if len(report.Compactions) > 0 {
 		fmt.Fprintf(c.stdout, "compactions %d (last replaced %d messages)\n", len(report.Compactions), report.Compactions[len(report.Compactions)-1].ReplacedMessages)
 	}

@@ -80,9 +80,11 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 		service.AgentSpec{Name: "tools", Model: model, Instruction: "spec instruction", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
 	)
 	ctx := context.Background()
+	// A Session created before the panel was removed may still carry its
+	// setting; the Runner ignores it.
 	s, err := runner.CreateSession(ctx, "tools", map[string]string{
 		service.MetaInstruction: "session instruction",
-		service.MetaPanel:       "time",
+		"gotato.panel":          "time",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -101,14 +103,14 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 	if len(request.Tools) != 1 || request.Tools[0].ID != testkit.DemoToolID {
 		t.Fatalf("tools = %+v", request.Tools)
 	}
-	if !strings.Contains(gotato.TextOf(request.Messages[len(request.Messages)-1]), "<panel>") {
-		t.Fatal("panel missing from the tail")
+	for _, message := range request.Messages {
+		if strings.Contains(gotato.TextOf(message), "<panel>") {
+			t.Fatalf("a request carries a panel: %+v", message)
+		}
 	}
 	stored, _ := store.Get(ctx, s.ID())
-	for _, message := range stored.Messages() {
-		if strings.Contains(gotato.TextOf(message), "<panel>") {
-			t.Fatal("panel leaked into the session")
-		}
+	if len(stored.Messages()) != 4 {
+		t.Fatalf("stored %d messages, want 4", len(stored.Messages()))
 	}
 	if _, err := runner.Run(ctx, service.RunRequest{Agent: "nope", Prompt: "x"}); !errors.Is(err, service.ErrUnknownAgent) {
 		t.Fatalf("unknown agent err = %v", err)
@@ -600,12 +602,18 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	}
 }
 
+// unbuildableSpec is a Spec whose Agent cannot be built: a Run creates its
+// Session, then fails before the Agent starts.
+func unbuildableSpec() service.AgentSpec {
+	negative := -1.0
+	return service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.Option{
+		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &negative}),
+	}}
+}
+
 func TestFailedOneShotLeavesNoSession(t *testing.T) {
-	runner, store := newRunner(t)
-	_, err := runner.Run(context.Background(), service.RunRequest{
-		Prompt:   "x",
-		Metadata: map[string]string{service.MetaPanel: "bogus"},
-	})
+	runner, store := newRunner(t, unbuildableSpec())
+	_, err := runner.Run(context.Background(), service.RunRequest{Prompt: "x"})
 	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}
@@ -628,15 +636,12 @@ func TestFailedOneShotCleanupIsReported(t *testing.T) {
 	delErr := errors.New("store: delete denied")
 	runner, err := service.New(service.Config{
 		Store: &failingDeleteStore{Store: session.NewMemoryStore(), err: delErr},
-		Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}},
+		Specs: []service.AgentSpec{unbuildableSpec()},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runner.Run(context.Background(), service.RunRequest{
-		Prompt:   "x",
-		Metadata: map[string]string{service.MetaPanel: "bogus"},
-	})
+	_, err = runner.Run(context.Background(), service.RunRequest{Prompt: "x"})
 	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}

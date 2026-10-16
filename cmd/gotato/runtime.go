@@ -157,19 +157,12 @@ func outcomeOf(result service.RunResult) runOutcome {
 // the service honors them on every run.
 type sessionSettings struct {
 	instruction    string
-	panel          string
 	compactCeiling int
 }
 
 func (s sessionSettings) apply(set func(key, value string)) error {
 	if s.instruction != "" {
 		set(service.MetaInstruction, s.instruction)
-	}
-	if s.panel != "" {
-		if _, err := service.PanelFromSpec(s.panel, nil); err != nil {
-			return err
-		}
-		set(service.MetaPanel, s.panel)
 	}
 	if s.compactCeiling > 0 {
 		set(service.MetaCompactCeiling, strconv.Itoa(s.compactCeiling))

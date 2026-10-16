@@ -420,8 +420,7 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 	return &stream{events: Text("demo response: " + lastUser)}, nil
 }
 
-// promptText returns the first text part of a Message: the user's prompt
-// without the dynamic <panel> the runtime appends as a separate part.
+// promptText returns the first text part of a Message: the user's prompt.
 func promptText(message gotato.Message) string {
 	for _, part := range message.Parts {
 		if part.Kind == gotato.ContentText {

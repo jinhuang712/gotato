@@ -24,8 +24,10 @@ import (
 	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
 )
 
-// ContractVersion is the gRPC contract version.
-const ContractVersion = "2"
+// ContractVersion is the gRPC contract version. It counts breaking changes to
+// what the service returns, JSON payloads included; the protobuf package
+// stays gotato.v2 until its schema itself breaks.
+const ContractVersion = "3"
 
 // Server implements gotatov2.SessionServiceServer.
 type Server struct {

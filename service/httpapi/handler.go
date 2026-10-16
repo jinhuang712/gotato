@@ -44,7 +44,7 @@ import (
 
 // ContractVersion is the HTTP contract version. Field names and status codes
 // documented here are stable within a version.
-const ContractVersion = "2"
+const ContractVersion = "3"
 
 // maxBodyBytes bounds every JSON request body. A larger body is rejected with
 // 413 rather than being buffered.

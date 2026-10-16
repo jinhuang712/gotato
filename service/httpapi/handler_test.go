@@ -288,7 +288,7 @@ func TestExplicitSessionCreateIsExclusiveAndBodyIsBounded(t *testing.T) {
 func TestHealthAndAgents(t *testing.T) {
 	server, _ := newServer(t)
 	status, body := call(t, server, http.MethodGet, "/healthz", nil)
-	if status != http.StatusOK || !strings.Contains(string(body), `"contract":"2"`) {
+	if status != http.StatusOK || !strings.Contains(string(body), `"contract":"3"`) {
 		t.Fatalf("healthz = %d %s", status, body)
 	}
 	status, body = call(t, server, http.MethodGet, "/v1/agents", nil)

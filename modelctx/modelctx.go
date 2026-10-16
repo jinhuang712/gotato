@@ -4,22 +4,20 @@
 // Turn sends to the Model. Within a Session the history is append-only and the
 // Model always sees all of it, laid out so provider prompt caches hit:
 //
-//	system  = instruction + static Blocks        stable across Runs
-//	tools   = visible ToolSpecs, sorted           stable across Turns
-//	history = every committed Message             append-only prefix
-//	panel   = dynamic Blocks on the tail Message  changes every Turn
+//	system  = instruction + static Blocks   stable across Runs
+//	tools   = visible ToolSpecs, sorted      stable across Turns
+//	history = every committed Message        append-only prefix
+//
+// Nothing that changes every Turn is added: such content is never cached,
+// so it costs its full price on every Turn. A fact the model needs now, such
+// as the current time, comes from a tool the model calls.
 //
 // History shrinks only through compaction, an explicit and recorded rewrite
 // of the Session that replaces a prefix by a summary. Compaction can be
 // invoked directly (Compact) or triggered by a token budget at the start of
 // a Run (AutoCompact).
 //
-//	builder := modelctx.WithPanel(
-//	    modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD)),
-//	    func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error) {
-//	        return []gotato.Block{modelctx.Time(time.Now())}, nil
-//	    },
-//	)
+//	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
 //	agent, _ := gotato.NewAgent(
 //	    gotato.WithModel(m),
 //	    gotato.WithTranscript(s),
@@ -32,7 +30,6 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -70,36 +67,6 @@ func WithStatic(inner gotato.ContextBuilder, blocks ...gotato.Block) gotato.Cont
 	})
 }
 
-// PanelFunc produces the dynamic Blocks for one Turn.
-type PanelFunc func(context.Context, gotato.ContextSnapshot) ([]gotato.Block, error)
-
-// WithPanel attaches a dynamic panel to the Context produced by inner. The
-// panel is rendered as a <panel> element on the tail Message, so it changes
-// nothing before it and is never committed to the Session.
-func WithPanel(inner gotato.ContextBuilder, panel PanelFunc) gotato.ContextBuilder {
-	if inner == nil {
-		inner = FullHistory()
-	}
-	return gotato.ContextBuilderFunc(func(ctx context.Context, snapshot gotato.ContextSnapshot) (gotato.ModelContext, error) {
-		built, err := inner.Build(ctx, snapshot)
-		if err != nil {
-			return gotato.ModelContext{}, err
-		}
-		if panel != nil {
-			blocks, err := panel(ctx, snapshot)
-			if err != nil {
-				return gotato.ModelContext{}, err
-			}
-			built.Panel = append(built.Panel, blocks...)
-		}
-		if built.Metadata == nil {
-			built.Metadata = map[string]string{}
-		}
-		built.Metadata["panel_blocks"] = strconv.Itoa(len(built.Panel))
-		return built, nil
-	})
-}
-
 // Resource is a Block carrying a file or document:
 //
 //	<resource path="AGENTS.md">…markdown…</resource>
@@ -117,11 +84,6 @@ func JSON(tag string, value any) gotato.Block {
 		encoded = []byte(`{"error":"unencodable"}`)
 	}
 	return gotato.Block{Tag: tag, Text: string(encoded)}
-}
-
-// Time is the dynamic <time> Block in RFC 3339 UTC.
-func Time(now time.Time) gotato.Block {
-	return gotato.Block{Tag: "time", Text: now.UTC().Format(time.RFC3339)}
 }
 
 // EstimateTokens is the bytes/4 heuristic over the JSON encoding of the
@@ -155,7 +117,6 @@ type Report struct {
 	SelectedMessages  int                  `json:"selected_messages"`
 	ApproxTokens      int                  `json:"approx_tokens"`
 	SystemBytes       int                  `json:"system_bytes"`
-	PanelBytes        int                  `json:"panel_bytes"`
 	PrefixHash        string               `json:"prefix_hash"`
 	CompactionPending bool                 `json:"compaction_pending"`
 	CompactCeiling    int                  `json:"compact_ceiling,omitempty"`
@@ -175,7 +136,6 @@ func ReportOf(inspection gotato.ContextInspection) Report {
 		SelectedMessages: len(inspection.Context.Messages),
 		ApproxTokens:     (len(encoded) + 3) / 4,
 		SystemBytes:      len(inspection.Request.SystemInstructions),
-		PanelBytes:       len(inspection.Context.RenderPanel()),
 		PrefixHash:       inspection.PrefixHash,
 		Metadata:         inspection.Context.Metadata,
 		Context:          inspection.Context,

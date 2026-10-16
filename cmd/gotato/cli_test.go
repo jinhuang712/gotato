@@ -160,7 +160,7 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 func TestContextInspectBuildCompact(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
-	h.mustJSON(h.ok("session", "create", "--json", "--panel", "time"), &created)
+	h.mustJSON(h.ok("session", "create", "--json"), &created)
 	id := created["id"].(string)
 	for _, prompt := range []string{"one", "two", "three"} {
 		h.ok("run", "--session", id, "--quiet", prompt)
@@ -170,7 +170,6 @@ func TestContextInspectBuildCompact(t *testing.T) {
 		SourceMessages   int    `json:"source_messages"`
 		SelectedMessages int    `json:"selected_messages"`
 		ApproxTokens     int    `json:"approx_tokens"`
-		PanelBytes       int    `json:"panel_bytes"`
 		PrefixHash       string `json:"prefix_hash"`
 		Request          struct {
 			SystemInstructions string                   `json:"system_instructions"`
@@ -181,39 +180,31 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	}
 	var first report
 	h.mustJSON(h.ok("context", "inspect", id, "--json"), &first)
-	if first.Strategy != "full_history" || first.SourceMessages != 6 || first.SelectedMessages != 6 || first.ApproxTokens == 0 || first.PanelBytes == 0 || len(first.PrefixHash) != 16 {
+	if first.Strategy != "full_history" || first.SourceMessages != 6 || first.SelectedMessages != 6 || first.ApproxTokens == 0 || len(first.PrefixHash) != 16 {
 		t.Fatalf("report = %+v", first)
 	}
 	if len(first.Request.Tools) != 2 || len(first.Request.CacheBreakpoints) != 3 {
 		t.Fatalf("request = %+v", first.Request)
 	}
-	// The stored history ends with an assistant answer, so the panel is
-	// built (panel_bytes > 0) but not attached: it only rides on a user or
-	// tool-result tail, never on an assistant message.
-	for _, message := range first.Request.Messages {
-		if strings.Contains(gotato.TextOf(message), "<panel>") {
-			t.Fatalf("panel attached to %s message", message.Role)
-		}
-	}
-	// The panel is time-dependent, but the prefix hash is not.
 	var second report
 	h.mustJSON(h.ok("context", "inspect", id, "--json"), &second)
 	if second.PrefixHash != first.PrefixHash {
 		t.Fatalf("prefix hash unstable: %s vs %s", first.PrefixHash, second.PrefixHash)
 	}
-	// During a run the new prompt is the tail and carries the panel.
+	// A Turn's request is its history and nothing else.
 	out := h.ok("run", "--session", id, "--events", "jsonl", "four")
-	sawPanel := false
+	sawBuild := false
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		var event gotato.Event
 		if json.Unmarshal([]byte(line), &event) == nil && event.Kind == gotato.EventContextBuilt {
-			if bytes, _ := event.Payload["panel_bytes"].(float64); bytes > 0 {
-				sawPanel = true
+			sawBuild = true
+			if _, ok := event.Payload["panel_bytes"]; ok {
+				t.Fatalf("context_built still reports panel_bytes: %v", event.Payload)
 			}
 		}
 	}
-	if !sawPanel {
-		t.Fatal("context_built did not report a panel during the run")
+	if !sawBuild {
+		t.Fatal("the run emitted no context_built")
 	}
 	// build prints the request only.
 	var built gotato.ModelRequest
@@ -240,17 +231,11 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	if len(doc.Messages) != 3 || len(doc.Compactions) != 1 {
 		t.Fatalf("doc after compact: %d messages, %d compactions", len(doc.Messages), len(doc.Compactions))
 	}
-	// The compacted session keeps running; the session never stores a panel.
+	// The compacted session keeps running.
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", id, "--json", "five"), &outcome)
 	if outcome.Status != gotato.RunCompleted || outcome.Messages != 5 {
 		t.Fatalf("run after compact = %+v", outcome)
-	}
-	h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
-	for _, message := range doc.Messages {
-		if strings.Contains(gotato.TextOf(message), "<panel>") {
-			t.Fatal("panel leaked into the session")
-		}
 	}
 }
 
@@ -349,7 +334,7 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"run"}, ExitUsage},
 		{[]string{"run", "--events", "xml", "hi"}, ExitUsage},
 		{[]string{"run", "--model", "nope", "hi"}, ExitUsage},
-		{[]string{"run", "--panel", "weather", "hi"}, ExitUsage},
+		{[]string{"run", "--panel", "time", "hi"}, ExitUsage}, // the flag is gone
 		{[]string{"session", "show", "missing"}, ExitNotFound},
 		{[]string{"context", "inspect", "missing", "--json"}, ExitNotFound},
 		{[]string{"events", "--session", "missing"}, ExitNotFound},
