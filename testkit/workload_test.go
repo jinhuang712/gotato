@@ -57,8 +57,44 @@ func TestReferenceTasksPassTheirChecks(t *testing.T) {
 			t.Errorf("%s: %v (answers %q)", task.Name, err, answers)
 		}
 	}
-	if got := strings.Join(names, ","); got != "lookup,conversation,tool_error,history_10,history_100,history_1000" {
+	if got := strings.Join(names, ","); got != "lookup,conversation,tool_error,support_case,history_10,history_100,history_1000" {
 		t.Fatalf("tasks = %s", got)
+	}
+}
+
+func TestSupportCaseIsAnAgenticLoop(t *testing.T) {
+	s, answers := play(t, testkit.SupportCaseTask())
+	var steps []string
+	for _, message := range s.Messages() {
+		for _, call := range message.ToolCalls {
+			steps = append(steps, call.ToolID)
+		}
+	}
+	want := strings.Join([]string{testkit.CustomerOrdersID, testkit.OrderDetailsID, testkit.PolicySearchID, testkit.OrderRefundID}, ",")
+	if got := strings.Join(steps, ","); got != want {
+		t.Fatalf("steps = %s, want %s", got, want)
+	}
+	if !strings.Contains(answers[0], testkit.SupportRefundID) {
+		t.Fatalf("answer = %q", answers[0])
+	}
+	if err := testkit.SupportCaseTask().Check([]string{"I refunded the teapot."}); err == nil {
+		t.Fatal("an answer without the refund ID must fail the check")
+	}
+}
+
+func TestSupportRefundRefusesTheExpiredOrder(t *testing.T) {
+	var refund gotato.Tool
+	for _, tool := range testkit.SupportTools() {
+		if tool.Spec().ID == testkit.OrderRefundID {
+			refund = tool
+		}
+	}
+	if refund.Spec().Effect != gotato.EffectWriteExternal {
+		t.Fatalf("orders.refund effect = %s", refund.Spec().Effect)
+	}
+	result, err := refund.Execute(context.Background(), gotato.ToolUse{ArgumentsJSON: []byte(`{"order_id":"A-5208","sku":"CT-200","reason":"arrived damaged"}`)}, nil)
+	if err == nil && result.Status == gotato.ToolResultOK {
+		t.Fatalf("the teapot of the order delivered 58 days ago was refunded: %+v", result)
 	}
 }
 

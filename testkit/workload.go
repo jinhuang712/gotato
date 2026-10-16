@@ -81,13 +81,15 @@ func historyOrder(id string) bool {
 }
 
 // ReferenceTasks returns the reference workload: a short lookup, a 10-Turn
-// conversation, a tool error and its recovery, and a lookup in Sessions that
-// already hold 10, 100 and 1,000 messages.
+// conversation, a tool error and its recovery, a support case the model works
+// through in several Turns, and a lookup in Sessions that already hold 10,
+// 100 and 1,000 messages.
 func ReferenceTasks() []Task {
 	tasks := []Task{
 		LookupTask(),
 		ConversationTask(),
 		ToolErrorTask(),
+		SupportCaseTask(),
 	}
 	for _, size := range []int{10, 100, 1000} {
 		tasks = append(tasks, HistoryTask(size))

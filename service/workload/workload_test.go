@@ -37,6 +37,7 @@ func TestReferenceWorkload(t *testing.T) {
 		"lookup":       {1, 2, 1},
 		"conversation": {10, 13, 3},
 		"tool_error":   {1, 4, 3},
+		"support_case": {1, 5, 4},
 		"history_10":   {1, 2, 1},
 		"history_100":  {1, 2, 1},
 		"history_1000": {1, 2, 1},
