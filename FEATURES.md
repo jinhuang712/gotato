@@ -34,6 +34,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
 | Panel | small content that changes every Turn, never saved | G-F04 | ✅ |
 | Cache markers | after the system part, the tools and before the last message; `cache_control` on Anthropic | G-F04 | ✅ |
+| Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
 | Context inspection | the request the next Turn sends, with its prefix hash, without calling the model | G-F05 | ✅ |
 | `context_built` Event | the prefix hash of the request each Turn sent | G-F05 | ✅ |
@@ -66,6 +67,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Output-limit report | a reply cut off by the output limit says `max_tokens` | G-F07 | ✅ |
 | Reasoning replay | chat `reasoning_content` is kept and sent back | G-F07 | ✅ |
 | Cache reads | counted on every wire API | G-F07 | ✅ |
+| Cache key on the wire | sent in a body field (`prompt_cache_key` on Responses) or a header, as configured | G-F07 | ✅ |
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
 | Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
 | Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
@@ -125,7 +127,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Fake models | scripted (`FakeModel`), replayed (`ReplayModel`), or answering from the request (`FuncModel`) | G-F22 | ✅ |
 | Test helpers | a fake tool, an Event recorder and a ready-made Session | G-F22 | ✅ |
 | CLI scenarios | in-process and against the built binary, asserting on JSON | G-F22 | ✅ |
-| Reference workload | six tasks with fake models, played through a Runner and measured | G-F22 | ✅ |
+| Reference workload | seven tasks with fake models, from a lookup to a multi-step support case, played through a Runner and measured | G-F22 | ✅ |
 | Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
 | Reference service | the smallest service that embeds Gotato, timed from start to ready and measured for size | G-F22 | ✅ |
 | Fault injection and a multi-instance harness | crashes, client disconnects, and several instances over one store | G-F22 | ⬜ |
@@ -255,6 +257,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the history  →  t
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
 - **The Panel** is small content that changes every Turn. It is never saved. `time` and `cwd` are built in, and `modelctx.WithPanel` adds your own.
 - Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept.
+- Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewAgent`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
 ### G-F05 — Context inspection ✅
@@ -347,6 +350,12 @@ model: your-model
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
 
+**The prompt cache key**
+
+- Each request's cache key goes in the body field that `cache_key_field` names, and in the header that `cache_key_header` names, so a provider can take it in either place.
+- On `openai-responses`, the field defaults to `prompt_cache_key`, the Responses API's own field. On `openai-chat-completions` no field is sent unless you name one, because some compatible servers refuse unknown fields. `anthropic-messages` takes no field and caches by `cache_control`; a header still works there.
+- A provider that keys its cache by a session header needs `cache_key_header`. Without it, such a provider serves every Turn cold.
+
 **Headers**
 
 - `gateway.WithRequestHeaders` adds headers to one Run's requests through its context, for a provider that routes each conversation by a header.
@@ -362,6 +371,8 @@ All the settings in the YAML file:
 | `auth.type` | `api_key`, the only scheme | the gateway never logs in interactively or reads another program's credentials |
 | `model` | — | the model to call |
 | `headers` | none | headers some providers or proxies require |
+| `cache_key_field` | `prompt_cache_key` on `openai-responses`, none on chat; `none` turns it off | the body field that carries the prompt cache key |
+| `cache_key_header` | none | the header that carries the prompt cache key, for a provider that keys its cache by a session header |
 | `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
 
@@ -547,6 +558,7 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 | `lookup` | one question, one `orders.lookup` call, one answer |
 | `conversation` | ten prompts on one Session, three lookups, and a last question only the history answers |
 | `tool_error` | a call the schema check refuses, a lookup that fails, and a recovery |
+| `support_case` | an agentic loop in one Run: the model lists a customer's orders, reads the most recent one and the refund policy, refunds the damaged item, and reports the refund ID; an older order with the same item is past the refund window |
 | `history_10`, `history_100`, `history_1000` | a lookup in a Session that already holds that many messages |
 
 `service/workload` plays the tasks through a Runner, one at a time or under load, and reports what it saw:

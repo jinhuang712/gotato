@@ -43,7 +43,7 @@ The principles by group, then the decisions and the open questions. The details 
 | Principle | What it means |
 |---|---|
 | Stable content first, changing content last | so the provider's prompt cache keeps working |
-| Cache markers are neutral in the core | each wire API maps them to its own form |
+| Cache markers are neutral in the core | each wire API maps them, and the Session's cache key, to its own form |
 | The Context is inspectable | see what the model would get, without calling it |
 
 **Tools and safety**
@@ -271,7 +271,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  Transcript  →  Pa
 
 ### Cache markers are neutral in the core
 
-The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`.
+The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`. A cache key, one per Session, tells a provider which requests belong to one cache; the gateway's configuration says whether it travels as a body field such as `prompt_cache_key` or as a header.
 
 - **Cost:** a provider feature with no neutral form waits for one.
 - **Check:** the root package names no provider.

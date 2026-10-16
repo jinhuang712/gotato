@@ -32,13 +32,14 @@ Why this order:
 
 Builds the tools that most goals need, and gives every benchmark a number. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
-- ✅ the reference workload: its tasks and fake models in `testkit` (`ReferenceTasks`), and a driver beside `service` (`service/workload`) that runs them through the Runner. The tasks are a short lookup, a 10-Turn conversation, a tool error and its recovery, and Sessions with 10, 100 and 1,000 messages, run alone and under load;
+- ✅ the reference workload: its tasks and fake models in `testkit` (`ReferenceTasks`), and a driver beside `service` (`service/workload`) that runs them through the Runner. The tasks are a short lookup, a 10-Turn conversation, a tool error and its recovery, a support case the model works through in five Turns, and Sessions with 10, 100 and 1,000 messages, run alone and under load;
 - ✅ the live run: the same tasks against a real provider, with a fixed model and its price, run on demand with `gotato-workload -live`. G-B05 and G-B07 take the model's own time from it. First run on 2026-10-16, against `gpt-6.1-sol`;
 - ✅ Events that time each store load and save: the Runner emits `session_loaded` and `session_saved`, and `service/workload` reads the store's time from them. A Run now loads its Session once, not twice;
 - ✅ a startup benchmark, and a build script that measures the footprint, both on a reference service in `bench/refservice`;
 - ✅ a test that inspects each Turn's Context through the Go API, from that Turn's own Transcript, and compares its prefix hash with the Turn's `context_built` Event;
 - ✅ Context inspection that applies the extensions, says when an auto-compaction is pending, and shows the model options, so its prefix hash matches the request (the G-F05 gap);
-- ✅ each failed Run and tool call attributed to its cause: the model, the provider, the tool, the store or Gotato.
+- ✅ each failed Run and tool call attributed to its cause: the model, the provider, the tool, the store or Gotato;
+- ✅ a prompt cache key per Session, so the live run measures cache hits at all (G-B01).
 
 Every number about a Run is computed from recorded Events and `Usage`, so a team gets the same numbers from its own telemetry ([DESIGNS.md → Events and telemetry](DESIGNS.md#events-and-telemetry)). Memory, CPU, startup and footprint come from Go benchmarks and the build script.
 
@@ -46,7 +47,7 @@ Exit:
 
 - ✅ G-G03 passes in CI.
 - ✅ G-G04 passes on the reference workload in CI, and the live run counts no failure caused by Gotato.
-- ✅ Every benchmark but G-B13 has a number. G-B01's is 0 and likely unfair: the endpoint seems to cache only with a key the gateway does not send yet ([TODO.md](TODO.md)).
+- ✅ Every benchmark but G-B13 has a number.
 
 ## Phase 2 — Effect cap
 
