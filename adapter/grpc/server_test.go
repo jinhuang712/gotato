@@ -123,7 +123,11 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 			result = r
 		}
 	}
-	if result == nil || len(kinds) == 0 || kinds[0] != "agent_start" || kinds[len(kinds)-1] != "agent_end" {
+	// The Runner's store Events frame the Loop's: a one-shot Run saves its
+	// new Session before agent_start and the settled one after agent_end.
+	last := len(kinds) - 1
+	if result == nil || len(kinds) < 4 || kinds[0] != "session_saved" || kinds[1] != "agent_start" ||
+		kinds[last-1] != "agent_end" || kinds[last] != "session_saved" {
 		t.Fatalf("kinds=%v result=%v", kinds, result)
 	}
 	id := result.GetSessionId()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -224,7 +225,11 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kinds[0] != gotato.EventAgentStart || kinds[len(kinds)-1] != gotato.EventAgentEnd {
+	// The Runner's store Events frame the Loop's: the new Session is saved
+	// before agent_start and the settled one after agent_end.
+	last := len(kinds) - 1
+	if kinds[0] != gotato.EventSessionSaved || kinds[1] != gotato.EventAgentStart ||
+		kinds[last-1] != gotato.EventAgentEnd || kinds[last] != gotato.EventSessionSaved {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	for range 3 {
@@ -428,6 +433,142 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	}
 	if result.Result.Status != gotato.RunCompleted || result.FinalText != "echo: hi" {
 		t.Fatalf("run outcome lost: %+v", result)
+	}
+}
+
+// countingStore wraps a Store and counts its loads.
+type countingStore struct {
+	session.Store
+	mu   sync.Mutex
+	gets int
+}
+
+func (s *countingStore) Get(ctx context.Context, id string) (*session.Session, error) {
+	s.mu.Lock()
+	s.gets++
+	s.mu.Unlock()
+	return s.Store.Get(ctx, id)
+}
+
+func TestRunLoadsTheSessionOnce(t *testing.T) {
+	store := &countingStore{Store: session.NewMemoryStore()}
+	runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s, err := runner.CreateSession(ctx, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if store.gets != 1 {
+		t.Fatalf("a Run loaded the Session %d times, want 1", store.gets)
+	}
+}
+
+// eventLog is an EventObserver that keeps every Event it sees.
+type eventLog struct {
+	mu     sync.Mutex
+	events []gotato.Event
+}
+
+func (l *eventLog) Observe(_ context.Context, event gotato.Event) error {
+	l.mu.Lock()
+	l.events = append(l.events, event)
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *eventLog) kinds() []gotato.EventKind {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	kinds := make([]gotato.EventKind, len(l.events))
+	for i, event := range l.events {
+		kinds[i] = event.Kind
+	}
+	return kinds
+}
+
+func TestStoreEventsFrameTheRun(t *testing.T) {
+	observer := &eventLog{}
+	runner, store := newRunner(t, service.AgentSpec{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{observer}})
+	ctx := context.Background()
+	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer.events = nil
+
+	var events []gotato.Event
+	result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "two"}, func(event gotato.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, saved := events[0], events[len(events)-1]
+	if loaded.Kind != gotato.EventSessionLoaded || loaded.RunID != "" || loaded.Sequence != 0 ||
+		loaded.Payload["session_id"] != first.SessionID || loaded.Payload["messages"] != first.Messages {
+		t.Fatalf("first Event = %+v, want session_loaded of the %d stored messages", loaded, first.Messages)
+	}
+	if elapsed, ok := loaded.Payload["elapsed_ms"].(float64); !ok || elapsed < 0 {
+		t.Fatalf("session_loaded elapsed_ms = %#v", loaded.Payload["elapsed_ms"])
+	}
+	end := events[len(events)-2]
+	if saved.Kind != gotato.EventSessionSaved || saved.RunID != result.Result.RunID || saved.AgentID != end.AgentID ||
+		saved.Sequence != end.Sequence+1 || saved.Payload["messages"] != result.Messages {
+		t.Fatalf("last Event = %+v after %+v, want session_saved right after the Run's last Event", saved, end)
+	}
+	if _, failed := saved.Payload["failed"]; failed {
+		t.Fatalf("a save that worked is flagged failed: %+v", saved.Payload)
+	}
+
+	// An observer in the Spec sees the same Events as the sink.
+	if got := observer.kinds(); len(got) != len(events) || got[0] != gotato.EventSessionLoaded || got[len(got)-1] != gotato.EventSessionSaved {
+		t.Fatalf("observer kinds = %v", got)
+	}
+	// They time the store; they are not part of the Session's own record.
+	stored, err := store.Get(ctx, first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range stored.Events() {
+		if event.Kind == gotato.EventSessionLoaded || event.Kind == gotato.EventSessionSaved {
+			t.Fatalf("the Session recorded %s", event.Kind)
+		}
+	}
+}
+
+func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	var events []gotato.Event
+	sink := func(event gotato.Event) error { events = append(events, event); return nil }
+	if _, err := runner.StreamRun(ctx, service.RunRequest{Prompt: "hi"}, sink); !errors.Is(err, service.ErrNotPersisted) {
+		t.Fatalf("err = %v, want ErrNotPersisted", err)
+	}
+	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: "missing", Prompt: "hi"}, sink); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	var flagged []gotato.EventKind
+	for _, event := range events {
+		if strings.Contains(fmt.Sprint(event.Payload), "disk full") {
+			t.Fatalf("%s carries the store's error text: %v", event.Kind, event.Payload)
+		}
+		if event.Payload["failed"] == true {
+			flagged = append(flagged, event.Kind)
+		}
+	}
+	if len(flagged) != 2 || flagged[0] != gotato.EventSessionSaved || flagged[1] != gotato.EventSessionLoaded {
+		t.Fatalf("flagged = %v, want the failed save and the failed load", flagged)
 	}
 }
 

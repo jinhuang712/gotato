@@ -36,6 +36,14 @@ const (
 	// EventSessionCompacted is recorded when a Session prefix was replaced by
 	// a summary. It is produced by the compaction operation, not by the Loop.
 	EventSessionCompacted EventKind = "session_compacted"
+	// EventSessionLoaded and EventSessionSaved time a store load and save.
+	// The service Runner emits them for each load and save a Run makes:
+	// session_loaded before agent_start, and session_saved after agent_end.
+	// They reach the same places as the Loop's Events but are not recorded
+	// in the Session. An Event emitted before the Run starts has no
+	// AgentID, no RunID and sequence 0.
+	EventSessionLoaded EventKind = "session_loaded"
+	EventSessionSaved  EventKind = "session_saved"
 )
 
 // Payload keys by Kind. Consumers must tolerate unknown keys and kinds.
@@ -56,6 +64,8 @@ const (
 //	tool_result_committed   status
 //	toolset_activated       toolset
 //	session_compacted       session_id, replaced_messages, summary_message_id, summarizer
+//	session_loaded          session_id, messages, elapsed_ms (fractional), failed?
+//	session_saved           session_id, messages, elapsed_ms (fractional), failed?
 
 type Event struct {
 	AgentID    AgentID        `json:"agent_id"`

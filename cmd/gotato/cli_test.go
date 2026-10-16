@@ -140,10 +140,12 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 	if len(lines) < 5 {
 		t.Fatalf("too few lines: %d", len(lines))
 	}
-	var first gotato.Event
+	// The Runner saves the new Session before the Loop's agent_start.
+	var first, second gotato.Event
 	h.mustJSON(lines[0], &first)
-	if first.Kind != gotato.EventAgentStart {
-		t.Fatalf("first line kind = %s", first.Kind)
+	h.mustJSON(lines[1], &second)
+	if first.Kind != gotato.EventSessionSaved || second.Kind != gotato.EventAgentStart {
+		t.Fatalf("first line kinds = %s, %s", first.Kind, second.Kind)
 	}
 	var last struct {
 		Kind   string     `json:"kind"`

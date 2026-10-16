@@ -239,7 +239,10 @@ func TestStreamRunSSE(t *testing.T) {
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(events) < 5 || events[0] != "agent_start" || events[len(events)-1] != "result" {
+	// A one-shot Run saves the new Session before agent_start and the
+	// settled one after agent_end.
+	if len(events) < 5 || events[0] != "session_saved" || events[1] != "agent_start" ||
+		events[len(events)-2] != "session_saved" || events[len(events)-1] != "result" {
 		t.Fatalf("events = %v", events)
 	}
 	var result service.RunResult

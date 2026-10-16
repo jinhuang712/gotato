@@ -14,10 +14,10 @@
 //	    Price:     workload.Price{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75},
 //	}, testkit.ReferenceTasks())
 //
-// Every number about a Run comes from the Runner's Events and RunResults, so
-// a team can compute the same numbers from its own telemetry. The one
-// exception is the store's time to load and save a Session, which a timer
-// around the store measures, because no Event reports it yet.
+// Every number about a Run comes from the Runner's Events and RunResults,
+// including the store's time to load and save the Session (session_loaded and
+// session_saved), so a team can compute the same numbers from its own
+// telemetry.
 package workload
 
 import (
@@ -239,7 +239,7 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		Tools:       task.Tools,
 		Limits:      task.Limits,
 	}
-	runner, err := service.New(service.Config{Store: timedStore{inner: cfg.Store}, Specs: []service.AgentSpec{spec}})
+	runner, err := service.New(service.Config{Store: cfg.Store, Specs: []service.AgentSpec{spec}})
 	if err != nil {
 		return TaskReport{}, err
 	}
@@ -346,9 +346,8 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	// compute it from its own telemetry. The model's time runs from a Turn's
 	// context_built to its reply's message_end, or to agent_end when the
 	// call failed; a tool's time runs from tool_execution_start to
-	// tool_execution_end. Only the store is timed from outside, by
-	// timedStore, which finds the play's stats in the context.
-	playCtx := withStats(ctx, p.stats)
+	// tool_execution_end; the store's time is in session_loaded and
+	// session_saved.
 	var answers []string
 	var calls []toolCall
 	var waiting time.Time
@@ -357,8 +356,12 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	turn := 0
 	for _, prompt := range task.Prompts {
 		started := time.Now()
-		result, err := runner.StreamRun(playCtx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}, func(event gotato.Event) error {
+		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}, func(event gotato.Event) error {
 			switch event.Kind {
+			case gotato.EventSessionLoaded:
+				p.stats.addLoad(elapsed(event))
+			case gotato.EventSessionSaved:
+				p.stats.addSave(elapsed(event))
 			case gotato.EventTurnStart:
 				p.turns++
 			case gotato.EventContextBuilt:
@@ -608,6 +611,13 @@ func addUsage(a, b gotato.Usage) gotato.Usage {
 		CacheReadTokens:  a.CacheReadTokens + b.CacheReadTokens,
 		CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
 	}
+}
+
+// elapsed reads the store's time from a session_loaded or session_saved
+// Event.
+func elapsed(event gotato.Event) time.Duration {
+	ms, _ := event.Payload["elapsed_ms"].(float64)
+	return time.Duration(ms * float64(time.Millisecond))
 }
 
 // number reads a numeric Event payload value. A context_built payload may

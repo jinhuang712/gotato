@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -267,19 +268,28 @@ func (r *Runner) Draining() bool {
 
 // CreateSession creates and saves a Session bound to an AgentSpec.
 func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Session, error) {
+	s, _, err := r.newSession(agent, metadata, options...)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.store.Save(ctx, s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// newSession builds a Session bound to an AgentSpec, without saving it.
+func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.Option) (*session.Session, AgentSpec, error) {
 	spec, ok := r.Spec(agent)
 	if !ok {
-		return nil, ErrUnknownAgent
+		return nil, AgentSpec{}, ErrUnknownAgent
 	}
 	s := session.New(options...)
 	for key, value := range metadata {
 		s.Set(key, value)
 	}
 	s.Set(MetaAgent, spec.Name)
-	if err := r.store.Save(ctx, s); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return s, spec, nil
 }
 
 // CreateSessionExclusive creates a Session with an explicit ID and fails with
@@ -372,11 +382,12 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	r.registerHandle(handle)
 	defer r.unregisterHandle(handle)
 
-	// Load or create the Session. runCtx carries the cancellation that
-	// Stop/Drain apply, so a stalled Store load does not outlive them.
+	// Create the Session, or name the one to load. runCtx carries the
+	// cancellation that Stop/Drain apply, so a stalled Store call does not
+	// outlive them.
 	var s *session.Session
-	var err error
-	if request.SessionID == "" {
+	sessionID := request.SessionID
+	if sessionID == "" {
 		if request.SkipSave {
 			// No persistence: build an in-memory Session for this Run only.
 			s = session.New()
@@ -384,18 +395,19 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 				s.Set(key, value)
 			}
 		} else {
-			s, err = r.CreateSession(runCtx, request.Agent, request.Metadata)
+			fresh, spec, err := r.newSession(request.Agent, request.Metadata)
+			if err == nil {
+				err = r.saveSession(runCtx, fresh, &spec, sink, nil)
+			}
+			if err != nil {
+				return RunResult{}, err
+			}
+			s = fresh
 		}
-	} else {
-		s, err = r.store.Get(runCtx, request.SessionID)
-	}
-	if err != nil {
-		return RunResult{}, err
-	}
-	// A newly created Session has a generated ID; retarget the handle so
-	// CancelSession can find it for the rest of the Run.
-	if s.ID() != handle.sessionID {
-		r.retargetHandle(handle, s.ID())
+		// A newly created Session has a generated ID; retarget the handle so
+		// CancelSession can find it for the rest of the Run.
+		sessionID = s.ID()
+		r.retargetHandle(handle, sessionID)
 	}
 
 	// One Run per Session at a time. Every Session mutation goes through
@@ -404,16 +416,20 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	var runErr error
 	started := false
 	created := request.SessionID == "" && !request.SkipSave
-	lockErr := r.withSessionLock(runCtx, s.ID(), func() error {
+	lockErr := r.withSessionLock(runCtx, sessionID, func() error {
+		// An existing Session is loaded once, under the lock: another Run
+		// may have saved it meanwhile, and a Session deleted in between must
+		// not be resurrected from a stale copy.
+		var loadTime time.Duration
 		if request.SessionID != "" {
-			// Re-read under the lock: another Run may have saved meanwhile,
-			// and a Session deleted in between must not be resurrected from
-			// the stale copy.
-			fresh, err := r.store.Get(runCtx, s.ID())
+			began := time.Now()
+			loaded, err := r.store.Get(runCtx, sessionID)
+			loadTime = time.Since(began)
 			if err != nil {
+				r.emitRunnerEvent(runCtx, nil, sink, storeEvent(gotato.EventSessionLoaded, sessionID, 0, loadTime, err))
 				return err
 			}
-			s = fresh
+			s = loaded
 		}
 
 		agentName := request.Agent
@@ -421,6 +437,13 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			agentName, _ = s.Get(MetaAgent)
 		}
 		spec, ok := r.Spec(agentName)
+		if request.SessionID != "" {
+			observers := &spec
+			if !ok {
+				observers = nil
+			}
+			r.emitRunnerEvent(runCtx, observers, sink, storeEvent(gotato.EventSessionLoaded, sessionID, s.Len(), loadTime, nil))
+		}
 		if !ok {
 			return ErrUnknownAgent
 		}
@@ -461,7 +484,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			// bound the write so a stalled Store cannot pin the Run (and Drain)
 			// forever.
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-			saveErr := r.store.Save(saveCtx, s)
+			saveErr := r.saveSession(saveCtx, s, &spec, sink, tracker)
 			cancelSave()
 			if saveErr != nil {
 				// The Session state is lost whether or not the Run failed: keep
@@ -505,16 +528,16 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			// A one-shot Run that never started must not leave an empty
 			// Session behind. A failed cleanup is reported, not discarded.
 			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
-			deleteErr := r.store.Delete(deleteCtx, s.ID())
+			deleteErr := r.store.Delete(deleteCtx, sessionID)
 			cancelDelete()
 			if deleteErr != nil {
-				lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", s.ID(), deleteErr))
+				lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", sessionID, deleteErr))
 			}
 		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Cancelled while waiting for the Session lock: report a settled
 			// cancelled Run rather than a bare error.
-			return cancelledRunResult(s.ID(), request.Agent, lockErr), lockErr
+			return cancelledRunResult(sessionID, request.Agent, lockErr), lockErr
 		}
 		return RunResult{}, lockErr
 	}
@@ -1064,14 +1087,85 @@ func (r *Runner) release() {
 type runTracker struct {
 	runner *Runner
 	handle *runHandle
+
+	mu       sync.Mutex
+	agentID  gotato.AgentID
+	runID    gotato.RunID
+	sequence uint64
 }
 
 func (t *runTracker) Advisory() bool { return true }
 
 func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
+	t.mu.Lock()
+	t.agentID, t.runID, t.sequence = event.AgentID, event.RunID, max(t.sequence, event.Sequence)
+	t.mu.Unlock()
 	if event.Kind != gotato.EventAgentStart {
 		return nil
 	}
 	t.runner.attachRunID(t.handle, event.RunID)
 	return nil
+}
+
+// stamp places an Event the Runner emits after the Run in that Run, right
+// after its last Event.
+func (t *runTracker) stamp(event *gotato.Event) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	event.AgentID, event.RunID, event.Sequence = t.agentID, t.runID, t.sequence+1
+}
+
+// saveSession saves a Session for a Run and emits session_saved with the
+// time the store took.
+func (r *Runner) saveSession(ctx context.Context, s *session.Session, spec *AgentSpec, sink func(gotato.Event) error, tracker *runTracker) error {
+	began := time.Now()
+	err := r.store.Save(ctx, s)
+	event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), time.Since(began), err)
+	if tracker != nil {
+		tracker.stamp(&event)
+	}
+	r.emitRunnerEvent(context.WithoutCancel(ctx), spec, sink, event)
+	return err
+}
+
+// storeEvent builds a session_loaded or session_saved Event. The elapsed time
+// keeps microseconds, because a load from memory takes far less than a
+// millisecond. A failure is only flagged: the store's error text can name
+// paths and hosts, and Events reach HTTP and gRPC clients.
+func storeEvent(kind gotato.EventKind, sessionID string, messages int, elapsed time.Duration, err error) gotato.Event {
+	payload := map[string]any{
+		"session_id": sessionID,
+		"messages":   messages,
+		"elapsed_ms": float64(elapsed.Microseconds()) / 1000,
+	}
+	if err != nil {
+		payload["failed"] = true
+	}
+	return gotato.Event{Kind: kind, Class: gotato.EventProtected, Payload: payload, Timestamp: time.Now()}
+}
+
+// emitRunnerEvent delivers an Event the Runner produces itself to the Run's
+// sink and to the EventObservers among the Spec's Extensions, the same places
+// the Agent's Events reach. A nil spec reaches the sink only. Every delivery
+// is advisory: a failing or panicking observer never fails the Run.
+func (r *Runner) emitRunnerEvent(ctx context.Context, spec *AgentSpec, sink func(gotato.Event) error, event gotato.Event) {
+	if sink != nil {
+		deliver(func() error { return sink(event) })
+	}
+	if spec == nil {
+		return
+	}
+	for _, extension := range spec.Extensions {
+		if observer, ok := extension.(gotato.EventObserver); ok {
+			view := event
+			view.Payload = maps.Clone(event.Payload)
+			deliver(func() error { return observer.Observe(ctx, view) })
+		}
+	}
+}
+
+// deliver calls fn and drops its error or panic.
+func deliver(fn func() error) {
+	defer func() { _ = recover() }()
+	_ = fn()
 }
