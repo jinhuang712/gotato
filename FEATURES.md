@@ -20,6 +20,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
+| Runtime notices | tell the model something that is not the user's words, as a developer or system message after every tool result | G-F29 | ⬜ |
+| A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's history | G-F02 | ✅ |
@@ -41,6 +43,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Automatic compaction | at the start of a Run, past the ceiling; off by default | G-F06 | ✅ |
 | Summaries | by truncation or by a model | G-F06 | ✅ |
 | Compaction records | what was replaced, with what, and the sizes before and after | G-F06 | ✅ |
+| Changes that keep the cache | a changed instruction or tool set is appended, not rewritten into the prefix | G-F32 | ⬜ |
 
 **Tools**
 
@@ -71,6 +74,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
 | Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
 | Structured output | ask for a reply that fits a JSON schema, and get it back as a value | G-F28 | ⬜ |
+| Recovering a cut stream | a stream cut after some output goes on from where it stopped | G-F31 | ⬜ |
 
 **Storage**
 
@@ -93,6 +97,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Conflict on a stale save | an old copy cannot overwrite a newer one | G-F27 | ⬜ |
 | Ownership across instances | one instance runs a Session at a time | G-F27 | ⬜ |
 | Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes, compacted first by default | G-F27 | ⬜ |
+| Prompt cache retention and keepalive | longer provider cache retention, and keeping a warm Session's cache from expiring | G-F33 | ⬜ |
 
 **Endpoints**
 
@@ -225,6 +230,26 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 **Gap:** both work only on an Agent you build yourself with `gotato.NewAgent`. The Runner builds a private Agent for each Run, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 
+### G-F29 — Runtime notices ⬜
+
+Gotato, or your service, sometimes has to tell the model something that is not the user's words: that the history was compacted, that this is the last Turn, or that the previous reply was cut off. Today the only place for it is a user message, so the model takes it as the user speaking, and on the Responses API a new user message hides the reasoning the Run built so far.
+
+- A notice is a message of its own kind. Each wire API sends it the way it supports: a `developer` message on Responses, a `system` message on Anthropic models that accept one mid-conversation, and a tagged user message elsewhere.
+- A notice waits until every tool call of the Turn has its result, because a provider refuses anything between a call and its result.
+- G-F30 and G-F31 build on it.
+
+**Design first:** with what happens to a message that arrives mid-Run ([ROADMAP.md → Design discussion](ROADMAP.md#design-discussion)).
+
+### G-F30 — A last Turn that answers ⬜
+
+A Run that reaches `MaxTurns` now fails with `limit_exceeded`, and the caller gets no answer. Instead, the Loop gives the model one last Turn to answer with what it has.
+
+- The code enforces it, not the model: the last Turn goes with tool calls switched off (`tool_choice: none`), so the provider cannot return one, and a tool call that comes back anyway is not run.
+- The tool definitions stay in the request, so the cached prefix holds.
+- A runtime notice (G-F29) tells the model it is the last Turn.
+
+**Design first:** after G-F29 ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+
 ### G-F02 — Sessions ✅
 
 A Session is one conversation that runs an Agent. It keeps everything that happened, so the next message continues where the last one ended.
@@ -290,6 +315,15 @@ An old part of the history can be replaced by one summary, so a long conversatio
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
 
 **Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it. The planned compaction before a warm Session leaves memory (G-F27) is the other way round: on by default, because a Session that comes back after its TTL starts cold anyway.
+
+### G-F32 — Changes that keep the cache ⬜
+
+The instruction and the tools come before the history, so changing them mid-Session makes the provider send the whole history again at full price. Three things do that today: a Session's own instruction (`gotato.instruction`), a tool set the model switches on, and a tool switched on or off for one Session.
+
+- Such a change is appended instead: a runtime notice (G-F29) for a new instruction, and the new tool's definition added after the history, while the tool list sent at the start stays as it was.
+- Whether it pays depends on how often a service makes such changes, so the reference workload measures a Session that switches a tool set on before this is designed.
+
+**Design first:** after a measurement ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
 
 ## Tools
 
@@ -390,6 +424,15 @@ A Run can return a value, not only text: the caller gives a JSON schema, and the
 
 **Gap:** not built, and three things are open: whether the schema belongs to the Agent or to one Run, what happens when a reply does not fit (the Run fails, or the model is told and tries again, as with a failed tool call), and how HTTP and gRPC carry the schema and the value. They are decided before the code, and recorded in [DESIGNS.md](DESIGNS.md).
 
+### G-F31 — Recovering a cut stream ⬜
+
+A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. Today a stream cut before any output is sent again, and a stream cut after some output fails the Run with `model_failure`.
+
+- The Run goes on instead, one of two ways, chosen when this is designed: keep the output so far and ask the model, in a runtime notice (G-F29), to continue without repeating it; or send the request again and tell stream readers, with an Event, to drop what they received.
+- The retries stay bounded, so a provider that keeps cutting off still fails the Run.
+
+**Design first:** after G-F29 ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+
 ## Storage
 
 ### G-F03 — Stores 🚧
@@ -435,6 +478,15 @@ Settings, on `service.Config` or `gotato serve`:
 | drain timeout (`--drain-timeout`) | 10 seconds | long enough for most Runs to finish during a rolling deploy |
 
 `gotato-grpc` takes `--max-runs` but not `--queue` or `--drain-timeout`, so its busy policy is always `reject`.
+
+### G-F33 — Prompt cache retention and keepalive ⬜
+
+A provider keeps a cached prefix for minutes, and a conversation that pauses longer pays full price to start again.
+
+- **Retention:** ask for the provider's longer cache retention where it offers one, such as an hour on Anthropic, per Agent.
+- **Keepalive:** while a warm Session is in memory (G-F27), refresh its cache shortly before it expires. Each refresh costs a cache read of the whole prefix, so it pays only when the Session is likely to come back soon; it is a setting per Agent, with a limit.
+
+**Design first:** with the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
 
 ## Endpoints
 

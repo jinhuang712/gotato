@@ -19,6 +19,7 @@ Phase 5  Ownership       one instance runs a Session at a time
 Phase 6  Warm Session    a Session stays in memory while in use, and leaves after its TTL
 Phase 7  Structured      a Run returns a value that fits a JSON schema
 Phase 8  Compatibility   CI flags a removed or changed exported identifier
+         ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
 ```
 
 Why this order:
@@ -33,6 +34,8 @@ Why this order:
 - **The compatibility check waits for mass testing,** when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
+
+Shipped in v0.1.2.
 
 Builds the tools that most goals need, and gives every benchmark a number. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
@@ -76,6 +79,7 @@ After Phase 3, the maintainer and contributors answer the questions in [DESIGNS.
 - how ownership of a Session works across instances, including what happens to a message that reaches an instance that does not own it;
 - how a Turn is saved: an append of the new Turn, or a rewrite of the whole Session;
 - what a warm Session holds, and what happens to a message that arrives while a Run is in progress;
+- how Gotato tells the model something that is not the user's words: runtime notices (FEATURES.md G-F29), and the Events on a message's way into a Session. They follow from the answer to the question above;
 - what the stored record is called, once Phase 6 gives the name Session to the live unit.
 
 One requirement is already fixed: a second instance stops before it calls the model.
@@ -113,6 +117,8 @@ Exit:
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for the compaction discussion of a later phase ([DESIGNS.md → Compaction](DESIGNS.md#compaction)); until then, the TTL only removes the Session from memory.
 - A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
+- Runtime notices (G-F29) ship as the design discussion decided.
+- Longer prompt cache retention, and a keepalive for a warm Session's cache (G-F33), are designed with the warm Session.
 - The stored record takes the name the design discussion chose, and the live Session takes the name Session. This ships as a planned break, with a [CHANGELOG.md](CHANGELOG.md) entry.
 
 Exit:
@@ -137,6 +143,16 @@ Exit:
 - It starts when mass testing begins, and the maintainer sets the date.
 
 Exit: a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
+
+## Waiting for design
+
+These are planned in [FEATURES.md](FEATURES.md) and need a design before they get a phase. Each is discussed when what it depends on is in place.
+
+| Feature | Depends on | Discussed |
+|---|---|---|
+| G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | once G-F29 is designed |
+| G-F31 — Recovering a cut stream | runtime notices (G-F29) | once G-F29 is designed |
+| G-F32 — Changes that keep the cache | a reference task that switches a tool set on, to measure what a change costs | after that measurement |
 
 ## Every release
 
