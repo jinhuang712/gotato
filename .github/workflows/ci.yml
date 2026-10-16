@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [".", "adapter/grpc"]
+        module: [".", "adapter/grpc", "bench/refservice"]
     defaults:
       run:
         working-directory: ${{ matrix.module }}
