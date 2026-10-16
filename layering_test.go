@@ -3,6 +3,7 @@ package gotato
 import (
 	"go/build"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -61,8 +62,9 @@ func TestLayering(t *testing.T) {
 }
 
 // modulePackageDirs returns every package directory under root except the CLI
-// and adapter layers, which are allowed to import outward. Nested modules
-// (adapter/grpc) live below the excluded adapter layer and are skipped with it.
+// and adapter layers, which are allowed to import outward. A nested module
+// (adapter/grpc, bench/refservice) is not part of this module and is skipped:
+// it stands where a team's own service would, outside the layers.
 func modulePackageDirs(t *testing.T, root string) []string {
 	t.Helper()
 	seen := map[string]bool{}
@@ -75,6 +77,11 @@ func modulePackageDirs(t *testing.T, root string) []string {
 			name := entry.Name()
 			if path != root && (name == "testdata" || name == "vendor" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
 				return fs.SkipDir
+			}
+			if path != root {
+				if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+					return fs.SkipDir
+				}
 			}
 			rel, _ := filepath.Rel(root, path)
 			if rel == "cmd" || rel == "adapter" ||
