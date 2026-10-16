@@ -299,7 +299,9 @@ func (a *coreAgent) Transcript() Transcript { return a.transcript }
 //
 //   - Messages are reduced to what a provider needs (ForModel).
 //   - Cache breakpoints are placed after the system prompt, after the tools,
-//     and before the last Message.
+//     and on the last Message, so the whole request is cached for the next
+//     Turn; a provider finds the previous Turn's entry by looking back from
+//     there.
 //   - PrefixHash covers system + tools + every Message but the last: two
 //     consecutive Turns with the same PrefixHash present an identical cacheable
 //     prefix to the provider.
@@ -317,8 +319,8 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 	if len(request.Tools) > 0 {
 		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterTools})
 	}
-	if len(messages) >= 2 {
-		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterMessage, Index: len(messages) - 2})
+	if len(messages) > 0 {
+		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterMessage, Index: len(messages) - 1})
 	}
 	return request, prefixHash(request)
 }

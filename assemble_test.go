@@ -33,7 +33,9 @@ func TestAssembleRequestLayout(t *testing.T) {
 	if len(hash) != 16 {
 		t.Fatalf("hash = %q", hash)
 	}
-	want := []CacheBreakpoint{{After: CacheAfterSystem}, {After: CacheAfterTools}, {After: CacheAfterMessage, Index: 1}}
+	// The message breakpoint is on the last Message, so the whole request is
+	// cached for the next Turn.
+	want := []CacheBreakpoint{{After: CacheAfterSystem}, {After: CacheAfterTools}, {After: CacheAfterMessage, Index: 2}}
 	if len(request.CacheBreakpoints) != len(want) {
 		t.Fatalf("breakpoints = %+v", request.CacheBreakpoints)
 	}
@@ -48,11 +50,15 @@ func TestAssembleRequestLayout(t *testing.T) {
 	}
 }
 
-func TestAssembleRequestSingleMessageHasNoMessageBreakpoint(t *testing.T) {
-	built := ModelContext{Messages: []Message{AssistantMessage("a")}}
+func TestAssembleRequestCachesEvenTheFirstPrompt(t *testing.T) {
+	built := ModelContext{Messages: []Message{UserMessage("first")}}
 	request, _ := AssembleRequest(built, nil)
-	if len(request.CacheBreakpoints) != 0 {
-		t.Fatalf("breakpoints for a bare single-message request = %+v", request.CacheBreakpoints)
+	want := CacheBreakpoint{After: CacheAfterMessage, Index: 0}
+	if len(request.CacheBreakpoints) != 1 || request.CacheBreakpoints[0] != want {
+		t.Fatalf("breakpoints for a one-message request = %+v, want %+v", request.CacheBreakpoints, want)
+	}
+	if empty, _ := AssembleRequest(ModelContext{}, nil); len(empty.CacheBreakpoints) != 0 {
+		t.Fatalf("breakpoints for an empty request = %+v", empty.CacheBreakpoints)
 	}
 }
 

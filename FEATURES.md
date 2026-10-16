@@ -32,7 +32,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
 | Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
-| Cache markers | after the system part, the tools and before the last message; `cache_control` on Anthropic | G-F04 | ✅ |
+| Cache markers | after the system part, the tools and on the last message; `cache_control` on Anthropic | G-F04 | ✅ |
 | Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
 | Context inspection | the request the next Turn sends, with its prefix hash, without calling the model | G-F05 | ✅ |
@@ -254,7 +254,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the history
 
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
 - **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
-- Gotato marks cache points after the system part, after the tools and before the last message. For Anthropic, they become `cache_control`, and the last four are kept.
+- Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept.
 - Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewAgent`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 

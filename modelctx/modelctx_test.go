@@ -79,7 +79,7 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	if fourth.PrefixHash != second.PrefixHash {
 		t.Fatal("runtime fields perturbed the prompt bytes")
 	}
-	wantBreakpoints := []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}, {After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: len(next) - 2}}
+	wantBreakpoints := []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}, {After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: len(next) - 1}}
 	if len(second.Request.CacheBreakpoints) != 3 {
 		t.Fatalf("breakpoints = %+v", second.Request.CacheBreakpoints)
 	}
