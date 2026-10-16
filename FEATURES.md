@@ -73,7 +73,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
 | Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
 | Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
-| Structured output | ask for a reply that fits a JSON schema, and get it back as a value | G-F28 | ⬜ |
+| Structured output | an Agent can require its final reply to fit a JSON schema | G-F28 | ⬜ |
 | Recovering a cut stream | a stream cut after some output goes on from where it stopped | G-F31 | ⬜ |
 
 **Storage**
@@ -108,6 +108,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
 | Go API | call the Runner directly, and subscribe to a Run's Events | G-F14 | ✅ |
 | Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
+| Access hooks | the caller's identity reaches every extension and store call, and a "not allowed" error answers 403 | G-F14 | ⬜ |
 
 **Watching and extending**
 
@@ -415,14 +416,17 @@ Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_
 
 ### G-F28 — Structured output ⬜
 
-A Run can return a value, not only text: the caller gives a JSON schema, and the final reply fits it.
+A Run can return a value, not only text: an Agent can require its final reply to fit a JSON schema.
 
-- A pipeline step or an investigation hands its result to code, so it wants a typed value, not prose to parse.
-- The Run's result carries the decoded value next to the final message.
+- A pipeline step, an investigation or a bot hands its result to code, so it wants a reply in a fixed shape, not prose to parse.
+- **The schema belongs to the Agent.** An Agent is purpose-built for one use. A bot that must answer in the shape of a chat card carries that card's schema, and an Agent that writes a report carries none and answers in Markdown. An Agent without a schema behaves as it does today.
 - Each wire API has its own way to ask for a schema, and the gateway maps one schema onto it.
+- **A reply that does not fit fails the Run.** It settles `failed`, with a reason that names the schema, and the reply stays in the Transcript, so the caller can read it or run again. Gotato does not ask the model to try again: when the model gets a case wrong, the fix is a better instruction, schema or model ([PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
+- **HTTP and gRPC change nothing.** The Agent's definition carries the schema, so a request picks the Agent as it does today, and the final message is the JSON text. A Go caller decodes it into its own type.
+- **Streaming works as it does today.** A reply arrives in pieces, and it can only be checked when it is complete. For an Agent with a schema, the pieces are provisional: a reply that does not fit settles the Run as `failed` at the end, after the client has already seen the pieces.
 - Gotato already checks tool arguments against a schema ([G-F09](#g-f09--tools-and-their-effect-)); that check is the likely starting point for checking a reply.
 
-**Gap:** not built, and three things are open: whether the schema belongs to the Agent or to one Run, what happens when a reply does not fit (the Run fails, or the model is told and tries again, as with a failed tool call), and how HTTP and gRPC carry the schema and the value. They are decided before the code, and recorded in [DESIGNS.md](DESIGNS.md).
+**Gap:** not built. A schema for one Run alone, rather than for an Agent, is not planned; adding it later would be an addition, not a break.
 
 ### G-F31 — Recovering a cut stream ⬜
 
@@ -537,6 +541,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 - Both contracts report their version, now `"3"`, on `GET /healthz` and through `Contract`.
 - Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
+- **Access hooks (planned, not built).** Wrapping the handler shows only the URL, not who owns a Session, and `StatusFor` has no code for "not allowed", so a refusal from a store adapter would answer 500. Planned: the caller's identity travels in `context.Context` to every extension and every store call, and a new "not allowed" error from either answers 403 on HTTP and the matching code on gRPC. Who may touch which Session stays the application's rule; Gotato builds the places to enforce it, not the rule.
 
 ## Watching and extending
 
@@ -657,7 +662,7 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
 ```
 
-**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built. So is an API-compatibility check in CI, which flags a removed or changed exported identifier; it is scheduled for when mass testing begins (ROADMAP Phase 8).
+**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built. So is an API-compatibility check in CI, which flags a removed or changed exported identifier; it is scheduled for when mass testing begins (ROADMAP Phase 9).
 
 ## Later
 

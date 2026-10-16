@@ -470,7 +470,7 @@ The contract is:
 
 Every change to these is reviewed as a contract change. Additions are free, and consumers tolerate unknown Event kinds. A rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
 
-- **Check:** today a reviewer reads each change. When mass testing begins, CI also compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no changelog entry names (ROADMAP Phase 8).
+- **Check:** today a reviewer reads each change. When mass testing begins, CI also compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no changelog entry names (ROADMAP Phase 9).
 
 ### Breaks are rare, versioned and written down
 

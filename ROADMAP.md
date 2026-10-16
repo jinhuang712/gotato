@@ -17,8 +17,9 @@ Phase 3  Names           the Agent and the Loop take their glossary names
 Phase 4  Durable Turns   save every Turn, and refuse a stale save
 Phase 5  Ownership       one instance runs a Session at a time
 Phase 6  Warm Session    a Session stays in memory while in use, and leaves after its TTL
-Phase 7  Structured      a Run returns a value that fits a JSON schema
-Phase 8  Compatibility   CI flags a removed or changed exported identifier
+Phase 7  Structured      an Agent's final reply fits a JSON schema
+Phase 8  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
+Phase 9  Compatibility   CI flags a removed or changed exported identifier
          ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
 ```
 
@@ -31,6 +32,7 @@ Why this order:
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the multi-pod goals carry the pitch.
+- **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
 - **The compatibility check waits for mass testing,** when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
@@ -129,15 +131,27 @@ Exit:
 
 ## Phase 7 — Structured output
 
-- A Run can return a value that fits a JSON schema, on all three wire APIs ([FEATURES.md → G-F28](FEATURES.md#g-f28--structured-output-)).
-- The three open questions of G-F28 are answered first, as Decisions in DESIGNS.md: where the schema lives, what a reply that does not fit does, and how HTTP and gRPC carry it.
+- An Agent can carry a JSON schema, and its final reply fits it, on all three wire APIs ([FEATURES.md → G-F28](FEATURES.md#g-f28--structured-output-)).
+- A reply that does not fit settles the Run as `failed`, with a reason that names the schema. The model is not asked to try again.
+- HTTP and gRPC change nothing: the schema is part of the Agent's definition.
 
 Exit:
 
-- A scripted model returns a reply that fits and one that does not, and the Run behaves as decided, on each wire API's replayed replies.
-- The CLI and the HTTP and gRPC contracts carry the schema and the value, with a contract version bump if a field changes.
+- A scripted model returns a reply that fits and one that does not, and the Run settles as `completed` and as `failed`, on each wire API's replayed replies.
+- An Agent without a schema behaves as before, and the contract version does not change.
 
-## Phase 8 — Compatibility check
+## Phase 8 — Access hooks
+
+- The caller's identity travels in `context.Context` from the handler to every extension and every store call, and a test keeps it so.
+- A new "not allowed" error: a store adapter or an extension returns it, and HTTP answers 403 and gRPC the matching code ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
+- Authentication and the rule for who may touch which Session stay the application's. Gotato documents one example: a Session's owner kept in its metadata and checked by a store wrapper.
+
+Exit:
+
+- A store wrapper that refuses a caller by the identity in `ctx` makes reading, running and cancelling a Session answer 403, tested on HTTP and gRPC.
+- The new code is recorded in [CHANGELOG.md](CHANGELOG.md) as an addition to both contracts.
+
+## Phase 9 — Compatibility check
 
 - CI compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → Compatibility](DESIGNS.md#compatibility)).
 - It starts when mass testing begins, and the maintainer sets the date.
