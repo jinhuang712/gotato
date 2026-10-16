@@ -90,7 +90,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Save every Turn | a crash loses at most the Turn in flight | G-F27 | ⬜ |
 | Conflict on a stale save | an old copy cannot overwrite a newer one | G-F27 | ⬜ |
 | Ownership across instances | one instance runs a Session at a time | G-F27 | ⬜ |
-| Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes | G-F27 | ⬜ |
+| Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes, compacted first by default | G-F27 | ⬜ |
 
 **Endpoints**
 
@@ -287,7 +287,7 @@ An old part of the history can be replaced by one summary, so a long conversatio
 - The summary comes from truncation or from a model (`--summarizer truncate|model`).
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
 
-**Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it.
+**Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it. The planned compaction before a warm Session leaves memory (G-F27) is the other way round: on by default, because a Session that comes back after its TTL starts cold anyway.
 
 ## Tools
 
@@ -408,7 +408,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run.
 | Save every Turn | ⬜ | a crash loses at most the Turn in flight ([GOALS.md](GOALS.md) G-G01) |
 | Conflict on a stale save | ⬜ | a save from an old copy fails instead of overwriting a newer one |
 | Session ownership across instances | ⬜ | one instance runs a Session at a time, and a second instance stops before it calls the model (G-G08). Cancel and stream requests reach the owner from any instance. |
-| Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes; the store stays the truth |
+| Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes; the store stays the truth. Before it leaves, it is compacted, unless a setting turns this off; how it is compacted is decided in a later phase. |
 
 **Gap:** today the lock on a Session works within one instance only, and cancel and stream requests work only on the instance that runs the Session.
 

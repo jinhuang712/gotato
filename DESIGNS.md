@@ -138,7 +138,7 @@ The principles by group, then the decisions and the open questions. The details 
 | How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
 | How an adapter proves it meets the store contract | for example, with a conformance suite |
 | A model catalog | model names, context sizes and prices next to the providers |
-| Compaction | when it becomes part of an Agent's definition |
+| Compaction | how a Session is compacted, before its TTL and otherwise, and when it becomes part of an Agent's definition |
 | What the stored record is called | its name once Session means the live unit |
 
 ## Loop
@@ -230,8 +230,9 @@ caller ──► any instance ──► warm Session in memory (a cache)
 ```
 
 - Any instance can rebuild the Session from the store.
-- The TTL (60 idle minutes unless the Agent sets another) only removes the Session from memory. The conversation stays in the store.
-- **Cost:** a write for every committed Turn, and a load before a cold Session answers.
+- The TTL (60 idle minutes unless the Agent sets another) removes the Session from memory. The conversation stays in the store.
+- Before it leaves, the Session is compacted, unless a setting turns this off. By then the provider's prompt cache has expired, so the next Run starts cold either way, and a shorter history costs less to send again.
+- **Cost:** a write for every committed Turn, and a load before a cold Session answers. Compacting before the TTL loses detail, and it costs a summary for every Session that leaves, including one that never comes back.
 - **Check:** killing an instance loses no committed Turn ([GOALS.md](GOALS.md) G-G01), and two instances never both run one Session (G-G08).
 
 ### Save every Turn
@@ -591,6 +592,8 @@ A catalog next to the providers would list model names, context sizes and prices
 ### Compaction
 
 Compaction exists in the code, and it is not part of an Agent's definition until a later phase.
+
+One part is decided: a warm Session is compacted before it leaves memory at its TTL, on by default, and a setting turns it off ([The store is the truth, and memory is a cache](#the-store-is-the-truth-and-memory-is-a-cache)). How a Session is compacted is still open: who writes the summary, what is kept word for word, and how this relates to the ceiling that compacts at the start of a Run. That discussion belongs to a later phase.
 
 ### What the stored record is called
 

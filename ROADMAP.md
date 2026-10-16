@@ -105,6 +105,7 @@ Exit:
 ## Phase 6 — Warm Session
 
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
+- Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for the compaction discussion of a later phase ([DESIGNS.md → Compaction](DESIGNS.md#compaction)); until then, the TTL only removes the Session from memory.
 - A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
 - The stored record takes the name the design discussion chose, and the live Session takes the name Session. This ships as a planned break, with a [CHANGELOG.md](CHANGELOG.md) entry.
 
@@ -124,5 +125,5 @@ Exit:
 
 - G-B13, which needs developers new to Gotato;
 - the ideas in [FEATURES.md → Later](FEATURES.md#later);
-- the other open questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): store conformance, the model catalog, and compaction as part of an Agent's definition;
+- the other open questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): store conformance, the model catalog, and how a Session is compacted, including before its TTL and as part of an Agent's definition;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside the phases.
