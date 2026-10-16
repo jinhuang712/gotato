@@ -58,12 +58,12 @@ func TestCacheKeyIsSentAsConfigured(t *testing.T) {
 	}{
 		{"responses sends prompt_cache_key by default", Config{API: APIResponses}, "k1", "prompt_cache_key", ""},
 		{"responses with the field turned off", Config{API: APIResponses, CacheKeyField: "none"}, "k1", "", ""},
-		{"responses with a header too", Config{API: APIResponses, CacheKeyHeader: "session_id"}, "k1", "prompt_cache_key", "session_id"},
+		{"responses with a header too", Config{API: APIResponses, CacheKeyHeader: "session-id"}, "k1", "prompt_cache_key", "session-id"},
 		{"chat sends nothing by default", Config{}, "k1", "", ""},
 		{"chat with a configured field", Config{CacheKeyField: "prompt_cache_key"}, "k1", "prompt_cache_key", ""},
-		{"chat with a header", Config{CacheKeyHeader: "session_id"}, "k1", "", "session_id"},
+		{"chat with a header", Config{CacheKeyHeader: "session-id"}, "k1", "", "session-id"},
 		{"anthropic with a header", Config{API: APIAnthropicMessages, CacheKeyHeader: "x-session-affinity"}, "k1", "", "x-session-affinity"},
-		{"no key sends nothing", Config{API: APIResponses, CacheKeyHeader: "session_id"}, "", "", ""},
+		{"no key sends nothing", Config{API: APIResponses, CacheKeyHeader: "session-id"}, "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server, requests := recordingServer(t)
@@ -95,7 +95,7 @@ func TestCacheKeyIsSentAsConfigured(t *testing.T) {
 					t.Fatalf("body carries %s = %s, want no such field", field, value)
 				}
 			}
-			for _, header := range []string{"session_id", "x-session-affinity"} {
+			for _, header := range []string{"session-id", "x-session-affinity"} {
 				value := request.header.Get(header)
 				switch {
 				case header == tc.wantHead && value != tc.key:
@@ -124,7 +124,7 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		keys = append(keys, r.Header.Get("session_id"))
+		keys = append(keys, r.Header.Get("session-id"))
 		mu.Unlock()
 		if calls.Add(1) == 1 {
 			dropConnection(t, w, roleChunk)
@@ -134,7 +134,7 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	client, err := New(Config{Endpoint: server.URL, Model: "m", CacheKeyHeader: "session_id", MaxRetries: 2, RetryBackoff: time.Millisecond})
+	client, err := New(Config{Endpoint: server.URL, Model: "m", CacheKeyHeader: "session-id", MaxRetries: 2, RetryBackoff: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 		t.Fatalf("text = %q, want the restarted stream's", text)
 	}
 	if len(keys) != 2 || keys[0] != "k1" || keys[1] != "k1" {
-		t.Fatalf("session_id per attempt = %q, want k1 on both", keys)
+		t.Fatalf("session-id per attempt = %q, want k1 on both", keys)
 	}
 }
 
@@ -155,13 +155,13 @@ func TestParseYAMLCacheKey(t *testing.T) {
 api: openai-responses
 model: m
 api_key: secret
-cache_key_header: session_id
+cache_key_header: session-id
 cache_key_field: none
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.CacheKeyHeader != "session_id" || config.CacheKeyField != "none" {
+	if config.CacheKeyHeader != "session-id" || config.CacheKeyField != "none" {
 		t.Fatalf("config = %+v", config)
 	}
 }

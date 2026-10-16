@@ -352,7 +352,7 @@ model: your-model
 
 - Each request's cache key goes in the body field that `cache_key_field` names, and in the header that `cache_key_header` names, so a provider can take it in either place.
 - On `openai-responses`, the field defaults to `prompt_cache_key`, the Responses API's own field. On `openai-chat-completions` no field is sent unless you name one, because some compatible servers refuse unknown fields. `anthropic-messages` takes no field and caches by `cache_control`; a header still works there.
-- A provider that keys its cache by a session header needs `cache_key_header`. Without it, such a provider serves every Turn cold.
+- A provider that keys its cache by a session header needs `cache_key_header`, such as `session-id`. Without it, such a provider serves every Turn cold.
 
 **Headers**
 
@@ -370,7 +370,7 @@ All the settings in the YAML file:
 | `model` | — | the model to call |
 | `headers` | none | headers some providers or proxies require |
 | `cache_key_field` | `prompt_cache_key` on `openai-responses`, none on chat; `none` turns it off | the body field that carries the prompt cache key |
-| `cache_key_header` | none | the header that carries the prompt cache key, for a provider that keys its cache by a session header |
+| `cache_key_header` | none | the header that carries the prompt cache key, such as `session-id`, for a provider that keys its cache by a session header |
 | `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
 

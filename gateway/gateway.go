@@ -54,7 +54,7 @@ type Config struct {
 	Headers    map[string]string
 	// CacheKeyHeader, when set, sends each request's ModelRequest.CacheKey in
 	// this HTTP header, for a provider that routes its prompt cache by a
-	// session header such as "session_id".
+	// session header such as "session-id".
 	CacheKeyHeader string
 	// CacheKeyField names the top-level body field that carries the
 	// CacheKey. Empty uses the wire API's default: "prompt_cache_key" for
