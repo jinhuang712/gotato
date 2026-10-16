@@ -53,7 +53,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Schema check | every call is checked before the tool runs | G-F09 | ✅ |
 | Effect | every tool declares read, write local, write external or destructive | G-F09 | ✅ |
 | Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
-| Effect cap per Agent | limit an Agent's tools to a highest Effect | G-F09 | ⬜ |
+| Effect cap per Agent | the model never sees a tool above the Agent's highest Effect | G-F09 | ✅ |
 | Tool registry | register, remove, switch on and switch off tools at any time | G-F10 | ✅ |
 | Tool sets | groups of tools the model switches on itself | G-F10 | ✅ |
 | Tools per Session | switch a tool on or off for one Session | G-F10 | ✅ |
@@ -328,7 +328,7 @@ The instruction and the tools come before the history, so changing them mid-Sess
 
 ## Tools
 
-### G-F09 — Tools and their Effect 🚧
+### G-F09 — Tools and their Effect ✅
 
 A tool is one thing an agent can do, such as a lookup in your database:
 
@@ -342,7 +342,19 @@ lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
 - A tool result carries a status. A failure carries a safe message for the model.
 - A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
 
-**Gap:** the Effect cap per Agent is not built. Gotato does not yet limit an Agent's tools to a highest Effect, such as read only. Until it does, a `PreToolUse` extension can refuse a call above a level with `ToolEffect.Within` ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+**The Effect cap.** An Agent can name the highest Effect its tools may have. Here the refund tool is never offered, because the Agent only reads:
+
+```go
+agent, _ := gotato.NewAgent(gotato.WithModel(model), gotato.WithTools(lookup, refund),
+	gotato.WithMaxEffect(gotato.EffectRead))
+```
+
+- A tool above the cap is hidden: it is in no model request, no inspected Context and no tool listing. That includes the tools of a ToolSet the model activates later. The tool that activates a ToolSet declares `read`, so every cap keeps it.
+- A model that calls a hidden tool by a guessed name gets the failed result of an unknown tool, which lists only the visible tools, and the Run goes on.
+- A tool that declares no Effect counts as destructive, so any cap below `destructive` hides it.
+- No cap is the default. In a service, `service.AgentSpec.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent ([DESIGNS.md → The Effect cap hides tools](DESIGNS.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- The cap is shown by `gotato tools list` (`max_effect` in `--json`), and by `GET /v1/agents` and the gRPC `Agents` call, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
+- The check is G-G05: every cap against tools of every Effect ([GOALS.md](GOALS.md)).
 
 ### G-F10 — Tool sets and the registry ✅
 
@@ -511,6 +523,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 ```
 
 - A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
+- `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` filters with `?kind=`.
 - A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. Only request-level problems use error codes:
 
@@ -732,7 +745,7 @@ Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or anot
 
 ### G-N12 — Tool Approval Belongs to the Tools
 
-An Agent's tools are written by the team and allowed by name, and an Agent caps the Effect its tools may have. A tool that is risky for some arguments refuses those arguments in its own code. A team that wants an extra check before a call installs a `PreToolUse` extension. Gotato has no built-in approval system.
+An Agent's tools are written by the team and allowed by name, and an Agent can cap the Effect its tools may have, which hides every tool above it from the model. A tool that is risky for some arguments refuses those arguments in its own code. A team that wants an extra check before a call installs a `PreToolUse` extension. Gotato has no built-in approval system.
 
 ### G-N13 — No Cloud Coding Agent
 

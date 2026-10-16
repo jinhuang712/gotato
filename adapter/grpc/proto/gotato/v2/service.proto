@@ -53,7 +53,12 @@ message ContractRequest {}
 message ContractResponse { string version = 1; }
 
 message AgentsRequest {}
-message AgentsResponse { repeated string agents = 1; }
+message AgentsResponse {
+  repeated string agents = 1;
+  // max_effect maps an Agent's name to the highest Effect its tools may
+  // have. An Agent without a cap has no entry.
+  map<string, string> max_effect = 2;
+}
 
 message CreateSessionRequest {
   string agent = 1;

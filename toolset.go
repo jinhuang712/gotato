@@ -93,6 +93,8 @@ type toolRegistry struct {
 	activation    Tool
 	maxActive     uint32
 	explicit      bool
+	// maxEffect hides every Tool above it; EffectUnspecified means no cap.
+	maxEffect ToolEffect
 	// pending holds ToolSets activated during the current batch. Visibility
 	// commits at the batch boundary, never inside it.
 	pending []*toolSetState
@@ -109,6 +111,7 @@ func newToolRegistry(cfg *agentConfig) (*toolRegistry, error) {
 		sources:       cfg.toolSources,
 		maxActive:     cfg.limits.MaxActiveToolSets,
 		explicit:      cfg.limitsSet,
+		maxEffect:     cfg.maxEffect,
 	}
 	if err := registry.collectSources(); err != nil {
 		return nil, err
@@ -206,12 +209,21 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	return tools, nil
 }
 
+// hidden reports whether the Effect cap keeps a Tool from the Model.
+func (r *toolRegistry) hidden(spec ToolSpec) bool {
+	return r.maxEffect != EffectUnspecified && !spec.Effect.Within(r.maxEffect)
+}
+
 // rebuild recomputes the visible Tool set. Ordering is deterministic: Tools
-// sort by qualified ID.
+// sort by qualified ID. A Tool above the Effect cap is left out entirely, so
+// it is neither offered nor resolvable by any name.
 func (r *toolRegistry) rebuild() error {
 	byQualified := map[string]Tool{}
 	specs := make([]ToolSpec, 0, len(r.rootTools))
 	register := func(qualified string, tool Tool, spec ToolSpec) error {
+		if r.hidden(spec) {
+			return nil
+		}
 		if _, exists := byQualified[qualified]; exists {
 			return runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
 		}
@@ -260,6 +272,9 @@ func (r *toolRegistry) rebuild() error {
 	// that answers with the bare name still resolves.
 	for _, tool := range r.staticTools() {
 		spec := tool.Spec()
+		if r.hidden(spec) {
+			continue
+		}
 		for _, alias := range []string{spec.ID, spec.Name} {
 			if alias == "" {
 				continue
@@ -456,6 +471,9 @@ func (t *activationTool) Spec() ToolSpec {
 		Description: "Activate one inactive ToolSet. Its Tools become visible on the next request.",
 		Sequential:  true,
 		InputSchema: schema,
+		// It changes only which Tools the Model sees, and those Tools pass
+		// the Effect cap like any other, so it stays visible under every cap.
+		Effect: EffectRead,
 	}
 }
 

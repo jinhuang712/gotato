@@ -48,7 +48,14 @@ func (s *Server) Contract(context.Context, *gotatov2.ContractRequest) (*gotatov2
 }
 
 func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.AgentsResponse, error) {
-	return &gotatov2.AgentsResponse{Agents: s.runner.Agents()}, nil
+	names := s.runner.Agents()
+	caps := map[string]string{}
+	for _, name := range names {
+		if spec, ok := s.runner.Spec(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
+			caps[name] = string(spec.MaxEffect)
+		}
+	}
+	return &gotatov2.AgentsResponse{Agents: names, MaxEffect: caps}, nil
 }
 
 func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSessionRequest) (*gotatov2.SessionSummary, error) {

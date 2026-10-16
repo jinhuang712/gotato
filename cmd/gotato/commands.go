@@ -459,8 +459,10 @@ func viewOf(entry service.ToolEntry) toolView {
 }
 
 type toolListing struct {
-	SessionID string     `json:"session_id,omitempty"`
-	Agent     string     `json:"agent,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	// MaxEffect is the agent's Effect cap; tools above it are not listed.
+	MaxEffect string     `json:"max_effect,omitempty"`
 	Tools     []toolView `json:"tools"`
 }
 
@@ -510,7 +512,8 @@ func (c *cli) cmdTools(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	listing := toolListing{SessionID: *sessionID, Agent: agent}
+	spec, _ := rt.runner.Spec(agent)
+	listing := toolListing{SessionID: *sessionID, Agent: agent, MaxEffect: string(spec.MaxEffect), Tools: []toolView{}}
 	for _, entry := range entries {
 		listing.Tools = append(listing.Tools, viewOf(entry))
 	}
@@ -518,6 +521,9 @@ func (c *cli) cmdTools(args []string) int {
 	case "list", "ls":
 		if c.machine() {
 			return c.writeJSON(listing)
+		}
+		if listing.MaxEffect != "" {
+			fmt.Fprintf(c.stdout, "max effect: %s\n", listing.MaxEffect)
 		}
 		for _, entry := range listing.Tools {
 			state := "active"
@@ -528,7 +534,7 @@ func (c *cli) cmdTools(args []string) int {
 		}
 		return ExitOK
 	case "active":
-		active := toolListing{SessionID: *sessionID, Agent: agent, Tools: []toolView{}}
+		active := toolListing{SessionID: *sessionID, Agent: agent, MaxEffect: listing.MaxEffect, Tools: []toolView{}}
 		for _, view := range listing.Tools {
 			if view.Active {
 				active.Tools = append(active.Tools, view)

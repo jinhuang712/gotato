@@ -17,8 +17,8 @@ type ToolSpec struct {
 	OutputSchema []byte            `json:"output_schema,omitempty"`
 	Sequential   bool              `json:"sequential,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
-	// Effect classifies what the tool changes. Core records it, copies it
-	// into ToolUse, and leaves enforcement to the application.
+	// Effect classifies what the tool changes. Core copies it into ToolUse,
+	// and an Agent built WithMaxEffect hides every tool above its cap.
 	Effect ToolEffect `json:"effect,omitempty"`
 }
 

@@ -4,7 +4,18 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Nothing yet.
+Phase 2 of [ROADMAP.md](ROADMAP.md), the Effect cap. All changes are additions, and the HTTP and gRPC contract version stays `"3"`.
+
+### Runtime
+
+- **An Agent can cap the Effect of its tools.** `gotato.WithMaxEffect(effect)` and `service.AgentSpec.MaxEffect` name the highest Effect a tool may have. A tool above the cap is never shown to the model, including the tools of a ToolSet activated later, and a call to it fails as a call to an unknown tool. A tool that declares no Effect counts as destructive, so any lower cap hides it. A Session cannot switch on a hidden tool: `Runner.Tools` does not list it, and `Runner.SetToolActive` reports it as unknown. There is no cap by default, so an Agent that names none behaves as before. An unknown Effect fails `NewAgent` and `service.New`.
+- **The tool that activates a ToolSet declares `read`.** It changes only which tools the model sees, so every cap keeps it. Its `ToolSpec`, and the `ToolUse` a `PreToolUse` extension gets for it, now carry `EffectRead` instead of no Effect.
+
+### Contracts
+
+- HTTP: `GET /v1/agents` adds `max_effect`, an object from Agent name to cap. An Agent without a cap has no entry.
+- gRPC: `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning. The generated code also picks up comments that `service.proto` had gained since the last generation.
+- CLI: `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
 ## v0.1.2 — 2026-10-16
 

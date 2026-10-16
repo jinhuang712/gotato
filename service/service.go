@@ -69,6 +69,10 @@ type AgentSpec struct {
 	Instruction string
 	Tools       []gotato.Tool
 	ToolSources []gotato.ToolSource
+	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool
+	// above it is hidden from the model and from Runner.Tools, and no Session
+	// can switch it on. Empty means no cap (gotato.WithMaxEffect).
+	MaxEffect gotato.ToolEffect
 	// ContextBuilder defaults to modelctx.FullHistory().
 	ContextBuilder gotato.ContextBuilder
 	Extensions     []any
@@ -222,6 +226,9 @@ func New(cfg Config) (*Runner, error) {
 		}
 		if _, dup := r.specs[name]; dup {
 			return nil, fmt.Errorf("service: duplicate AgentSpec %q", name)
+		}
+		if !spec.MaxEffect.Valid() {
+			return nil, fmt.Errorf("service: AgentSpec %q has unknown MaxEffect %q", name, spec.MaxEffect)
 		}
 		spec.Name = name
 		r.specs[name] = spec
@@ -628,6 +635,9 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		gotato.WithCacheKey(sessionCacheKey(s)),
 	}
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s}))
+	if spec.MaxEffect != gotato.EffectUnspecified {
+		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
+	}
 	if spec.Limits != nil {
 		options = append(options, gotato.WithLimits(*spec.Limits))
 	}
@@ -710,8 +720,9 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 }
 
 // sessionTools is the ToolSource an Agent sees for one Session: the Spec's
-// static Tools and ToolSources minus the ones the Session deactivated. It is
-// re-read at every Turn boundary like any ToolSource.
+// static Tools and ToolSources within its MaxEffect, minus the ones the
+// Session deactivated. It is re-read at every Turn boundary like any
+// ToolSource.
 type sessionTools struct {
 	spec    AgentSpec
 	session *session.Session
@@ -720,19 +731,24 @@ type sessionTools struct {
 func (t *sessionTools) Tools() []gotato.Tool {
 	var tools []gotato.Tool
 	for _, tool := range t.spec.Tools {
-		if t.active(tool.Spec().ID) {
+		if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 			tools = append(tools, tool)
 		}
 	}
 	for _, source := range t.spec.ToolSources {
 		for _, tool := range source.Tools() {
-			if t.active(tool.Spec().ID) {
+			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 				tools = append(tools, tool)
 			}
 		}
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Spec().ID < tools[j].Spec().ID })
 	return tools
+}
+
+// allowed reports whether a Tool is within the Spec's MaxEffect.
+func (t *sessionTools) allowed(spec gotato.ToolSpec) bool {
+	return t.spec.MaxEffect == gotato.EffectUnspecified || spec.Effect.Within(t.spec.MaxEffect)
 }
 
 func (t *sessionTools) active(id string) bool {
@@ -744,7 +760,8 @@ func (t *sessionTools) active(id string) bool {
 }
 
 // Tools describes the Tool surface of an AgentSpec as a Session sees it.
-// sessionID may be empty for the Spec's default surface.
+// sessionID may be empty for the Spec's default surface. A Tool above the
+// Spec's MaxEffect is not listed.
 func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntry, error) {
 	var s *session.Session
 	if sessionID != "" {

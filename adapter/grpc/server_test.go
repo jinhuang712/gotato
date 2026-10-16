@@ -26,7 +26,7 @@ func newTestClient(t *testing.T) gotatov2.SessionServiceClient {
 		Store: session.NewMemoryStore(),
 		Specs: []service.AgentSpec{
 			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
-			{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{testkit.DemoEchoTool()}},
+			{Name: "demo", Model: testkit.DemoModel{}, Tools: []gotato.Tool{gotato.ToolWithEffect(testkit.DemoEchoTool(), gotato.EffectRead)}, MaxEffect: gotato.EffectRead},
 		},
 	})
 	if err != nil {
@@ -60,6 +60,9 @@ func TestContractAndAgents(t *testing.T) {
 	agents, err := client.Agents(context.Background(), &gotatov2.AgentsRequest{})
 	if err != nil || len(agents.GetAgents()) != 2 || agents.GetAgents()[0] != "echo" {
 		t.Fatalf("agents = %v err=%v", agents, err)
+	}
+	if caps := agents.GetMaxEffect(); len(caps) != 1 || caps["demo"] != "read" {
+		t.Fatalf("max_effect = %v, want only demo capped at read", caps)
 	}
 }
 

@@ -11,7 +11,7 @@ The phases, in order, with the design discussion that comes before the store cha
 
 ```text
 Phase 1  Measure         the reference workload and the live run
-Phase 2  Effect cap      an Agent limits its tools to a highest Effect
+Phase 2  Effect cap      an Agent hides the tools above its highest Effect
 Phase 3  Names           the Agent and the Loop take their glossary names
          ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
 Phase 4  Durable Turns   save every Turn, and refuse a stale save
@@ -58,12 +58,18 @@ Exit:
 - ✅ G-G04 passes on the reference workload in CI, and the live run counts no failure caused by Gotato.
 - ✅ Every benchmark but G-B13 has a number.
 
-## Phase 2 — Effect cap
+## Phase 2 — Effect cap ✅
 
-- An Agent names the highest Effect its tools may have.
-- A Run refuses a tool above that Effect before calling it ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+Built, and ships in the next 0.1.x release.
 
-Exit: G-G05 passes.
+- ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.AgentSpec.MaxEffect`. There is no cap by default.
+- ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+- ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
+- ✅ `gotato tools list`, `GET /v1/agents` and the gRPC `Agents` call report the cap.
+
+Exit:
+
+- ✅ G-G05 passes.
 
 ## Phase 3 — Names
 

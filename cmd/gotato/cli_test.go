@@ -306,6 +306,32 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 	}
 }
 
+func TestToolsListReportsTheEffectCap(t *testing.T) {
+	h := newHarness(t)
+	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.EffectRead)
+	push := testkit.NewFakeTool("push", "pushed") // declares no Effect, so it ranks as destructive
+	testAgentSpecs = []service.AgentSpec{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.EffectRead}}
+	defer func() { testAgentSpecs = nil }()
+
+	var listing toolListing
+	h.mustJSON(h.ok("tools", "list", "--model", "reader", "--json"), &listing)
+	if listing.MaxEffect != "read" || len(listing.Tools) != 1 || listing.Tools[0].ID != "lookup" {
+		t.Fatalf("tools list = %+v, want max_effect read and only lookup", listing)
+	}
+	if code, _, _ := h.run("tools", "describe", "push", "--model", "reader", "--json"); code != ExitNotFound {
+		t.Fatalf("describe a hidden tool exit = %d, want %d", code, ExitNotFound)
+	}
+	if out := h.ok("tools", "list", "--model", "reader"); !strings.HasPrefix(out, "max effect: read\n") {
+		t.Fatalf("human tools list = %q", out)
+	}
+	// An Agent without a cap reports none.
+	var open toolListing
+	h.mustJSON(h.ok("tools", "list", "--json"), &open)
+	if open.MaxEffect != "" {
+		t.Fatalf("uncapped tools list max_effect = %q", open.MaxEffect)
+	}
+}
+
 func TestForkIsIndependent(t *testing.T) {
 	h := newHarness(t)
 	var first runOutcome

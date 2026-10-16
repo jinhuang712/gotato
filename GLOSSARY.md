@@ -43,6 +43,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Tool Registry** | The catalog of Tools, with which of them are active. | | `toolregistry.Registry` |
 | **ToolSource** | Anything that supplies Tools at the start of each Turn. | | `gotato.ToolSource` |
 | **Effect** | How much a Tool can change: read, write local, write external or destructive. | side effect, risk level | `gotato.ToolEffect` |
+| **Effect cap** | The highest Effect an Agent's Tools may have. The model never sees a Tool above it. Only the Agent sets it, and there is none by default. | permission, policy, approval | `gotato.WithMaxEffect`, `service.AgentSpec.MaxEffect` |
 
 ## State and history
 

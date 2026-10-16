@@ -1,6 +1,6 @@
 # Gotato TODO
 
-Open defects and design decisions, verified against the code. Planned capabilities (Session ownership across instances, the Effect cap, the warm Session and its TTL, fault injection and the multi-instance harness) and the *Later* list (MCP, rate-limit info, examples and more) are tracked in [FEATURES.md](FEATURES.md). Remove an item in the commit that resolves it.
+Open defects and design decisions, verified against the code. Planned capabilities (Session ownership across instances, the warm Session and its TTL, fault injection and the multi-instance harness) and the *Later* list (MCP, rate-limit info, examples and more) are tracked in [FEATURES.md](FEATURES.md). Remove an item in the commit that resolves it.
 
 ## Defects
 

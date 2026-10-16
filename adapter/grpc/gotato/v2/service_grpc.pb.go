@@ -50,7 +50,9 @@ type SessionServiceClient interface {
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*SessionSummary, error)
 	// GetSession returns the full Session document as JSON.
 	GetSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionDocument, error)
-	// ListSessions lists Session summaries, newest first.
+	// ListSessions lists Session summaries, newest first. The response is not
+	// paged: it returns every Session the Store holds, so callers must apply a
+	// deadline and size their Store accordingly.
 	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 	// DeleteSession removes a Session.
 	DeleteSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*DeleteSessionResponse, error)
@@ -60,12 +62,16 @@ type SessionServiceClient interface {
 	// session_id creates a Session.
 	Run(ctx context.Context, in *RunRequest, opts ...grpc.CallOption) (*RunResult, error)
 	// StreamRun executes one Run while streaming its runtime Events; the
-	// terminal RunResult is the last message on the stream.
+	// terminal RunResult is the last message on the stream. Delivery is
+	// backpressured by the client's read rate: the adapter sends synchronously
+	// and ends the stream when Send fails or the stream deadline passes.
 	StreamRun(ctx context.Context, in *RunRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RunUpdate], error)
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
 	// Run is not active rather than pretending to cancel.
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
-	// Events returns the retained runtime Events of a Session.
+	// Events returns the retained runtime Events of a Session. It is not
+	// paged: it streams every retained Event matching kind, so it is bounded by
+	// the Session's retention limits and by the stream deadline.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	// Context reports what the Model would see for the Session now.
 	Context(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*ContextReport, error)
@@ -245,7 +251,9 @@ type SessionServiceServer interface {
 	CreateSession(context.Context, *CreateSessionRequest) (*SessionSummary, error)
 	// GetSession returns the full Session document as JSON.
 	GetSession(context.Context, *SessionRequest) (*SessionDocument, error)
-	// ListSessions lists Session summaries, newest first.
+	// ListSessions lists Session summaries, newest first. The response is not
+	// paged: it returns every Session the Store holds, so callers must apply a
+	// deadline and size their Store accordingly.
 	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	// DeleteSession removes a Session.
 	DeleteSession(context.Context, *SessionRequest) (*DeleteSessionResponse, error)
@@ -255,12 +263,16 @@ type SessionServiceServer interface {
 	// session_id creates a Session.
 	Run(context.Context, *RunRequest) (*RunResult, error)
 	// StreamRun executes one Run while streaming its runtime Events; the
-	// terminal RunResult is the last message on the stream.
+	// terminal RunResult is the last message on the stream. Delivery is
+	// backpressured by the client's read rate: the adapter sends synchronously
+	// and ends the stream when Send fails or the stream deadline passes.
 	StreamRun(*RunRequest, grpc.ServerStreamingServer[RunUpdate]) error
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
 	// Run is not active rather than pretending to cancel.
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
-	// Events returns the retained runtime Events of a Session.
+	// Events returns the retained runtime Events of a Session. It is not
+	// paged: it streams every retained Event matching kind, so it is bounded by
+	// the Session's retention limits and by the stream deadline.
 	Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error
 	// Context reports what the Model would see for the Session now.
 	Context(context.Context, *SessionRequest) (*ContextReport, error)

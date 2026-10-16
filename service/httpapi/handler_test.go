@@ -292,8 +292,34 @@ func TestHealthAndAgents(t *testing.T) {
 		t.Fatalf("healthz = %d %s", status, body)
 	}
 	status, body = call(t, server, http.MethodGet, "/v1/agents", nil)
-	if status != http.StatusOK || !strings.Contains(string(body), `["echo","demo"]`) {
+	if status != http.StatusOK || !strings.Contains(string(body), `["echo","demo"]`) || !strings.Contains(string(body), `"max_effect":{}`) {
 		t.Fatalf("agents = %d %s", status, body)
+	}
+}
+
+func TestAgentsReportMaxEffect(t *testing.T) {
+	runner, err := service.New(service.Config{
+		Store: session.NewMemoryStore(),
+		Specs: []service.AgentSpec{
+			{Name: "open", Model: testkit.EchoModel{}},
+			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.EffectRead},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	t.Cleanup(server.Close)
+	status, body := call(t, server, http.MethodGet, "/v1/agents", nil)
+	var out struct {
+		Agents    []string          `json:"agents"`
+		MaxEffect map[string]string `json:"max_effect"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || status != http.StatusOK {
+		t.Fatalf("agents = %d %s (%v)", status, body, err)
+	}
+	if len(out.Agents) != 2 || len(out.MaxEffect) != 1 || out.MaxEffect["reader"] != "read" {
+		t.Fatalf("agents = %s, want only reader capped at read", body)
 	}
 }
 

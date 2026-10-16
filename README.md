@@ -99,7 +99,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Service: Runner, HTTP, gRPC, admission, drain | done |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
 | Session ownership across instances | planned |
-| Tool effect classification (`ToolSpec.Effect`) | done |
+| Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | MCP through `ToolSet`/`ToolSource` | planned |
 | Measurement: the reference workload and the live run (`gotato-workload`) | done; fault injection and a multi-instance harness planned |
 | Provider rate-limit information | planned |

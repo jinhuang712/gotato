@@ -112,6 +112,7 @@ type agentConfig struct {
 	contextBuilder ContextBuilder
 	modelOptions   ModelOptions
 	cacheKey       string
+	maxEffect      ToolEffect
 }
 
 func WithModel(model Model) Option {
@@ -150,6 +151,21 @@ func WithModelOptions(options ModelOptions) Option {
 // prompt.
 func WithCacheKey(key string) Option {
 	return func(c *agentConfig) error { c.cacheKey = key; return nil }
+}
+
+// WithMaxEffect caps the Effect of the Tools the Agent offers. A Tool above
+// the cap, including one in a ToolSet activated later, is never shown to the
+// Model, and a call to it fails as a call to an unknown Tool. A Tool that
+// declares no Effect ranks as EffectDestructive, so any lower cap hides it.
+// EffectUnspecified means no cap, which is the default.
+func WithMaxEffect(effect ToolEffect) Option {
+	return func(c *agentConfig) error {
+		if !effect.Valid() {
+			return runtimeError(ErrInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
+		}
+		c.maxEffect = effect
+		return nil
+	}
 }
 
 func WithTool(tool Tool) Option {

@@ -138,8 +138,11 @@ func (*AgentsRequest) Descriptor() ([]byte, []int) {
 }
 
 type AgentsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agents        []string               `protobuf:"bytes,1,rep,name=agents,proto3" json:"agents,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Agents []string               `protobuf:"bytes,1,rep,name=agents,proto3" json:"agents,omitempty"`
+	// max_effect maps an Agent's name to the highest Effect its tools may
+	// have. An Agent without a cap has no entry.
+	MaxEffect     map[string]string `protobuf:"bytes,2,rep,name=max_effect,json=maxEffect,proto3" json:"max_effect,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,6 +180,13 @@ func (*AgentsResponse) Descriptor() ([]byte, []int) {
 func (x *AgentsResponse) GetAgents() []string {
 	if x != nil {
 		return x.Agents
+	}
+	return nil
+}
+
+func (x *AgentsResponse) GetMaxEffect() map[string]string {
+	if x != nil {
+		return x.MaxEffect
 	}
 	return nil
 }
@@ -563,8 +573,10 @@ type RunRequest struct {
 	//
 	//	*RunRequest_Prompt
 	//	*RunRequest_ContinueInput
-	Input         isRunRequest_Input `protobuf_oneof:"input"`
-	Metadata      map[string]string  `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Input isRunRequest_Input `protobuf_oneof:"input"`
+	// metadata is applied only when this Run creates the Session: it is
+	// ignored when session_id names an existing Session.
+	Metadata      map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1625,9 +1637,14 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0fContractRequest\",\n" +
 	"\x10ContractResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\"\x0f\n" +
-	"\rAgentsRequest\"(\n" +
+	"\rAgentsRequest\"\xaf\x01\n" +
 	"\x0eAgentsResponse\x12\x16\n" +
-	"\x06agents\x18\x01 \x03(\tR\x06agents\"\xc4\x01\n" +
+	"\x06agents\x18\x01 \x03(\tR\x06agents\x12G\n" +
+	"\n" +
+	"max_effect\x18\x02 \x03(\v2(.gotato.v2.AgentsResponse.MaxEffectEntryR\tmaxEffect\x1a<\n" +
+	"\x0eMaxEffectEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12I\n" +
@@ -1785,7 +1802,7 @@ func file_gotato_v2_service_proto_rawDescGZIP() []byte {
 	return file_gotato_v2_service_proto_rawDescData
 }
 
-var file_gotato_v2_service_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_gotato_v2_service_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_gotato_v2_service_proto_goTypes = []any{
 	(*ContractRequest)(nil),       // 0: gotato.v2.ContractRequest
 	(*ContractResponse)(nil),      // 1: gotato.v2.ContractResponse
@@ -1812,53 +1829,55 @@ var file_gotato_v2_service_proto_goTypes = []any{
 	(*ContextReport)(nil),         // 22: gotato.v2.ContextReport
 	(*CompactRequest)(nil),        // 23: gotato.v2.CompactRequest
 	(*CompactResult)(nil),         // 24: gotato.v2.CompactResult
-	nil,                           // 25: gotato.v2.CreateSessionRequest.MetadataEntry
-	nil,                           // 26: gotato.v2.SessionSummary.MetadataEntry
-	nil,                           // 27: gotato.v2.RunRequest.MetadataEntry
+	nil,                           // 25: gotato.v2.AgentsResponse.MaxEffectEntry
+	nil,                           // 26: gotato.v2.CreateSessionRequest.MetadataEntry
+	nil,                           // 27: gotato.v2.SessionSummary.MetadataEntry
+	nil,                           // 28: gotato.v2.RunRequest.MetadataEntry
 }
 var file_gotato_v2_service_proto_depIdxs = []int32{
-	25, // 0: gotato.v2.CreateSessionRequest.metadata:type_name -> gotato.v2.CreateSessionRequest.MetadataEntry
-	14, // 1: gotato.v2.SessionSummary.usage:type_name -> gotato.v2.Usage
-	26, // 2: gotato.v2.SessionSummary.metadata:type_name -> gotato.v2.SessionSummary.MetadataEntry
-	6,  // 3: gotato.v2.ListSessionsResponse.sessions:type_name -> gotato.v2.SessionSummary
-	12, // 4: gotato.v2.RunRequest.continue_input:type_name -> gotato.v2.ContinueInput
-	27, // 5: gotato.v2.RunRequest.metadata:type_name -> gotato.v2.RunRequest.MetadataEntry
-	14, // 6: gotato.v2.RunResult.usage:type_name -> gotato.v2.Usage
-	15, // 7: gotato.v2.RunResult.metrics:type_name -> gotato.v2.RunMetrics
-	16, // 8: gotato.v2.RunResult.error:type_name -> gotato.v2.RuntimeError
-	18, // 9: gotato.v2.RunUpdate.event:type_name -> gotato.v2.Event
-	13, // 10: gotato.v2.RunUpdate.result:type_name -> gotato.v2.RunResult
-	0,  // 11: gotato.v2.SessionService.Contract:input_type -> gotato.v2.ContractRequest
-	2,  // 12: gotato.v2.SessionService.Agents:input_type -> gotato.v2.AgentsRequest
-	4,  // 13: gotato.v2.SessionService.CreateSession:input_type -> gotato.v2.CreateSessionRequest
-	5,  // 14: gotato.v2.SessionService.GetSession:input_type -> gotato.v2.SessionRequest
-	8,  // 15: gotato.v2.SessionService.ListSessions:input_type -> gotato.v2.ListSessionsRequest
-	5,  // 16: gotato.v2.SessionService.DeleteSession:input_type -> gotato.v2.SessionRequest
-	5,  // 17: gotato.v2.SessionService.ForkSession:input_type -> gotato.v2.SessionRequest
-	11, // 18: gotato.v2.SessionService.Run:input_type -> gotato.v2.RunRequest
-	11, // 19: gotato.v2.SessionService.StreamRun:input_type -> gotato.v2.RunRequest
-	19, // 20: gotato.v2.SessionService.CancelRun:input_type -> gotato.v2.CancelRunRequest
-	21, // 21: gotato.v2.SessionService.Events:input_type -> gotato.v2.EventsRequest
-	5,  // 22: gotato.v2.SessionService.Context:input_type -> gotato.v2.SessionRequest
-	23, // 23: gotato.v2.SessionService.Compact:input_type -> gotato.v2.CompactRequest
-	1,  // 24: gotato.v2.SessionService.Contract:output_type -> gotato.v2.ContractResponse
-	3,  // 25: gotato.v2.SessionService.Agents:output_type -> gotato.v2.AgentsResponse
-	6,  // 26: gotato.v2.SessionService.CreateSession:output_type -> gotato.v2.SessionSummary
-	7,  // 27: gotato.v2.SessionService.GetSession:output_type -> gotato.v2.SessionDocument
-	9,  // 28: gotato.v2.SessionService.ListSessions:output_type -> gotato.v2.ListSessionsResponse
-	10, // 29: gotato.v2.SessionService.DeleteSession:output_type -> gotato.v2.DeleteSessionResponse
-	6,  // 30: gotato.v2.SessionService.ForkSession:output_type -> gotato.v2.SessionSummary
-	13, // 31: gotato.v2.SessionService.Run:output_type -> gotato.v2.RunResult
-	17, // 32: gotato.v2.SessionService.StreamRun:output_type -> gotato.v2.RunUpdate
-	20, // 33: gotato.v2.SessionService.CancelRun:output_type -> gotato.v2.CancelRunResponse
-	18, // 34: gotato.v2.SessionService.Events:output_type -> gotato.v2.Event
-	22, // 35: gotato.v2.SessionService.Context:output_type -> gotato.v2.ContextReport
-	24, // 36: gotato.v2.SessionService.Compact:output_type -> gotato.v2.CompactResult
-	24, // [24:37] is the sub-list for method output_type
-	11, // [11:24] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	25, // 0: gotato.v2.AgentsResponse.max_effect:type_name -> gotato.v2.AgentsResponse.MaxEffectEntry
+	26, // 1: gotato.v2.CreateSessionRequest.metadata:type_name -> gotato.v2.CreateSessionRequest.MetadataEntry
+	14, // 2: gotato.v2.SessionSummary.usage:type_name -> gotato.v2.Usage
+	27, // 3: gotato.v2.SessionSummary.metadata:type_name -> gotato.v2.SessionSummary.MetadataEntry
+	6,  // 4: gotato.v2.ListSessionsResponse.sessions:type_name -> gotato.v2.SessionSummary
+	12, // 5: gotato.v2.RunRequest.continue_input:type_name -> gotato.v2.ContinueInput
+	28, // 6: gotato.v2.RunRequest.metadata:type_name -> gotato.v2.RunRequest.MetadataEntry
+	14, // 7: gotato.v2.RunResult.usage:type_name -> gotato.v2.Usage
+	15, // 8: gotato.v2.RunResult.metrics:type_name -> gotato.v2.RunMetrics
+	16, // 9: gotato.v2.RunResult.error:type_name -> gotato.v2.RuntimeError
+	18, // 10: gotato.v2.RunUpdate.event:type_name -> gotato.v2.Event
+	13, // 11: gotato.v2.RunUpdate.result:type_name -> gotato.v2.RunResult
+	0,  // 12: gotato.v2.SessionService.Contract:input_type -> gotato.v2.ContractRequest
+	2,  // 13: gotato.v2.SessionService.Agents:input_type -> gotato.v2.AgentsRequest
+	4,  // 14: gotato.v2.SessionService.CreateSession:input_type -> gotato.v2.CreateSessionRequest
+	5,  // 15: gotato.v2.SessionService.GetSession:input_type -> gotato.v2.SessionRequest
+	8,  // 16: gotato.v2.SessionService.ListSessions:input_type -> gotato.v2.ListSessionsRequest
+	5,  // 17: gotato.v2.SessionService.DeleteSession:input_type -> gotato.v2.SessionRequest
+	5,  // 18: gotato.v2.SessionService.ForkSession:input_type -> gotato.v2.SessionRequest
+	11, // 19: gotato.v2.SessionService.Run:input_type -> gotato.v2.RunRequest
+	11, // 20: gotato.v2.SessionService.StreamRun:input_type -> gotato.v2.RunRequest
+	19, // 21: gotato.v2.SessionService.CancelRun:input_type -> gotato.v2.CancelRunRequest
+	21, // 22: gotato.v2.SessionService.Events:input_type -> gotato.v2.EventsRequest
+	5,  // 23: gotato.v2.SessionService.Context:input_type -> gotato.v2.SessionRequest
+	23, // 24: gotato.v2.SessionService.Compact:input_type -> gotato.v2.CompactRequest
+	1,  // 25: gotato.v2.SessionService.Contract:output_type -> gotato.v2.ContractResponse
+	3,  // 26: gotato.v2.SessionService.Agents:output_type -> gotato.v2.AgentsResponse
+	6,  // 27: gotato.v2.SessionService.CreateSession:output_type -> gotato.v2.SessionSummary
+	7,  // 28: gotato.v2.SessionService.GetSession:output_type -> gotato.v2.SessionDocument
+	9,  // 29: gotato.v2.SessionService.ListSessions:output_type -> gotato.v2.ListSessionsResponse
+	10, // 30: gotato.v2.SessionService.DeleteSession:output_type -> gotato.v2.DeleteSessionResponse
+	6,  // 31: gotato.v2.SessionService.ForkSession:output_type -> gotato.v2.SessionSummary
+	13, // 32: gotato.v2.SessionService.Run:output_type -> gotato.v2.RunResult
+	17, // 33: gotato.v2.SessionService.StreamRun:output_type -> gotato.v2.RunUpdate
+	20, // 34: gotato.v2.SessionService.CancelRun:output_type -> gotato.v2.CancelRunResponse
+	18, // 35: gotato.v2.SessionService.Events:output_type -> gotato.v2.Event
+	22, // 36: gotato.v2.SessionService.Context:output_type -> gotato.v2.ContextReport
+	24, // 37: gotato.v2.SessionService.Compact:output_type -> gotato.v2.CompactResult
+	25, // [25:38] is the sub-list for method output_type
+	12, // [12:25] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_gotato_v2_service_proto_init() }
@@ -1884,7 +1903,7 @@ func file_gotato_v2_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gotato_v2_service_proto_rawDesc), len(file_gotato_v2_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

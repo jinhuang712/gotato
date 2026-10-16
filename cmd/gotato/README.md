@@ -106,13 +106,15 @@ Compaction permanently replaces the messages before the last `--keep` (the cut p
 
 | Command | Output (`--json`) |
 |---|---|
-| `tools list [--session ID] [--model M]` | `{session_id?, agent?, tools:[{id, name, description, input_schema, sequential, effect, active}]}` |
+| `tools list [--session ID] [--model M]` | `{session_id?, agent?, max_effect?, tools:[{id, name, description, input_schema, sequential, effect, active}]}` |
 | `tools describe <id> [--session ID]` | one tool entry |
 | `tools active [--session ID]` | active tools only |
 | `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>` |
 | `tools deactivate <id> --session ID` | updated entry |
 
 Tool activation is session state: `run --session ID` honors it. Without `--session`, `list`/`describe`/`active` describe the default surface; `activate`/`deactivate` require `--session` (exit 2).
+
+`max_effect` is the agent's Effect cap, present only when the agent has one. A tool above the cap is not listed, `describe` reports it as not found (exit 3), and `activate` cannot switch it on. Without `--json`, `list` prints `max effect: <cap>` as its first line when the agent has a cap.
 
 Builtin tools: `demo.echo` (returns its `value`), `time.now` (RFC 3339 UTC).
 

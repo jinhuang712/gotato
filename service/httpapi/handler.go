@@ -4,7 +4,7 @@
 //
 //	GET    /healthz                         liveness
 //	GET    /readyz                          readiness (503 while draining)
-//	GET    /v1/agents                       registered AgentSpec names
+//	GET    /v1/agents                       registered AgentSpec names, and each one's max_effect if set
 //	POST   /v1/sessions                     {agent?, metadata?}           → session summary
 //	GET    /v1/sessions                     → [summary]
 //	GET    /v1/sessions/{id}                → session document
@@ -129,7 +129,14 @@ func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"agents": h.runner.Agents()})
+	names := h.runner.Agents()
+	caps := map[string]gotato.ToolEffect{}
+	for _, name := range names {
+		if spec, ok := h.runner.Spec(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
+			caps[name] = spec.MaxEffect
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": names, "max_effect": caps})
 }
 
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {

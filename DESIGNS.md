@@ -51,7 +51,7 @@ The principles by group, then the decisions and the open questions. The details 
 | Principle | What it means |
 |---|---|
 | Every tool declares its Effect | read, write local, write external or destructive; none counts as destructive |
-| An Agent caps the Effect it allows | a Run refuses a tool above the cap |
+| An Agent caps the Effect it allows | the model never sees a tool above the cap; no cap by default |
 | Tools check their own arguments | a tool refuses arguments that are unsafe for it |
 | No shell and no sandbox in Gotato | tools are Go functions or MCP servers; MCP is not built yet |
 
@@ -126,6 +126,7 @@ The principles by group, then the decisions and the open questions. The details 
 | An Agent is a definition, and a Session is the live unit | the meaning the labs' agent APIs give both words | 2026-10-15 |
 | The store is the truth, and memory is a cache | a live Session kept warm, with the store as the truth | 2026-10-15 |
 | No approval system | the Effect cap, plus tools that check their own arguments | 2026-10-15 |
+| The Effect cap hides tools, and only an Agent sets it | the model never sees a tool above the cap; another cap is another Agent | 2026-10-16 |
 | Gotato owns the shapes, and adapters own storage and telemetry | stable shapes for a Session and its Events, mapped by adapters | 2026-10-15 |
 | Providers are configured by wire API | one implementation per wire API | 2026-09-17 |
 | Adapters prove the store contract with a conformance suite | one suite in `testkit`, shipped with the Phase 4 store contract | 2026-10-16 |
@@ -301,10 +302,15 @@ read  <  write local  <  write external  <  destructive
 
 ### An Agent caps the Effect it allows
 
-An Agent names its tools and the highest Effect any of them may have, so a read-only Agent cannot change anything.
+An Agent names its tools and can name the highest Effect any of them may have. A tool above the cap is never offered to the model, so a read-only Agent cannot change anything.
 
-- **Cost:** a write tool needs an Agent that is allowed to write.
-- **Check:** a Run refuses a tool above its Agent's cap before calling it.
+- **The cap hides tools.** The model sees only the tools at or below the cap, and that includes the tools of a ToolSet it activates later. The tool that activates a ToolSet declares `read`, because it changes only which tools the model sees.
+- **A hidden tool is an unknown tool.** A model that calls one by a guessed name gets the same failed result as for any name that does not exist, and the Run goes on. The result lists only the visible tools.
+- **The cap belongs to the Agent.** A Session cannot raise or lower it, and work that needs another cap is another Agent (see [The Effect cap hides tools, and only an Agent sets it](#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- **No cap by default.** An Agent that names none offers all its tools.
+- **The cap is visible.** `gotato tools list` and the Agent listing over HTTP and gRPC report it. A hidden tool is not listed, and cannot be switched on or off for a Session.
+- **Cost:** a write tool needs an Agent that is allowed to write, and two jobs with different bounds are two Agents.
+- **Check:** a test gives tools of every Effect to Agents with every cap, and asserts that no tool above the cap reaches a model request, the tool listing or its own code ([GOALS.md](GOALS.md) G-G05).
 
 ### Tools check their own arguments
 
@@ -524,6 +530,22 @@ Gotato is for purpose-built agents, whose tools the team chooses and writes (rea
 | Leave it to extensions only | No new concept. | No bounds by default. |
 
 A team that still wants an extra check can add one with the `PreToolUse` extension. A step that needs a person by design is a tool that hands it over, for example by opening a ticket.
+
+### The Effect cap hides tools, and only an Agent sets it — 2026-10-16
+
+The cap decides which tools a model may use, so two questions came first: what happens to a tool above the cap, and who may set the cap.
+
+| Option | For | Against |
+|---|---|---|
+| **Hide the tools above the cap** (chosen) | The model cannot plan around a tool it never sees, and spends no Turn on a call that fails. Fewer tool definitions in the Context. | A model that guesses a hidden name gets "unknown tool", not the reason. |
+| Offer every tool, and refuse a call above the cap | The model learns why a call failed. | The model keeps choosing tools it may not use, and each refusal costs a Turn. |
+
+| Option | For | Against |
+|---|---|---|
+| **Only the Agent sets the cap** (chosen) | The bounds are in one place, the Agent's definition, and a reviewer reads them there. | Two jobs with different bounds need two Agents. |
+| A Session can lower the cap too | One Agent for several jobs. | We found no case where the same purpose-built Agent needs different bounds per conversation. A different bound means a different job, so it is a different Agent. |
+
+There is no cap by default: an Agent that names none behaves as before.
 
 ### Gotato owns the shapes, and adapters own storage and telemetry — 2026-10-15
 
