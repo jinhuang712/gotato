@@ -128,6 +128,7 @@ The principles by group, then the decisions and the open questions. The details 
 | No approval system | the Effect cap, plus tools that check their own arguments | 2026-10-15 |
 | Gotato owns the shapes, and adapters own storage and telemetry | stable shapes for a Session and its Events, mapped by adapters | 2026-10-15 |
 | Providers are configured by wire API | one implementation per wire API | 2026-09-17 |
+| Adapters prove the store contract with a conformance suite | one suite in `testkit`, shipped with the Phase 4 store contract | 2026-10-16 |
 
 **Open questions**
 
@@ -136,7 +137,6 @@ The principles by group, then the decisions and the open questions. The details 
 | Ownership across instances | how one instance runs a Session at a time |
 | What a warm Session holds | what happens to a message that arrives mid-Run, and which Events report it |
 | How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
-| How an adapter proves it meets the store contract | for example, with a conformance suite |
 | A model catalog | model names, context sizes and prices next to the providers |
 | Compaction | how a Session is compacted, before its TTL and otherwise, and when it becomes part of an Agent's definition |
 | What the stored record is called | its name once Session means the live unit |
@@ -470,6 +470,8 @@ The contract is:
 
 Every change to these is reviewed as a contract change. Additions are free, and consumers tolerate unknown Event kinds. A rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
 
+- **Check:** today a reviewer reads each change. When mass testing begins, CI also compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no changelog entry names (ROADMAP Phase 8).
+
 ### Breaks are rare, versioned and written down
 
 A confusing abstraction can still be fixed by a planned break.
@@ -543,6 +545,18 @@ A provider is configuration: an endpoint, a key, a wire API and its models. Gota
 | One adapter per vendor | Each vendor's full feature set. | Code for every vendor, and the list never ends. |
 | Vendor SDKs | Maintained by the vendors. | Their dependencies land in every service. |
 
+### Adapters prove the store contract with a conformance suite — 2026-10-16
+
+The store is the truth, and each team backs it with its own adapter, so a team needs a way to know its adapter keeps what Gotato relies on.
+
+| Option | For | Against |
+|---|---|---|
+| **A conformance suite in `testkit`, shipped with the store contract** (chosen) | An adapter runs one set of checks and learns where it falls short. The memory and file stores run the same suite. | The suite is part of the contract, so it changes with it. |
+| The contract in prose only | Nothing to maintain. | Each adapter reads the prose its own way, and a wrong one shows up as a lost Turn. |
+| Ship a database adapter in the core | Works on day one for one database. | Rejected with "Gotato owns the shapes, and adapters own storage and telemetry": drivers, migrations and one schema for everyone. |
+
+The suite is written against the store contract that Phase 4 ships, with the check for a stale save and what ownership needs, so it is built once.
+
 ## Open questions
 
 ### Ownership across instances
@@ -580,10 +594,6 @@ Some of these steps happen before any Run starts, so their Events cannot belong 
 ### How a Turn is saved
 
 A save is either an append of the new Turn or a rewrite of the whole Session. Today each save also carries up to 1,000 Events inside the Session, so every save grows with the Session's history.
-
-### How an adapter proves it meets the store contract
-
-One way is a conformance suite in `testkit`.
 
 ### A model catalog
 

@@ -17,6 +17,8 @@ Phase 3  Names           the Agent and the Loop take their glossary names
 Phase 4  Durable Turns   save every Turn, and refuse a stale save
 Phase 5  Ownership       one instance runs a Session at a time
 Phase 6  Warm Session    a Session stays in memory while in use, and leaves after its TTL
+Phase 7  Structured      a Run returns a value that fits a JSON schema
+Phase 8  Compatibility   CI flags a removed or changed exported identifier
 ```
 
 Why this order:
@@ -26,7 +28,9 @@ Why this order:
 - **The rename comes before the store and ownership work,** so that code is written with the final names. The stored record keeps its name until Phase 6 builds the live Session, so it is renamed once.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
 - **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
-- **Fault injection and the multi-instance harness come with the phases whose goals they check.**
+- **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
+- **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the multi-pod goals carry the pitch.
+- **The compatibility check waits for mass testing,** when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
 
@@ -83,11 +87,13 @@ Exit: each answer is a Decision in DESIGNS.md, approved by the maintainer.
 - Every Turn a Session commits is saved, so a crash loses at most the Turn in flight.
 - A save made from a stale copy fails with a conflict, instead of overwriting a newer one.
 - The store contract carries what ownership needs, as the design discussion decided.
+- A store conformance suite in `testkit`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([DESIGNS.md → Decisions](DESIGNS.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
 - Fault injection: a crash at every step of the reference workload, and a client that disconnects mid-stream on HTTP and gRPC.
 
 Exit:
 
 - G-G01 and G-G02 pass.
+- The memory and file stores pass the conformance suite, and a test adapter that overwrites a newer save fails it.
 - G-B05 and G-B07 show what saving every Turn costs, compared with Phase 1.
 
 ## Phase 5 — Ownership
@@ -115,6 +121,23 @@ Exit:
 - G-G06 holds for the rename of the stored record.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
+## Phase 7 — Structured output
+
+- A Run can return a value that fits a JSON schema, on all three wire APIs ([FEATURES.md → G-F28](FEATURES.md#g-f28--structured-output-)).
+- The three open questions of G-F28 are answered first, as Decisions in DESIGNS.md: where the schema lives, what a reply that does not fit does, and how HTTP and gRPC carry it.
+
+Exit:
+
+- A scripted model returns a reply that fits and one that does not, and the Run behaves as decided, on each wire API's replayed replies.
+- The CLI and the HTTP and gRPC contracts carry the schema and the value, with a contract version bump if a field changes.
+
+## Phase 8 — Compatibility check
+
+- CI compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → Compatibility](DESIGNS.md#compatibility)).
+- It starts when mass testing begins, and the maintainer sets the date.
+
+Exit: a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
+
 ## Every release
 
 - Every goal that passed keeps passing.
@@ -125,5 +148,5 @@ Exit:
 
 - G-B13, which needs developers new to Gotato;
 - the ideas in [FEATURES.md → Later](FEATURES.md#later);
-- the other open questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): store conformance, the model catalog, and how a Session is compacted, including before its TTL and as part of an Agent's definition;
+- the other open questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions): the model catalog, and how a Session is compacted, including before its TTL and as part of an Agent's definition;
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside the phases.

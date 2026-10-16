@@ -70,6 +70,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
 | Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
 | Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
+| Structured output | ask for a reply that fits a JSON schema, and get it back as a value | G-F28 | ⬜ |
 
 **Storage**
 
@@ -79,6 +80,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | File store | one JSON file per Session, written atomically | G-F03 | ✅ |
 | Your own store | an adapter with four calls onto the database you run | G-F03 | ✅ |
 | Versioned shape | a document from a newer `schema_version` is refused, never misread | G-F03 | ✅ |
+| Store conformance suite | one suite that an adapter runs to prove it meets the store contract | G-F03 | ⬜ |
 
 **Many instances**
 
@@ -130,6 +132,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
 | Reference service | the smallest service that embeds Gotato, timed from start to ready and measured for size | G-F22 | ✅ |
 | Fault injection and a multi-instance harness | crashes, client disconnects, and several instances over one store | G-F22 | ⬜ |
+| API-compatibility check | CI flags a removed or changed exported identifier, so a break cannot slip in unwritten | G-F22 | ⬜ |
 
 **Later**
 
@@ -146,7 +149,6 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Token budget per Run | a cap on the tokens one Run may spend | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
 | Loading only recent history | instead of the whole Session | — | later |
-| Store conformance suite | lets an adapter prove it meets the store contract | — | later |
 
 **Not planned**
 
@@ -377,6 +379,17 @@ All the settings in the YAML file:
 
 Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY` and `GOTATO_GATEWAY_MODEL`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
 
+### G-F28 — Structured output ⬜
+
+A Run can return a value, not only text: the caller gives a JSON schema, and the final reply fits it.
+
+- A pipeline step or an investigation hands its result to code, so it wants a typed value, not prose to parse.
+- The Run's result carries the decoded value next to the final message.
+- Each wire API has its own way to ask for a schema, and the gateway maps one schema onto it.
+- Gotato already checks tool arguments against a schema ([G-F09](#g-f09--tools-and-their-effect-)); that check is the likely starting point for checking a reply.
+
+**Gap:** not built, and three things are open: whether the schema belongs to the Agent or to one Run, what happens when a reply does not fit (the Run fails, or the model is told and tries again, as with a failed tool call), and how HTTP and gRPC carry the schema and the value. They are decided before the code, and recorded in [DESIGNS.md](DESIGNS.md).
+
 ## Storage
 
 ### G-F03 — Stores 🚧
@@ -391,6 +404,7 @@ Every Session is saved to a store, and you choose which:
 
 - A saved Session has a versioned shape (`schema_version`, now 1).
 - A document from a newer version is refused, never misread.
+- A conformance suite in `testkit` is planned (ROADMAP Phase 4). An adapter runs one set of checks against the store contract, so a team that writes its own adapter can prove it keeps what Gotato relies on, such as a saved Session loading back unchanged and a stale save failing.
 
 **Gap:** a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other. The fixes are planned in G-F27.
 
@@ -591,7 +605,7 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
 ```
 
-**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built.
+**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built. So is an API-compatibility check in CI, which flags a removed or changed exported identifier; it is scheduled for when mass testing begins (ROADMAP Phase 8).
 
 ## Later
 
@@ -610,7 +624,6 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Token budget per Run | the turn and byte limits already bound a runaway loop |
 | Paging and filtering the Session list | matters at population scale, after ownership across instances |
 | Loading only recent history | decided together with how a Turn is saved ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)) |
-| Store conformance suite | lets an adapter prove it meets the store contract ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)) |
 
 ## Not planned
 
