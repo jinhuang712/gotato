@@ -18,6 +18,12 @@ type ModelRequest struct {
 	// Anthropic cache_control) or ignores them when the provider caches
 	// prefixes automatically. They never change the prompt content.
 	CacheBreakpoints []CacheBreakpoint `json:"cache_breakpoints,omitempty"`
+	// CacheKey groups the requests that share a cacheable prefix, usually one
+	// value per Session, so a provider can serve them from the same prompt
+	// cache. An adapter sends it the way its configuration says (a body field
+	// such as prompt_cache_key, or a header) or ignores it. Like the
+	// breakpoints, it never changes the prompt content or the prefix hash.
+	CacheKey string `json:"cache_key,omitempty"`
 }
 
 // CacheAnchor names where a CacheBreakpoint sits.

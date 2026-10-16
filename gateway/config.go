@@ -24,16 +24,20 @@ type AuthConfig struct {
 type YAMLConfig struct {
 	// API selects the wire protocol: openai-chat-completions (default),
 	// openai-responses, or anthropic-messages.
-	API          string            `yaml:"api"`
-	Endpoint     string            `yaml:"endpoint"`
-	BaseURL      string            `yaml:"base_url"`
-	APIKey       string            `yaml:"api_key"`
-	Model        string            `yaml:"model"`
-	Auth         *AuthConfig       `yaml:"auth"`
-	Headers      map[string]string `yaml:"headers"`
-	MaxRetries   int               `yaml:"max_retries"`
-	NoRetries    bool              `yaml:"no_retries"`
-	RetryBackoff string            `yaml:"retry_backoff"`
+	API      string            `yaml:"api"`
+	Endpoint string            `yaml:"endpoint"`
+	BaseURL  string            `yaml:"base_url"`
+	APIKey   string            `yaml:"api_key"`
+	Model    string            `yaml:"model"`
+	Auth     *AuthConfig       `yaml:"auth"`
+	Headers  map[string]string `yaml:"headers"`
+	// CacheKeyHeader and CacheKeyField say how each request's cache key is
+	// sent (see Config).
+	CacheKeyHeader string `yaml:"cache_key_header"`
+	CacheKeyField  string `yaml:"cache_key_field"`
+	MaxRetries     int    `yaml:"max_retries"`
+	NoRetries      bool   `yaml:"no_retries"`
+	RetryBackoff   string `yaml:"retry_backoff"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -63,14 +67,16 @@ func ParseYAML(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	config := Config{
-		API:        fileConfig.API,
-		Endpoint:   fileConfig.Endpoint,
-		BaseURL:    fileConfig.BaseURL,
-		APIKey:     fileConfig.APIKey,
-		Model:      fileConfig.Model,
-		Headers:    fileConfig.Headers,
-		MaxRetries: fileConfig.MaxRetries,
-		NoRetries:  fileConfig.NoRetries,
+		API:            fileConfig.API,
+		Endpoint:       fileConfig.Endpoint,
+		BaseURL:        fileConfig.BaseURL,
+		APIKey:         fileConfig.APIKey,
+		Model:          fileConfig.Model,
+		Headers:        fileConfig.Headers,
+		CacheKeyHeader: fileConfig.CacheKeyHeader,
+		CacheKeyField:  fileConfig.CacheKeyField,
+		MaxRetries:     fileConfig.MaxRetries,
+		NoRetries:      fileConfig.NoRetries,
 	}
 	if fileConfig.Auth != nil {
 		config.Auth = *fileConfig.Auth

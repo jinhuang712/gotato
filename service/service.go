@@ -20,6 +20,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -642,6 +644,7 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		gotato.WithTranscript(s),
 		gotato.WithContextBuilder(builder),
 		gotato.WithExtensions(extensions...),
+		gotato.WithCacheKey(CacheKey(s.ID())),
 	}
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s}))
 	if spec.Limits != nil {
@@ -653,6 +656,16 @@ func (r *Runner) buildAgent(spec AgentSpec, s *session.Session, sink func(gotato
 		return nil, nil, err
 	}
 	return agent, auto, nil
+}
+
+// CacheKey is the ModelRequest.CacheKey the Runner gives every Turn of a
+// Session, so the provider serves a conversation from one prompt cache. It is
+// a hash of the Session ID, because an ID the caller chose may name a user or
+// a tenant, and the key goes to the provider. A Spec may set another with
+// gotato.WithCacheKey in its Options.
+func CacheKey(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return "gotato-" + hex.EncodeToString(sum[:16])
 }
 
 type sinkObserver struct{ fn func(gotato.Event) error }

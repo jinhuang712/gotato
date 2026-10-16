@@ -436,6 +436,34 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	}
 }
 
+func TestRunnerKeysEachSessionsPromptCache(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"), testkit.Text("c"))
+	runner, _ := newRunner(t, service.AgentSpec{Name: "echo", Model: model})
+	ctx := context.Background()
+	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := runner.Run(ctx, service.RunRequest{Prompt: "three"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("model calls = %d, want 3", len(requests))
+	}
+	// One stable key per Session, and never the raw Session ID.
+	want := service.CacheKey(first.SessionID)
+	if requests[0].CacheKey != want || requests[1].CacheKey != want ||
+		requests[2].CacheKey != service.CacheKey(other.SessionID) || requests[2].CacheKey == want ||
+		strings.Contains(want, first.SessionID) {
+		t.Fatalf("cache keys = %q, %q, %q; want %q twice, then another", requests[0].CacheKey, requests[1].CacheKey, requests[2].CacheKey, want)
+	}
+}
+
 // countingStore wraps a Store and counts its loads.
 type countingStore struct {
 	session.Store

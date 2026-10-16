@@ -32,7 +32,8 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.do(ctx, body)
+	open := c.withCacheKeyHeader(c.do, request.CacheKey)
+	response, err := open(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,7 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
 		blocks:   make(map[int]*anthropicBlockState),
-		restart:  restarter{client: c, body: body, open: c.do},
+		restart:  restarter{client: c, body: body, open: open},
 	}, nil
 }
 

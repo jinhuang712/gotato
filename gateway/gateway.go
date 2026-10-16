@@ -50,24 +50,36 @@ type Config struct {
 	Model   string
 	Auth    AuthConfig
 
-	HTTPClient   *http.Client
-	Headers      map[string]string
-	MaxRetries   int
-	RetryBackoff time.Duration
+	HTTPClient *http.Client
+	Headers    map[string]string
+	// CacheKeyHeader, when set, sends each request's ModelRequest.CacheKey in
+	// this HTTP header, for a provider that routes its prompt cache by a
+	// session header such as "session_id".
+	CacheKeyHeader string
+	// CacheKeyField names the top-level body field that carries the
+	// CacheKey. Empty uses the wire API's default: "prompt_cache_key" for
+	// openai-responses, none for openai-chat-completions. "none" sends no
+	// field. It must not name a field the wire API already sends. The
+	// Anthropic Messages API takes no such field; it caches by cache_control.
+	CacheKeyField string
+	MaxRetries    int
+	RetryBackoff  time.Duration
 	// NoRetries disables retries entirely. MaxRetries counts retries after
 	// the first attempt; 0 means the default.
 	NoRetries bool
 }
 
 type Client struct {
-	api          string
-	endpoint     string
-	apiKey       string
-	model        string
-	httpClient   *http.Client
-	headers      map[string]string
-	maxRetries   int
-	retryBackoff time.Duration
+	api            string
+	endpoint       string
+	apiKey         string
+	model          string
+	httpClient     *http.Client
+	headers        map[string]string
+	cacheKeyHeader string
+	cacheKeyField  string
+	maxRetries     int
+	retryBackoff   time.Duration
 }
 
 func New(config Config) (*Client, error) {
@@ -119,6 +131,19 @@ func New(config Config) (*Client, error) {
 	case maxRetries == 0:
 		maxRetries = defaultMaxRetries
 	}
+	cacheKeyHeader := strings.TrimSpace(config.CacheKeyHeader)
+	if strings.ContainsAny(cacheKeyHeader, " \t:") {
+		return nil, fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
+	}
+	cacheKeyField := strings.TrimSpace(config.CacheKeyField)
+	switch {
+	case cacheKeyField == "none":
+		cacheKeyField = ""
+	case cacheKeyField == "" && api == APIResponses:
+		cacheKeyField = defaultResponsesCacheKeyField
+	case cacheKeyField != "" && api == APIAnthropicMessages:
+		return nil, fmt.Errorf("gateway: CacheKeyField is not supported by %s, which caches by cache_control", APIAnthropicMessages)
+	}
 	backoff := config.RetryBackoff
 	if backoff == 0 {
 		backoff = defaultRetryBackoff
@@ -143,14 +168,16 @@ func New(config Config) (*Client, error) {
 		}
 	}
 	return &Client{
-		api:          api,
-		endpoint:     endpoint,
-		apiKey:       config.APIKey,
-		model:        config.Model,
-		httpClient:   client,
-		headers:      cloneHeaders(config.Headers),
-		maxRetries:   maxRetries,
-		retryBackoff: backoff,
+		api:            api,
+		endpoint:       endpoint,
+		apiKey:         config.APIKey,
+		model:          config.Model,
+		httpClient:     client,
+		headers:        cloneHeaders(config.Headers),
+		cacheKeyHeader: cacheKeyHeader,
+		cacheKeyField:  cacheKeyField,
+		maxRetries:     maxRetries,
+		retryBackoff:   backoff,
 	}, nil
 }
 
@@ -196,10 +223,14 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 		return c.streamAnthropic(ctx, request)
 	}
 	body, names, err := encodeRequest(c.model, request)
+	if err == nil {
+		body, err = c.withCacheKeyField(body, request.CacheKey)
+	}
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.do(ctx, body)
+	open := c.withCacheKeyHeader(c.do, request.CacheKey)
+	response, err := open(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +239,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
 		calls:    make(map[int]*callBuffer),
-		restart:  restarter{client: c, body: body, open: c.do},
+		restart:  restarter{client: c, body: body, open: open},
 	}, nil
 }
 

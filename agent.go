@@ -111,6 +111,7 @@ type agentConfig struct {
 	transcript     Transcript
 	contextBuilder ContextBuilder
 	modelOptions   ModelOptions
+	cacheKey       string
 }
 
 func WithModel(model Model) Option {
@@ -141,6 +142,14 @@ func WithModelOptions(options ModelOptions) Option {
 		c.modelOptions = options
 		return nil
 	}
+}
+
+// WithCacheKey sets the ModelRequest.CacheKey the Agent sends on every model
+// call: a stable value for one conversation, such as a hash of its Session ID,
+// so the provider serves its Turns from one prompt cache. It never changes the
+// prompt.
+func WithCacheKey(key string) Option {
+	return func(c *agentConfig) error { c.cacheKey = key; return nil }
 }
 
 func WithTool(tool Tool) Option {
@@ -231,6 +240,7 @@ func NewAgent(options ...Option) (RuntimeAgent, error) {
 		limits:         cfg.limits,
 		limitsSet:      cfg.limitsSet,
 		modelOptions:   cfg.modelOptions,
+		cacheKey:       cfg.cacheKey,
 		commands:       make(chan agentCommand),
 		closeSignal:    make(chan struct{}),
 		done:           make(chan struct{}),
@@ -257,8 +267,9 @@ type coreAgent struct {
 	extensions  extensionSet
 	limits      CoreLimits
 	limitsSet   bool
-	// modelOptions are sent unchanged with every model call.
+	// modelOptions and cacheKey are sent unchanged with every model call.
 	modelOptions ModelOptions
+	cacheKey     string
 
 	// transcript is the committed history (the Session's record). The Agent
 	// goroutine is its only writer during a Run. transcriptBytes tracks the
@@ -1382,6 +1393,7 @@ func (a *coreAgent) assembleTurn(ctx context.Context, snapshot ContextSnapshot) 
 	}
 	request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
 	request.Options = a.modelOptions
+	request.CacheKey = a.cacheKey
 	return built, request, prefix, nil
 }
 

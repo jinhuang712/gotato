@@ -18,14 +18,23 @@ import (
 	gotato "github.com/jinhuang712/gotato"
 )
 
-const defaultResponsesBaseURL = "https://api.openai.com/v1"
+const (
+	defaultResponsesBaseURL = "https://api.openai.com/v1"
+	// defaultResponsesCacheKeyField is the Responses API's own field for a
+	// prompt cache key.
+	defaultResponsesCacheKeyField = "prompt_cache_key"
+)
 
 func (c *Client) streamResponses(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	body, names, err := encodeResponsesRequest(c.model, request)
+	if err == nil {
+		body, err = c.withCacheKeyField(body, request.CacheKey)
+	}
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.doResponses(ctx, body)
+	open := c.withCacheKeyHeader(c.doResponses, request.CacheKey)
+	response, err := open(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +44,7 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		nameMap:  names,
 		calls:    make(map[int]*responsesCall),
 		texts:    make(map[int]bool),
-		restart:  restarter{client: c, body: body, open: c.doResponses},
+		restart:  restarter{client: c, body: body, open: open},
 	}, nil
 }
 
