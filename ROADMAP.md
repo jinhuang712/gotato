@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the open questions in [DESIGNS.md](DESIGNS.md) that the maintainer has placed. Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -13,10 +13,10 @@ The phases, in order, with the design discussion that comes before the store cha
 Phase 1  Measure         the reference workload and the live run
 Phase 2  Effect cap      an Agent hides the tools above its highest Effect
 Phase 3  Names           the Agent, the live Session and its Record take their glossary names
-         ── design discussion: ownership, how a Turn is saved, what a warm Session holds ──
-Phase 4  Durable Turns   save every Turn, and refuse a stale save
-Phase 5  Ownership       one instance runs a Session at a time
-Phase 6  Warm Session    a Session stays in memory while in use, and leaves after its TTL
+         ── design discussion: how a Turn is saved, who writes, where messages go (answered) ──
+Phase 4  Durable Turns   the Record becomes an append-only log, and every append is fenced
+Phase 5  One writer      any instance answers like the only one, with one writer at a time
+Phase 6  Warm Session    a Session stays in memory while in use, and takes Steer, Interrupt and Stop from any endpoint
 Phase 7  Structured      an Agent's final reply fits a JSON schema
 Phase 8  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
 Phase 9  Compatibility   CI flags a removed or changed exported identifier
@@ -28,8 +28,8 @@ Why this order:
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
 - **The rename comes before the store and ownership work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
-- **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries what ownership needs, such as a revision or a fencing token, so store adapters change once.
-- **Each of the last three phases builds on the one before.** Ownership needs Turns that are saved and checked, and a warm Session needs an owner to hold it.
+- **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
+- **Each of the last three phases builds on the one before.** One writer needs Turns that are appended and fenced, and a warm Session needs a writer to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the multi-pod goals carry the pitch.
 - **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
@@ -50,7 +50,7 @@ Builds the tools that most goals need, and gives every benchmark a number. Each 
 - ✅ each failed Run and tool call attributed to its cause: the model, the provider, the tool, the store or Gotato;
 - ✅ a prompt cache key per Session, so the live run measures cache hits at all (G-B01).
 
-Every number about a Run is computed from recorded Events and `Usage`, so a team gets the same numbers from its own telemetry ([DESIGNS.md → Events and telemetry](DESIGNS.md#events-and-telemetry)). Memory, CPU, startup and footprint come from Go benchmarks and the build script.
+Every number about a Run is computed from recorded Events and `Usage`, so a team gets the same numbers from its own telemetry ([DESIGNS.md → Every step can be seen](DESIGNS.md#7-every-step-can-be-seen)). Memory, CPU, startup and footprint come from Go benchmarks and the build script.
 
 Exit:
 
@@ -63,7 +63,7 @@ Exit:
 Built, and ships in the next 0.1.x release.
 
 - ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
-- ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([DESIGNS.md → Tools and safety](DESIGNS.md#tools-and-safety)).
+- ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([DESIGNS.md → An Agent does only what its purpose-built tools allow](DESIGNS.md#4-an-agent-does-only-what-its-purpose-built-tools-allow)).
 - ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
 - ✅ `gotato tools list`, `GET /v1/agents` and the gRPC `Agents` call report the cap.
 
@@ -86,51 +86,54 @@ Exit:
 - ✅ No exported identifier, Event kind or field carries the old meaning of Agent.
 - ✅ G-G06 holds for the break: the HTTP and gRPC contract version is `"4"`, and the CLI contract version is `"2"`.
 
-## Design discussion
+## Design discussion 🚧
 
-After Phase 3, the maintainer and contributors answer the questions in [DESIGNS.md → Open questions](DESIGNS.md#open-questions):
+The three store questions are answered as Decisions in DESIGNS.md, dated 2026-10-16. They wait for the maintainer's approval.
 
-- how ownership of a Session works across instances, including what happens to a message that reaches an instance that does not own it;
-- how a Turn is saved: an append of the new Turn, or a rewrite of the whole Session;
-- what a warm Session holds, and what happens to a message that arrives while a Run is in progress;
-- how Gotato tells the model something that is not the user's words: runtime notices (FEATURES.md G-F29), and the Events on a message's way into a Session. They follow from the answer to the question above.
+- ✅ How a Turn is saved: [The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16).
+- ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [The load balancer routes, and Gotato follows](DESIGNS.md#the-load-balancer-routes-and-gotato-follows--2026-10-16).
+- ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](DESIGNS.md#messages-that-arrive-during-a-run--2026-10-16).
+- ⬜ Runtime notices (FEATURES.md G-F29), and the names of the Events on a message's way into a Session. They are designed at the start of Phase 6.
 
-One requirement is already fixed: a second instance stops before it calls the model.
-
-Exit: each answer is a Decision in DESIGNS.md, approved by the maintainer.
+Exit: the maintainer approves the three Decisions.
 
 ## Phase 4 — Durable Turns
 
-- Every Turn a Session commits is saved, so a crash loses at most the Turn in flight.
-- A save made from a stale copy fails with a conflict, instead of overwriting a newer one.
-- The store contract carries what ownership needs, as the design discussion decided.
+- The Record becomes an append-only log ([DESIGNS.md → A conversation is an append-only log in your store](DESIGNS.md#2-a-conversation-is-an-append-only-log-in-your-store)). Each Turn is appended as it commits, with a sequence number the store assigns in the same write, so a crash loses at most the Turn in flight.
+- A compaction appends a Checkpoint, and a load starts from the last one.
+- Every append carries the writer's Epoch, and the store refuses a stale one. The store contract also carries the Claims and the Liveness rows that Phase 5 uses, so adapters change once.
 - A store conformance suite in `testkit`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([DESIGNS.md → Decisions](DESIGNS.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
 - Fault injection: a crash at every step of the reference workload, and a client that disconnects mid-stream on HTTP and gRPC.
 
 Exit:
 
 - G-G01 and G-G02 pass.
-- The memory and file stores pass the conformance suite, and a test adapter that overwrites a newer save fails it.
-- G-B05 and G-B07 show what saving every Turn costs, compared with Phase 1.
+- The memory and file stores pass the conformance suite. A test adapter that ignores the Epoch fails it, and so does one that lets two copies append the same sequence number.
+- G-B05 and G-B07 show what appending every Turn costs, compared with Phase 1.
 
-## Phase 5 — Ownership
+## Phase 5 — One writer
 
-- One instance runs a Session at a time. A second instance stops before it calls the model.
-- A message that reaches an instance that does not own the Session is forwarded, made to wait or rejected, as the design discussion decided.
-- Cancel and stream requests reach the owner from any instance.
-- The multi-instance harness: several instances over one shared store, with concurrent messages and random instance kills.
+- One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → Any instance answers as if it were the only one](DESIGNS.md#3-any-instance-answers-as-if-it-were-the-only-one)).
+- Any instance answers: it takes over an idle Session, and waits, up to a bound, for one that is running elsewhere.
+- The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
+- Drain in order, on SIGTERM or an endpoint: take no new Sessions, tell every live Session at once, let each finish, save and release, then close each stream with a reconnect code.
+- A stream resumes on any instance from its last position, with the Record's epoch.
+- Lifecycle Events: a Session activated, taken over, released or fenced.
+- The multi-instance harness: several instances behind a hashing proxy over one shared store, with requests sent to random instances, concurrent messages and random instance kills.
 
 Exit:
 
 - G-G08 passes for every message an instance accepts.
-- In the harness, a Run is cancelled and streamed from an instance that does not own its Session.
+- With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
+- A stream cut at every Event of the reference workload resumes equal to an uncut one.
+- A drained instance commits its Runs and releases its Claims before it leaves.
 
 ## Phase 6 — Warm Session
 
+- Runtime notices (G-F29) and the names of the Events on a message's way into a Session are designed first, and then built.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for the compaction discussion of a later phase ([DESIGNS.md → Compaction](DESIGNS.md#compaction)); until then, the TTL only removes the Session from memory.
-- A message that arrives mid-Run is queued, steered or rejected, as the design discussion decided, the same way through the Go API, HTTP, gRPC and the CLI. This closes the G-F26 gap.
-- Runtime notices (G-F29) ship as the design discussion decided.
+- Steer, FollowUp, Interrupt and Stop reach a running Session through the Go API, HTTP, gRPC and the CLI, and take effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
 - Longer prompt cache retention, and a keepalive for a warm Session's cache (G-F33), are designed with the warm Session.
 - `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
 
@@ -163,7 +166,7 @@ Exit:
 
 ## Phase 9 — Compatibility check
 
-- CI compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → Compatibility](DESIGNS.md#compatibility)).
+- CI compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → The contract is named](DESIGNS.md#the-contract-is-named)).
 - It starts when mass testing begins, and the maintainer sets the date.
 
 Exit: a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.

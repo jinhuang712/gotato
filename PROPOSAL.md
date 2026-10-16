@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-15 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Proposal
 
 > **Agent as a service for Go.**
@@ -119,7 +119,7 @@ A few words in the diagram need a line each:
 - the **TTL** (time to live) is how long an idle Session stays in memory;
 - a **Runner** is the part of your service that hosts Sessions.
 
-Between messages, a Session is its record in your store. A pod keeps it in memory while it is in use, and lets it go after its TTL. The conversation stays in your store, so any pod can load it again and continue.
+Between messages, a Session is its record in your store: a log that only grows, one Turn at a time. A pod keeps it in memory while it is in use, and lets it go after its TTL. The conversation stays in your store, so any pod can load it again and continue.
 
 A Session needs no process, shell or sandbox of its own. A Go service hosts Sessions the way it serves any other request.
 
@@ -138,6 +138,7 @@ Gotato should behave like any other library in the service: easy to add, safe to
 ### It runs on many pods
 
 - **No lost conversations.** A Session saves every Turn it completes. When its pod goes away, another pod loads it and continues.
+- **Any pod answers like the only one.** A request can reach any pod, and the caller cannot tell which one served it. No Session is bound to a pod, and the load balancer you already run decides where each request goes.
 - **One pod at a time.** Two pods never run or write the same Session at once.
 - **Idle costs almost nothing.** A waiting Session holds no process and no sandbox, and after its TTL it holds no memory either. Each request to the model is laid out so that the provider can reuse its cached prefix from one Turn to the next, which lowers the token bill.
 
@@ -196,7 +197,7 @@ The full list, with reasons: [FEATURES.md → Not planned](FEATURES.md#not-plann
 
 - **Go**, with a core that uses only the standard library.
 - **An Agent** defines, **a Session** runs it, and **a Runner** hosts Sessions inside your service.
-- **The store is the truth.** A Session lives in your store, and memory only keeps it warm.
+- **The store is the truth.** A Session lives in your store as a log, and memory only keeps it warm. Any pod serves it, one at a time, wherever your load balancer sends the request.
 - **Stable shapes** for a Session and its Events, which your adapters map onto your database and your telemetry.
 - **Tools** are Go functions or MCP servers, each with an Effect.
 - **Models** come through providers configured by wire API, or through your own client.

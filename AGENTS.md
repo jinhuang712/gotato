@@ -32,7 +32,7 @@ These root documents are the single source of truth for Gotato's design.
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep dependencies layered** (DESIGNS.md → Dependencies and layering). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
+- **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The root package imports only the standard library. `session`, `modelctx`, `toolregistry`, `testkit` import the root package. Providers and the service layer import inward. `layering_test.go` enforces this; keep it passing.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow

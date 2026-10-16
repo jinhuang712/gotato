@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. How it is built is in [DESIGNS.md](DESIGNS.md), when the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -20,11 +20,12 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
+| Interrupt | stop the step in flight and go on with a new message, in the same Run | G-F26 | ⬜ |
 | Runtime notices | tell the model something that is not the user's words, as a developer or system message after every tool result | G-F29 | ⬜ |
 | A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
-| Fork | start a new Session from another one's history | G-F02 | ✅ |
+| Fork | start a new Session from another one's history; it writes the store and activates nothing | G-F02 | ✅ |
 | One Run per Session | a second Run on a busy Session is rejected or waits | G-F02 | ✅ |
 | Per-Session settings | the Agent, instruction, compaction ceiling and tools, in metadata | G-F02 | ✅ |
 
@@ -84,6 +85,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | File store | one JSON file per Session, written atomically | G-F03 | ✅ |
 | Your own store | an adapter with four calls onto the database you run | G-F03 | ✅ |
 | Versioned shape | a document from a newer `schema_version` is refused, never misread | G-F03 | ✅ |
+| Append-only Record | each Turn is appended; compaction appends a Checkpoint; a load starts from the last Checkpoint | G-F03 | ⬜ |
 | Store conformance suite | one suite that an adapter runs to prove it meets the store contract | G-F03 | ⬜ |
 
 **Many instances**
@@ -92,10 +94,13 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Busy policy | a second Run on a busy Session is rejected with 409, or waits | G-F27 | ✅ |
 | Capacity | past `MaxActiveRuns`, a new Run is rejected with 429 | G-F27 | ✅ |
-| Drain | on shutdown, stop taking Runs, wait for the active ones, then cancel them; `/readyz` answers 503 | G-F27 | ✅ |
-| Save every Turn | a crash loses at most the Turn in flight | G-F27 | ⬜ |
-| Conflict on a stale save | an old copy cannot overwrite a newer one | G-F27 | ⬜ |
-| Ownership across instances | one instance runs a Session at a time | G-F27 | ⬜ |
+| Drain | on SIGTERM or an endpoint: take no new Sessions, finish each Run, save, release, then close streams with a reconnect code; `/readyz` answers 503 | G-F27 | 🚧 |
+| Save every Turn | each Turn is appended as it commits, so a crash loses at most the Turn in flight | G-F27 | ⬜ |
+| One writer at a time | a Claim with an Epoch, checked on every append, so a stale writer cannot append | G-F27 | ⬜ |
+| Liveness rows | one row per instance in the store; when it expires, all of that instance's Claims end | G-F27 | ⬜ |
+| Any instance answers | an idle Session moves to whichever instance a request reaches; a busy one is waited for, then refused with 409 | G-F27 | ⬜ |
+| Load balancer setup | hash on `session-id`, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | 🚧 |
+| Activation limit | past a hard limit, such as memory, an instance refuses new Sessions with a 503 marked "not run" | G-F27 | ⬜ |
 | Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes, compacted first by default | G-F27 | ⬜ |
 | Prompt cache retention and keepalive | longer provider cache retention, and keeping a warm Session's cache from expiring | G-F33 | ⬜ |
 
@@ -105,6 +110,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | HTTP API | a handler you mount on your own mux | G-F14 | ✅ |
 | Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
+| Stream resume | reconnect on any instance and go on from the last position seen; a stream that ends says whether and when to reconnect | G-F14 | ⬜ |
 | gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
 | Go API | call the Runner directly, and subscribe to a Run's Events | G-F14 | ✅ |
 | Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
@@ -116,6 +122,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
 | Store Events | `session_loaded` and `session_saved` time each load and save a Run makes | G-F13 | ✅ |
+| Lifecycle Events | a Session activated, taken over, released or fenced on an instance | G-F13 | ⬜ |
 | Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
 
@@ -229,9 +236,14 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 - `Steer` adds a message to the running Loop, and the model reads it on its next call. Up to 8 can wait (`MaxSteerMessages`).
 - `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns count toward the same `MaxTurns`. Up to 4 can wait (`MaxFollowUpMessages`).
+- `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed.
 - A message still waiting when the Run ends is dropped, not kept for the next Run.
 
-**Gap:** both work only on a Session you build yourself with `gotato.NewSession`. The Runner builds a live Session for each Run and keeps it to itself, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. What should happen to a message that arrives mid-Run is still open ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
+**Gap:** Steer and FollowUp work only on a Session you build yourself with `gotato.NewSession`. The Runner builds a live Session for each Run and keeps it to itself, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. Planned ([DESIGNS.md → Messages reach a running Session in its own process](DESIGNS.md#messages-reach-a-running-session-in-its-own-process)):
+
+- every request for a Session reaches its writer through the load balancer's hash, so the endpoints and the CLI can steer, interrupt and stop a Run in the writer's own process;
+- **Interrupt** cancels a model call in flight, lets a running tool finish, and starts the next Turn of the same Run with the new message;
+- a message that arrives after the Run has ended starts a new Run instead of being dropped.
 
 ### G-F29 — Runtime notices ⬜
 
@@ -241,7 +253,7 @@ Gotato, or your service, sometimes has to tell the model something that is not t
 - A notice waits until every tool call of the Turn has its result, because a provider refuses anything between a call and its result.
 - G-F30 and G-F31 build on it.
 
-**Design first:** with what happens to a message that arrives mid-Run ([ROADMAP.md → Design discussion](ROADMAP.md#design-discussion)).
+**Design first:** at the start of the warm Session phase, now that what happens to a message that arrives mid-Run is decided ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
 
 ### G-F30 — A last Turn that answers ⬜
 
@@ -259,7 +271,7 @@ A Session is one conversation that runs an Agent. It keeps everything that happe
 
 - You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
 - A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction. The Store keeps them as the Session's Record, `session.Record`.
-- Forking a Session starts a new one from its history and records the parent. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix.
+- Forking a Session starts a new one from its history and records the parent. A fork writes the store and activates nothing, so its first request activates it on whichever instance that request reaches. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix there too.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
 
 Per-Session settings live in the Session's metadata, so one Agent can serve Sessions that differ slightly:
@@ -316,6 +328,7 @@ An old part of the history can be replaced by one summary, so a long conversatio
 - **Automatically:** at the start of a Run, when the estimated tokens pass the ceiling.
 - The summary comes from truncation or from a model (`--summarizer truncate|model`).
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
+- Planned with the append-only Record (G-F03): a compaction appends a Checkpoint instead of replacing the old part, so the old part stays in the store and is no longer loaded.
 
 **Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it. The planned compaction before a warm Session leaves memory (G-F27) is the other way round: on by default, because a Session that comes back after its TTL starts cold anyway.
 
@@ -467,25 +480,44 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 - A document from a newer version is refused, never misread.
 - A conformance suite in `testkit` is planned (ROADMAP Phase 4). An adapter runs one set of checks against the store contract, so a team that writes its own adapter can prove it keeps what Gotato relies on, such as a saved Session loading back unchanged and a stale save failing.
 
-**Gap:** a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other. The fixes are planned in G-F27.
+**Gap:** a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other.
+
+Planned ([DESIGNS.md → A conversation is an append-only log in your store](DESIGNS.md#2-a-conversation-is-an-append-only-log-in-your-store)): the Record becomes an append-only log.
+
+- Each Turn is appended as it commits, with a sequence number the store assigns in the same write.
+- A compaction appends a Checkpoint, and a load starts from the last one.
+- Every append checks the writer's Epoch, so a writer that lost its Claim cannot append (G-F27).
+- The adapter contract becomes: create, append, load from the last Checkpoint, list and delete, plus the Claims and the Liveness rows. Each one is an ordinary conditional write, so a plain SQL or document database can do it.
 
 ## Many instances
 
 ### G-F27 — Service: many instances 🚧
 
-A Runner hosts Sessions inside your service, on as many instances as you run.
+A Runner hosts Sessions inside your service, on as many instances as you run. Any instance answers a request as if it were the only one ([DESIGNS.md → Any instance answers as if it were the only one](DESIGNS.md#3-any-instance-answers-as-if-it-were-the-only-one)).
 
 | Capability | Status | What happens |
 |---|---|---|
 | Busy policy | ✅ | a second Run on a busy Session is rejected with 409 (`reject`, the default), or waits (`wait`) |
 | Capacity | ✅ | past `MaxActiveRuns`, a new Run is rejected with 429; off by default |
-| Drain | ✅ | on shutdown, the Runner stops taking Runs, waits for the active ones, then cancels them. `/readyz` answers 503 while it drains, so a rolling deploy stops sending traffic. |
-| Save every Turn | ⬜ | a crash loses at most the Turn in flight ([GOALS.md](GOALS.md) G-G01) |
-| Conflict on a stale save | ⬜ | a save from an old copy fails instead of overwriting a newer one |
-| Session ownership across instances | ⬜ | one instance runs a Session at a time, and a second instance stops before it calls the model (G-G08). Cancel and stream requests reach the owner from any instance. |
+| Drain | 🚧 | today the Runner stops taking Runs, waits for the active ones, then cancels them, and `/readyz` answers 503 while it drains. Planned: on SIGTERM or an endpoint, the instance marks itself draining, takes no new Sessions, and tells every live Session at once; each finishes its Run, saves and releases its Claim, and only then is each stream closed with a reconnect code. |
+| Save every Turn | ⬜ | each Turn is appended as it commits, so a crash loses at most the Turn in flight ([GOALS.md](GOALS.md) G-G01) |
+| One writer at a time | ⬜ | the writer holds a Claim: the Record names its instance and an Epoch, a number that grows with every new Claim. Every append checks it, so a writer that lost its Claim cannot append, and a second instance stops before it calls the model (G-G08). |
+| Liveness rows | ⬜ | each instance renews one row in the store on a heartbeat, timed by the store's clock. When the row expires, every Claim of that instance ends at once, and an instance that cannot renew its row stops appending and drains itself. |
+| Any instance answers | ⬜ | an instance that is not the writer takes over an idle Session and loads it from its last Checkpoint. For a Session that is running on another live instance, it waits for the Run to end, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
+| Activation limit | ⬜ | past a hard limit, such as its memory budget, an instance refuses to activate a new Session with a 503 marked "not run", so the load balancer can retry it elsewhere. Spreading load stays the load balancer's and the autoscaler's job. |
 | Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes; the store stays the truth. Before it leaves, it is compacted, unless a setting turns this off; how it is compacted is decided in a later phase. |
 
 **Gap:** today the lock on a Session works within one instance only, and cancel and stream requests work only on the instance that runs the Session.
+
+**Your load balancer** routes; Gotato never forwards a request between instances. It needs three settings:
+
+| Setting | Why |
+|---|---|
+| a consistent hash on the `session-id` header | every request for one Session reaches one instance, its writer |
+| one retry on another instance after a 503 marked "not run" | a refusal never ran, so a retry cannot run it twice |
+| readiness from `/readyz` | an instance that is draining receives no new requests |
+
+A request that creates a Session, such as `POST /v1/runs`, needs no header; its response carries the new ID. Examples of these settings for common load balancers come with the feature. Today only the third one does anything.
 
 Settings, on `service.Config` or `gotato serve`:
 
@@ -544,6 +576,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 - The stream answers 200 before the Run is admitted.
 - So only a bad or oversized body gets a status code. Every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
+- **Resume (planned).** Every streamed Event will carry its position: a sequence number, and the Record's own epoch, which changes only if its log is reset. A client that loses its stream reconnects through the load balancer, to any instance, with the last position it saw, and the stream goes on without gaps or duplicates. If the epoch differs, the client is told the position cannot be resumed. A stream that ends says whether to reconnect and how long to wait first, so a lost instance does not make every client reconnect at the same instant.
 
 **gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
@@ -580,7 +613,7 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 - `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
 - The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
 
-**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet; they are decided with what happens to a message mid-Run ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
+**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet, and neither does a Session's life on an instance: activated, taken over, released or fenced. Their names and fields are an open question ([DESIGNS.md → Open questions](DESIGNS.md#open-questions)).
 
 ### G-F15 — Extensions ✅
 
@@ -677,7 +710,7 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
 ```
 
-**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built. So is an API-compatibility check in CI, which flags a removed or changed exported identifier; it is scheduled for when mass testing begins (ROADMAP Phase 9).
+**Gap:** fault injection (crashes, client disconnects) and a harness that runs several instances over one store are planned and not built. The harness sends each request to a random instance behind a hashing proxy, and expects the same Transcripts and Event order as a single instance gives. So is an API-compatibility check in CI, which flags a removed or changed exported identifier; it is scheduled for when mass testing begins (ROADMAP Phase 9).
 
 ## Later
 

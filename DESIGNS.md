@@ -1,148 +1,38 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
 
-An **Agent** definition (its model, instruction, tools and limits) and messages from callers go in, through the Go API, HTTP or gRPC. Answers, a stream of **Events** and a **Session** record in your store come out. In between, a **Runner** inside your service hosts the Session. The Session runs one **Loop** over the model and the tools, saves what each **Turn** commits, and leaves memory when it has been idle for its TTL.
+Gotato is built around seven points. Every principle on this page follows from one of them:
 
-This page holds the choices behind that shape: what each one costs, and how a reviewer can check that it still holds. It describes the design we intend, not the state of the code: what is built is tracked in [FEATURES.md](FEATURES.md), open defects in [TODO.md](TODO.md), and the checks in [GOALS.md](GOALS.md). Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md), and behavior lives in [FEATURES.md](FEATURES.md).
+1. **The model decides the steps.** One thin Loop calls the model and the tools it asks for, and draws no flow for it.
+2. **A conversation is an append-only log in your store.** The model sees a view of it, the provider caches its prefix, an instance caches it, a client tails it, and a fork branches it.
+3. **Any instance answers as if it were the only one.** One writer at a time, wherever your load balancer routes, and no Session bound to any instance.
+4. **An Agent does only what its purpose-built tools allow.** Up to its Effect cap, with no approvals, no shell and no sandbox.
+5. **Every request is laid out for the cache, and an idle Session holds no memory.**
+6. **Gotato lives inside your service.** It uses your store, your load balancer and your telemetry, and it keeps a named, versioned contract.
+7. **Every step can be seen.** Each one is an Event that names its Session, and anyone can inspect what the model sees.
 
-## TL;DR
+Each point has its section below, in this order. Under each are its principles, what each one costs, and how a reviewer can check that it still holds. After them come the failures in one table, the rule for when principles collide, the decisions and the open questions.
 
-The principles by group, then the decisions and the open questions. The details follow below, in the same order.
+The page describes the design we intend, not the state of the code: what is built is tracked in [FEATURES.md](FEATURES.md), open defects in [TODO.md](TODO.md), and the checks in [GOALS.md](GOALS.md). Beliefs live in [PHILOSOPHY.md](PHILOSOPHY.md).
 
-**Loop**
+This drawing shows the whole shape, from a caller's request to the store:
 
-| Principle | What it means |
-|---|---|
-| One loop, no graph | the Loop calls the model and its tools until it answers; no workflow types |
-| Limits end every Run | every cap on Turns, tool calls, bytes and time has a default |
-| `context.Context` is the only cancellation | every call and stream takes a `ctx` |
-| Extensions wrap the Loop at fixed stages | seven stage interfaces; a new stage is a reviewed change |
+```text
+callers ──► your load balancer ──► any instance of your service
+            (routes by session-id)        │
+                                          │  Agent (a definition) ──► live Session
+                                          │                           the Loop, plus a cache of its Record
+                                          │
+                                          │  appends each Turn, fenced by an epoch
+                                          ▼
+                                   your store: the Record, an append-only log
+```
 
-**Agent and Session**
+## 1. The model decides the steps
 
-| Principle | What it means |
-|---|---|
-| An Agent is a definition, and a Session runs it | an Agent holds no conversation; one Agent runs many Sessions |
-| Agents are flat | no sub-agents or roles; lineage lives in Session metadata |
-| A Session stays generic | an application's structure lives in metadata |
-| The Transcript and the Context are separate values | the model gets what a `ContextBuilder` builds, never the Transcript itself |
-
-**State and the store**
-
-| Principle | What it means |
-|---|---|
-| The store is the truth, and memory is a cache | any instance can rebuild a Session from the store |
-| Save every Turn | a crash loses at most the Turn in flight |
-| A save never overwrites a newer one | a save from a stale copy fails with a conflict |
-| Gotato owns the shape, and adapters own the schema | a versioned Session shape, mapped onto your database by your adapter |
-
-**Context and cost**
-
-| Principle | What it means |
-|---|---|
-| Stable content first, changing content last | so the provider's prompt cache keeps working |
-| Cache markers are neutral in the core | each wire API maps them, and the Session's cache key, to its own form |
-| The Context is inspectable | see what the model would get, without calling it |
-
-**Tools and safety**
-
-| Principle | What it means |
-|---|---|
-| Every tool declares its Effect | read, write local, write external or destructive; none counts as destructive |
-| An Agent caps the Effect it allows | the model never sees a tool above the cap; no cap by default |
-| Tools check their own arguments | a tool refuses arguments that are unsafe for it |
-| No shell and no sandbox in Gotato | tools are Go functions or MCP servers; MCP is not built yet |
-
-**Models**
-
-| Principle | What it means |
-|---|---|
-| Core types belong to no vendor | provider data the core does not understand passes through untouched |
-| Providers are configured by wire API | a new vendor is a configuration entry |
-
-**Dependencies and layering**
-
-| Principle | What it means |
-|---|---|
-| The core uses only the standard library | the root module requires only `gopkg.in/yaml.v3` |
-| Dependencies point inward | the core never imports the service, the adapters or the CLI |
-| Heavy dependencies live in their own module | gRPC is a separate Go module |
-| The Go version stays low | the root `go.mod` says `go 1.22` |
-
-**Service layer**
-
-| Principle | What it means |
-|---|---|
-| Library first | a small `main` runs a Session with a fake model, with no server |
-| The service sits on top | the service composes the core the way an application would |
-| The CLI is a thin client | every CLI behavior is reachable through the packages |
-| Contracts carry a version | HTTP and gRPC report their contract version |
-
-**Events and telemetry**
-
-| Principle | What it means |
-|---|---|
-| Events have a stable shape, and bind to no telemetry framework | an observer maps them onto your stack |
-| Events and `Usage` carry enough to compute every number about a Run | a team gets those numbers from its own telemetry |
-
-**Failure**
-
-| Case | What happens |
-|---|---|
-| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on |
-| The model fails | the Run fails, and keeps every Turn it committed |
-| A limit is reached | the Run settles with a status that names the limit |
-| A Session is busy, or the Runner is full | the new Run waits or is rejected |
-| A save fails | the Run's error says the result was not persisted |
-| An instance stops gently | it drains its Runs |
-| An instance dies mid-Run | at most the Turn in flight is lost |
-| A request reaches an instance that is not running the Session | still open |
-
-**Testing**
-
-| Principle | What it means |
-|---|---|
-| Tests never call a network model | fakes and recorded replies cover the Loop |
-
-**Compatibility**
-
-| Principle | What it means |
-|---|---|
-| The contract is named | exported identifiers, CLI output, Event kinds, and the HTTP and gRPC contracts |
-| Breaks are rare, versioned and written down | every break has a before-and-after entry in the changelog |
-
-**When principles collide**
-
-| Rule | What it says |
-|---|---|
-| The order of priority | never lose a committed Turn, then stay minimal, then stay cheap; the Effect cap is never traded |
-
-**Decisions**
-
-| Decision | What we chose | Date |
-|---|---|---|
-| An Agent is a definition, and a Session is the live unit | the meaning the labs' agent APIs give both words | 2026-10-15 |
-| The store is the truth, and memory is a cache | a live Session kept warm, with the store as the truth | 2026-10-15 |
-| The live Session is `gotato.Session`, and its record is `session.Record` | one concrete type a caller holds, named after the thing; the Loop stays a concept | 2026-10-16 |
-| No approval system | the Effect cap, plus tools that check their own arguments | 2026-10-15 |
-| The Effect cap hides tools, and only an Agent sets it | the model never sees a tool above the cap; another cap is another Agent | 2026-10-16 |
-| Gotato owns the shapes, and adapters own storage and telemetry | stable shapes for a Session and its Events, mapped by adapters | 2026-10-15 |
-| Providers are configured by wire API | one implementation per wire API | 2026-09-17 |
-| Adapters prove the store contract with a conformance suite | one suite in `testkit`, shipped with the Phase 4 store contract | 2026-10-16 |
-
-**Open questions**
-
-| Question | What is open |
-|---|---|
-| Ownership across instances | how one instance runs a Session at a time |
-| What a warm Session holds | what happens to a message that arrives mid-Run, and which Events report it |
-| How a Turn is saved | an append of the new Turn, or a rewrite of the whole Session |
-| A model catalog | model names, context sizes and prices next to the providers |
-| Compaction | how a Session is compacted, before its TTL and otherwise, and when it becomes part of an Agent's definition |
-
-## Loop
+Gotato runs one thin Loop that calls the model and the tools the model asks for, and it does not draw the flow for it ([PHILOSOPHY.md → 1](PHILOSOPHY.md#1-what-actually-changed)).
 
 ### One loop, no graph
 
@@ -152,7 +42,6 @@ The Loop calls the model, runs the tools it asked for, and repeats until the mod
 call the model ──► run the tools it asked for ──► repeat until it answers or a limit stops it
 ```
 
-- **Why:** [PHILOSOPHY.md → 1](PHILOSOPHY.md#1-what-actually-changed).
 - **Cost:** there is no drawn flow and no control per step, so a fixed sequence is written in Go around the Loop.
 - **Check:** the root package has one execution path, and no workflow, node or edge type exists anywhere in the module.
 
@@ -177,7 +66,35 @@ The stages are `RunPreparer`, `ContextTransformer`, `MessageConverter`, `PreTool
 - **Cost:** a need that fits no stage waits for a new stage instead of a fork. Every stage runs on the Run's own goroutine, so a slow extension slows the Run.
 - **Check:** each stage is one interface (`RunPreparer` in `context.go`, the rest in `extensions.go`), and adding one is a reviewed change to the root package.
 
-## Agent and Session
+### Messages reach a running Session in its own process
+
+A message for a Session that is running reaches its writer, because the load balancer routes every request for one Session to the same instance. Each kind takes effect at its own point:
+
+| Kind | When it takes effect |
+|---|---|
+| Steer | at the next Turn boundary |
+| FollowUp | where the Run would otherwise settle |
+| Interrupt | at once: a model call in flight is cancelled, a tool in flight finishes, and the message starts the next Turn of the same Run |
+| Stop | at once: everything in flight is cancelled through its `ctx`, and the Run settles as cancelled |
+
+- A message that arrives after the Run has ended starts a new Run instead of being dropped.
+- An Interrupt lets a running tool finish, because a write cut in half can leave half a side effect. Stop cancels tools too, and each tool decides how to stop safely.
+- **Cost:** a message the writer accepted but has not committed is lost if the writer dies. The caller sees its stream end and sends it again, as it would with a single instance.
+- **Check:** a test steers, interrupts and stops a Run on a fake model and checks where each message lands in the Transcript.
+
+## 2. A conversation is an append-only log in your store
+
+A Session's Record, kept in your store, is an append-only log. The model sees a view of it, the provider caches its prefix, an instance caches it, a client tails it, and a fork branches it. This drawing shows each of those roles on one Record:
+
+```text
+                      provider's cached prefix
+                   ┌────────────────────────────┐
+                      model's view this Turn
+                   ┌─────────────────────────────────┐
+ [1][2][3][4] [CP] [6][7][8][9][10][11][12]  [13 being written] ◄── the writer (epoch 8)
+  kept, not loaded            │                          ▲
+                              └── fork: [9'][10'] …      └── a client tails from 12
+```
 
 ### An Agent is a definition, and a Session runs it
 
@@ -206,6 +123,33 @@ Task graphs, project state and product workflow live in a Session's metadata.
 - **Cost:** an application keeps its own structure in metadata, without typed fields.
 - **Check:** the Session has no field named after one application's concept.
 
+### The Record is an append-only log
+
+Every Turn a Session commits is appended to its Record, and nothing already written is rewritten. Each entry has a sequence number, and the store assigns it in the same write.
+
+- A metadata change, such as a new instruction or a switched-off tool, is an appended entry too.
+- Two writers cannot both append the same sequence number, so an old copy can never overwrite a newer one.
+- A save costs the size of the new Turn, not the size of the Session.
+- **Cost:** the Record grows with every Turn. A team that wants to bound its storage deletes entries before a checkpoint itself.
+- **Check:** the store conformance suite appends from two copies of one Record and expects exactly one to succeed, and a crash at every step of the reference workload loses at most the Turn in flight ([GOALS.md](GOALS.md) G-G01).
+
+### Compaction appends a checkpoint
+
+Compaction does not replace part of the history. It appends a checkpoint that holds the summary and the point from which the original entries are kept word for word, and a load starts from the last checkpoint.
+
+- Loading costs the size of the Session since its last checkpoint, not its whole history.
+- The entries before a checkpoint stay, so nothing a Session said is lost to compaction.
+- **Cost:** a checkpoint must say exactly which entries it covers, so a load never mixes a summary with the entries it summarized.
+- **Check:** a test compacts, appends, reloads and compares the Context with the one before the reload.
+
+### A fork is a branch
+
+A fork writes a new Record in the store, starting from its parent's entries, and activates nothing. The new Session is activated by whichever instance its first request reaches.
+
+- The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix on any instance.
+- **Cost:** today a fork copies its parent's entries. Referring to them instead is a later optimization, and it would pin the parent's entries against deletion.
+- **Check:** a fork is reachable through any instance, and its first request activates it there.
+
 ### The Transcript and the Context are separate values
 
 The Loop commits to the Transcript, and the model receives what a `ContextBuilder` builds from it:
@@ -217,76 +161,125 @@ Transcript (everything committed) ──► ContextBuilder ──► Context (wh
 - **Cost:** the Context is built again on every Turn.
 - **Check:** no code path sends the Transcript to a model without going through a `ContextBuilder`.
 
-## State and the store
+### Gotato owns the shape, and adapters own the schema
+
+A Record has a stable, versioned shape (`schema_version`). An adapter in the application, or in an extension package, maps that shape onto MySQL, Postgres, Mongo or any other database, and owns its tables, collections and migrations. Every operation the store contract needs, the claim, the fenced append and the liveness row, is an ordinary conditional write.
+
+- **Cost:** teams write an adapter, because Gotato ships only a memory store and a file store.
+- **Check:** the root module has no database driver, and loading a Record with a newer `schema_version` fails with `ErrNotSupported`.
+
+## 3. Any instance answers as if it were the only one
+
+A Session runs on any instance, with one writer at a time. Your load balancer decides which instance receives a request, and Gotato makes that instance the writer when it can. To a caller, every instance answers as if it were the only one.
+
+This drawing shows who does what:
+
+```text
+your load balancer: hash on session-id · retry a "not run" 503 once · drop an instance that is not ready
+Gotato:             claim the writer · fence every append · take over an idle Session · drain in order
+your store:         the Records · one liveness row per instance · the claims
+```
 
 ### The store is the truth, and memory is a cache
 
-A Session may stay warm in its Runner's memory while it is in use, but correctness never depends on it:
+A live Session may stay warm in memory while it is in use, but correctness never depends on it. An instance may drop a live Session at any time, at its TTL, on drain or in a crash, and any instance can rebuild it from its Record.
+
+- **Cost:** a write for every committed Turn, and a load from the last checkpoint before a cold Session answers.
+- **Check:** killing an instance loses no committed Turn ([GOALS.md](GOALS.md) G-G01).
+
+### One writer at a time
+
+Only one instance, the writer, may append to a Record. It holds a claim: the Record names its instance and an epoch, a number that grows with every new claim. Every append checks the epoch inside the same transaction, so a writer whose claim was taken can no longer append.
+
+- A claim is a conditional write that raises the epoch by one, and it succeeds only when no live instance holds the Record.
+- When an append fails on the epoch, the writer drops its copy at once.
+- When an append's outcome is unknown, for example after a timeout, the writer claims again before it reads, which fences its own write if it landed.
+- A second instance learns that the Session has a writer before it calls the model, so it never pays for a Turn it cannot commit.
+- **Cost:** every append reads the claim, and the store must offer a conditional write.
+- **Check:** two instances that both believe they own a Session cannot both append, and the multi-instance harness finds no Turn appended twice or lost ([GOALS.md](GOALS.md) G-G08).
+
+### Liveness is one row per instance
+
+Each instance writes one liveness row and renews it on a heartbeat. A claim points at that row, and it is valid while the row is alive.
+
+- The row's expiry is set and compared with the store's own clock, never an instance's.
+- An instance gets a new identity each time it starts, and a row that has expired never comes back to life.
+- When one instance dies, raising the epoch of its row ends every claim it held, in one write.
+- An instance that cannot renew its row stops appending and drains itself.
+- The row also carries the instance's count of live Sessions, as a load signal.
+- **Cost:** a write per instance per heartbeat, and a Session waits for one row to expire before another instance takes it over after a crash.
+- **Check:** a test stops an instance's heartbeat and expects its claims to end, and its late appends to fail.
+
+### No Session is bound to an instance
+
+When a request reaches an instance that is not the writer, the instance looks at the claim:
+
+| The Session is | The instance |
+|---|---|
+| idle, or its writer is gone or draining | claims it, loads it from the last checkpoint and serves the request |
+| running a Run on another live instance | waits for that Run to end, up to a bound, then claims it; past the bound it answers 409 with `Retry-After` |
+
+- This covers every case where a Session's writer is not where the load balancer points: a fork, a retry after a refusal, a Session activated before the load balancer's hash changed.
+- **Cost:** a takeover drops the old writer's warm copy, and the new writer loads from the store.
+- **Check:** the harness sends each request to a random instance and expects the same Transcripts and Event order as a single instance gives.
+
+### Any instance answers like the only one
+
+A caller cannot tell which instance served it, apart from a few places that are written down here:
+
+| Place | What differs from a single instance |
+|---|---|
+| The writer dies mid-Run | the Turn in flight is lost; the stream ends and resumes on another instance |
+| The load balancer's hash changes | for a few seconds, a message may wait for a running Run, and a Steer then starts a new Run |
+| Several instances | `MaxActiveRuns` counts per instance, not across the service |
+| A rolling deploy | an instance on an older contract version refuses what it does not know, until it is replaced |
+
+- **Cost:** these places are part of the contract, and a change to them is a contract change.
+- **Check:** the harness above.
+
+### The load balancer routes; Gotato does not
+
+Gotato never forwards a request between instances, because discovery and routing already exist where your services run ([PROPOSAL.md → What we don't want](PROPOSAL.md#what-we-dont-want)). It needs three things from your load balancer:
+
+| Your load balancer | Why |
+|---|---|
+| a consistent hash on the `session-id` header | every request for one Session reaches one instance |
+| one retry on another instance after a 503 marked "not run" | a refusal never ran, so a retry cannot run it twice |
+| readiness from `/readyz` | an instance that is draining receives no new requests |
+
+- A request that creates a Session, such as `POST /v1/runs`, needs no header; its response carries the new ID.
+- **Cost:** a load balancer without header hashing still works, but more requests take over Sessions from other instances.
+- **Check:** the deployment guide in [FEATURES.md](FEATURES.md) shows these three settings for common load balancers, and the harness runs behind a hashing proxy.
+
+### Drain finishes, saves and releases before it disconnects
+
+On an endpoint or on SIGTERM, an instance drains in this order:
 
 ```text
-caller ──► any instance ──► warm Session in memory (a cache)
-                                   │ saves every committed Turn
-                                   ▼
-                             store (the truth)
+mark draining in its liveness row ──► /readyz answers 503 ──► refuse new activations
+  ──► close(drain): every live Session finishes its Run, saves, and releases its claim
+  ──► close each stream with a reconnect code ──► leave
 ```
 
-- Any instance can rebuild the Session from the store.
-- The TTL (60 idle minutes unless the Agent sets another) removes the Session from memory. The conversation stays in the store.
-- Before it leaves, the Session is compacted, unless a setting turns this off. By then the provider's prompt cache has expired, so the next Run starts cold either way, and a shorter history costs less to send again.
-- **Cost:** a write for every committed Turn, and a load before a cold Session answers. Compacting before the TTL loses detail, and it costs a summary for every Session that leaves, including one that never comes back.
-- **Check:** killing an instance loses no committed Turn ([GOALS.md](GOALS.md) G-G01), and two instances never both run one Session (G-G08).
+- The signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
+- A claim is released only if it still names this instance.
+- What a drain cannot finish by its deadline is fenced by the epoch anyway.
+- **Cost:** a deploy waits for running Runs, up to the drain deadline.
+- **Check:** a test drains an instance with a Run in flight and expects the Run committed, the claim released and the stream ended with a reconnect code.
 
-### Save every Turn
+### A stream resumes from a position
 
-A Session is saved after each Turn it commits.
+Every Event a client streams carries its sequence number, and the Record carries an epoch of its own that changes if its log is ever reset. A client that loses its stream reconnects through the load balancer, to any instance, and passes the last position it saw.
 
-- **Cost:** a write per Turn, so a save must cost the size of the new Turn, not the size of the whole Session.
-- **Check:** a crash in the middle of a Run loses at most the Turn in flight.
+- The instance reads the entries after that position, merges them with the live stream without gaps or duplicates, and goes on.
+- If the epoch differs, the client is told the position cannot be resumed, and reloads the Session.
+- A stream that ends says whether to reconnect, and how long to wait first, so a lost instance does not cause every client to reconnect at the same instant.
+- **Cost:** every streamed Event carries a position, and resuming needs a short buffer while history is read.
+- **Check:** a test cuts a stream at every Event of the reference workload and expects the resumed stream to equal an uncut one.
 
-### A save never overwrites a newer one
+## 4. An Agent does only what its purpose-built tools allow
 
-A save made from a stale copy fails with a conflict.
-
-- **Cost:** callers handle a conflict error.
-- **Check:** two saves from the same starting copy cannot both succeed.
-
-### Gotato owns the shape, and adapters own the schema
-
-A saved Session has a stable, versioned shape (`schema_version`). An adapter in the application, or in an extension package, maps that shape onto MySQL, Postgres, Mongo or any other database, and owns its tables, collections and migrations.
-
-- **Cost:** teams write an adapter, because Gotato ships only a memory store and a file store.
-- **Check:** the root module has no database driver, and loading a Session with a newer `schema_version` fails with `ErrNotSupported`.
-
-## Context and cost
-
-### Stable content first, changing content last
-
-Each Context is laid out in this order, from the most stable part to the part that grows:
-
-```text
-instruction · Static blocks  →  tools, sorted by ID  →  Transcript
-```
-
-- Static blocks are fixed reference text.
-- Nothing that changes every Turn is added. Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
-- **Cost:** the model learns a changing fact only by calling a tool, and any change to the order breaks the provider's cache.
-- **Check:** `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged when only runtime fields such as message IDs change, and checks the cache breakpoints after the system part, the tools and the history.
-
-### Cache markers are neutral in the core
-
-The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`. A cache key, one per Session, tells a provider which requests belong to one cache; the gateway's configuration says whether it travels as a body field such as `prompt_cache_key` or as a header.
-
-- **Cost:** a provider feature with no neutral form waits for one.
-- **Check:** the root package names no provider.
-
-### The Context is inspectable
-
-Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. An agent's action is explained by what it saw, so this view is the first tool for debugging. The Agent builds the view with the code its Turns run, so the two cannot drift apart.
-
-- **Cost:** a `ContextBuilder`, the context extensions and every tool source must build without side effects, because inspection runs them too.
-- **Check:** the reference workload compares every Turn's prefix hash with an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
-
-## Tools and safety
+An Agent can do what its purpose-built tools allow, up to its Effect cap, and nothing else ([PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
 
 ### Every tool declares its Effect
 
@@ -304,11 +297,10 @@ read  <  write local  <  write external  <  destructive
 
 An Agent names its tools and can name the highest Effect any of them may have. A tool above the cap is never offered to the model, so a read-only Agent cannot change anything.
 
-- **The cap hides tools.** The model sees only the tools at or below the cap, and that includes the tools of a ToolSet it activates later. The tool that activates a ToolSet declares `read`, because it changes only which tools the model sees.
-- **A hidden tool is an unknown tool.** A model that calls one by a guessed name gets the same failed result as for any name that does not exist, and the Run goes on. The result lists only the visible tools.
-- **The cap belongs to the Agent.** A Session cannot raise or lower it, and work that needs another cap is another Agent (see [The Effect cap hides tools, and only an Agent sets it](#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- **The cap hides tools.** The model sees only the tools at or below the cap, including the tools of a ToolSet it activates later.
+- **A hidden tool is an unknown tool.** A model that calls one by a guessed name gets the same failed result as for any name that does not exist.
+- **The cap belongs to the Agent.** A Session cannot raise or lower it, and work that needs another cap is another Agent.
 - **No cap by default.** An Agent that names none offers all its tools.
-- **The cap is visible.** `gotato tools list` and the Agent listing over HTTP and gRPC report it. A hidden tool is not listed, and cannot be switched on or off for a Session.
 - **Cost:** a write tool needs an Agent that is allowed to write, and two jobs with different bounds are two Agents.
 - **Check:** a test gives tools of every Effect to Agents with every cap, and asserts that no tool above the cap reaches a model request, the tool listing or its own code ([GOALS.md](GOALS.md) G-G05).
 
@@ -326,20 +318,71 @@ Tools are Go functions in the service, or tools reached through MCP servers.
 - **Cost:** work that needs a machine is done elsewhere.
 - **Check:** the module ships no tool that runs commands or code.
 
-## Models
+## 5. Every request is laid out for the cache, and an idle Session holds no memory
 
-### Core types belong to no vendor
+Every request is laid out so the provider can serve most of it from its prompt cache, and a Session that is not in use holds no memory ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)).
 
-The model contract uses Gotato's own request and event types. Provider data that the core does not understand, such as reasoning signatures, travels through it untouched.
+### Stable content first, changing content last
 
-- **Cost:** every wire API maps to and from these types.
-- **Check:** the root package imports only the standard library.
+Each Context is laid out in this order, from the most stable part to the part that grows:
 
-### Providers are configured by wire API
+```text
+instruction · Static blocks  →  tools, sorted by ID  →  Transcript
+```
 
-A provider is configuration, and Gotato implements each wire API once. See [the decision](#providers-are-configured-by-wire-api--2026-09-17).
+- Because the Record only grows at its end, the prefix of one Turn's request is the prefix of the next.
+- Nothing that changes every Turn is added. A fact the model needs now, such as the current time, comes from a tool it calls.
+- **Cost:** the model learns a changing fact only by calling a tool, and any change to the order breaks the provider's cache.
+- **Check:** `TestPrefixHashStableAcrossAppendOnlyTurns` keeps the prefix hash unchanged across appending Turns.
 
-## Dependencies and layering
+### Cache markers are neutral in the core
+
+The core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`. A cache key, one per Session, tells a provider which requests belong to one cache, on whichever instance they run.
+
+- **Cost:** a provider feature with no neutral form waits for one.
+- **Check:** the root package names no provider.
+
+### An idle Session holds no memory
+
+A live Session leaves memory when it has been idle for its TTL, 60 minutes unless its Agent sets another. Its Record stays in the store.
+
+- Before it leaves, it is compacted, unless a setting turns this off. By then the provider's prompt cache has expired, so the next Run starts cold either way, and a shorter history costs less to send again.
+- **Cost:** compacting before the TTL loses detail, and it costs a summary for every Session that leaves, including one that never comes back.
+- **Check:** G-B08 in [GOALS.md](GOALS.md) measures the heap a warm Session holds.
+
+### A refusal is a safety valve, not a balancer
+
+Where new Sessions go is the load balancer's choice. An instance refuses to activate a new Session only past a hard limit, such as its memory budget, with a 503 marked "not run".
+
+- Spreading load is the job of the load balancer, for example a hash with bounded load, and of the autoscaler.
+- While an instance keeps refusing, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry.
+- **Cost:** an instance near its limit serves its Sessions with an extra hop until load moves.
+- **Check:** a test fills an instance to its limit and expects a "not run" refusal, an Event, and no Session activated there.
+
+## 6. Gotato lives inside your service
+
+Gotato asks nothing new of your service. It is a Go library inside it. It uses your store, your load balancer and your telemetry through small adapters, and it promises a named, versioned contract in return.
+
+### Library first
+
+A small `main` builds a Session with `gotato.NewSession` and runs it with a fake model in-process, with no server, daemon or database.
+
+- **Cost:** the service layer cannot add anything the library needs to work.
+- **Check:** the root package's tests build and run Sessions in-process with `testkit` fakes, with no network and no store beyond memory.
+
+### The service sits on top
+
+`service`, `service/httpapi` and the gRPC adapter compose the core packages the way an application would. Claims, liveness and drain live in the service layer and the store contract, not in the core.
+
+- **Cost:** the service layer repeats some wiring that a framework would hide.
+- **Check:** the layering test below.
+
+### The CLI is a thin client
+
+Every CLI behavior is reachable through the packages. `--json` and `--jsonl` output and the exit codes are part of the contract.
+
+- **Cost:** a CLI feature first needs a package API.
+- **Check:** `cmd/gotato` holds presentation only, and `cmd/gotato/cli_test.go` asserts on JSON.
 
 ### The core uses only the standard library
 
@@ -373,37 +416,55 @@ Embedding Gotato never forces a service to upgrade Go.
 - **Cost:** newer language features wait.
 - **Check:** the root `go.mod` says `go 1.22`.
 
-## Service layer
+### Core types belong to no vendor
 
-### Library first
+The model contract uses Gotato's own request and event types. Provider data that the core does not understand, such as reasoning signatures, travels through it untouched.
 
-A small `main` builds a Session with `gotato.NewSession` and runs it with a fake model in-process, with no server, daemon or database.
+- **Cost:** every wire API maps to and from these types.
+- **Check:** the root package imports only the standard library.
 
-- **Cost:** the service layer cannot add anything the library needs to work.
-- **Check:** the root package's tests build and run Sessions in-process with `testkit` fakes, with no network and no store beyond memory.
+### Providers are configured by wire API
 
-### The service sits on top
+A provider is configuration, and Gotato implements each wire API once. See [the decision](#providers-are-configured-by-wire-api--2026-09-17).
 
-`service`, `service/httpapi` and the gRPC adapter compose the core packages the way an application would.
+### The contract is named
 
-- **Cost:** the service layer repeats some wiring that a framework would hide.
-- **Check:** the layering test above.
+The contract is:
 
-### The CLI is a thin client
+- the exported identifiers of the root package and the standard runtime packages;
+- the CLI's commands, flags, JSON fields, JSONL event shapes and exit codes;
+- the Event kinds and their documented payload keys;
+- the HTTP and gRPC contracts, which carry their own version;
+- the store contract that adapters implement, and the places where many instances differ from one.
 
-Every CLI behavior is reachable through the packages. `--json` and `--jsonl` output and the exit codes are part of the contract.
+Every change to these is reviewed as a contract change. Additions are free, and consumers tolerate unknown Event kinds.
 
-- **Cost:** a CLI feature first needs a package API.
-- **Check:** `cmd/gotato` holds presentation only, and `cmd/gotato/cli_test.go` asserts on JSON.
+- **Check:** today a reviewer reads each change. When mass testing begins, CI also compares the exported identifiers with the last release (ROADMAP Phase 9).
 
 ### Contracts carry a version
 
-The HTTP and gRPC contracts each report a contract version, currently `"4"`. It counts breaking changes to what the service returns, JSON payloads included; the protobuf package stays `gotato.v2` until its schema itself breaks.
+The HTTP and gRPC contracts each report a contract version, currently `"4"`. It counts breaking changes to what the service returns, JSON payloads included.
 
 - **Cost:** a breaking change to a contract needs a version bump and a [CHANGELOG.md](CHANGELOG.md) entry.
 - **Check:** `GET /healthz` and the gRPC contract call return the version.
 
-## Events and telemetry
+### Breaks are rare, versioned and written down
+
+A confusing abstraction can still be fixed by a planned break.
+
+- **Cost:** some fixes wait for that break.
+- **Check:** every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md) (GOALS.md G-G06).
+
+## 7. Every step can be seen
+
+Every step is an Event, every Event names its Session, and anyone can see what the model sees without calling it.
+
+### Every Event carries its Session
+
+Each Event carries its Session's ID, and an Event of a Run also carries its Run, its Turn, a sequence number and a time.
+
+- **Cost:** every Event carries a field a single-Session program does not need.
+- **Check:** a test records every Event of the reference workload and finds none without a Session.
 
 ### Events have a stable shape, and bind to no telemetry framework
 
@@ -414,47 +475,17 @@ An observer in the application, or in an extension package, maps Events onto Ope
 
 ### Events and `Usage` carry enough to compute every number about a Run
 
-Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, down to the store's time to load and save a Session. So a team gets the numbers about a Run in [GOALS.md](GOALS.md) from its own telemetry, not from Gotato's internal state. Memory, startup time and footprint describe the process, not a Run, and come from benchmarks.
+Cache hits, token counts, tool results with their cause, stop reasons and timings all travel with Events or `Usage`, down to the store's time to load and save a Session. Memory, startup time and footprint describe the process, not a Run, and come from benchmarks.
 
 - **Cost:** Events carry fields that some teams never read.
 - **Check:** the reference workload computes its numbers about a Run from recorded Events alone.
 
-## Failure
+### The Context is inspectable
 
-### A tool fails, or the model gets a tool call wrong
+Anyone can ask what the model would see for a Session now, without calling the model, and get the prefix hash with it. The view is built with the code a Turn runs, so the two cannot drift apart.
 
-The call settles as a failed tool result that tells the model why, and the Run goes on. The Turn and tool-call limits bound a model that keeps getting it wrong.
-
-### The model fails
-
-The Run settles as failed, with the error. The Transcript keeps every Turn committed before the failure, and the caller can continue the Session.
-
-### A limit is reached
-
-The Run settles with a status that names the limit.
-
-### A Session is busy, or the Runner is full
-
-- A busy Session: the Runner either rejects the new Run as busy or makes it wait, as the Runner's admission policy says.
-- A full Runner: it rejects the Run with a capacity error.
-
-### A save fails
-
-The Run's error says the result was not persisted. The caller retries or reports it.
-
-### An instance stops gently
-
-`Drain` stops new Runs, waits for the Runs in flight, and cancels them when its deadline passes.
-
-### An instance dies mid-Run
-
-At most the Turn in flight is lost.
-
-### A request reaches an instance that is not running the Session
-
-What happens to a message, a cancel or a stream request there is still open (see [Open questions](#open-questions)).
-
-## Testing
+- **Cost:** a `ContextBuilder`, the context extensions and every tool source must build without side effects, because inspection runs them too.
+- **Check:** the reference workload compares every Turn's prefix hash with an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
 
 ### Tests never call a network model
 
@@ -463,27 +494,23 @@ Fake and replay models, a fake tool and an event recorder cover the Loop.
 - **Cost:** provider behavior is checked against recorded replies, not live ones.
 - **Check:** CI runs with no provider credentials.
 
-## Compatibility
+## Failure
 
-### The contract is named
+Each point above says what happens when its part fails. This table collects them in one place.
 
-The contract is:
-
-- the exported identifiers of the root package and the standard runtime packages;
-- the CLI's commands, flags, JSON fields, JSONL event shapes and exit codes;
-- the Event kinds and their documented payload keys;
-- the HTTP and gRPC contracts, which carry their own version.
-
-Every change to these is reviewed as a contract change. Additions are free, and consumers tolerate unknown Event kinds. A rename or a removal goes through a release with a `// Deprecated:` marker when that is cheap.
-
-- **Check:** today a reviewer reads each change. When mass testing begins, CI also compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no changelog entry names (ROADMAP Phase 9).
-
-### Breaks are rare, versioned and written down
-
-A confusing abstraction can still be fixed by a planned break.
-
-- **Cost:** some fixes wait for that break.
-- **Check:** every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md) (GOALS.md G-G06).
+| Case | What happens | Point |
+|---|---|---|
+| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on; the Turn and tool-call limits bound a model that keeps getting it wrong | 1 |
+| The model fails | the Run fails, and the Record keeps every Turn committed before it | 1 |
+| A limit is reached | the Run settles with a status that names the limit | 1 |
+| A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | 1 |
+| An append fails | the Run's error says the result was not persisted, and the caller retries or reports it | 2 |
+| An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects | 3 |
+| An instance dies mid-Run | at most the Turn in flight is lost; another instance takes the Session over once the dead instance's row expires | 3 |
+| The writer loses its liveness | it stops appending and drains itself | 3 |
+| An append's outcome is unknown | the writer claims again, then reloads | 3 |
+| A request reaches an instance that is not the writer | an idle Session is taken over; a busy one is waited for, then refused with 409 | 3 |
+| An instance is full | it refuses to activate a new Session, with a 503 marked "not run" | 5 |
 
 ## When principles collide
 
@@ -534,6 +561,47 @@ Three choices come with it:
 - **One concrete type, no interfaces.** `gotato.NewSession` returns a `*Session`. There is one implementation, and no caller implements the interfaces the old type was split into, so they go. A caller that wants a fake defines its own small interface, as Go code usually does.
 - **One ID.** A live Session's ID is its Session ID: it comes from its record, or is generated when there is none. Every Event carries it as `session_id`.
 - **Today a live Session lives for one Run.** The Runner builds one from the record, runs it and closes it, so it behaves like a Session whose TTL is zero, and the store stays the truth. Phase 6 keeps it warm.
+
+### The Record is an append-only log — 2026-10-16
+
+A save had to cost the size of a Turn, and a stale copy had to fail instead of overwriting a newer one.
+
+| Option | For | Against |
+|---|---|---|
+| **Append only, with checkpoints for compaction** (chosen) | A save costs one Turn. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
+| Rewrite the whole Record, with a version check | The simplest contract. | A save costs the whole Session, megabytes for long ones. |
+| Append, plus a rewrite for compaction | Compaction stays a replacement. | Two write paths, and the rewrite brings the cost back. |
+
+### One writer per Session, claimed in the store — 2026-10-16
+
+A second instance must stop before it calls the model, and a writer that lost its claim must not append. We studied how seven Go systems do this. The closest are CockroachDB's per-node liveness record, whose epoch ends all of a node's leases at once, and Temporal's range ID, which every write checks.
+
+| Option | For | Against |
+|---|---|---|
+| **A claim with an epoch, valid while its instance's liveness row is** (chosen) | Needs only conditional writes in your own store. Fences every append. One write ends a dead instance's claims. | A heartbeat write per instance. A takeover after a crash waits for one row to expire. |
+| A lease per Run | No liveness row. | Ownership flips between Runs, so a warm Session and a stream have no stable home. |
+| A membership protocol, such as gossip | Fast failure detection. | A second system inside Gotato, and no fence on the store without an epoch anyway. |
+| A placement service | Central control of placement. | A separate platform to run, which [PROPOSAL.md](PROPOSAL.md) rules out. |
+
+### The load balancer routes, and Gotato follows — 2026-10-16
+
+Routing already exists where a team runs its services, so Gotato makes the instance a request reaches the writer whenever it can.
+
+| Option | For | Against |
+|---|---|---|
+| **Follow the load balancer: take over an idle Session, wait for a busy one** (chosen) | No routing in Gotato. Works with a plain consistent hash. No Session is ever unreachable. | While the hash changes, a message may wait for a running Run. |
+| Forward requests to the writer between instances | Every message reaches the writer at once. | Routing, an internal API, and its authentication inside Gotato. |
+| Redirect the caller to the writer | No forwarding. | A load balancer cannot follow a redirect to one instance. |
+
+### Messages that arrive during a Run — 2026-10-16
+
+A Session's messages reach its writer through the load balancer's hash, so each kind can take effect in the writer's own process.
+
+| Option | For | Against |
+|---|---|---|
+| **Steer at a Turn boundary; Interrupt and Stop at once; a late message starts a new Run** (chosen) | The same behavior as one instance. Nothing waits in the store. | A message accepted but not yet committed is lost if the writer dies; the caller sends it again. |
+| Queue every message in the store first | Survives the writer's death. | A write per message, and a writer that polls the store. |
+| Reject a message while a Run is going | The simplest. | A caller cannot steer or stop a Run. |
 
 ### No approval system — 2026-10-15
 
@@ -597,41 +665,13 @@ The suite is written against the store contract that Phase 4 ships, with the che
 
 ## Open questions
 
-### Ownership across instances
+### The Events on a message's way into a Session
 
-This gets its own design discussion before anything is built. One requirement is already fixed: whatever the mechanism, a second instance stops before it calls the model, so it never spends tokens on a Turn it cannot commit. A conflict found only when saving is too late, because both instances have already paid for the model call. The discussion must answer these questions:
+The steps are now known: a message reaches the writer, waits for a Turn boundary, is committed, or starts a new Run. A request may also wait for another instance's Run, or be refused as "not run". Their Event names and fields are open.
 
-| Question | Options on the table |
-|---|---|
-| How is ownership of a Session expressed? | a lease with an expiry; a revision compared on save; both |
-| Where does ownership live? | in the store; in a separate lock service |
-| What happens when a message reaches an instance that does not own the Session? | forward it to the owner; wait; reject it as busy; take over |
-| How is a crashed owner detected? | the lease expires; a heartbeat |
-| How is a stale owner stopped from writing after it lost ownership? | fencing tokens: each new owner gets a higher number, and older numbers are refused |
-| How do cancellation and live streams reach the owner? | today both work only on the instance that runs the Session |
-| How does ownership work with the TTL? | the owner lets go when the TTL frees the Session's memory, or earlier |
+### Runtime notices
 
-### What a warm Session holds
-
-What a warm Session keeps in memory is open, and so is what happens to a message that arrives while a Run is in progress: it is queued, steered into the Run, or rejected as busy.
-
-The Events that report a message's way into a Session are open with it, because their names and fields follow from that choice. Today only the moment the Loop commits a message has one. This table shows each step of the way in:
-
-| Step | What happens | Event |
-|---|---|---|
-| A `Steer` or `FollowUp` reaches the Loop | it waits in a bounded buffer | none |
-| The buffer is full | the caller gets `limit_exceeded` | none |
-| The Loop commits it | a Steer between Turns, a FollowUp where the Run would settle | `message_start` and `message_end`, with `source` |
-| The Run ends before the Loop reads it | it is dropped | none |
-| A new Run reaches a busy Session | it is rejected as busy, or waits for the lock | none |
-| The Runner is full | the Run is rejected | none |
-| A caller asks to cancel | the Run settles as cancelled | only `run_end`, so the time from the request to the cancel is unknown |
-
-Some of these steps happen before any Run starts, so their Events cannot belong to a Run. They may need a stream of the Runner's own, which ties this question to [Ownership across instances](#ownership-across-instances).
-
-### How a Turn is saved
-
-A save is either an append of the new Turn or a rewrite of the whole Session. Today each save also carries up to 1,000 Events inside the Session, so every save grows with the Session's history.
+How Gotato tells the model something that is not the user's words, such as a limit that is near ([FEATURES.md](FEATURES.md) G-F29).
 
 ### A model catalog
 
@@ -639,8 +679,6 @@ A catalog next to the providers would list model names, context sizes and prices
 
 ### Compaction
 
-Compaction exists in the code, and it is not part of an Agent's definition until a later phase.
-
-One part is decided: a warm Session is compacted before it leaves memory at its TTL, on by default, and a setting turns it off ([The store is the truth, and memory is a cache](#the-store-is-the-truth-and-memory-is-a-cache)). How a Session is compacted is still open: who writes the summary, what is kept word for word, and how this relates to the ceiling that compacts at the start of a Run. That discussion belongs to a later phase.
+One part is decided: a warm Session is compacted before it leaves memory at its TTL, on by default, and a setting turns it off. Another part follows from the log: compaction appends a checkpoint. How a Session is compacted is still open: who writes the summary, what is kept word for word, and how this relates to the ceiling that compacts at the start of a Run.
 
 Smaller open decisions about Events and extensions are tracked in [TODO.md](TODO.md) → Decisions.

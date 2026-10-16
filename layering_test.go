@@ -12,7 +12,7 @@ import (
 
 const modulePath = "github.com/jinhuang712/gotato"
 
-// TestLayering enforces DESIGNS.md → Dependencies and layering: the root
+// TestLayering enforces DESIGNS.md → Dependencies point inward: the root
 // package imports only the standard library, and standard runtime packages
 // never import the optional service layer or the CLI.
 func TestLayering(t *testing.T) {

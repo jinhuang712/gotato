@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-16 -->
+<!-- what-we-build: drafted 2026-10-16 -->
 # Gotato — Goals
 
 GOALS holds two kinds of number. A **goal** is a check Gotato passes or fails, and its number is fixed by its nature: 0 failures, or 100%. A **benchmark** is a number Gotato tracks. Alone it means nothing, so each one names what it is compared with: the previous release, the model's own time, or another stack.
@@ -9,7 +9,7 @@ Every number is measured on this repository's own workloads:
 - the **live run**: the same tasks against a real provider with a fixed model and its price, run on demand with `gotato-workload -live`, because CI has no provider credentials;
 - **fault injection** and a **multi-instance harness** for the checks that need a crash or a second instance.
 
-A method marked *(to build)* does not exist yet; building it is roadmap work. Every number about a Run can also be computed from Events and `Usage` alone, so a team gets the same numbers from its own production telemetry ([DESIGNS.md → Events and telemetry](DESIGNS.md#events-and-telemetry)). Memory, startup and footprint describe the process, and come from benchmarks on the **reference service** in `bench/refservice`: the smallest service a team would write around Gotato.
+A method marked *(to build)* does not exist yet; building it is roadmap work. Every number about a Run can also be computed from Events and `Usage` alone, so a team gets the same numbers from its own production telemetry ([DESIGNS.md → Every step can be seen](DESIGNS.md#7-every-step-can-be-seen)). Memory, startup and footprint describe the process, and come from benchmarks on the **reference service** in `bench/refservice`: the smallest service a team would write around Gotato.
 
 The live run of 2026-10-16 played every task five times, and `support_case` ten times, against `gpt-6.1-sol`, with the gateway sending each Session's cache key. Its cost uses the list price of $2 input, $10 output and $0.10 cached input per million tokens. The other numbers of that date come from an Apple M3 with 8 cores and Go 1.27.2.
 
