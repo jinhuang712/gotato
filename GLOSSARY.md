@@ -26,6 +26,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Run** | One request to a Session, from the input to the settled result. It may take many Turns. | job, task | `gotato.RunResult`, `service.RunRequest` |
 | **Turn** | One model call plus the tool calls it asked for. | step, iteration | `turn_start`, `turn_end` events |
 | **Message** | One entry in the Transcript: user input, an assistant reply or a tool result. | | `gotato.Message` |
+| **Cut-off reply** | An assistant reply whose stream broke before the model finished. The Transcript keeps the text received so far, and the reply is never sent to a model again. | partial message | a `gotato.Message` with `StopCutOff` |
 | **Limits** | Caps on a Run: Turns, bytes, tool calls and deadlines. | quotas | `gotato.CoreLimits` |
 | **Continue** | Resume a Loop without new input. | | `Session.Continue` |
 | **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |

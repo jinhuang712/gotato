@@ -856,6 +856,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 		}
 		if modelErr != nil {
+			// The text the Model sent before its stream broke is committed,
+			// so the Transcript keeps it; the Run still fails as it did.
+			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
+				_ = a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": 0})
+			}
 			return fail(modelErr)
 		}
 		// A Message with Tool calls stopped for them, unless the output limit
@@ -1133,6 +1138,13 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 	}
 	var usage Usage
 	var complete bool
+	// Once the stream has started, a failure keeps the text received so far
+	// as a cut-off reply, so what the Model said is not lost.
+	broken := func(err *RuntimeError) (Message, Usage, *RuntimeError) {
+		partial := cutOffReply(assistant)
+		partial.Usage = usage
+		return partial, usage, err
+	}
 	for {
 		modelEvent, recvErr := stream.Recv(modelCtx)
 		if recvErr != nil {
@@ -1140,19 +1152,19 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 				break
 			}
 			if errors.Is(recvErr, io.EOF) {
-				return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr)
+				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
 			}
-			return Message{}, Usage{}, classifyModelError(recvErr)
+			return broken(classifyModelError(recvErr))
 		}
 		if complete {
-			return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "event arrived after completion", nil)
+			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
 		}
 		switch modelEvent.Kind {
 		case ModelTextDelta:
 			if modelEvent.Text != "" {
 				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentText, Text: modelEvent.Text})
 				if err := a.emit(runID, sequence, EventMessageUpdate, EventCoalescable, turn, assistant.ID, "", map[string]any{"text": modelEvent.Text}); err != nil {
-					return Message{}, Usage{}, err
+					return broken(err)
 				}
 			}
 		case ModelReasoningDelta:
@@ -1178,11 +1190,11 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 			assistant.Parts[partIndex].Signature = slices.Clone(modelEvent.ReasoningArtifact)
 		case ModelToolCall:
 			if modelEvent.ToolCall == nil || modelEvent.ToolCall.ID == "" || modelEvent.ToolCall.ToolID == "" {
-				return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "invalid Tool Call", nil)
+				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
 			}
 			for _, existing := range assistant.ToolCalls {
 				if existing.ID == modelEvent.ToolCall.ID {
-					return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil)
+					return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil))
 				}
 			}
 			call := *modelEvent.ToolCall
@@ -1201,18 +1213,35 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 				usage = modelEvent.Usage
 			}
 		default:
-			return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "unknown Model event", nil)
+			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "unknown Model event", nil))
 		}
 		if complete {
 			break
 		}
 	}
 	if !complete {
-		return Message{}, Usage{}, runtimeError(ErrModelProtocolFailure, "ModelStream", "missing completion", nil)
+		return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "missing completion", nil))
 	}
 	assistant.Parts = coalesceDeltas(assistant.Parts)
 	assistant.Usage = usage
 	return assistant, usage, nil
+}
+
+// cutOffReply is what a Turn keeps of a reply whose stream broke: the text
+// received so far, marked StopCutOff, or no Message when no text arrived.
+// Reasoning and Tool calls are left out: a provider takes reasoning back only
+// whole and signed, and a Tool call that is never answered cannot be sent.
+func cutOffReply(partial Message) Message {
+	parts := make([]ContentPart, 0, len(partial.Parts))
+	for _, part := range partial.Parts {
+		if part.Kind == ContentText && part.Text != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return Message{}
+	}
+	return Message{ID: partial.ID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff}
 }
 
 // coalesceDeltas merges the Parts that streamed deltas produced into one Part
@@ -1453,7 +1482,16 @@ func validateContinuable(messages []Message) error {
 	if len(messages) == 0 {
 		return runtimeError(ErrInvalidState, "Continue", "transcript is empty", nil)
 	}
-	switch messages[len(messages)-1].Role {
+	// A reply cut off mid-stream is never sent again, so Continue asks the
+	// Model again from the Message before it.
+	last := len(messages) - 1
+	for last >= 0 && messages[last].StopReason == StopCutOff {
+		last--
+	}
+	if last < 0 {
+		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
+	}
+	switch messages[last].Role {
 	case RoleUser, RoleToolResult:
 		return nil
 	default:

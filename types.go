@@ -168,6 +168,10 @@ const (
 	StopMaxTokens StopReason = "max_tokens"
 	StopCanceled  StopReason = "cancelled"
 	StopError     StopReason = "error"
+	// StopCutOff marks a reply whose stream broke before the Model finished:
+	// the Message keeps the text received so far. It stays in the Transcript
+	// but is never sent to a Model again (ForModel leaves it out).
+	StopCutOff StopReason = "cut_off"
 )
 
 type RunStatus string

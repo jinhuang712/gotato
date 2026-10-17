@@ -513,7 +513,7 @@ A Run can return a value, not only text: an Agent can require its final reply to
 
 ### G-F31 — Recovering a cut stream ⬜
 
-A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. Today a stream cut before any output is sent again, and a stream cut after some output fails the Run with `model_failure`.
+A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. Today a stream cut before any output is sent again, and a stream cut after some output fails the Run with `model_failure`. The text received before the cut is kept in the Transcript as a cut-off reply (`StopCutOff`), and it is never sent to a model again, so a later Run or `Continue` asks the model afresh.
 
 - The Run goes on instead, one of two ways, chosen when this is designed: keep the output so far and ask the model, in a runtime notice (G-F29), to continue without repeating it; or send the request again and tell stream readers, with an Event, to drop what they received.
 - The retries stay bounded, so a provider that keeps cutting off still fails the Run.

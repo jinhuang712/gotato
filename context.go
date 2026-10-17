@@ -317,10 +317,14 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 // ForModel reduces Messages to the fields a provider needs: role, parts
 // (without runtime metadata), tool calls, and tool results. Runtime fields
 // (IDs, usage, stop reasons) are dropped so they can never perturb the prompt
-// bytes between Turns.
+// bytes between Turns. A reply cut off mid-stream (StopCutOff) is left out:
+// the Model sees what it saw before that reply started.
 func ForModel(messages []Message) []Message {
-	out := make([]Message, len(messages))
-	for i, message := range messages {
+	out := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		if message.StopReason == StopCutOff {
+			continue
+		}
 		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
 		m.Parts = make([]ContentPart, 0, len(message.Parts))
 		for _, part := range message.Parts {
@@ -337,7 +341,7 @@ func ForModel(messages []Message) []Message {
 			}
 			m.ToolResult = &result
 		}
-		out[i] = m
+		out = append(out, m)
 	}
 	return out
 }
