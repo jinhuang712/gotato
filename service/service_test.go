@@ -966,3 +966,60 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 		t.Fatalf("a Session past the ceiling must report a pending compaction: approx %d tokens", report.ApproxTokens)
 	}
 }
+
+// A cancelled Run settles inside its live Session, so its result must keep the
+// RunID, Turns and metrics the Session reported. Before the fix, cancelling
+// the Prompt context made Prompt give up on the settled result, and every
+// cancelled Run came back with an empty RunID.
+func TestCancelledRunKeepsItsRunID(t *testing.T) {
+	cancels := map[string]func(*service.Runner, string, gotato.RunID) error{
+		"CancelSession": func(r *service.Runner, sessionID string, _ gotato.RunID) error {
+			return r.CancelSession(context.Background(), sessionID)
+		},
+		"CancelRun": func(r *service.Runner, _ string, runID gotato.RunID) error {
+			return r.CancelRun(context.Background(), runID)
+		},
+	}
+	for name, cancel := range cancels {
+		t.Run(name, func(t *testing.T) {
+			block := make(chan struct{})
+			defer close(block)
+			model := testkit.NewFakeModel(testkit.Text("slow"))
+			model.Block = block
+			runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
+			ctx := context.Background()
+			s, err := runner.CreateSession(ctx, "slow", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := make(chan gotato.RunID, 1)
+			done := make(chan service.RunResult, 1)
+			go func() {
+				result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}, func(event gotato.Event) error {
+					if event.Kind == gotato.EventRunStart {
+						started <- event.RunID
+					}
+					return nil
+				})
+				done <- result
+			}()
+			runID := <-started
+			waitFor(t, func() bool { return model.Calls() == 1 })
+			if err := cancel(runner, s.ID(), runID); err != nil {
+				t.Fatal(err)
+			}
+			result := <-done
+			if result.Result.Status != gotato.RunCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
+				t.Fatalf("cancelled result = %+v, want status cancelled, RunID %s, one Turn", result.Result, runID)
+			}
+			saved, err := store.Get(ctx, s.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			runs := saved.Runs()
+			if len(runs) != 1 || runs[0].RunID != runID || runs[0].Status != gotato.RunCanceled {
+				t.Fatalf("stored Runs = %+v", runs)
+			}
+		})
+	}
+}

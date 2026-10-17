@@ -155,10 +155,11 @@ type Runner struct {
 type runHandle struct {
 	sessionID string
 
-	mu     sync.Mutex
-	runID  gotato.RunID
-	abort  func()
-	cancel context.CancelFunc
+	mu      sync.Mutex
+	runID   gotato.RunID
+	abort   func()
+	cancel  context.CancelFunc
+	stopped bool
 }
 
 // attachAbort installs the started-Run cancellation path. Until it is
@@ -167,6 +168,18 @@ func (h *runHandle) attachAbort(abort func()) {
 	h.mu.Lock()
 	h.abort = abort
 	h.mu.Unlock()
+}
+
+// abortIfStopped aborts a Run that was stopped before its live Session had a
+// Run to abort: Session.Abort is a no-op until the Run starts. The runTracker
+// calls it at run_start.
+func (h *runHandle) abortIfStopped() {
+	h.mu.Lock()
+	stopped, abort := h.stopped, h.abort
+	h.mu.Unlock()
+	if stopped && abort != nil {
+		abort()
+	}
 }
 
 // attachRunID records the RunID the Session assigned. The first one wins.
@@ -179,16 +192,23 @@ func (h *runHandle) attachRunID(runID gotato.RunID) {
 }
 
 // stop aborts a started Run, or the pre-start wait when none started yet.
-// It always cancels the Run context: Abort() is a no-op until the Session
-// installs its run stop, so cancelling is what actually reaches a Run that is
-// still loading its Session.
+//
+// Once the live Session is built, the Run is stopped only through Abort, never
+// by cancelling the context Prompt waits on: Prompt then returns the settled
+// cancelled result, with its RunID, usage and metrics, instead of giving up on
+// it. A stop that lands before the Session has a Run to abort is kept, and
+// abortIfStopped applies it at run_start. Before the live Session exists,
+// cancelling the context is what reaches a Run that is waiting for the
+// Session lock or loading the Session.
 func (h *runHandle) stop() {
 	h.mu.Lock()
+	h.stopped = true
 	abort := h.abort
 	cancel := h.cancel
 	h.mu.Unlock()
 	if abort != nil {
 		abort()
+		return
 	}
 	if cancel != nil {
 		cancel()
@@ -469,16 +489,17 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			return err
 		}
 		started = true
-		// Cancellation aborts the Run inside the live Session so Prompt still
-		// returns the settled (cancelled) result; cancelling the caller's
-		// context would abandon the result instead.
+		// From here a stop aborts the Run inside the live Session, so Prompt
+		// still returns the settled (cancelled) result. Prompt waits on the
+		// caller's context, not runCtx: a stop that cancelled runCtx while the
+		// Session was loading reaches the Run through abortIfStopped instead.
 		handle.attachAbort(live.Abort)
 
 		var result gotato.RunResult
 		if request.Continue {
-			result, runErr = live.Continue(runCtx)
+			result, runErr = live.Continue(ctx)
 		} else {
-			result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
+			result, runErr = live.Prompt(ctx, gotato.UserMessage(request.Prompt))
 		}
 		_ = live.Close(context.Background())
 
@@ -1096,6 +1117,7 @@ func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
 		return nil
 	}
 	t.runner.attachRunID(t.handle, event.RunID)
+	t.handle.abortIfStopped()
 	return nil
 }
 
