@@ -279,6 +279,7 @@ type anthropicEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index"`
 	Message *struct {
+		Model string         `json:"model"`
 		Usage anthropicUsage `json:"usage"`
 	} `json:"message"`
 	ContentBlock *struct {
@@ -323,6 +324,7 @@ type anthropicStream struct {
 	queue     []gotato.ModelEvent
 	usage     anthropicUsage
 	stop      gotato.StopReason
+	model     string
 	finished  bool
 	restart   restarter
 	closeOnce sync.Once
@@ -385,6 +387,7 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 	case "message_start":
 		if event.Message != nil {
 			s.usage = event.Message.Usage
+			s.model = event.Message.Model
 		}
 	case "content_block_start":
 		if event.ContentBlock == nil {
@@ -445,7 +448,7 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		}
 		s.queue = append(s.queue,
 			gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: usage},
-			gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.stop, Usage: usage})
+			gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.stop, Usage: usage, Model: s.model})
 		s.finished = true
 	case "error":
 		message, kind := "stream error", ""

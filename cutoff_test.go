@@ -203,3 +203,30 @@ func TestForModelLeavesOutCutOffReplies(t *testing.T) {
 		t.Fatalf("ForModel = %+v", out)
 	}
 }
+
+func TestReplyModelIsRecordedAndNeverSent(t *testing.T) {
+	model := &testModel{scripts: [][]ModelEvent{
+		{{Kind: ModelTextDelta, Text: "first"}, {Kind: ModelDone, StopReason: StopEndTurn, Model: "fallback-model"}},
+		{{Kind: ModelTextDelta, Text: "second"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+	}}
+	transcript := &recordingTranscript{}
+	session, err := NewSession(WithModel(model), WithTranscript(transcript))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	for _, prompt := range []string{"one", "two"} {
+		if _, err := session.Prompt(context.Background(), UserMessage(prompt)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages := transcript.Messages()
+	if len(messages) != 4 || messages[1].Model != "fallback-model" || messages[3].Model != "" {
+		t.Fatalf("transcript = %+v, want the first reply's model only", messages)
+	}
+	for _, sent := range model.lastRequest().Messages {
+		if sent.Model != "" {
+			t.Fatalf("request carries a reply's model: %+v", sent)
+		}
+	}
+}

@@ -541,6 +541,7 @@ type stream struct {
 	queue     []gotato.ModelEvent
 	finish    gotato.StopReason
 	usage     gotato.Usage
+	model     string
 	finished  bool
 	restart   restarter
 	closeOnce sync.Once
@@ -549,6 +550,9 @@ type stream struct {
 type callBuffer struct{ id, name, arguments string }
 
 type wireChunk struct {
+	// Model is the model that answered, which a gateway with fallbacks may
+	// have chosen over the requested one.
+	Model   string `json:"model"`
 	Choices []struct {
 		Delta struct {
 			Content          string `json:"content"`
@@ -694,6 +698,9 @@ func (s *stream) nextData(ctx context.Context) (string, error) {
 }
 
 func (s *stream) processChunk(chunk wireChunk) {
+	if chunk.Model != "" {
+		s.model = chunk.Model
+	}
 	if chunk.Usage != nil {
 		s.usage = gotato.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
 		cached := chunk.Usage.PromptCacheHitTokens
@@ -754,7 +761,7 @@ func (s *stream) finishStream() {
 	if s.finish == "" {
 		s.finish = gotato.StopEndTurn
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.finish, Usage: s.usage})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.finish, Usage: s.usage, Model: s.model})
 	s.finished = true
 }
 

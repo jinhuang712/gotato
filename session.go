@@ -1159,6 +1159,9 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 		if complete {
 			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
 		}
+		if modelEvent.Model != "" {
+			assistant.Model = modelEvent.Model
+		}
 		switch modelEvent.Kind {
 		case ModelTextDelta:
 			if modelEvent.Text != "" {
@@ -1241,7 +1244,7 @@ func cutOffReply(partial Message) Message {
 	if len(parts) == 0 {
 		return Message{}
 	}
-	return Message{ID: partial.ID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff}
+	return Message{ID: partial.ID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff, Model: partial.Model}
 }
 
 // coalesceDeltas merges the Parts that streamed deltas produced into one Part

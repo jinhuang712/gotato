@@ -347,6 +347,7 @@ type responsesStream struct {
 	calls     map[int]*responsesCall
 	texts     map[int]bool
 	queue     []gotato.ModelEvent
+	model     string
 	finished  bool
 	terminal  error
 	restart   restarter
@@ -384,6 +385,7 @@ type responsesOutputItem struct {
 type responsesResponse struct {
 	ID                string `json:"id"`
 	Status            string `json:"status"`
+	Model             string `json:"model,omitempty"`
 	IncompleteDetails *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details,omitempty"`
@@ -474,6 +476,10 @@ func nextSSEData(ctx context.Context, reader *bufio.Reader) (string, error) {
 
 func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte) {
 	switch event.Type {
+	case "response.created", "response.in_progress":
+		if event.Response != nil && event.Response.Model != "" {
+			s.model = event.Response.Model
+		}
 	case "response.output_item.added":
 		if event.Item == nil {
 			return
@@ -629,6 +635,9 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		return
 	}
 	stop := responsesStopReason(response.Status, response.IncompleteDetails)
+	if response.Model != "" {
+		s.model = response.Model
+	}
 	indices := make([]int, 0, len(s.calls))
 	for index := range s.calls {
 		indices = append(indices, index)
@@ -662,7 +671,7 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 			break
 		}
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: stop})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: stop, Model: s.model})
 	s.finished = true
 }
 

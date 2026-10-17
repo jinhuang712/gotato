@@ -79,4 +79,9 @@ type ModelEvent struct {
 	ToolCall          *ToolCall      `json:"tool_call,omitempty"`
 	Usage             Usage          `json:"usage,omitempty"`
 	StopReason        StopReason     `json:"stop_reason,omitempty"`
+	// Model is the model the provider reports answering, when it reports
+	// one. Behind a gateway that falls back to another model, it can differ
+	// from the model that was requested. Any event may carry it; the last
+	// one a reply's stream carries wins.
+	Model string `json:"model,omitempty"`
 }

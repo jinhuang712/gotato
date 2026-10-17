@@ -465,6 +465,7 @@ model: your-model
 **What comes back from the wire**
 
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
+- A reply records the model that answered it (`Message.Model`), as the provider reports it: `model` in each chat chunk, in Responses' `response.created` and `response.completed`, and in Anthropic's `message_start`. Behind a gateway that falls back to another model, it names the fallback, not the model requested. It is a record only, and never sent back.
 - A thinking model's reasoning is kept and sent back on the next call, on every wire API: `reasoning_content` on the chat API, as DeepSeek requires; encrypted reasoning items on Responses; signed `thinking` and `redacted_thinking` blocks on Anthropic.
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.

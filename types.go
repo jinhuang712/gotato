@@ -52,6 +52,10 @@ type Message struct {
 	ToolResult *ToolResult   `json:"tool_result,omitempty"`
 	Usage      Usage         `json:"usage,omitempty"`
 	StopReason StopReason    `json:"stop_reason,omitempty"`
+	// Model is the model that wrote an assistant reply, as its provider
+	// reported it, and is empty when the provider named none. It is a
+	// record, not part of the request: ForModel drops it.
+	Model string `json:"model,omitempty"`
 }
 
 func UserMessage(text string) Message {
