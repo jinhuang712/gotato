@@ -5,7 +5,7 @@ func StartLog(r *Record) { r.startLog() }
 
 // TakePending returns r's pending Entries and marks them stored.
 func TakePending(r *Record) []Entry {
-	entries, err := r.takePending()
+	entries, _, err := r.takePending()
 	if err != nil {
 		panic(err)
 	}

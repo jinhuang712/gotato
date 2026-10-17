@@ -110,6 +110,9 @@ type Config struct {
 	Store     session.Store
 	Agents    []Agent
 	Admission Admission
+	// Instance names this Runner in the Claims it writes to the store. Empty
+	// generates a new name, so each start is a new Instance.
+	Instance string
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -135,6 +138,7 @@ var ErrNotPersisted = errors.New("service: session was not persisted")
 // Runner serves Runs against Sessions.
 type Runner struct {
 	store     session.Store
+	instance  string
 	agents    map[string]Agent
 	order     []string
 	admission Admission
@@ -225,11 +229,15 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r := &Runner{
 		store:     cfg.Store,
+		instance:  strings.TrimSpace(cfg.Instance),
 		agents:    map[string]Agent{},
 		admission: cfg.Admission,
 		locks:     newSessionLocks(),
 		handles:   map[string][]*runHandle{},
 		byRun:     map[gotato.RunID]*runHandle{},
+	}
+	if r.instance == "" {
+		r.instance = session.NewID()
 	}
 	if r.admission.Queue == "" {
 		r.admission.Queue = RejectWhileBusy
@@ -262,6 +270,20 @@ func New(cfg Config) (*Runner, error) {
 // Store returns the Session store.
 func (r *Runner) Store() session.Store { return r.store }
 
+// Instance returns the name this Runner writes its Claims with.
+func (r *Runner) Instance() string { return r.instance }
+
+// Session reads a Session's whole Record from the store: its facts, Runs,
+// usage and Events. It changes nothing.
+func (r *Runner) Session(ctx context.Context, sessionID string) (*session.Record, error) {
+	return session.View(ctx, r.store, sessionID)
+}
+
+// Sessions lists the stored Sessions, the most recently updated first.
+func (r *Runner) Sessions(ctx context.Context) ([]session.Summary, error) {
+	return r.store.List(ctx)
+}
+
 // Agents lists the registered Agent names; the first is the default.
 func (r *Runner) Agents() []string { return append([]string(nil), r.order...) }
 
@@ -289,16 +311,26 @@ func (r *Runner) Draining() bool {
 	return r.draining
 }
 
-// CreateSession creates and saves a Session bound to an Agent.
+// CreateSession creates and saves a Session bound to an Agent. It fails with
+// ErrSessionExists when an ID given in options is taken.
 func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Record, error) {
 	s, _, err := r.newSession(agent, metadata, options...)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.store.Save(ctx, s); err != nil {
+	if _, err := r.create(ctx, s); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// create writes a new Session's Record, held by this Runner's Instance.
+func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer, error) {
+	writer, err := session.Create(ctx, r.store, s, r.instance)
+	if errors.Is(err, session.ErrExists) {
+		return nil, ErrSessionExists
+	}
+	return writer, err
 }
 
 // newSession builds a Session bound to an Agent, without saving it.
@@ -316,30 +348,13 @@ func (r *Runner) newSession(agent string, metadata map[string]string, options ..
 }
 
 // CreateSessionExclusive creates a Session with an explicit ID and fails with
-// ErrSessionExists when the ID is taken. The existence check and the write run
-// under the Session lock, so two concurrent creates cannot both succeed.
+// ErrSessionExists when the ID is taken. The store's Create is the check, so
+// two concurrent creates cannot both succeed, also on two Instances.
 func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Record, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required")
 	}
-	var created *session.Record
-	err := r.withSessionLock(ctx, id, func() error {
-		if _, err := r.store.Get(ctx, id); err == nil {
-			return ErrSessionExists
-		} else if !errors.Is(err, session.ErrNotFound) {
-			return err
-		}
-		s, err := r.CreateSession(ctx, agent, metadata, session.WithID(id))
-		if err != nil {
-			return err
-		}
-		created = s
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
+	return r.CreateSession(ctx, agent, metadata, session.WithID(id))
 }
 
 // RunRequest is one unit of work.
@@ -354,8 +369,12 @@ type RunRequest struct {
 	Continue bool
 	// Metadata is applied to a new Session.
 	Metadata map[string]string
+	// Update sets metadata on the Session before the Run, under its Claim,
+	// as the Run's first write. An empty value deletes a key.
+	Update map[string]string
 	// SkipSave runs without persisting the Session: a new Session lives only
-	// for this Run, and a changed existing Session is left as it was.
+	// for this Run, and a changed existing Session, Update included, is left
+	// as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
 	// keeps the Agent's RunDeadline.
@@ -409,6 +428,8 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
 	var s *session.Record
+	var writer *session.Writer
+	var saved session.WriteStats
 	sessionID := request.SessionID
 	if sessionID == "" {
 		if request.SkipSave {
@@ -419,9 +440,16 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			}
 		} else {
 			fresh, spec, err := r.newSession(request.Agent, request.Metadata)
-			if err == nil {
-				err = r.saveSession(runCtx, fresh, &spec, sink, nil)
+			if err != nil {
+				return RunResult{}, err
 			}
+			writer, err = r.create(runCtx, fresh)
+			stats := session.WriteStats{}
+			if writer != nil {
+				stats = writer.Stats()
+				saved = stats
+			}
+			r.emitRunnerEvent(context.WithoutCancel(runCtx), &spec, sink, storeEvent(gotato.EventSessionSaved, fresh.ID(), fresh.Len(), stats, err))
 			if err != nil {
 				return RunResult{}, err
 			}
@@ -445,14 +473,29 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		// not be resurrected from a stale copy.
 		var loadTime time.Duration
 		if request.SessionID != "" {
+			// A Run writes as this Instance: opening the Session claims it
+			// when another Instance held it, and a stale writer is fenced.
 			began := time.Now()
-			loaded, err := r.store.Get(runCtx, sessionID)
-			loadTime = time.Since(began)
+			var err error
+			if request.SkipSave {
+				s, err = session.Open(runCtx, r.store, sessionID)
+				loadTime = time.Since(began)
+			} else {
+				writer, err = session.OpenWriter(runCtx, r.store, sessionID, r.instance)
+				if writer != nil {
+					loadTime = writer.Stats().Load
+					s = writer.Record()
+				} else {
+					loadTime = time.Since(began)
+				}
+			}
 			if err != nil {
-				r.emitRunnerEvent(runCtx, nil, sink, storeEvent(gotato.EventSessionLoaded, sessionID, 0, loadTime, err))
+				r.emitRunnerEvent(runCtx, nil, sink, storeEvent(gotato.EventSessionLoaded, sessionID, 0, session.WriteStats{Load: loadTime}, err))
 				return err
 			}
-			s = loaded
+		}
+		for key, value := range request.Update {
+			s.Set(key, value)
 		}
 
 		agentName := request.Agent
@@ -465,7 +508,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			if !ok {
 				observers = nil
 			}
-			r.emitRunnerEvent(runCtx, observers, sink, storeEvent(gotato.EventSessionLoaded, sessionID, s.Len(), loadTime, nil))
+			r.emitRunnerEvent(runCtx, observers, sink, storeEvent(gotato.EventSessionLoaded, sessionID, s.Len(), session.WriteStats{Load: loadTime}, nil))
 		}
 		if !ok {
 			return ErrUnknownAgent
@@ -503,18 +546,21 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		}
 		_ = live.Close(context.Background())
 
-		if !request.SkipSave {
+		if writer != nil {
 			// Persist the settled Session even when the Run was cancelled, but
 			// bound the write so a stalled Store cannot pin the Run (and Drain)
 			// forever.
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-			saveErr := r.saveSession(saveCtx, s, &spec, sink, tracker)
+			saveErr := writer.Flush(saveCtx)
 			cancelSave()
+			event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), writer.Stats().Since(saved), saveErr)
+			tracker.stamp(&event)
+			r.emitRunnerEvent(context.WithoutCancel(runCtx), &spec, sink, event)
 			if saveErr != nil {
 				// The Session state is lost whether or not the Run failed: keep
 				// the Run error and add the persistence failure so callers can
 				// observe both (errors.Is still matches each).
-				persistErr := fmt.Errorf("%w: %v", ErrNotPersisted, saveErr)
+				persistErr := fmt.Errorf("%w: %w", ErrNotPersisted, saveErr)
 				if runErr == nil {
 					runErr = persistErr
 				} else {
@@ -710,7 +756,7 @@ type InspectOptions struct {
 // compacts the Session first. Optional InspectOptions override the Session's
 // stored settings. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectOptions) (modelctx.Report, error) {
-	s, err := r.store.Get(ctx, sessionID)
+	s, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
 		return modelctx.Report{}, err
 	}
@@ -789,7 +835,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	var s *session.Record
 	if sessionID != "" {
 		var err error
-		s, err = r.store.Get(ctx, sessionID)
+		s, err = session.Open(ctx, r.store, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -810,15 +856,16 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	return entries, nil
 }
 
-// SetToolActive records a Session-level activation change and saves it under
-// the Session lock, so it cannot lose a concurrent Run or compaction save.
+// SetToolActive records a Session-level activation change and writes it as
+// the Session's writer, under the Session lock.
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		s, err := r.store.Get(ctx, sessionID)
+		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance)
 		if err != nil {
 			return err
 		}
+		s := writer.Record()
 		agent, _ := s.Get(MetaAgent)
 		spec, ok := r.Agent(agent)
 		if !ok {
@@ -839,7 +886,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		} else {
 			s.Set(MetaToolPrefix+toolID, "inactive")
 		}
-		return r.store.Save(ctx, s)
+		return writer.Flush(ctx)
 	})
 	if err != nil {
 		return ToolEntry{}, err
@@ -851,18 +898,15 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		s, err := r.store.Get(ctx, sessionID)
+		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance)
 		if err != nil {
 			return err
 		}
-		result, err = modelctx.Compact(ctx, s, opts)
+		result, err = modelctx.Compact(ctx, writer.Record(), opts)
 		if err != nil {
 			return err
 		}
-		if result.Replaced {
-			return r.store.Save(ctx, s)
-		}
-		return nil
+		return writer.Flush(ctx)
 	})
 	if err != nil {
 		return modelctx.Result{}, err
@@ -881,7 +925,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 // Fork creates a new Session from an existing one. An explicit newID must be
 // free: a fork never overwrites an existing Session.
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
-	parent, err := r.store.Get(ctx, sessionID)
+	parent, err := session.View(ctx, r.store, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -893,20 +937,12 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	// The child starts with its parent's history, so it keeps its parent's
 	// cache key and its first Turn reads the parent's cached prefix.
 	child.Set(MetaCacheKey, sessionCacheKey(parent))
-	// The existence check and the write run under the child's Session lock, so
-	// two concurrent forks with the same explicit newID cannot both pass the
-	// check and let the second overwrite the first.
-	err = r.withSessionLock(ctx, child.ID(), func() error {
-		if newID != "" {
-			if _, err := r.store.Get(ctx, newID); err == nil {
-				return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+newID+" already exists")
-			} else if !errors.Is(err, session.ErrNotFound) {
-				return err
-			}
+	// The store's Create is the existence check, so two concurrent forks with
+	// the same explicit newID cannot both succeed.
+	if _, err := r.create(ctx, child); err != nil {
+		if errors.Is(err, ErrSessionExists) {
+			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+child.ID()+" already exists")
 		}
-		return r.store.Save(ctx, child)
-	})
-	if err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -1129,27 +1165,23 @@ func (t *runTracker) stamp(event *gotato.Event) {
 	event.RunID, event.Sequence = t.runID, t.sequence+1
 }
 
-// saveSession saves a Session for a Run and emits session_saved with the
-// time the store took.
-func (r *Runner) saveSession(ctx context.Context, s *session.Record, spec *Agent, sink func(gotato.Event) error, tracker *runTracker) error {
-	began := time.Now()
-	err := r.store.Save(ctx, s)
-	event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), time.Since(began), err)
-	if tracker != nil {
-		tracker.stamp(&event)
+// storeEvent builds a session_loaded or session_saved Event: a load times the
+// store's Load, and a save sums every write since the previous save Event,
+// and counts them. The elapsed time keeps microseconds, because a load from
+// memory takes far less than a millisecond. A failure is only flagged: the
+// store's error text can name paths and hosts, and Events reach HTTP and gRPC
+// clients.
+func storeEvent(kind gotato.EventKind, sessionID string, messages int, stats session.WriteStats, err error) gotato.Event {
+	elapsed := stats.Elapsed
+	if kind == gotato.EventSessionLoaded {
+		elapsed = stats.Load
 	}
-	r.emitRunnerEvent(context.WithoutCancel(ctx), spec, sink, event)
-	return err
-}
-
-// storeEvent builds a session_loaded or session_saved Event. The elapsed time
-// keeps microseconds, because a load from memory takes far less than a
-// millisecond. A failure is only flagged: the store's error text can name
-// paths and hosts, and Events reach HTTP and gRPC clients.
-func storeEvent(kind gotato.EventKind, sessionID string, messages int, elapsed time.Duration, err error) gotato.Event {
 	payload := map[string]any{
 		"messages":   messages,
 		"elapsed_ms": float64(elapsed.Microseconds()) / 1000,
+	}
+	if kind == gotato.EventSessionSaved {
+		payload["writes"] = stats.Writes
 	}
 	if err != nil {
 		payload["failed"] = true

@@ -337,13 +337,7 @@ type failure struct {
 
 func playTask(ctx context.Context, runner *service.Runner, store session.Store, task testkit.Task) play {
 	p := play{stats: &stats{}}
-	s, err := runner.CreateSession(ctx, task.Name, nil)
-	if err == nil && len(task.History) > 0 {
-		for _, message := range task.History {
-			_ = s.Append(message)
-		}
-		err = store.Save(ctx, s)
-	}
+	s, err := runner.CreateSession(ctx, task.Name, nil, session.WithMessages(task.History...))
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
 		return p
@@ -432,7 +426,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	// The committed tool results add the text of each failure to the
 	// report; the Events have already decided its cause.
 	results := map[gotato.ToolCallID]gotato.ToolResult{}
-	final, err := store.Get(ctx, s.ID())
+	final, err := session.Open(ctx, store, s.ID())
 	if err != nil {
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: "reading the Session back: " + err.Error()})
 	} else {
@@ -486,14 +480,8 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			mismatch(fmt.Sprintf("a Turn was built from %d messages, but the Session holds %d", b.messages, len(messages)))
 			continue
 		}
-		s := session.New()
-		for key, value := range final.Metadata() {
-			s.Set(key, value)
-		}
-		for _, message := range messages[:b.messages] {
-			_ = s.Append(message)
-		}
-		if err := store.Save(ctx, s); err != nil {
+		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...))
+		if _, err := session.Create(ctx, store, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}

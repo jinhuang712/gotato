@@ -103,15 +103,20 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	}
 	ctx := context.Background()
 	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
-	runSession(t, s, testkit.EchoModel{}, "first")
-	if err := store.Save(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, err := store.Get(ctx, s.ID())
+	writer, err := session.Create(ctx, store, s, "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
+	runSession(t, s, testkit.EchoModel{}, "first")
+	if err := writer.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := session.OpenWriter(ctx, store, s.ID(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := reopened.Record()
 	if loaded.Len() != 2 || loaded.ParentID() != "" {
 		t.Fatalf("loaded = %d messages", loaded.Len())
 	}
@@ -124,7 +129,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	if len(request.Messages) != 3 || gotato.TextOf(request.Messages[0]) != "first" {
 		t.Fatalf("continued run saw %d messages", len(request.Messages))
 	}
-	if err := store.Save(ctx, loaded); err != nil {
+	if err := reopened.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	list, err := store.List(ctx)
@@ -134,10 +139,10 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(ctx, s.ID()); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.Open(ctx, store, s.ID()); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("after delete err = %v", err)
 	}
-	if _, err := store.Get(ctx, "../escape"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.Open(ctx, store, "../escape"); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("path traversal err = %v", err)
 	}
 }
@@ -146,16 +151,16 @@ func TestMemoryStore(t *testing.T) {
 	store := session.NewMemoryStore()
 	ctx := context.Background()
 	s := testkit.NewRecord("a", "b")
-	if err := store.Save(ctx, s); err != nil {
+	if _, err := session.Create(ctx, store, s, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.Get(ctx, s.ID())
+	got, err := session.Open(ctx, store, s.ID())
 	if err != nil || got.Len() != 2 {
 		t.Fatalf("get = %v err=%v", got, err)
 	}
-	// Mutating the loaded copy does not change the stored document.
+	// Mutating a copy opened for reading does not change the stored Record.
 	_ = got.Append(gotato.UserMessage("c"))
-	again, _ := store.Get(ctx, s.ID())
+	again, _ := session.Open(ctx, store, s.ID())
 	if again.Len() != 2 {
 		t.Fatalf("store aliased live session: %d", again.Len())
 	}

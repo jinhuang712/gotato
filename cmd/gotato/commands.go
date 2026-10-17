@@ -73,20 +73,13 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
 	if *sessionID == "" {
 		request.Metadata, err = settings.metadata()
-		if err != nil {
-			return c.failErr(err)
-		}
 	} else {
-		s, err := rt.store.Get(ctx, *sessionID)
-		if err != nil {
-			return c.failErr(err)
-		}
-		if err := settings.apply(s.Set); err != nil {
-			return c.failErr(err)
-		}
-		if err := rt.store.Save(ctx, s); err != nil {
-			return c.failErr(err)
-		}
+		// The settings change the Session as the Run's first write, under
+		// its Claim; with --no-save they apply to this Run only.
+		request.Update, err = settings.metadata()
+	}
+	if err != nil {
+		return c.failErr(err)
 	}
 	var result service.RunResult
 	if *events == "jsonl" {
@@ -248,7 +241,7 @@ func (c *cli) loadSession(args []string, name string) (*session.Record, session.
 		cancel()
 		return nil, nil, nil, nil, c.failErr(err)
 	}
-	s, err := store.Get(ctx, positionals[0])
+	s, err := session.View(ctx, store, positionals[0])
 	if err != nil {
 		cancel()
 		return nil, nil, nil, nil, c.failErr(err)
@@ -411,7 +404,7 @@ func (c *cli) contextCompact(args []string) int {
 			return c.failErr(err)
 		}
 		if agent == "" {
-			s, err := rt.store.Get(ctx, positionals[0])
+			s, err := session.Open(ctx, rt.store, positionals[0])
 			if err != nil {
 				return c.failErr(err)
 			}
@@ -497,7 +490,7 @@ func (c *cli) cmdTools(args []string) int {
 	// the first registered agent when there is no session. Mirror that here so
 	// the listing reports the agent that actually selected the surface.
 	if agent == "" && *sessionID != "" {
-		s, err := rt.store.Get(ctx, *sessionID)
+		s, err := session.Open(ctx, rt.store, *sessionID)
 		if err != nil {
 			return c.failErr(err)
 		}
@@ -608,7 +601,7 @@ func (c *cli) cmdEvents(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	s, err := store.Get(ctx, *sessionID)
+	s, err := session.View(ctx, store, *sessionID)
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -746,7 +739,7 @@ func (c *cli) cmdDoctor(args []string) int {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
 		probe := session.New()
-		if err := rt.store.Save(ctx, probe); err != nil {
+		if _, err := session.Create(ctx, rt.store, probe, rt.runner.Instance()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
 		} else if err := rt.store.Delete(ctx, probe.ID()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": probe cleanup failed: " + err.Error()})

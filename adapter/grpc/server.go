@@ -77,7 +77,7 @@ func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSess
 }
 
 func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionDocument, error) {
-	found, err := s.runner.Store().Get(ctx, request.GetSessionId())
+	found, err := s.runner.Session(ctx, request.GetSessionId())
 	if err != nil {
 		return nil, statusOf(err)
 	}
@@ -89,7 +89,7 @@ func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionReques
 }
 
 func (s *Server) ListSessions(ctx context.Context, _ *gotatov2.ListSessionsRequest) (*gotatov2.ListSessionsResponse, error) {
-	list, err := s.runner.Store().List(ctx)
+	list, err := s.runner.Sessions(ctx)
 	if err != nil {
 		return nil, statusOf(err)
 	}
@@ -121,7 +121,7 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 		return nil, statusOf(err)
 	}
 	if errors.Is(err, service.ErrNotPersisted) {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, notPersisted(err)
 	}
 	return resultOf(result), nil
 }
@@ -139,7 +139,7 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 		return statusOf(err)
 	}
 	if errors.Is(err, service.ErrNotPersisted) {
-		return status.Error(codes.Internal, err.Error())
+		return notPersisted(err)
 	}
 	return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
 }
@@ -158,7 +158,7 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 }
 
 func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.SessionService_EventsServer) error {
-	found, err := s.runner.Store().Get(stream.Context(), request.GetSessionId())
+	found, err := s.runner.Session(stream.Context(), request.GetSessionId())
 	if err != nil {
 		return statusOf(err)
 	}
@@ -335,8 +335,21 @@ func statusOf(err error) error {
 			code = codes.ResourceExhausted
 		case gotato.ErrNotSupported:
 			code = codes.Unimplemented
+		case gotato.ErrConflict:
+			code = codes.Aborted
+		case gotato.ErrStoreFailure:
+			code = codes.Unavailable
 		}
 		return status.Error(code, runtimeErr.Error())
 	}
 	return status.Error(code, err.Error())
+}
+
+// notPersisted reports a Run whose result was not kept: Aborted when another
+// writer took the Session during the Run, Internal otherwise.
+func notPersisted(err error) error {
+	if errors.Is(err, session.ErrConflict) {
+		return status.Error(codes.Aborted, err.Error())
+	}
+	return status.Error(codes.Internal, err.Error())
 }

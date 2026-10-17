@@ -77,6 +77,9 @@ type Document struct {
 	Compactions   []Compaction      `json:"compactions,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
 	EventLimit    int               `json:"event_limit,omitempty"`
+	// Seq is the position of the last Entry the store held when this
+	// Document was read; 0 for a Record never stored.
+	Seq uint64 `json:"seq,omitempty"`
 }
 
 // Record is what the Store keeps of a Session: what happened in it. It is safe
@@ -109,8 +112,15 @@ type Record struct {
 	logging       bool
 	pending       []pendingEntry
 	pendingEvents []gotato.Event
-	// instance names the Instance whose writes this Record's Entries are.
+	// instance names the Instance whose writes this Record's Entries are,
+	// and claim the Record's writer as its facts last named it.
 	instance string
+	claim    Claim
+	// running is the Run that started and has not ended. baseRuns counts
+	// the Runs of a Record loaded from its facts alone, whose Run records
+	// are in the log and were not read.
+	running  gotato.RunID
+	baseRuns int
 }
 
 // Option configures New.
@@ -226,6 +236,7 @@ func (s *Record) Snapshot() Document {
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
 		EventLimit:    s.eventLimit,
+		Seq:           s.head,
 	}
 }
 
@@ -283,6 +294,7 @@ func (s *Record) RecordRunStart(runID gotato.RunID, at time.Time) {
 	defer s.mu.Unlock()
 	run := Run{RunID: runID, Status: gotato.RunRunning, StartedAt: at.UTC()}
 	s.runs = append(s.runs, run)
+	s.running = runID
 	s.touch()
 	s.queue(EntryRunStart, LayerLog, run)
 }
@@ -313,6 +325,9 @@ func (s *Record) endRun(run Run) Run {
 	}
 	if !found {
 		s.runs = append(s.runs, run)
+	}
+	if s.running == run.RunID {
+		s.running = ""
 	}
 	s.usage.InputTokens += run.Usage.InputTokens
 	s.usage.OutputTokens += run.Usage.OutputTokens
@@ -424,6 +439,41 @@ func (s *Record) Set(key, value string) {
 }
 
 func (s *Record) touch() { s.updatedAt = s.now().UTC() }
+
+// Claim returns the Record's writer as its facts last named it.
+func (s *Record) Claim() Claim {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claim
+}
+
+// claimFor makes instance the Record's writer with the next Epoch, as a fact.
+func (s *Record) claimFor(instance string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.instance = instance
+	s.claim = Claim{Instance: instance, Epoch: s.claim.Epoch + 1}
+	s.touch()
+	s.queue(EntryClaim, LayerFact, s.claim)
+}
+
+// interruptRun ends a Run that started and never ended, because the writer
+// that ran it stopped, as failed with "interrupted".
+func (s *Record) interruptRun(runID gotato.RunID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	known := false
+	for _, run := range s.runs {
+		known = known || run.RunID == runID
+	}
+	if !known && s.baseRuns > 0 {
+		// The Run is counted in baseRuns already; ending it adds its record.
+		s.baseRuns--
+	}
+	run := s.endRun(Run{RunID: runID, Status: gotato.RunFailed, Error: "interrupted", EndedAt: s.now().UTC()})
+	s.touch()
+	s.queue(EntryRunEnd, LayerLog, run)
+}
 
 // Fork creates the Record of a new Session from the current state of parent.
 // The fork has its own ID, records the parent ID and the point of the

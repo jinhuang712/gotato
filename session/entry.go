@@ -31,6 +31,9 @@ const (
 	EntryMessage EntryKind = "message"
 	// EntryMetadata is a fact holding one MetadataChange.
 	EntryMetadata EntryKind = "metadata"
+	// EntryClaim is a fact holding a Claim: from here on, the Instance it
+	// names is the Record's writer.
+	EntryClaim EntryKind = "claim"
 
 	// EntryLogSnapshot is a log Entry holding a LogSnapshot, written right
 	// after each Checkpoint, so the log can be read from there too.
@@ -56,6 +59,16 @@ type Entry struct {
 	Data     json.RawMessage `json:"data,omitempty"`
 }
 
+// Claim names the Instance that writes a Record, and its Epoch, which grows
+// by one with every new Claim. A Claim is itself an Entry, at the position
+// after the head its Instance read. So a writer that lost its Claim always
+// writes to a position that is already taken, and the store refuses it in
+// the same write.
+type Claim struct {
+	Instance string `json:"instance"`
+	Epoch    uint64 `json:"epoch"`
+}
+
 // Checkpoint is the whole state of a Session's facts at one point of its log.
 // A load starts from the last Checkpoint, so nothing before it is read again.
 // Every Record's log starts with one, a Compaction appends one, and a Fork
@@ -69,6 +82,7 @@ type Checkpoint struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	Compactions []Compaction      `json:"compactions,omitempty"`
 	EventLimit  int               `json:"event_limit,omitempty"`
+	Claim       Claim             `json:"claim"`
 }
 
 // LogSnapshot is the state of a Session's log at a Checkpoint: its Runs, its
@@ -131,6 +145,7 @@ func (s *Record) checkpointLocked() Checkpoint {
 		Metadata:    maps.Clone(s.metadata),
 		Compactions: slices.Clone(s.compactions),
 		EventLimit:  s.eventLimit,
+		Claim:       s.claim,
 	}
 }
 
@@ -144,8 +159,9 @@ func (s *Record) queue(kind EntryKind, layer Layer, data any) {
 
 // takePending returns the pending Entries, numbered from head+1, with the
 // Events retained since the previous take in one EntryEvents at the end, and
-// clears them. The Record's head moves only when stored confirms the write.
-func (s *Record) takePending() ([]Entry, error) {
+// the Summary the store keeps once they are written, and clears them. The
+// Record's head moves only when stored confirms the write.
+func (s *Record) takePending() ([]Entry, Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pending := s.pending
@@ -153,19 +169,21 @@ func (s *Record) takePending() ([]Entry, error) {
 		pending = append(pending, pendingEntry{kind: EntryEvents, layer: LayerLog, at: s.now().UTC(), data: s.pendingEvents})
 	}
 	if len(pending) == 0 {
-		return nil, nil
+		return nil, Summary{}, nil
 	}
 	entries := make([]Entry, len(pending))
 	for i, p := range pending {
 		data, err := json.Marshal(p.data)
 		if err != nil {
-			return nil, fmt.Errorf("session: encode %s entry: %w", p.kind, err)
+			return nil, Summary{}, fmt.Errorf("session: encode %s entry: %w", p.kind, err)
 		}
 		entries[i] = Entry{Seq: s.head + uint64(i) + 1, Kind: p.kind, Layer: p.layer, At: p.at, Instance: s.instance, Data: data}
 	}
 	s.pending = nil
 	s.pendingEvents = nil
-	return entries, nil
+	summary := s.summaryLocked()
+	summary.Seq = entries[len(entries)-1].Seq
+	return entries, summary, nil
 }
 
 // stored records that the store now holds every Entry up to seq.
@@ -249,6 +267,7 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = checkpoint.Compactions
+		s.claim = checkpoint.Claim
 		s.eventLimit = checkpoint.EventLimit
 		if s.eventLimit == 0 {
 			s.eventLimit = DefaultEventLimit
@@ -269,6 +288,12 @@ func (s *Record) apply(entry Entry) error {
 		} else {
 			s.metadata[change.Key] = change.Value
 		}
+	case EntryClaim:
+		var claim Claim
+		if err := decode(&claim); err != nil {
+			return err
+		}
+		s.claim = claim
 	case EntryLogSnapshot:
 		var snapshot LogSnapshot
 		if err := decode(&snapshot); err != nil {
@@ -276,6 +301,10 @@ func (s *Record) apply(entry Entry) error {
 		}
 		s.runs = snapshot.Runs
 		s.usage = snapshot.Usage
+		s.running = ""
+		if n := len(s.runs); n > 0 && s.runs[n-1].Status == gotato.RunRunning {
+			s.running = s.runs[n-1].RunID
+		}
 		s.events, s.eventHead = nil, 0
 		for _, event := range snapshot.Events {
 			s.retain(event)
@@ -286,6 +315,7 @@ func (s *Record) apply(entry Entry) error {
 			return err
 		}
 		s.runs = append(s.runs, run)
+		s.running = run.RunID
 	case EntryRunEnd:
 		var run Run
 		if err := decode(&run); err != nil {

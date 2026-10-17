@@ -78,6 +78,25 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
 - **A Record no longer keeps `message_update` Events.** The Recorder keeps protected Events only. The text deltas still reach live streams and `EventObserver`s, and the reply they make up is in its Message. **Breaking:** `GET /v1/sessions/{id}/events`, the gRPC events call and `gotato events` no longer list `message_update`.
 - **`Record.Set` with an unchanged value changes nothing.** It no longer moves `UpdatedAt`.
 
+### Sessions and stores
+
+- **A store keeps each Session as an append-only log.** `session.Store` writes `session.Entry` batches, each all or nothing and only at positions that are still free, so an adapter maps a write to an insert on a unique (session, position) key. `Load` returns the facts from the last Checkpoint, and `Log` returns every Entry after a position. A `session.Writer` writes a Record: `session.Create` stores a new one, `session.OpenWriter` opens a stored one, and `Writer.Flush` writes what changed since. `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included. **Breaking:** an adapter implements the new calls, and code that saved and read Records moves as follows.
+
+  | Before | After |
+  |---|---|
+  | `store.Save(ctx, r)` for a new Record | `session.Create(ctx, store, r, instance)` |
+  | `store.Get(ctx, id)` | `session.View(ctx, store, id)`, or `session.Open` for the facts only |
+  | change a Record, then `store.Save(ctx, r)` | `w, err := session.OpenWriter(ctx, store, id, instance)`, change `w.Record()`, then `w.Flush(ctx)` |
+  | an adapter's `Save`, `Get`, `List`, `Delete` | `Create`, `Append`, `Load`, `Log`, `List`, `Delete`, plus `Beat` and `Instance` for Liveness rows |
+  | `session.NewMemoryStore()`, `session.NewFileStore(dir)` | the same, with an optional `session.WithStoreClock` |
+- **A stale copy can no longer overwrite a newer Record.** A Claim (`session.Claim`: an Instance and an Epoch) is itself an Entry. Opening a Record as another Instance claims it with the next Epoch, at the position after the head it read, so a writer that held it before always writes to a taken position and gets `conflict` (`session.ErrConflict`). A Writer stops at its first failed write, and the Record is opened again from the store, which shows whether the write landed. A Run that a stopped writer left running is ended as `failed`, `interrupted`. Two Instances can still run one Session at the same time: the one that writes second fails.
+- **`testkit/storetest` checks an adapter against the store contract.** `storetest.Run(t, backing)` runs every check, each on a new backing store, with several handles on one store, as several Instances use it: positions written once, a stale writer refused, a race of eight writers with one winner, a load from the last Checkpoint, deletes, and Liveness rows that expire. The memory and file stores pass it.
+- **The file store keeps a directory per Session,** with one file per write, `<id>/<position>.json`. A write is linked into place, so two processes on one directory can never both write a position, and a crash never leaves a torn write. A session file of the earlier format, `<id>.json`, is read as a Checkpoint and moved into its directory by its first write. **Breaking:** an older `gotato` does not read the new layout.
+- **The Runner writes as an Instance.** `service.Config.Instance` names it, and is generated when empty; `Runner.Instance` returns it. `Runner.Session` and `Runner.Sessions` read Sessions. `RunRequest.Update` sets metadata as the Run's first write. `CreateSessionExclusive` and `Fork` with an explicit ID rely on the store's `Create`, so they stay exclusive across Instances. `session_saved` sums every write the Run made since the Session was opened, and adds `writes`.
+- **New error codes `conflict` and `store_failure`.** HTTP answers 409 and 503, and gRPC `Aborted` and `Unavailable`. A Run whose result another writer fenced answers 409 (gRPC `Aborted`) instead of 500 (`Internal`).
+- **`gotato run --no-save` no longer stores settings.** `--instruction` and `--compact-ceiling` given with `--session` and `--no-save` apply to that run only; without `--no-save` they are the run's first write, under its Claim.
+- The session document gains `seq`, and a summary gains `seq` and `running`.
+
 ### Providers
 
 - **A Responses tool call keeps the provider's item ID out of its call ID.** The Responses adapter packed the provider's item ID into `ToolCall.ID` as `call_…|fc_…`, so a provider-private ID was stored in the Session and reached `Event.ToolCallID`. `ToolCall` now has `Signature`, an opaque provider artifact that the adapter sets and reads back on replay, like `ContentPart.Signature`. `ToolCall.ID` is the call ID alone. A Session saved before still replays: the adapter reads a packed call ID as it did.

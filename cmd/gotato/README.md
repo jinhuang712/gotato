@@ -17,7 +17,7 @@ go build -o bin/gotato ./cmd/gotato
 | `--quiet` | suppress human status lines that are not errors |
 | `--no-color` | accepted; output never contains ANSI color |
 | `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For `serve`: a lifetime bound (`30s`): the server drains and shuts down when it elapses. For other commands: the command deadline |
-| `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions` |
+| `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`. Each session is a directory with one file per write, `<id>/<position>.json`; a session file of the earlier format, `<id>.json`, is read as it is and moved into its directory by its first write, so an older `gotato` no longer finds it |
 | failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N}`; this includes usage errors |
 | flags | accepted before or after positional arguments |
 | `--help` | any command or subcommand prints usage on stdout and exits 0 |
@@ -58,7 +58,7 @@ The model used for a session is remembered in the session (`gotato.model` metada
 gotato run [--session ID] [--model M] [--instruction S] [--compact-ceiling N] [--json | --events jsonl] [--continue] [--no-save] "prompt" | -
 ```
 
-Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N, and is remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message). `--no-save` runs without writing the run's messages to the store: with no `--session` nothing is persisted at all, and with an existing session the history stays as it was (settings given alongside are still stored).
+Creates a session when `--session` is omitted. `-` reads the prompt from stdin. The model sees the whole session history (append-only). `--compact-ceiling N` compacts the session automatically at the start of a run when its estimated tokens exceed N, and is remembered in the session. `--continue` resumes the loop without a new prompt (valid only when the history ends in a user or tool-result message). `--no-save` runs without writing to the store: with no `--session` nothing is persisted at all, and with an existing session the history and its settings stay as they were (`--instruction` and `--compact-ceiling` apply to that run only). Without `--no-save`, settings given with `--session` are the run's first write.
 
 `--json` outcome:
 
@@ -100,7 +100,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 The agent builds the report with the code its turns run, so the request includes its extensions, its tools and its model options, and `prefix_hash` equals the one the next turn's `context_built` event reports. The request is laid out for prompt caching: system prompt, sorted tools, then the append-only history. `prefix_hash` covers everything but the last message; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
-Compaction permanently replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. `truncate` needs no model.
+Compaction replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. It appends a checkpoint: the replaced messages stay in the store, and a load starts after them. `truncate` needs no model.
 
 ### `gotato tools`
 

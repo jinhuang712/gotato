@@ -25,6 +25,11 @@ const (
 	ErrDeadlineExceeded      ErrorCode = "deadline_exceeded"
 	ErrInternalInvariant     ErrorCode = "internal_invariant_failure"
 	ErrNotSupported          ErrorCode = "not_supported"
+	// ErrConflict means another writer wrote to the Session's Record first:
+	// a stale copy can never overwrite a newer one.
+	ErrConflict ErrorCode = "conflict"
+	// ErrStoreFailure means the store could not write a Session's Record.
+	ErrStoreFailure ErrorCode = "store_failure"
 )
 
 type RuntimeError struct {

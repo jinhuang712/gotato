@@ -167,7 +167,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
-	list, err := h.runner.Store().List(r.Context())
+	list, err := h.runner.Sessions(r.Context())
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -176,7 +176,7 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
-	s, err := h.runner.Store().Get(r.Context(), r.PathValue("id"))
+	s, err := h.runner.Session(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -202,7 +202,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
-	s, err := h.runner.Store().Get(r.Context(), r.PathValue("id"))
+	s, err := h.runner.Session(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -279,7 +279,13 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, service.ErrNotPersisted) {
-		writeError(w, http.StatusInternalServerError, err)
+		// Another writer took the Session during the Run: its result was
+		// not kept, and the caller can tell that from a store failure.
+		status := http.StatusInternalServerError
+		if errors.Is(err, session.ErrConflict) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -396,8 +402,10 @@ func StatusFor(err error) int {
 		switch runtimeErr.Code {
 		case gotato.ErrInvalidArgument, gotato.ErrNotSupported:
 			return http.StatusBadRequest
-		case gotato.ErrBusy:
+		case gotato.ErrBusy, gotato.ErrConflict:
 			return http.StatusConflict
+		case gotato.ErrStoreFailure:
+			return http.StatusServiceUnavailable
 		case gotato.ErrLimitExceeded:
 			return http.StatusTooManyRequests
 		case gotato.ErrInvalidState:

@@ -44,7 +44,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runner.ActiveRuns() != 0 {
 		t.Fatalf("active runs after completion = %d", runner.ActiveRuns())
 	}
-	s, err := store.Get(ctx, first.SessionID)
+	s, err := session.View(ctx, store, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if runs := s.Runs(); len(runs) != 1 {
 		t.Fatalf("stale handle should not see the second run: %d", len(runs))
 	}
-	fresh, _ := store.Get(ctx, first.SessionID)
+	fresh, _ := session.View(ctx, store, first.SessionID)
 	if len(fresh.Runs()) != 2 {
 		t.Fatalf("store has %d runs, want 2", len(fresh.Runs()))
 	}
@@ -108,7 +108,7 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 			t.Fatalf("a request carries a panel: %+v", message)
 		}
 	}
-	stored, _ := store.Get(ctx, s.ID())
+	stored, _ := session.View(ctx, store, s.ID())
 	if len(stored.Messages()) != 4 {
 		t.Fatalf("stored %d messages, want 4", len(stored.Messages()))
 	}
@@ -254,7 +254,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if err != nil || child.ParentID() != result.SessionID || child.Len() != 3 {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}
-	if _, err := store.Get(ctx, child.ID()); err != nil {
+	if _, err := session.View(ctx, store, child.ID()); err != nil {
 		t.Fatal("fork not saved")
 	}
 	if _, err := runner.Inspect(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
@@ -276,7 +276,7 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	if !last.Compacted {
 		t.Fatalf("spec compaction never triggered: %+v", last)
 	}
-	s, _ := store.Get(ctx, last.SessionID)
+	s, _ := session.View(ctx, store, last.SessionID)
 	if len(s.Compactions()) == 0 {
 		t.Fatal("no compaction recorded")
 	}
@@ -390,7 +390,7 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	if result.Result.Status != gotato.RunCanceled {
 		t.Fatalf("caller cancel status = %q err=%v, want cancelled", result.Result.Status, result.Result.Error)
 	}
-	stored, err := store.Get(context.Background(), result.SessionID)
+	stored, err := session.View(context.Background(), store, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	close(block)
 }
 
-// failingSaveStore wraps a Store and fails Save calls after the first.
+// failingSaveStore wraps a Store and fails its writes after the first.
 type failingSaveStore struct {
 	session.Store
 	mu        sync.Mutex
@@ -409,15 +409,25 @@ type failingSaveStore struct {
 	failAfter int
 }
 
-func (s *failingSaveStore) Save(ctx context.Context, sess *session.Record) error {
+func (s *failingSaveStore) fail() bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.saves++
-	fail := s.failAfter > 0 && s.saves > s.failAfter
-	s.mu.Unlock()
-	if fail {
+	return s.failAfter > 0 && s.saves > s.failAfter
+}
+
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+	if s.fail() {
 		return errors.New("store: disk full")
 	}
-	return s.Store.Save(ctx, sess)
+	return s.Store.Create(ctx, id, entries, summary)
+}
+
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+	if s.fail() {
+		return errors.New("store: disk full")
+	}
+	return s.Store.Append(ctx, id, after, entries, summary)
 }
 
 func TestUnpersistedRunIsReported(t *testing.T) {
@@ -495,7 +505,7 @@ func TestForkKeepsTheParentsCacheKey(t *testing.T) {
 			t.Fatalf("request %d cache key = %q, want the parent's %q", i, request.CacheKey, want)
 		}
 	}
-	stored, err := store.Get(ctx, grandchild.ID())
+	stored, err := session.View(ctx, store, grandchild.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,11 +521,11 @@ type countingStore struct {
 	gets int
 }
 
-func (s *countingStore) Get(ctx context.Context, id string) (*session.Record, error) {
+func (s *countingStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	s.mu.Lock()
 	s.gets++
 	s.mu.Unlock()
-	return s.Store.Get(ctx, id)
+	return s.Store.Load(ctx, id)
 }
 
 func TestRunLoadsTheSessionOnce(t *testing.T) {
@@ -600,7 +610,7 @@ func TestStoreEventsFrameTheRun(t *testing.T) {
 		t.Fatalf("observer kinds = %v", got)
 	}
 	// They time the store; they are not part of the Session's own record.
-	stored, err := store.Get(ctx, first.SessionID)
+	stored, err := session.View(ctx, store, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -711,26 +721,26 @@ func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	}
 }
 
-// getErrorStore returns a fixed error for one ID, standing in for a Store that
-// is broken rather than missing the Session.
-type getErrorStore struct {
+// createErrorStore fails to create one ID, standing in for a Store that is
+// broken rather than holding the Session already.
+type createErrorStore struct {
 	session.Store
 	failID string
 	err    error
 }
 
-func (s *getErrorStore) Get(ctx context.Context, id string) (*session.Record, error) {
+func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
 	if id == s.failID {
-		return nil, s.err
+		return s.err
 	}
-	return s.Store.Get(ctx, id)
+	return s.Store.Create(ctx, id, entries, summary)
 }
 
 func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	backing := session.NewMemoryStore()
 	getErr := errors.New("store: unavailable")
 	runner, err := service.New(service.Config{
-		Store:  &getErrorStore{Store: backing, failID: "child", err: getErr},
+		Store:  &createErrorStore{Store: backing, failID: "child", err: getErr},
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
@@ -744,7 +754,7 @@ func TestForkTreatsStoreErrorAsFailure(t *testing.T) {
 	if _, err := runner.Fork(ctx, parent.ID(), "child"); !errors.Is(err, getErr) {
 		t.Fatalf("fork err = %v, want the store error", err)
 	}
-	if _, err := backing.Get(ctx, "child"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.View(ctx, backing, "child"); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("fork saved a session despite a store error: %v", err)
 	}
 }
@@ -839,10 +849,10 @@ type blockingGetStore struct {
 	started chan struct{}
 }
 
-func (s *blockingGetStore) Get(ctx context.Context, id string) (*session.Record, error) {
+func (s *blockingGetStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	s.once.Do(func() { close(s.started) })
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return session.Loaded{}, ctx.Err()
 }
 
 // A Run that is admitted but still loading its Session must be reachable by
@@ -890,7 +900,7 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 func TestInspectMatchesTheNextRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
 	maxTokens := gotato.ModelOptions{MaxTokens: 256}
-	runner, store := newRunner(t, service.Agent{
+	runner, _ := newRunner(t, service.Agent{
 		Name:        "orders",
 		Model:       model,
 		Instruction: "You track orders.",
@@ -899,12 +909,8 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 		Options:     []gotato.Option{gotato.WithModelOptions(maxTokens)},
 	})
 	ctx := context.Background()
-	s, err := runner.CreateSession(ctx, "orders", nil)
+	s, err := runner.CreateSession(ctx, "orders", nil, session.WithMessages(gotato.UserMessage("where is order 42?")))
 	if err != nil {
-		t.Fatal(err)
-	}
-	_ = s.Append(gotato.UserMessage("where is order 42?"))
-	if err := store.Save(ctx, s); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1012,7 +1018,7 @@ func TestCancelledRunKeepsItsRunID(t *testing.T) {
 			if result.Result.Status != gotato.RunCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
 				t.Fatalf("cancelled result = %+v, want status cancelled, RunID %s, one Turn", result.Result, runID)
 			}
-			saved, err := store.Get(ctx, s.ID())
+			saved, err := session.View(ctx, store, s.ID())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1021,5 +1027,27 @@ func TestCancelledRunKeepsItsRunID(t *testing.T) {
 				t.Fatalf("stored Runs = %+v", runs)
 			}
 		})
+	}
+}
+
+func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
+	runner, store := newRunner(t)
+	ctx := context.Background()
+	s, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: map[string]string{"team": "orders"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Update: map[string]string{"team": "billing"}, SkipSave: true}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := session.View(ctx, store, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team, _ := stored.Get("team"); team != "orders" || stored.Len() != 2 {
+		t.Fatalf("team = %q, messages = %d; want the saved Run's update and its two Messages", team, stored.Len())
 	}
 }

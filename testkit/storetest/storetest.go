@@ -1,0 +1,433 @@
+// Package storetest checks that a session.Store keeps the contract Gotato
+// relies on: a Record is an append-only log, every write is all or nothing,
+// a position is written once, a stale writer is refused, a load starts at the
+// last Checkpoint, and Liveness rows expire by the store's clock.
+//
+// An adapter runs it from its own tests:
+//
+//	func TestMyStore(t *testing.T) {
+//		storetest.Run(t, func() (storetest.Open, func(), error) {
+//			db := newTestDatabase(t)
+//			return func() session.Store { return mystore.New(db) }, db.Close, nil
+//		})
+//	}
+//
+// It is a package of its own so that importing testkit does not link the
+// testing package into a program.
+package storetest
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jinhuang712/gotato/session"
+)
+
+// Open returns a new handle on one backing store. Every handle must see what
+// the others wrote, as two Instances sharing one database do.
+type Open func() session.Store
+
+// Backing creates one new, empty backing store, returns how to open handles
+// on it, and how to clean it up.
+type Backing func() (Open, func(), error)
+
+type check struct {
+	name string
+	run  func(ctx context.Context, open Open) error
+}
+
+var checks = []check{
+	{"create then load", checkCreateLoad},
+	{"create twice", checkCreateTwice},
+	{"append continues the log", checkAppend},
+	{"load starts at the last checkpoint", checkLastCheckpoint},
+	{"a stale writer is refused", checkStaleWriter},
+	{"a write must continue the head", checkContinuesHead},
+	{"one writer wins a position", checkRace},
+	{"list returns summaries", checkList},
+	{"delete", checkDelete},
+	{"an unknown record", checkUnknown},
+	{"a cancelled context", checkCancelled},
+	{"liveness rows", checkLiveness},
+	{"liveness rows expire", checkExpiry},
+}
+
+// Run runs every check as a subtest, each on a new backing store.
+func Run(t *testing.T, backing Backing) {
+	t.Helper()
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			if err := runCheck(context.Background(), backing, c); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Check runs every check, each on a new backing store, and returns the
+// problems it found, named by check.
+func Check(ctx context.Context, backing Backing) []error {
+	var problems []error
+	for _, c := range checks {
+		if err := runCheck(ctx, backing, c); err != nil {
+			problems = append(problems, fmt.Errorf("%s: %w", c.name, err))
+		}
+	}
+	return problems
+}
+
+func runCheck(ctx context.Context, backing Backing, c check) (err error) {
+	open, cleanup, err := backing()
+	if err != nil {
+		return fmt.Errorf("backing: %w", err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic: %v", recovered)
+		}
+	}()
+	return c.run(ctx, open)
+}
+
+// entry builds an Entry whose Data names its position, so a check can tell
+// which writer's Entry a store kept.
+func entry(seq uint64, kind session.EntryKind, layer session.Layer, writer string) session.Entry {
+	data, _ := json.Marshal(map[string]any{"seq": seq, "writer": writer})
+	return session.Entry{Seq: seq, Kind: kind, Layer: layer, At: time.Date(2026, 10, 17, 0, 0, int(seq), 0, time.UTC), Data: data}
+}
+
+func checkpoint(seq uint64, writer string) session.Entry {
+	return entry(seq, session.EntryCheckpoint, session.LayerFact, writer)
+}
+
+func fact(seq uint64, writer string) session.Entry {
+	return entry(seq, session.EntryMessage, session.LayerFact, writer)
+}
+
+func logEntry(seq uint64, writer string) session.Entry {
+	return entry(seq, session.EntryEvents, session.LayerLog, writer)
+}
+
+func summary(id string, seq uint64, updated string) session.Summary {
+	return session.Summary{ID: id, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: updated, Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
+}
+
+func seqs(entries []session.Entry) []uint64 {
+	out := make([]uint64, len(entries))
+	for i, e := range entries {
+		out[i] = e.Seq
+	}
+	return out
+}
+
+func sameEntries(got, want []session.Entry) error {
+	if len(got) != len(want) {
+		return fmt.Errorf("got entries %v, want %v", seqs(got), seqs(want))
+	}
+	for i := range want {
+		g, w := got[i], want[i]
+		if g.Seq != w.Seq || g.Kind != w.Kind || g.Layer != w.Layer || !g.At.Equal(w.At) || g.Instance != w.Instance || string(g.Data) != string(w.Data) {
+			return fmt.Errorf("entry %d = %+v (data %s), want %+v (data %s)", w.Seq, g, g.Data, w, w.Data)
+		}
+	}
+	return nil
+}
+
+// create writes a Record with a checkpoint, a fact and a log Entry.
+func create(ctx context.Context, store session.Store, id string) ([]session.Entry, error) {
+	entries := []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}
+	entries[1].Instance = "instance-a"
+	return entries, store.Create(ctx, id, entries, summary(id, 3, "2026-10-17T00:00:03.000Z"))
+}
+
+func checkCreateLoad(ctx context.Context, open Open) error {
+	store := open()
+	entries, err := create(ctx, store, "r1")
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	loaded, err := store.Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if err := sameEntries(loaded.Facts, entries[:2]); err != nil {
+		return fmt.Errorf("load returns the facts only, unchanged: %w", err)
+	}
+	if loaded.Head != 3 || loaded.Summary.Seq != 3 || loaded.Summary.Metadata["k"] != "v" {
+		return fmt.Errorf("load = head %d, summary %+v; want head 3 and the summary written", loaded.Head, loaded.Summary)
+	}
+	all, err := open().Log(ctx, "r1", 0)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	return sameEntries(all, entries)
+}
+
+func checkCreateTwice(ctx context.Context, open Open) error {
+	if _, err := create(ctx, open(), "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if _, err := create(ctx, open(), "r1"); !errors.Is(err, session.ErrExists) {
+		return fmt.Errorf("a second Create = %v, want ErrExists", err)
+	}
+	return nil
+}
+
+func checkAppend(ctx context.Context, open Open) error {
+	store := open()
+	entries, err := create(ctx, store, "r1")
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	more := []session.Entry{fact(4, "a"), logEntry(5, "a")}
+	if err := store.Append(ctx, "r1", 3, more, summary("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	all := append(entries, more...)
+	got, err := open().Log(ctx, "r1", 0)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	if err := sameEntries(got, all); err != nil {
+		return fmt.Errorf("log after Append: %w", err)
+	}
+	tail, err := open().Log(ctx, "r1", 3)
+	if err != nil {
+		return fmt.Errorf("log after 3: %w", err)
+	}
+	if err := sameEntries(tail, more); err != nil {
+		return fmt.Errorf("log after 3: %w", err)
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if loaded.Head != 5 || loaded.Summary.Seq != 5 {
+		return fmt.Errorf("load after Append = head %d, summary seq %d; want 5", loaded.Head, loaded.Summary.Seq)
+	}
+	return sameEntries(loaded.Facts, []session.Entry{all[0], all[1], all[3]})
+}
+
+func checkLastCheckpoint(ctx context.Context, open Open) error {
+	store := open()
+	if _, err := create(ctx, store, "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	more := []session.Entry{checkpoint(4, "a"), logEntry(5, "a"), fact(6, "a")}
+	if err := store.Append(ctx, "r1", 3, more, summary("r1", 6, "2026-10-17T00:00:06.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if loaded.Head != 6 {
+		return fmt.Errorf("load head = %d, want 6", loaded.Head)
+	}
+	return sameEntries(loaded.Facts, []session.Entry{more[0], more[2]})
+}
+
+func checkStaleWriter(ctx context.Context, open Open) error {
+	if _, err := create(ctx, open(), "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	first, second := open(), open()
+	winner := []session.Entry{fact(4, "first")}
+	if err := first.Append(ctx, "r1", 3, winner, summary("r1", 4, "2026-10-17T00:00:04.000Z")); err != nil {
+		return fmt.Errorf("first Append: %w", err)
+	}
+	stale := []session.Entry{fact(4, "second"), fact(5, "second")}
+	if err := second.Append(ctx, "r1", 3, stale, summary("r1", 5, "2026-10-17T00:00:05.000Z")); !errors.Is(err, session.ErrConflict) {
+		return fmt.Errorf("an Append after a position already written = %v, want ErrConflict", err)
+	}
+	got, err := open().Log(ctx, "r1", 3)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	return sameEntries(got, winner)
+}
+
+func checkContinuesHead(ctx context.Context, open Open) error {
+	store := open()
+	if _, err := create(ctx, store, "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := store.Append(ctx, "r1", 4, []session.Entry{fact(5, "a")}, summary("r1", 5, "")); err == nil {
+		return errors.New("an Append past the head succeeded")
+	}
+	if err := store.Append(ctx, "r1", 3, []session.Entry{fact(5, "a")}, summary("r1", 5, "")); err == nil {
+		return errors.New("an Append whose first Entry is not after the head succeeded")
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if loaded.Head != 3 {
+		return fmt.Errorf("a refused Append moved the head to %d", loaded.Head)
+	}
+	return nil
+}
+
+func checkRace(ctx context.Context, open Open) error {
+	if _, err := create(ctx, open(), "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	const writers = 8
+	errs := make([]error, writers)
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			writer := fmt.Sprintf("writer-%d", i)
+			errs[i] = open().Append(ctx, "r1", 3, []session.Entry{fact(4, writer), fact(5, writer)}, summary("r1", 5, ""))
+		}(i)
+	}
+	wg.Wait()
+	winner := -1
+	for i, err := range errs {
+		switch {
+		case err == nil && winner >= 0:
+			return fmt.Errorf("writers %d and %d both wrote position 4", winner, i)
+		case err == nil:
+			winner = i
+		case !errors.Is(err, session.ErrConflict):
+			return fmt.Errorf("writer %d = %v, want ErrConflict", i, err)
+		}
+	}
+	if winner < 0 {
+		return errors.New("no writer won position 4")
+	}
+	got, err := open().Log(ctx, "r1", 3)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	writer := fmt.Sprintf("writer-%d", winner)
+	return sameEntries(got, []session.Entry{fact(4, writer), fact(5, writer)})
+}
+
+func checkList(ctx context.Context, open Open) error {
+	store := open()
+	if err := store.Create(ctx, "older", []session.Entry{checkpoint(1, "a")}, summary("older", 1, "2026-10-17T00:00:01.000Z")); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := store.Create(ctx, "newer", []session.Entry{checkpoint(1, "a")}, summary("newer", 1, "2026-10-17T00:00:02.000Z")); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := store.Append(ctx, "older", 1, []session.Entry{fact(2, "a")}, summary("older", 2, "2026-10-17T00:00:03.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	list, err := open().List(ctx)
+	if err != nil {
+		return fmt.Errorf("list: %w", err)
+	}
+	if len(list) != 2 || list[0].ID != "older" || list[0].Seq != 2 || list[1].ID != "newer" {
+		return fmt.Errorf("list = %+v, want the last summary of each, the most recently updated first", list)
+	}
+	return nil
+}
+
+func checkDelete(ctx context.Context, open Open) error {
+	store := open()
+	if _, err := create(ctx, store, "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := open().Delete(ctx, "r1"); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if _, err := store.Load(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("load after Delete = %v, want ErrNotFound", err)
+	}
+	if err := store.Append(ctx, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("append after Delete = %v, want ErrNotFound", err)
+	}
+	if err := store.Delete(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("a second Delete = %v, want ErrNotFound", err)
+	}
+	list, err := store.List(ctx)
+	if err != nil || len(list) != 0 {
+		return fmt.Errorf("list after Delete = %+v, %v", list, err)
+	}
+	return nil
+}
+
+func checkUnknown(ctx context.Context, open Open) error {
+	store := open()
+	if _, err := store.Load(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("load = %v, want ErrNotFound", err)
+	}
+	if _, err := store.Log(ctx, "missing", 0); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("log = %v, want ErrNotFound", err)
+	}
+	if err := store.Append(ctx, "missing", 1, []session.Entry{fact(2, "a")}, summary("missing", 2, "")); !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("append = %v, want ErrNotFound", err)
+	}
+	return nil
+}
+
+func checkCancelled(ctx context.Context, open Open) error {
+	store := open()
+	if _, err := create(ctx, store, "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := store.Append(cancelled, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); err == nil {
+		return errors.New("append ignored a cancelled context")
+	}
+	if _, err := store.Load(cancelled, "r1"); err == nil {
+		return errors.New("load ignored a cancelled context")
+	}
+	loaded, err := store.Load(ctx, "r1")
+	if err != nil || loaded.Head != 3 {
+		return fmt.Errorf("an Append with a cancelled context wrote: head %d, %v", loaded.Head, err)
+	}
+	return nil
+}
+
+func checkLiveness(ctx context.Context, open Open) error {
+	store := open()
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a", Draining: true}, time.Hour); err != nil {
+		return fmt.Errorf("beat: %w", err)
+	}
+	state, err := open().Instance(ctx, "instance-a")
+	if err != nil || !state.Alive || !state.Draining {
+		return fmt.Errorf("instance = %+v, %v; want alive and draining", state, err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a"}, 0); err != nil {
+		return fmt.Errorf("beat with ttl 0: %w", err)
+	}
+	if state, err := open().Instance(ctx, "instance-a"); err != nil || state.Alive {
+		return fmt.Errorf("instance after its row ended = %+v, %v; want not alive", state, err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a"}, time.Hour); !errors.Is(err, session.ErrExpired) {
+		return fmt.Errorf("beat on an ended row = %v, want ErrExpired", err)
+	}
+	if state, err := open().Instance(ctx, "never-seen"); err != nil || state.Alive {
+		return fmt.Errorf("an unknown Instance = %+v, %v; want not alive", state, err)
+	}
+	return nil
+}
+
+func checkExpiry(ctx context.Context, open Open) error {
+	store := open()
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-b"}, 50*time.Millisecond); err != nil {
+		return fmt.Errorf("beat: %w", err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	if state, err := open().Instance(ctx, "instance-b"); err != nil || state.Alive {
+		return fmt.Errorf("instance after its ttl = %+v, %v; want not alive", state, err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-b"}, time.Hour); !errors.Is(err, session.ErrExpired) {
+		return fmt.Errorf("beat after its ttl = %v, want ErrExpired", err)
+	}
+	return nil
+}

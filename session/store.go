@@ -2,15 +2,10 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"sort"
-	"strings"
-	"sync"
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -19,7 +14,21 @@ import (
 // ErrNotFound is returned by stores for an unknown Session ID.
 var ErrNotFound = errors.New("session: not found")
 
-// Summary is the listing view of a stored Session.
+// ErrExists is returned by Store.Create for an ID the store already holds.
+var ErrExists = errors.New("session: already exists")
+
+// ErrConflict is returned by Store.Append when the position after its head is
+// already taken, or the head is not where the writer read it: another writer
+// wrote first. It carries gotato.ErrConflict.
+var ErrConflict = gotato.ErrorOf(gotato.ErrConflict, "session: another writer wrote to this Record first")
+
+// ErrExpired is returned by Store.Beat for a Liveness row that has expired.
+// An expired row never comes back to life: its Instance must start again
+// with a new identity.
+var ErrExpired = errors.New("session: liveness row expired")
+
+// Summary is the listing view of a stored Session. A writer passes it with
+// every write, so a store can list Sessions without reading their logs.
 type Summary struct {
 	ID        string            `json:"id"`
 	ParentID  string            `json:"parent_id,omitempty"`
@@ -29,15 +38,130 @@ type Summary struct {
 	Runs      int               `json:"runs"`
 	Usage     gotato.Usage      `json:"usage"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	// Seq is the position of the last Entry the store holds.
+	Seq uint64 `json:"seq,omitempty"`
+	// Running is the Run that started and has not ended, if any.
+	Running gotato.RunID `json:"running,omitempty"`
 }
 
-// Store persists Sessions. Implementations must be safe for concurrent use.
-// Save overwrites; Get returns ErrNotFound for unknown IDs.
+// Loaded is what Store.Load returns: the facts of a Record from its last
+// Checkpoint on, the position of its last Entry, and its Summary.
+type Loaded struct {
+	Facts   []Entry
+	Head    uint64
+	Summary Summary
+}
+
+// InstanceRow is one Instance's Liveness row.
+type InstanceRow struct {
+	ID       string `json:"id"`
+	Draining bool   `json:"draining,omitempty"`
+}
+
+// InstanceState is what a store knows of an Instance: whether its Liveness
+// row is alive by the store's clock, and whether it is draining.
+type InstanceState struct {
+	ID       string `json:"id"`
+	Alive    bool   `json:"alive"`
+	Draining bool   `json:"draining,omitempty"`
+}
+
+// Store keeps Records as append-only logs of Entries, and one Liveness row
+// per Instance. Every write is one conditional write: Create and Append write
+// a batch of Entries all or nothing, and only to positions that are still
+// free, so an adapter maps them to an insert on a unique (session, seq) key.
+// Implementations must be safe for concurrent use, also by several Instances
+// sharing one store. The conformance suite in testkit/storetest checks all of
+// it.
 type Store interface {
-	Save(context.Context, *Record) error
-	Get(context.Context, string) (*Record, error)
-	List(context.Context) ([]Summary, error)
-	Delete(context.Context, string) error
+	// Create writes a new Record whose first Entry, at Seq 1, is a
+	// Checkpoint. It fails with ErrExists when the ID is taken.
+	Create(ctx context.Context, id string, entries []Entry, summary Summary) error
+	// Append writes entries at after+1 onward and replaces the Summary. It
+	// fails with ErrConflict unless after is the Record's last position, and
+	// with ErrNotFound for an unknown or deleted Record.
+	Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error
+	// Load returns the facts from the last Checkpoint on.
+	Load(ctx context.Context, id string) (Loaded, error)
+	// Log returns every Entry, facts and log, after position after, in order.
+	Log(ctx context.Context, id string, after uint64) ([]Entry, error)
+	// List returns the Summaries, the most recently updated first.
+	List(ctx context.Context) ([]Summary, error)
+	// Delete removes a Record. A writer that appends to it afterwards gets
+	// ErrNotFound.
+	Delete(ctx context.Context, id string) error
+	// Beat renews an Instance's Liveness row until ttl from now, by the
+	// store's clock, and creates it the first time. It fails with ErrExpired
+	// once the row has expired. A ttl of 0 ends the row.
+	Beat(ctx context.Context, row InstanceRow, ttl time.Duration) error
+	// Instance returns an Instance's state. An unknown Instance is not alive.
+	Instance(ctx context.Context, id string) (InstanceState, error)
+}
+
+// StoreOption configures a built-in Store.
+type StoreOption func(*storeConfig)
+
+type storeConfig struct{ now func() time.Time }
+
+// WithStoreClock sets the clock a store times Liveness rows with (tests).
+func WithStoreClock(now func() time.Time) StoreOption {
+	return func(c *storeConfig) { c.now = now }
+}
+
+func newStoreConfig(options []StoreOption) storeConfig {
+	config := storeConfig{now: time.Now}
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+	return config
+}
+
+// checkBatch checks that entries continue position after without a gap, and
+// that a new Record starts with a Checkpoint.
+func checkBatch(after uint64, entries []Entry) error {
+	if len(entries) == 0 {
+		return gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a write has no entries")
+	}
+	for i, entry := range entries {
+		if entry.Seq != after+uint64(i)+1 {
+			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d of a write after %d has Seq %d", i, after, entry.Seq))
+		}
+	}
+	if after == 0 && (entries[0].Kind != EntryCheckpoint || entries[0].Layer != LayerFact) {
+		return gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a Record must start with a checkpoint")
+	}
+	return nil
+}
+
+// cloneEntries copies entries, Data included, so a store and its caller never
+// share bytes.
+func cloneEntries(entries []Entry) []Entry {
+	out := make([]Entry, len(entries))
+	for i, entry := range entries {
+		out[i] = entry
+		out[i].Data = append([]byte(nil), entry.Data...)
+	}
+	return out
+}
+
+// factsFrom returns the facts of entries from the last Checkpoint on.
+func factsFrom(entries []Entry) []Entry {
+	start := 0
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Kind == EntryCheckpoint {
+			start = i
+			break
+		}
+	}
+	var facts []Entry
+	for _, entry := range entries[start:] {
+		if entry.Layer == LayerFact {
+			facts = append(facts, entry)
+		}
+	}
+	return facts
 }
 
 // SummaryOf builds the listing view of a Session.
@@ -47,13 +171,14 @@ func SummaryOf(s *Record) Summary { return s.Summary() }
 func (s *Record) Summary() Summary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), len(s.runs), s.usage, s.metadata)
+	return s.summaryLocked()
 }
 
-// summaryOfDocument builds the listing view of a persisted Document without
-// materializing a Session.
-func summaryOfDocument(doc Document) Summary {
-	return summaryOf(doc.ID, doc.ParentID, doc.CreatedAt, doc.UpdatedAt, len(doc.Messages), len(doc.Runs), doc.Usage, doc.Metadata)
+func (s *Record) summaryLocked() Summary {
+	summary := summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
+	summary.Seq = s.head
+	summary.Running = s.running
+	return summary
 }
 
 func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs int, usage gotato.Usage, metadata map[string]string) Summary {
@@ -67,241 +192,6 @@ func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, ru
 		Usage:     usage,
 		Metadata:  maps.Clone(metadata),
 	}
-}
-
-// MemoryStore keeps Documents in memory. It is the store for library use and
-// tests; nothing about the runtime requires anything more durable.
-type MemoryStore struct {
-	mu   sync.RWMutex
-	docs map[string]Document
-}
-
-// NewMemoryStore creates an empty MemoryStore.
-func NewMemoryStore() *MemoryStore { return &MemoryStore{docs: map[string]Document{}} }
-
-// Save implements Store.
-func (m *MemoryStore) Save(ctx context.Context, s *Record) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	doc := s.Snapshot()
-	m.mu.Lock()
-	m.docs[doc.ID] = doc
-	m.mu.Unlock()
-	return nil
-}
-
-// Get implements Store.
-func (m *MemoryStore) Get(ctx context.Context, id string) (*Record, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	doc, ok := m.docs[id]
-	m.mu.RUnlock()
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return Load(doc)
-}
-
-// List implements Store; results are sorted by UpdatedAt descending.
-func (m *MemoryStore) List(ctx context.Context) ([]Summary, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	m.mu.RLock()
-	out := make([]Summary, 0, len(m.docs))
-	for _, doc := range m.docs {
-		out = append(out, summaryOfDocument(doc))
-	}
-	m.mu.RUnlock()
-	sortSummaries(out)
-	return out, nil
-}
-
-// Delete implements Store.
-func (m *MemoryStore) Delete(ctx context.Context, id string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.docs[id]; !ok {
-		return ErrNotFound
-	}
-	delete(m.docs, id)
-	return nil
-}
-
-// FileStore keeps one JSON document per Session under a directory:
-// <dir>/<id>.json. Writes are atomic (temp file + rename). It needs no
-// database and is the CLI's default store.
-type FileStore struct {
-	dir string
-	mu  sync.Mutex
-}
-
-// NewFileStore creates the directory if needed.
-func NewFileStore(dir string) (*FileStore, error) {
-	if strings.TrimSpace(dir) == "" {
-		return nil, errors.New("session: store directory is empty")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	return &FileStore{dir: dir}, nil
-}
-
-// Dir returns the directory.
-func (f *FileStore) Dir() string { return f.dir }
-
-func (f *FileStore) path(id string) (string, error) {
-	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
-		return "", ErrNotFound
-	}
-	return filepath.Join(f.dir, id+".json"), nil
-}
-
-// Save implements Store.
-func (f *FileStore) Save(ctx context.Context, s *Record) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	doc := s.Snapshot()
-	path, err := f.path(doc.ID)
-	if err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	tmp, err := os.CreateTemp(f.dir, "."+doc.ID+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	// Flush the directory entry so the rename itself survives a crash.
-	return f.syncDir()
-}
-
-// syncDir fsyncs the store directory so a completed rename is durable.
-func (f *FileStore) syncDir() error {
-	dir, err := os.Open(f.dir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Close() }()
-	if err := dir.Sync(); err != nil {
-		// Some filesystems reject fsync on a directory; the rename is still
-		// ordered, so treat that as non-fatal.
-		if errors.Is(err, os.ErrInvalid) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-// Get implements Store.
-func (f *FileStore) Get(ctx context.Context, id string) (*Record, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	doc, err := f.readDocument(id)
-	if err != nil {
-		return nil, err
-	}
-	return Load(doc)
-}
-
-// readDocument loads one persisted Document without materializing a Record.
-func (f *FileStore) readDocument(id string) (Document, error) {
-	path, err := f.path(id)
-	if err != nil {
-		return Document{}, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Document{}, ErrNotFound
-		}
-		return Document{}, err
-	}
-	var doc Document
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return Document{}, err
-	}
-	return doc, nil
-}
-
-// List implements Store; results are sorted by UpdatedAt descending.
-func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(f.dir)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Summary, 0, len(entries))
-	var unreadable []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
-			continue
-		}
-		doc, err := f.readDocument(strings.TrimSuffix(name, ".json"))
-		if err != nil {
-			unreadable = append(unreadable, name+": "+err.Error())
-			continue
-		}
-		out = append(out, summaryOfDocument(doc))
-	}
-	if len(unreadable) > 0 {
-		return nil, fmt.Errorf("session: %d unreadable session file(s): %s", len(unreadable), strings.Join(unreadable, "; "))
-	}
-	sortSummaries(out)
-	return out, nil
-}
-
-// Delete implements Store.
-func (f *FileStore) Delete(ctx context.Context, id string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	path, err := f.path(id)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ErrNotFound
-		}
-		return err
-	}
-	return nil
 }
 
 func sortSummaries(out []Summary) {

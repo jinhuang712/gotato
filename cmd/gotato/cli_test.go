@@ -569,3 +569,24 @@ func TestBinaryScenario(t *testing.T) {
 		t.Fatalf("doctor exit=%d out=%s", code, out)
 	}
 }
+
+// Settings given to a run change the session as the run's first write, and
+// --no-save keeps them to that run only.
+func TestRunSettingsAreSavedUnlessNoSave(t *testing.T) {
+	h := newHarness(t)
+	var created runOutcome
+	h.mustJSON(h.ok("run", "--json", "hello"), &created)
+	h.ok("run", "--session", created.SessionID, "--instruction", "kept", "--json", "again")
+	h.ok("run", "--session", created.SessionID, "--instruction", "dropped", "--no-save", "--json", "once more")
+	var doc struct {
+		Metadata map[string]string `json:"metadata"`
+		Messages []any             `json:"messages"`
+	}
+	h.mustJSON(h.ok("session", "show", created.SessionID, "--json"), &doc)
+	if doc.Metadata[service.MetaInstruction] != "kept" {
+		t.Fatalf("instruction = %q, want the saved run's", doc.Metadata[service.MetaInstruction])
+	}
+	if len(doc.Messages) != 4 {
+		t.Fatalf("messages = %d, want 4: the --no-save run left nothing", len(doc.Messages))
+	}
+}

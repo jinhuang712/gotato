@@ -342,15 +342,25 @@ type failingSaveStore struct {
 	failAfter int
 }
 
-func (s *failingSaveStore) Save(ctx context.Context, sess *session.Record) error {
+func (s *failingSaveStore) fail() bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.saves++
-	fail := s.failAfter > 0 && s.saves > s.failAfter
-	s.mu.Unlock()
-	if fail {
+	return s.failAfter > 0 && s.saves > s.failAfter
+}
+
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+	if s.fail() {
 		return errors.New("store: disk full at /var/secret/path")
 	}
-	return s.Store.Save(ctx, sess)
+	return s.Store.Create(ctx, id, entries, summary)
+}
+
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+	if s.fail() {
+		return errors.New("store: disk full at /var/secret/path")
+	}
+	return s.Store.Append(ctx, id, after, entries, summary)
 }
 
 func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
