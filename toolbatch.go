@@ -25,6 +25,54 @@ type toolPlan struct {
 	result  ToolResult
 }
 
+// openBatch is the Tool batch of a committed assistant Message whose calls do
+// not all have a committed result yet. Results commit in source order, so the
+// calls from next on are the open ones. outcomes holds what is known of them
+// by source index.
+type openBatch struct {
+	turn     TurnNumber
+	calls    []ToolCall
+	next     int
+	outcomes map[int]ToolResult
+}
+
+// closeOpenCalls commits a closing result for every open call of a Run that
+// ends with cause. Every provider refuses a request in which a Tool call has
+// no result, so a Transcript left with an open call could never run again.
+// The closing results are exempt from the Message and transcript limits,
+// because the Run may be ending on one of them. A call keeps Executed true when
+// its executor's outcome had already arrived.
+func (a *Session) closeOpenCalls(runID RunID, sequence *uint64, batch *openBatch, cause *RuntimeError, status RunStatus) {
+	if batch.next >= len(batch.calls) {
+		*batch = openBatch{}
+		return
+	}
+	resultStatus := ToolResultFailed
+	if status == RunCanceled || status == RunDeadlineExceeded {
+		resultStatus = ToolResultCanceled
+	}
+	text := fmt.Sprintf("%s: the Run ended before this call's result was committed", cause.Code)
+	for i := batch.next; i < len(batch.calls); i++ {
+		call := batch.calls[i]
+		outcome, known := batch.outcomes[i]
+		result := ToolResult{
+			CallID:    call.ID,
+			Status:    resultStatus,
+			Content:   []ContentPart{{Kind: ContentText, Text: text}},
+			SafeError: text,
+			Executed:  known && outcome.Executed,
+		}
+		message := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: cloneContent(result.Content), ToolResult: ptrToolResult(result)}
+		if err := a.appendMessage(message, false); err != nil {
+			break
+		}
+		// Like run_end, these Events are emitted even after an observer
+		// failed: the Run is already ending.
+		_ = a.emit(runID, sequence, EventToolResultCommitted, EventProtected, batch.turn, message.ID, call.ID, map[string]any{"status": resultStatus})
+	}
+	*batch = openBatch{}
+}
+
 // rejectedPlan settles a call the Model got wrong as a failed, unexecuted
 // Tool Result carrying a message the Model can act on.
 func (a *Session) rejectedPlan(index int, call ToolCall, message string) toolPlan {
@@ -117,6 +165,46 @@ func (a *Session) executeToolGroup(
 	plans []toolPlan,
 	group []int,
 ) (map[int]ToolResult, *RuntimeError) {
+	outcomes := make(map[int]ToolResult, len(group))
+	// settle records one outcome and emits its completion Event as the outcome
+	// becomes known, so completion Events follow actual completion order.
+	// Commitment happens later, in assistant source order.
+	settle := func(index int, result ToolResult) *RuntimeError {
+		outcomes[index] = result
+		return a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed})
+	}
+	// unsettled ends the group on an observer failure. It still returns what
+	// is known, and records for every other call whether its executor was
+	// started, so the closing results of the failed Run keep Executed true.
+	unsettled := func(err *RuntimeError, launched bool) (map[int]ToolResult, *RuntimeError) {
+		for _, index := range group {
+			if _, done := outcomes[index]; !done {
+				outcomes[index] = ToolResult{CallID: plans[index].call.ID, Status: ToolResultFailed, Executed: launched}
+			}
+		}
+		return outcomes, err
+	}
+	// cancelRest settles every call of the group that has no outcome yet as
+	// cancelled. launched says whether their executors were started: a started
+	// Tool may have carried out its side effect before it saw the
+	// cancellation, so it is recorded as executed, with its outcome unknown.
+	cancelRest := func(launched bool) (map[int]ToolResult, *RuntimeError) {
+		for _, index := range group {
+			if _, done := outcomes[index]; done {
+				continue
+			}
+			if err := settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: launched}); err != nil {
+				return unsettled(err, launched)
+			}
+		}
+		return outcomes, nil
+	}
+	// A Run cancelled before this group started never launches it: a Tool that
+	// ignores its context would still carry out its side effect.
+	if ctx.Err() != nil {
+		return cancelRest(false)
+	}
+
 	signals := make(chan toolSignal, len(group)*4+4)
 	// abandon is closed when executeToolGroup returns. A worker that finishes
 	// after the batch was cancelled or abandoned uses it so its final send
@@ -172,47 +260,56 @@ func (a *Session) executeToolGroup(
 		}(plan)
 	}
 
-	outcomes := make(map[int]ToolResult, len(group))
 	for len(outcomes) < len(group) {
 		select {
 		case <-ctx.Done():
 			// Cancellation must settle the Run even when a Tool ignores its
-			// context. Record the missing outcomes as canceled; abandon (closed
-			// on return) releases any worker still trying to report a late
-			// result.
-			for _, index := range group {
-				if _, done := outcomes[index]; done {
-					continue
+			// context. A worker that already reported keeps its outcome; the
+			// rest are cancelled, as executed, because their executors were
+			// started. abandon (closed on return) releases any worker still
+			// trying to report a late result.
+		drain:
+			for range cap(signals) {
+				select {
+				case signal := <-signals:
+					if signal.update {
+						continue
+					}
+					if err := settle(signal.index, cancelledOutcome(ctx, signal.result)); err != nil {
+						return unsettled(err, true)
+					}
+				default:
+					break drain
 				}
-				outcomes[index] = ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: false}
 			}
-			return outcomes, nil
+			return cancelRest(true)
 		case signal := <-signals:
 			if signal.update {
 				if err := a.emit(runID, sequence, EventToolExecutionUpdate, EventCoalescable, turn, messageID, plans[signal.index].call.ID, map[string]any{"text": signal.text}); err != nil {
 					// Returning closes abandon, so no worker goroutine outlives
 					// the Run.
-					return nil, err
+					return unsettled(err, true)
 				}
 				continue
 			}
-			result := signal.result
-			if ctx.Err() != nil {
-				result.Status = ToolResultCanceled
-				if result.SafeError == "" {
-					result.SafeError = safeError(ctx.Err())
-				}
-			}
-			outcomes[signal.index] = result
-			// The completion Event is emitted here, as the outcome arrives, so
-			// it reflects actual completion order. Commitment happens later, in
-			// assistant source order.
-			if err := a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[signal.index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed}); err != nil {
-				return nil, err
+			if err := settle(signal.index, cancelledOutcome(ctx, signal.result)); err != nil {
+				return unsettled(err, true)
 			}
 		}
 	}
 	return outcomes, nil
+}
+
+// cancelledOutcome marks an outcome that arrived after the Run was cancelled.
+// The Tool ran, so Executed stays true.
+func cancelledOutcome(ctx context.Context, result ToolResult) ToolResult {
+	if ctx.Err() != nil {
+		result.Status = ToolResultCanceled
+		if result.SafeError == "" {
+			result.SafeError = safeError(ctx.Err())
+		}
+	}
+	return result
 }
 
 // preflightTools resolves, validates, and runs the Pre chain over every Tool

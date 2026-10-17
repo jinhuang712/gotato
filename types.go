@@ -124,7 +124,11 @@ type ToolResult struct {
 	Content   []ContentPart     `json:"content,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 	SafeError string            `json:"safe_error,omitempty"`
-	Executed  bool              `json:"executed"`
+	// Executed reports whether the Tool's executor was started. Core owns it:
+	// a call that was blocked, rejected, or never started because the Run
+	// ended has Executed false. A Tool cancelled while it ran keeps it true,
+	// because it may have done its work.
+	Executed bool `json:"executed"`
 }
 
 func (r ToolResult) Clone() ToolResult {

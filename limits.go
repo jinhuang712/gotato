@@ -43,6 +43,11 @@ const TruncatedContinuationText = "Your last reply was cut off at the output lim
 // activation. MaxParallelTools zero or one keeps a batch sequential, and
 // MaxSteerMessages or MaxFollowUpMessages zero leaves that control channel
 // unbuffered. A zero deadline disables that deadline.
+//
+// The closing results a failed Run commits for the Tool calls it left without
+// a result are exempt from MaxMessages, MaxMessageBytes and
+// MaxTranscriptBytes: the Run may be ending on one of those limits, and a Tool
+// call without a result would make every later request invalid.
 func DefaultLimits() CoreLimits { return defaultLimits() }
 
 func defaultLimits() CoreLimits {

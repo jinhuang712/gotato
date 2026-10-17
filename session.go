@@ -582,6 +582,13 @@ func decodeSessionStatus(status uint32) SessionStatus {
 }
 
 func (a *Session) commitMessage(message Message) error {
+	return a.appendMessage(message, true)
+}
+
+// appendMessage commits one Message. enforce applies the Message and
+// transcript limits; only the closing results of a failed Run skip them (see
+// closeOpenCalls).
+func (a *Session) appendMessage(message Message, enforce bool) error {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
@@ -590,19 +597,19 @@ func (a *Session) commitMessage(message Message) error {
 	if err != nil {
 		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	if limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
+	if enforce && limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
-	if limitExceededUint64(a.limitsSet, a.limits.MaxMessageBytes, uint64(len(bytes))) {
+	if enforce && limitExceededUint64(a.limitsSet, a.limits.MaxMessageBytes, uint64(len(bytes))) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
 	}
 	// The transcript bound is tracked incrementally: one JSON array of n
 	// elements costs the elements plus n-1 separators and two brackets.
 	candidate := a.transcriptBytes + uint64(len(bytes))
-	if len(a.transcript.Messages()) > 0 {
+	if a.transcript.Len() > 0 {
 		candidate++
 	}
-	if limitExceededUint64(a.limitsSet, a.limits.MaxTranscriptBytes, candidate+2) {
+	if enforce && limitExceededUint64(a.limitsSet, a.limits.MaxTranscriptBytes, candidate+2) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	if err := a.transcript.Append(message); err != nil {
@@ -739,6 +746,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 	a.observerCtx = runCtx
 	defer func() { a.observerCtx = nil }()
+	// batch is the Tool batch of the last committed assistant Message, while
+	// some of its calls still have no committed result.
+	var batch openBatch
 
 	fail := func(err *RuntimeError) (RunResult, error) {
 		if err == nil {
@@ -751,6 +761,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err.Code == ErrDeadlineExceeded {
 			result.Status = RunDeadlineExceeded
 		}
+		a.closeOpenCalls(runID, &sequence, &batch, err, result.Status)
 		// The terminal Event is emitted even when an observer already failed:
 		// a Run may not end without exactly one run_end.
 		_ = a.emit(runID, &sequence, EventRunEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
@@ -855,6 +866,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err := a.commitMessage(assistant); err != nil {
 			return fail(asRuntimeError(err))
 		}
+		if len(assistant.ToolCalls) > 0 {
+			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
+		}
 		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)}); err != nil {
 			return fail(err)
 		}
@@ -929,6 +943,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		// A blocked Tool is already settled at preflight, so its start and end
 		// Events are emitted together, in source order.
 		outcomes := make(map[int]ToolResult, len(plans))
+		batch.outcomes = outcomes
 		for i := range plans {
 			if err := a.emit(runID, &sequence, EventToolExecutionStart, EventProtected, turn, assistant.ID, plans[i].call.ID, map[string]any{"tool_id": plans[i].call.ToolID}); err != nil {
 				return fail(err)
@@ -946,11 +961,13 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		// actual completion order; commitment below stays source ordered.
 		for _, group := range groupPlans(plans, a.parallelWorkers()) {
 			completed, groupErr := a.executeToolGroup(runCtx, runID, &sequence, turn, assistant.ID, plans, group)
-			if groupErr != nil {
-				return fail(groupErr)
-			}
+			// A failed group still reports what it knows, so the closing
+			// results of the failed Run keep Executed true for started Tools.
 			for index, result := range completed {
 				outcomes[index] = result
+			}
+			if groupErr != nil {
+				return fail(groupErr)
 			}
 		}
 
@@ -974,6 +991,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if err := a.commitMessage(resultMessage); err != nil {
 				return fail(asRuntimeError(err))
 			}
+			batch.next = i + 1
 			if err := a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status}); err != nil {
 				return fail(err)
 			}
@@ -985,6 +1003,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				"executed": toolResult.Executed,
 			})
 		}
+		batch = openBatch{}
 
 		// ToolSet activation commits at the batch boundary, so newly active
 		// Tools appear only in the next Model request. registryMu serializes

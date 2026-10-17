@@ -2,6 +2,8 @@ package gotato
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,4 +152,222 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 	if updates != want {
 		t.Fatalf("progress updates = %d, want %d", updates, want)
 	}
+}
+
+// hookTool runs hook, if any, and succeeds.
+type hookTool struct {
+	id   string
+	hook func()
+}
+
+func (t hookTool) Spec() ToolSpec {
+	return ToolSpec{ID: t.id, InputSchema: []byte(`{"type":"object"}`)}
+}
+
+func (t hookTool) Execute(context.Context, ToolUse, ToolProgress) (ToolResult, error) {
+	if t.hook != nil {
+		t.hook()
+	}
+	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "ok"}}}, nil
+}
+
+// callsScript is a Model reply that calls each Tool in order, as c1, c2, ….
+func callsScript(toolIDs ...string) []ModelEvent {
+	events := make([]ModelEvent, 0, len(toolIDs)+1)
+	for i, id := range toolIDs {
+		call := ToolCall{ID: ToolCallID("c" + string(rune('1'+i))), ToolID: id, Arguments: []byte(`{}`)}
+		events = append(events, ModelEvent{Kind: ModelToolCall, ToolCall: &call})
+	}
+	return append(events, ModelEvent{Kind: ModelDone, StopReason: StopToolCalls})
+}
+
+func resultsByCall(messages []Message) map[ToolCallID]ToolResult {
+	out := map[ToolCallID]ToolResult{}
+	for _, message := range messages {
+		if message.ToolResult != nil {
+			out[message.ToolResult.CallID] = *message.ToolResult
+		}
+	}
+	return out
+}
+
+// eventLog records every Event in order.
+type eventLog struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (l *eventLog) Observe(_ context.Context, event Event) error {
+	l.mu.Lock()
+	l.events = append(l.events, event)
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *eventLog) count(kind EventKind, call ToolCallID) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := 0
+	for _, event := range l.events {
+		if event.Kind == kind && event.ToolCallID == call {
+			n++
+		}
+	}
+	return n
+}
+
+// A Run aborted during one Tool of a sequential batch must not start the
+// Tools after it: a Tool that ignores its context would carry out its side
+// effect after the user stopped the Run. Before the fix nearly every Run
+// launched them anyway and recorded them as unexecuted.
+func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
+	for attempt := range 20 {
+		var agent *Session
+		launched := 0
+		var mu sync.Mutex
+		abort := hookTool{id: "abort", hook: func() { agent.Abort() }}
+		count := hookTool{id: "later", hook: func() { mu.Lock(); launched++; mu.Unlock() }}
+		model := &testModel{scripts: [][]ModelEvent{
+			callsScript("abort", "later", "later"),
+			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		}}
+		log := &eventLog{}
+		var err error
+		agent, err = NewSession(WithModel(model), WithTools(abort, count), WithExtension(log))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrCancelled) {
+			t.Fatalf("aborted Run error = %v", err)
+		}
+		_ = agent.Close(context.Background())
+		mu.Lock()
+		got := launched
+		mu.Unlock()
+		if got != 0 {
+			t.Fatalf("attempt %d: %d Tools ran after Abort", attempt, got)
+		}
+		results := resultsByCall(agent.Transcript().Messages())
+		for _, id := range []ToolCallID{"c2", "c3"} {
+			result, ok := results[id]
+			if !ok || result.Status != ToolResultCanceled || result.Executed {
+				t.Fatalf("attempt %d: result of %s = %+v (found %v)", attempt, id, result, ok)
+			}
+			if starts, ends := log.count(EventToolExecutionStart, id), log.count(EventToolExecutionEnd, id); starts != 1 || ends != 1 {
+				t.Fatalf("attempt %d: %s has %d starts and %d ends", attempt, id, starts, ends)
+			}
+		}
+	}
+}
+
+// A Tool whose executor started before the Run was aborted may have carried out
+// its side effect, so its result must not claim it never ran. Before the fix a
+// Tool still running at Abort was recorded with Executed false.
+func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
+	blocked := make(chan struct{})
+	defer close(blocked)
+	model := &testModel{scripts: [][]ModelEvent{
+		callsScript("slow"),
+		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+	}}
+	log := &eventLog{}
+	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}), WithExtension(log))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	done := make(chan error, 1)
+	go func() {
+		_, promptErr := agent.Prompt(context.Background(), UserMessage("go"))
+		done <- promptErr
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for log.count(EventToolExecutionStart, "c1") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the Tool did not start")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	agent.Abort()
+	if err := <-done; !IsCode(err, ErrCancelled) {
+		t.Fatalf("aborted Run error = %v", err)
+	}
+	result, ok := resultsByCall(agent.Transcript().Messages())["c1"]
+	if !ok || result.Status != ToolResultCanceled || !result.Executed {
+		t.Fatalf("result of the started Tool = %+v (found %v)", result, ok)
+	}
+}
+
+// failingPost is a PostToolUse Extension that fails.
+type failingPost struct{}
+
+func (failingPost) After(context.Context, ToolResult) (ToolResult, error) {
+	return ToolResult{}, errors.New("post hook failed")
+}
+
+// A Run that fails after its assistant Message committed Tool calls must still
+// commit a result for every call. Every provider refuses a request in which a
+// Tool call has no result, so before the fix every later Run of the Session
+// failed.
+func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
+	t.Run("limit in preflight", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.MaxToolCalls = 1
+		model := &testModel{scripts: [][]ModelEvent{
+			callsScript("echo", "echo"),
+			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		}}
+		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithLimits(limits))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = agent.Close(context.Background()) }()
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrLimitExceeded) {
+			t.Fatalf("first Run error = %v", err)
+		}
+		results := resultsByCall(agent.Transcript().Messages())
+		for _, id := range []ToolCallID{"c1", "c2"} {
+			result, ok := results[id]
+			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(ErrLimitExceeded)) {
+				t.Fatalf("closing result of %s = %+v (found %v)", id, result, ok)
+			}
+		}
+		if _, err := agent.Prompt(context.Background(), UserMessage("again")); err != nil {
+			t.Fatalf("second Run error = %v", err)
+		}
+		model.mu.Lock()
+		request := model.last
+		model.mu.Unlock()
+		answered := map[ToolCallID]bool{}
+		for _, message := range request.Messages {
+			if message.ToolResult != nil {
+				answered[message.ToolResult.CallID] = true
+			}
+		}
+		for _, message := range request.Messages {
+			for _, call := range message.ToolCalls {
+				if !answered[call.ID] {
+					t.Fatalf("the next request has Tool call %s without a result: %+v", call.ID, request.Messages)
+				}
+			}
+		}
+	})
+	t.Run("extension after the Tool ran", func(t *testing.T) {
+		model := &testModel{scripts: [][]ModelEvent{callsScript("echo")}}
+		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithExtension(failingPost{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = agent.Close(context.Background()) }()
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrExtensionFailure) {
+			t.Fatalf("Run error = %v", err)
+		}
+		result, ok := resultsByCall(agent.Transcript().Messages())["c1"]
+		if !ok || result.Status != ToolResultFailed || !result.Executed {
+			t.Fatalf("closing result of the Tool that ran = %+v (found %v)", result, ok)
+		}
+		if err := validateContinuable(agent.Transcript().Messages()); err != nil {
+			t.Fatalf("the Transcript does not end where a Model can continue: %v", err)
+		}
+	})
 }

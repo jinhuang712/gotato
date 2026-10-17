@@ -4,7 +4,7 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. Three defects from [TODO.md](TODO.md) are fixed too, and two of them are breaking: the `context_built` payload, and `ToolUse`.
+Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. Three defects from [TODO.md](TODO.md) are fixed too, and two of them are breaking: the `context_built` payload, and `ToolUse`. It also fixes how a Run ends when it fails or is cancelled during a tool batch.
 
 ### Names
 
@@ -58,6 +58,10 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
   // after: the outcome arrives in PostToolUse
   func (a audit) After(ctx context.Context, result gotato.ToolResult) (gotato.ToolResult, error) { if result.Executed { … } }
   ```
+
+- **A Run that fails during a tool batch still answers every tool call.** A Run could fail after its assistant message was committed with tool calls but before every result was: `MaxToolCalls` reached in preflight, a tool result over `MaxToolResultBytes`, a failing `PreToolUse` or `PostToolUse` extension, or a failing observer. Those calls stayed without a result, and every provider refuses a request like that, so no later Run of the Session could succeed. The failed Run now commits a closing result for each open call, `failed`, or `cancelled` when the Run was cancelled, with a `SafeError` that starts with the error code, and emits `tool_result_committed` for it. These closing results do not count against the Message and transcript limits, since the Run may be ending on one of them.
+- **An aborted Run starts no more tools.** In a sequential batch, the tools after the one running at `Abort` were still started with the cancelled context, so a tool that ignored its context carried out its side effect after the Run was stopped. They are now settled as `cancelled` with `Executed` false, and never started. Each of them, and each tool cancelled while running, now gets its `tool_execution_end` Event.
+- **A tool that was running at cancellation is recorded as executed.** Its result was `cancelled` with `Executed` false, even when the tool had already finished, or had started and could have done its work. A tool whose executor started now keeps `Executed` true, and a result that had already arrived keeps its content. `Executed` false now means only that the executor never ran: the call was blocked, rejected, or never started.
 
 ### Providers
 
