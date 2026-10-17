@@ -97,12 +97,6 @@ type ToolUse struct {
 	// Effect is the called tool's ToolSpec.Effect, so a PreToolUse extension
 	// can gate the call by impact.
 	Effect ToolEffect `json:"effect,omitempty"`
-	// Executed and Result are reserved. The Core Loop does not assign them, so
-	// a Tool or PreToolUse extension always sees Executed=false and Result=nil.
-	// They are kept for a future PostToolUse view; removing them changes the
-	// JSON shape and is tracked in TODO.md.
-	Executed bool        `json:"executed"`
-	Result   *ToolResult `json:"result,omitempty"`
 }
 
 type ToolProgress func(string)

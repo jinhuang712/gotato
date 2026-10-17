@@ -152,23 +152,16 @@ func TestSessionFixture(t *testing.T) {
 
 func TestFakeToolUsesAreIsolated(t *testing.T) {
 	tool := testkit.NewFakeTool("fake", "result")
-	use := gotato.ToolUse{
-		ArgumentsJSON: []byte(`{"x":1}`),
-		Result:        &gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "r"}}},
-	}
+	use := gotato.ToolUse{ArgumentsJSON: []byte(`{"x":1}`)}
 	if _, err := tool.Execute(context.Background(), use, nil); err != nil {
 		t.Fatal(err)
 	}
 	uses := tool.Uses()
 	uses[0].ArgumentsJSON[0] = 'X'
-	uses[0].Result.Content[0].Text = "mutated"
 
 	again := tool.Uses()
 	if string(again[0].ArgumentsJSON) != `{"x":1}` {
 		t.Fatalf("arguments mutation reached the recording: %s", again[0].ArgumentsJSON)
-	}
-	if again[0].Result == nil || again[0].Result.Content[0].Text != "r" {
-		t.Fatalf("result mutation reached the recording: %+v", again[0].Result)
 	}
 }
 

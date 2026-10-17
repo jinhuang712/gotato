@@ -1,6 +1,7 @@
 package gotato
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -12,6 +13,24 @@ func TestRuntimeErrorMatchesByCode(t *testing.T) {
 	}
 	if errors.Is(ErrorOf(ErrInvalidState, "x"), base) {
 		t.Fatal("errors.Is matched a different code")
+	}
+}
+
+// A ToolUse describes a call before it runs, so it carries no outcome. The
+// outcome is the ToolResult that a PostToolUse extension receives.
+func TestToolUseCarriesNoOutcome(t *testing.T) {
+	encoded, err := json.Marshal(ToolUse{CallID: "call-1", QualifiedID: "demo.echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"executed", "result"} {
+		if _, ok := fields[key]; ok {
+			t.Errorf("ToolUse JSON has %q: %s", key, encoded)
+		}
 	}
 }
 

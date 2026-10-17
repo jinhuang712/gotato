@@ -4,7 +4,7 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`.
+Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. Three defects from [TODO.md](TODO.md) are fixed too, and two of them are breaking: the `context_built` payload, and `ToolUse`.
 
 ### Names
 
@@ -48,6 +48,15 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
   before  {"strategy":"full_history","source_messages":"3","selected_messages":"3","dropped_messages":"0","messages":3,…}
   after   {"strategy":"full_history","source_messages":3,"selected_messages":3,"messages":3,…,
            "metadata":{"strategy":"full_history","source_messages":"3","selected_messages":"3","dropped_messages":"0"}}
+  ```
+
+- **`ToolUse` no longer has `Executed` or `Result`.** A `ToolUse` reaches a Tool and a `PreToolUse` extension before the call runs, so the two fields were never set: they were always `false` and `nil`. The outcome of a call is the `ToolResult` that a `PostToolUse` extension receives, with its `Executed` and its content. **Breaking:** code that names the fields no longer compiles, and `ToolUse` JSON has no `executed`. Read the `ToolResult` instead.
+
+  ```go
+  // before: always false, because the call has not run yet
+  func (a audit) Before(ctx context.Context, use gotato.ToolUse) (gotato.PreToolDecision, error) { if use.Executed { … } }
+  // after: the outcome arrives in PostToolUse
+  func (a audit) After(ctx context.Context, result gotato.ToolResult) (gotato.ToolResult, error) { if result.Executed { … } }
   ```
 
 ### Providers
