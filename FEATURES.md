@@ -731,6 +731,7 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 | `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or saved it, with the message count and the store's time in `elapsed_ms`; streamed, never recorded in the Record |
 
 - Every Event carries its Session's ID as `session_id`. An Event of a Run also carries its Run, its Turn, a sequence number and a timestamp.
+- A Session's Record keeps its protected Events. Coalescable ones, such as `message_update`, reach live streams and `EventObserver`s but are not kept, because the reply they make up is in its Message.
 - The payload keys of each kind are documented with the kind.
 - `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
 - The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.

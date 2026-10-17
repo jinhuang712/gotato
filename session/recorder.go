@@ -11,6 +11,10 @@ import (
 // Record: Run records, usage, and the Event stream itself. Install it with
 // gotato.WithExtension(session.NewRecorder(r)) next to gotato.WithTranscript(r).
 //
+// It keeps protected Events only. Coalescable ones, such as the text deltas
+// of message_update, reach live streams but are not kept: the reply they
+// make up is in its Message.
+//
 // It is advisory: a Recorder failure never settles a Run.
 type Recorder struct {
 	session *Record
@@ -36,7 +40,9 @@ func (r *Recorder) Advisory() bool { return true }
 // Recorder belongs to one live Session, and sharing it across Sessions is not
 // supported.
 func (r *Recorder) Observe(_ context.Context, event gotato.Event) error {
-	r.session.RecordEvent(event)
+	if event.Class != gotato.EventCoalescable {
+		r.session.RecordEvent(event)
+	}
 	switch event.Kind {
 	case gotato.EventRunStart:
 		r.pending[event.RunID] = &runProgress{}

@@ -3,8 +3,11 @@
 //
 // A Record holds the Session's identity, the committed Messages, per-Run
 // records, usage, a bounded window of runtime Events, compaction history, and
-// free-form application metadata. It implements gotato.Transcript, so a live
-// gotato.Session commits to it directly and takes its ID:
+// free-form application metadata. Once it is stored, every change to it is
+// also an Entry of its log: facts, which rebuild the Session, and log
+// Entries, which record what happened (see Entry). It implements
+// gotato.Transcript, so a live gotato.Session commits to it directly and
+// takes its ID:
 //
 //	r := session.New()
 //	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r), gotato.WithExtension(session.NewRecorder(r)))
@@ -96,6 +99,18 @@ type Record struct {
 	metadata    map[string]string
 	eventLimit  int
 	now         func() time.Time
+
+	// parentSeq is the parent's head when this Record was forked from it.
+	parentSeq uint64
+	// head is the Seq of the last Entry the store holds. logging turns on
+	// once the Record is stored; from then on every change queues a pending
+	// Entry, and the Events it retains wait in pendingEvents.
+	head          uint64
+	logging       bool
+	pending       []pendingEntry
+	pendingEvents []gotato.Event
+	// instance names the Instance whose writes this Record's Entries are.
+	instance string
 }
 
 // Option configures New.
@@ -118,6 +133,12 @@ func WithEventLimit(limit int) Option {
 // WithMetadata sets initial application metadata.
 func WithMetadata(metadata map[string]string) Option {
 	return func(s *Record) { s.metadata = maps.Clone(metadata) }
+}
+
+// WithMessages sets the Messages a new Record starts with, as history that
+// its first Checkpoint holds rather than Messages committed one by one.
+func WithMessages(messages ...gotato.Message) Option {
+	return func(s *Record) { s.messages = cloneMessages(messages) }
 }
 
 // WithClock overrides the clock (tests).
@@ -242,19 +263,11 @@ func (s *Record) Len() int {
 func (s *Record) Append(message gotato.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.messages = append(s.messages, message.Clone())
+	message = message.Clone()
+	s.messages = append(s.messages, message)
 	s.touch()
+	s.queue(EntryMessage, LayerFact, message)
 	return nil
-}
-
-// ReplaceMessages swaps the whole committed history. It exists for state
-// operations such as compaction and must not run while a Run is using this
-// Record.
-func (s *Record) ReplaceMessages(messages []gotato.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.messages = cloneMessages(messages)
-	s.touch()
 }
 
 // Runs returns the Run records.
@@ -268,33 +281,45 @@ func (s *Record) Runs() []Run {
 func (s *Record) RecordRunStart(runID gotato.RunID, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.runs = append(s.runs, Run{RunID: runID, Status: gotato.RunRunning, StartedAt: at.UTC()})
+	run := Run{RunID: runID, Status: gotato.RunRunning, StartedAt: at.UTC()}
+	s.runs = append(s.runs, run)
 	s.touch()
+	s.queue(EntryRunStart, LayerLog, run)
 }
 
 // RecordRunEnd finalizes the matching Run record and aggregates usage.
 func (s *Record) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errText, stopReason string, turns, toolCalls uint32, usage gotato.Usage, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	run := Run{RunID: runID, Status: status, Error: errText, StopReason: stopReason, EndedAt: at.UTC(), Turns: turns, ToolCalls: toolCalls, Usage: usage}
+	run = s.endRun(run)
+	s.touch()
+	s.queue(EntryRunEnd, LayerLog, run)
+}
+
+// endRun finalizes the Run record with run's RunID, or adds run when there is
+// none, adds its usage to the Record's, and returns the final Run. The caller
+// holds the lock.
+func (s *Record) endRun(run Run) Run {
+	found := false
 	for i := len(s.runs) - 1; i >= 0; i-- {
-		if s.runs[i].RunID != runID {
+		if s.runs[i].RunID != run.RunID {
 			continue
 		}
-		s.runs[i].Status = status
-		s.runs[i].Error = errText
-		s.runs[i].StopReason = stopReason
-		s.runs[i].EndedAt = at.UTC()
-		s.runs[i].Turns = turns
-		s.runs[i].ToolCalls = toolCalls
-		s.runs[i].Usage = usage
+		run.StartedAt = s.runs[i].StartedAt
+		s.runs[i] = run
+		found = true
 		break
 	}
-	s.usage.InputTokens += usage.InputTokens
-	s.usage.OutputTokens += usage.OutputTokens
-	s.usage.TotalTokens += usage.TotalTokens
-	s.usage.CacheReadTokens += usage.CacheReadTokens
-	s.usage.CacheWriteTokens += usage.CacheWriteTokens
-	s.touch()
+	if !found {
+		s.runs = append(s.runs, run)
+	}
+	s.usage.InputTokens += run.Usage.InputTokens
+	s.usage.OutputTokens += run.Usage.OutputTokens
+	s.usage.TotalTokens += run.Usage.TotalTokens
+	s.usage.CacheReadTokens += run.Usage.CacheReadTokens
+	s.usage.CacheWriteTokens += run.Usage.CacheWriteTokens
+	return run
 }
 
 // Usage returns the aggregated usage across recorded Runs.
@@ -321,6 +346,18 @@ func (s *Record) RecordEvent(event gotato.Event) {
 		return
 	}
 	event = cloneEvent(event)
+	s.retain(event)
+	if s.logging {
+		s.pendingEvents = append(s.pendingEvents, event)
+	}
+	s.touch()
+}
+
+// retain keeps one Event in the bounded window. The caller holds the lock.
+func (s *Record) retain(event gotato.Event) {
+	if s.eventLimit < 0 {
+		return
+	}
 	if len(s.events) < s.eventLimit {
 		s.events = append(s.events, event)
 	} else {
@@ -332,7 +369,6 @@ func (s *Record) RecordEvent(event gotato.Event) {
 		s.events[s.eventHead] = event
 		s.eventHead = (s.eventHead + 1) % s.eventLimit
 	}
-	s.touch()
 }
 
 // retainedEvents returns the retained Events in insertion order. When the ring
@@ -355,14 +391,6 @@ func (s *Record) Compactions() []Compaction {
 	return slices.Clone(s.compactions)
 }
 
-// RecordCompaction appends a compaction record.
-func (s *Record) RecordCompaction(record Compaction) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.compactions = append(s.compactions, record)
-	s.touch()
-}
-
 // Metadata returns a copy of the application metadata.
 func (s *Record) Metadata() map[string]string {
 	s.mu.RLock()
@@ -378,30 +406,38 @@ func (s *Record) Get(key string) (string, bool) {
 	return value, ok
 }
 
-// Set writes one metadata value. An empty value deletes the key.
+// Set writes one metadata value. An empty value deletes the key. Setting the
+// value a key already has changes nothing, so it adds nothing to the log.
 func (s *Record) Set(key, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if current, ok := s.metadata[key]; current == value && (ok || value == "") {
+		return
+	}
 	if value == "" {
 		delete(s.metadata, key)
 	} else {
 		s.metadata[key] = value
 	}
 	s.touch()
+	s.queue(EntryMetadata, LayerFact, MetadataChange{Key: key, Value: value})
 }
 
 func (s *Record) touch() { s.updatedAt = s.now().UTC() }
 
 // Fork creates the Record of a new Session from the current state of parent.
-// The fork has its own ID, records the parent ID, copies Messages, Usage,
-// Compactions, and Metadata, and starts with empty Run and Event records. It
-// is a state operation: no relationship between Sessions is implied.
+// The fork has its own ID, records the parent ID and the point of the
+// parent's log it branches at, copies Messages, Usage, Compactions, and
+// Metadata, and starts with empty Run and Event records. It is a state
+// operation: no relationship between Sessions is implied.
 func Fork(parent *Record, options ...Option) *Record {
 	doc := parent.Snapshot()
+	parentSeq := parent.Head()
 	child := New(options...)
 	child.mu.Lock()
 	defer child.mu.Unlock()
 	child.parentID = doc.ID
+	child.parentSeq = parentSeq
 	child.messages = doc.Messages
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions

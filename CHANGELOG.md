@@ -65,6 +65,19 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
 - **A cancelled Run in the Runner keeps its result.** `CancelRun`, `CancelSession` and `Drain` cancelled the context the live Session's `Prompt` waited on, so `Prompt` returned before the Run settled, and every cancelled Run came back with an empty `run_id`, no Turns and no usage, over HTTP, gRPC and the CLI too. Once the live Session is built, the Runner now stops a Run only through `Abort`, and the result carries the Run's ID, usage and metrics, as the Session's Run record does.
 - **A reply cut off mid-stream is kept.** When a stream breaks after the model sent some text (a provider or network error, a deadline, or an abort), the text received so far is committed as an assistant Message with the new `StopCutOff` (`"cut_off"`), followed by `message_end`, and the Run settles as before. Reasoning and Tool calls that arrived before the cut are not kept. `ForModel` leaves a cut-off reply out, so the model never sees it again, and `Continue` asks the model afresh from the Message before it. Before, the text was dropped. Code that reads a Transcript sees the new stop reason.
 
+- **A Record keeps its changes as a log of Entries.** Once a Record is stored, every change to it is also a `session.Entry`: a fact, which rebuilds the Session (a `Checkpoint`, a Message, a metadata change), or a log Entry, which records what happened (Runs, usage, Events). `session.FromEntries` rebuilds a Record from a Checkpoint and the Entries after it, and `WithMessages` starts a Record with history its first Checkpoint holds. A Record that is never stored keeps no Entries. The stores still save a whole Record; appending comes with the store contract.
+- **Compaction appends a Checkpoint.** **Breaking:** `Record.ReplaceMessages` and `Record.RecordCompaction` are replaced by `Record.Checkpoint(messages, compaction)`, which does both and adds one Checkpoint to the log.
+
+  ```go
+  // before
+  r.ReplaceMessages(kept)
+  r.RecordCompaction(c)
+  // after
+  r.Checkpoint(kept, &c)
+  ```
+- **A Record no longer keeps `message_update` Events.** The Recorder keeps protected Events only. The text deltas still reach live streams and `EventObserver`s, and the reply they make up is in its Message. **Breaking:** `GET /v1/sessions/{id}/events`, the gRPC events call and `gotato events` no longer list `message_update`.
+- **`Record.Set` with an unchanged value changes nothing.** It no longer moves `UpdatedAt`.
+
 ### Providers
 
 - **A Responses tool call keeps the provider's item ID out of its call ID.** The Responses adapter packed the provider's item ID into `ToolCall.ID` as `call_…|fc_…`, so a provider-private ID was stored in the Session and reached `Event.ToolCallID`. `ToolCall` now has `Signature`, an opaque provider artifact that the adapter sets and reads back on replay, like `ContentPart.Signature`. `ToolCall.ID` is the call ID alone. A Session saved before still replays: the adapter reads a packed call ID as it did.

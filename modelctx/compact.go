@@ -162,9 +162,10 @@ type Result struct {
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
 }
 
-// Compact permanently replaces the Messages before the last opts.Keep with
-// one summary Message, records a session.Compaction, and records a
-// session_compacted Event in the Session. It must not run while a Run is
+// Compact replaces the Messages before the last opts.Keep with one summary
+// Message, records a session.Compaction, and records a session_compacted
+// Event in the Session. It appends a Checkpoint (session.Record.Checkpoint):
+// the replaced Messages stay in the store, and a load starts after them. It must not run while a Run is
 // using the Session (AutoCompact runs it at the sanctioned point).
 //
 // A cut is chosen at a user Message so a tool call is never separated from its
@@ -219,8 +220,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		BytesBefore:      len(before),
 		BytesAfter:       len(after),
 	}
-	s.ReplaceMessages(replaced)
-	s.RecordCompaction(record)
+	s.Checkpoint(replaced, &record)
 	s.RecordEvent(gotato.Event{
 		SessionID: gotato.SessionID(s.ID()),
 		Kind:      gotato.EventSessionCompacted,
