@@ -87,7 +87,8 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 		return ModelContext{
 			SystemInstructions: "override",
 			Messages:           snapshot.Messages[len(snapshot.Messages)-1:],
-			Metadata:           map[string]string{"strategy": "last_only", "dropped_messages": strconv.Itoa(len(snapshot.Messages) - 1)},
+			// A builder key that names a count must not replace the count.
+			Metadata: map[string]string{"strategy": "last_only", "source_messages": "99", "dropped_messages": strconv.Itoa(len(snapshot.Messages) - 1)},
 		}, nil
 	})
 	transcript := &recordingTranscript{messages: []Message{UserMessage("old"), AssistantMessage("older answer")}}
@@ -128,8 +129,12 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 	if built == nil {
 		t.Fatal("no context_built event")
 	}
-	if built.Payload["strategy"] != "last_only" || built.Payload["messages"] != 1 || built.Payload["source_messages"] != 3 {
+	if built.Payload["strategy"] != "last_only" || built.Payload["messages"] != 1 || built.Payload["source_messages"] != 3 || built.Payload["selected_messages"] != 1 {
 		t.Fatalf("context_built payload = %v", built.Payload)
+	}
+	metadata, _ := built.Payload["metadata"].(map[string]any)
+	if metadata["source_messages"] != "99" || metadata["dropped_messages"] != "2" || metadata["strategy"] != "last_only" {
+		t.Fatalf("context_built metadata = %v", built.Payload["metadata"])
 	}
 }
 

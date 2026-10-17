@@ -127,7 +127,7 @@ gotato events --session <id> [--kind KIND] [--json]
 Default output is JSON Lines, one runtime `Event` per line, in production order:
 
 ```json
-{"session_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,…},"timestamp":"…"}
+{"session_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,"selected_messages":1,…,"metadata":{…}},"timestamp":"…"}
 ```
 
 `--json` prints one array instead. Event payload keys per kind are documented in `events.go` of the root package.

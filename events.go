@@ -53,8 +53,8 @@ const (
 //	turn_start              (none)
 //	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,
 //	                        cache_read_tokens?,cache_write_tokens?,tool_results?}
-//	context_built           messages, source_messages, prefix_hash, prefix_messages, system_bytes, tools,
-//	                        strategy, selected_messages, dropped_messages (+ builder metadata)
+//	context_built           strategy, messages, source_messages, selected_messages, prefix_hash, prefix_messages,
+//	                        system_bytes, tools, metadata?{the ContextBuilder's Metadata, as strings}
 //	message_start           role, source? (steer|follow_up)
 //	message_update          text
 //	message_end             role?, tool_calls?

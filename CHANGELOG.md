@@ -42,6 +42,13 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
 
 - **An Agent can cap the Effect of its tools.** `gotato.WithMaxEffect(effect)` and `service.Agent.MaxEffect` name the highest Effect a tool may have. A tool above the cap is never shown to the model, including the tools of a ToolSet activated later, and a call to it fails as a call to an unknown tool. A tool that declares no Effect counts as destructive, so any lower cap hides it. A Session cannot switch on a hidden tool: `Runner.Tools` does not list it, and `Runner.SetToolActive` reports it as unknown. There is no cap by default, so an Agent that names none behaves as before. An unknown Effect fails `NewSession` and `service.New`.
 - **The tool that activates a ToolSet declares `read`.** It changes only which tools the model sees, so every cap keeps it. Its `ToolSpec`, and the `ToolUse` a `PreToolUse` extension gets for it, now carry `EffectRead` instead of no Effect.
+- **`context_built` counts are numbers, and the ContextBuilder's metadata has its own key.** The Session merged the builder's `Metadata` into the payload under the same keys, so `FullHistoryContext`'s `"source_messages": "3"` replaced the Session's count, and `selected_messages` and `dropped_messages` always arrived as strings. The payload now has the shape of the `context inspect` report: `strategy`, `messages`, `source_messages`, `selected_messages`, `prefix_hash`, `prefix_messages`, `system_bytes` and `tools` are the Session's own, each count a number, and the builder's `Metadata` sits under `metadata`, as its strings. The same payload reaches HTTP, gRPC (`payload_json`) and `gotato events`. **Breaking:** read `dropped_messages`, and any key your own builder sets, from `metadata`.
+
+  ```text
+  before  {"strategy":"full_history","source_messages":"3","selected_messages":"3","dropped_messages":"0","messages":3,…}
+  after   {"strategy":"full_history","source_messages":3,"selected_messages":3,"messages":3,…,
+           "metadata":{"strategy":"full_history","source_messages":"3","selected_messages":"3","dropped_messages":"0"}}
+  ```
 
 ### Contracts
 

@@ -91,7 +91,7 @@ func TestContextCheckReportsAMismatch(t *testing.T) {
 }
 
 func TestNumberReadsPayloadValues(t *testing.T) {
-	for _, value := range []any{3, int64(3), uint32(3), uint64(3), float64(3), "3"} {
+	for _, value := range []any{3, int64(3), uint32(3), uint64(3), float64(3)} {
 		if got := number(value); got != 3 {
 			t.Errorf("number(%#v) = %d", value, got)
 		}

@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -640,14 +639,9 @@ func elapsed(event gotato.Event) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond))
 }
 
-// number reads a numeric Event payload value. A context_built payload may
-// carry a count as a string, because the ContextBuilder's metadata is merged
-// into it under the same keys.
+// number reads a numeric Event payload value, in Go or as decoded from JSON.
 func number(value any) uint64 {
 	switch typed := value.(type) {
-	case string:
-		n, _ := strconv.ParseUint(typed, 10, 64)
-		return n
 	case int:
 		return uint64(max(typed, 0))
 	case int64:

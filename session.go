@@ -813,15 +813,23 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return fail(assembleErr)
 		}
 		contextPayload := map[string]any{
-			"messages":        len(request.Messages),
-			"source_messages": len(snapshot.Messages),
-			"prefix_hash":     prefix,
-			"prefix_messages": max(len(request.Messages)-1, 0),
-			"system_bytes":    len(request.SystemInstructions),
-			"tools":           len(request.Tools),
+			"strategy":          built.Metadata["strategy"],
+			"messages":          len(request.Messages),
+			"source_messages":   len(snapshot.Messages),
+			"selected_messages": len(built.Messages),
+			"prefix_hash":       prefix,
+			"prefix_messages":   max(len(request.Messages)-1, 0),
+			"system_bytes":      len(request.SystemInstructions),
+			"tools":             len(request.Tools),
 		}
-		for key, value := range built.Metadata {
-			contextPayload[key] = value
+		// The builder's Metadata keeps its own key, so it can never replace
+		// a count above with its string form.
+		if len(built.Metadata) > 0 {
+			metadata := make(map[string]any, len(built.Metadata))
+			for key, value := range built.Metadata {
+				metadata[key] = value
+			}
+			contextPayload["metadata"] = metadata
 		}
 		if err := a.emit(runID, &sequence, EventContextBuilt, EventProtected, turn, "", "", contextPayload); err != nil {
 			return fail(err)
