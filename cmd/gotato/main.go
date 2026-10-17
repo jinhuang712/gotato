@@ -28,6 +28,7 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -62,11 +63,25 @@ type cli struct {
 	quiet    bool
 	noColor  bool
 	timeout  time.Duration
+
+	// runners are the Runners this invocation built. They are closed when it
+	// ends, so the next process takes their Sessions over at once.
+	runners []*service.Runner
+}
+
+// closeRunners ends the Liveness rows of the Runners this invocation built.
+func (c *cli) closeRunners() {
+	for _, runner := range c.runners {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = runner.Close(ctx)
+		cancel()
+	}
 }
 
 // Main runs the CLI and returns its exit code.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	c := &cli{stdin: stdin, stdout: stdout, stderr: stderr, getenv: getenv}
+	defer c.closeRunners()
 	if getenv == nil {
 		c.getenv = func(string) string { return "" }
 	}

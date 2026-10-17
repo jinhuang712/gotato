@@ -4,7 +4,7 @@ Open defects and design decisions, verified against the code. Planned capabiliti
 
 ## Defects
 
-- [ ] **Two instances can run one Session at once.** The Session lock is local to one process (`withSessionLock`). A stale copy can no longer overwrite a newer Record: a Claim is an Entry, so a writer that lost it fails with `conflict` at its next write. But both instances may already have called the model by then, and the one that writes second loses its Turn. A second instance must stop before it calls the model: a Claim valid while its Instance's Liveness row is alive, and a wait for a running Session (ROADMAP Phase 5; GOALS.md G-G08, FEATURES.md G-F27).
+None open.
 
 ## Decisions
 

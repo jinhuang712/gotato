@@ -33,6 +33,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -438,6 +439,13 @@ func failureOf(err error) errorResponse {
 }
 
 func writeFailure(w http.ResponseWriter, err error) {
+	// A Session busy on another instance says when to retry.
+	var runtimeErr *gotato.RuntimeError
+	if errors.As(err, &runtimeErr) {
+		if ms, convErr := strconv.ParseInt(runtimeErr.Details["retry_after_ms"], 10, 64); convErr == nil {
+			w.Header().Set("Retry-After", strconv.FormatInt((ms+999)/1000, 10))
+		}
+	}
 	writeJSON(w, StatusFor(err), failureOf(err))
 }
 

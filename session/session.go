@@ -120,6 +120,7 @@ type Record struct {
 	// the Runs of a Record loaded from its facts alone, whose Run records
 	// are in the log and were not read.
 	running  gotato.RunID
+	busy     bool
 	baseRuns int
 	// started and openParts hold, while a log is read, the Tool calls that
 	// started and the replies that were streaming, for repair.

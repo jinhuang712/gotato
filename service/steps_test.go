@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/service"
@@ -64,12 +65,23 @@ func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 	}
 }
 
-// crashingStore fails every write once a write has held a tools_started
-// Entry, as the instance's death right after a tool starts would.
+// crashingStore fails every write, and every renewal of the instance's
+// Liveness row, once a write has held a tools_started Entry, as the
+// instance's death right after a tool starts would.
 type crashingStore struct {
 	session.Store
 	mu      sync.Mutex
 	crashed bool
+}
+
+func (s *crashingStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+	s.mu.Lock()
+	crashed := s.crashed
+	s.mu.Unlock()
+	if crashed {
+		return context.Canceled
+	}
+	return s.Store.Beat(ctx, row, ttl)
 }
 
 func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
@@ -92,7 +104,9 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	agent := func(model gotato.Model) service.Agent {
 		return service.Agent{Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")}}
 	}
-	crashing, err := service.New(service.Config{Store: &crashingStore{Store: backing}, Agents: []service.Agent{
+	// A short TTL lets the crashed instance's row expire quickly.
+	liveness := service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}
+	crashing, err := service.New(service.Config{Store: &crashingStore{Store: backing}, Liveness: liveness, Agents: []service.Agent{
 		agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)}))),
 	}})
 	if err != nil {
@@ -109,7 +123,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 
 	// Another instance takes the Session over.
 	model := testkit.NewFakeModel(testkit.Text("sorry, let me retry"))
-	next, err := service.New(service.Config{Store: backing, Agents: []service.Agent{agent(model)}})
+	next, err := service.New(service.Config{Store: backing, Liveness: liveness, Agents: []service.Agent{agent(model)}})
 	if err != nil {
 		t.Fatal(err)
 	}

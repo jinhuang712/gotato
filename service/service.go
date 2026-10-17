@@ -113,6 +113,9 @@ type Config struct {
 	// Instance names this Runner in the Claims it writes to the store. Empty
 	// generates a new name, so each start is a new Instance.
 	Instance string
+	// Liveness sets this Runner's Liveness row, and how long a Run waits
+	// for a Session that runs on another Instance.
+	Liveness Liveness
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -139,6 +142,8 @@ var ErrNotPersisted = errors.New("service: session was not persisted")
 type Runner struct {
 	store     session.Store
 	instance  string
+	liveness  Liveness
+	beat      heartbeat
 	agents    map[string]Agent
 	order     []string
 	admission Admission
@@ -230,6 +235,7 @@ func New(cfg Config) (*Runner, error) {
 	r := &Runner{
 		store:     cfg.Store,
 		instance:  strings.TrimSpace(cfg.Instance),
+		liveness:  cfg.Liveness.withDefaults(),
 		agents:    map[string]Agent{},
 		admission: cfg.Admission,
 		locks:     newSessionLocks(),
@@ -322,15 +328,6 @@ func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[s
 		return nil, err
 	}
 	return s, nil
-}
-
-// create writes a new Session's Record, held by this Runner's Instance.
-func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer, error) {
-	writer, err := session.Create(ctx, r.store, s, r.instance)
-	if errors.Is(err, session.ErrExists) {
-		return nil, ErrSessionExists
-	}
-	return writer, err
 }
 
 // newSession builds a Session bound to an Agent, without saving it.
@@ -481,7 +478,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 				s, err = session.Open(runCtx, r.store, sessionID)
 				loadTime = time.Since(began)
 			} else {
-				writer, err = session.OpenWriter(runCtx, r.store, sessionID, r.instance)
+				writer, err = r.open(runCtx, sessionID)
 				if writer != nil {
 					loadTime = writer.Stats().Load
 					s = writer.Record()
@@ -510,8 +507,17 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			}
 			r.emitRunnerEvent(runCtx, observers, sink, storeEvent(gotato.EventSessionLoaded, sessionID, s.Len(), session.WriteStats{Load: loadTime}, nil))
 		}
+		// A Run that cannot start still releases the Session it opened.
+		abandon := func(err error) error {
+			if writer != nil {
+				releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+				_ = writer.Release(releaseCtx)
+				cancelRelease()
+			}
+			return err
+		}
 		if !ok {
-			return ErrUnknownAgent
+			return abandon(ErrUnknownAgent)
 		}
 		s.Set(MetaAgent, spec.Name)
 		if spec.ModelName != "" {
@@ -529,7 +535,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		}
 		live, auto, err := r.buildSession(spec, s, writer, sink, tracker, InspectOptions{})
 		if err != nil {
-			return err
+			return abandon(err)
 		}
 		started = true
 		// From here a stop aborts the Run inside the live Session, so Prompt
@@ -551,7 +557,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			// bound the write so a stalled Store cannot pin the Run (and Drain)
 			// forever.
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-			saveErr := writer.Flush(saveCtx)
+			saveErr := writer.Release(saveCtx)
 			cancelSave()
 			event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), writer.Stats().Since(saved), saveErr)
 			tracker.stamp(&event)
@@ -867,7 +873,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance)
+		writer, err := r.open(ctx, sessionID)
 		if err != nil {
 			return err
 		}
@@ -875,6 +881,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		agent, _ := s.Get(MetaAgent)
 		spec, ok := r.Agent(agent)
 		if !ok {
+			_ = writer.Release(ctx)
 			return ErrUnknownAgent
 		}
 		for _, tool := range (&sessionTools{spec: spec}).Tools() {
@@ -885,6 +892,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			}
 		}
 		if found == nil {
+			_ = writer.Release(ctx)
 			return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown tool "+toolID)
 		}
 		if active {
@@ -892,7 +900,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		} else {
 			s.Set(MetaToolPrefix+toolID, "inactive")
 		}
-		return writer.Flush(ctx)
+		return writer.Release(ctx)
 	})
 	if err != nil {
 		return ToolEntry{}, err
@@ -904,15 +912,16 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance)
+		writer, err := r.open(ctx, sessionID)
 		if err != nil {
 			return err
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts)
 		if err != nil {
+			_ = writer.Release(ctx)
 			return err
 		}
-		return writer.Flush(ctx)
+		return writer.Release(ctx)
 	})
 	if err != nil {
 		return modelctx.Result{}, err

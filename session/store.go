@@ -42,6 +42,9 @@ type Summary struct {
 	Seq uint64 `json:"seq,omitempty"`
 	// Running is the Run that started and has not ended, if any.
 	Running gotato.RunID `json:"running,omitempty"`
+	// Busy says the writer opened the Session and has not released it: a
+	// Run or a change is under way, also before its Run has started.
+	Busy bool `json:"busy,omitempty"`
 }
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
@@ -178,6 +181,7 @@ func (s *Record) summaryLocked() Summary {
 	summary := summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
 	summary.Seq = s.head
 	summary.Running = s.running
+	summary.Busy = s.busy
 	return summary
 }
 

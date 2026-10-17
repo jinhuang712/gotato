@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/service"
@@ -15,8 +16,9 @@ import (
 )
 
 // faultStore counts the writes made through it. Once crashAfter writes have
-// succeeded, every later write fails, as if the instance died there. When
-// record is set, it keeps the Transcript the store held after each write.
+// succeeded, every later write fails, and so does every renewal of the
+// instance's Liveness row, as if the instance died there. When record is set,
+// it keeps the Transcript the store held after each write.
 type faultStore struct {
 	session.Store
 	crashAfter int
@@ -52,6 +54,16 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	return nil
 }
 
+func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+	s.mu.Lock()
+	dead := s.crashAfter > 0 && s.writes >= s.crashAfter
+	s.mu.Unlock()
+	if dead {
+		return errCrashed
+	}
+	return s.Store.Beat(ctx, row, ttl)
+}
+
 func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
 	return s.write(ctx, id, func() error { return s.Store.Create(ctx, id, entries, summary) })
 }
@@ -62,12 +74,15 @@ func (s *faultStore) Append(ctx context.Context, id string, after uint64, entrie
 
 func taskRunner(t *testing.T, store session.Store, task testkit.Task, instance string) *service.Runner {
 	t.Helper()
-	runner, err := service.New(service.Config{Store: store, Instance: instance, Agents: []service.Agent{{
+	// A short TTL lets a dead instance's row expire quickly, so the next
+	// instance takes its Sessions over without a long wait.
+	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}, Agents: []service.Agent{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Limits: task.Limits,
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	return runner
 }
 

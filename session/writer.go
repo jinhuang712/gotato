@@ -25,10 +25,44 @@ import (
 type Writer struct {
 	store  Store
 	record *Record
+	guard  func() error
 
 	mu     sync.Mutex
 	failed error
 	stats  WriteStats
+}
+
+// WriterOption configures Create and OpenWriter.
+type WriterOption func(*writerConfig)
+
+type writerConfig struct {
+	guard  func() error
+	holder func(ctx context.Context, holder Claim, busy bool) error
+}
+
+// WithGuard runs guard before every write. When it fails, the write is not
+// made and the Writer stops: an Instance whose Liveness row may have expired
+// must not write, since another Instance may hold the Record by now.
+func WithGuard(guard func() error) WriterOption {
+	return func(c *writerConfig) { c.guard = guard }
+}
+
+// WithHolderCheck has OpenWriter ask check before it claims a Record that
+// another Instance holds, with that Claim and whether the holder is using the
+// Session (busy, or a Run not ended). When check fails, OpenWriter returns its
+// error and writes nothing.
+func WithHolderCheck(check func(ctx context.Context, holder Claim, busy bool) error) WriterOption {
+	return func(c *writerConfig) { c.holder = check }
+}
+
+func newWriterConfig(options []WriterOption) writerConfig {
+	var config writerConfig
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+	return config
 }
 
 // WriteStats counts a Writer's work with its store: the load that opened it,
@@ -45,7 +79,8 @@ type WriteStats struct {
 // Writer. The first write is a Checkpoint of r with the first Claim, so r's
 // Messages and metadata are its starting point. It fails with ErrExists when
 // the ID is taken.
-func Create(ctx context.Context, store Store, r *Record, instance string) (*Writer, error) {
+func Create(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
+	config := newWriterConfig(options)
 	if r.Head() > 0 {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidState, "session: the Record is stored already")
 	}
@@ -58,7 +93,12 @@ func Create(ctx context.Context, store Store, r *Record, instance string) (*Writ
 	if err != nil {
 		return nil, storeFailure(err)
 	}
-	w := &Writer{store: store, record: r}
+	w := &Writer{store: store, record: r, guard: config.guard}
+	if w.guard != nil {
+		if err := w.guard(); err != nil {
+			return nil, err
+		}
+	}
 	began := time.Now()
 	err = store.Create(ctx, r.ID(), entries, summary)
 	w.count(entries, time.Since(began), err)
@@ -70,11 +110,13 @@ func Create(ctx context.Context, store Store, r *Record, instance string) (*Writ
 }
 
 // OpenWriter loads a Record from its facts and returns a Writer for it, held
-// by instance. When the Record's last Claim names another Instance, it
-// claims the Record with the next Epoch, and a Run that started and never
-// ended is ended as interrupted. Both are written before OpenWriter returns,
-// so a writer that held the Record before can no longer write to it.
-func OpenWriter(ctx context.Context, store Store, id, instance string) (*Writer, error) {
+// by instance. When the Record's last Claim names another Instance, it asks
+// the holder check, if any, and then claims the Record with the next Epoch,
+// and a Run that started and never ended is ended as interrupted. Both are
+// written before OpenWriter returns, so a writer that held the Record before
+// can no longer write to it.
+func OpenWriter(ctx context.Context, store Store, id, instance string, options ...WriterOption) (*Writer, error) {
+	config := newWriterConfig(options)
 	began := time.Now()
 	loaded, err := store.Load(ctx, id)
 	loadTime := time.Since(began)
@@ -89,7 +131,19 @@ func OpenWriter(ctx context.Context, store Store, id, instance string) (*Writer,
 	r.instance = instance
 	r.logging = true
 	claimed := r.claim.Instance == instance
+	holder := r.claim
 	running := r.running
+	busy := r.busy || running != ""
+	r.mu.Unlock()
+	if !claimed && config.holder != nil {
+		if err := config.holder(ctx, holder, busy); err != nil {
+			return nil, err
+		}
+	}
+	// The Session is busy from this write on, so another Instance waits
+	// instead of claiming it before this writer's Run has started.
+	r.mu.Lock()
+	r.busy = true
 	r.mu.Unlock()
 	if !claimed {
 		r.claimFor(instance)
@@ -97,7 +151,7 @@ func OpenWriter(ctx context.Context, store Store, id, instance string) (*Writer,
 	if running != "" {
 		r.interruptRun(running)
 	}
-	w := &Writer{store: store, record: r}
+	w := &Writer{store: store, record: r, guard: config.guard}
 	w.stats.Load = loadTime
 	if err := w.Flush(ctx); err != nil {
 		return nil, err
@@ -145,6 +199,7 @@ func fromLoaded(loaded Loaded) (*Record, error) {
 	r.baseRuns = loaded.Summary.Runs
 	r.usage = loaded.Summary.Usage
 	r.running = loaded.Summary.Running
+	r.busy = loaded.Summary.Busy
 	r.logging = false
 	return r, nil
 }
@@ -200,6 +255,12 @@ func (w *Writer) Flush(ctx context.Context) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	if w.guard != nil {
+		if err := w.guard(); err != nil {
+			w.failed = err
+			return err
+		}
+	}
 	began := time.Now()
 	err = w.store.Append(ctx, w.record.ID(), entries[0].Seq-1, entries, summary)
 	w.count(entries, time.Since(began), err)
@@ -212,6 +273,18 @@ func (w *Writer) Flush(ctx context.Context) error {
 	}
 	w.record.stored(entries[len(entries)-1].Seq)
 	return nil
+}
+
+// Release writes everything queued, with a release Entry, so the Session is
+// no longer busy: another Instance may then claim it without waiting.
+func (w *Writer) Release(ctx context.Context) error {
+	w.record.mu.Lock()
+	if w.record.busy {
+		w.record.busy = false
+		w.record.queue(EntryRelease, LayerLog, w.record.claim)
+	}
+	w.record.mu.Unlock()
+	return w.Flush(ctx)
 }
 
 // Since returns the writes counted after before, a WriteStats taken earlier

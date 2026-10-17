@@ -89,3 +89,60 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// gatedModel holds its reply until its gate opens.
+type gatedModel struct {
+	gate, started chan struct{}
+}
+
+func (m gatedModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	close(m.started)
+	select {
+	case <-m.gate:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return hangingModel{}.Stream(ctx, request)
+}
+
+// A Run on a Session that runs on another instance waits, then answers 409
+// with Retry-After.
+func TestBusyOnAnotherInstanceAnswers409WithRetryAfter(t *testing.T) {
+	store := session.NewMemoryStore()
+	held := gatedModel{gate: make(chan struct{}), started: make(chan struct{})}
+	holder, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "slow", Model: held}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.New(service.Config{Store: store, Instance: "instance-b", Liveness: service.Liveness{Wait: 100 * time.Millisecond}, Agents: []service.Agent{{Name: "slow", Model: hangingModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		close(held.gate)
+		_ = holder.Close(context.Background())
+		_ = other.Close(context.Background())
+	})
+	ctx := context.Background()
+	s, err := holder.CreateSession(ctx, "slow", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, _ = holder.Run(runCtx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+	}()
+	<-held.started
+
+	server := httptest.NewServer(httpapi.New(other))
+	t.Cleanup(server.Close)
+	response, err := http.Post(server.URL+"/v1/sessions/"+s.ID()+"/runs", "application/json", strings.NewReader(`{"prompt":"meanwhile"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusConflict || response.Header.Get("Retry-After") == "" {
+		t.Fatalf("status = %d, Retry-After = %q; want 409 with Retry-After", response.StatusCode, response.Header.Get("Retry-After"))
+	}
+}

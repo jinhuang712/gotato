@@ -54,6 +54,9 @@ const (
 	// EntryReplyPart is a log Entry holding a ReplyPart: part of a reply
 	// that was streaming.
 	EntryReplyPart EntryKind = "reply_part"
+	// EntryRelease is a log Entry holding a Claim: its writer stopped using
+	// the Session, which is no longer busy.
+	EntryRelease EntryKind = "release"
 )
 
 // Entry is one line of a Record's log. Seq numbers a Record's Entries from 1,
@@ -329,6 +332,11 @@ func (s *Record) apply(entry Entry) error {
 	case EntryModelCall:
 		var call ModelCall
 		if err := decode(&call); err != nil {
+			return err
+		}
+	case EntryRelease:
+		var claim Claim
+		if err := decode(&claim); err != nil {
 			return err
 		}
 	case EntryReplyPart:

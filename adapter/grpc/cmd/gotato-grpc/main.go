@@ -132,6 +132,11 @@ func main() {
 		if err := runner.Drain(drainCtx); err != nil {
 			log.Printf("drain: %v", err)
 		}
+		// Ending the Liveness row lets another instance take this one's
+		// Sessions over at once.
+		if err := runner.Close(drainCtx); err != nil {
+			log.Printf("close: %v", err)
+		}
 		// Bound the graceful stop: a StreamRun blocked in Send against a
 		// client that stopped reading would otherwise block it forever.
 		stopped := make(chan struct{})

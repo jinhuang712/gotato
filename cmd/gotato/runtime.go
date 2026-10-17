@@ -96,6 +96,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.runners = append(c.runners, runner)
 	rt.runner = runner
 	return rt, nil
 }
