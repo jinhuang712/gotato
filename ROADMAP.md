@@ -14,7 +14,7 @@ Phase 1  Measure         the reference workload and the live run
 Phase 2  Effect cap      an Agent hides the tools above its highest Effect
 Phase 3  Names           the Agent, the live Session and its Record take their glossary names
          ── design discussion: how a Turn is saved, who writes, where messages go (answered) ──
-Phase 4  Durable Turns   the Record becomes an append-only log, and every append is fenced
+Phase 4  Durable steps   every step is appended as it happens, and every append is fenced
 Phase 5  One writer      any instance answers like the only one, with one writer at a time
 Phase 6  Warm Session    a Session stays in memory while in use, and takes Steer, Interrupt and Stop from any endpoint
 Phase 7  Structured      an Agent's final reply fits a JSON schema
@@ -25,7 +25,7 @@ Phase 9  Compatibility   CI flags a removed or changed exported identifier
 
 Why this order:
 
-- **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
+- **Measurement comes first,** so each later phase is measured against a baseline. Saving every step adds a write per step, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
 - **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
@@ -98,39 +98,44 @@ Runtime notices (FEATURES.md G-F29), and the names of the Events on a message's 
 
 Exit: the maintainer approves the three Decisions.
 
-## Phase 4 — Durable Turns
+## Phase 4 — Durable steps ✅
 
-- The Record becomes an append-only log ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16)). Each Turn is appended as it commits, with a sequence number the store assigns in the same write, so a crash loses at most the Turn in flight.
-- A compaction appends a Checkpoint, and a load starts from the last one.
-- Every append carries the writer's Epoch, and the store refuses a stale one. The store contract also carries the Claims and the Liveness rows that Phase 5 uses, so adapters change once.
-- A store conformance suite in `testkit`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
-- Fault injection: a crash at every step of the reference workload, and a client that disconnects mid-stream on HTTP and gRPC.
+Built, and ships in the next 0.1.x release.
 
-Exit:
-
-- G-G01 and G-G02 pass.
-- The memory and file stores pass the conformance suite. A test adapter that ignores the Epoch fails it, and so does one that lets two copies append the same sequence number.
-- A test compacts, appends, reloads and compares the Context with the one before the reload.
-- G-B05 and G-B07 show what appending every Turn costs, compared with Phase 1.
-
-## Phase 5 — One writer
-
-- One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)).
-- Any instance answers: it takes over an idle Session, and waits, up to a bound, for one that is running elsewhere.
-- The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
-- Drain in order, on SIGTERM or an endpoint: take no new Sessions, tell every live Session at once, let each finish, save and release, then close each stream with a reconnect code.
-- A stream resumes on any instance from its last position, with the Record's epoch.
-- Lifecycle Events: a Session activated, taken over, released or fenced.
-- The multi-instance harness: several instances behind a hashing proxy over one shared store, with requests sent to random instances, concurrent messages and random instance kills.
+- ✅ The Record becomes an append-only log of facts and log entries ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)). Every step is appended as it happens, at a position the store never gives twice, so a crash loses at most the step in flight. A reply cut off mid-stream is kept, and each reply records the model that answered it.
+- ✅ A compaction appends a Checkpoint, and a load reads the facts from the last one.
+- ✅ A Claim is an Entry, so a writer that lost its Claim always writes to a taken position, and the store refuses it. The store contract also carries the Liveness rows that Phase 5 uses, so adapters change once.
+- ✅ A store conformance suite in `testkit/storetest`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
+- ✅ Fault injection: a crash after every write of the reference workload, and a client that disconnects mid-stream on HTTP and gRPC.
 
 Exit:
 
-- G-G08 passes for every message an instance accepts.
-- With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
-- A stream cut at every Event of the reference workload resumes equal to an uncut one.
-- A drained instance commits its Runs and releases its Claims before it leaves.
-- A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
-- A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
+- ✅ G-G01 and G-G02 pass.
+- ✅ The memory and file stores pass the conformance suite. A test adapter that moves a stale write onto the head fails it, and so does one that lets two copies write one position.
+- ✅ A test compacts, appends, reloads and compares the Context with the one before the reload.
+- ✅ G-B05, G-B07 and G-B09 show what writing every step costs, compared with a Run that saved once.
+
+## Phase 5 — One writer 🚧
+
+The part that keeps two instances from running one Session is built, and ships in the next 0.1.x release. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
+
+- ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
+- ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
+- ⬜ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
+- 🚧 Drain in order, on SIGTERM or an endpoint: take no new Sessions, tell every live Session at once, let each finish, save and release, then close each stream with a reconnect code. Today `Runner.Close` ends the Liveness row after a drain, so another instance takes its Sessions over at once.
+- ⬜ A stream resumes on any instance from its last position, with the Record's epoch.
+- ⬜ Lifecycle Events: a Session activated, taken over, released or fenced.
+- 🚧 The multi-instance harness: several instances over one shared store, with requests sent to random instances, concurrent messages and an instance killed. A hashing proxy in front of them is still to build.
+- ⬜ Ended Liveness rows are cleaned up.
+
+Exit:
+
+- ✅ G-G08 passes for every message an instance accepts.
+- ⬜ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
+- ⬜ A stream cut at every Event of the reference workload resumes equal to an uncut one.
+- ⬜ A drained instance commits its Runs and releases its Claims before it leaves.
+- ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
+- ⬜ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 
 ## Phase 6 — Warm Session
 

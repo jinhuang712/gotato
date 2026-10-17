@@ -4,7 +4,7 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. Three defects from [TODO.md](TODO.md) are fixed too, and two of them are breaking: the `context_built` payload, and `ToolUse`. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
+Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the part of Phase 5 that keeps two instances from running one Session: the Effect cap, the names, every step of a Run written as it happens, and one writer per Session. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
 ### Names
 

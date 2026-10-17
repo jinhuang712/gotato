@@ -220,7 +220,7 @@ A Session behaves like a live unit while it is in use, and like a record while i
 
 | Option | For | Against |
 |---|---|---|
-| **A live unit kept warm, with the store as the truth** (chosen) | Holds a Session's queue, stream and status while it works. Survives the loss of any instance. The TTL only frees memory. | A write per Turn. Machinery to load and to let go. |
+| **A live unit kept warm, with the store as the truth** (chosen) | Holds a Session's queue, stream and status while it works. Survives the loss of any instance. The TTL only frees memory. | A write per step. Machinery to load and to let go. |
 | Nothing in memory: load and save around every Run (today's code) | The fewest moving parts. | The Session has no queue of its own, so a message that arrives mid-Run can only wait or be rejected. |
 | A long-lived unit in memory that owns its state | Fast, and natural for queues and streams. | Lost with its instance. Pins each conversation to one instance. |
 
@@ -232,15 +232,15 @@ A second instance must stop before it calls the model, and a writer that lost it
 
 | Option | For | Against |
 |---|---|---|
-| **A claim with an epoch, valid while its instance's liveness row is** (chosen) | Needs only conditional writes in your own store. Fences every append. One write ends a dead instance's claims. | A heartbeat write per instance. A takeover after a crash waits for one row to expire. |
+| **A claim with an epoch, valid while its instance's liveness row is** (chosen) | Needs only conditional writes in your own store. Fences every append. A dead instance's claims all end when its row expires. | A heartbeat write per instance. A takeover after a crash waits for one row to expire. |
 | A lease per Run | No liveness row. | Ownership flips between Runs, so a warm Session and a stream have no stable home. |
 | A membership protocol, such as gossip | Fast failure detection. | A second system inside Gotato, and no fence on the store without an epoch anyway. |
 | A placement service | Central control of placement. | A separate platform to run, which [PROPOSAL.md](PROPOSAL.md) rules out. |
 
-### Every append checks the epoch in the same write
+### Every append is conditional on its position, and a claim takes one
 
-- **Instead of:** avoiding conflicts with timeouts and timing.
-- **Why:** clocks drift and processes pause, so only a check inside the write itself stops a writer whose claim was taken.
+- **Instead of:** avoiding conflicts with timeouts and timing, or comparing an epoch beside each append.
+- **Why:** clocks drift and processes pause, so only a check inside the write itself stops a writer whose claim was taken. A claim is itself an entry, written at the position after the head its instance read, so a writer that lost its claim always writes to a position that is taken. One rule, write only to a free position, fences it, and every adapter maps that rule to an insert on a unique key.
 
 ### Coordination uses only the store's conditional writes
 
@@ -250,12 +250,12 @@ A second instance must stop before it calls the model, and a writer that lost it
 ### Liveness is one row per instance, timed by the store's clock
 
 - **Instead of:** a heartbeat per Session, or a comparison of the instances' own clocks.
-- **Why:** one write per instance per heartbeat, however many Sessions it holds, and one write ends every claim of a dead instance. The store's clock is the only one every instance shares.
+- **Why:** one write per instance per heartbeat, however many Sessions it holds, and when a dead instance's row expires, every claim it held ends at once. The store's clock is the only one every instance shares.
 
 ### A conflict is found before the model is called
 
 - **Instead of:** finding out after a Turn that it cannot be committed.
-- **Why:** a Turn costs money and seconds, so a second instance learns that the Session has a writer before it spends either.
+- **Why:** a Turn costs money and seconds, so a second instance learns that the Session has a writer before it spends either. A writer writes each model call before it makes it, and checks before each write that its own liveness row was renewed in time, so a writer that lost its claim stops there. One case is beyond any check: an instance paused for longer than its row lives may send one request when it wakes, before it notices. Its result can never be written.
 
 ### No Session is bound to an instance
 
@@ -265,7 +265,7 @@ A second instance must stop before it calls the model, and a writer that lost it
 ### Many instances behave like one, and the differences are written down
 
 - **Instead of:** promising more than one instance can, such as a message that always arrives.
-- **Why:** a single instance's behavior is the spec. The few places where many instances differ, such as losing the Turn in flight when its writer dies, are part of the contract and listed in [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-).
+- **Why:** a single instance's behavior is the spec. The few places where many instances differ, such as losing the step in flight when its writer dies, are part of the contract and listed in [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-).
 
 ### A refusal is a safety valve, not a balancer
 
@@ -295,13 +295,28 @@ A live Session is a goroutine running its Record, not a process or a sandbox kep
 
 ### The Record is an append-only log — 2026-10-16
 
-A save had to cost the size of a Turn, and a stale copy had to fail instead of overwriting a newer one.
+A save had to cost the size of what changed, and a stale copy had to fail instead of overwriting a newer one.
 
 | Option | For | Against |
 |---|---|---|
-| **Append only, with checkpoints for compaction** (chosen) | A save costs one Turn. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
+| **Append only, with checkpoints for compaction** (chosen) | A save costs one step. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
 | Rewrite the whole Record, with a version check | The simplest contract. | A save costs the whole Session, megabytes for long ones. |
 | Append, plus a rewrite for compaction | Compaction stays a replacement. | Two write paths, and the rewrite brings the cost back. |
+
+### The Record keeps every step, as facts and a log — 2026-10-17
+
+A crash should lose as little as it can, and a rebuild should read only what it needs.
+
+| Option | For | Against |
+|---|---|---|
+| **Every step, written as it happens, as facts and a log** (chosen) | A crash loses at most the step in flight: the last second of a reply, or the result of the tool that was running. A tool that started is known to have started. A rebuild reads only the facts. | A write for every step: eight for a short Run with one tool call. |
+| Every Turn, at its end | One write per Turn. | A crash loses the Turn in flight, and with it the record that a tool started. |
+| Every Run, at its end | One write per Run. | A crash loses the whole Run. |
+
+- **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
+- **Log entries** record what happened: Runs, usage, Events, model calls, and the parts of a streaming reply, written every second or few KiB. A rebuild never reads them.
+- **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
+- **What a crash leaves is answered when the Session is read, and nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again.
 
 ### A load starts from the last Checkpoint
 

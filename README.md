@@ -6,7 +6,7 @@
 
 1. **A minimal, synchronous, Go-native agent runtime.** One Loop per Session; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
 2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
-3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from one writer per Session across instances (planned).
+3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from one writer per Session across instances.
 
 Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([FEATURES.md → Not planned](FEATURES.md#not-planned)).
 
@@ -52,6 +52,15 @@ result, err := s.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 
 `gotato.NewSession(gotato.WithModel(model))` alone runs against a private in-memory transcript with full-history context.
 
+To keep the Session in a store while it runs, store its Record first and give the Session the Writer instead: every step is written as it happens, and `Release` writes the end of the Run.
+
+```go
+writer, err := session.Create(ctx, store, record, "instance-1") // or session.OpenWriter for a stored Session
+// … gotato.WithTranscript(writer) instead of gotato.WithTranscript(record) …
+result, err := s.Prompt(ctx, gotato.UserMessage("inspect this repository"))
+err = writer.Release(ctx)
+```
+
 ## Embedding in a service
 
 ```go
@@ -71,7 +80,7 @@ mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // option
 out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
 ```
 
-Each Run loads the Session's Record, builds a live Session from the Agent, runs it, closes it, and saves the Record. Instances that share a Store can each load any Session, but they must not run the same Session at once until one writer per Session arrives ([ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer)).
+Each Run opens the Session's Record from its last Checkpoint, builds a live Session from the Agent, and writes every step of the Run as it happens, so a crash loses at most the step in flight. Instances that share a Store run a Session one at a time: another instance takes it over when it is idle or its instance is gone, and waits, then answers 409, while it runs elsewhere. Call `runner.Close` after `runner.Drain` when the service stops, so other instances take its Sessions over at once.
 
 ## Quick start (CLI)
 
@@ -92,7 +101,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 |---|---|
 | Live Session and its Loop, Abort, limits, extensions | done |
 | Steer and FollowUp | in the Go API on a Session you build yourself; through the Runner and the endpoints planned |
-| Session Record, `session.Store` (memory, file), fork | done; an append-only Record planned |
+| Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
 | Events and streaming | done, with gaps: messages on their way into a Session have no Events; stream resume planned |
@@ -100,9 +109,9 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Service: Runner, HTTP, gRPC, admission | done |
 | Drain | in part: stops new Runs and waits for those in flight; the full order is planned |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
-| One writer per Session across instances | planned |
+| One writer per Session across instances | done; stream resume, the activation limit and drain with reconnect codes planned |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
-| Measurement: the reference workload and the live run (`gotato-workload`) | done; fault injection and a multi-instance harness planned |
+| Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
 | MCP, provider rate-limit information, typed Event payloads, streamed reasoning | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.

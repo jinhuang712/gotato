@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-17 -->
 # Gotato — Proposal
 
 > **Agent as a service for Go.**
@@ -119,7 +119,7 @@ A few words in the diagram need a line each:
 - the **TTL** (time to live) is how long an idle Session stays in memory;
 - a **Runner** is the part of your service that hosts Sessions.
 
-Between messages, a Session is its record in your store: a log that only grows, one Turn at a time. A pod keeps it in memory while it is in use, and lets it go after its TTL. The conversation stays in your store, so any pod can load it again and continue.
+Between messages, a Session is its record in your store: a log that only grows, one step at a time. A pod keeps it in memory while it is in use, and lets it go after its TTL. The conversation stays in your store, so any pod can load it again and continue.
 
 A Session needs no process, shell or sandbox of its own. A Go service hosts Sessions the way it serves any other request.
 
@@ -137,7 +137,7 @@ Gotato should behave like any other library in the service: easy to add, safe to
 
 ### It runs on many pods
 
-- **No lost conversations.** A Session saves every Turn it completes. When its pod goes away, another pod loads it and continues.
+- **No lost conversations.** A Session saves every step as it happens: the prompt, each reply, each tool call and its result. When its pod goes away, another pod loads it and continues.
 - **Any pod answers like the only one.** A request can reach any pod, and the caller cannot tell which one served it. No Session is bound to a pod, and the load balancer you already run decides where each request goes.
 - **One pod at a time.** Two pods never run or write the same Session at once.
 - **Idle costs almost nothing.** A waiting Session holds no process and no sandbox, and after its TTL it holds no memory either. Each request to the model is laid out so that the provider can reuse its cached prefix from one Turn to the next, which lowers the token bill.

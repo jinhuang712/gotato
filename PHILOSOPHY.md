@@ -99,7 +99,7 @@ Two things follow:
 
 **The other side.** Requests drift, and models fail even when the tools are right. A bot built for order questions gets asked about holidays. Declining is part of its design: the instruction and the tools define its scope, and "that is not something I handle" is an answer, not a person stepping in. When the model gets a case wrong, the fix is a better instruction, better tools or a better model. A person pausing every run hides the failure instead of fixing it.
 
-**What it costs.** A purpose-built agent does less than a general one. Teams write careful tools, because the tools are the bounds. Keeping the conversation outside the process costs a write for every turn.
+**What it costs.** A purpose-built agent does less than a general one. Teams write careful tools, because the tools are the bounds. Keeping the conversation outside the process costs a write for every step.
 
 ## 4. Where is agent as a service going?
 
