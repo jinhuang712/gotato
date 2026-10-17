@@ -350,6 +350,7 @@ func cloneToolCalls(calls []ToolCall) []ToolCall {
 	for i, call := range calls {
 		out[i] = call
 		out[i].Arguments = append([]byte(nil), call.Arguments...)
+		out[i].Signature = slices.Clone(call.Signature)
 	}
 	return out
 }

@@ -102,6 +102,11 @@ type ToolCall struct {
 	ID        ToolCallID `json:"id"`
 	ToolID    string     `json:"tool_id"`
 	Arguments []byte     `json:"arguments"`
+	// Signature is an opaque provider artifact, for example the provider's
+	// own ID for the item that carried the call. The adapter that streamed
+	// the call sets it and reads it back on replay. Core carries it across
+	// runtime operations but never interprets it, and ID stays the call ID.
+	Signature []byte `json:"signature,omitempty"`
 }
 
 type ToolResultStatus string

@@ -1168,6 +1168,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 			}
 			call := *modelEvent.ToolCall
 			call.Arguments = slices.Clone(call.Arguments)
+			call.Signature = slices.Clone(call.Signature)
 			assistant.ToolCalls = append(assistant.ToolCalls, call)
 		case ModelUsage:
 			usage = modelEvent.Usage

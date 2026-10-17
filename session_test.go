@@ -308,6 +308,35 @@ func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
 }
 
+// A Tool Call's Signature is the adapter's: the Session stores it with the
+// call and sends it back on the next Turn unchanged.
+func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
+	model := &testModel{scripts: [][]ModelEvent{
+		{{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`), Signature: []byte("item-1")}}, {Kind: ModelDone, StopReason: StopToolCalls}},
+		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+	}}
+	transcript := &recordingTranscript{}
+	agent, err := NewSession(WithModel(model), WithTool(&scriptedTool{}), WithTranscript(transcript))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	if _, err := agent.Prompt(context.Background(), UserMessage("use tool")); err != nil {
+		t.Fatal(err)
+	}
+	messages := transcript.Messages()
+	if len(messages) < 2 || len(messages[1].ToolCalls) != 1 {
+		t.Fatalf("transcript = %+v", messages)
+	}
+	if stored := messages[1].ToolCalls[0]; stored.ID != "call-1" || string(stored.Signature) != "item-1" {
+		t.Fatalf("stored call = %+v", stored)
+	}
+	request := model.lastRequest()
+	if len(request.Messages) < 2 || len(request.Messages[1].ToolCalls) != 1 || string(request.Messages[1].ToolCalls[0].Signature) != "item-1" {
+		t.Fatalf("replayed request = %+v", request.Messages)
+	}
+}
+
 func TestSessionToolLoop(t *testing.T) {
 	tool := &scriptedTool{}
 	agent, err := NewSession(WithModel(&toolModel{}), WithTool(tool))

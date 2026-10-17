@@ -108,6 +108,49 @@ func TestResponsesReplaysReasoningArtifact(t *testing.T) {
 	}
 }
 
+// The provider's item ID goes back as the function_call's id, and the call
+// ID as its call_id and the output's call_id. A Session saved before
+// ToolCall.Signature packed the item ID into the call ID, and still replays.
+func TestResponsesReplaysToolCallItemID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call gotato.ToolCall
+	}{
+		{name: "signature", call: gotato.ToolCall{ID: "call_1", Signature: []byte("fc_1")}},
+		{name: "packed call ID", call: gotato.ToolCall{ID: "call_1|fc_1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.call.ToolID = "demo.echo"
+			tc.call.Arguments = []byte(`{"value":"x"}`)
+			result := gotato.ToolResult{CallID: tc.call.ID, Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "done"}}}
+			body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{
+				gotato.UserMessage("go"),
+				{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{tc.call}},
+				{Role: gotato.RoleToolResult, ToolResult: &result},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request struct {
+				Input []map[string]any `json:"input"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Fatal(err)
+			}
+			if len(request.Input) != 3 {
+				t.Fatalf("input = %v", request.Input)
+			}
+			call, output := request.Input[1], request.Input[2]
+			if call["type"] != "function_call" || call["id"] != "fc_1" || call["call_id"] != "call_1" {
+				t.Fatalf("function_call = %v", call)
+			}
+			if output["type"] != "function_call_output" || output["call_id"] != "call_1" {
+				t.Fatalf("function_call_output = %v", output)
+			}
+		})
+	}
+}
+
 func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	token := testToken("account-test")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +181,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	if toolEvent.Kind != gotato.ModelToolCall || toolEvent.ToolCall == nil {
 		t.Fatalf("tool event = %+v", toolEvent)
 	}
-	if toolEvent.ToolCall.ID != "call_1|fc_1" || toolEvent.ToolCall.ToolID != "demo.echo" || string(toolEvent.ToolCall.Arguments) != `{"value":"x"}` {
+	if toolEvent.ToolCall.ID != "call_1" || string(toolEvent.ToolCall.Signature) != "fc_1" || toolEvent.ToolCall.ToolID != "demo.echo" || string(toolEvent.ToolCall.Arguments) != `{"value":"x"}` {
 		t.Fatalf("tool call = %+v", toolEvent.ToolCall)
 	}
 	doneEvent, err := stream.Recv(context.Background())
@@ -194,7 +237,7 @@ func TestResponsesCutOffDropsTheUnfinishedCallAndReportsMaxTokens(t *testing.T) 
 	if stop != gotato.StopMaxTokens {
 		t.Fatalf("stop reason = %q, want %q", stop, gotato.StopMaxTokens)
 	}
-	if len(calls) != 1 || calls[0].ID != "call_1|fc_1" || string(calls[0].Arguments) != `{"value":"x"}` {
+	if len(calls) != 1 || calls[0].ID != "call_1" || string(calls[0].Arguments) != `{"value":"x"}` {
 		t.Fatalf("calls = %+v, want only the finished call", calls)
 	}
 }

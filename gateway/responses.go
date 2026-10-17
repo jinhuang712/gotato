@@ -273,6 +273,9 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 			}
 			arguments := string(replayArguments(call.Arguments))
 			callID, itemID := splitResponsesCallID(string(call.ID))
+			if len(call.Signature) > 0 {
+				itemID = string(call.Signature)
+			}
 			items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
 		}
 		return items, nil
@@ -327,6 +330,9 @@ func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 	return content, nil
 }
 
+// splitResponsesCallID reads a call ID as Sessions saved before
+// ToolCall.Signature stored it, with the provider's item ID packed after a
+// "|". A call ID that has no "|" is returned as it is.
 func splitResponsesCallID(id string) (callID, itemID string) {
 	if before, after, ok := strings.Cut(id, "|"); ok {
 		return before, after
@@ -608,11 +614,13 @@ func (s *responsesStream) emitResponsesCall(index int) {
 	if arguments == "" {
 		arguments = "{}"
 	}
-	id := call.callID
+	// The call ID is the one the Session and its Tool Result use. The
+	// provider's item ID is adapter-owned, so it travels as the Signature.
+	toolCall := &gotato.ToolCall{ID: gotato.ToolCallID(call.callID), ToolID: name, Arguments: []byte(arguments)}
 	if call.id != "" {
-		id += "|" + call.id
+		toolCall.Signature = []byte(call.id)
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: name, Arguments: []byte(arguments)}})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: toolCall})
 }
 
 func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
