@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -147,5 +148,51 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	runs := view.Runs()
 	if len(runs) != 2 || runs[0].Error != "interrupted" || runs[1].Status != gotato.RunCompleted {
 		t.Fatalf("runs = %+v, want the crashed Run ended as interrupted", runs)
+	}
+}
+
+// A compacted Session that goes on and is loaded by another instance builds
+// the same Context as before the reload (ROADMAP Phase 4).
+func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	first, err := service.New(service.Config{Store: store, Instance: "instance-a", Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := first.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{"one", "two", "three"} {
+		if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, err := first.Compact(ctx, s.ID(), modelctx.CompactOptions{Keep: 2}); err != nil || !result.Replaced {
+		t.Fatalf("Compact = %+v, %v", result, err)
+	}
+	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "four"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := first.Inspect(ctx, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Close(ctx)
+
+	second, err := service.New(service.Config{Store: store, Instance: "instance-b", Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := second.Inspect(ctx, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PrefixHash != before.PrefixHash || after.SelectedMessages != before.SelectedMessages {
+		t.Fatalf("after the reload: prefix %s with %d messages, before %s with %d", after.PrefixHash, after.SelectedMessages, before.PrefixHash, before.SelectedMessages)
+	}
+	if before.SelectedMessages != 5 {
+		t.Fatalf("the compacted Session holds %d messages, want the summary, the kept two, and the last Run's two", before.SelectedMessages)
 	}
 }
