@@ -6,7 +6,7 @@
 
 1. **A minimal, synchronous, Go-native agent runtime.** One Loop per Session; `Prompt` returns when the Run settles; `context.Context` carries cancellation and deadlines.
 2. **A valid project on its own.** A Go program gets an agent with sessions, context construction, tools, events, a CLI, and deterministic tests from Gotato alone.
-3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from Session ownership across instances (planned).
+3. **Embeddable in a running Go service, across instances.** Runs are cancellable, state lives behind `session.Store`, and multi-instance safety comes from one writer per Session across instances (planned).
 
 Every feature passes one test: *would a Go service embedding an agent want this on its own?* Roles, orchestration, memory systems, databases, and tool catalogs belong to the applications built on Gotato ([FEATURES.md → Not planned](FEATURES.md#not-planned)).
 
@@ -71,7 +71,7 @@ mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // option
 out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
 ```
 
-Each Run loads the Session's Record, builds a live Session from the Agent, runs it, closes it, and saves the Record. Any instance holding the Store can serve any Session.
+Each Run loads the Session's Record, builds a live Session from the Agent, runs it, closes it, and saves the Record. Instances that share a Store can each load any Session, but they must not run the same Session at once until one writer per Session arrives ([ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer)).
 
 ## Quick start (CLI)
 
@@ -90,19 +90,20 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 
 | Area | Status |
 |---|---|
-| Live Session and its Loop, control (Steer, FollowUp, Abort), limits, extensions | done |
-| Session Record, `session.Store` (memory, file), fork | done |
+| Live Session and its Loop, Abort, limits, extensions | done |
+| Steer and FollowUp | in the Go API on a Session you build yourself; through the Runner and the endpoints planned |
+| Session Record, `session.Store` (memory, file), fork | done; an append-only Record planned |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
-| Events and streaming | done; typed payloads and reasoning deltas planned |
+| Events and streaming | done, with gaps: messages on their way into a Session have no Events; stream resume planned |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
-| Service: Runner, HTTP, gRPC, admission, drain | done |
+| Service: Runner, HTTP, gRPC, admission | done |
+| Drain | in part: stops new Runs and waits for those in flight; the full order is planned |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
-| Session ownership across instances | planned |
+| One writer per Session across instances | planned |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
-| MCP through `ToolSet`/`ToolSource` | planned |
 | Measurement: the reference workload and the live run (`gotato-workload`) | done; fault injection and a multi-instance harness planned |
-| Provider rate-limit information | planned |
+| MCP, provider rate-limit information, typed Event payloads, streamed reasoning | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
 
@@ -116,6 +117,8 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
 | [GOALS.md](GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
 | [FEATURES.md](FEATURES.md) | implementation inventory with status markers, and what is not planned |
+| [ROADMAP.md](ROADMAP.md) | what gets built next, in what order, and how each step is known to be done |
+| [TODO.md](TODO.md) | open defects and design decisions, verified against the code |
 | [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
 | [GITFLOW.md](GITFLOW.md) | Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | changes per release, with before/after notes for breaking changes |

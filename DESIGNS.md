@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-17 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -6,7 +6,7 @@ Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), wh
 Gotato is designed around seven principles:
 
 1. **Keep subtracting.** Gotato does the least it takes to run Sessions in the cloud, and anything new has to show that Gotato cannot do without it.
-2. **Stay inside the boundary.** Routing, authentication, databases, telemetry and interfaces are needed, but the service around Gotato already has them, so Gotato leaves seams for them instead of building them.
+2. **Stay inside the boundary.** Routing, authentication, databases, telemetry and user interfaces are needed, but the service around Gotato already has them, so Gotato leaves seams for them instead of building them.
 3. **Serve purpose-built agents.** Gotato is built for agents whose tools the team writes and whose jobs it can predict, not for general assistants or for coding in the cloud.
 4. **Many instances from day one.** Gotato is designed for many instances, one instance is only the simplest case, and no instance is special.
 5. **A Session can be dropped and rebuilt at any time.** A live Session is a goroutine running its Record, so dropping it loses nothing and rebuilding it is cheap.
@@ -89,7 +89,7 @@ A provider is configuration: an endpoint, a key, a wire API and its models. Gota
 
 ## 2. Stay inside the boundary
 
-Gotato is a library inside your service. Routing, authentication, databases, telemetry and interfaces are all needed, and your service already has them. Gotato does not replace them: it does its own job well, and leaves seams for theirs. Where *Keep subtracting* asks whether something is needed at all, this principle asks whose job it is. Routing is needed; it is just not Gotato's.
+Gotato is a library inside your service. Routing, authentication, databases, telemetry and user interfaces are all needed, and your service already has them. Gotato does not replace them: it does its own job well, and leaves seams for theirs. Where *Keep subtracting* asks whether something is needed at all, this principle asks whose job it is. Routing is needed; it is just not Gotato's.
 
 **Ask:** is this a job only an agent runtime has, or one the service around it already does?
 
@@ -130,7 +130,7 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 - **Instead of:** one vendor SDK's types as the core's types.
 - **Why:** the model contract uses Gotato's own request and Event types, and provider data the core does not understand, such as reasoning signatures, passes through untouched.
 
-### No clients and no interfaces
+### No clients and no user interfaces
 
 - **Instead of:** bundled bots, schedulers, front ends or terminal UIs.
 - **Why:** callers write their own. Gotato provides the HTTP handler, the gRPC service and the Go API they call, and its own human-facing surface is CLI output.
@@ -157,9 +157,9 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 
 | Option | For | Against |
 |---|---|---|
-| **Agent = definition, Session = live unit** (chosen) | Matches Claude Managed Agents and the OpenAI Agents API. One Agent running many Sessions reads naturally. | The code uses the old names until a planned rename. |
+| **Agent = definition, Session = live unit** (chosen) | Matches Claude Managed Agents and the OpenAI Agents API. One Agent running many Sessions reads naturally. | A rename of the code, done in Phase 3. |
 | Agent = live unit, with no term "session" | One noun for callers. | The reverse of the labs' usage, so every reader needs a note. |
-| Keep today's code names: Agent = the loop for one Run, Session = the stored record | No rename. | The thing a caller talks to has no name of its own. |
+| Keep the old code names: Agent = the loop for one Run, Session = the stored record | No rename. | The thing a caller talks to has no name of its own. |
 
 ### A Session has no machine
 
@@ -179,7 +179,7 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 ### The bounds are in the definition
 
 - **Instead of:** someone watching each Run, or bounds that change from one conversation to the next.
-- **Why:** an Agent's bounds are its named tools and its Effect cap, set in its definition, where a reviewer reads them. A conversation can neither raise nor lower them.
+- **Why:** an Agent's bounds are its named tools and its Effect cap, set in its definition, where a reviewer reads them. A conversation cannot raise them: a Session can switch off one of its Agent's tools, but never add one or lift the cap.
 
 ### Every tool declares its Effect, and silence means destructive
 

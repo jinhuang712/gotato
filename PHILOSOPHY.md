@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-15 -->
+<!-- what-we-build: drafted 2026-10-17 -->
 # Gotato — Philosophy
 
 Agents are moving off developers' machines and into the systems they serve. The work they do there is not new: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. What is new is how little it takes. A loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.
@@ -116,7 +116,7 @@ From there, two pictures of the future:
 - **Services that look after themselves.** Shops, ticketing systems and travel sites run as they do today, and agents inside them watch, investigate and report, and later decide, the way an SRE or an operator does.
 - **Purpose-built agents for whole populations.** A travel planner, a health adviser or a policy consultant gets one conversation per user, most of them idle at any moment.
 
-The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory. At the few kilobytes that Gotato's benchmark measures for each idle agent in memory, they need a few gigabytes, and a conversation unloaded from memory is only a record in a store.
+The second picture is out of reach for a machine per conversation. A million open conversations at 1 GiB each need about a petabyte of memory. At the few kilobytes that Gotato's benchmark measures for each idle conversation in memory, they need a few gigabytes, and a conversation unloaded from memory is only a record in a store.
 
 At that scale, what the model reads costs more than what the service holds. Most of what a session sends to the model on each turn, it already sent on the turn before, so the biggest lever is a stable prefix that the provider can cache:
 

@@ -1,7 +1,7 @@
-<!-- what-we-build: approved 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-17 -->
 # Gotato — Roadmap
 
-What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it keeps under [Design discussion](#design-discussion-) and [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
+What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
 
 Gotato stays at 0.1.x until it is stable, so each phase ships as a 0.1.x release, with no date. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names.
 
@@ -27,11 +27,11 @@ Why this order:
 
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every Turn adds a write per Turn, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
-- **The rename comes before the store and ownership work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
+- **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
 - **Each of the last three phases builds on the one before.** One writer needs Turns that are appended and fenced, and a warm Session needs a writer to hold it.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
-- **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the multi-pod goals carry the pitch.
+- **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the many-instance goals carry the pitch.
 - **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
 - **The compatibility check waits for mass testing,** when many callers depend on the exported API.
 
@@ -93,7 +93,8 @@ The three store questions are answered as decisions dated 2026-10-16: the first 
 - ✅ How a Turn is saved: [The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16).
 - ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
 - ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
-- ⬜ Runtime notices (FEATURES.md G-F29), and the names of the Events on a message's way into a Session. They are designed at the start of Phase 6.
+
+Runtime notices (FEATURES.md G-F29), and the names of the Events on a message's way into a Session, follow from the third answer. They are designed at the start of [Phase 6](#phase-6--warm-session).
 
 Exit: the maintainer approves the three Decisions.
 
@@ -136,7 +137,7 @@ Exit:
 - Runtime notices (G-F29) and the names of the Events on a message's way into a Session are designed first, and then built.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
-- Steer, FollowUp, Interrupt and Stop reach a running Session through the Go API, HTTP, gRPC and the CLI, and take effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
+- Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
 - Longer prompt cache retention, and a keepalive for a warm Session's cache (G-F33), are designed with the warm Session.
 - `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
 
@@ -184,7 +185,7 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 | G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | once G-F29 is designed |
 | G-F31 — Recovering a cut stream | runtime notices (G-F29) | once G-F29 is designed |
 | G-F32 — Changes that keep the cache | a reference task that switches a tool set on, to measure what a change costs | after that measurement |
-| G-F06 — How a Session is compacted: who writes the summary, what stays word for word, how compacting before the TTL relates to the ceiling at the start of a Run, and whether compaction becomes part of an Agent's definition | the append-only Record and its Checkpoints (Phase 4), and the warm Session's TTL (Phase 6) | after Phase 6 |
+| G-F06 — How a Session is compacted: who writes the summary, what stays word for word, and how compacting before the TTL relates to the ceiling at the start of a Run | the append-only Record and its Checkpoints (Phase 4), and the warm Session's TTL (Phase 6) | after Phase 6 |
 
 ## Every release
 

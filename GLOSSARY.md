@@ -8,7 +8,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Agent** | A named, reusable definition: model, instruction, Static blocks, tools, the highest Effect its tools may have, limits, and the TTL of its Sessions. It holds no conversation, no state and no status. One Agent runs many Sessions. | agent spec, agent config, template, sub-agent, child agent, worker, supervisor (roles belong to applications) | `service.Agent`. With the Go API alone, the options passed to `gotato.NewSession`. |
+| **Agent** | A named, reusable definition: model, instruction, Static blocks, tools, the highest Effect its tools may have, limits, its compaction ceiling, and the TTL of its Sessions. It holds no conversation, no state and no status. One Agent runs many Sessions. | agent spec, agent config, template, sub-agent, child agent, worker, supervisor (roles belong to applications) | `service.Agent`. With the Go API alone, the options passed to `gotato.NewSession`. |
 | **Session** | The minimal unit a system interacts with: one conversation running one Agent. It is a Loop and a Runtime. It has an ID, a Status, a message queue and a state machine, and it holds its Transcript, its Context and its tools, and uses the connections its Instance shares. It manages itself: it saves itself and checks its own health. After a time to live (TTL: 60 idle minutes unless its Agent sets another) it is compacted, unless that is turned off, and leaves memory; its Record stays in the Store, and any Instance can load it again. It is bound to no Instance. Everything inside it is hidden behind its API, which can still show its Context and Transcript for inspection. | conversation, thread, actor, instance | `gotato.Session`, the live Session. Until Phase 6 keeps it warm, the Runner builds one from the Record for each Run. `service.Runner` holds the lock and the run handle. |
 | **Record** | What the Store keeps of a Session: an append-only log of its Messages, metadata changes, Runs, usage, recent Events and Checkpoints. Nothing already written is rewritten. Any Instance loads a Session from it, starting at its last Checkpoint. | the Session itself, snapshot | `session.Record`. Today the Store rewrites it whole once per Run; appending is planned. |
 | **Loop** | The cycle inside a Session that calls the model and runs the tools it asks for, until the Run ends. Also called the agentic loop. It is a concept, not a type. | | `executeRun` in `gotato.Session` |
@@ -29,7 +29,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Limits** | Caps on a Run: Turns, bytes, tool calls and deadlines. | quotas | `gotato.CoreLimits` |
 | **Continue** | Resume a Loop without new input. | | `Session.Continue` |
 | **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |
-| **FollowUp** | Queue a Message to handle after the current Run. | | `Session.FollowUp` |
+| **FollowUp** | Queue a Message that the Run picks up when it would otherwise settle, so the same Run goes on. | | `Session.FollowUp` |
 | **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelRun` |
 
 ## Configuration and capabilities
@@ -80,4 +80,4 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 
 ## Open questions
 
-- **Compaction** is planned for a later phase. It is not part of an Agent's definition until then, though the code already has it.
+- **How a Session is compacted** waits for its own design ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)): who writes the summary, and what stays word for word. Today an Agent sets a compaction ceiling (`service.Agent.Compact`), and Compaction replaces the old part instead of appending a Checkpoint.

@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-17 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -21,11 +21,11 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
 | Interrupt | stop the step in flight and go on with a new message, in the same Run | G-F26 | ⬜ |
-| Runtime notices | tell the model something that is not the user's words, as a developer or system message after every tool result | G-F29 | ⬜ |
+| Runtime notices | tell the model something that is not the user's words, as a developer or system message after the Turn's tool results | G-F29 | ⬜ |
 | A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
-| Fork | start a new Session from another one's history; it writes the store and activates nothing | G-F02 | ✅ |
+| Fork | start a new Session from another one's Record; it writes the store and activates nothing | G-F02 | ✅ |
 | One Run per Session | a second Run on a busy Session is rejected or waits | G-F02 | ✅ |
 | Per-Session settings | the Agent, instruction, compaction ceiling and tools, in metadata | G-F02 | ✅ |
 
@@ -68,7 +68,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Retries | on no response, 429 (not a hard quota), 500, 502 to 504, 529, or an overloaded provider; a provider's `Retry-After` wins | G-F07 | ✅ |
 | Broken-stream restart | a stream that broke before any output is sent again | G-F07 | ✅ |
 | Output-limit report | a reply cut off by the output limit says `max_tokens` | G-F07 | ✅ |
-| Reasoning replay | chat `reasoning_content` is kept and sent back | G-F07 | ✅ |
+| Reasoning replay | a thinking model's reasoning is kept and sent back, on every wire API | G-F07 | ✅ |
 | Cache reads | counted on every wire API | G-F07 | ✅ |
 | Cache key on the wire | sent in a body field (`prompt_cache_key` on Responses) or a header, as configured | G-F07 | ✅ |
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
@@ -101,7 +101,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Any instance answers | an idle Session moves to whichever instance a request reaches; a busy one is waited for, then refused with 409 | G-F27 | ⬜ |
 | Load balancer setup | hash on `session-id`, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | 🚧 |
 | Activation limit | past a hard limit, such as memory, an instance refuses new Sessions with a 503 marked "not run" | G-F27 | ⬜ |
-| Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes, compacted first by default | G-F27 | ⬜ |
+| Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes unless its Agent sets another TTL, compacted first by default | G-F27 | ⬜ |
 | Prompt cache retention and keepalive | longer provider cache retention, and keeping a warm Session's cache from expiring | G-F33 | ⬜ |
 
 **Endpoints**
@@ -122,7 +122,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
 | Store Events | `session_loaded` and `session_saved` time each load and save a Run makes | G-F13 | ✅ |
-| Lifecycle Events | a Session activated, taken over, released or fenced on an instance | G-F13 | ⬜ |
+| Session lifecycle stream | in the Go API, a live Session reports that it was created, is closing and has closed | G-F13 | ✅ |
+| Instance lifecycle Events | a Session activated, taken over, released or fenced on an instance | G-F13 | ⬜ |
 | Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
 
@@ -161,7 +162,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
 | Token budget per Run | a cap on the tokens one Run may spend | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
-| Loading only recent history | instead of the whole Session | — | later |
+| Loading only the recent Transcript | instead of the whole Record | — | later |
 
 **Not planned**
 
@@ -255,7 +256,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed.
 - A message still waiting when the Run ends is dropped, not kept for the next Run.
 
-**Gap:** Steer and FollowUp work only on a Session you build yourself with `gotato.NewSession`. The Runner builds a live Session for each Run and keeps it to itself, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. Planned, as the decision below says:
+**Gap:** Steer and FollowUp work only on a Session you build yourself with `gotato.NewSession`. The Runner builds a live Session for each Run and keeps it to itself, so its Go API, the HTTP and gRPC endpoints and the CLI cannot reach them. Stopping a Run already works, but only on the instance that runs it (`Runner.CancelSession`, `POST /v1/sessions/{id}/cancel`, gRPC `CancelRun`). Planned, as the decision below says:
 
 - every request for a Session reaches its writer through the load balancer's hash, so the endpoints and the CLI can steer, interrupt and stop a Run in the writer's own process;
 - **Interrupt** cancels a model call in flight, lets a running tool finish, and starts the next Turn of the same Run with the new message;
@@ -285,7 +286,7 @@ A Session's messages reach its writer through the load balancer's hash, so each 
 
 ### G-F29 — Runtime notices ⬜
 
-Gotato, or your service, sometimes has to tell the model something that is not the user's words: that the history was compacted, that this is the last Turn, or that the previous reply was cut off. Today the only place for it is a user message, so the model takes it as the user speaking, and on the Responses API a new user message hides the reasoning the Run built so far.
+Gotato, or your service, sometimes has to tell the model something that is not the user's words: that the Transcript was compacted, that this is the last Turn, or that the previous reply was cut off. Today the only place for it is a user message, so the model takes it as the user speaking, and on the Responses API a new user message hides the reasoning the Run built so far.
 
 - A notice is a message of its own kind. Each wire API sends it the way it supports: a `developer` message on Responses, a `system` message on Anthropic models that accept one mid-conversation, and a tagged user message elsewhere.
 - A notice waits until every tool call of the Turn has its result, because a provider refuses anything between a call and its result.
@@ -309,7 +310,7 @@ A Session is one conversation that runs an Agent. It keeps everything that happe
 
 - You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
 - A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction. The Store keeps them as the Session's Record, `session.Record`.
-- Forking a Session starts a new one from its history and records the parent. A fork writes the store and activates nothing, so its first request activates it on whichever instance that request reaches. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix there too.
+- Forking a Session starts a new one from its Record and records the parent. A fork writes the store and activates nothing, so its first request activates it on whichever instance that request reaches. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix there too.
 - A fork copies its parent's entries today. Referring to them instead is a later optimization, and it would pin the parent's entries against deletion.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
 
@@ -321,7 +322,7 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | `gotato.instruction` | replaces the Agent's instruction for this Session | a caller tailors one conversation without a new Agent |
 | `gotato.compact_ceiling` | this Session's compaction budget, in estimated tokens | a long-lived Session can compact sooner or later than the default |
 | `gotato.tool.<id>` | a tool switched on or off for this Session | a caller narrows or widens one conversation's tools |
-| `gotato.model` | the model last used; written by Gotato, for information | shows which model produced the history |
+| `gotato.model` | the model last used; written by Gotato, for information | shows which model produced the Transcript |
 | `gotato.cache_key` | the prompt cache key this Session's requests carry, in place of the hash of its ID; written by a fork, from its parent | a fork shares its parent's prefix, so it should share its cache |
 
 ## What the model sees
@@ -331,7 +332,7 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 On every Turn, Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix from one Turn to the next:
 
 ```text
-instruction · Static blocks  →  tools, sorted by ID  →  the history
+instruction · Static blocks  →  tools, sorted by ID  →  the Transcript
 ```
 
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
@@ -361,7 +362,7 @@ report := modelctx.ReportOf(inspection)
 
 ### G-F06 — Compaction ✅
 
-An old part of the history can be replaced by one summary, so a long conversation stays within the model's window.
+An old part of the Transcript can be replaced by one summary, so a long conversation stays within the model's window.
 
 - **On demand:** `gotato context compact <id> --keep N` or `POST /v1/sessions/{id}/compact`.
 - **Automatically:** at the start of a Run, when the estimated tokens pass the ceiling.
@@ -373,9 +374,9 @@ An old part of the history can be replaced by one summary, so a long conversatio
 
 ### G-F32 — Changes that keep the cache ⬜
 
-The instruction and the tools come before the history, so changing them mid-Session makes the provider send the whole history again at full price. Three things do that today: a Session's own instruction (`gotato.instruction`), a tool set the model switches on, and a tool switched on or off for one Session.
+The instruction and the tools come before the Transcript, so changing them mid-Session makes the provider read the whole Transcript again at full price. Three things do that today: a Session's own instruction (`gotato.instruction`), a tool set the model switches on, and a tool switched on or off for one Session.
 
-- Such a change is appended instead: a runtime notice (G-F29) for a new instruction, and the new tool's definition added after the history, while the tool list sent at the start stays as it was.
+- Such a change is appended instead: a runtime notice (G-F29) for a new instruction, and the new tool's definition added after the Transcript, while the tool list sent at the start stays as it was.
 - Whether it pays depends on how often a service makes such changes, so the reference workload measures a Session that switches a tool set on before this is designed.
 
 **Design first:** after a measurement ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
@@ -464,7 +465,7 @@ model: your-model
 **What comes back from the wire**
 
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
-- On the chat API, a thinking model's `reasoning_content` is kept as reasoning and sent back on the next call, as DeepSeek requires.
+- A thinking model's reasoning is kept and sent back on the next call, on every wire API: `reasoning_content` on the chat API, as DeepSeek requires; encrypted reasoning items on Responses; signed `thinking` and `redacted_thinking` blocks on Anthropic.
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
 
@@ -535,7 +536,7 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 - A document from a newer version is refused, never misread.
 - A conformance suite in `testkit` is planned (ROADMAP Phase 4). An adapter runs one set of checks against the store contract, so a team that writes its own adapter can prove it keeps what Gotato relies on, such as a saved Session loading back unchanged and a stale save failing.
 
-**Gap:** a save replaces the whole Session, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other.
+**Gap:** a save replaces the whole Record, once per Run, with no check for a newer copy. A crash mid-Run loses the Run, and two instances can overwrite each other.
 
 Planned ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16)): the Record becomes an append-only log.
 
@@ -558,7 +559,7 @@ The store is the truth, and each team backs it with its own adapter, so a team n
 | The contract in prose only | Nothing to maintain. | Each adapter reads the prose its own way, and a wrong one shows up as a lost Turn. |
 | Ship a database adapter in the core | Works on day one for one database. | Rejected with "Gotato owns the shapes, and adapters own storage and telemetry": drivers, migrations and one schema for everyone. |
 
-The suite is written against the store contract that Phase 4 ships, with the check for a stale save and what ownership needs, so it is built once.
+The suite is written against the store contract that Phase 4 ships, with the check for a stale save and what one writer at a time needs, so it is built once.
 
 ## Many instances
 
@@ -576,7 +577,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 | Liveness rows | ⬜ | each instance renews one row in the store on a heartbeat, timed by the store's clock. When the row expires, every Claim of that instance ends at once, and an instance that cannot renew its row stops appending and drains itself. |
 | Any instance answers | ⬜ | an instance that is not the writer takes over an idle Session and loads it from its last Checkpoint. For a Session that is running on another live instance, it waits for the Run to end, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
 | Activation limit | ⬜ | past a hard limit, such as its memory budget, an instance refuses to activate a new Session with a 503 marked "not run", so the load balancer can retry it elsewhere. Spreading load stays the load balancer's and the autoscaler's job. |
-| Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes; the store stays the truth. Before it leaves, it is compacted, unless a setting turns this off; how it is compacted is decided in a later phase. |
+| Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes unless its Agent sets another TTL; the store stays the truth. Before it leaves, it is compacted, unless a setting turns this off; how it is compacted is decided in a later phase. |
 
 **One writer.** Only the writer may append to a Session's Record, and it holds a Claim with an Epoch.
 
@@ -658,7 +659,7 @@ A provider keeps a cached prefix for minutes, and a conversation that pauses lon
 
 ## Endpoints
 
-### G-F14 — HTTP, gRPC and streaming ✅
+### G-F14 — HTTP, gRPC and streaming 🚧
 
 A bot, a job or another service talks to Sessions like any other API.
 
@@ -709,6 +710,8 @@ POST   /v1/runs                  POST /v1/runs/stream
 - Authentication and logging are yours: wrap the HTTP handler, or add gRPC interceptors.
 - **Access hooks (planned, not built).** Wrapping the handler shows only the URL, not who owns a Session, and `StatusFor` has no code for "not allowed", so a refusal from a store adapter would answer 500. Planned: the caller's identity travels in `context.Context` to every extension and every store call, and a new "not allowed" error from either answers 403 on HTTP and the matching code on gRPC. Who may touch which Session stays the application's rule; Gotato builds the places to enforce it, not the rule.
 
+**Gap:** a broken stream cannot resume, and the caller's identity does not reach extensions and stores. Both are planned above.
+
 ## Watching and extending
 
 ### G-F13 — Events 🚧
@@ -723,15 +726,16 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 | `message_start`, `message_update`, `message_end` | the model's reply arrives |
 | `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, `tool_result_committed` | a tool runs and its result is kept |
 | `toolset_activated` | the model switches on a tool set |
-| `session_compacted` | a compaction replaced part of the history; recorded in the Session only, never streamed |
-| `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or saved it, with the message count and the store's time in `elapsed_ms`; streamed, never recorded in the Session |
+| `session_compacted` | a compaction replaced part of the Transcript; recorded in the Record only, never streamed |
+| `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or saved it, with the message count and the store's time in `elapsed_ms`; streamed, never recorded in the Record |
 
 - Every Event carries its Session's ID as `session_id`. An Event of a Run also carries its Run, its Turn, a sequence number and a timestamp.
 - The payload keys of each kind are documented with the kind.
 - `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
 - The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
+- In the Go API, a live Session also reports its own life on a separate stream, `Session.SubscribeLifecycle`: `session_created`, `session_closing` and `session_closed`. These are not Run Events, and HTTP and gRPC do not stream them.
 
-**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet, and neither does a Session's life on an instance: activated, taken over, released or fenced. Their names and fields are an open question ([ROADMAP.md → Design discussion](ROADMAP.md#design-discussion-)).
+**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet, and neither does a Session's life on an instance: activated, taken over, released or fenced. Their names and fields are designed when they are built: the message Events at the start of [ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session), and the instance Events in [Phase 5](ROADMAP.md#phase-5--one-writer).
 
 ### G-F15 — Extensions ✅
 
@@ -739,7 +743,7 @@ Extensions add behavior at fixed points of the Loop, without forking it. You ins
 
 | Stage | Runs |
 |---|---|
-| `RunPreparer` | before a Run, and may rewrite the history first |
+| `RunPreparer` | before a Run, and may rewrite the Transcript first |
 | `ContextTransformer` | after the Context is built, before it is sent |
 | `MessageConverter` | when Messages are converted for the model |
 | `PreToolUse` | before a tool runs, and may refuse the call |
@@ -792,7 +796,7 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 | Task | What it does |
 |---|---|
 | `lookup` | one question, one `orders.lookup` call, one answer |
-| `conversation` | ten prompts on one Session, three lookups, and a last question only the history answers |
+| `conversation` | ten prompts on one Session, three lookups, and a last question only the earlier Turns answer |
 | `tool_error` | a call the schema check refuses, a lookup that fails, and a recovery |
 | `support_case` | an agentic loop in one Run: the model lists a customer's orders, reads the most recent one and the refund policy, refunds the damaged item, and reports the refund ID; an older order with the same item is past the refund window |
 | `history_10`, `history_100`, `history_1000` | a lookup in a Session that already holds that many messages |
@@ -863,8 +867,8 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Typed Event payloads | a decision still open ([TODO.md](TODO.md) → Decisions) |
 | G-F24 — Examples | one-shot use, a persistent Session, compaction, forks, dynamic tools, CLI automation |
 | Token budget per Run | the turn and byte limits already bound a runaway loop |
-| Paging and filtering the Session list | matters at population scale, after ownership across instances |
-| Loading only recent history | once the Record is append-only, a load already starts from the last Checkpoint (G-F03); loading less than that waits until it is needed |
+| Paging and filtering the Session list | matters at population scale, after one writer per Session across instances |
+| Loading only the recent Transcript | once the Record is append-only, a load already starts from the last Checkpoint (G-F03); loading less than that waits until it is needed |
 
 ## Not planned
 
@@ -922,7 +926,7 @@ An Agent's tools are written by the team and allowed by name, and an Agent can c
 
 Gotato leaves coding to developers' machines and to coding products. Sessions in the cluster investigate, decide and answer ([PHILOSOPHY.md, question 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)).
 
-### G-N14 — No Remote Dev Environment, Shell or Sandbox in the Pods
+### G-N14 — No Remote Dev Environment, Shell or Sandbox on the Instances
 
 A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product.
 
