@@ -36,9 +36,9 @@ const (
 	// EventSessionCompacted is recorded when a Session prefix was replaced by
 	// a summary. It is produced by the compaction operation, not by the Loop.
 	EventSessionCompacted EventKind = "session_compacted"
-	// EventSessionLoaded and EventSessionSaved time a store load and save.
-	// The service Runner emits them for each load and save a Run makes:
-	// session_loaded before run_start, and session_saved after run_end.
+	// EventSessionLoaded and EventSessionSaved time the store. The service
+	// Runner emits session_loaded for the load before run_start, and
+	// session_saved after run_end, summing every write the Run made.
 	// They reach the same places as the Loop's Events but are not recorded
 	// in the Session. An Event emitted before the Run starts has a
 	// SessionID, but no RunID and sequence 0.
@@ -65,7 +65,7 @@ const (
 //	toolset_activated       toolset
 //	session_compacted       replaced_messages, summary_message_id, summarizer
 //	session_loaded          messages, elapsed_ms (fractional), failed?
-//	session_saved           messages, elapsed_ms (fractional), failed?
+//	session_saved           messages, elapsed_ms (fractional, every write since the Session was opened), writes, failed?
 
 type Event struct {
 	SessionID  SessionID      `json:"session_id"`

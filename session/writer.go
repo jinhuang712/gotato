@@ -13,6 +13,11 @@ import (
 // the Record's Claim. Every change to the Record queues an Entry, and Flush
 // writes what is queued in one write.
 //
+// A Writer is also a gotato.Transcript and a gotato.Journal: given to a live
+// Session as its Transcript, it writes every step of a Run as it happens, so
+// a crash loses at most the step in flight. The Run's end is written by the
+// Flush that follows the Run.
+//
 // A Writer stops at its first failed write: a conflict means another writer
 // took the Record, and any other failure leaves the outcome unknown. Every
 // later Flush returns the same error, and the Record must be opened again
@@ -147,8 +152,41 @@ func fromLoaded(loaded Loaded) (*Record, error) {
 // Record returns the Record the Writer writes.
 func (w *Writer) Record() *Record { return w.record }
 
+// ID returns the Record's ID, so a live Session takes it as its own.
+func (w *Writer) ID() string { return w.record.ID() }
+
+// Len implements gotato.Transcript.
+func (w *Writer) Len() int { return w.record.Len() }
+
+// Messages implements gotato.Transcript.
+func (w *Writer) Messages() []gotato.Message { return w.record.Messages() }
+
+// Append implements gotato.Transcript. The Message is written by the step
+// that follows it.
+func (w *Writer) Append(message gotato.Message) error { return w.record.Append(message) }
+
+// Step implements gotato.Journal: it adds what the step needs to the log and
+// writes everything queued, so the step is durable when Step returns.
+func (w *Writer) Step(ctx context.Context, step gotato.Step) error {
+	switch step.Kind {
+	case gotato.StepModelCall:
+		w.record.note(EntryModelCall, LayerLog, ModelCall{RunID: step.RunID, Turn: step.Turn})
+	case gotato.StepReplyPart:
+		w.record.note(EntryReplyPart, LayerLog, ReplyPart{RunID: step.RunID, Turn: step.Turn, MessageID: step.MessageID, Text: step.Text, Reasoning: step.Reasoning})
+	case gotato.StepToolStart:
+		w.record.note(EntryToolsStarted, LayerFact, ToolsStarted{MessageID: step.MessageID, Calls: step.Calls})
+	}
+	return w.Flush(ctx)
+}
+
+// writeTimeout bounds one write. A write does not end with the caller's
+// context: a cancelled Run still writes its last steps.
+const writeTimeout = 10 * time.Second
+
 // Flush writes the Record's queued Entries, if any, in one write.
 func (w *Writer) Flush(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	defer cancel()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.failed != nil {

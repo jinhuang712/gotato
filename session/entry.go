@@ -34,6 +34,9 @@ const (
 	// EntryClaim is a fact holding a Claim: from here on, the Instance it
 	// names is the Record's writer.
 	EntryClaim EntryKind = "claim"
+	// EntryToolsStarted is a fact holding ToolsStarted: Tool calls that were
+	// about to run. A call it names with no result stopped mid-run.
+	EntryToolsStarted EntryKind = "tools_started"
 
 	// EntryLogSnapshot is a log Entry holding a LogSnapshot, written right
 	// after each Checkpoint, so the log can be read from there too.
@@ -45,6 +48,12 @@ const (
 	// EntryEvents is a log Entry holding the Events retained since the
 	// previous write.
 	EntryEvents EntryKind = "events"
+	// EntryModelCall is a log Entry holding a ModelCall: a model call was
+	// about to start.
+	EntryModelCall EntryKind = "model_call"
+	// EntryReplyPart is a log Entry holding a ReplyPart: part of a reply
+	// that was streaming.
+	EntryReplyPart EntryKind = "reply_part"
 )
 
 // Entry is one line of a Record's log. Seq numbers a Record's Entries from 1,
@@ -91,6 +100,28 @@ type LogSnapshot struct {
 	Runs   []Run          `json:"runs,omitempty"`
 	Usage  gotato.Usage   `json:"usage"`
 	Events []gotato.Event `json:"events,omitempty"`
+}
+
+// ToolsStarted names the Tool calls of a reply that were about to run.
+type ToolsStarted struct {
+	MessageID gotato.MessageID    `json:"message_id"`
+	Calls     []gotato.ToolCallID `json:"calls"`
+}
+
+// ModelCall records that a Turn's model call was about to start.
+type ModelCall struct {
+	RunID gotato.RunID      `json:"run_id"`
+	Turn  gotato.TurnNumber `json:"turn"`
+}
+
+// ReplyPart is part of a reply that was streaming: the text and reasoning
+// since the previous part.
+type ReplyPart struct {
+	RunID     gotato.RunID      `json:"run_id"`
+	Turn      gotato.TurnNumber `json:"turn"`
+	MessageID gotato.MessageID  `json:"message_id"`
+	Text      string            `json:"text,omitempty"`
+	Reasoning string            `json:"reasoning,omitempty"`
 }
 
 // MetadataChange sets one metadata key. An empty Value deletes the key.
@@ -239,6 +270,9 @@ func FromEntries(entries []Entry) (*Record, error) {
 	if s.id == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: checkpoint has no id")
 	}
+	s.closeParts("")
+	s.messages = repair(s.messages, s.started)
+	s.started = nil
 	s.head = entries[len(entries)-1].Seq
 	s.logging = true
 	return s, nil
@@ -268,6 +302,8 @@ func (s *Record) apply(entry Entry) error {
 		}
 		s.compactions = checkpoint.Compactions
 		s.claim = checkpoint.Claim
+		s.started = nil
+		s.openParts = nil
 		s.eventLimit = checkpoint.EventLimit
 		if s.eventLimit == 0 {
 			s.eventLimit = DefaultEventLimit
@@ -277,7 +313,30 @@ func (s *Record) apply(entry Entry) error {
 		if err := decode(&message); err != nil {
 			return err
 		}
+		s.closeParts(message.ID)
 		s.messages = append(s.messages, message)
+	case EntryToolsStarted:
+		var started ToolsStarted
+		if err := decode(&started); err != nil {
+			return err
+		}
+		if s.started == nil {
+			s.started = map[gotato.ToolCallID]bool{}
+		}
+		for _, call := range started.Calls {
+			s.started[call] = true
+		}
+	case EntryModelCall:
+		var call ModelCall
+		if err := decode(&call); err != nil {
+			return err
+		}
+	case EntryReplyPart:
+		var part ReplyPart
+		if err := decode(&part); err != nil {
+			return err
+		}
+		s.addPart(part)
 	case EntryMetadata:
 		var change MetadataChange
 		if err := decode(&change); err != nil {
@@ -334,4 +393,106 @@ func (s *Record) apply(entry Entry) error {
 		return gotato.ErrorOf(gotato.ErrNotSupported, fmt.Sprintf("session: entry %d has unknown kind %q", entry.Seq, entry.Kind))
 	}
 	return nil
+}
+
+// addPart collects a part of a reply that was streaming. The caller holds the
+// lock.
+func (s *Record) addPart(part ReplyPart) {
+	for i := range s.openParts {
+		if s.openParts[i].MessageID == part.MessageID {
+			s.openParts[i].Text += part.Text
+			s.openParts[i].Reasoning += part.Reasoning
+			return
+		}
+	}
+	s.openParts = append(s.openParts, part)
+}
+
+// closeParts ends the streaming replies whose Message never arrived, but the
+// one with ID committed, as cut-off replies with the text they streamed. The
+// caller holds the lock.
+func (s *Record) closeParts(committed gotato.MessageID) {
+	for _, part := range s.openParts {
+		if part.MessageID == committed || part.Text == "" {
+			continue
+		}
+		s.messages = append(s.messages, gotato.Message{
+			ID: part.MessageID, Role: gotato.RoleAssistant, StopReason: gotato.StopCutOff,
+			Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: part.Text}},
+		})
+	}
+	s.openParts = nil
+}
+
+// Results that repair adds for Tool calls left without one.
+const (
+	// StoppedToolResult answers a call that started and never finished.
+	StoppedToolResult = "The instance running this tool stopped before the tool finished. Whether the tool took effect is unknown."
+	// NotRunToolResult answers a call that never started.
+	NotRunToolResult = "This tool call was not run: the instance stopped before it started."
+)
+
+// repair answers, in memory, every Tool call that has no result. A Run whose
+// writer stopped leaves such calls behind, and a provider refuses a request
+// with an unanswered call. A call that started is reported as stopped with an
+// unknown outcome, and one that never started as not run. Nothing is written
+// for them: every load works them out the same way, with the same IDs.
+func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []gotato.Message {
+	var out []gotato.Message
+	for i := 0; i < len(messages); i++ {
+		message := messages[i]
+		if message.Role != gotato.RoleAssistant || len(message.ToolCalls) == 0 {
+			if out != nil {
+				out = append(out, message)
+			}
+			continue
+		}
+		answered := map[gotato.ToolCallID]bool{}
+		end := i + 1
+		for ; end < len(messages) && messages[end].Role == gotato.RoleToolResult; end++ {
+			if result := messages[end].ToolResult; result != nil {
+				answered[result.CallID] = true
+			}
+		}
+		var missing []gotato.ToolCall
+		for _, call := range message.ToolCalls {
+			if !answered[call.ID] {
+				missing = append(missing, call)
+			}
+		}
+		if len(missing) == 0 && out == nil {
+			continue
+		}
+		if out == nil {
+			out = append(make([]gotato.Message, 0, len(messages)+len(missing)), messages[:i]...)
+		}
+		out = append(out, messages[i:end]...)
+		for _, call := range missing {
+			text := NotRunToolResult
+			if started[call.ID] {
+				text = StoppedToolResult
+			}
+			out = append(out, gotato.Message{
+				ID:    gotato.MessageID("repair-" + string(call.ID)),
+				Role:  gotato.RoleToolResult,
+				Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: text}},
+				ToolResult: &gotato.ToolResult{
+					CallID: call.ID, Status: gotato.ToolResultFailed, Executed: started[call.ID], SafeError: text,
+					Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: text}},
+				},
+			})
+		}
+		i = end - 1
+	}
+	if out == nil {
+		return messages
+	}
+	return out
+}
+
+// note queues one Entry for a step, once the log is on.
+func (s *Record) note(kind EntryKind, layer Layer, data any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queue(kind, layer, data)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,5 +176,97 @@ func TestCreateRefusesATakenID(t *testing.T) {
 	}
 	if _, err := session.Create(ctx, store, session.New(session.WithID("taken")), "instance-b"); !errors.Is(err, session.ErrExists) {
 		t.Fatalf("Create = %v, want ErrExists", err)
+	}
+}
+
+// toolCallReply is an assistant reply that calls the demo tool twice.
+func toolCallReply() gotato.Message {
+	return gotato.Message{ID: "reply-1", Role: gotato.RoleAssistant, StopReason: gotato.StopToolCalls, ToolCalls: []gotato.ToolCall{
+		{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{}`)},
+		{ID: "call-2", ToolID: "demo.echo", Arguments: []byte(`{}`)},
+	}}
+}
+
+func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	writer, err := session.Create(ctx, store, session.New(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Record().Append(gotato.UserMessage("go"))
+	_ = writer.Record().Append(toolCallReply())
+	// call-1 started, then the instance stopped: call-2 never started.
+	if err := writer.Step(ctx, gotato.Step{Kind: gotato.StepToolStart, MessageID: "reply-1", Calls: []gotato.ToolCallID{"call-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, open := range []func() (*session.Record, error){
+		func() (*session.Record, error) { return session.Open(ctx, store, writer.ID()) },
+		func() (*session.Record, error) { return session.View(ctx, store, writer.ID()) },
+	} {
+		r, err := open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := r.Messages()
+		if len(messages) != 4 {
+			t.Fatalf("messages = %+v, want both calls answered", messages)
+		}
+		stopped, notRun := messages[2].ToolResult, messages[3].ToolResult
+		if stopped == nil || stopped.CallID != "call-1" || !stopped.Executed || stopped.Status != gotato.ToolResultFailed || stopped.SafeError != session.StoppedToolResult {
+			t.Fatalf("call-1 answered with %+v", stopped)
+		}
+		if notRun == nil || notRun.CallID != "call-2" || notRun.Executed || notRun.SafeError != session.NotRunToolResult {
+			t.Fatalf("call-2 answered with %+v", notRun)
+		}
+	}
+	// Nothing was written for the answers: the store still holds the facts.
+	loaded, err := store.Load(ctx, writer.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range loaded.Facts {
+		if entry.Kind == session.EntryMessage && strings.Contains(string(entry.Data), "repair-") {
+			t.Fatalf("a repair was written: %s", entry.Data)
+		}
+	}
+}
+
+func TestViewRebuildsACutOffReplyFromItsParts(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	writer, err := session.Create(ctx, store, session.New(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Record().Append(gotato.UserMessage("question"))
+	for _, text := range []string{"half an ", "answer"} {
+		if err := writer.Step(ctx, gotato.Step{Kind: gotato.StepReplyPart, MessageID: "reply-1", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The instance stops mid-stream; another one takes the Session over.
+	next, err := session.OpenWriter(ctx, store, writer.ID(), "instance-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = next.Record().Append(gotato.UserMessage("again"))
+	if err := next.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	view, err := session.View(ctx, store, writer.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := view.Messages()
+	if len(messages) != 3 || messages[1].StopReason != gotato.StopCutOff || gotato.TextOf(messages[1]) != "half an answer" || gotato.TextOf(messages[2]) != "again" {
+		t.Fatalf("view = %+v, want the cut-off reply between the two prompts", messages)
+	}
+	facts, err := session.Open(ctx, store, writer.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.Len() != 2 {
+		t.Fatalf("facts = %+v, want the two prompts only: reply parts are log", facts.Messages())
 	}
 }

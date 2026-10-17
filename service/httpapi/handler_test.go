@@ -333,31 +333,37 @@ func TestRunTimeoutOutOfRangeIsRejected(t *testing.T) {
 	}
 }
 
-// failingSaveStore fails Save after the first call, so the terminal Session
-// write of a Run fails with a store-internal message.
+// failingSaveStore fails the write that ends a Run, with a store-internal
+// message.
 type failingSaveStore struct {
 	session.Store
-	mu        sync.Mutex
-	saves     int
-	failAfter int
+	mu    sync.Mutex
+	saves int
+	// failFinal fails the write that ends a Run: the one holding run_end.
+	failFinal bool
 }
 
-func (s *failingSaveStore) fail() bool {
+func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.saves++
-	return s.failAfter > 0 && s.saves > s.failAfter
+	for _, entry := range entries {
+		if s.failFinal && entry.Kind == session.EntryRunEnd {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
-	if s.fail() {
+	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
 func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
-	if s.fail() {
+	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
 	return s.Store.Append(ctx, id, after, entries, summary)
@@ -365,7 +371,7 @@ func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, 
 
 func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
 	runner, err := service.New(service.Config{
-		Store:  &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1},
+		Store:  &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true},
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {

@@ -208,6 +208,9 @@ func NewSession(options ...Option) (*Session, error) {
 		lifecycle:      newLifecycleHub(),
 		stateChange:    make(chan struct{}),
 	}
+	if journal, ok := cfg.transcript.(Journal); ok {
+		a.journal = journal
+	}
 	a.setStatus(SessionCreated)
 	go a.loop()
 	<-a.ready
@@ -240,6 +243,9 @@ type Session struct {
 	transcript      Transcript
 	transcriptBytes uint64
 	contextBuilder  ContextBuilder
+	// journal is the Transcript when it writes the Run's steps as they
+	// happen (see Journal).
+	journal Journal
 
 	// observerCtx belongs to the Run in flight. Only the Session goroutine
 	// reads and writes it, so Event observers see the owning Run Context.
@@ -784,6 +790,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err := a.commitMessage(*prompt); err != nil {
 			return fail(asRuntimeError(err))
 		}
+		if err := a.journalStep(runCtx, Step{Kind: StepPrompt, RunID: runID, MessageID: prompt.ID}); err != nil {
+			return fail(err)
+		}
 		payload := map[string]any{"role": string(prompt.Role)}
 		if err := a.emit(runID, &sequence, EventMessageStart, EventProtected, 0, prompt.ID, "", payload); err != nil {
 			return fail(err)
@@ -842,6 +851,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 			contextPayload["metadata"] = metadata
 		}
+		// The model call is written before context_built, so the store's time
+		// stays out of the model's, and a writer that can no longer write
+		// stops here, before the model is called.
+		if err := a.journalStep(runCtx, Step{Kind: StepModelCall, RunID: runID, Turn: turn}); err != nil {
+			return fail(err)
+		}
 		if err := a.emit(runID, &sequence, EventContextBuilt, EventProtected, turn, "", "", contextPayload); err != nil {
 			return fail(err)
 		}
@@ -859,6 +874,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// The text the Model sent before its stream broke is committed,
 			// so the Transcript keeps it; the Run still fails as it did.
 			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
+				// The Run fails with the model's error either way; a cut-off
+				// reply that cannot be written fails the Run's last write.
+				_ = a.journalStep(runCtx, Step{Kind: StepCutOff, RunID: runID, Turn: turn, MessageID: assistant.ID})
 				_ = a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": 0})
 			}
 			return fail(modelErr)
@@ -873,6 +891,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		if len(assistant.ToolCalls) > 0 {
 			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
+		}
+		if err := a.journalStep(runCtx, Step{Kind: StepReply, RunID: runID, Turn: turn, MessageID: assistant.ID}); err != nil {
+			return fail(err)
 		}
 		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)}); err != nil {
 			return fail(err)
@@ -918,7 +939,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if err := contextFailure(runCtx, "continuation"); err != nil {
 				return fail(err)
 			}
-			injected, controlErr := a.consumeControl(runID, &sequence, turn, true)
+			injected, controlErr := a.consumeControl(runCtx, runID, &sequence, turn, true)
 			if controlErr != nil {
 				return fail(controlErr)
 			}
@@ -931,7 +952,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// settling on it.
 			if assistant.StopReason == StopMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
 				truncatedContinuations++
-				if err := a.commitContinuation(runID, &sequence, turn, UserMessage(TruncatedContinuationText), "truncated"); err != nil {
+				if err := a.commitContinuation(runCtx, runID, &sequence, turn, UserMessage(TruncatedContinuationText), "truncated"); err != nil {
 					return fail(err)
 				}
 				continue
@@ -961,10 +982,62 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 		}
 
+		// Results commit in source order, as soon as every call before them
+		// has settled: after each group runs, and for blocked calls, which
+		// settled at preflight. So a crash loses at most the group in flight.
+		toolResults := make([]map[string]any, 0, len(plans))
+		settledResults := make([]ToolResult, 0, len(plans))
+		committed := 0
+		commitUpTo := func(end int) *RuntimeError {
+			for ; committed < end; committed++ {
+				call := plans[committed].call
+				toolResult := outcomes[committed]
+				// Post-Tool-Use sees executed, blocked, failed, and cancelled
+				// outcomes alike, in reverse installation order.
+				finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
+				if postErr != nil {
+					return postErr
+				}
+				toolResult = finalized
+				if err := validateToolResultSize(a.limits, a.limitsSet, toolResult); err != nil {
+					return err
+				}
+				content := cloneContent(toolResult.Content)
+				resultMessage := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
+				if err := a.commitMessage(resultMessage); err != nil {
+					return asRuntimeError(err)
+				}
+				batch.next = committed + 1
+				if err := a.journalStep(runCtx, Step{Kind: StepToolResult, RunID: runID, Turn: turn, MessageID: resultMessage.ID}); err != nil {
+					return err
+				}
+				if err := a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status}); err != nil {
+					return err
+				}
+				settledResults = append(settledResults, toolResult.Clone())
+				toolResults = append(toolResults, map[string]any{
+					"tool_id":  call.ToolID,
+					"call_id":  call.ID,
+					"status":   toolResult.Status,
+					"executed": toolResult.Executed,
+				})
+			}
+			return nil
+		}
+
 		// Execution may be sequential or bounded parallel. Completion Events
 		// are emitted inside the group as each outcome arrives, so they follow
-		// actual completion order; commitment below stays source ordered.
+		// actual completion order; commitment stays source ordered.
 		for _, group := range groupPlans(plans, a.parallelWorkers()) {
+			// The calls are written before they run, so a crash during them
+			// leaves calls that are known to have started.
+			calls := make([]ToolCallID, len(group))
+			for j, index := range group {
+				calls[j] = plans[index].call.ID
+			}
+			if err := a.journalStep(runCtx, Step{Kind: StepToolStart, RunID: runID, Turn: turn, MessageID: assistant.ID, Calls: calls}); err != nil {
+				return fail(err)
+			}
 			completed, groupErr := a.executeToolGroup(runCtx, runID, &sequence, turn, assistant.ID, plans, group)
 			// A failed group still reports what it knows, so the closing
 			// results of the failed Run keep Executed true for started Tools.
@@ -974,39 +1047,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if groupErr != nil {
 				return fail(groupErr)
 			}
+			if err := commitUpTo(group[len(group)-1] + 1); err != nil {
+				return fail(err)
+			}
 		}
-
-		toolResults := make([]map[string]any, 0, len(plans))
-		settledResults := make([]ToolResult, 0, len(plans))
-		for i := range plans {
-			call := plans[i].call
-			toolResult := outcomes[i]
-			// Post-Tool-Use sees executed, blocked, failed, and cancelled
-			// outcomes alike, in reverse installation order.
-			finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
-			if postErr != nil {
-				return fail(postErr)
-			}
-			toolResult = finalized
-			if err := validateToolResultSize(a.limits, a.limitsSet, toolResult); err != nil {
-				return fail(err)
-			}
-			content := cloneContent(toolResult.Content)
-			resultMessage := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
-			if err := a.commitMessage(resultMessage); err != nil {
-				return fail(asRuntimeError(err))
-			}
-			batch.next = i + 1
-			if err := a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status}); err != nil {
-				return fail(err)
-			}
-			settledResults = append(settledResults, toolResult.Clone())
-			toolResults = append(toolResults, map[string]any{
-				"tool_id":  call.ToolID,
-				"call_id":  call.ID,
-				"status":   toolResult.Status,
-				"executed": toolResult.Executed,
-			})
+		if err := commitUpTo(len(plans)); err != nil {
+			return fail(err)
 		}
 		batch = openBatch{}
 
@@ -1045,7 +1091,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err := contextFailure(runCtx, "continuation"); err != nil {
 			return fail(err)
 		}
-		if _, controlErr := a.consumeControl(runID, &sequence, turn, false); controlErr != nil {
+		if _, controlErr := a.consumeControl(runCtx, runID, &sequence, turn, false); controlErr != nil {
 			return fail(controlErr)
 		}
 	}
@@ -1054,10 +1100,10 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 // consumeControl commits the control Messages that apply at this boundary. It
 // runs inside the Session execution unit, so committing them keeps the Session
 // goroutine as the only mutation authority for the transcript.
-func (a *Session) consumeControl(runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
+func (a *Session) consumeControl(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
 	injected := false
 	commit := func(message Message, source string) *RuntimeError {
-		if err := a.commitContinuation(runID, sequence, turn, message, source); err != nil {
+		if err := a.commitContinuation(ctx, runID, sequence, turn, message, source); err != nil {
 			return err
 		}
 		injected = true
@@ -1094,10 +1140,13 @@ func (a *Session) consumeControl(runID RunID, sequence *uint64, turn TurnNumber,
 // commitContinuation commits a Message the Loop continues with (a control
 // Message, or the truncation continuation) and emits its message events
 // with the source that produced it.
-func (a *Session) commitContinuation(runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
+func (a *Session) commitContinuation(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
 	message.ID = MessageID(nextID("message"))
 	if err := a.commitMessage(message); err != nil {
 		return asRuntimeError(err)
+	}
+	if err := a.journalStep(ctx, Step{Kind: StepContinuation, RunID: runID, Turn: turn, MessageID: message.ID}); err != nil {
+		return err
 	}
 	payload := map[string]any{"role": string(message.Role), "source": source}
 	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, message.ID, "", payload); err != nil {
@@ -1145,6 +1194,24 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 		partial.Usage = usage
 		return partial, usage, err
 	}
+	// A streaming reply is written in parts, every second or every few KiB,
+	// so a crash loses at most the last part of it.
+	var partText, partReasoning strings.Builder
+	partStarted := time.Now()
+	writePart := func() *RuntimeError {
+		if a.journal == nil {
+			return nil
+		}
+		size := partText.Len() + partReasoning.Len()
+		if size == 0 || (size < replyPartBytes && time.Since(partStarted) < replyPartEvery) {
+			return nil
+		}
+		step := Step{Kind: StepReplyPart, RunID: runID, Turn: turn, MessageID: assistant.ID, Text: partText.String(), Reasoning: partReasoning.String()}
+		partText.Reset()
+		partReasoning.Reset()
+		partStarted = time.Now()
+		return a.journalStep(ctx, step)
+	}
 	for {
 		modelEvent, recvErr := stream.Recv(modelCtx)
 		if recvErr != nil {
@@ -1169,10 +1236,18 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint
 				if err := a.emit(runID, sequence, EventMessageUpdate, EventCoalescable, turn, assistant.ID, "", map[string]any{"text": modelEvent.Text}); err != nil {
 					return broken(err)
 				}
+				partText.WriteString(modelEvent.Text)
+				if err := writePart(); err != nil {
+					return broken(err)
+				}
 			}
 		case ModelReasoningDelta:
 			if modelEvent.Text != "" {
 				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning, Text: modelEvent.Text})
+				partReasoning.WriteString(modelEvent.Text)
+				if err := writePart(); err != nil {
+					return broken(err)
+				}
 			}
 		case ModelReasoningDone:
 			// The Done signs the block its deltas opened. A block that

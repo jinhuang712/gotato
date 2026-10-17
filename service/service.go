@@ -527,7 +527,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 			limits.RunDeadline = request.Timeout
 			spec.Limits = &limits
 		}
-		live, auto, err := r.buildSession(spec, s, sink, tracker, InspectOptions{})
+		live, auto, err := r.buildSession(spec, s, writer, sink, tracker, InspectOptions{})
 		if err != nil {
 			return err
 		}
@@ -662,7 +662,13 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 // buildSession builds the live Session for one Run from its Agent and its
 // Record's own settings. override replaces the Session's instruction for an
 // inspection; a Run passes none.
-func (r *Runner) buildSession(spec Agent, s *session.Record, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (*gotato.Session, *modelctx.AutoCompactor, error) {
+// buildSession builds the live Session for s. With a writer, the writer is its
+// Transcript, so every step of a Run is written as it happens.
+func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Writer, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (*gotato.Session, *modelctx.AutoCompactor, error) {
+	var transcript gotato.Transcript = s
+	if writer != nil {
+		transcript = writer
+	}
 	instruction := spec.Instruction
 	if stored, ok := s.Get(MetaInstruction); ok && stored != "" {
 		instruction = stored
@@ -698,7 +704,7 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, sink func(gotato.Ev
 	options := []gotato.Option{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
-		gotato.WithTranscript(s),
+		gotato.WithTranscript(transcript),
 		gotato.WithContextBuilder(builder),
 		gotato.WithExtensions(extensions...),
 		gotato.WithCacheKey(sessionCacheKey(s)),
@@ -769,7 +775,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if len(options) > 0 {
 		override = options[0]
 	}
-	live, auto, err := r.buildSession(spec, s, nil, nil, override)
+	live, auto, err := r.buildSession(spec, s, nil, nil, nil, override)
 	if err != nil {
 		return modelctx.Report{}, err
 	}

@@ -401,37 +401,43 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	close(block)
 }
 
-// failingSaveStore wraps a Store and fails its writes after the first.
+// failingSaveStore wraps a Store and fails the write that ends a Run.
 type failingSaveStore struct {
 	session.Store
-	mu        sync.Mutex
-	saves     int
-	failAfter int
+	mu    sync.Mutex
+	saves int
+	// failFinal fails the write that ends a Run: the one holding run_end.
+	failFinal bool
 }
 
-func (s *failingSaveStore) fail() bool {
+func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.saves++
-	return s.failAfter > 0 && s.saves > s.failAfter
+	for _, entry := range entries {
+		if s.failFinal && entry.Kind == session.EntryRunEnd {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
-	if s.fail() {
+	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
 func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
-	if s.fail() {
+	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
 	return s.Store.Append(ctx, id, after, entries, summary)
 }
 
 func TestUnpersistedRunIsReported(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
 	runner, err := service.New(service.Config{
 		Store:  store,
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
@@ -622,7 +628,7 @@ func TestStoreEventsFrameTheRun(t *testing.T) {
 }
 
 func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +705,7 @@ func TestFailedOneShotCleanupIsReported(t *testing.T) {
 }
 
 func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
-	store := &failingSaveStore{Store: session.NewMemoryStore(), failAfter: 1}
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
 	model := testkit.NewFakeModel(testkit.Text("x"))
 	model.Err = errors.New("model exploded")
 	runner, err := service.New(service.Config{

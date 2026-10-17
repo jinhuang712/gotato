@@ -121,6 +121,10 @@ type Record struct {
 	// are in the log and were not read.
 	running  gotato.RunID
 	baseRuns int
+	// started and openParts hold, while a log is read, the Tool calls that
+	// started and the replies that were streaming, for repair.
+	started   map[gotato.ToolCallID]bool
+	openParts []ReplyPart
 }
 
 // Option configures New.
