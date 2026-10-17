@@ -67,6 +67,7 @@ Phases 2 and 3 of [ROADMAP.md](ROADMAP.md): the Effect cap, and the names. The E
 ### Providers
 
 - **A Responses tool call keeps the provider's item ID out of its call ID.** The Responses adapter packed the provider's item ID into `ToolCall.ID` as `call_…|fc_…`, so a provider-private ID was stored in the Session and reached `Event.ToolCallID`. `ToolCall` now has `Signature`, an opaque provider artifact that the adapter sets and reads back on replay, like `ContentPart.Signature`. `ToolCall.ID` is the call ID alone. A Session saved before still replays: the adapter reads a packed call ID as it did.
+- **The chat gateway sends `{}` for a tool call with empty arguments.** A provider may stream a call to a tool that takes no arguments with `arguments: ""`. The Loop accepts only JSON, so the call failed as invalid arguments and the tool could never run. The chat gateway now sends `{}` in its place, as the Responses and Anthropic Messages gateways already did.
 
 ### Contracts
 

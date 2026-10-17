@@ -742,7 +742,14 @@ func (s *stream) finishStream() {
 		if original, ok := s.nameMap[name]; ok {
 			name = original
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(call.arguments)}})
+		// A provider may stream a call that takes no arguments with empty
+		// arguments. Core accepts only JSON, so the call would fail as invalid
+		// arguments; the Responses and Anthropic adapters send {} too.
+		arguments := call.arguments
+		if strings.TrimSpace(arguments) == "" {
+			arguments = "{}"
+		}
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(arguments)}})
 	}
 	if s.finish == "" {
 		s.finish = gotato.StopEndTurn

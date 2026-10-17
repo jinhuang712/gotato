@@ -104,6 +104,34 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 	}
 }
 
+// A call to a Tool that takes no arguments may stream with empty arguments.
+// It must reach Core as {}, or Core fails it as invalid JSON and the Tool can
+// never run.
+func TestGatewayStreamDefaultsEmptyToolArguments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"now","arguments":""}}]},"finish_reason":"tool_calls"}]}` + "\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, APIKey: "secret", Model: "gateway-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Tools: []gotato.ToolSpec{{ID: "now", InputSchema: []byte(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	toolEvent, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolEvent.Kind != gotato.ModelToolCall || toolEvent.ToolCall == nil || string(toolEvent.ToolCall.Arguments) != `{}` {
+		t.Fatalf("tool event = %+v", toolEvent)
+	}
+}
+
 func TestGatewayHonorsRetryAfter(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
