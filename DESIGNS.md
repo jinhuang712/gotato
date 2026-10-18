@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-18 -->
+<!-- what-we-build: drafted 2026-10-19 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -354,6 +354,7 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 - **Instead of:** a stream that must reconnect to the same instance, or start over.
 - **Why:** an instance can go away at any time. A stored Event's number is its Entry's position in the Record, which every instance reads the same. A client reconnects to any instance with the number of the last Event it saw, gets every later Event from the Record and then the live ones, and the stream goes on without gaps or duplicates.
 - **The Record's epoch.** A number means the same Event only within one Record. A Record deleted and created again under the same ID would give a client holding number 40 the 41st Event of another conversation, so every Record has an epoch, chosen when it is created and kept in `session_created` and in its Summary, and a client that sends the epoch it saw is refused when it is not the Record's. We took it from `session_created` and the Summary because both are written already. An adapter keeps it with the rest of the Summary, and the store contract test checks that it does.
+- **An open stream follows one epoch.** An instance keeps a Feed for each Record, named by its Session ID and its epoch, not one for each Session ID, so a stream is never handed another Record's Events, and a new Record's streams never wait for the old one's numbers. A stream ends, instead of going on with another Record's numbers, once it learns that its Record was deleted or created again: at once when its own instance deletes the Session, or opens, creates or streams the new Record, and elsewhere at a read of the store, since an idle stream reads only what follows its number.
 - **Deltas and the end of a stream.** A delta is not a position, and what it carried ends up whole in a Message, so a reconnect does not send again what was sent before it. A stream that ends says whether to come back and how long to wait, spread at random, so a lost instance does not bring every client back in the same instant.
 - **Any instance serves it.** An idle stream reads the Record at intervals, which is the cost of not binding a Session to an instance. The read does not take the stream out of its live mode, so a delta that arrives meanwhile is not lost, and on the writer it finds nothing new. The load balancer's hash keeps most streams on the writer, where Events arrive as they are written.
 

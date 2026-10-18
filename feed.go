@@ -150,8 +150,9 @@ func SubscribeAfter(n uint64) SubscribeOption {
 // there. A Feed is given only the Events that its own Instance writes. A
 // stream that follows a Session whose writer is another Instance needs the
 // tail to see what that Instance writes; it costs one read of the source per
-// interval while the stream is idle, and nothing else. It has no effect on a Feed without a
-// source, or on an Instance's stream.
+// interval while the stream is idle, and a SubscribeVerify check only after a
+// read that returned Events. It has no effect on a Feed without a source, or
+// on an Instance's stream.
 func SubscribeTail(interval time.Duration) SubscribeOption {
 	return func(c *subscribeConfig) { c.tail = interval }
 }
