@@ -227,9 +227,7 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 	}
 	if !f.mixed {
 		if config.hasAfter {
-			s.behind, s.cursor, s.resume = true, config.after, config.after
-		} else {
-			s.cursor, s.resume = f.last, f.last
+			s.behind, s.cursor, s.resume, s.cursorSet = true, config.after, config.after, true
 		}
 	}
 	f.subs[s] = struct{}{}
@@ -239,8 +237,10 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 }
 
 // Publish puts an Event in every subscriber's queue, and returns at once. A
-// stored Event is published only after its write succeeded, in the order of
-// its numbers; one that is not newer than the last is ignored.
+// stored Event is published only after its write succeeded. Writers on
+// different goroutines can publish out of order, or an Event can be missing;
+// each subscriber notices a number that is not the next one and reads what it
+// missed from the Record, and ignores one it has already seen.
 func (f *Feed) Publish(event Event) {
 	f.mu.Lock()
 	label := f.label
@@ -257,12 +257,7 @@ func (f *Feed) PublishLabeled(event Event, label string) {
 		return
 	}
 	if !f.mixed && event.Kind().Class() == ClassStored {
-		number := event.Head().Number
-		if number != 0 && number <= f.last {
-			f.mu.Unlock()
-			return
-		}
-		if number > f.last {
+		if number := event.Head().Number; number > f.last {
 			f.last = number
 		}
 		f.retain(event)
@@ -288,7 +283,17 @@ func (f *Feed) retain(event Event) {
 		f.ring = append(f.ring[:0], f.ring[len(f.ring)-f.ringCap/2:]...)
 		f.dropped = true
 	}
-	f.ring = append(f.ring, event)
+	// Keep the ring in the order of the numbers, whatever order they came in.
+	at := len(f.ring)
+	for at > 0 && f.ring[at-1].Head().Number > event.Head().Number {
+		at--
+	}
+	if at > 0 && f.ring[at-1].Head().Number == event.Head().Number {
+		return
+	}
+	f.ring = append(f.ring, nil)
+	copy(f.ring[at+1:], f.ring[at:])
+	f.ring[at] = event
 }
 
 // eventsAfter reads stored Events again, from the source or from memory.
@@ -345,14 +350,17 @@ type subscription struct {
 	labeled func(Event, string) bool
 	until   func(Event) bool
 
-	mu      sync.Mutex
-	queue   []Event
-	cursor  uint64 // number of the last stored Event queued or delivered
-	behind  bool   // the queue overflowed: catch up from the source after resume
-	resume  uint64
-	skipped uint64
-	ending  bool
-	err     error
+	mu     sync.Mutex
+	queue  []Event
+	cursor uint64 // number of the last stored Event queued or delivered
+	// cursorSet is false for a live subscriber until the first stored Event
+	// reaches it, which is where its stream starts.
+	cursorSet bool
+	behind    bool // the queue overflowed: catch up from the source after resume
+	resume    uint64
+	skipped   uint64
+	ending    bool
+	err       error
 
 	wake chan struct{}
 	out  chan Event
@@ -370,12 +378,7 @@ func (s *subscription) signal() {
 // offer puts an Event in the queue without ever blocking. The Feed's lock is
 // held.
 func (s *subscription) offer(event Event, label string) {
-	if s.filter != nil && !s.filter(event) {
-		return
-	}
-	if s.labeled != nil && !s.labeled(event, label) {
-		return
-	}
+	keep := (s.filter == nil || s.filter(event)) && (s.labeled == nil || s.labeled(event, label))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ending && !s.behind {
@@ -387,7 +390,26 @@ func (s *subscription) offer(event Event, label string) {
 		// A stored Event is read again from the Record; a delta is skipped.
 		return
 	}
-	if stored && event.Head().Number <= s.cursor {
+	if stored {
+		number := event.Head().Number
+		if s.cursorSet {
+			if number <= s.cursor {
+				return
+			}
+			if number > s.cursor+1 {
+				// An Event was written that this Feed was not given: another
+				// Instance wrote it, or a write whose outcome was unknown
+				// landed. Read it, and what follows, from the Record.
+				s.behind, s.resume = true, s.cursor
+				s.signal()
+				return
+			}
+		}
+		if !keep {
+			s.cursor, s.cursorSet = number, true
+			return
+		}
+	} else if !keep {
 		return
 	}
 	if len(s.queue) >= s.max {
@@ -420,7 +442,7 @@ func (s *subscription) offer(event Event, label string) {
 	}
 	s.queue = append(s.queue, event)
 	if stored {
-		s.cursor = event.Head().Number
+		s.cursor, s.cursorSet = event.Head().Number, true
 	}
 	s.signal()
 }
@@ -522,7 +544,7 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 			s.feed.mu.Lock()
 			s.mu.Lock()
 			if s.resume >= s.feed.last {
-				s.behind = false
+				s.behind, s.cursorSet = false, true
 				empty = 0
 			}
 			caughtUp := !s.behind
