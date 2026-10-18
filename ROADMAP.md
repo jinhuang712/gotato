@@ -116,30 +116,30 @@ Exit:
 - ✅ A test compacts, appends, reloads and compares the Context with the one before the reload.
 - ✅ G-B05, G-B07 and G-B09 show what writing every step costs, compared with a Run that saved once.
 
-## Phase 5 — One writer 🚧
+## Phase 5 — One writer ✅
 
-The part that keeps two instances from running one Session is built, and so is the drain; both ship in the next 0.1.x release. The Event design, decided on 2026-10-18, is built too, because stream resume and the Claim Events stand on it; the routes that resume a stream are the next item. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
+Built, and ships in the next 0.1.x release. The part that keeps two instances from running one Session is built, and so is the drain. The Event design, decided on 2026-10-18, is built too, because stream resume and the Claim Events stand on it, and so are the routes that resume a stream, the load balancer's part and the harness behind a hashing proxy.
 
 - ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
-- ⬜ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
+- ✅ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header as a check and answer with it when they create a Session, an instance past its hard limit (`MaxActiveSessions`, `--max-sessions`) refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain and the active Sessions ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
 - ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
 - ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the version change that the unreleased release already holds. The message Events have their types, and a live Session sends them; the Runner and the endpoints get them in Phase 6.
-- ⬜ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch.
+- ✅ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch: `GET /v1/sessions/{id}/stream` (`Last-Event-ID`, `after`) and gRPC `StreamSession`. A Run's stream carries each Event's number, and a stream that ends says whether to reconnect and after how long, spread at random ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
 - ✅ Claim Events: `session_claimed`, with why and from which instance, `session_released`, `session_fenced` and `liveness_lapsed`.
-- 🚧 The multi-instance harness: several instances over one shared store, with requests sent to random instances, concurrent messages and an instance killed. A hashing proxy in front of them is still to build.
+- ✅ The multi-instance harness: several instances over one shared store behind a hashing proxy, with requests sent through it and straight to random instances, concurrent messages and an instance killed.
 - ✅ Ended Liveness rows are cleaned up: an instance removes its own row when it stops, and the store conformance suite checks that a removed row reads as not alive.
 
 Exit:
 
 - ✅ G-G08 passes for every message an instance accepts.
-- ⬜ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
-- ⬜ A stream cut at every Event of the reference workload resumes equal to an uncut one.
+- ✅ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
+- ✅ A stream cut at every Event of the reference workload resumes equal to an uncut one, over HTTP and over gRPC.
 - ✅ A subscriber that stops reading never slows its Session, and catches up from the Record with every stored Event once.
 - ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), under the contract version change that the unreleased release already holds.
 - ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
-- ⬜ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
+- ✅ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 
 ## Phase 6 — Warm Session
 

@@ -270,7 +270,7 @@ A second instance must stop before it calls the model, and a writer that lost it
 ### A refusal is a safety valve, not a balancer
 
 - **Instead of:** Gotato spreading load itself.
-- **Why:** placing Sessions is the job of the load balancer and the autoscaler. An instance refuses a new Session only past a hard limit, such as its memory, and marks the refusal "not run" so that a retry is safe.
+- **Why:** placing Sessions is the job of the load balancer and the autoscaler. An instance refuses a new Session only past a hard limit, and marks the refusal "not run" so that a retry is safe. The limit counts the Sessions an instance has active, because that is what its memory and its Claims grow with, and the Runner knows the count exactly; a team that wants a memory budget sizes the count to it. The refusal comes before anything is loaded, claimed or created, so the instance that refuses has done nothing a retry could repeat.
 
 ### A drain finishes before it disconnects
 
@@ -353,6 +353,9 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 
 - **Instead of:** a stream that must reconnect to the same instance, or start over.
 - **Why:** an instance can go away at any time. A stored Event's number is its Entry's position in the Record, which every instance reads the same. A client reconnects to any instance with the number of the last Event it saw, gets every later Event from the Record and then the live ones, and the stream goes on without gaps or duplicates.
+- **The Record's epoch.** A number means the same Event only within one Record. A Record deleted and created again under the same ID would give a client holding number 40 the 41st Event of another conversation, so every Record has an epoch, chosen when it is created and kept in `session_created` and in its Summary, and a client that sends the epoch it saw is refused when it is not the Record's. We took it from `session_created` and the Summary because both are written already, so no store adapter changes.
+- **Deltas and the end of a stream.** A delta is not a position, and what it carried ends up whole in a Message, so a reconnect does not send again what was sent before it. A stream that ends says whether to come back and how long to wait, spread at random, so a lost instance does not bring every client back in the same instant.
+- **Any instance serves it.** An instance that is not the Session's writer reads the Record at intervals while the stream is idle, which is the cost of not binding a Session to an instance; the load balancer's hash keeps most streams on the writer, where Events arrive as they are written.
 
 ## 6. The model's input is built, and laid out for the cache
 

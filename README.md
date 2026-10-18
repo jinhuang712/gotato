@@ -106,12 +106,12 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
-| Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. Planned: the Session's stream on HTTP and gRPC, and stream resume |
+| Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. The Session's stream is served on HTTP and gRPC, and resumes on any instance from the last number seen, with the Record's epoch |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
 | Drain | done: marks the Liveness row draining, answers 503 on `/readyz`, lets every Run finish and save, and tells a stopped stream to reconnect |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
-| One writer per Session across instances | done; stream resume and the activation limit planned |
+| One writer per Session across instances | done: the activation limit, the `session-id` header, stream resume on any instance, and a multi-instance harness behind a hashing proxy |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
 | MCP, provider rate-limit information | later |

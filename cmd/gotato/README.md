@@ -135,7 +135,7 @@ Default output is JSON Lines, one stored `Event` per line, in the order of the R
 ### `gotato serve`
 
 ```text
-gotato serve [--addr HOST:PORT] [--max-runs N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
+gotato serve [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
 ```
 
 Serves the same runner over HTTP (`service/httpapi`, contract `4`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
@@ -144,6 +144,7 @@ Serves the same runner over HTTP (`service/httpapi`, contract `4`). Sessions liv
 GET    /healthz  /readyz  /v1/agents
 POST   /v1/sessions            GET /v1/sessions            GET|DELETE /v1/sessions/{id}
 POST   /v1/sessions/{id}/fork  GET /v1/sessions/{id}/events?kind=   GET /v1/sessions/{id}/context
+GET    /v1/sessions/{id}/stream?after=N&record_epoch=E   → SSE: event: stream, one event per stored Event (id: its number), event: reconnect at a drain
 POST   /v1/sessions/{id}/compact {"keep":N}
 POST   /v1/sessions/{id}/runs {"prompt"|"continue":true,"timeout_ms"?}     → run result
 POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result[, event: reconnect]
@@ -151,7 +152,11 @@ POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
 POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        → create session and run
 ```
 
-Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 500 (a settled run could not be saved), 504 (request deadline). A Run that settles as `failed`, `cancelled`, or `deadline_exceeded` still returns HTTP 200 with the outcome in the body (`result.status`); only request-level failures use those status codes. On the streaming routes every failure, including a bad request, is delivered in-band as `event: error` after the stream has started. `GET /readyz` returns 503 while draining so a rolling deployment can stop sending traffic. Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server drains: it marks its Liveness row draining, `/readyz` answers 503, it admits no new run, and it waits `--drain-timeout` for active runs to finish and save. Runs still going then are stopped (including runs queued behind a busy session), saved and released, and each stopped stream ends with `event: result` and then `event: reconnect`, whose `retry_after_ms` says how long to wait before continuing the session. The server then removes its Liveness row and exits 0; stderr says `draining (up to …)` and `stopped`.
+`--max-sessions N` is the hard limit on the sessions this process has active (0, the default, has none). Past it, a run that would activate another session is refused before anything is loaded or created, with `503`, the header `Gotato-Not-Run: true` and `"not_run": true` in the body, and nothing is written, so a load balancer may send it to another instance once. It is off by default, because a single process has nowhere else to send the run. `--max-runs` bounds runs, with `429`, and counts runs on sessions already active too.
+
+A load balancer hashes on the `session-id` header. The server checks it against the session ID in the path or the body (`400` when they differ), and answers `POST /v1/sessions`, `POST /v1/runs` and a fork with the new session's ID in a `session-id` header, to send next time. `GET /v1/sessions/{id}/stream` sends the session's stored events after `after` (or the `Last-Event-ID` header a browser's `EventSource` sends by itself), then the live ones; a `record_epoch` that is not the session's, or an `after` past its end, answers `409` with code `cannot_resume`. Every stored event on that stream and on the run streams has its number as the SSE `id:`.
+
+Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active / stream cannot resume), 429 (capacity), 500 (a settled run could not be saved), 503 (past `--max-sessions`, marked not run; or the store failed), 504 (request deadline). A Run that settles as `failed`, `cancelled`, or `deadline_exceeded` still returns HTTP 200 with the outcome in the body (`result.status`); only request-level failures use those status codes. On the streaming routes every failure, including a bad request, is delivered in-band as `event: error` after the stream has started. `GET /readyz` returns 503 while draining so a rolling deployment can stop sending traffic. Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server drains: it marks its Liveness row draining, `/readyz` answers 503, it admits no new run, and it waits `--drain-timeout` for active runs to finish and save. Runs still going then are stopped (including runs queued behind a busy session), saved and released, and each stopped stream ends with `event: result` and then `event: reconnect`, whose `retry_after_ms` says how long to wait before continuing the session. The server then removes its Liveness row and exits 0; stderr says `draining (up to …)` and `stopped`.
 
 ### `gotato doctor`
 
