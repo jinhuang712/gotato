@@ -21,7 +21,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
 | Interrupt | stop the step in flight and go on with a new message, in the same Run | G-F26 | ⬜ |
-| Runtime notices | tell the model something that is not the user's words, as a developer or system message after the Turn's tool results | G-F29 | ⬜ |
+| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension | G-F29 | ⬜ |
 | A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
@@ -268,6 +268,7 @@ Each kind takes effect at its own point:
 | Kind | When it takes effect |
 |---|---|
 | Steer | at the next Turn boundary |
+| Notice (G-F29) | right before the next model call, from the same queue as a Steer; it never starts a Run, and never keeps one going |
 | FollowUp | where the Run would otherwise settle |
 | Interrupt | at once: a model call in flight is cancelled, a tool in flight finishes, and the message starts the next Turn of the same Run |
 | Stop | at once: everything in flight is cancelled through its `ctx`, and the Run settles as cancelled |
@@ -287,13 +288,66 @@ A Session's messages reach its writer through the load balancer's hash, so each 
 
 ### G-F29 — Runtime notices ⬜
 
-Gotato, or your service, sometimes has to tell the model something that is not the user's words: that the Transcript was compacted, that this is the last Turn, or that the previous reply was cut off. Today the only place for it is a user message, so the model takes it as the user speaking, and on the Responses API a new user message hides the reasoning the Run built so far.
+Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. Today the only place for it is a user message: the compaction summary and the output-limit continuation are user messages, so the model takes them as the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)). Designed on 2026-10-18; built with the warm Session.
 
-- A notice is a message of its own kind. Each wire API sends it the way it supports: a `developer` message on Responses, a `system` message on Anthropic models that accept one mid-conversation, and a tagged user message elsewhere.
-- A notice waits until every tool call of the Turn has its result, because a provider refuses anything between a call and its result.
-- G-F30 and G-F31 build on it.
+**The notices.** Gotato sends six kinds itself, each after the Event that causes it; a service or an extension sends its own:
 
-**Design first:** at the start of the warm Session phase, now that what happens to a message that arrives mid-Run is decided ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
+| Kind | What it tells the model | Caused by |
+|---|---|---|
+| `compacted` | the history before this point was compacted into this summary | `compaction_ended` |
+| `continue` | the last reply did not finish, because it hit the output limit or came back empty, so go on | `reply_ended` |
+| `last_turn` | this is the last Turn, so answer without tools: at `MaxTurns`, or when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's own count |
+| `stream_cut` | the reply was cut off mid-stream, so go on from where it stopped without repeating it ([G-F31](#g-f31--recovering-a-cut-stream-)) | `reply_cut_off` |
+| `settings_changed` | the instruction changed, or a tool came or went, told here instead of rewritten into the prefix ([G-F32](#g-f32--changes-that-keep-the-cache-)) | `metadata_changed` |
+| `run_interrupted` | the last Run was stopped before it finished, so a tool may have done only part of its work | `run_ended` by a drain, or a Run found unfinished when the Session is loaded |
+| your own | something that happened outside the conversation, such as an order that was delivered | your service or extension |
+
+**How a notice is kept.** It is a Message with the role `notice`, a `kind` and a `source` (`gotato` or `service`), and, for Gotato's own, the number of the Event that caused it:
+
+```json
+{ "id": "m_60", "role": "notice",
+  "notice": { "kind": "order_update", "source": "service" },
+  "parts": [{ "kind": "text", "text": "Order 42 was delivered at 14:05 today." }] }
+```
+
+- It is not the user's words: it never starts a Round, and it is not counted as a user message.
+- It is appended once and never changed or removed, so the cached prefix holds, and so does Claude's check of the thinking blocks after it.
+- Its words state a fact. What the model should do about it belongs in the instruction.
+
+**When it goes in.** A notice waits in the queue that holds a Steer ([G-F26](#g-f26--steering-a-run-)), in the order they arrived. The queue is emptied right before every model call, so a notice follows a user message or a Turn's Tool Results and never sits between a tool call and its result.
+
+- A notice never starts a Run and never keeps one going. With no Run, it waits for the next one and goes in after its prompt; a notice still waiting when a Run settles waits for the next Run. A service that wants the model to react at once calls `Continue` after it.
+- The compaction summary does not wait in the queue: it is the start of what a compaction keeps.
+- `notice_queued` and `notice_committed` report both steps ([G-F13](#g-f13--events-)); `notice_committed` carries the number of the `notice_queued` it came from.
+
+**How each wire API receives it.**
+
+| Model | Form |
+|---|---|
+| Claude models that take a system message mid-conversation: Fable 5.1, Mythos 5.1, Fable 5, Mythos 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5 and Haiku 5.5 | a `system` message after the user turn, which may hold only Tool Results; it does not break the cache |
+| Sonnet 5.5 and Haiku 5.5, right after Tool Results | text after the Tool Results in the same user turn, because these models may ignore a system message there |
+| other Claude models, and a notice at the start of the Transcript | tagged text in the adjacent user turn |
+| OpenAI Responses | a `developer` message |
+| Chat Completions: DeepSeek, Gemini and unrecognized providers | tagged text in the adjacent user message |
+
+- Tagged text is `<notice kind="…">…</notice>`. When a request carries one, the system part ends with one fixed sentence: text inside `<notice>` tags comes from the system, not from the user.
+- The native form is used only for a model the gateway recognizes; otherwise the tagged form. The gateway configuration can say which.
+- Anthropic documents the mid-conversation system message and the model list; it was read on 2026-10-18, not tested. OpenAI does not document a developer message in the middle of a conversation, or whether one starts a new turn for reasoning, so both are checked against the API before this is built.
+
+**From your service.** A notice is queued, and the call returns at once with the number of its `notice_queued`; it never waits for the model.
+
+| Where | Call |
+|---|---|
+| Go, a live Session | `Session.Notice(ctx, kind, text)` |
+| Go, the Runner | `Runner.Notice(ctx, sessionID, kind, text)` |
+| HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering `{"queued": true, "number": 57}` |
+| gRPC | `Notice` |
+| CLI | `gotato session notice <id> --kind K "text"` |
+
+- `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's six kinds are reserved.
+- With many instances, a notice reaches the Session's writer through the load balancer's hash, as a Steer does.
+
+**Open:** what a compaction does with a notice that still applies, such as a changed instruction, is decided with how a Session is compacted ([G-F06](#g-f06--compaction-), [ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
 
 ### G-F30 — A last Turn that answers ⬜
 
@@ -301,9 +355,10 @@ A Run that reaches `MaxTurns` now fails with `limit_exceeded`, and the caller ge
 
 - The code enforces it, not the model: the last Turn goes with tool calls switched off (`tool_choice: none`), so the provider cannot return one, and a tool call that comes back anyway is not run.
 - The tool definitions stay in the request, so the cached prefix holds.
-- A runtime notice (G-F29) tells the model it is the last Turn.
+- A runtime notice (G-F29, `last_turn`) tells the model it is the last Turn.
+- The same last Turn comes when the Run's deadline is near, so a Run about to run out of time still answers.
 
-**Design first:** after G-F29 ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+**Design first:** next, now that G-F29 is designed ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
 
 ### G-F02 — Sessions ✅
 
@@ -367,7 +422,7 @@ An old part of the Transcript can be replaced by one summary, so a long conversa
 
 - **On demand:** `gotato context compact <id> --keep N` or `POST /v1/sessions/{id}/compact`.
 - **Automatically:** at the start of a Run, when the estimated tokens pass the ceiling.
-- The summary comes from truncation or from a model (`--summarizer truncate|model`).
+- The summary comes from truncation or from a model (`--summarizer truncate|model`). Today it reaches the model as a user message; with G-F29 it becomes a `compacted` notice.
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
 - A compaction appends a Checkpoint (G-F03) instead of rewriting the Record, so the old part stays in the store and is no longer loaded. A Checkpoint holds the whole state of the facts, the summary and the kept tail included, so a load never mixes a summary with the entries it summarized.
 - When the Agent's model is sent only the current Round's reasoning (a recognized Claude or OpenAI, see [G-F07](#g-f07--models-and-providers-)), the kept tail is kept without its reasoning, because the summary changes the prefix that reasoning was written under. The Runner asks the model (`modelctx.DropsReasoning`); with `modelctx.Compact` alone, set `CompactOptions.DropReasoning`. For DeepSeek and unrecognized providers, the reasoning stays.
@@ -544,7 +599,7 @@ A Gotato service runs far from its callers, on networks and providers it does no
 - The Run goes on instead, one of two ways, chosen when this is designed: keep the output so far and ask the model, in a runtime notice (G-F29), to continue without repeating it; or send the request again and tell stream readers, with an Event, to drop what they received.
 - The retries stay bounded, so a provider that keeps cutting off still fails the Run.
 
-**Design first:** after G-F29 ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+**Design first:** next, now that G-F29 is designed ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
 
 ## Storage
 
@@ -820,8 +875,9 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 |---|---|---|
 | `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused, with why: busy, at capacity or draining | Instance |
 | `message_queued` | a Steer or FollowUp waits for its point in the Run | Record |
-| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp, or the Loop's own continuation | Record |
+| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp, or the Loop's own continuation, which becomes a notice with G-F29 | Record |
 | `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped because the Run ended first, withdrawn by its caller, or refused because the queue is full | Record |
+| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue, and goes into the Transcript right before a model call; planned with G-F29 | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
 *Claims*

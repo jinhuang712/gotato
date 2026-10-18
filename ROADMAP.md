@@ -95,7 +95,7 @@ The three store questions are answered as decisions dated 2026-10-16: the first 
 - ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
 - ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
 
-Runtime notices (FEATURES.md G-F29) follow from the third answer, and are designed at the start of [Phase 6](#phase-6--warm-session). The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
+Runtime notices (FEATURES.md G-F29), which follow from the third answer, were designed on 2026-10-18 ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and are built in [Phase 6](#phase-6--warm-session). The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 
 Exit: the maintainer approves the three Decisions.
 
@@ -143,7 +143,7 @@ Exit:
 
 ## Phase 6 — Warm Session
 
-- Runtime notices (G-F29) are designed first, and then built.
+- Runtime notices (G-F29), designed on 2026-10-18, are built: a notice is a Message of its own kind, waits in the queue that holds a Steer, and goes in right before the next model call. The compaction summary and the output-limit continuation become notices, and a service sends its own through `Runner.Notice`, HTTP, gRPC and the CLI.
 - The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) reach the Runner and the endpoints with the queue that holds those messages. Phase 5 builds their types, and emits them where the Go API already queues messages.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
@@ -155,6 +155,7 @@ Exit:
 
 - G-G08 passes with messages that arrive mid-Run.
 - A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript.
+- A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API in its own form.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Phase 7 — Structured output
@@ -192,10 +193,10 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 
 | Feature | Depends on | Discussed |
 |---|---|---|
-| G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | once G-F29 is designed |
-| G-F31 — Recovering a cut stream | runtime notices (G-F29) | once G-F29 is designed |
+| G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | next: G-F29 is designed |
+| G-F31 — Recovering a cut stream | runtime notices (G-F29) | next: G-F29 is designed |
 | G-F32 — Changes that keep the cache | a reference task that switches a tool set on, to measure what a change costs | after that measurement |
-| G-F06 — How a Session is compacted: who writes the summary, what stays word for word, and how compacting before the TTL relates to the ceiling at the start of a Run | the append-only Record and its Checkpoints (Phase 4), and the warm Session's TTL (Phase 6) | after Phase 6 |
+| G-F06 — How a Session is compacted: who writes the summary, what stays word for word, how compacting before the TTL relates to the ceiling at the start of a Run, and what happens to a notice that still applies | the append-only Record and its Checkpoints (Phase 4), and the warm Session's TTL (Phase 6) | after Phase 6 |
 
 ## Every release
 

@@ -383,7 +383,23 @@ What the model sees is a value built on every Turn, not the history sent as it i
 ### A change is appended, not rewritten into the prefix
 
 - **Instead of:** rewriting the instruction or the tool list at the top of the request.
-- **Why:** a change at the top makes the provider read the whole history again at full price.
+- **Why:** a change at the top makes the provider read the whole history again at full price. A change is told to the model in a notice, the next decision.
+
+### What is not the user's words goes to the model as a notice — 2026-10-18
+
+Gotato and the service sometimes have to tell the model something the user did not say: the history was compacted, this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
+
+| Option | For | Against |
+|---|---|---|
+| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, and each wire API needs its own form for it. |
+| A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
+| Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
+
+- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `compaction_ended`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
+- **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
+- **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
+- **Each wire API in its own form.** A system message where the model accepts one mid-conversation, a developer message on OpenAI's Responses API, and otherwise tagged text in the adjacent user Message ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
+- **Facts, not orders.** A notice says what is true; what the model should do about it belongs in the instruction.
 
 ### Full history by default, and your own `ContextBuilder` for the rest
 
@@ -410,7 +426,7 @@ A thinking model writes a lot of reasoning, and some models think on every reply
 | All reasoning to every provider | The prefix only ever grows. | A weeks-long Session carries all of its reasoning, and Claude's newer models keep and bill all of it. |
 | No reasoning at all | The smallest requests. | Claude and OpenAI need the reasoning of a tool loop in progress, and DeepSeek refuses the request. |
 
-- **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and a runtime notice (G-F29) must not either, because it is not the user speaking.
+- **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and neither does a notice, because it is not the user speaking.
 - **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
 - **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
 - **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there.
