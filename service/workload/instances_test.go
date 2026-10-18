@@ -550,11 +550,28 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 			}
 			// The first prompt of every Session, all Sessions at once.
 			play(func(testkit.Task) int { return 0 }, func(testkit.Task) int { return 1 })
+			victim := c.instances[len(c.instances)-1]
+			held := map[string]bool{}
 			if kill {
-				c.kill(c.instances[len(c.instances)-1])
+				// The victim holds the Claim of every Session that has more
+				// prompts to come: it has opened each as a Writer, as a Run
+				// does, and never releases it. Then it dies, and the rest of
+				// the prompts take each Session over from a dead holder.
+				for _, p := range plans {
+					if len(p.task.Prompts) < 2 {
+						continue
+					}
+					if _, err := session.OpenWriter(context.Background(), victim.store, p.id, victim.name); err != nil {
+						t.Fatal(err)
+					}
+					held[p.id] = true
+				}
+				if len(held) == 0 {
+					t.Fatal("no Session has a second prompt to take over")
+				}
+				c.kill(victim)
 			}
-			// The rest, with the instance gone: the Sessions it held are idle in
-			// the store, and another instance takes each over.
+			// The rest, with the instance gone.
 			play(func(testkit.Task) int { return 1 }, func(testkit.Task) int { return 1 << 20 })
 
 			references := map[string]view{}
@@ -564,6 +581,10 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 			for _, p := range plans {
 				got := viewOf(t, c.backing, p.id)
 				want := references[p.task.Name]
+				if held[p.id] {
+					got.events = withoutHeldClaim(t, got.events)
+					assertTakenOver(t, c.backing, p.id, victim.name)
+				}
 				if got.transcript != want.transcript {
 					t.Fatalf("%s %s: the Transcript differs from one instance's\n%s\nwant\n%s", p.task.Name, p.id, got.transcript, want.transcript)
 				}
@@ -594,6 +615,46 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withoutHeldClaim removes the Claim that a dead instance held, which has no
+// release after it, and numbers the Events after it as they would be without it.
+func withoutHeldClaim(t *testing.T, events []string) []string {
+	t.Helper()
+	at := -1
+	for i := 0; i+1 < len(events); i++ {
+		if strings.Contains(events[i], " session_claimed") && strings.Contains(events[i+1], " session_claimed") {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatalf("no Claim without a release in %v", events)
+	}
+	out := slices.Clone(events[:at])
+	for _, line := range events[at+1:] {
+		number, rest, _ := strings.Cut(line, " ")
+		var n int
+		_, _ = fmt.Sscanf(number, "%d", &n)
+		out = append(out, fmt.Sprintf("%d %s", n-1, rest))
+	}
+	return out
+}
+
+// assertTakenOver fails unless another instance claimed the Session from the
+// dead holder.
+func assertTakenOver(t *testing.T, store session.Store, id, dead string) {
+	t.Helper()
+	events, err := session.StoredEvents(context.Background(), store, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if claimed, ok := event.(gotato.SessionClaimed); ok && claimed.From == dead && claimed.Instance != dead {
+			return
+		}
+	}
+	t.Fatalf("Session %s: no instance claimed it from the dead %s", id, dead)
 }
 
 func firstDifference(got, want []string) string {
@@ -705,16 +766,38 @@ func TestConcurrentMessagesToOneSessionAreNeverInterleaved(t *testing.T) {
 	}
 }
 
-// An instance killed in the middle of the traffic: every Run that answered 200
-// landed once with its reply, a Session the dead instance held is taken over
-// by another instance, and the proxy sends no more requests to the dead one.
+// An instance killed in the middle of the traffic, while it holds a Claim: the
+// Run it was running is lost and its client gets no 200; every Run that did
+// answer 200 landed once, followed by its reply; the Session the dead instance
+// held is taken over by another instance; and the proxy drops the dead one from
+// its ring. The kill waits for the held Run to start, so it does not depend on
+// timing.
 func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
-	task := testkit.Task{Name: "echo", Model: testkit.EchoModel{}, Prompts: []string{"x"}}
+	model := &holdModel{gate: make(chan struct{}), started: make(chan struct{}, 1)}
+	task := testkit.Task{Name: "echo", Model: model, Prompts: []string{"x"}}
 	c := newCluster(t, 3, []testkit.Task{task}, 11)
+	t.Cleanup(func() {
+		select {
+		case <-model.gate:
+		default:
+			close(model.gate)
+		}
+	})
+	victim := c.instances[2]
+	// A Session that hashes to the victim: the proxy will send it there first.
+	var target string
 	var ids []string
-	for range 6 {
-		ids = append(ids, c.create(task))
+	for range 60 {
+		id := c.create(task)
+		ids = append(ids, id)
+		if target == "" && c.proxy.owner(id) == victim.name {
+			target = id
+		}
 	}
+	if target == "" {
+		t.Fatal("no Session hashes to the instance that is killed")
+	}
+	// Traffic on every other Session, from the start.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	answered := map[string]map[string]bool{}
@@ -728,9 +811,11 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 			random := rand.New(rand.NewPCG(uint64(worker), 1))
 			for k := range 8 {
 				id := ids[random.IntN(len(ids))]
+				if id == target {
+					continue
+				}
 				text := fmt.Sprintf("w%d-%d", worker, k)
-				r := c.prompt(id, text)
-				if r.status == http.StatusOK {
+				if r := c.prompt(id, text); r.status == http.StatusOK {
 					mu.Lock()
 					answered[id][text] = true
 					mu.Unlock()
@@ -738,9 +823,37 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 			}
 		}()
 	}
-	time.Sleep(15 * time.Millisecond)
-	c.kill(c.instances[2])
+	// The victim runs a prompt on the target Session and holds its Claim; the
+	// kill comes when that Run has started, and not before.
+	lost := make(chan reply, 1)
+	go func() {
+		lost <- send(t, victim.server.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": "hold"}, target)
+	}()
+	<-model.started
+	c.kill(victim)
+	if r := <-lost; r.status == http.StatusOK {
+		t.Fatalf("the Run the victim was holding answered 200: %s", r.body)
+	}
+	// The Session is used again, through the proxy: it hashes to the dead
+	// instance, whose connection is refused, so the proxy retries on another.
+	// That instance waits for the dead holder's row to expire and takes the
+	// Session over.
+	for k := range 3 {
+		text := fmt.Sprintf("after-%d", k)
+		r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+target+"/runs", map[string]any{"prompt": text}, target)
+		if r.status != http.StatusOK {
+			t.Fatalf("a prompt for the Session the dead instance held = %d %s", r.status, r.body)
+		}
+		answered[target][text] = true
+	}
 	wg.Wait()
+	assertTakenOver(t, c.backing, target, victim.name)
+	if c.proxy.backends[2].down.Load() != true {
+		t.Fatal("the proxy still sends requests to the dead instance")
+	}
+	if c.proxy.owner(target) == victim.name {
+		t.Fatal("the dead instance still owns the Session in the ring")
+	}
 	total := 0
 	for id, prompts := range answered {
 		view, err := session.View(context.Background(), c.backing, id)
@@ -771,10 +884,10 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 			total++
 		}
 	}
-	if total == 0 {
-		t.Fatal("no Run completed")
+	if total < 3 {
+		t.Fatal("too few Runs completed")
 	}
-	t.Logf("%d Runs answered 200, one instance killed, %d retried by the proxy", total, c.proxy.retries.Load())
+	t.Logf("%d Runs answered 200, one instance killed holding a Claim, %d retried by the proxy", total, c.proxy.retries.Load())
 }
 
 // holdModel answers at once, except for the prompt "hold", which waits for its
