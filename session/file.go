@@ -188,6 +188,10 @@ func (f *FileStore) readLegacy(id string) (fileBatch, error) {
 		return fileBatch{}, err
 	}
 	record.now = func() time.Time { return doc.UpdatedAt }
+	// A document has no epoch of its own, and is read again on every call
+	// until its first write: the epoch is made of its creation time, the
+	// value Summary.Epoch falls back to, so it never changes.
+	record.epoch = "created-" + record.Summary().CreatedAt
 	record.startLog()
 	entries, _, summary, err := record.takePending()
 	if err != nil {
