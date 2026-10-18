@@ -12,6 +12,8 @@
 //	POST   /v1/sessions/{id}/fork           → summary of the fork
 //	GET    /v1/sessions/{id}/events?kind=   → JSON Lines of runtime Events
 //	GET    /v1/sessions/{id}/context        → modelctx report (what the model would see now)
+//	GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
+//	                                        → SSE: stream, event*, reconnect?   (resumes after N; Last-Event-ID too)
 //	POST   /v1/sessions/{id}/compact        {keep?}                        → compaction result
 //	POST   /v1/sessions/{id}/runs           {prompt | continue}            → run result
 //	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
@@ -60,13 +62,32 @@ const maxTimeoutMS = int64(math.MaxInt64) / int64(time.Millisecond)
 
 // Handler serves the API.
 type Handler struct {
-	runner *service.Runner
-	mux    *http.ServeMux
+	runner    *service.Runner
+	mux       *http.ServeMux
+	keepAlive time.Duration
+}
+
+// Option configures New.
+type Option func(*Handler)
+
+// WithKeepAlive sets how long an idle Session stream waits before it sends a
+// comment, so that a proxy does not close it. The default is 15 seconds.
+func WithKeepAlive(d time.Duration) Option {
+	return func(h *Handler) {
+		if d > 0 {
+			h.keepAlive = d
+		}
+	}
 }
 
 // New creates a Handler over runner.
-func New(runner *service.Runner) *Handler {
-	h := &Handler{runner: runner, mux: http.NewServeMux()}
+func New(runner *service.Runner, options ...Option) *Handler {
+	h := &Handler{runner: runner, mux: http.NewServeMux(), keepAlive: 15 * time.Second}
+	for _, option := range options {
+		if option != nil {
+			option(h)
+		}
+	}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contract": ContractVersion})
 	})
@@ -79,6 +100,7 @@ func New(runner *service.Runner) *Handler {
 	h.mux.HandleFunc("POST /v1/sessions/{id}/fork", h.scoped(h.fork))
 	h.mux.HandleFunc("GET /v1/sessions/{id}/events", h.scoped(h.events))
 	h.mux.HandleFunc("GET /v1/sessions/{id}/context", h.scoped(h.contextReport))
+	h.mux.HandleFunc("GET /v1/sessions/{id}/stream", h.scoped(h.sessionStream))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/compact", h.scoped(h.compact))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs", h.scoped(h.run))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.scoped(h.runStream))
@@ -156,6 +178,9 @@ type errorResponse struct {
 	// NotRun says the request did not run, so it can be sent again, also to
 	// another instance.
 	NotRun bool `json:"not_run,omitempty"`
+	// RecordEpoch is the Record's current epoch, on a refusal to resume a
+	// stream, for the client to start over with.
+	RecordEpoch string `json:"record_epoch,omitempty"`
 }
 
 // ---- handlers ---------------------------------------------------------------
@@ -355,19 +380,7 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
-	sink := func(event gotato.Event) error {
-		data, err := json.Marshal(event)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Kind(), data); err != nil {
-			return err
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
-		return nil
-	}
+	sink := func(event gotato.Event) error { return writeEvent(w, flusher, event) }
 	result, runErr := h.runner.StreamRun(r.Context(), request, sink)
 	switch {
 	case runErr != nil && result.SessionID == "":
@@ -381,11 +394,140 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "event: result\ndata: %s\n\n", data)
 	}
 	if result.Reconnect != nil {
-		data, _ := json.Marshal(result.Reconnect)
-		fmt.Fprintf(w, "event: reconnect\nretry: %d\ndata: %s\n\n", result.Reconnect.RetryAfterMS, data)
+		writeReconnect(w, result.Reconnect)
 	}
 	if flusher != nil {
 		flusher.Flush()
+	}
+}
+
+// writeEvent sends one Event as a server-sent event. A stored Event carries its
+// number as the id, which a browser's EventSource sends back as Last-Event-ID
+// when it reconnects. A delta has none: it is not a position, and what it
+// carried ends up whole in a Message.
+func writeEvent(w http.ResponseWriter, flusher http.Flusher, event gotato.Event) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	var id string
+	if number := event.Head().Number; number > 0 && event.Kind().Class() == gotato.ClassStored {
+		id = "id: " + strconv.FormatUint(number, 10) + "\n"
+	}
+	if _, err := fmt.Fprintf(w, "%sevent: %s\ndata: %s\n\n", id, event.Kind(), data); err != nil {
+		return err
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return nil
+}
+
+// writeReconnect sends the advice to reconnect: the SSE retry field sets the
+// wait a browser's EventSource uses, and the data says the same, with why.
+func writeReconnect(w http.ResponseWriter, hint *service.Reconnect) {
+	data, _ := json.Marshal(hint)
+	fmt.Fprintf(w, "event: reconnect\nretry: %d\ndata: %s\n\n", hint.RetryAfterMS, data)
+}
+
+// streamStart is the first frame of a Session's stream: the Record's epoch for
+// the client to keep, and where the stream starts and what the Record held.
+type streamStart struct {
+	SessionID   string `json:"session_id"`
+	RecordEpoch string `json:"record_epoch"`
+	After       uint64 `json:"after"`
+	Head        uint64 `json:"head"`
+}
+
+// fromOf reads where a client's stream starts. The after parameter wins over
+// the Last-Event-ID header that a browser's EventSource sends by itself; the
+// epoch is the record_epoch parameter, or the Record-Epoch header.
+func fromOf(r *http.Request) (service.StreamFrom, error) {
+	var from service.StreamFrom
+	raw := strings.TrimSpace(r.URL.Query().Get("after"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	}
+	if raw != "" {
+		after, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return from, fmt.Errorf("the position %q is not an Event number", raw)
+		}
+		from.After = after
+	}
+	from.RecordEpoch = strings.TrimSpace(r.URL.Query().Get("record_epoch"))
+	if from.RecordEpoch == "" {
+		from.RecordEpoch = strings.TrimSpace(r.Header.Get("Record-Epoch"))
+	}
+	return from, nil
+}
+
+// sessionStream serves a Session's stream as server-sent events: every stored
+// Event after a number, from the Record, and then the live ones across Runs.
+// It answers with a status before it streams: 404 for a Session that does not
+// exist, and 409 (cannot_resume, with the current record_epoch) when the
+// client's epoch or number does not fit the Record. The first frame is
+// "stream", with the epoch; each Event follows with its number as the id. A
+// stream that ends for a reason a reconnect cures, such as a drain, ends with a
+// "reconnect" frame; any other failure ends with an "error" frame.
+func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
+	from, err := fromOf(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	sessionID := r.PathValue("id")
+	stream, err := h.runner.StreamSession(r.Context(), sessionID, from)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	defer func() { _ = stream.Close() }()
+	flusher, _ := w.(http.Flusher)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("Record-Epoch", stream.RecordEpoch)
+	w.WriteHeader(http.StatusOK)
+	// The first frame also sets the wait a browser uses after a lost
+	// connection, spread at random for each client.
+	start, _ := json.Marshal(streamStart{SessionID: sessionID, RecordEpoch: stream.RecordEpoch, After: from.After, Head: stream.Head})
+	fmt.Fprintf(w, "retry: %d\nevent: stream\ndata: %s\n\n", service.NewReconnect("").RetryAfterMS, start)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	for {
+		next, cancel := context.WithTimeout(r.Context(), h.keepAlive)
+		event, err := stream.Next(next)
+		cancel()
+		switch {
+		case err == nil:
+			if writeEvent(w, flusher, event) != nil {
+				return
+			}
+		case r.Context().Err() != nil:
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			fmt.Fprint(w, ": keepalive\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		case errors.Is(err, io.EOF):
+			if hint := stream.Reconnect(); hint != nil {
+				writeReconnect(w, hint)
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			return
+		default:
+			data, _ := json.Marshal(failureOf(err))
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return
+		}
 	}
 }
 
@@ -457,7 +599,7 @@ func StatusFor(err error) int {
 		switch runtimeErr.Code {
 		case gotato.ErrInvalidArgument, gotato.ErrNotSupported:
 			return http.StatusBadRequest
-		case gotato.ErrBusy, gotato.ErrConflict:
+		case gotato.ErrBusy, gotato.ErrConflict, gotato.ErrCannotResume:
 			return http.StatusConflict
 		case gotato.ErrStoreFailure, gotato.ErrOverloaded:
 			return http.StatusServiceUnavailable
@@ -483,6 +625,7 @@ func failureOf(err error) errorResponse {
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
+		out.RecordEpoch = runtimeErr.Details["record_epoch"]
 	}
 	if status >= http.StatusInternalServerError {
 		// Keep store and filesystem internals in the server log; the client
