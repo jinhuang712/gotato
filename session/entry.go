@@ -10,7 +10,10 @@ import (
 
 // Layer says what an Entry is for. A fact is part of what the Session is: a
 // rebuild reads the facts and nothing else. A log Entry records what
-// happened, for people and telemetry, and is never read to rebuild.
+// happened, for people and telemetry, and is not read to rebuild, with one
+// exception: when a Run never ended, a load also reads the log since the last
+// Checkpoint for the reply parts of that Run (reply_part_kept), to rebuild the
+// Cut-off reply it had reached.
 type Layer string
 
 const (

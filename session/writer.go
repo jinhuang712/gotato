@@ -57,7 +57,9 @@ func WithIdle() WriterOption {
 // WithPublisher has the Writer hand every Event that Flush, Release, Create
 // and OpenWriter write to publish, in order, once its write has succeeded.
 // The Events a live Session writes through Write are returned to it instead,
-// and it sends them.
+// and it sends them. publish is called under the Writer's lock, which orders
+// the writes, so Events are published in the order they were written: it must
+// not block, or call back into the Writer.
 func WithPublisher(publish func(gotato.Event)) WriterOption {
 	return func(c *writerConfig) { c.publish = publish }
 }
