@@ -57,7 +57,9 @@ type StreamFrom struct {
 //
 // A stream is bound to the Record it opened, the one RecordEpoch names: it
 // reads that Record's Feed, and every read of the store that returns Events is
-// checked against the epoch before they are delivered.
+// checked against the epoch before they are delivered. So it never delivers an
+// Event of a Record created again under the same ID; it ends with
+// ErrCannotResume or session.ErrNotFound instead (see StreamSession for when).
 type SessionStream struct {
 	*feedSubscription
 	// RecordEpoch is the Record's epoch, for the client to keep and send back.
@@ -67,6 +69,14 @@ type SessionStream struct {
 	Head uint64
 
 	sessionID string
+
+	// started and seen are guarded by the Runner's streamsMu. A stream is
+	// registered before it reads the Record, so that what this Instance does
+	// to the Record meanwhile reaches it: until it starts, seen collects the
+	// epochs of the Records this Instance opened, created or streamed under
+	// its ID, "" for a delete, and it checks them against its own first.
+	started bool
+	seen    []string
 
 	mu      sync.Mutex
 	ended   *Reconnect
@@ -126,18 +136,34 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 // the Record's (ErrCannotResume). An idle stream looks in the store for Events
 // that another Instance writes, every Config.StreamPoll.
 //
+// The stream follows the Record it opened, and no other. When the Session is
+// deleted, or deleted and created again, the stream delivers none of the new
+// Record's Events, and ends with session.ErrNotFound or ErrCannotResume:
+//   - at once, when this Instance deletes the Session, opens or creates a
+//     Record of it with another epoch, or opens a stream on one; a stream
+//     still opening at that moment reads the epoch again before it starts;
+//   - otherwise, when a look finds the Record gone, or a read of the store
+//     returns Events of another epoch. An old stream on an Instance that does
+//     none of the above stays open, and delivers nothing, until the new
+//     Record has more Events than the stream has seen.
+//
 // When the Instance's drain is over, the stream ends after the Events already
 // stored, and Reconnect says to come back.
 func (r *Runner) StreamSession(ctx context.Context, sessionID string, from StreamFrom) (*SessionStream, error) {
+	stream := &SessionStream{sessionID: sessionID}
+	r.addStream(stream)
 	loaded, err := r.store.Load(ctx, sessionID)
 	if err != nil {
+		r.dropStream(stream)
 		return nil, err
 	}
 	epoch := loaded.Summary.Epoch()
 	if from.RecordEpoch != "" && from.RecordEpoch != epoch {
+		r.dropStream(stream)
 		return nil, cannotResume("the Record is not the one the client saw", epoch, loaded.Head)
 	}
 	if from.After > loaded.Head {
+		r.dropStream(stream)
 		return nil, cannotResume("the position is past the Record's last Event", epoch, loaded.Head)
 	}
 	// The epoch is checked after every read of the Record that returned Events,
@@ -156,26 +182,37 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 	key := feedKey{sessionID, epoch}
 	sub, err := r.openSessionStream(ctx, key, from.After, gotato.SubscribeVerify(verify))
 	if err != nil {
+		r.dropStream(stream)
 		return nil, err
 	}
-	stream := &SessionStream{feedSubscription: sub, RecordEpoch: epoch, Head: loaded.Head, sessionID: sessionID}
+	stream.feedSubscription, stream.RecordEpoch, stream.Head = sub, epoch, loaded.Head
 	sub.release = func() {
 		r.releaseFeed(key)
-		r.streamsMu.Lock()
-		delete(r.streams, stream)
-		r.streamsMu.Unlock()
+		r.dropStream(stream)
 	}
-	r.streamsMu.Lock()
-	if r.streams == nil {
-		r.streams = map[*SessionStream]struct{}{}
+	for {
+		recheck, older, over := r.startStream(stream)
+		if !recheck {
+			for _, old := range older {
+				old.failWith(cannotResume("the Record was created again", epoch, loaded.Head))
+			}
+			if over {
+				stream.endWith(NewReconnect("draining"))
+			}
+			return stream, nil
+		}
+		// While this stream read the Record, this Instance saw the Record
+		// with another epoch, or deleted it: read the epoch again, to know
+		// which of the two is older.
+		now, err := r.store.Load(ctx, sessionID)
+		if err == nil && now.Summary.Epoch() != epoch {
+			err = cannotResume("the Record was created again", now.Summary.Epoch(), now.Head)
+		}
+		if err != nil {
+			_ = sub.Close()
+			return nil, err
+		}
 	}
-	r.streams[stream] = struct{}{}
-	over := r.streamsOver
-	r.streamsMu.Unlock()
-	if over {
-		stream.endWith(NewReconnect("draining"))
-	}
-	return stream, nil
 }
 
 // cannotResume builds the error of a position that cannot be resumed, with the
@@ -186,50 +223,114 @@ func cannotResume(why, epoch string, head uint64) error {
 	return err
 }
 
-// cutStreams ends the open Session streams of a Session whose Record has
-// another epoch than theirs, with cannot_resume. This Instance calls it when it
-// has opened or created a Record, so the open streams of the Record it
-// replaced end at once, instead of waiting for a read of the store to show it.
-func (r *Runner) cutStreams(sessionID, epoch string, head uint64) {
+// addStream registers a Session stream that is opening, before it reads the
+// Record.
+func (r *Runner) addStream(stream *SessionStream) {
 	r.streamsMu.Lock()
-	var stale []*SessionStream
-	for stream := range r.streams {
-		if stream.sessionID == sessionID && stream.RecordEpoch != epoch {
-			stale = append(stale, stream)
+	if r.streams == nil {
+		r.streams = map[*SessionStream]struct{}{}
+	}
+	r.streams[stream] = struct{}{}
+	r.streamsMu.Unlock()
+}
+
+func (r *Runner) dropStream(stream *SessionStream) {
+	r.streamsMu.Lock()
+	delete(r.streams, stream)
+	r.streamsMu.Unlock()
+}
+
+// startStream starts a stream that has read its Record's epoch, unless this
+// Instance saw the Record with another epoch, or deleted it, while the stream
+// read it: then it reports recheck, and the stream reads the epoch again.
+// Otherwise it returns the streams of the same Session that this one shows to
+// be of an older Record: each started before this one was registered, or
+// marked it while it opened and so made it read the epoch again, so it read
+// its epoch before this one did. The streams still opening are marked with
+// this one's epoch. over says the drain is over.
+func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*SessionStream, over bool) {
+	r.streamsMu.Lock()
+	defer r.streamsMu.Unlock()
+	for _, epoch := range stream.seen {
+		if epoch != stream.RecordEpoch {
+			recheck = true
 		}
 	}
-	r.streamsMu.Unlock()
-	for _, stream := range stale {
+	stream.seen = nil
+	if recheck {
+		return true, nil, false
+	}
+	stream.started = true
+	for other := range r.streams {
+		if other == stream || other.sessionID != stream.sessionID {
+			continue
+		}
+		if !other.started {
+			other.seen = append(other.seen, stream.RecordEpoch)
+			continue
+		}
+		if other.RecordEpoch != stream.RecordEpoch {
+			older = append(older, other)
+		}
+	}
+	return false, older, r.streamsOver
+}
+
+// cutStreams ends the Session streams of a Session whose Record has another
+// epoch than theirs, with cannot_resume. This Instance calls it when it has
+// opened or created a Record, so the open streams of the Record it replaced
+// end at once, instead of waiting for a read of the store to show it. A
+// stream still opening is marked instead, and reads its epoch again before it
+// starts.
+func (r *Runner) cutStreams(sessionID, epoch string, head uint64) {
+	for _, stream := range r.markStreams(sessionID, epoch) {
 		stream.failWith(cannotResume("the Record was created again", epoch, head))
 	}
 }
 
 // endSessionStreams ends the Session streams open on this Instance for a
-// Session that was deleted. They end with err, after the Events already queued,
-// so a Session created again under the same ID is not read as a continuation.
+// Session that was deleted, with err, at once, so a Session created again
+// under the same ID is not read as a continuation. A stream still opening is
+// marked instead, and reads the Record again before it starts.
 func (r *Runner) endSessionStreams(sessionID string, err error) {
-	r.streamsMu.Lock()
-	var open []*SessionStream
-	for stream := range r.streams {
-		if stream.sessionID == sessionID {
-			open = append(open, stream)
-		}
-	}
-	r.streamsMu.Unlock()
-	for _, stream := range open {
+	for _, stream := range r.markStreams(sessionID, "") {
 		stream.failWith(err)
 	}
 }
 
+// markStreams returns the started streams of a Session whose epoch is not
+// epoch, "" for a Session deleted, and marks those still opening with it.
+func (r *Runner) markStreams(sessionID, epoch string) []*SessionStream {
+	r.streamsMu.Lock()
+	defer r.streamsMu.Unlock()
+	var stale []*SessionStream
+	for stream := range r.streams {
+		if stream.sessionID != sessionID {
+			continue
+		}
+		if !stream.started {
+			stream.seen = append(stream.seen, epoch)
+			continue
+		}
+		if stream.RecordEpoch != epoch {
+			stale = append(stale, stream)
+		}
+	}
+	return stale
+}
+
 // endStreams ends every Session stream with the advice to reconnect, once the
 // drain is over: the Runs are saved and released, so the clients come back to
-// a Session that no instance is using.
+// a Session that no instance is using. A stream still opening sees the drain
+// when it starts.
 func (r *Runner) endStreams() {
 	r.streamsMu.Lock()
 	r.streamsOver = true
 	open := make([]*SessionStream, 0, len(r.streams))
 	for stream := range r.streams {
-		open = append(open, stream)
+		if stream.started {
+			open = append(open, stream)
+		}
 	}
 	r.streamsMu.Unlock()
 	for _, stream := range open {
