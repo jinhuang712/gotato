@@ -135,12 +135,24 @@ type subscribeConfig struct {
 	filter   func(Event) bool
 	labeled  func(Event, string) bool
 	until    func(Event) bool
+	tail     time.Duration
 }
 
 // SubscribeAfter starts a Session's stream after the stored Event numbered n:
 // first the later Events from the Record, then the live ones.
 func SubscribeAfter(n uint64) SubscribeOption {
 	return func(c *subscribeConfig) { c.after, c.hasAfter = n, true }
+}
+
+// SubscribeTail has a Session's stream that is waiting for its next Event look
+// in the Feed's source every interval, and deliver the stored Events it finds
+// there. A Feed is given only the Events that its own Instance writes. A
+// stream that follows a Session whose writer is another Instance needs the
+// tail to see what that Instance writes; it costs one read of the source per
+// interval while the stream is idle. It has no effect on a Feed without a
+// source, or on an Instance's stream.
+func SubscribeTail(interval time.Duration) SubscribeOption {
+	return func(c *subscribeConfig) { c.tail = interval }
 }
 
 // SubscribeBuffer sets how many Events a subscriber's queue holds before it
@@ -216,6 +228,7 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 		filter:  config.filter,
 		labeled: config.labeled,
 		until:   config.until,
+		tail:    config.tail,
 		wake:    make(chan struct{}, 1),
 		out:     make(chan Event),
 		done:    make(chan struct{}),
@@ -296,6 +309,13 @@ func (f *Feed) retain(event Event) {
 	f.ring[at] = event
 }
 
+// hasSource reports whether a subscriber that falls behind can read again.
+func (f *Feed) hasSource() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.source != nil
+}
+
 // eventsAfter reads stored Events again, from the source or from memory.
 func (f *Feed) eventsAfter(ctx context.Context, after uint64, limit int) ([]Event, error) {
 	f.mu.Lock()
@@ -349,6 +369,7 @@ type subscription struct {
 	filter  func(Event) bool
 	labeled func(Event, string) bool
 	until   func(Event) bool
+	tail    time.Duration
 
 	mu     sync.Mutex
 	queue  []Event
@@ -571,12 +592,35 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 		if ending {
 			return nil, false, nil
 		}
+		var tick <-chan time.Time
+		var timer *time.Timer
+		if s.tail > 0 && !s.feed.mixed && s.feed.hasSource() {
+			timer = time.NewTimer(s.tail)
+			tick = timer.C
+		}
 		select {
 		case <-s.wake:
+		case <-tick:
+			// Nothing came for a while: look in the source, which holds what
+			// another Instance wrote.
+			s.mu.Lock()
+			if s.cursorSet && !s.behind {
+				s.behind, s.resume = true, s.cursor
+			}
+			s.mu.Unlock()
 		case <-s.done:
+			if timer != nil {
+				timer.Stop()
+			}
 			return nil, false, nil
 		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
 			return nil, false, ctx.Err()
+		}
+		if timer != nil {
+			timer.Stop()
 		}
 	}
 }

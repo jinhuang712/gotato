@@ -25,7 +25,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
@@ -123,6 +122,11 @@ type Config struct {
 	// Liveness sets this Runner's Liveness row, and how long a Run waits
 	// for a Session that runs on another Instance.
 	Liveness Liveness
+	// StreamPoll is how often an idle Session stream looks in the store for
+	// Events that another Instance wrote. Zero means one second; a negative
+	// value turns the look off, so a stream carries only what this Instance
+	// writes.
+	StreamPoll time.Duration
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -174,6 +178,12 @@ type Runner struct {
 	byRun    map[gotato.RunID]*runHandle
 	inflight int
 	draining bool
+	// streams are the Session streams open for clients, and streamsOver says
+	// the drain is over, so a new one ends at once.
+	streamsMu   sync.Mutex
+	streams     map[*SessionStream]struct{}
+	streamsOver bool
+	streamPoll  time.Duration
 	// drained is made by the first Drain and closed once every Run admitted
 	// before it has settled and released its Session.
 	drained chan struct{}
@@ -272,15 +282,16 @@ func New(cfg Config) (*Runner, error) {
 		return nil, errors.New("service: at least one Agent is required")
 	}
 	r := &Runner{
-		store:     cfg.Store,
-		instance:  strings.TrimSpace(cfg.Instance),
-		liveness:  cfg.Liveness.withDefaults(),
-		agents:    map[string]Agent{},
-		admission: cfg.Admission,
-		locks:     newSessionLocks(),
-		feeds:     map[string]*sessionFeed{},
-		handles:   map[string][]*runHandle{},
-		byRun:     map[gotato.RunID]*runHandle{},
+		store:      cfg.Store,
+		instance:   strings.TrimSpace(cfg.Instance),
+		liveness:   cfg.Liveness.withDefaults(),
+		streamPoll: cfg.StreamPoll,
+		agents:     map[string]Agent{},
+		admission:  cfg.Admission,
+		locks:      newSessionLocks(),
+		feeds:      map[string]*sessionFeed{},
+		handles:    map[string][]*runHandle{},
+		byRun:      map[gotato.RunID]*runHandle{},
 	}
 	if r.instance == "" {
 		r.instance = session.NewID()
@@ -293,6 +304,9 @@ func New(cfg Config) (*Runner, error) {
 	}
 	if r.admission.Queue != RejectWhileBusy && r.admission.Queue != WaitWhileBusy {
 		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
+	}
+	if r.streamPoll == 0 {
+		r.streamPoll = defaultStreamPoll
 	}
 	r.instanceFeed = gotato.NewInstanceFeed()
 	r.idle = sync.NewCond(&r.mu)
@@ -461,6 +475,10 @@ type RunResult struct {
 	Compacted bool             `json:"compacted"`
 	Messages  int              `json:"messages"`
 	Events    int              `json:"events"`
+	// RecordEpoch is the epoch of the Session's Record, for a client that
+	// loses the Run's stream to resume the Session's stream with. Empty for a
+	// Run that is not saved.
+	RecordEpoch string `json:"record_epoch,omitempty"`
 	// Reconnect is set when this instance's drain stopped the Run before it
 	// completed. By the time the Run returns, its Session is saved and
 	// released, and so is every other Session of the drain.
@@ -473,6 +491,8 @@ type RunResult struct {
 // otherwise nothing ran, and the caller sends the request again.
 type Reconnect struct {
 	RetryAfterMS int64 `json:"retry_after_ms"`
+	// Why names the reason, such as "draining".
+	Why string `json:"why,omitempty"`
 }
 
 // Run executes one Run synchronously.
@@ -558,7 +578,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
 		// a Session that no instance is still using.
-		out.Reconnect = reconnectHint()
+		out.Reconnect = NewReconnect("draining")
 		release()
 		r.mu.Lock()
 		drained := r.drained
@@ -569,19 +589,6 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 		}
 	}
 	return out, err
-}
-
-// reconnectBase and reconnectJitter set how long a caller waits before it
-// reconnects after a drain: the jitter keeps the callers of one instance
-// from all reconnecting at the same instant.
-const (
-	reconnectBase   = 500 * time.Millisecond
-	reconnectJitter = time.Second
-)
-
-func reconnectHint() *Reconnect {
-	wait := reconnectBase + rand.N(reconnectJitter)
-	return &Reconnect{RetryAfterMS: wait.Milliseconds()}
 }
 
 // serve runs one admitted Run.
@@ -803,6 +810,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			Compacted: auto != nil && compacted(auto),
 			Messages:  s.Len(),
 			Events:    len(s.Events()),
+		}
+		if writer != nil {
+			out.RecordEpoch = s.RecordEpoch()
 		}
 		if request.SkipSave {
 			// The Run stored nothing: its Events are those of its own stream,
@@ -1393,10 +1403,12 @@ func (r *Runner) Drain(ctx context.Context) error {
 	}
 	select {
 	case <-drained:
+		r.endStreams()
 		return markErr
 	case <-ctx.Done():
 		r.stopAll()
 		<-drained
+		r.endStreams()
 		return errors.Join(markErr, ctx.Err())
 	}
 }

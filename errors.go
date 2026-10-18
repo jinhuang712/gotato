@@ -34,6 +34,10 @@ const (
 	// activate a new Session. The request did not run, so sending it to
 	// another Instance cannot run it twice.
 	ErrOverloaded ErrorCode = "overloaded"
+	// ErrCannotResume means a stream cannot go on from the position a client
+	// holds: the Record is not the one it saw, or the number is past its last
+	// Event. The client starts over from the first Event.
+	ErrCannotResume ErrorCode = "cannot_resume"
 )
 
 type RuntimeError struct {

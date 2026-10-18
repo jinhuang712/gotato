@@ -120,13 +120,11 @@ func ForAgents(agents ...string) gotato.SubscribeOption {
 // after 0 starts at the Session's first Event. The Subscription ends with
 // ErrNotFound's error when the Session does not exist.
 func (r *Runner) SubscribeSession(ctx context.Context, sessionID string, after uint64) (gotato.Subscription, error) {
-	feed := r.acquireFeed(sessionID, "")
-	sub, err := feed.Subscribe(ctx, gotato.SubscribeAfter(after))
+	sub, err := r.openSessionStream(ctx, sessionID, after)
 	if err != nil {
-		r.releaseFeed(sessionID)
 		return nil, err
 	}
-	return &feedSubscription{Subscription: sub, release: func() { r.releaseFeed(sessionID) }}, nil
+	return sub, nil
 }
 
 // feedSubscription gives a Session's Feed back when its Subscription ends.
