@@ -524,9 +524,13 @@ type CompactionStarted struct {
 }
 
 // CompactionEnded: a compaction appends its Checkpoint: the Messages and
-// metadata the Session continues with, and every compaction so far.
+// metadata the Session continues with, every compaction so far, and the Claim
+// in force, so that a load that starts here still knows the Writer and its
+// Epoch.
 type CompactionEnded struct {
 	Header
+	Instance   string            `json:"instance,omitempty"`
+	Epoch      uint64            `json:"epoch,omitempty"`
 	Why        CompactionWhy     `json:"why"`
 	Compaction *Compaction       `json:"compaction,omitempty"`
 	History    []Compaction      `json:"history,omitempty"`

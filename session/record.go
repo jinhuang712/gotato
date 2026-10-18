@@ -90,7 +90,7 @@ func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message,
 	}
 	s.touch()
 	s.emit(gotato.CompactionEnded{
-		Header: s.header(), Why: why, Compaction: compaction, History: slices.Clone(s.compactions),
+		Header: s.header(), Instance: s.claim.Instance, Epoch: s.claim.Epoch, Why: why, Compaction: compaction, History: slices.Clone(s.compactions),
 		Messages: cloneMessages(s.messages), Metadata: maps.Clone(s.metadata),
 	})
 }
@@ -171,6 +171,9 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = e.History
+		if e.Instance != "" {
+			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
+		}
 		s.started = nil
 		s.openParts = nil
 	case gotato.MessageCommitted:
