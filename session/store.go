@@ -95,9 +95,12 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 	// Beat renews an Instance's Liveness row until ttl from now, by the
 	// store's clock, and creates it the first time. It fails with ErrExpired
-	// once the row has expired. A ttl of 0 ends the row.
+	// once the row has expired, so a row that expired never comes back. A
+	// ttl of 0 removes the row: an Instance ends its row so when it stops,
+	// and never beats again, so the store keeps nothing of it.
 	Beat(ctx context.Context, row InstanceRow, ttl time.Duration) error
-	// Instance returns an Instance's state. An unknown Instance is not alive.
+	// Instance returns an Instance's state. An unknown or removed Instance is
+	// not alive, so every Claim that names it is dead.
 	Instance(ctx context.Context, id string) (InstanceState, error)
 }
 

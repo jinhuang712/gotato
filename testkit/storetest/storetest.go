@@ -1,7 +1,8 @@
 // Package storetest checks that a session.Store keeps the contract Gotato
 // relies on: a Record is an append-only log, every write is all or nothing,
 // a position is written once, a stale writer is refused, a load starts at the
-// last Checkpoint, and Liveness rows expire by the store's clock.
+// last Checkpoint, Liveness rows expire by the store's clock, and a row its
+// Instance ended is removed.
 //
 // An adapter runs it from its own tests:
 //
@@ -55,6 +56,7 @@ var checks = []check{
 	{"a cancelled context", checkCancelled},
 	{"liveness rows", checkLiveness},
 	{"liveness rows expire", checkExpiry},
+	{"an ended row is removed", checkEndedRemoved},
 }
 
 // Run runs every check as a subtest, each on a new backing store.
@@ -408,9 +410,6 @@ func checkLiveness(ctx context.Context, open Open) error {
 	if state, err := open().Instance(ctx, "instance-a"); err != nil || state.Alive {
 		return fmt.Errorf("instance after its row ended = %+v, %v; want not alive", state, err)
 	}
-	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a"}, time.Hour); !errors.Is(err, session.ErrExpired) {
-		return fmt.Errorf("beat on an ended row = %v, want ErrExpired", err)
-	}
 	if state, err := open().Instance(ctx, "never-seen"); err != nil || state.Alive {
 		return fmt.Errorf("an unknown Instance = %+v, %v; want not alive", state, err)
 	}
@@ -428,6 +427,34 @@ func checkExpiry(ctx context.Context, open Open) error {
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-b"}, time.Hour); !errors.Is(err, session.ErrExpired) {
 		return fmt.Errorf("beat after its ttl = %v, want ErrExpired", err)
+	}
+	return nil
+}
+
+// checkEndedRemoved checks that a row its Instance ended, with a ttl of 0, is
+// removed: from then on the Instance is not alive for any handle, so every
+// Claim that names it is dead, and nothing of the row is left, so its ID is
+// unknown again.
+func checkEndedRemoved(ctx context.Context, open Open) error {
+	store := open()
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c", Draining: true}, time.Hour); err != nil {
+		return fmt.Errorf("beat: %w", err)
+	}
+	reader := open()
+	if state, err := reader.Instance(ctx, "instance-c"); err != nil || !state.Alive {
+		return fmt.Errorf("instance = %+v, %v; want alive", state, err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c"}, 0); err != nil {
+		return fmt.Errorf("beat with ttl 0: %w", err)
+	}
+	if state, err := reader.Instance(ctx, "instance-c"); err != nil || state.Alive || state.Draining {
+		return fmt.Errorf("instance after its row was removed = %+v, %v; want not alive", state, err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c"}, 0); err != nil {
+		return fmt.Errorf("beat with ttl 0 on a removed row = %v, want nil", err)
+	}
+	if err := open().Beat(ctx, session.InstanceRow{ID: "instance-c"}, time.Hour); err != nil {
+		return fmt.Errorf("beat after the row was removed = %v; want a new row, since nothing of the old one is left", err)
 	}
 	return nil
 }

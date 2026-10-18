@@ -358,3 +358,30 @@ func TestManyInstancesOneWriter(t *testing.T) {
 		})
 	}
 }
+
+// TestClosedRunnerNeverBeatsAgain: after Close removes its row, a Runner
+// writes nothing, so its row never comes back.
+func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, fastLiveness)
+	s, err := a.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); err == nil {
+		t.Fatal("a closed Runner ran")
+	}
+	if _, err := a.CreateSession(ctx, "echo", nil); err == nil {
+		t.Fatal("a closed Runner created a Session")
+	}
+	if state, err := store.Instance(ctx, "instance-a"); err != nil || state.Alive {
+		t.Fatalf("instance-a after Close and a late write = %+v, %v; want not alive", state, err)
+	}
+	if err := a.Close(ctx); err != nil {
+		t.Fatalf("a second Close = %v", err)
+	}
+}

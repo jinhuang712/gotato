@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit/storetest"
@@ -73,6 +74,52 @@ func (s *overwriting) Log(ctx context.Context, id string, after uint64) ([]sessi
 	return append([]session.Entry(nil), record[after:]...), nil
 }
 
+// keepingEndedRows keeps a row that its Instance ended, expired, so it can
+// never be renewed: ended rows pile up, one for every Instance that stopped.
+type keepingEndedRows struct {
+	*session.MemoryStore
+	mu    sync.Mutex
+	ended map[string]bool
+}
+
+func (s *keepingEndedRows) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ended[row.ID] {
+		return session.ErrExpired
+	}
+	if ttl <= 0 {
+		s.ended[row.ID] = true
+	}
+	return s.MemoryStore.Beat(ctx, row, ttl)
+}
+
+// cachingInstances answers Instance from what it last saw of each row and
+// never drops what it saw, so a row that was removed still reads as alive,
+// and a Claim that names a stopped Instance looks valid.
+type cachingInstances struct {
+	*session.MemoryStore
+	mu   sync.Mutex
+	seen map[string]session.InstanceState
+}
+
+func (s *cachingInstances) Instance(ctx context.Context, id string) (session.InstanceState, error) {
+	state, err := s.MemoryStore.Instance(ctx, id)
+	if err != nil {
+		return state, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if state.Alive {
+		s.seen[id] = state
+		return state, nil
+	}
+	if cached, ok := s.seen[id]; ok {
+		return cached, nil
+	}
+	return state, nil
+}
+
 func TestTheSuiteCatchesAStoreThatRebasesStaleWrites(t *testing.T) {
 	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
 		store := rebasing{session.NewMemoryStore()}
@@ -90,6 +137,26 @@ func TestTheSuiteCatchesAStoreThatOverwritesAPosition(t *testing.T) {
 	})
 	if !mentions(problems, "a stale writer is refused") || !mentions(problems, "one writer wins a position") {
 		t.Fatalf("problems = %v, want the stale writer and race checks to fail", problems)
+	}
+}
+
+func TestTheSuiteCatchesAStoreThatKeepsEndedRows(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := &keepingEndedRows{MemoryStore: session.NewMemoryStore(), ended: map[string]bool{}}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "an ended row is removed") {
+		t.Fatalf("problems = %v, want the ended row check to fail", problems)
+	}
+}
+
+func TestTheSuiteCatchesAStoreThatReadsARemovedRowAsAlive(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := &cachingInstances{MemoryStore: session.NewMemoryStore(), seen: map[string]session.InstanceState{}}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "liveness rows") || !mentions(problems, "an ended row is removed") {
+		t.Fatalf("problems = %v, want the liveness and ended row checks to fail", problems)
 	}
 }
 

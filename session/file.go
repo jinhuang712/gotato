@@ -493,13 +493,18 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	now := f.now()
 	path := f.instancePath(row.ID)
+	if ttl <= 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	now := f.now()
 	if current, err := readInstance(path); err == nil && !now.Before(current.Expires) {
 		return ErrExpired
 	}
-	// An ended row stays, expired, so it can never be renewed.
-	data, err := json.Marshal(fileInstance{Row: row, Expires: now.Add(max(ttl, 0))})
+	data, err := json.Marshal(fileInstance{Row: row, Expires: now.Add(ttl)})
 	if err != nil {
 		return err
 	}

@@ -69,7 +69,7 @@ type cli struct {
 	runners []*service.Runner
 }
 
-// closeRunners ends the Liveness rows of the Runners this invocation built.
+// closeRunners removes the Liveness rows of the Runners this invocation built.
 func (c *cli) closeRunners() {
 	for _, runner := range c.runners {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

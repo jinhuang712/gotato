@@ -138,12 +138,15 @@ func (m *MemoryStore) Beat(ctx context.Context, row InstanceRow, ttl time.Durati
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if ttl <= 0 {
+		delete(m.instances, row.ID)
+		return nil
+	}
 	now := m.now()
 	if current, ok := m.instances[row.ID]; ok && !now.Before(current.expires) {
 		return ErrExpired
 	}
-	// An ended row stays, expired, so it can never be renewed.
-	m.instances[row.ID] = memoryInstance{row: row, expires: now.Add(max(ttl, 0))}
+	m.instances[row.ID] = memoryInstance{row: row, expires: now.Add(ttl)}
 	return nil
 }
 

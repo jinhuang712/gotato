@@ -43,6 +43,7 @@ func (l Liveness) withDefaults() Liveness {
 type heartbeat struct {
 	mu       sync.Mutex
 	started  bool
+	closed   bool
 	lastSent time.Time
 	expired  bool
 	stop     chan struct{}
@@ -57,12 +58,18 @@ var errLapsed = gotato.ErrorOf(gotato.ErrConflict, "service: this instance's liv
 // Instance.
 var errHolderBusy = errors.New("service: the session is running on another instance")
 
+// errClosed refuses a write once Close has removed this Instance's row.
+var errClosed = gotato.ErrorOf(gotato.ErrInvalidState, "service: the runner is closed")
+
 // live makes sure this Runner's row is alive before it writes, beating once
 // and starting the renewals the first time.
 func (r *Runner) live(ctx context.Context) error {
 	r.beat.mu.Lock()
-	started := r.beat.started
+	started, closed := r.beat.started, r.beat.closed
 	r.beat.mu.Unlock()
+	if closed {
+		return errClosed
+	}
 	if started {
 		return nil
 	}
@@ -71,6 +78,12 @@ func (r *Runner) live(ctx context.Context) error {
 	}
 	r.beat.mu.Lock()
 	defer r.beat.mu.Unlock()
+	if r.beat.closed {
+		// Closed while this first renewal was on its way: remove the row it
+		// may have written.
+		_ = r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
+		return errClosed
+	}
 	if r.beat.started {
 		return nil
 	}
@@ -192,14 +205,17 @@ func busyElsewhere(retryAfter time.Duration) error {
 	}
 }
 
-// Close ends this Runner's Liveness row, so other Instances can take its
-// Sessions over at once instead of waiting for the row to expire. Call it
-// after Drain, when the Runner will write no more.
+// Close removes this Runner's Liveness row, so other Instances take its
+// Sessions over at once instead of waiting for the row to expire, and the
+// store keeps nothing of this Instance. Call it after Drain. A closed Runner
+// writes nothing more, so its row never comes back. Closing twice is a no-op.
 func (r *Runner) Close(ctx context.Context) error {
 	r.beat.mu.Lock()
 	started := r.beat.started
 	stop, done := r.beat.stop, r.beat.done
 	r.beat.started = false
+	r.beat.closed = true
+	r.beat.expired = true
 	r.beat.mu.Unlock()
 	if !started {
 		return nil
@@ -207,10 +223,8 @@ func (r *Runner) Close(ctx context.Context) error {
 	close(stop)
 	<-done
 	err := r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
-	r.beat.mu.Lock()
-	r.beat.expired = true
-	r.beat.mu.Unlock()
 	if errors.Is(err, session.ErrExpired) {
+		// A store that keeps an ended row refuses an expired one.
 		return nil
 	}
 	return err

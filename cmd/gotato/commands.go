@@ -666,6 +666,9 @@ func (c *cli) cmdServe(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
+	// closeRunners removes its Liveness row when serve returns, also after a
+	// failed listen.
+	c.runners = append(c.runners, runner)
 	server := &http.Server{Addr: *addr, Handler: httpapi.New(runner), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -503,6 +503,21 @@ func TestSessionDelete(t *testing.T) {
 	}
 }
 
+// TestCommandsLeaveNoLivenessRow: a command removes the Liveness row of the
+// Runner it built when it ends, so the store does not keep a row for every
+// command that ever ran.
+func TestCommandsLeaveNoLivenessRow(t *testing.T) {
+	h := newHarness(t)
+	var outcome runOutcome
+	h.mustJSON(h.ok("run", "--json", "hello"), &outcome)
+	h.ok("run", "--json", "--session", outcome.SessionID, "again")
+	h.ok("session", "create", "--json")
+	rows, err := filepath.Glob(filepath.Join(h.home, "sessions", ".instances", "*.json"))
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("liveness rows left behind = %v, %v", rows, err)
+	}
+}
+
 // TestServeHonorsTimeout verifies --timeout bounds the serve lifetime; without
 // it the command would block until a signal.
 func TestServeHonorsTimeout(t *testing.T) {
