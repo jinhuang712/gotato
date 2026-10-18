@@ -365,3 +365,49 @@ func TestACutStreamEndsAtOnce(t *testing.T) {
 		t.Fatalf("the cut stream gave %v, %v; want not found at once", event, err)
 	}
 }
+
+// A stream that opens on a Record created again ends the streams of the old
+// Record on its instance at once, with cannot_resume, and before any later
+// write of this instance does.
+func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
+	store := session.NewMemoryStore()
+	// No looks: one that fell between the delete and the create would end the
+	// old stream with not found, by chance.
+	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
+	ctx := context.Background()
+	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := first.SessionID
+	old, err := a.StreamSession(ctx, id, service.StreamFrom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = old.Close() }()
+	readNumbers(t, old, int(old.Head))
+	// Give the old stream's catch-up its last, empty read, so it is live
+	// before the delete.
+	time.Sleep(50 * time.Millisecond)
+	oldEnded := readUntilEnd(old)
+
+	if err := b.DeleteSession(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := a.StreamSession(ctx, id, service.StreamFrom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fresh.Close() }()
+	select {
+	case end := <-oldEnded:
+		if len(end.numbers) > 0 || !errors.Is(end.err, service.ErrCannotResume) {
+			t.Fatalf("the old stream delivered %v and ended with %v, want nothing and cannot_resume", end.numbers, end.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the old stream stayed open after a stream of the new Record opened on its instance")
+	}
+}
