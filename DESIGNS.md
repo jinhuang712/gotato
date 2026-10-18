@@ -143,7 +143,7 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 ### A named, versioned contract
 
 - **Instead of:** changes that slip in unannounced.
-- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the root and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event kinds and their payload keys; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Additions are free, and consumers tolerate unknown Event kinds. A break is rare, raises the version, and has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
+- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the root and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Additions are free, and consumers tolerate unknown Event kinds. A break is rare, raises the version, and has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
 
 ## 3. Serve purpose-built agents
 
@@ -319,7 +319,8 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 | Every Run, at its end | One write per Run. | A crash loses the whole Run. |
 
 - **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
-- **Log entries** record what happened: Runs, usage, Events, model calls, and the parts of a streaming reply, written every second or few KiB. A rebuild never reads them.
+- **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, and the parts of a streaming reply, written every second or few KiB. A rebuild never reads them.
+- **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 - **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
 - **What a crash leaves is answered when the Session is read, and nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again.
 
@@ -351,7 +352,7 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 ### A stream resumes from a position
 
 - **Instead of:** a stream that must reconnect to the same instance, or start over.
-- **Why:** an instance can go away at any time. A client reconnects to any instance with the last position it saw, and the stream goes on without gaps or duplicates.
+- **Why:** an instance can go away at any time. A stored Event's number is its Entry's position in the Record, which every instance reads the same. A client reconnects to any instance with the number of the last Event it saw, gets every later Event from the Record and then the live ones, and the stream goes on without gaps or duplicates.
 
 ## 6. The model's input is built, and laid out for the cache
 
@@ -452,10 +453,41 @@ A cloud Session runs with nobody watching each step. So a Session always ends, c
 - **Instead of:** one generic error.
 - **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, a cancel or Gotato.
 
-### Every step is an Event, and every Event names its Session
+### Every step is an Event, and a stored Event is an Entry — 2026-10-18
 
-- **Instead of:** log lines only.
-- **Why:** Events are facts a program can read. Each carries its Session, and an Event of a Run also carries its Run, its Turn, a sequence number and a time.
+Events are facts a program can read, instead of log lines. A Session's Record and its Events tell the same story: kept apart, they say it twice under two sets of names, and a number that counts within one Run means nothing to another instance.
+
+| Option | For | Against |
+|---|---|---|
+| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP, gRPC and CLI contracts change version. |
+| Events replace the log entries only | Half the duplication goes. | Facts and Events still say the same things twice. |
+| Events kept apart from the Record | No change. | Everything is said twice, and only one instance can resume a stream. |
+
+Every Event carries its time and the Session it concerns, if any; a stored Event also carries its number, and an Event of a Run its Run and its Turn. Events come in three kinds, by where they live:
+
+- **Stored Events** are Entries: every change of state the Writer sees, such as a Run starting, a reply ending, a Tool starting, a message queued or a Claim.
+- **Deltas** are sent and never stored: text, reasoning and tool progress. What they carry ends up whole in a Message or a Tool Result.
+- **Instance notices** happen where no Record can take them, because the Instance holds no Claim: a request waiting or refused, a fenced write, a Liveness row that lapsed, a failed write, the time a load or save took. They go only to that Instance's subscribers.
+
+### An Event is written before it is sent
+
+- **Instead of:** sending an Event first, and writing it with the next step.
+- **Why:** a client never holds an Event the Record lacks, so a resumed stream never shows one number with two meanings. Most Events ride the write of their step, which delays them by the write alone. The few that fall between steps, such as a retry, an Abort request or a queued message, get a write of their own, because they are rare. Deltas are sent at once, marked with the number of the Event they follow.
+
+### A Session never waits for a subscriber
+
+- **Instead of:** observers that the Session's goroutine calls and waits for.
+- **Why:** one slow client or exporter would slow every step of the Session. A Session puts each Event in its subscribers' queues and moves on. There are three subscriptions: a Run's stream, a Session's stream from any number, and an Instance's stream, which the service's own telemetry reads. Each subscriber has one goroutine that forwards its Events in order. A subscriber that falls too far behind is no longer buffered in memory: it catches up from the Record by number, because the Record only grows, so only deltas can be skipped. An Instance's stream mixes Sessions and has no single number, so it marks a gap with a notice of how many Events it skipped.
+
+### Each kind of Event is a type of its own
+
+- **Instead of:** one Event type with a map of fields.
+- **Why:** a caller switches on an Event's type and reads fields the compiler checks, as Go code reads the tokens of `encoding/xml`. Every type carries the same header. On the wire, JSON names the type in `kind`, and gRPC uses a `oneof`.
+
+### An Event's name says what happened, in the glossary's words
+
+- **Instead of:** names that mix tenses, or words of their own.
+- **Why:** a name is read in code, logs and dashboards, so it should say what happened. A change of state is the thing and a past participle, such as `run_started` or `session_claimed`. A delta is the thing and `delta`, such as `text_delta`, except a Tool's own report of its progress, `tool_progress`. Only the glossary's terms are used: a reply is the model's and a message is the caller's, and an Abort is never a cancel. The Go type is the same name in camel case, `RunStarted`.
 
 ### Every number about a Run comes from Events and `Usage`
 

@@ -111,7 +111,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | HTTP API | a handler you mount on your own mux | G-F14 | ✅ |
 | Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
-| Stream resume | reconnect on any instance and go on from the last position seen; a stream that ends says whether and when to reconnect | G-F14 | ⬜ |
+| Stream resume | reconnect on any instance and go on after the number of the last Event seen; a stream that ends says whether and when to reconnect | G-F14 | ⬜ |
 | gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
 | Go API | call the Runner directly, and subscribe to a Run's Events | G-F14 | ✅ |
 | Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
@@ -124,7 +124,11 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
 | Store Events | `session_loaded` times the load before a Run, and `session_saved` sums and counts every write the Run made | G-F13 | ✅ |
 | Session lifecycle stream | in the Go API, a live Session reports that it was created, is closing and has closed | G-F13 | ✅ |
-| Instance lifecycle Events | a Session activated, taken over, released or fenced on an instance | G-F13 | ⬜ |
+| The Record as the Event log | every stored Event is an Entry, numbered by its position, and written before it is sent | G-F13 | ⬜ |
+| Typed Events | one Go type for each kind of Event, named for what happened | G-F13 | ⬜ |
+| Subscriptions | a Run's stream, a Session's from any number, and an Instance's; a Session never waits for any of them | G-F13 | ⬜ |
+| Message and Claim Events | a message queued, committed, dropped, withdrawn or rejected; a Session claimed, released or fenced | G-F13 | ⬜ |
+| Streamed reasoning | the model's reasoning as it arrives, as `reasoning_delta` | G-F13 | ⬜ |
 | Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
 
@@ -154,12 +158,10 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
 | MCP integration | MCP servers as a tool source | G-F12 | later |
-| Telemetry adapters | Events mapped onto OpenTelemetry | — | later |
+| Telemetry adapters | an Instance's Events mapped onto OpenTelemetry | — | later |
 | Model catalog | model names, context sizes and prices | — | later |
 | Provider rate-limit information | limits and reset time, reported with usage | — | later |
 | Request IDs and idempotency keys | on the HTTP and gRPC endpoints | — | later |
-| Streamed reasoning | the model's reasoning as it arrives | — | later |
-| Typed Event payloads | payloads with a fixed, typed shape; how is still open | — | later |
 | Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
 | Token budget per Run | a cap on the tokens one Run may spend | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
@@ -675,7 +677,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 
 **Activation limit.** While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
-**Gap:** cancel and stream requests work only on the instance that runs the Session. The activation limit, stream resume and the lifecycle Events wait for the rest of ROADMAP Phase 5.
+**Gap:** cancel and stream requests work only on the instance that runs the Session. The activation limit, stream resume and the Claim Events (G-F13) wait for the rest of ROADMAP Phase 5.
 
 **Your load balancer** routes; Gotato never forwards a request between instances. It needs three settings:
 
@@ -747,7 +749,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 - The stream answers 200 before the Run is admitted.
 - So only a bad or oversized body gets a status code. Every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
 - A Run the drain stopped ends its stream with `event: result` and then `event: reconnect`. Its `retry:` field and `retry_after_ms` give how long to wait before the Session is continued on any instance; when the result has no `run_id`, nothing ran, and the request is sent again.
-- **Resume (planned).** Every streamed Event will carry its position: a sequence number, and the Record's own epoch, which changes only if its log is reset. A client that loses its stream reconnects through the load balancer, to any instance, with the last position it saw, and the stream goes on without gaps or duplicates. If the epoch differs, the client is told the position cannot be resumed. A stream that ends says whether to reconnect and how long to wait first, so a lost instance does not make every client reconnect at the same instant. A stream the drain stops already does this, with a wait that differs from stream to stream.
+- **Resume (planned).** Every streamed Event will carry its position: its number, which is its Entry's position in the Record ([G-F13](#g-f13--events-)), and the Record's own epoch, which changes only if its log is reset. A client that loses its stream reconnects through the load balancer, to any instance, with the last number it saw. The instance sends every later stored Event from the Record, then the live ones, so the stream goes on without gaps or duplicates. Deltas sent before the reconnect are not sent again; the finished Message holds their text. If the epoch differs, the client is told the position cannot be resumed. A stream that ends says whether to reconnect and how long to wait first, so a lost instance does not make every client reconnect at the same instant. A stream the drain stops already does this, with a wait that differs from stream to stream.
 
 **gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
@@ -769,7 +771,9 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 ### G-F13 — Events 🚧
 
-Every step of a Run is reported as an Event, so you can watch, log or measure it.
+Every step of a Session is reported as an Event, so you can watch, log or measure it. Today's Events come first; the Event design that replaces them follows.
+
+**Today**
 
 | Kinds | When |
 |---|---|
@@ -789,7 +793,97 @@ Every step of a Run is reported as an Event, so you can watch, log or measure it
 - The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
 - In the Go API, a live Session also reports its own life on a separate stream, `Session.SubscribeLifecycle`: `session_created`, `session_closing` and `session_closed`. These are not Run Events, and HTTP and gRPC do not stream them.
 
-**Gap:** payloads are plain key-value maps, not typed ([TODO.md](TODO.md) → Decisions), and the model's reasoning is not streamed as it arrives. A message's way into a Session (a Steer arriving or dropped, a Run waiting on a busy Session, a cancel request) has no Events yet, and neither does a Session's life on an instance: activated, taken over, released or fenced. Their names and fields are designed when they are built: the message Events at the start of [ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session), and the instance Events in [Phase 5](ROADMAP.md#phase-5--one-writer-).
+**Planned: the Event design**
+
+Decided on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)), and built in [ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer-); the message Events come with the warm Session in Phase 6.
+
+- **The Record is the Event log.** Every stored Event is an Entry of the Session's Record, and its number is that Entry's position, so every instance reads the same number.
+- **Written, then sent.** A stored Event reaches its subscribers only after its write. Most ride the write of their step; the few between steps, such as a retry, an Abort request or a queued message, get a write of their own. Deltas are sent at once, marked with the number of the Event they follow.
+- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type carries its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance notice has no number. In JSON an Event is one flat object whose `kind` names its type; in gRPC it is a `oneof`.
+
+Each Event is kept in one of three places: in the **Record**, which a subscriber can read again from any number; **sent only**, for deltas; or on the **Instance**, for a notice from an Instance that holds no Claim on the Session.
+
+*Runs and replies*
+
+| Event | When | Kept |
+|---|---|---|
+| `run_started`, `run_ended` | a Run starts, and settles with its status, its cause and its stop reason | Record |
+| `turn_started`, `turn_ended` | a Turn starts, and ends with its usage and any reasoning the provider dropped | Record |
+| `context_built` | a Turn's Context is built, with its prefix hash and sizes | Record |
+| `reply_started`, `reply_ended` | the model's reply starts, and ends with the model that answered and why it stopped | Record |
+| `text_delta`, `reasoning_delta` | a piece of the reply's text or reasoning | sent only |
+| `reply_cut_off` | the reply's stream broke, and the text so far is kept as a Cut-off reply | Record |
+| `model_retried` | the gateway calls the model again, with the attempt, the wait and the error | Record |
+
+*Tools*
+
+| Event | When | Kept |
+|---|---|---|
+| `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran | Record |
+| `tool_progress` | a Tool reports its own progress | sent only |
+| `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
+| `toolset_activated` | the model switches on a ToolSet | Record |
+
+*Messages into a Session*
+
+| Event | When | Kept |
+|---|---|---|
+| `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused, with why: busy, at capacity or draining | Instance |
+| `message_queued` | a Steer or FollowUp waits for its point in the Run | Record |
+| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer or a FollowUp | Record |
+| `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped because the Run ended first, withdrawn by its caller, or refused because the queue is full | Record |
+| `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
+
+*Claims*
+
+| Event | When | Kept |
+|---|---|---|
+| `session_claimed` | an Instance claims the Session, with why (a new Session, an idle one, a Writer that is gone, or a Writer it waited for) and which Instance held it before | Record |
+| `session_released` | the Writer lets the Session go | Record |
+| `session_fenced` | a write is refused because another Instance holds the Claim | Instance |
+| `liveness_lapsed` | this Instance's Liveness row was not renewed in time, so it writes nothing more | Instance |
+
+*The Session*
+
+| Event | When | Kept |
+|---|---|---|
+| `session_created` | a Session is created; a fork names the Session and the position it came from (`forked_from`) | Record |
+| `metadata_changed` | a setting in the Session's metadata changes, such as its instruction, its model or its Agent | Record |
+| `compaction_started`, `compaction_ended`, `compaction_failed` | a compaction starts, appends its Checkpoint, or fails, with why it ran: on demand, past the ceiling, or before the Session leaves memory | Record |
+| `session_unloaded` | the Session leaves this Instance's memory, with why: its TTL, a drain or a close | Instance |
+| `session_deleted` | the Session's Record is deleted | Instance |
+
+*The store and extensions*
+
+| Event | When | Kept |
+|---|---|---|
+| `session_loaded`, `session_saved` | how long the store took to load the Session, and to write a Run's steps | Instance |
+| `store_write_failed` | a write failed, for another reason than a taken position | Instance |
+| `extension_failed` | an advisory extension failed, and the Run went on | Record |
+
+**Subscriptions.** A Session puts each Event in its subscribers' queues and never waits for one:
+
+| Subscription | For | What it carries |
+|---|---|---|
+| A Run's stream | the caller of a Run: `/runs/stream`, gRPC `StreamRun`, or the Go API | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers |
+| A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live |
+| An Instance's stream | the service's own telemetry, in the Go API | every Event of every Session on the Instance, and the Instance's notices; a subscriber can keep only some Agents |
+
+- Each subscriber has one goroutine that forwards its Events in order, so a slow subscriber slows only itself.
+- A subscriber that falls too far behind is no longer buffered in memory. It catches up from the Record by number and then rejoins the live Events, so it never misses a stored Event; only deltas can be skipped.
+- An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in a notice; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
+- With the Go API alone, a caller subscribes to the Session it built, before its first `Prompt`.
+- The HTTP and gRPC routes for a Session's stream are designed with stream resume (G-F14).
+
+**What the design replaces.** It is one break, with one contract version change and a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):
+
+- the map of fields in each Event, and `payload_json` on gRPC;
+- the sequence number that counts within one Run;
+- the `events` Log entry that keeps a copy of the Events, `session.Recorder`, which writes it, and `session_compacted`, which `compaction_ended` replaces;
+- `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replace;
+- today's names, such as `run_start` (now `run_started`), `message_update` (now `text_delta`) and `tool_execution_end` (now `tool_ended`).
+
+**Gap:** the Event design is decided, not built. Today each Event carries a plain map of fields, the model's reasoning is not streamed as it arrives, a message's way into a Session and a Session's Claims have no Events, and a slow `EventObserver` slows its Session.
 
 ### G-F15 — Extensions ✅
 
@@ -807,6 +901,7 @@ Extensions add behavior at fixed points of the Loop, without forking it. You ins
 
 - Each stage runs on the Run's own goroutine, so a slow extension slows the Run.
 - An extension marked advisory may fail without failing the Run.
+- **Planned:** `EventObserver` goes, because a Session never waits for a subscriber ([G-F13](#g-f13--events-)). A service reads Events from a Subscription instead, and an advisory stage that fails is reported as `extension_failed`. The other six stages stay.
 
 ## The CLI
 
@@ -921,12 +1016,10 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Idea | Note |
 |---|---|
 | G-F12 — MCP integration | MCP servers as a tool source, with their annotations mapped to an Effect. Reaches tools a team already runs as MCP servers. |
-| Telemetry adapters | an observer package that maps Events onto OpenTelemetry. Teams can write their own today ([G-N11](#g-n11--telemetry-backends-belong-to-applications)). |
+| Telemetry adapters | a package that subscribes to an Instance's Events and maps them onto OpenTelemetry. Teams can write their own today ([G-N11](#g-n11--telemetry-backends-belong-to-applications)). |
 | Model catalog | model names, context sizes and prices next to the providers |
 | Provider rate-limit information | limits, remaining calls and reset time reported with usage, so a service can slow itself down |
 | Request IDs and idempotency keys | on the HTTP and gRPC endpoints |
-| Streamed reasoning | the model's reasoning as it arrives (`reasoning_update`) |
-| Typed Event payloads | a decision still open ([TODO.md](TODO.md) → Decisions) |
 | G-F24 — Examples | one-shot use, a persistent Session, compaction, forks, dynamic tools, CLI automation |
 | Token budget per Run | the turn and byte limits already bound a runaway loop |
 | Paging and filtering the Session list | matters at population scale, after one writer per Session across instances |
@@ -978,7 +1071,7 @@ Gotato ships full history, Static blocks and compaction. Retrieval, windowing, s
 
 ### G-N11 — Telemetry Backends Belong to Applications
 
-Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or another telemetry framework is an observer in the application or in an extension package.
+Gotato emits Events with a stable shape. Mapping them onto OpenTelemetry or another telemetry framework is a subscriber in the application or in a package of its own.
 
 ### G-N12 — Tool Approval Belongs to the Tools
 

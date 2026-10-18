@@ -104,7 +104,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
-| Events and streaming | done, with gaps: messages on their way into a Session have no Events; stream resume planned |
+| Events and streaming | done, with gaps: messages on their way into a Session have no Events. Planned: typed Events, the Record as the Event log, Subscriptions a Session never waits for, streamed reasoning, and stream resume |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
 | Drain | done: marks the Liveness row draining, answers 503 on `/readyz`, lets every Run finish and save, and tells a stopped stream to reconnect |
@@ -112,7 +112,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | One writer per Session across instances | done; stream resume and the activation limit planned |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
-| MCP, provider rate-limit information, typed Event payloads, streamed reasoning | later |
+| MCP, provider rate-limit information | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
 

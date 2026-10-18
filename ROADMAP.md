@@ -15,7 +15,7 @@ Phase 2  Effect cap      an Agent hides the tools above its highest Effect
 Phase 3  Names           the Agent, the live Session and its Record take their glossary names
          ── design discussion: how a Turn is saved, who writes, where messages go (answered) ──
 Phase 4  Durable steps   every step is appended as it happens, and every append is fenced
-Phase 5  One writer      any instance answers like the only one, with one writer at a time
+Phase 5  One writer      any instance answers like the only one, with one writer at a time, and resumes any stream
 Phase 6  Warm Session    a Session stays in memory while in use, and takes Steer, Interrupt and Stop from any endpoint
 Phase 7  Structured      an Agent's final reply fits a JSON schema
 Phase 8  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
@@ -30,6 +30,7 @@ Why this order:
 - **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
 - **Each of the last three phases builds on the one before.** One writer needs Turns that are appended and fenced, and a warm Session needs a writer to hold it.
+- **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the many-instance goals carry the pitch.
 - **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
@@ -94,7 +95,7 @@ The three store questions are answered as decisions dated 2026-10-16: the first 
 - ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
 - ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
 
-Runtime notices (FEATURES.md G-F29), and the names of the Events on a message's way into a Session, follow from the third answer. They are designed at the start of [Phase 6](#phase-6--warm-session).
+Runtime notices (FEATURES.md G-F29) follow from the third answer, and are designed at the start of [Phase 6](#phase-6--warm-session). The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 
 Exit: the maintainer approves the three Decisions.
 
@@ -117,14 +118,15 @@ Exit:
 
 ## Phase 5 — One writer 🚧
 
-The part that keeps two instances from running one Session is built, and so is the drain; both ship in the next 0.1.x release. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
+The part that keeps two instances from running one Session is built, and so is the drain; both ship in the next 0.1.x release. The Event design, decided on 2026-10-18, is built next, because stream resume and the Claim Events stand on it. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
 - ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
 - ⬜ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
 - ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
-- ⬜ A stream resumes on any instance from its last position, with the Record's epoch.
-- ⬜ Lifecycle Events: a Session activated, taken over, released or fenced.
+- ⬜ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts change version once for all of it.
+- ⬜ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch.
+- ⬜ Claim Events: `session_claimed`, with why and from which instance, `session_released`, `session_fenced` and `liveness_lapsed`.
 - 🚧 The multi-instance harness: several instances over one shared store, with requests sent to random instances, concurrent messages and an instance killed. A hashing proxy in front of them is still to build.
 - ✅ Ended Liveness rows are cleaned up: an instance removes its own row when it stops, and the store conformance suite checks that a removed row reads as not alive.
 
@@ -133,13 +135,16 @@ Exit:
 - ✅ G-G08 passes for every message an instance accepts.
 - ⬜ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
 - ⬜ A stream cut at every Event of the reference workload resumes equal to an uncut one.
+- ⬜ A subscriber that stops reading never slows its Session, and catches up from the Record with every stored Event once.
+- ⬜ G-G06 holds for the Event break: one contract version change, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
 - ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ⬜ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 
 ## Phase 6 — Warm Session
 
-- Runtime notices (G-F29) and the names of the Events on a message's way into a Session are designed first, and then built.
+- Runtime notices (G-F29) are designed first, and then built.
+- The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) come with the queue that holds those messages.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
 - Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
