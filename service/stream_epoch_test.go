@@ -337,3 +337,31 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 	defer func() { _ = got.stream.Close() }()
 	endsWithoutNewEvents(t, got.stream)
 }
+
+// A stream that is cut ends at once: the Events queued for it, which the
+// client has not read, are not delivered after the cut.
+func TestACutStreamEndsAtOnce(t *testing.T) {
+	store := session.NewMemoryStore()
+	a := recreatedRunner(t, "a", store, -1)
+	ctx := context.Background()
+	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	// Let the catch-up read the Record, so its Events wait for the client.
+	time.Sleep(50 * time.Millisecond)
+	if err := a.DeleteSession(ctx, first.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	read, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	event, err := stream.Next(read)
+	if !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("the cut stream gave %v, %v; want not found at once", event, err)
+	}
+}

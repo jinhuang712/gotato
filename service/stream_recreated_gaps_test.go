@@ -148,12 +148,14 @@ func TestStreamChecksTheEpochAfterTheReadNotBefore(t *testing.T) {
 	endsWithoutNewEvents(t, stream)
 }
 
-// (c) The Session is deleted and created again on this instance while the
-// stream's first catch-up is reading: the catch-up does not finish.
-func TestDeleteDuringTheFirstCatchUpEndsTheStream(t *testing.T) {
+// (c) The Session is deleted and created again on another instance while the
+// stream's first catch-up is reading: what the catch-up read is checked after
+// the read, as a look's is, so none of it is delivered. (A cut on this
+// instance is TestACutStreamEndsAtOnce.)
+func TestFirstCatchUpChecksTheEpochAfterItsRead(t *testing.T) {
 	store := session.NewMemoryStore()
 	gate := newGatedLog(store)
-	a := recreatedRunner(t, "a", gate, -1)
+	a, b := recreatedRunner(t, "a", gate, -1), recreatedRunner(t, "b", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -170,10 +172,10 @@ func TestDeleteDuringTheFirstCatchUpEndsTheStream(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the catch-up never read the store")
 	}
-	if err := a.DeleteSession(ctx, first.SessionID); err != nil {
+	if err := b.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.CreateSessionExclusive(ctx, "echo", first.SessionID, nil); err != nil {
+	if _, err := b.CreateSessionExclusive(ctx, "echo", first.SessionID, nil); err != nil {
 		t.Fatal(err)
 	}
 	close(gate.release)

@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
-	"io"
 	"math/rand/v2"
 	"strconv"
 	"sync"
@@ -83,24 +81,28 @@ type SessionStream struct {
 	failure error
 }
 
-// Next implements gotato.Subscription. A stream that was failed, because its
-// Session was deleted, ends with that error once what is queued is read.
+// Next implements gotato.Subscription. A stream that was cut, because its
+// Record was deleted or created again, returns that error from then on, and no
+// Event after the cut, not even one already queued.
 func (s *SessionStream) Next(ctx context.Context) (gotato.Event, error) {
+	if failure := s.cut(); failure != nil {
+		return nil, failure
+	}
 	event, err := s.feedSubscription.Next(ctx)
-	if errors.Is(err, io.EOF) {
-		s.mu.Lock()
-		failure := s.failure
-		s.mu.Unlock()
-		if failure != nil {
-			return nil, failure
-		}
+	if failure := s.cut(); failure != nil {
+		return nil, failure
 	}
 	return event, err
 }
 
-// failWith ends the stream with err at once: what is queued, and what a
-// catch-up under way has read, is dropped, because it may belong to another
-// Record than the one the client follows.
+func (s *SessionStream) cut() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failure
+}
+
+// failWith cuts the stream with err at once: what is queued, and what a
+// catch-up under way has read, is dropped, and Next returns err.
 func (s *SessionStream) failWith(err error) {
 	s.mu.Lock()
 	if s.failure == nil {
