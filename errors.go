@@ -30,6 +30,10 @@ const (
 	ErrConflict ErrorCode = "conflict"
 	// ErrStoreFailure means the store could not write a Session's Record.
 	ErrStoreFailure ErrorCode = "store_failure"
+	// ErrOverloaded means an Instance is past its hard limit and refused to
+	// activate a new Session. The request did not run, so sending it to
+	// another Instance cannot run it twice.
+	ErrOverloaded ErrorCode = "overloaded"
 )
 
 type RuntimeError struct {

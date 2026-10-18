@@ -638,6 +638,7 @@ func (c *cli) cmdServe(args []string) int {
 	bindModel(fs, &flags)
 	addr := fs.String("addr", "127.0.0.1:8787", "listen address")
 	maxRuns := fs.Int("max-runs", 0, "maximum concurrent runs; 0 disables the bound")
+	maxSessions := fs.Int("max-sessions", 0, "hard limit on active sessions; past it a new session is refused with a 503 marked not run; 0 disables the limit")
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
 	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before cancelling them")
 	if _, err := parseInterspersed(fs, args); err != nil {
@@ -651,6 +652,9 @@ func (c *cli) cmdServe(args []string) int {
 	if *maxRuns < 0 {
 		return c.usageError("--max-runs cannot be negative")
 	}
+	if *maxSessions < 0 {
+		return c.usageError("--max-sessions cannot be negative")
+	}
 	rt, err := c.newRuntime(flags)
 	if err != nil {
 		return c.failErr(err)
@@ -661,7 +665,7 @@ func (c *cli) cmdServe(args []string) int {
 		spec, _ := rt.runner.Agent(name)
 		specs = append(specs, spec)
 	}
-	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, Queue: service.QueuePolicy(*queue)}})
+	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
 	if err != nil {
 		return c.failErr(err)
 	}

@@ -74,19 +74,55 @@ func New(runner *service.Runner) *Handler {
 	h.mux.HandleFunc("GET /v1/agents", h.agents)
 	h.mux.HandleFunc("POST /v1/sessions", h.createSession)
 	h.mux.HandleFunc("GET /v1/sessions", h.listSessions)
-	h.mux.HandleFunc("GET /v1/sessions/{id}", h.getSession)
-	h.mux.HandleFunc("DELETE /v1/sessions/{id}", h.deleteSession)
-	h.mux.HandleFunc("POST /v1/sessions/{id}/fork", h.fork)
-	h.mux.HandleFunc("GET /v1/sessions/{id}/events", h.events)
-	h.mux.HandleFunc("GET /v1/sessions/{id}/context", h.contextReport)
-	h.mux.HandleFunc("POST /v1/sessions/{id}/compact", h.compact)
-	h.mux.HandleFunc("POST /v1/sessions/{id}/runs", h.run)
-	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.runStream)
-	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.cancelSession)
+	h.mux.HandleFunc("GET /v1/sessions/{id}", h.scoped(h.getSession))
+	h.mux.HandleFunc("DELETE /v1/sessions/{id}", h.scoped(h.deleteSession))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/fork", h.scoped(h.fork))
+	h.mux.HandleFunc("GET /v1/sessions/{id}/events", h.scoped(h.events))
+	h.mux.HandleFunc("GET /v1/sessions/{id}/context", h.scoped(h.contextReport))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/compact", h.scoped(h.compact))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/runs", h.scoped(h.run))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.scoped(h.runStream))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.scoped(h.cancelSession))
 	h.mux.HandleFunc("POST /v1/runs", h.run)
 	h.mux.HandleFunc("POST /v1/runs/stream", h.runStream)
 	h.mux.HandleFunc("POST /v1/runs/{run_id}/cancel", h.cancelRun)
 	return h
+}
+
+// SessionIDHeader is the request header that names the Session a request is
+// about. A load balancer hashes on it to send every request for a Session to
+// one instance, its writer. The handler reads it as a check: it must agree
+// with the Session ID in the path or the body, or the request is refused with
+// 400, since the load balancer would have routed it for another Session. A
+// request that creates a Session answers with the new ID in a header of the
+// same name, for the client to send next time.
+const SessionIDHeader = "session-id"
+
+// NotRunHeader marks a 503 whose request did not run, so a load balancer may
+// send it again to another instance without running it twice. Its value is
+// "true", and the body says the same in "not_run".
+const NotRunHeader = "Gotato-Not-Run"
+
+// scoped wraps a handler of a route with a {id}: the session-id header, when
+// the request carries one, must name that Session.
+func (h *Handler) scoped(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := checkSessionHeader(r, r.PathValue("id")); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// checkSessionHeader reports an error when the request's session-id header
+// names another Session than id. An absent or blank header agrees with all.
+func checkSessionHeader(r *http.Request, id string) error {
+	header := strings.TrimSpace(r.Header.Get(SessionIDHeader))
+	if header == "" || id == "" || header == id {
+		return nil
+	}
+	return fmt.Errorf("the %s header names session %q, the request is about session %q", SessionIDHeader, header, id)
 }
 
 // ServeHTTP implements http.Handler.
@@ -117,16 +153,19 @@ type errorResponse struct {
 	Error   string `json:"error"`
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
+	// NotRun says the request did not run, so it can be sent again, also to
+	// another instance.
+	NotRun bool `json:"not_run,omitempty"`
 }
 
 // ---- handlers ---------------------------------------------------------------
 
 func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
 	if h.runner.Draining() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "draining": true, "active_runs": h.runner.ActiveRuns()})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "draining": true, "active_runs": h.runner.ActiveRuns(), "active_sessions": h.runner.ActiveSessions()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "active_runs": h.runner.ActiveRuns()})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "active_runs": h.runner.ActiveRuns(), "active_sessions": h.runner.ActiveSessions()})
 }
 
 func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
@@ -146,6 +185,10 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		writeDecodeError(w, err)
 		return
 	}
+	if err := checkSessionHeader(r, in.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if in.ID != "" {
 		s, err := h.runner.CreateSessionExclusive(r.Context(), in.Agent, in.ID, in.Metadata)
 		if errors.Is(err, service.ErrSessionExists) {
@@ -156,6 +199,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 			writeFailure(w, err)
 			return
 		}
+		w.Header().Set(SessionIDHeader, s.ID())
 		writeJSON(w, http.StatusCreated, session.SummaryOf(s))
 		return
 	}
@@ -164,6 +208,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
+	w.Header().Set(SessionIDHeader, s.ID())
 	writeJSON(w, http.StatusCreated, session.SummaryOf(s))
 }
 
@@ -199,6 +244,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
+	w.Header().Set(SessionIDHeader, child.ID())
 	writeJSON(w, http.StatusCreated, session.SummaryOf(child))
 }
 
@@ -288,6 +334,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, status, err)
 		return
+	}
+	if request.SessionID == "" {
+		w.Header().Set(SessionIDHeader, result.SessionID)
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -410,7 +459,7 @@ func StatusFor(err error) int {
 			return http.StatusBadRequest
 		case gotato.ErrBusy, gotato.ErrConflict:
 			return http.StatusConflict
-		case gotato.ErrStoreFailure:
+		case gotato.ErrStoreFailure, gotato.ErrOverloaded:
 			return http.StatusServiceUnavailable
 		case gotato.ErrLimitExceeded:
 			return http.StatusTooManyRequests
@@ -425,9 +474,12 @@ func StatusFor(err error) int {
 	return http.StatusInternalServerError
 }
 
+// notRun reports whether err refused a request before it ran anything.
+func notRun(err error) bool { return gotato.IsCode(err, gotato.ErrOverloaded) }
+
 func failureOf(err error) errorResponse {
 	status := StatusFor(err)
-	out := errorResponse{Error: http.StatusText(status)}
+	out := errorResponse{Error: http.StatusText(status), NotRun: notRun(err)}
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
@@ -444,6 +496,9 @@ func failureOf(err error) errorResponse {
 }
 
 func writeFailure(w http.ResponseWriter, err error) {
+	if notRun(err) {
+		w.Header().Set(NotRunHeader, "true")
+	}
 	// A Session busy on another instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {

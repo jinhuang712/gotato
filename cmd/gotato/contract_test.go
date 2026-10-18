@@ -42,6 +42,9 @@ func TestServeRejectsInvalidFlags(t *testing.T) {
 	if code, _, _ := h.run("serve", "--max-runs", "-1"); code != ExitUsage {
 		t.Fatalf("serve --max-runs -1 exit = %d", code)
 	}
+	if code, _, _ := h.run("serve", "--max-sessions", "-1"); code != ExitUsage {
+		t.Fatalf("serve --max-sessions -1 exit = %d", code)
+	}
 }
 
 func TestForkNeverOverwritesASession(t *testing.T) {

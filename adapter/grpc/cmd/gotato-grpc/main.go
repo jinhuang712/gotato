@@ -50,10 +50,11 @@ func main() {
 	storeDir := flag.String("store", "", "session store directory (default $GOTATO_HOME/sessions or ~/.gotato/sessions)")
 	gatewayConfig := flag.String("gateway-config", "", "YAML config for the gateway agent (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
 	maxRuns := flag.Int("max-runs", 0, "maximum concurrent runs; 0 disables the bound")
+	maxSessions := flag.Int("max-sessions", 0, "hard limit on active sessions; past it a new session is refused with UNAVAILABLE marked not run; 0 disables the limit")
 	flag.Parse()
 
-	if *maxRuns < 0 {
-		fmt.Fprintln(os.Stderr, "gotato-grpc: --max-runs cannot be negative")
+	if *maxRuns < 0 || *maxSessions < 0 {
+		fmt.Fprintln(os.Stderr, "gotato-grpc: --max-runs and --max-sessions cannot be negative")
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -111,7 +112,7 @@ func main() {
 		client = created
 		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
 	}
-	runner, err := service.New(service.Config{Store: store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns}})
+	runner, err := service.New(service.Config{Store: store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions}})
 	if err != nil {
 		log.Fatal(err)
 	}

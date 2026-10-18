@@ -409,8 +409,9 @@ type RunWaiting struct {
 	Why string `json:"why,omitempty"`
 }
 
-// RunRejected: a request is refused: busy, at capacity or draining. An
-// Instance Event.
+// RunRejected: a request is refused, with why: "busy", "at_capacity",
+// "draining", or "activation_limit" when the Instance is past its hard limit of
+// active Sessions. An Instance Event.
 type RunRejected struct {
 	Header
 	Why string `json:"why"`

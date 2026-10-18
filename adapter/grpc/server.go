@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -29,6 +30,44 @@ import (
 // what the service returns, JSON payloads included; the protobuf package
 // stays gotato.v2 until its schema itself breaks.
 const ContractVersion = "4"
+
+// SessionIDKey is the metadata key that names the Session an RPC is about. A
+// load balancer hashes on it to send every call for a Session to one instance,
+// its writer. The server reads it as a check: it must agree with the Session ID
+// in the request, or the call fails with INVALID_ARGUMENT, since the load
+// balancer would have routed it for another Session. An RPC that creates a
+// Session answers with the new ID in its header metadata under the same key,
+// for the client to send next time. StreamRun cannot: its headers go out before
+// the Session exists, and its first Event names it.
+const SessionIDKey = "session-id"
+
+// NotRunKey is the trailer metadata that marks an UNAVAILABLE whose call did
+// not run, so a load balancer may send it again to another instance without
+// running it twice. Its value is "true".
+const NotRunKey = "gotato-not-run"
+
+// checkSessionID fails when the call's session-id metadata names another
+// Session than id. Absent or blank metadata agrees with all.
+func checkSessionID(ctx context.Context, id string) error {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok || id == "" {
+		return nil
+	}
+	for _, value := range md.Get(SessionIDKey) {
+		if value = strings.TrimSpace(value); value != "" && value != id {
+			return status.Errorf(codes.InvalidArgument, "the %s metadata names session %q, the request is about session %q", SessionIDKey, value, id)
+		}
+	}
+	return nil
+}
+
+// announceSession sets the header metadata of a call that created a Session.
+func announceSession(ctx context.Context, id string) {
+	_ = grpc.SetHeader(ctx, metadata.Pairs(SessionIDKey, id))
+}
+
+// notRun reports whether err refused a call before it ran anything.
+func notRun(err error) bool { return gotato.IsCode(err, gotato.ErrOverloaded) }
 
 // Server implements gotatov2.SessionServiceServer.
 type Server struct {
@@ -60,6 +99,9 @@ func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.Age
 }
 
 func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSessionRequest) (*gotatov2.SessionSummary, error) {
+	if err := checkSessionID(ctx, request.GetId()); err != nil {
+		return nil, err
+	}
 	if request.GetId() != "" {
 		created, err := s.runner.CreateSessionExclusive(ctx, request.GetAgent(), request.GetId(), request.GetMetadata())
 		if errors.Is(err, service.ErrSessionExists) {
@@ -68,16 +110,21 @@ func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSess
 		if err != nil {
 			return nil, statusOf(err)
 		}
+		announceSession(ctx, created.ID())
 		return summaryOf(session.SummaryOf(created)), nil
 	}
 	created, err := s.runner.CreateSession(ctx, request.GetAgent(), request.GetMetadata())
 	if err != nil {
 		return nil, statusOf(err)
 	}
+	announceSession(ctx, created.ID())
 	return summaryOf(session.SummaryOf(created)), nil
 }
 
 func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionDocument, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	found, err := s.runner.Session(ctx, request.GetSessionId())
 	if err != nil {
 		return nil, statusOf(err)
@@ -102,6 +149,9 @@ func (s *Server) ListSessions(ctx context.Context, _ *gotatov2.ListSessionsReque
 }
 
 func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.DeleteSessionResponse, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	if err := s.runner.DeleteSession(ctx, request.GetSessionId()); err != nil {
 		return nil, statusOf(err)
 	}
@@ -109,25 +159,41 @@ func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionReq
 }
 
 func (s *Server) ForkSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionSummary, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	child, err := s.runner.Fork(ctx, request.GetSessionId(), "")
 	if err != nil {
 		return nil, statusOf(err)
 	}
+	announceSession(ctx, child.ID())
 	return summaryOf(session.SummaryOf(child)), nil
 }
 
 func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotatov2.RunResult, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	result, err := s.runner.Run(ctx, runRequestOf(request))
 	if err != nil && result.SessionID == "" {
+		if notRun(err) {
+			_ = grpc.SetTrailer(ctx, metadata.Pairs(NotRunKey, "true"))
+		}
 		return nil, statusOf(err)
 	}
 	if errors.Is(err, service.ErrNotPersisted) {
 		return nil, notPersisted(err)
 	}
+	if request.GetSessionId() == "" {
+		announceSession(ctx, result.SessionID)
+	}
 	return resultOf(result), nil
 }
 
 func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.SessionService_StreamRunServer) error {
+	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
+		return err
+	}
 	// The Runner reads the Run's Subscription and calls sink from this
 	// goroutine, so a client that reads slowly slows only this stream.
 	sink := func(event gotato.Event) error {
@@ -141,6 +207,9 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 	var end error
 	switch {
 	case err != nil && result.SessionID == "":
+		if notRun(err) {
+			stream.SetTrailer(metadata.Pairs(NotRunKey, "true"))
+		}
 		end = statusOf(err)
 	case errors.Is(err, service.ErrNotPersisted):
 		end = notPersisted(err)
@@ -157,6 +226,9 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 }
 
 func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunRequest) (*gotatov2.CancelRunResponse, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	var err error
 	if id := request.GetSessionId(); id != "" {
 		err = s.runner.CancelSession(ctx, id)
@@ -170,6 +242,9 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 }
 
 func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.SessionService_EventsServer) error {
+	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
+		return err
+	}
 	events, err := s.runner.Events(stream.Context(), request.GetSessionId())
 	if err != nil {
 		return statusOf(err)
@@ -190,6 +265,9 @@ func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.Session
 }
 
 func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.ContextReport, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	report, err := s.runner.Inspect(ctx, request.GetSessionId())
 	if err != nil {
 		return nil, statusOf(err)
@@ -208,6 +286,9 @@ func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) 
 }
 
 func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) (*gotatov2.CompactResult, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
 	keep := int(request.GetKeep())
 	if keep <= 0 {
 		keep = 4
@@ -326,7 +407,7 @@ func statusOf(err error) error {
 			code = codes.Unimplemented
 		case gotato.ErrConflict:
 			code = codes.Aborted
-		case gotato.ErrStoreFailure:
+		case gotato.ErrStoreFailure, gotato.ErrOverloaded:
 			code = codes.Unavailable
 		}
 		return status.Error(code, runtimeErr.Error())

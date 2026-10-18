@@ -102,7 +102,14 @@ const (
 // Admission bounds concurrent work. Zero values disable a bound.
 type Admission struct {
 	MaxActiveRuns int
-	Queue         QueuePolicy
+	// MaxActiveSessions is the hard limit on the Sessions this Instance
+	// activates: those a Run holds, counted once however many Runs wait on
+	// them. Past it, a Run that would activate another Session is refused with
+	// ErrOverloaded before anything is loaded, claimed or created, so the
+	// load balancer can send it to another Instance. A Run on a Session that
+	// is active already is not refused. Zero means no limit.
+	MaxActiveSessions int
+	Queue             QueuePolicy
 }
 
 // Config configures a Runner.
@@ -124,6 +131,11 @@ var ErrBusy = gotato.ErrorOf(gotato.ErrBusy, "service: session has a run in flig
 
 // ErrCapacity is returned when MaxActiveRuns is reached.
 var ErrCapacity = gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum active runs reached")
+
+// ErrOverloaded is returned when the Instance is at its MaxActiveSessions and
+// the Run would activate another Session. The Run did not start and nothing
+// was written, so it is safe to send again to another Instance.
+var ErrOverloaded = gotato.ErrorOf(gotato.ErrOverloaded, "service: this instance is at its limit of active sessions")
 
 // ErrUnknownAgent is returned for an unregistered Agent name.
 var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent")
@@ -273,6 +285,9 @@ func New(cfg Config) (*Runner, error) {
 	if r.instance == "" {
 		r.instance = session.NewID()
 	}
+	if r.admission.MaxActiveSessions < 0 {
+		return nil, errors.New("service: MaxActiveSessions cannot be negative")
+	}
 	if r.admission.Queue == "" {
 		r.admission.Queue = RejectWhileBusy
 	}
@@ -344,6 +359,24 @@ func (r *Runner) ActiveRuns() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.inflight
+}
+
+// ActiveSessions reports the Sessions this Instance has activated: those that
+// a Run holds or waits for.
+func (r *Runner) ActiveSessions() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.activeSessionsLocked()
+}
+
+// activeSessionsLocked counts the Sessions with an admitted Run. Runs that
+// create a Session have no ID yet, and each counts as one Session of its own.
+func (r *Runner) activeSessionsLocked() int {
+	n := len(r.handles)
+	if fresh := len(r.handles[""]); fresh > 1 {
+		n += fresh - 1
+	}
+	return n
 }
 
 // Draining reports whether the Runner drains: from the moment Drain has marked
@@ -499,10 +532,19 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
 		return RunResult{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required")
 	}
-	if err := r.admit(); err != nil {
+	// The Run registers as it is admitted, in one step, so the limits count it
+	// at once and Drain and CancelSession reach it even while it is still
+	// loading its Session.
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
+	if err := r.admit(handle); err != nil {
 		why := "at_capacity"
-		if errors.Is(err, ErrDraining) {
+		switch {
+		case errors.Is(err, ErrDraining):
 			why = "draining"
+		case errors.Is(err, ErrOverloaded):
+			why = "activation_limit"
 		}
 		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResult{}, err
@@ -510,13 +552,6 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	release := sync.OnceFunc(r.release)
 	defer release()
-
-	// Admitted, then registered immediately: from here on Drain and
-	// CancelSession reach the Run even while it is still loading its Session.
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
-	r.registerHandle(handle)
 	defer r.unregisterHandle(handle)
 	out, err := r.serve(ctx, runCtx, request, stream, handle)
 	if handle.stoppedByDrain() && out.Result.Status != gotato.RunCompleted {
@@ -1260,13 +1295,6 @@ func (r *Runner) stopAll() {
 	}
 }
 
-// registerHandle records an admitted Run for the lifetime of the call.
-func (r *Runner) registerHandle(handle *runHandle) {
-	r.mu.Lock()
-	r.handles[handle.sessionID] = append(r.handles[handle.sessionID], handle)
-	r.mu.Unlock()
-}
-
 // retargetHandle moves an admitted Run to the Session ID it turned out to own.
 // A Run registers before its Session is loaded, so a newly created Session's
 // generated ID has to be attached afterwards.
@@ -1373,16 +1401,24 @@ func (r *Runner) Drain(ctx context.Context) error {
 	}
 }
 
-func (r *Runner) admit() error {
+// admit decides whether a Run may start, and registers its handle when it
+// may. A draining Instance refuses first; then a Run that would activate a
+// Session past MaxActiveSessions is refused, because another Instance can
+// still take it; then MaxActiveRuns applies to every Run.
+func (r *Runner) admit(handle *runHandle) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.draining {
 		return ErrDraining
 	}
+	if limit := r.admission.MaxActiveSessions; limit > 0 && len(r.handles[handle.sessionID]) == 0 && r.activeSessionsLocked() >= limit {
+		return ErrOverloaded
+	}
 	if r.admission.MaxActiveRuns > 0 && r.inflight >= r.admission.MaxActiveRuns {
 		return ErrCapacity
 	}
 	r.inflight++
+	r.handles[handle.sessionID] = append(r.handles[handle.sessionID], handle)
 	return nil
 }
 
