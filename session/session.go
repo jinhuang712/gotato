@@ -154,6 +154,9 @@ type Record struct {
 	openParts []replyPart
 	// retainRead says Events read from a log are kept in the window.
 	retainRead bool
+	// cutOff holds the Cut-off replies that reading a log made out of the
+	// parts of replies whose Messages never arrived.
+	cutOff []gotato.Message
 }
 
 // Option configures New.
@@ -372,6 +375,14 @@ func (s *Record) emit(event gotato.Event) {
 		return
 	}
 	s.number(event)
+}
+
+// Durable implements an optional method of gotato.Journal: a Record keeps its
+// Events beyond the process only once it is stored.
+func (s *Record) Durable() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.logging
 }
 
 // header is the Header of an Event the Record itself produces.

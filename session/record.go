@@ -121,7 +121,9 @@ func fromEntries(entries []Entry, retain bool) (*Record, error) {
 	if s.id == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: checkpoint has no id")
 	}
+	before := len(s.messages)
 	s.closeParts("")
+	s.cutOff = slices.Clone(s.messages[before:])
 	s.messages = repair(s.messages, s.started)
 	s.started = nil
 	s.head = entries[len(entries)-1].Seq

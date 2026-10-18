@@ -603,7 +603,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	var partText, partReasoning strings.Builder
 	partStarted := time.Now()
 	writePart := func() *RuntimeError {
-		if !a.durable {
+		if !a.isDurable() {
 			return nil
 		}
 		size := partText.Len() + partReasoning.Len()

@@ -30,6 +30,21 @@ var (
 	replyPartBytes = 4096
 )
 
+// Durable is an optional method of a Journal: it says whether the Events it
+// keeps are stored, so they survive the process. A Journal without it is
+// durable. A session.Record that is not stored is not, and a Session over it
+// does not write the parts of a streaming reply, which exist so that a crash
+// loses at most the last of them.
+type durable interface{ Durable() bool }
+
+// isDurable reports whether the Session's Events are stored.
+func (a *Session) isDurable() bool {
+	if d, ok := a.transcript.(durable); ok {
+		return d.Durable()
+	}
+	return a.durable
+}
+
 // memoryJournal numbers the Events of a Session whose Transcript keeps none.
 type memoryJournal struct {
 	mu   sync.Mutex

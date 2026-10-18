@@ -164,7 +164,7 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	if err != nil {
 		return nil, err
 	}
-	r, err := fromLoaded(loaded)
+	r, err := fromLoaded(ctx, store, id, loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +198,14 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 		why = gotato.ClaimWriterGone
 	}
 	r.claimFor(instance, why)
+	// A reply that was streaming when the last Writer stopped is kept as the
+	// Cut-off reply it had reached, as a fact, so every later load has it.
+	r.mu.Lock()
+	for _, message := range r.cutOff {
+		r.emit(gotato.ReplyCutOff{Header: r.header(), Message: message.Clone(), Cause: "interrupted"})
+	}
+	r.cutOff = nil
+	r.mu.Unlock()
 	if running != "" {
 		r.interruptRun(running)
 	}
@@ -216,7 +224,7 @@ func Open(ctx context.Context, store Store, id string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fromLoaded(loaded)
+	return fromLoaded(ctx, store, id, loaded)
 }
 
 // View loads a Record from its whole log, for reading only: its facts, and
@@ -237,16 +245,33 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 }
 
 // fromLoaded rebuilds a Record from its facts, with its Run count and usage
-// from the Summary, since its Run records are in the log.
-func fromLoaded(loaded Loaded) (*Record, error) {
-	r, err := fromEntries(loaded.Facts, false)
+// from the Summary, since its Run records are in the log. When the Summary says
+// a Run started and never ended, the log since the last Checkpoint is read too,
+// because it holds the parts of a reply that was streaming, which become a
+// Cut-off reply: a crash loses at most the last part.
+func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Record, error) {
+	entries, head := loaded.Facts, loaded.Head
+	if loaded.Summary.Running != "" && len(loaded.Facts) > 0 {
+		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1)
+		if err != nil {
+			return nil, err
+		}
+		if len(tail) > 0 && tail[0].IsCheckpoint() {
+			entries, head = tail, max(head, tail[len(tail)-1].Seq)
+		}
+	}
+	r, err := fromEntries(entries, false)
 	if err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.head = loaded.Head
-	r.last = loaded.Head
+	if len(entries) != len(loaded.Facts) {
+		// The log was read for its parts only: its Runs are in the Summary.
+		r.runs, r.eventHead = nil, 0
+	}
+	r.head = head
+	r.last = head
 	// A load that starts at a compaction_ended Checkpoint has not read
 	// session_created: what it held comes from the Summary.
 	if r.createdAt.IsZero() {
@@ -273,6 +298,9 @@ func (w *Writer) SetPublisher(publish func(gotato.Event)) {
 	w.publish = publish
 	w.mu.Unlock()
 }
+
+// Durable implements an optional method of gotato.Journal: a Writer stores.
+func (w *Writer) Durable() bool { return true }
 
 // Record returns the Record the Writer writes.
 func (w *Writer) Record() *Record { return w.record }
