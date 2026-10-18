@@ -11,6 +11,9 @@ import (
 	gotato "github.com/jinhuang712/gotato"
 )
 
+// summaryTime is how a Summary writes a time.
+const summaryTime = "2006-01-02T15:04:05.000Z07:00"
+
 // ErrNotFound is returned by stores for an unknown Session ID.
 var ErrNotFound = errors.New("session: not found")
 
@@ -195,7 +198,7 @@ func (s *Record) Summary() Summary {
 
 func (s *Record) summaryLocked() Summary {
 	summary := summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
-	summary.RecordEpoch = s.epoch
+	summary.RecordEpoch = s.epochLocked()
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy
@@ -206,8 +209,8 @@ func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, ru
 	return Summary{
 		ID:        id,
 		ParentID:  parentID,
-		CreatedAt: createdAt.Format("2006-01-02T15:04:05.000Z07:00"),
-		UpdatedAt: updatedAt.Format("2006-01-02T15:04:05.000Z07:00"),
+		CreatedAt: createdAt.Format(summaryTime),
+		UpdatedAt: updatedAt.Format(summaryTime),
 		Messages:  messages,
 		Runs:      runs,
 		Usage:     usage,
