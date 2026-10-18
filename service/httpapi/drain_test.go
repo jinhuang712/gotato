@@ -139,9 +139,13 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	if status, body := call(t, server, http.MethodGet, "/readyz", nil); status != http.StatusServiceUnavailable || !strings.Contains(string(body), `"draining":true`) {
 		t.Fatalf("readyz while draining = %d %s", status, body)
 	}
-	refused := <-openStream(t, server, "/v1/runs/stream", `{"prompt":"new","agent":"gated"}`)
-	if len(refused) != 1 || refused[0].event != "error" || !strings.Contains(refused[0].data, "draining") {
-		t.Fatalf("a new Run while draining = %+v, want one error frame", refused)
+	// A new Run while draining is refused before the stream starts, with the
+	// status /v1/runs answers.
+	for _, path := range []string{"/v1/runs", "/v1/runs/stream"} {
+		status, body := call(t, server, http.MethodPost, path, map[string]any{"prompt": "new", "agent": "gated"})
+		if status != http.StatusConflict || !strings.Contains(string(body), "draining") {
+			t.Fatalf("a new Run on %s while draining = %d %s, want 409", path, status, body)
+		}
 	}
 
 	openGate()

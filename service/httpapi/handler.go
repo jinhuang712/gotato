@@ -387,11 +387,12 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sink := func(event gotato.Event) error { return writeEvent(w, flusher, event) }
-	// The stream answers 200 once the Run is admitted. A request refused as not
-	// run (past the activation limit) never gets there: it answers 503 marked
-	// not run, which a load balancer can retry on another instance.
+	// The stream answers 200 once the Run is admitted. A request refused at
+	// admission (draining, at capacity, past the activation limit) never gets
+	// there: it answers the status /v1/runs answers, before the stream starts,
+	// and a refusal marked not run is marked here too.
 	result, runErr := h.runner.StreamRunAdmitted(r.Context(), request, start, sink)
-	if !started && runErr != nil && result.SessionID == "" && notRun(runErr) {
+	if !started && runErr != nil && result.SessionID == "" {
 		writeFailure(w, runErr)
 		return
 	}
