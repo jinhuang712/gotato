@@ -54,6 +54,7 @@ var checks = []check{
 	{"a write must continue the head", checkContinuesHead},
 	{"one writer wins a position", checkRace},
 	{"list returns summaries", checkList},
+	{"the record epoch survives every read", checkRecordEpoch},
 	{"delete", checkDelete},
 	{"an unknown record", checkUnknown},
 	{"a cancelled context", checkCancelled},
@@ -348,6 +349,45 @@ func checkRace(ctx context.Context, open Open) error {
 	}
 	writer := fmt.Sprintf("writer-%d", winner)
 	return sameEntries(got, []session.Entry{fact(4, writer), fact(5, writer)})
+}
+
+// checkRecordEpoch: a store keeps Summary.RecordEpoch with the rest of the
+// Summary, from Create through Append, and returns it from Load and List. A
+// store that drops it would give a Record one epoch in its Entries and another
+// in its Summary, and every stream resume would be refused.
+func checkRecordEpoch(ctx context.Context, open Open) error {
+	store := open()
+	first := summary("epoch", 1, "2026-10-17T00:00:01.000Z")
+	first.RecordEpoch = "epoch-1"
+	if err := store.Create(ctx, "epoch", []session.Entry{checkpoint(1, "a")}, first); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	loaded, err := open().Load(ctx, "epoch")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if loaded.Summary.RecordEpoch != "epoch-1" {
+		return fmt.Errorf("load after create returns record epoch %q, want %q", loaded.Summary.RecordEpoch, "epoch-1")
+	}
+	next := summary("epoch", 2, "2026-10-17T00:00:02.000Z")
+	next.RecordEpoch = "epoch-1"
+	if err := store.Append(ctx, "epoch", 1, []session.Entry{fact(2, "a")}, next); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	loaded, err = open().Load(ctx, "epoch")
+	if err != nil || loaded.Summary.RecordEpoch != "epoch-1" {
+		return fmt.Errorf("load after append returns record epoch %q (%v), want %q", loaded.Summary.RecordEpoch, err, "epoch-1")
+	}
+	list, err := open().List(ctx)
+	if err != nil {
+		return fmt.Errorf("list: %w", err)
+	}
+	for _, item := range list {
+		if item.ID == "epoch" && item.RecordEpoch != "epoch-1" {
+			return fmt.Errorf("list returns record epoch %q, want %q", item.RecordEpoch, "epoch-1")
+		}
+	}
+	return nil
 }
 
 func checkList(ctx context.Context, open Open) error {

@@ -160,6 +160,29 @@ func TestTheSuiteCatchesAStoreThatReadsARemovedRowAsAlive(t *testing.T) {
 	}
 }
 
+// forgettingEpoch maps the Summary to its own columns and loses the epoch.
+type forgettingEpoch struct{ *session.MemoryStore }
+
+func (s forgettingEpoch) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+	summary.RecordEpoch = ""
+	return s.MemoryStore.Create(ctx, id, entries, summary)
+}
+
+func (s forgettingEpoch) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+	summary.RecordEpoch = ""
+	return s.MemoryStore.Append(ctx, id, after, entries, summary)
+}
+
+func TestTheSuiteCatchesAStoreThatDropsTheRecordEpoch(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := forgettingEpoch{session.NewMemoryStore()}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "the record epoch survives every read") {
+		t.Fatalf("problems = %v, want the record epoch check to fail", problems)
+	}
+}
+
 func mentions(problems []error, check string) bool {
 	for _, problem := range problems {
 		if strings.HasPrefix(problem.Error(), check+":") {
