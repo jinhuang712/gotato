@@ -33,7 +33,10 @@ service SessionService {
   // StreamRun executes one Run while streaming its runtime Events; the
   // terminal RunResult is the last message on the stream. Delivery is
   // backpressured by the client's read rate: the adapter sends synchronously
-  // and ends the stream when Send fails or the stream deadline passes.
+  // and ends the stream when Send fails or the stream deadline passes. When
+  // the instance's drain stopped the Run, the stream ends with UNAVAILABLE
+  // and a retry-after-ms trailer, once the Session is saved and released:
+  // continue it on any instance after that many milliseconds.
   rpc StreamRun(RunRequest) returns (stream RunUpdate);
   // CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
   // Run is not active rather than pretending to cancel.

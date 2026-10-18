@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -19,6 +20,7 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
@@ -135,13 +137,22 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 		return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Event{Event: converted}})
 	}
 	result, err := s.runner.StreamRun(stream.Context(), runRequestOf(request), sink)
-	if err != nil && result.SessionID == "" {
-		return statusOf(err)
+	var end error
+	switch {
+	case err != nil && result.SessionID == "":
+		end = statusOf(err)
+	case errors.Is(err, service.ErrNotPersisted):
+		end = notPersisted(err)
+	default:
+		end = stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
 	}
-	if errors.Is(err, service.ErrNotPersisted) {
-		return notPersisted(err)
+	if result.Reconnect == nil {
+		return end
 	}
-	return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
+	// The drain stopped the Run: the stream ends with UNAVAILABLE, and says
+	// how long to wait before the Session is continued on any instance.
+	stream.SetTrailer(metadata.Pairs("retry-after-ms", strconv.FormatInt(result.Reconnect.RetryAfterMS, 10)))
+	return status.Error(codes.Unavailable, "gotato: this instance is draining; reconnect to continue the session")
 }
 
 func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunRequest) (*gotatov2.CancelRunResponse, error) {

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,7 +132,7 @@ var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknow
 // ErrSessionExists is returned when an explicit Session ID is already taken.
 var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session already exists")
 
-// ErrDraining is returned once Drain has started.
+// ErrDraining refuses a new Run, and a new Claim, once the Runner drains.
 var ErrDraining = gotato.ErrorOf(gotato.ErrInvalidState, "service: draining")
 
 // ErrNotPersisted reports that a settled Run could not be saved. The Run
@@ -155,7 +156,10 @@ type Runner struct {
 	byRun    map[gotato.RunID]*runHandle
 	inflight int
 	draining bool
-	idle     *sync.Cond
+	// drained is made by the first Drain and closed once every Run admitted
+	// before it has settled and released its Session.
+	drained chan struct{}
+	idle    *sync.Cond
 }
 
 // runHandle is one admitted Run. It exists from admission until the Run
@@ -169,6 +173,8 @@ type runHandle struct {
 	abort   func()
 	cancel  context.CancelFunc
 	stopped bool
+	// drained says the drain stopped this Run at its deadline.
+	drained bool
 }
 
 // attachAbort installs the started-Run cancellation path. Until it is
@@ -222,6 +228,21 @@ func (h *runHandle) stop() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// stopForDrain stops the Run because the drain reached its deadline.
+func (h *runHandle) stopForDrain() {
+	h.mu.Lock()
+	h.drained = true
+	h.mu.Unlock()
+	h.stop()
+}
+
+// stoppedByDrain reports whether the drain stopped this Run.
+func (h *runHandle) stoppedByDrain() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.drained
 }
 
 // New validates the configuration and creates a Runner.
@@ -309,8 +330,9 @@ func (r *Runner) ActiveRuns() int {
 	return r.inflight
 }
 
-// Draining reports whether Drain has started. Readiness probes use it to stop
-// receiving traffic before the process exits.
+// Draining reports whether the Runner drains: from the moment Drain has marked
+// its Liveness row. Readiness probes use it to stop receiving traffic before
+// the process exits.
 func (r *Runner) Draining() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -388,6 +410,18 @@ type RunResult struct {
 	Compacted bool             `json:"compacted"`
 	Messages  int              `json:"messages"`
 	Events    int              `json:"events"`
+	// Reconnect is set when this instance's drain stopped the Run before it
+	// completed. By the time the Run returns, its Session is saved and
+	// released, and so is every other Session of the drain.
+	Reconnect *Reconnect `json:"reconnect,omitempty"`
+}
+
+// Reconnect tells a caller to send its next request for the Session through
+// the load balancer, to any instance, after waiting RetryAfterMS. When the
+// Run has a RunID, its prompt is saved, and the caller continues the Session;
+// otherwise nothing ran, and the caller sends the request again.
+type Reconnect struct {
+	RetryAfterMS int64 `json:"retry_after_ms"`
 }
 
 // Run executes one Run synchronously.
@@ -411,7 +445,8 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	if err := r.admit(); err != nil {
 		return RunResult{}, err
 	}
-	defer r.release()
+	release := sync.OnceFunc(r.release)
+	defer release()
 
 	// Admitted, then registered immediately: from here on Drain and
 	// CancelSession reach the Run even while it is still loading its Session.
@@ -420,7 +455,39 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
 	r.registerHandle(handle)
 	defer r.unregisterHandle(handle)
+	out, err := r.serve(ctx, runCtx, request, sink, handle)
+	if handle.stoppedByDrain() && out.Result.Status != gotato.RunCompleted {
+		// The drain stopped this Run, and it is saved and released. It
+		// returns once every Run of the drain is, so the caller reconnects to
+		// a Session that no instance is still using.
+		out.Reconnect = reconnectHint()
+		release()
+		r.mu.Lock()
+		drained := r.drained
+		r.mu.Unlock()
+		select {
+		case <-drained:
+		case <-ctx.Done():
+		}
+	}
+	return out, err
+}
 
+// reconnectBase and reconnectJitter set how long a caller waits before it
+// reconnects after a drain: the jitter keeps the callers of one instance
+// from all reconnecting at the same instant.
+const (
+	reconnectBase   = 500 * time.Millisecond
+	reconnectJitter = time.Second
+)
+
+func reconnectHint() *Reconnect {
+	wait := reconnectBase + rand.N(reconnectJitter)
+	return &Reconnect{RetryAfterMS: wait.Milliseconds()}
+}
+
+// serve runs one admitted Run.
+func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink func(gotato.Event) error, handle *runHandle) (RunResult, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
@@ -1027,9 +1094,9 @@ func (r *Runner) cancelSession(sessionID string) bool {
 	return true
 }
 
-// cancelAll cancels every admitted Run: started Runs through their live Session, Runs
-// still waiting for a Session lock through their context.
-func (r *Runner) cancelAll() {
+// stopAll stops every admitted Run for the drain: started Runs through their
+// live Session, Runs still waiting for a Session lock through their context.
+func (r *Runner) stopAll() {
 	r.mu.Lock()
 	var all []*runHandle
 	for _, list := range r.handles {
@@ -1037,7 +1104,7 @@ func (r *Runner) cancelAll() {
 	}
 	r.mu.Unlock()
 	for _, handle := range all {
-		handle.stop()
+		handle.stopForDrain()
 	}
 }
 
@@ -1106,29 +1173,49 @@ func (r *Runner) attachRunID(handle *runHandle, runID gotato.RunID) {
 	r.mu.Unlock()
 }
 
-// Drain stops admitting Runs and waits for active ones. When ctx ends first,
-// the remaining Runs are cancelled and Drain returns ctx.Err() after they
-// settle.
+// Drain stops this instance in order, so a deploy loses no work:
+//
+//  1. its Liveness row says draining, so every Instance can see it;
+//  2. Draining reports true, so /readyz answers 503, and the Runner admits
+//     no new Run and takes no new Claim (ErrDraining);
+//  3. every Run in flight finishes, is saved, and releases its Session.
+//
+// When ctx ends first, the Runs still going are stopped, saved and released,
+// and each returns with a Reconnect once every Run of the drain has settled;
+// Drain then returns ctx.Err(). A Run that cannot be saved in time is fenced
+// by the next Claim anyway. The Runner keeps renewing its row while it drains;
+// call Close afterwards to remove it. A signal handler or an endpoint of your
+// own calls Drain.
 func (r *Runner) Drain(ctx context.Context) error {
 	r.mu.Lock()
-	r.draining = true
+	first := r.drained == nil
+	if first {
+		r.drained = make(chan struct{})
+	}
+	drained := r.drained
 	r.mu.Unlock()
-	finished := make(chan struct{})
-	go func() {
+	var markErr error
+	if first {
+		markErr = r.markDraining(ctx)
 		r.mu.Lock()
-		for r.inflight > 0 {
-			r.idle.Wait()
-		}
+		r.draining = true
 		r.mu.Unlock()
-		close(finished)
-	}()
+		go func() {
+			r.mu.Lock()
+			for r.inflight > 0 {
+				r.idle.Wait()
+			}
+			r.mu.Unlock()
+			close(drained)
+		}()
+	}
 	select {
-	case <-finished:
-		return nil
+	case <-drained:
+		return markErr
 	case <-ctx.Done():
-		r.cancelAll()
-		<-finished
-		return ctx.Err()
+		r.stopAll()
+		<-drained
+		return errors.Join(markErr, ctx.Err())
 	}
 }
 

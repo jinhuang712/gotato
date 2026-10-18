@@ -132,8 +132,9 @@ func main() {
 		if err := runner.Drain(drainCtx); err != nil {
 			log.Printf("drain: %v", err)
 		}
-		// Ending the Liveness row lets another instance take this one's
-		// Sessions over at once.
+		// Drain has marked the Liveness row draining, finished every Run,
+		// and released its Session. Removing the row leaves nothing of this
+		// instance in the store.
 		if err := runner.Close(drainCtx); err != nil {
 			log.Printf("close: %v", err)
 		}

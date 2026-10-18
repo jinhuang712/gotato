@@ -14,7 +14,7 @@
 //	GET    /v1/sessions/{id}/context        → modelctx report (what the model would see now)
 //	POST   /v1/sessions/{id}/compact        {keep?}                        → compaction result
 //	POST   /v1/sessions/{id}/runs           {prompt | continue}            → run result
-//	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result
+//	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
 //	POST   /v1/sessions/{id}/cancel         cancel the run in flight
 //	POST   /v1/runs                         {prompt, agent?, metadata?}    → create session + run
 //	POST   /v1/runs/stream                  same, streaming
@@ -293,7 +293,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 }
 
 // runStream streams Events as Server-Sent Events (event: <kind>, data: JSON)
-// and ends with a "result" event carrying the RunResult.
+// and ends with a "result" event carrying the RunResult. When the drain
+// stopped the Run, a "reconnect" event follows, with the SSE retry field set
+// to the same delay.
 func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 	request, err := h.runRequest(w, r)
 	if err != nil {
@@ -318,18 +320,21 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	result, runErr := h.runner.StreamRun(r.Context(), request, sink)
-	if runErr != nil && result.SessionID == "" {
+	switch {
+	case runErr != nil && result.SessionID == "":
 		data, _ := json.Marshal(failureOf(runErr))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
-		return
-	}
-	if errors.Is(runErr, service.ErrNotPersisted) {
+	case errors.Is(runErr, service.ErrNotPersisted):
 		data, _ := json.Marshal(internalError(runErr))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
-		return
+	default:
+		data, _ := json.Marshal(result)
+		fmt.Fprintf(w, "event: result\ndata: %s\n\n", data)
 	}
-	data, _ := json.Marshal(result)
-	fmt.Fprintf(w, "event: result\ndata: %s\n\n", data)
+	if result.Reconnect != nil {
+		data, _ := json.Marshal(result.Reconnect)
+		fmt.Fprintf(w, "event: reconnect\nretry: %d\ndata: %s\n\n", result.Reconnect.RetryAfterMS, data)
+	}
 	if flusher != nil {
 		flusher.Flush()
 	}

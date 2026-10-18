@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ func (l Liveness) withDefaults() Liveness {
 type heartbeat struct {
 	mu       sync.Mutex
 	started  bool
+	draining bool
 	closed   bool
 	lastSent time.Time
 	expired  bool
@@ -97,8 +99,11 @@ func (r *Runner) live(ctx context.Context) error {
 // renew renews the row once. The time it was sent, not answered, is what the
 // guard counts from, since the store may have timed it as early as that.
 func (r *Runner) renew(ctx context.Context) error {
+	r.beat.mu.Lock()
+	row := session.InstanceRow{ID: r.instance, Draining: r.beat.draining}
+	r.beat.mu.Unlock()
 	sent := time.Now()
-	err := r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, r.liveness.TTL)
+	err := r.store.Beat(ctx, row, r.liveness.TTL)
 	r.beat.mu.Lock()
 	defer r.beat.mu.Unlock()
 	switch {
@@ -138,9 +143,33 @@ func (r *Runner) guard() error {
 	return nil
 }
 
-// holderCheck lets this Runner take a Session over from its holder unless the
-// holder is alive, not draining, and using it.
+// markDraining sets the draining mark in this Runner's Liveness row, so every
+// Instance can see that it is leaving. A Runner that has not written yet has
+// no row, and its renewals carry the mark once they start.
+func (r *Runner) markDraining(ctx context.Context) error {
+	r.beat.mu.Lock()
+	r.beat.draining = true
+	started := r.beat.started
+	r.beat.mu.Unlock()
+	if !started {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.liveness.TTL/3)
+	defer cancel()
+	if err := r.renew(ctx); err != nil {
+		return fmt.Errorf("service: marking the liveness row draining: %w", err)
+	}
+	return nil
+}
+
+// holderCheck runs before this Runner claims a Session another Instance
+// holds. A draining Runner takes no new Claim. Otherwise it takes the Session
+// over unless the holder is alive and using it; a holder that is draining is
+// waited for too, since its Run is about to be saved and released.
 func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy bool) error {
+	if r.Draining() {
+		return ErrDraining
+	}
 	if !busy || holder.Instance == "" {
 		return nil
 	}
@@ -148,14 +177,18 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 	if err != nil {
 		return err
 	}
-	if state.Alive && !state.Draining {
+	if state.Alive {
 		return errHolderBusy
 	}
 	return nil
 }
 
-// create writes a new Session's Record as this Runner's Instance.
+// create writes a new Session's Record as this Runner's Instance. A draining
+// Runner takes no new Session.
 func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer, error) {
+	if r.Draining() {
+		return nil, ErrDraining
+	}
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}

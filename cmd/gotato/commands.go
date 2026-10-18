@@ -693,6 +693,10 @@ func (c *cli) cmdServe(args []string) int {
 		return ExitOK
 	case <-ctx.Done():
 	}
+	// Drain in order: the Liveness row says draining, /readyz answers 503, no
+	// new Run starts, and every Run finishes, saves and releases its Session.
+	// Then the streams close, and Close removes the row.
+	c.info("draining (up to %s)", *drain)
 	drainCtx, cancel := context.WithTimeout(context.Background(), *drain)
 	defer cancel()
 	if err := runner.Drain(drainCtx); err != nil {
@@ -701,6 +705,12 @@ func (c *cli) cmdServe(args []string) int {
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	_ = server.Shutdown(shutdownCtx)
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelClose()
+	if err := runner.Close(closeCtx); err != nil {
+		c.info("close: %v", err)
+	}
+	c.info("stopped")
 	return ExitOK
 }
 
