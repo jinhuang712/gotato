@@ -134,6 +134,8 @@ type runOutcome struct {
 	Error        *gotato.RuntimeError `json:"error,omitempty"`
 	Messages     int                  `json:"messages"`
 	Events       int                  `json:"events"`
+	// RecordEpoch is the Session's Record epoch, for resuming its stream.
+	RecordEpoch string `json:"record_epoch,omitempty"`
 }
 
 func outcomeOf(result service.RunResult) runOutcome {
@@ -151,6 +153,7 @@ func outcomeOf(result service.RunResult) runOutcome {
 		Error:        result.Result.Error,
 		Messages:     result.Messages,
 		Events:       result.Events,
+		RecordEpoch:  result.RecordEpoch,
 	}
 }
 

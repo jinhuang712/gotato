@@ -75,6 +75,9 @@ func TestRunCreatesSessionAndPersists(t *testing.T) {
 	if outcome.Status != gotato.RunCompleted || outcome.FinalText != "echo: hello" || outcome.SessionID == "" || outcome.Messages != 2 {
 		t.Fatalf("outcome = %+v", outcome)
 	}
+	if outcome.RecordEpoch == "" {
+		t.Fatalf("the run result carries no record_epoch: %s", out)
+	}
 	// The session is on disk and lists.
 	var list []map[string]any
 	h.mustJSON(h.ok("session", "list", "--json"), &list)
