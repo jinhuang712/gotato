@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -146,8 +147,32 @@ type CompactOptions struct {
 	Keep int
 	// Summarizer produces the replacement; nil means TruncateSummarizer.
 	Summarizer Summarizer
+	// DropReasoning leaves the reasoning out of the Messages Compact keeps,
+	// for a Model whose provider is sent only the current Round's reasoning
+	// (see DropsReasoning). The summary replaces the prefix that reasoning
+	// was written under, and Claude checks that prefix: sent again, the
+	// reasoning could be refused. Leave it false for a provider that needs
+	// every reasoning artifact back, such as DeepSeek.
+	DropReasoning bool
 	// Now overrides the clock (tests).
 	Now func() time.Time
+}
+
+// RoundReasoner is implemented by a Model that sends its provider only the
+// reasoning of the current Round: the replies after the last user Message.
+// The gateway's Client implements it, and returns true for a recognized
+// Claude or OpenAI provider.
+type RoundReasoner interface {
+	RoundReasoningOnly() bool
+}
+
+// DropsReasoning reports whether model is a RoundReasoner whose provider is
+// sent only the current Round's reasoning, so compaction should leave the
+// reasoning out of the Messages it keeps. service.Runner sets DropReasoning
+// from it for every Agent.
+func DropsReasoning(model gotato.Model) bool {
+	reasoner, ok := model.(RoundReasoner)
+	return ok && reasoner.RoundReasoningOnly()
 }
 
 // Result reports a Compact call. Compaction is present only when a
@@ -207,7 +232,12 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	summary.ID = gotato.MessageID("summary-" + session.NewID()[:12])
 	replaced := make([]gotato.Message, 0, len(messages)-cut+1)
 	replaced = append(replaced, summary)
-	replaced = append(replaced, messages[cut:]...)
+	for _, message := range messages[cut:] {
+		if opts.DropReasoning {
+			message = withoutReasoning(message)
+		}
+		replaced = append(replaced, message)
+	}
 	after, _ := json.Marshal(replaced)
 
 	record := session.Compaction{
@@ -245,12 +275,14 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 // CompactPolicy is a token budget: when the Session's history is estimated
 // above Ceiling at the start of a Run, it is compacted so that the retained
 // tail is at most Floor tokens (plus the summary). Floor defaults to half of
-// Ceiling. A zero Ceiling disables the policy.
+// Ceiling. A zero Ceiling disables the policy. DropReasoning is
+// CompactOptions.DropReasoning for every compaction the policy makes.
 type CompactPolicy struct {
-	Ceiling    int
-	Floor      int
-	Summarizer Summarizer
-	Now        func() time.Time
+	Ceiling       int
+	Floor         int
+	Summarizer    Summarizer
+	DropReasoning bool
+	Now           func() time.Time
 }
 
 // AutoCompactor is a gotato.RunPreparer that applies a CompactPolicy to one
@@ -280,7 +312,7 @@ func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) err
 		return nil
 	}
 	keep := tailWithinBudget(messages, a.policy.Floor)
-	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Summarizer: a.policy.Summarizer, Now: a.policy.Now})
+	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Summarizer: a.policy.Summarizer, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now})
 	if err != nil {
 		return err
 	}
@@ -367,6 +399,17 @@ func safeCut(messages []gotato.Message, want int) int {
 		return 0
 	}
 	return want
+}
+
+// withoutReasoning returns message without its reasoning Parts.
+func withoutReasoning(message gotato.Message) gotato.Message {
+	reasoning := func(part gotato.ContentPart) bool { return part.Kind == gotato.ContentReasoning }
+	if !slices.ContainsFunc(message.Parts, reasoning) {
+		return message
+	}
+	message = message.Clone()
+	message.Parts = slices.DeleteFunc(message.Parts, reasoning)
+	return message
 }
 
 func isSummary(message gotato.Message) bool {

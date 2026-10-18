@@ -1,0 +1,103 @@
+package service_test
+
+import (
+	"context"
+	"testing"
+
+	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
+	"github.com/jinhuang712/gotato/service"
+	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/testkit"
+)
+
+// roundModel stands for a gateway Client of a recognized Claude or OpenAI
+// provider, which is sent only the current Round's reasoning.
+type roundModel struct{ *testkit.FakeModel }
+
+func (roundModel) RoundReasoningOnly() bool { return true }
+
+func thinkingReply(text string) testkit.Script {
+	return testkit.Script{
+		{Kind: gotato.ModelReasoningDelta, Text: "plan"},
+		{Kind: gotato.ModelReasoningDone, ReasoningArtifact: []byte(`{"type":"thinking","signature":"sig"}`)},
+		{Kind: gotato.ModelTextDelta, Text: text},
+		{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn},
+	}
+}
+
+func storedReasoning(t *testing.T, store session.Store, id string) int {
+	t.Helper()
+	s, err := session.Open(context.Background(), store, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, message := range s.Messages() {
+		for _, part := range message.Parts {
+			if part.Kind == gotato.ContentReasoning {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// The Runner asks the Agent's Model whether its provider is sent only the
+// current Round's reasoning, and if so compaction, on demand and automatic,
+// leaves the reasoning out of the Messages it keeps. Any other Model keeps it.
+func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing.T) {
+	ctx := context.Background()
+	for _, round := range []bool{false, true} {
+		model := func() gotato.Model {
+			fake := testkit.NewFakeModel(thinkingReply("a"))
+			if round {
+				return roundModel{fake}
+			}
+			return fake
+		}
+
+		runner, store := newRunner(t, service.Agent{Name: "a", Model: model()})
+		first, err := runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
+			t.Fatal(err)
+		}
+		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactOptions{Keep: 2})
+		if err != nil || !result.Replaced {
+			t.Fatalf("round=%v: compact = %+v, %v", round, result, err)
+		}
+		want := 1
+		if round {
+			want = 0
+		}
+		if got := storedReasoning(t, store, first.SessionID); got != want {
+			t.Errorf("round=%v: Compact kept %d reasoning Parts, want %d", round, got, want)
+		}
+
+		runner, store = newRunner(t, service.Agent{Name: "a", Model: model()})
+		first, err = runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
+			t.Fatal(err)
+		}
+		third, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u3",
+			Update: map[string]string{service.MetaCompactCeiling: "1"}})
+		if err != nil || !third.Compacted {
+			t.Fatalf("round=%v: the third Run did not compact first: %+v, %v", round, third, err)
+		}
+		// The kept tail is u2 and its reply; the third Run's reply comes
+		// after the compaction and keeps its reasoning.
+		want = 2
+		if round {
+			want = 1
+		}
+		if got := storedReasoning(t, store, first.SessionID); got != want {
+			t.Errorf("round=%v: AutoCompact kept %d reasoning Parts, want %d", round, got, want)
+		}
+	}
+}

@@ -687,6 +687,7 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Wri
 		builder = modelctx.FullHistory()
 	}
 	policy := spec.Compact
+	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
 	if raw, ok := s.Get(MetaCompactCeiling); ok {
 		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
 			policy.Ceiling = ceiling
@@ -908,13 +909,19 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	return ToolEntry{Spec: *found, Active: active}, nil
 }
 
-// Compact compacts a Session explicitly, under the Session lock.
+// Compact compacts a Session explicitly, under the Session lock. When the
+// Session's Agent has a Model whose provider is sent only the current Round's
+// reasoning (modelctx.DropsReasoning), the kept Messages lose their reasoning.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
 		writer, err := r.open(ctx, sessionID)
 		if err != nil {
 			return err
+		}
+		agentName, _ := writer.Record().Get(MetaAgent)
+		if spec, ok := r.Agent(agentName); ok && modelctx.DropsReasoning(spec.Model) {
+			opts.DropReasoning = true
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts)
 		if err != nil {
