@@ -84,14 +84,16 @@ func (s *SessionStream) Next(ctx context.Context) (gotato.Event, error) {
 	return event, err
 }
 
-// failWith ends the stream with err, after what is queued for it.
+// failWith ends the stream with err at once: what is queued, and what a
+// catch-up under way has read, is dropped, because it may belong to another
+// Record than the one the client follows.
 func (s *SessionStream) failWith(err error) {
 	s.mu.Lock()
 	if s.failure == nil {
 		s.failure = err
 	}
 	s.mu.Unlock()
-	s.End()
+	_ = s.Close()
 }
 
 // Reconnect returns the advice to reconnect when the stream ended for a reason
@@ -134,6 +136,9 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 	if from.After > loaded.Head {
 		return nil, cannotResume("the position is past the Record's last Event", epoch, loaded.Head)
 	}
+	// The epoch is checked after every read of the Record that returned Events,
+	// and before they are delivered: an epoch never comes back, so if the Record
+	// still has the stream's epoch after the read, the Events came from it.
 	verify := func(ctx context.Context) error {
 		now, err := r.store.Load(ctx, sessionID)
 		if err != nil {
@@ -174,6 +179,24 @@ func cannotResume(why, epoch string, head uint64) error {
 	err := gotato.ErrorOf(gotato.ErrCannotResume, "service: the stream cannot resume: "+why)
 	err.Details = map[string]string{"record_epoch": epoch, "head": strconv.FormatUint(head, 10)}
 	return err
+}
+
+// cutStreams ends the open Session streams of a Session whose Record has
+// another epoch than theirs, with cannot_resume. This Instance calls it when it
+// opens or creates a Record, before any of its Events is published, so a stream
+// never goes on with the Events of a Record created again under the same ID.
+func (r *Runner) cutStreams(sessionID, epoch string) {
+	r.streamsMu.Lock()
+	var stale []*SessionStream
+	for stream := range r.streams {
+		if stream.sessionID == sessionID && stream.RecordEpoch != epoch {
+			stale = append(stale, stream)
+		}
+	}
+	r.streamsMu.Unlock()
+	for _, stream := range stale {
+		stream.failWith(cannotResume("the Record was created again", epoch, 0))
+	}
 }
 
 // endSessionStreams ends the Session streams open on this Instance for a

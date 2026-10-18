@@ -210,6 +210,9 @@ func (r *Runner) create(ctx context.Context, s *session.Record, publish func(got
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}
+	if err == nil {
+		r.cutStreams(s.ID(), s.RecordEpoch())
+	}
 	return writer, err
 }
 
@@ -232,6 +235,9 @@ func (r *Runner) open(ctx context.Context, sessionID string, publish func(gotato
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil || (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
+			if err == nil {
+				r.cutStreams(sessionID, writer.Record().RecordEpoch())
+			}
 			return writer, err
 		}
 		remaining := time.Until(deadline)

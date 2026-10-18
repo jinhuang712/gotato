@@ -150,15 +150,17 @@ func SubscribeAfter(n uint64) SubscribeOption {
 // there. A Feed is given only the Events that its own Instance writes. A
 // stream that follows a Session whose writer is another Instance needs the
 // tail to see what that Instance writes; it costs one read of the source per
-// interval while the stream is idle. It has no effect on a Feed without a
+// interval while the stream is idle, and nothing else. It has no effect on a Feed without a
 // source, or on an Instance's stream.
 func SubscribeTail(interval time.Duration) SubscribeOption {
 	return func(c *subscribeConfig) { c.tail = interval }
 }
 
-// SubscribeVerify has a stream with a tail run check before each look in the
-// source. When it fails, the stream ends with its error: a Session's stream
-// uses it to end when the Record it follows is gone or is another Record.
+// SubscribeVerify has a Session's stream run check after every read from the
+// source that returned Events, and before it queues any of them. When check
+// fails, the stream ends with its error and none of those Events is delivered:
+// a Session's stream uses it to end when the Record it reads is not the one it
+// follows. A read that returned nothing costs no check.
 func SubscribeVerify(check func(context.Context) error) SubscribeOption {
 	return func(c *subscribeConfig) { c.verify = check }
 }
@@ -559,6 +561,11 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 				return nil, false, err
 			}
 			if len(batch) > 0 {
+				if s.verify != nil {
+					if err := s.verify(ctx); err != nil {
+						return nil, false, err
+					}
+				}
 				s.mu.Lock()
 				s.resume = batch[len(batch)-1].Head().Number
 				s.cursor = max(s.cursor, s.resume)
@@ -614,14 +621,7 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 			// Nothing came for a while: look in the source, which holds what
 			// another Instance wrote. The stream stays live while it reads, so
 			// a delta published meanwhile is not lost.
-			var err error
-			if s.verify != nil {
-				err = s.verify(ctx)
-			}
-			if err == nil {
-				err = s.look(ctx)
-			}
-			if err != nil {
+			if err := s.look(ctx); err != nil {
 				if timer != nil {
 					timer.Stop()
 				}
@@ -659,6 +659,11 @@ func (s *subscription) look(ctx context.Context) error {
 	batch, err := s.feed.eventsAfter(ctx, after, catchUpBatch)
 	if err != nil {
 		return err
+	}
+	if len(batch) > 0 && s.verify != nil {
+		if err := s.verify(ctx); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
