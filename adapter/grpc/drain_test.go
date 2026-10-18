@@ -58,7 +58,7 @@ func TestDrainEndsAStoppedStreamWithUnavailable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the stream ended before context_built: %v", err)
 		}
-		if update.GetEvent().GetKind() == string(gotato.EventContextBuilt) {
+		if KindOf(update.GetEvent()) == "context_built" {
 			break
 		}
 	}

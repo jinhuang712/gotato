@@ -30,10 +30,13 @@ service SessionService {
   // Run executes one Run and returns the settled result. An empty
   // session_id creates a Session.
   rpc Run(RunRequest) returns (RunResult);
-  // StreamRun executes one Run while streaming its runtime Events; the
-  // terminal RunResult is the last message on the stream. Delivery is
-  // backpressured by the client's read rate: the adapter sends synchronously
-  // and ends the stream when Send fails or the stream deadline passes. When
+  // StreamRun executes one Run while streaming its Events, from the first
+  // Event of the Run to its run_ended; the terminal RunResult is the last
+  // message on the stream. The adapter reads the Run's Subscription and sends
+  // from it, so a slow client slows only its own stream: the Run never waits
+  // for it, and a stored Event the client falls behind on is read again from
+  // the Record. The adapter ends the stream when Send fails or the stream
+  // deadline passes. When
   // the instance's drain stopped the Run, the stream ends with UNAVAILABLE
   // and a retry-after-ms trailer, once the Session is saved and released:
   // continue it on any instance after that many milliseconds.
@@ -42,9 +45,9 @@ service SessionService {
   // Run is not active rather than pretending to cancel.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
 
-  // Events returns the retained runtime Events of a Session. It is not
-  // paged: it streams every retained Event matching kind, so it is bounded by
-  // the Session's retention limits and by the stream deadline.
+  // Events returns every stored Event of a Session, read from its Record. It
+  // is not paged: it streams every one matching kind, so it is bounded by the
+  // Session's length and by the stream deadline.
   rpc Events(EventsRequest) returns (stream Event);
   // Context reports what the Model would see for the Session now.
   rpc Context(SessionRequest) returns (ContextReport);
@@ -122,6 +125,8 @@ message Usage {
   uint64 input_tokens = 1;
   uint64 output_tokens = 2;
   uint64 total_tokens = 3;
+  uint64 cache_read_tokens = 4;
+  uint64 cache_write_tokens = 5;
 }
 
 message RunMetrics {
@@ -145,19 +150,373 @@ message RunUpdate {
   }
 }
 
-// Event preserves runtime identity, class, correlation, and order. The
-// payload travels as JSON with the keys documented in the root package.
+// EventHeader is what every Event carries: when it happened and the Session it
+// concerns, if any. A stored Event also has its number, its position in the
+// Session's Record; a delta carries the number of the stored Event it follows;
+// an Instance Event has none. An Event of a Run has its run_id and turn.
+message EventHeader {
+  string time = 1;
+  string session_id = 2;
+  uint64 number = 3;
+  string run_id = 4;
+  uint32 turn = 5;
+}
+
+// Event is one Event of a Session or an Instance: its header, and the fields
+// of its own type in the matching oneof member. A client that meets a member it
+// does not know reads unknown, or nothing.
 message Event {
+  EventHeader header = 1;
+  oneof event {
+    RunStarted run_started = 10;
+    RunEnded run_ended = 11;
+    TurnStarted turn_started = 12;
+    TurnEnded turn_ended = 13;
+    ContextBuilt context_built = 14;
+    ReplyStarted reply_started = 15;
+    ReplyEnded reply_ended = 16;
+    TextDelta text_delta = 17;
+    ReasoningDelta reasoning_delta = 18;
+    ReplyCutOff reply_cut_off = 19;
+    ReplyPartKept reply_part_kept = 20;
+    ModelRetried model_retried = 21;
+    ToolStarted tool_started = 22;
+    ToolEnded tool_ended = 23;
+    ToolProgress tool_progress = 24;
+    ToolResultCommitted tool_result_committed = 25;
+    ToolSetActivated toolset_activated = 26;
+    RunRequested run_requested = 27;
+    RunWaiting run_waiting = 28;
+    RunRejected run_rejected = 29;
+    MessageQueued message_queued = 30;
+    MessageCommitted message_committed = 31;
+    MessageDropped message_dropped = 32;
+    MessageWithdrawn message_withdrawn = 33;
+    MessageRejected message_rejected = 34;
+    AbortRequested abort_requested = 35;
+    SessionClaimed session_claimed = 36;
+    SessionReleased session_released = 37;
+    SessionFenced session_fenced = 38;
+    LivenessLapsed liveness_lapsed = 39;
+    SessionCreated session_created = 40;
+    MetadataChanged metadata_changed = 41;
+    CompactionStarted compaction_started = 42;
+    CompactionEnded compaction_ended = 43;
+    CompactionFailed compaction_failed = 44;
+    SessionUnloaded session_unloaded = 45;
+    SessionDeleted session_deleted = 46;
+    SessionLoaded session_loaded = 47;
+    SessionSaved session_saved = 48;
+    StoreWriteFailed store_write_failed = 49;
+    ExtensionFailed extension_failed = 50;
+    EventsSkipped events_skipped = 51;
+    UnknownEvent unknown = 52;
+  }
+}
+
+// UnknownEvent is an Event of a kind this version does not know, as JSON.
+message UnknownEvent {
+  string kind = 1;
+  bytes raw_json = 2;
+}
+
+message ToolOutcome {
+  string tool_id = 1;
+  string call_id = 2;
+  string status = 3;
+  bool executed = 4;
+}
+
+message ForkedFrom {
   string session_id = 1;
-  string run_id = 2;
-  uint64 sequence = 3;
-  string kind = 4;
-  string event_class = 5;
-  uint32 turn = 6;
-  string message_id = 7;
-  string tool_call_id = 8;
-  bytes payload_json = 9;
-  string timestamp = 10;
+  uint64 number = 2;
+}
+
+message Compaction {
+  string at = 1;
+  int32 replaced_messages = 2;
+  string from_message_id = 3;
+  string to_message_id = 4;
+  string summary_message_id = 5;
+  string summarizer = 6;
+  int32 bytes_before = 7;
+  int32 bytes_after = 8;
+}
+
+// RunStarted: see the Event type of the same name in the Go API.
+message RunStarted {
+}
+
+// RunEnded: see the Event type of the same name in the Go API.
+message RunEnded {
+  string status = 1;
+  string cause = 2;
+  bool stopped_by_extension = 3;
+  string stop_reason = 4;
+  uint32 turns = 5;
+  uint32 tool_calls = 6;
+  Usage usage = 7;
+  int64 elapsed_ms = 8;
+  uint64 text_bytes = 9;
+  uint64 reasoning_bytes = 10;
+}
+
+// TurnStarted: see the Event type of the same name in the Go API.
+message TurnStarted {
+}
+
+// TurnEnded: see the Event type of the same name in the Go API.
+message TurnEnded {
+  string stop_reason = 1;
+  Usage usage = 2;
+  int64 elapsed_ms = 3;
+  uint64 text_bytes = 4;
+  uint64 reasoning_bytes = 5;
+  int32 tool_calls = 6;
+  repeated ToolOutcome tools = 7;
+}
+
+// ContextBuilt: see the Event type of the same name in the Go API.
+message ContextBuilt {
+  string strategy = 1;
+  int32 messages = 2;
+  int32 source_messages = 3;
+  int32 selected_messages = 4;
+  string prefix_hash = 5;
+  int32 prefix_messages = 6;
+  int32 system_bytes = 7;
+  int32 tools = 8;
+  map<string, string> metadata = 9;
+}
+
+// ReplyStarted: see the Event type of the same name in the Go API.
+message ReplyStarted {
+  string message_id = 1;
+}
+
+// ReplyEnded: see the Event type of the same name in the Go API.
+message ReplyEnded {
+  bytes message_json = 1;
+  string model = 2;
+  string stop_reason = 3;
+  int32 tool_calls = 4;
+}
+
+// TextDelta: see the Event type of the same name in the Go API.
+message TextDelta {
+  string message_id = 1;
+  string text = 2;
+}
+
+// ReasoningDelta: see the Event type of the same name in the Go API.
+message ReasoningDelta {
+  string message_id = 1;
+  string text = 2;
+}
+
+// ReplyCutOff: see the Event type of the same name in the Go API.
+message ReplyCutOff {
+  bytes message_json = 1;
+  string cause = 2;
+}
+
+// ReplyPartKept: see the Event type of the same name in the Go API.
+message ReplyPartKept {
+  string message_id = 1;
+  string text = 2;
+  string reasoning = 3;
+}
+
+// ModelRetried: see the Event type of the same name in the Go API.
+message ModelRetried {
+  int32 attempt = 1;
+  int64 wait_ms = 2;
+  string error = 3;
+}
+
+// ToolStarted: see the Event type of the same name in the Go API.
+message ToolStarted {
+  string message_id = 1;
+  string call_id = 2;
+  string tool_id = 3;
+}
+
+// ToolEnded: see the Event type of the same name in the Go API.
+message ToolEnded {
+  string call_id = 1;
+  string tool_id = 2;
+  string status = 3;
+  bool executed = 4;
+  double elapsed_ms = 5;
+}
+
+// ToolProgress: see the Event type of the same name in the Go API.
+message ToolProgress {
+  string call_id = 1;
+  string text = 2;
+}
+
+// ToolResultCommitted: see the Event type of the same name in the Go API.
+message ToolResultCommitted {
+  bytes message_json = 1;
+  string call_id = 2;
+  string status = 3;
+}
+
+// ToolSetActivated: see the Event type of the same name in the Go API.
+message ToolSetActivated {
+  string toolset = 1;
+}
+
+// RunRequested: see the Event type of the same name in the Go API.
+message RunRequested {
+  string agent = 1;
+}
+
+// RunWaiting: see the Event type of the same name in the Go API.
+message RunWaiting {
+  string why = 1;
+}
+
+// RunRejected: see the Event type of the same name in the Go API.
+message RunRejected {
+  string why = 1;
+}
+
+// MessageQueued: see the Event type of the same name in the Go API.
+message MessageQueued {
+  string message_id = 1;
+  string source = 2;
+}
+
+// MessageCommitted: see the Event type of the same name in the Go API.
+message MessageCommitted {
+  bytes message_json = 1;
+  string source = 2;
+}
+
+// MessageDropped: see the Event type of the same name in the Go API.
+message MessageDropped {
+  string message_id = 1;
+  string source = 2;
+  string why = 3;
+}
+
+// MessageWithdrawn: see the Event type of the same name in the Go API.
+message MessageWithdrawn {
+  string message_id = 1;
+  string source = 2;
+}
+
+// MessageRejected: see the Event type of the same name in the Go API.
+message MessageRejected {
+  string message_id = 1;
+  string source = 2;
+  string why = 3;
+}
+
+// AbortRequested: see the Event type of the same name in the Go API.
+message AbortRequested {
+}
+
+// SessionClaimed: see the Event type of the same name in the Go API.
+message SessionClaimed {
+  string instance = 1;
+  uint64 epoch = 2;
+  string why = 3;
+  string from = 4;
+}
+
+// SessionReleased: see the Event type of the same name in the Go API.
+message SessionReleased {
+  string instance = 1;
+  uint64 epoch = 2;
+}
+
+// SessionFenced: see the Event type of the same name in the Go API.
+message SessionFenced {
+  string instance = 1;
+  uint64 position = 2;
+}
+
+// LivenessLapsed: see the Event type of the same name in the Go API.
+message LivenessLapsed {
+  string instance = 1;
+}
+
+// SessionCreated: see the Event type of the same name in the Go API.
+message SessionCreated {
+  string created_at = 1;
+  ForkedFrom forked_from = 2;
+  repeated bytes messages_json = 3;
+  map<string, string> metadata = 4;
+  repeated Compaction compactions = 5;
+}
+
+// MetadataChanged: see the Event type of the same name in the Go API.
+message MetadataChanged {
+  string key = 1;
+  string value = 2;
+}
+
+// CompactionStarted: see the Event type of the same name in the Go API.
+message CompactionStarted {
+  string why = 1;
+}
+
+// CompactionEnded: see the Event type of the same name in the Go API.
+message CompactionEnded {
+  string why = 1;
+  Compaction compaction = 2;
+  repeated Compaction history = 3;
+  repeated bytes messages_json = 4;
+  map<string, string> metadata = 5;
+}
+
+// CompactionFailed: see the Event type of the same name in the Go API.
+message CompactionFailed {
+  string why = 1;
+  string cause = 2;
+}
+
+// SessionUnloaded: see the Event type of the same name in the Go API.
+message SessionUnloaded {
+  string why = 1;
+}
+
+// SessionDeleted: see the Event type of the same name in the Go API.
+message SessionDeleted {
+}
+
+// SessionLoaded: see the Event type of the same name in the Go API.
+message SessionLoaded {
+  int32 messages = 1;
+  double elapsed_ms = 2;
+  bool failed = 3;
+}
+
+// SessionSaved: see the Event type of the same name in the Go API.
+message SessionSaved {
+  int32 messages = 1;
+  double elapsed_ms = 2;
+  int32 writes = 3;
+  bool failed = 4;
+}
+
+// StoreWriteFailed: see the Event type of the same name in the Go API.
+message StoreWriteFailed {
+  string code = 1;
+}
+
+// ExtensionFailed: see the Event type of the same name in the Go API.
+message ExtensionFailed {
+  string stage = 1;
+  string code = 2;
+}
+
+// EventsSkipped: see the Event type of the same name in the Go API.
+message EventsSkipped {
+  uint64 skipped = 1;
 }
 
 message CancelRunRequest {

@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -129,6 +128,8 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 }
 
 func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.SessionService_StreamRunServer) error {
+	// The Runner reads the Run's Subscription and calls sink from this
+	// goroutine, so a client that reads slowly slows only this stream.
 	sink := func(event gotato.Event) error {
 		converted, err := eventOf(event)
 		if err != nil {
@@ -169,12 +170,12 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 }
 
 func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.SessionService_EventsServer) error {
-	found, err := s.runner.Session(stream.Context(), request.GetSessionId())
+	events, err := s.runner.Events(stream.Context(), request.GetSessionId())
 	if err != nil {
 		return statusOf(err)
 	}
-	for _, event := range found.Events() {
-		if request.GetKind() != "" && string(event.Kind) != request.GetKind() {
+	for _, event := range events {
+		if request.GetKind() != "" && string(event.Kind()) != request.GetKind() {
 			continue
 		}
 		converted, err := eventOf(event)
@@ -253,11 +254,7 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 		RunId:     string(result.Result.RunID),
 		Status:    string(result.Result.Status),
 		FinalText: result.FinalText,
-		Usage: &gotatov2.Usage{
-			InputTokens:  result.Result.Usage.InputTokens,
-			OutputTokens: result.Result.Usage.OutputTokens,
-			TotalTokens:  result.Result.Usage.TotalTokens,
-		},
+		Usage:     usageOf(result.Result.Usage),
 		Metrics: &gotatov2.RunMetrics{
 			ElapsedMs:      result.Result.Metrics.ElapsedMS,
 			Turns:          result.Result.Metrics.Turns,
@@ -287,28 +284,9 @@ func summaryOf(summary session.Summary) *gotatov2.SessionSummary {
 		UpdatedAt: summary.UpdatedAt,
 		Messages:  int32(summary.Messages),
 		Runs:      int32(summary.Runs),
-		Usage:     &gotatov2.Usage{InputTokens: summary.Usage.InputTokens, OutputTokens: summary.Usage.OutputTokens, TotalTokens: summary.Usage.TotalTokens},
+		Usage:     usageOf(summary.Usage),
 		Metadata:  summary.Metadata,
 	}
-}
-
-func eventOf(event gotato.Event) (*gotatov2.Event, error) {
-	payload, err := json.Marshal(event.Payload)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "cannot encode Event payload: "+err.Error())
-	}
-	return &gotatov2.Event{
-		SessionId:   string(event.SessionID),
-		RunId:       string(event.RunID),
-		Sequence:    event.Sequence,
-		Kind:        string(event.Kind),
-		EventClass:  string(event.Class),
-		Turn:        uint32(event.Turn),
-		MessageId:   string(event.MessageID),
-		ToolCallId:  string(event.ToolCallID),
-		PayloadJson: payload,
-		Timestamp:   event.Timestamp.UTC().Format(time.RFC3339Nano),
-	}, nil
 }
 
 // statusOf maps a runtime error onto a gRPC status without inventing new

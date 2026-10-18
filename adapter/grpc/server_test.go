@@ -120,18 +120,23 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 			t.Fatal(err)
 		}
 		if event := update.GetEvent(); event != nil {
-			kinds = append(kinds, event.GetKind())
+			kinds = append(kinds, KindOf(event))
 		}
 		if r := update.GetResult(); r != nil {
 			result = r
 		}
 	}
-	// The Runner's store Events frame the Loop's: a one-shot Run saves its
-	// new Session before run_start and the settled one after run_end.
+	// The Run's stream starts with the Event that created the Session and the
+	// Claim on it, and ends with run_ended. Instance Events, such as
+	// session_saved, are not in it.
 	last := len(kinds) - 1
-	if result == nil || len(kinds) < 4 || kinds[0] != "session_saved" || kinds[1] != "run_start" ||
-		kinds[last-1] != "run_end" || kinds[last] != "session_saved" {
+	if result == nil || len(kinds) < 5 || kinds[0] != "session_created" || kinds[1] != "session_claimed" || kinds[2] != "run_started" || kinds[last] != "run_ended" {
 		t.Fatalf("kinds=%v result=%v", kinds, result)
+	}
+	for _, kind := range kinds {
+		if kind == "session_saved" || kind == "session_loaded" {
+			t.Fatalf("%s, an Instance Event, is in the Run's stream: %v", kind, kinds)
+		}
 	}
 	id := result.GetSessionId()
 	for _, prompt := range []string{"a", "b"} {
