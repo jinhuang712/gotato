@@ -132,7 +132,8 @@ var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknow
 // ErrSessionExists is returned when an explicit Session ID is already taken.
 var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session already exists")
 
-// ErrDraining refuses a new Run, and a new Claim, once the Runner drains.
+// ErrDraining refuses a new Run, and taking a Session over from another
+// Instance, once the Runner drains.
 var ErrDraining = gotato.ErrorOf(gotato.ErrInvalidState, "service: draining")
 
 // ErrNotPersisted reports that a settled Run could not be saved. The Run
@@ -1177,7 +1178,9 @@ func (r *Runner) attachRunID(handle *runHandle, runID gotato.RunID) {
 //
 //  1. its Liveness row says draining, so every Instance can see it;
 //  2. Draining reports true, so /readyz answers 503, and the Runner admits
-//     no new Run and takes no new Claim (ErrDraining);
+//     no new Run and takes no Session over from another Instance
+//     (ErrDraining); creating or forking a Session activates nothing, so it
+//     still works;
 //  3. every Run in flight finishes, is saved, and releases its Session.
 //
 // When ctx ends first, the Runs still going are stopped, saved and released,

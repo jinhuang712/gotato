@@ -375,8 +375,8 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); err == nil {
 		t.Fatal("a closed Runner ran")
 	}
-	if _, err := a.CreateSession(ctx, "echo", nil); err == nil {
-		t.Fatal("a closed Runner created a Session")
+	if _, err := a.CreateSessionExclusive(ctx, "echo", "after-close", nil); err == nil || errors.Is(err, service.ErrSessionExists) {
+		t.Fatalf("a closed Runner creating a Session = %v, want a refusal that is not ErrSessionExists", err)
 	}
 	if state, err := store.Instance(ctx, "instance-a"); err != nil || state.Alive {
 		t.Fatalf("instance-a after Close and a late write = %+v, %v; want not alive", state, err)

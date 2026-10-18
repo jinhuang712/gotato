@@ -127,8 +127,13 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			if _, err := a.Run(ctx, service.RunRequest{Prompt: "new"}); !errors.Is(err, service.ErrDraining) {
 				t.Fatalf("a new Run while draining = %v, want ErrDraining", err)
 			}
-			if _, err := a.CreateSession(ctx, "echo", nil); !errors.Is(err, service.ErrDraining) {
-				t.Fatalf("a new Session while draining = %v, want ErrDraining", err)
+			// Creating or forking a Session writes the store and activates
+			// nothing, so it still works.
+			if _, err := a.CreateSessionExclusive(ctx, "echo", "created-"+kind, nil); err != nil {
+				t.Fatalf("a new Session while draining = %v", err)
+			}
+			if _, err := a.Fork(ctx, ids[0], "forked-"+kind); err != nil {
+				t.Fatalf("a fork while draining = %v", err)
 			}
 			other, err := b.CreateSession(ctx, "echo", nil)
 			if err != nil {

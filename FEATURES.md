@@ -613,7 +613,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 |---|---|---|
 | Busy policy | ✅ | a second Run on a busy Session is rejected with 409 (`reject`, the default), or waits (`wait`) |
 | Capacity | ✅ | past `MaxActiveRuns`, a new Run is rejected with 429; off by default |
-| Drain | ✅ | on SIGTERM, or when your own endpoint calls `Runner.Drain`, the instance marks its Liveness row draining, `/readyz` answers 503, and it takes no new Run and no new Claim. Every Run in flight finishes, saves and releases its Session. At the drain timeout the Runs still going are stopped, saved and released, and only then does each of their streams end with a reconnect code. `Runner.Close` then removes the row. |
+| Drain | ✅ | on SIGTERM, or when your own endpoint calls `Runner.Drain`, the instance marks its Liveness row draining, `/readyz` answers 503, and it admits no new Run and takes no Session over from another instance. Every Run in flight finishes, saves and releases its Session. At the drain timeout the Runs still going are stopped, saved and released, and only then does each of their streams end with a reconnect code. `Runner.Close` then removes the row. |
 | Save every step | ✅ | each step is written as it happens: the prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run, each tool result, each continuation. A crash loses at most the step in flight ([GOALS.md](GOALS.md) G-G01). |
 | One writer at a time | ✅ | the writer holds a Claim: a fact naming its instance and an Epoch, a number that grows with every new Claim, written at the position after the head it read. A writer that lost its Claim always writes to a taken position, so the store refuses it, and a second instance stops before it calls the model (G-G08). |
 | Liveness rows | ✅ | each instance renews one row in the store every third of its TTL, timed by the store's clock. When the row expires, every Claim of that instance ends at once. An instance that cannot show its row was renewed in time writes nothing, so it never calls the model. |
@@ -661,14 +661,14 @@ This covers every case where a Session's writer is not where the load balancer p
 **Drain.** On SIGTERM, or when your own endpoint calls `Runner.Drain`, an instance drains in this order:
 
 ```text
-mark draining in its Liveness row ──► /readyz answers 503 ──► refuse new Runs and new Claims
+mark draining in its Liveness row ──► /readyz answers 503 ──► refuse new Runs and takeovers
   ──► every Run finishes, saves, and releases its Session
   ──► at the drain timeout: stop the Runs still going, then save and release them
   ──► end each stopped Run's stream with a reconnect code ──► Close removes the row
 ```
 
 - The mark lets every instance see that this one is leaving. Another instance still waits for a Session the draining instance is using, because its Run is about to be saved; taking it over would fence that Run.
-- A request the draining instance refuses gets `ErrDraining`, 409 over HTTP. A Run admitted before the drain, also one queued behind a busy Session, still runs on a Session this instance holds; one that would need a new Claim is refused.
+- A request the draining instance refuses gets `ErrDraining`, 409 over HTTP. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
 - A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
 - A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
 - Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.

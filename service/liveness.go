@@ -68,8 +68,10 @@ func lapsed(err error) bool {
 // Instance.
 var errHolderBusy = errors.New("service: the session is running on another instance")
 
-// errClosed refuses a write once Close has removed this Instance's row.
-var errClosed = gotato.ErrorOf(gotato.ErrInvalidState, "service: the runner is closed")
+// errClosed refuses a write once Close has removed this Instance's row. Its
+// code is conflict, as errLapsed's: an invalid_state error would match
+// ErrSessionExists.
+var errClosed = gotato.ErrorOf(gotato.ErrConflict, "service: the runner is closed")
 
 // live makes sure this Runner's row is alive before it writes, beating once
 // and starting the renewals the first time.
@@ -171,9 +173,9 @@ func (r *Runner) markDraining(ctx context.Context) error {
 }
 
 // holderCheck runs before this Runner claims a Session another Instance
-// holds. A draining Runner takes no new Claim. Otherwise it takes the Session
-// over unless the holder is alive and using it; a holder that is draining is
-// waited for too, since its Run is about to be saved and released.
+// holds. A draining Runner takes no Session over. Otherwise it takes the
+// Session over unless the holder is alive and using it; a holder that is
+// draining is waited for too, since its Run is about to be saved and released.
 func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy bool) error {
 	if r.Draining() {
 		return ErrDraining
@@ -192,11 +194,8 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 }
 
 // create writes a new Session's Record as this Runner's Instance. A draining
-// Runner takes no new Session.
+// Runner creates one too: creating writes the store and activates nothing.
 func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer, error) {
-	if r.Draining() {
-		return nil, ErrDraining
-	}
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
