@@ -28,6 +28,7 @@ const (
 	SessionService_ForkSession_FullMethodName   = "/gotato.v2.SessionService/ForkSession"
 	SessionService_Run_FullMethodName           = "/gotato.v2.SessionService/Run"
 	SessionService_StreamRun_FullMethodName     = "/gotato.v2.SessionService/StreamRun"
+	SessionService_StreamSession_FullMethodName = "/gotato.v2.SessionService/StreamSession"
 	SessionService_CancelRun_FullMethodName     = "/gotato.v2.SessionService/CancelRun"
 	SessionService_Events_FullMethodName        = "/gotato.v2.SessionService/Events"
 	SessionService_Context_FullMethodName       = "/gotato.v2.SessionService/Context"
@@ -72,6 +73,18 @@ type SessionServiceClient interface {
 	// and a retry-after-ms trailer, once the Session is saved and released:
 	// continue it on any instance after that many milliseconds.
 	StreamRun(ctx context.Context, in *RunRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RunUpdate], error)
+	// StreamSession streams a Session's stored Events after a number, read from
+	// its Record, and then the live ones across Runs, on whichever instance it
+	// reaches. A client that lost a stream reconnects here with the number of
+	// the last Event it saw. Deltas are live only: those sent before the
+	// reconnect are not sent again. The header metadata record-epoch and the
+	// first message (start) tell the Record's epoch. A position that cannot be
+	// resumed (a record_epoch that is not the Record's, or an after past its
+	// last Event) fails with FAILED_PRECONDITION and a record-epoch trailer; an
+	// unknown Session with NOT_FOUND. When the instance's drain is over, the
+	// stream ends after the stored Events with UNAVAILABLE and a retry-after-ms
+	// trailer: reconnect on any instance after that many milliseconds.
+	StreamSession(ctx context.Context, in *StreamSessionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SessionUpdate], error)
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
 	// Run is not active rather than pretending to cancel.
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
@@ -192,6 +205,25 @@ func (c *sessionServiceClient) StreamRun(ctx context.Context, in *RunRequest, op
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SessionService_StreamRunClient = grpc.ServerStreamingClient[RunUpdate]
 
+func (c *sessionServiceClient) StreamSession(ctx context.Context, in *StreamSessionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SessionUpdate], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SessionService_ServiceDesc.Streams[1], SessionService_StreamSession_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamSessionRequest, SessionUpdate]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SessionService_StreamSessionClient = grpc.ServerStreamingClient[SessionUpdate]
+
 func (c *sessionServiceClient) CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CancelRunResponse)
@@ -204,7 +236,7 @@ func (c *sessionServiceClient) CancelRun(ctx context.Context, in *CancelRunReque
 
 func (c *sessionServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SessionService_ServiceDesc.Streams[1], SessionService_Events_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SessionService_ServiceDesc.Streams[2], SessionService_Events_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +311,18 @@ type SessionServiceServer interface {
 	// and a retry-after-ms trailer, once the Session is saved and released:
 	// continue it on any instance after that many milliseconds.
 	StreamRun(*RunRequest, grpc.ServerStreamingServer[RunUpdate]) error
+	// StreamSession streams a Session's stored Events after a number, read from
+	// its Record, and then the live ones across Runs, on whichever instance it
+	// reaches. A client that lost a stream reconnects here with the number of
+	// the last Event it saw. Deltas are live only: those sent before the
+	// reconnect are not sent again. The header metadata record-epoch and the
+	// first message (start) tell the Record's epoch. A position that cannot be
+	// resumed (a record_epoch that is not the Record's, or an after past its
+	// last Event) fails with FAILED_PRECONDITION and a record-epoch trailer; an
+	// unknown Session with NOT_FOUND. When the instance's drain is over, the
+	// stream ends after the stored Events with UNAVAILABLE and a retry-after-ms
+	// trailer: reconnect on any instance after that many milliseconds.
+	StreamSession(*StreamSessionRequest, grpc.ServerStreamingServer[SessionUpdate]) error
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
 	// Run is not active rather than pretending to cancel.
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
@@ -326,6 +370,9 @@ func (UnimplementedSessionServiceServer) Run(context.Context, *RunRequest) (*Run
 }
 func (UnimplementedSessionServiceServer) StreamRun(*RunRequest, grpc.ServerStreamingServer[RunUpdate]) error {
 	return status.Error(codes.Unimplemented, "method StreamRun not implemented")
+}
+func (UnimplementedSessionServiceServer) StreamSession(*StreamSessionRequest, grpc.ServerStreamingServer[SessionUpdate]) error {
+	return status.Error(codes.Unimplemented, "method StreamSession not implemented")
 }
 func (UnimplementedSessionServiceServer) CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelRun not implemented")
@@ -515,6 +562,17 @@ func _SessionService_StreamRun_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SessionService_StreamRunServer = grpc.ServerStreamingServer[RunUpdate]
 
+func _SessionService_StreamSession_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamSessionRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SessionServiceServer).StreamSession(m, &grpc.GenericServerStream[StreamSessionRequest, SessionUpdate]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SessionService_StreamSessionServer = grpc.ServerStreamingServer[SessionUpdate]
+
 func _SessionService_CancelRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CancelRunRequest)
 	if err := dec(in); err != nil {
@@ -636,6 +694,11 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamRun",
 			Handler:       _SessionService_StreamRun_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamSession",
+			Handler:       _SessionService_StreamSession_Handler,
 			ServerStreams: true,
 		},
 		{

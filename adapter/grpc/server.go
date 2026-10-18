@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strconv"
 	"strings"
 
@@ -225,6 +226,60 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 	return status.Error(codes.Unavailable, "gotato: this instance is draining; reconnect to continue the session")
 }
 
+// RecordEpochKey is the metadata key that carries a Record's epoch: in the
+// header metadata of StreamSession, and in the trailer of a refusal to resume.
+const RecordEpochKey = "record-epoch"
+
+// StreamSession serves a Session's stream: the stored Events after a number,
+// read from the Record, and then the live ones. The first message is the
+// start, with the Record's epoch; a drain ends the stream with UNAVAILABLE and
+// a retry-after-ms trailer, like StreamRun.
+func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream gotatov2.SessionService_StreamSessionServer) error {
+	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
+		return err
+	}
+	opened, err := s.runner.StreamSession(stream.Context(), request.GetSessionId(), service.StreamFrom{After: request.GetAfter(), RecordEpoch: request.GetRecordEpoch()})
+	if err != nil {
+		var runtimeErr *gotato.RuntimeError
+		if errors.As(err, &runtimeErr) && runtimeErr.Details["record_epoch"] != "" {
+			stream.SetTrailer(metadata.Pairs(RecordEpochKey, runtimeErr.Details["record_epoch"]))
+		}
+		return statusOf(err)
+	}
+	defer func() { _ = opened.Close() }()
+	if err := stream.SendHeader(metadata.Pairs(RecordEpochKey, opened.RecordEpoch)); err != nil {
+		return err
+	}
+	start := &gotatov2.StreamStart{SessionId: request.GetSessionId(), RecordEpoch: opened.RecordEpoch, After: request.GetAfter(), Head: opened.Head}
+	if err := stream.Send(&gotatov2.SessionUpdate{Update: &gotatov2.SessionUpdate_Start{Start: start}}); err != nil {
+		return err
+	}
+	for {
+		event, err := opened.Next(stream.Context())
+		switch {
+		case err == nil:
+			converted, err := eventOf(event)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(&gotatov2.SessionUpdate{Update: &gotatov2.SessionUpdate_Event{Event: converted}}); err != nil {
+				return err
+			}
+		case stream.Context().Err() != nil:
+			return statusOf(stream.Context().Err())
+		case errors.Is(err, io.EOF):
+			hint := opened.Reconnect()
+			if hint == nil {
+				return nil
+			}
+			stream.SetTrailer(metadata.Pairs("retry-after-ms", strconv.FormatInt(hint.RetryAfterMS, 10)))
+			return status.Error(codes.Unavailable, "gotato: this instance is draining; reconnect to continue the stream")
+		default:
+			return statusOf(err)
+		}
+	}
+}
+
 func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunRequest) (*gotatov2.CancelRunResponse, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
@@ -343,9 +398,10 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 			TextBytes:      result.Result.Metrics.TextBytes,
 			ReasoningBytes: result.Result.Metrics.ReasoningBytes,
 		},
-		Compacted: result.Compacted,
-		Messages:  int32(result.Messages),
-		Events:    int32(result.Events),
+		Compacted:   result.Compacted,
+		Messages:    int32(result.Messages),
+		Events:      int32(result.Events),
+		RecordEpoch: result.RecordEpoch,
 	}
 	if result.Result.Error != nil {
 		wire.Error = &gotatov2.RuntimeError{
@@ -367,6 +423,8 @@ func summaryOf(summary session.Summary) *gotatov2.SessionSummary {
 		Runs:      int32(summary.Runs),
 		Usage:     usageOf(summary.Usage),
 		Metadata:  summary.Metadata,
+		// A Record written before epochs names one from its creation time.
+		RecordEpoch: summary.Epoch(),
 	}
 }
 
@@ -393,7 +451,7 @@ func statusOf(err error) error {
 		switch runtimeErr.Code {
 		case gotato.ErrInvalidArgument, gotato.ErrToolArgumentFailure:
 			code = codes.InvalidArgument
-		case gotato.ErrBusy, gotato.ErrInvalidState, gotato.ErrSessionClosing:
+		case gotato.ErrBusy, gotato.ErrInvalidState, gotato.ErrSessionClosing, gotato.ErrCannotResume:
 			code = codes.FailedPrecondition
 		case gotato.ErrSessionClosed:
 			code = codes.NotFound

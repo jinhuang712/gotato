@@ -41,6 +41,18 @@ service SessionService {
   // and a retry-after-ms trailer, once the Session is saved and released:
   // continue it on any instance after that many milliseconds.
   rpc StreamRun(RunRequest) returns (stream RunUpdate);
+  // StreamSession streams a Session's stored Events after a number, read from
+  // its Record, and then the live ones across Runs, on whichever instance it
+  // reaches. A client that lost a stream reconnects here with the number of
+  // the last Event it saw. Deltas are live only: those sent before the
+  // reconnect are not sent again. The header metadata record-epoch and the
+  // first message (start) tell the Record's epoch. A position that cannot be
+  // resumed (a record_epoch that is not the Record's, or an after past its
+  // last Event) fails with FAILED_PRECONDITION and a record-epoch trailer; an
+  // unknown Session with NOT_FOUND. When the instance's drain is over, the
+  // stream ends after the stored Events with UNAVAILABLE and a retry-after-ms
+  // trailer: reconnect on any instance after that many milliseconds.
+  rpc StreamSession(StreamSessionRequest) returns (stream SessionUpdate);
   // CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
   // Run is not active rather than pretending to cancel.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
@@ -83,6 +95,9 @@ message SessionSummary {
   int32 runs = 6;
   Usage usage = 7;
   map<string, string> metadata = 8;
+  // record_epoch is the Record's identity as a log: it changes only if the
+  // Record is deleted and created again under the same ID.
+  string record_epoch = 9;
 }
 
 // SessionDocument carries the session.Document as JSON so the adapter never
@@ -119,6 +134,9 @@ message RunResult {
   bool compacted = 10;
   int32 messages = 11;
   int32 events = 12;
+  // record_epoch is the epoch of the Session's Record, empty for a Run that
+  // is not saved.
+  string record_epoch = 13;
 }
 
 message Usage {
@@ -147,6 +165,32 @@ message RunUpdate {
   oneof update {
     Event event = 1;
     RunResult result = 2;
+  }
+}
+
+message StreamSessionRequest {
+  string session_id = 1;
+  // after is the number of the last stored Event the client saw; 0 starts at
+  // the Session's first Event.
+  uint64 after = 2;
+  // record_epoch is the epoch the client saw; empty skips the check.
+  string record_epoch = 3;
+}
+
+// StreamStart is the first message of a Session's stream.
+message StreamStart {
+  string session_id = 1;
+  string record_epoch = 2;
+  uint64 after = 3;
+  // head is the number of the Session's last stored Event when the stream
+  // opened.
+  uint64 head = 4;
+}
+
+message SessionUpdate {
+  oneof update {
+    StreamStart start = 1;
+    Event event = 2;
   }
 }
 
@@ -446,6 +490,7 @@ message LivenessLapsed {
 
 // SessionCreated: see the Event type of the same name in the Go API.
 message SessionCreated {
+  string record_epoch = 6;
   string created_at = 1;
   ForkedFrom forked_from = 2;
   repeated bytes messages_json = 3;

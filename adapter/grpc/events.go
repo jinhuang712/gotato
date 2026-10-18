@@ -280,6 +280,7 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			return fail(err)
 		}
 		wire.Event = &gotatov2.Event_SessionCreated{SessionCreated: &gotatov2.SessionCreated{
+			RecordEpoch:  e.RecordEpoch,
 			CreatedAt:    wireTime(e.CreatedAt),
 			ForkedFrom:   forked,
 			MessagesJson: messages,
