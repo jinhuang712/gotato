@@ -127,7 +127,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | The Record as the Event log | every stored Event is an Entry, numbered by its position, and written before it is sent | G-F13 | ⬜ |
 | Typed Events | one Go type for each kind of Event, named for what happened | G-F13 | ⬜ |
 | Subscriptions | a Run's stream, a Session's from any number, and an Instance's; a Session never waits for any of them | G-F13 | ⬜ |
-| Message and Claim Events | a message queued, committed, dropped, withdrawn or rejected; a Session claimed, released or fenced | G-F13 | ⬜ |
+| Claim Events | a Session claimed, released or fenced, and a Liveness row that lapsed | G-F13 | ⬜ |
+| Message Events | a message queued, committed, dropped, withdrawn or rejected, and an Abort requested; through the Runner and the endpoints with the warm Session | G-F13 | ⬜ |
 | Streamed reasoning | the model's reasoning as it arrives, as `reasoning_delta` | G-F13 | ⬜ |
 | Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
@@ -795,13 +796,13 @@ Every step of a Session is reported as an Event, so you can watch, log or measur
 
 **Planned: the Event design**
 
-Decided on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)), and built in [ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer-); the message Events come with the warm Session in Phase 6.
+Decided on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)), and built in [ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer-); the message Events reach the Runner and the endpoints with the warm Session in Phase 6.
 
 - **The Record is the Event log.** Every stored Event is an Entry of the Session's Record, and its number is that Entry's position, so every instance reads the same number.
 - **Written, then sent.** A stored Event reaches its subscribers only after its write. Most ride the write of their step; the few between steps, such as a retry, an Abort request or a queued message, get a write of their own. Deltas are sent at once, marked with the number of the Event they follow.
-- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type carries its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance notice has no number. In JSON an Event is one flat object whose `kind` names its type; in gRPC it is a `oneof`.
+- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type carries its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance Event has no number. In JSON an Event is one flat object whose `kind` names its type; in gRPC it is a `oneof`.
 
-Each Event is kept in one of three places: in the **Record**, which a subscriber can read again from any number; **sent only**, for deltas; or on the **Instance**, for a notice from an Instance that holds no Claim on the Session.
+Each Event is kept in one of three places: in the **Record**, which a subscriber can read again from any number; **sent only**, for deltas; or on the **Instance**, for an Instance Event, from an Instance that holds no Claim on the Session.
 
 *Runs and replies*
 
@@ -867,21 +868,21 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 |---|---|---|
 | A Run's stream | the caller of a Run: `/runs/stream`, gRPC `StreamRun`, or the Go API | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers |
 | A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live |
-| An Instance's stream | the service's own telemetry, in the Go API | every Event of every Session on the Instance, and the Instance's notices; a subscriber can keep only some Agents |
+| An Instance's stream | the service's own telemetry, in the Go API | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents |
 
 - Each subscriber has one goroutine that forwards its Events in order, so a slow subscriber slows only itself.
 - A subscriber that falls too far behind is no longer buffered in memory. It catches up from the Record by number and then rejoins the live Events, so it never misses a stored Event; only deltas can be skipped.
-- An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in a notice; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
+- An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in an Instance Event; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
 - With the Go API alone, a caller subscribes to the Session it built, before its first `Prompt`.
 - The HTTP and gRPC routes for a Session's stream are designed with stream resume (G-F14).
 
-**What the design replaces.** It is one break, with one contract version change and a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):
+**What the design replaces.** It is one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md). It raises the contract versions once; a release that holds another break raises them once for both:
 
 - the map of fields in each Event, and `payload_json` on gRPC;
 - the sequence number that counts within one Run;
 - the `events` Log entry that keeps a copy of the Events, `session.Recorder`, which writes it, and `session_compacted`, which `compaction_ended` replaces;
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replace;
-- today's names, such as `run_start` (now `run_started`), `message_update` (now `text_delta`) and `tool_execution_end` (now `tool_ended`).
+- today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
 **Gap:** the Event design is decided, not built. Today each Event carries a plain map of fields, the model's reasoning is not streamed as it arrives, a message's way into a Session and a Session's Claims have no Events, and a slow `EventObserver` slows its Session.
 

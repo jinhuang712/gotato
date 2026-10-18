@@ -144,7 +144,7 @@ Exit:
 ## Phase 6 — Warm Session
 
 - Runtime notices (G-F29) are designed first, and then built.
-- The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) come with the queue that holds those messages.
+- The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) reach the Runner and the endpoints with the queue that holds those messages. Phase 5 builds their types, and emits them where the Go API already queues messages.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
 - Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
