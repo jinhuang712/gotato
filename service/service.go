@@ -1208,6 +1208,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 			return err
 		}
 		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
+		r.endSessionStreams(sessionID, session.ErrNotFound)
 		return nil
 	})
 }

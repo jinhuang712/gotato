@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"math/rand/v2"
 	"strconv"
 	"sync"
@@ -60,8 +62,36 @@ type SessionStream struct {
 	// opened.
 	Head uint64
 
-	mu    sync.Mutex
-	ended *Reconnect
+	sessionID string
+
+	mu      sync.Mutex
+	ended   *Reconnect
+	failure error
+}
+
+// Next implements gotato.Subscription. A stream that was failed, because its
+// Session was deleted, ends with that error once what is queued is read.
+func (s *SessionStream) Next(ctx context.Context) (gotato.Event, error) {
+	event, err := s.feedSubscription.Next(ctx)
+	if errors.Is(err, io.EOF) {
+		s.mu.Lock()
+		failure := s.failure
+		s.mu.Unlock()
+		if failure != nil {
+			return nil, failure
+		}
+	}
+	return event, err
+}
+
+// failWith ends the stream with err, after what is queued for it.
+func (s *SessionStream) failWith(err error) {
+	s.mu.Lock()
+	if s.failure == nil {
+		s.failure = err
+	}
+	s.mu.Unlock()
+	s.End()
 }
 
 // Reconnect returns the advice to reconnect when the stream ended for a reason
@@ -104,11 +134,21 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 	if from.After > loaded.Head {
 		return nil, cannotResume("the position is past the Record's last Event", epoch, loaded.Head)
 	}
-	sub, err := r.openSessionStream(ctx, sessionID, from.After)
+	verify := func(ctx context.Context) error {
+		now, err := r.store.Load(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if now.Summary.Epoch() != epoch {
+			return cannotResume("the Record was created again", now.Summary.Epoch(), now.Head)
+		}
+		return nil
+	}
+	sub, err := r.openSessionStream(ctx, sessionID, from.After, gotato.SubscribeVerify(verify))
 	if err != nil {
 		return nil, err
 	}
-	stream := &SessionStream{feedSubscription: sub, RecordEpoch: epoch, Head: loaded.Head}
+	stream := &SessionStream{feedSubscription: sub, RecordEpoch: epoch, Head: loaded.Head, sessionID: sessionID}
 	sub.release = func() {
 		r.releaseFeed(sessionID)
 		r.streamsMu.Lock()
@@ -136,6 +176,23 @@ func cannotResume(why, epoch string, head uint64) error {
 	return err
 }
 
+// endSessionStreams ends the Session streams open on this Instance for a
+// Session that was deleted. They end with err, after the Events already queued,
+// so a Session created again under the same ID is not read as a continuation.
+func (r *Runner) endSessionStreams(sessionID string, err error) {
+	r.streamsMu.Lock()
+	var open []*SessionStream
+	for stream := range r.streams {
+		if stream.sessionID == sessionID {
+			open = append(open, stream)
+		}
+	}
+	r.streamsMu.Unlock()
+	for _, stream := range open {
+		stream.failWith(err)
+	}
+}
+
 // endStreams ends every Session stream with the advice to reconnect, once the
 // drain is over: the Runs are saved and released, so the clients come back to
 // a Session that no instance is using.
@@ -155,9 +212,9 @@ func (r *Runner) endStreams() {
 // openSessionStream subscribes to a Session's Feed after a number, with the
 // tail that follows other Instances' writes. The Feed is given back when the
 // subscription ends.
-func (r *Runner) openSessionStream(ctx context.Context, sessionID string, after uint64) (*feedSubscription, error) {
+func (r *Runner) openSessionStream(ctx context.Context, sessionID string, after uint64, extra ...gotato.SubscribeOption) (*feedSubscription, error) {
 	feed := r.acquireFeed(sessionID, "")
-	options := []gotato.SubscribeOption{gotato.SubscribeAfter(after)}
+	options := append([]gotato.SubscribeOption{gotato.SubscribeAfter(after)}, extra...)
 	if r.streamPoll > 0 {
 		options = append(options, gotato.SubscribeTail(r.streamPoll))
 	}

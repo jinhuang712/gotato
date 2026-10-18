@@ -136,6 +136,7 @@ type subscribeConfig struct {
 	labeled  func(Event, string) bool
 	until    func(Event) bool
 	tail     time.Duration
+	verify   func(context.Context) error
 }
 
 // SubscribeAfter starts a Session's stream after the stored Event numbered n:
@@ -153,6 +154,13 @@ func SubscribeAfter(n uint64) SubscribeOption {
 // source, or on an Instance's stream.
 func SubscribeTail(interval time.Duration) SubscribeOption {
 	return func(c *subscribeConfig) { c.tail = interval }
+}
+
+// SubscribeVerify has a stream with a tail run check before each look in the
+// source. When it fails, the stream ends with its error: a Session's stream
+// uses it to end when the Record it follows is gone or is another Record.
+func SubscribeVerify(check func(context.Context) error) SubscribeOption {
+	return func(c *subscribeConfig) { c.verify = check }
 }
 
 // SubscribeBuffer sets how many Events a subscriber's queue holds before it
@@ -229,6 +237,7 @@ func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subsc
 		labeled: config.labeled,
 		until:   config.until,
 		tail:    config.tail,
+		verify:  config.verify,
 		wake:    make(chan struct{}, 1),
 		out:     make(chan Event),
 		done:    make(chan struct{}),
@@ -370,6 +379,7 @@ type subscription struct {
 	labeled func(Event, string) bool
 	until   func(Event) bool
 	tail    time.Duration
+	verify  func(context.Context) error
 
 	mu     sync.Mutex
 	queue  []Event
@@ -604,7 +614,14 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 			// Nothing came for a while: look in the source, which holds what
 			// another Instance wrote. The stream stays live while it reads, so
 			// a delta published meanwhile is not lost.
-			if err := s.look(ctx); err != nil {
+			var err error
+			if s.verify != nil {
+				err = s.verify(ctx)
+			}
+			if err == nil {
+				err = s.look(ctx)
+			}
+			if err != nil {
 				if timer != nil {
 					timer.Stop()
 				}
