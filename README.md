@@ -80,7 +80,7 @@ mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // option
 out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
 ```
 
-Each Run opens the Session's Record from its last Checkpoint, builds a live Session from the Agent, and writes every step of the Run as it happens, so a crash loses at most the step in flight. Instances that share a Store run a Session one at a time: another instance takes it over when it is idle or its instance is gone, and waits, then answers 409, while it runs elsewhere. Call `runner.Close` after `runner.Drain` when the service stops, so other instances take its Sessions over at once.
+Each Run opens the Session's Record from its last Checkpoint, builds a live Session from the Agent, and writes every step of the Run as it happens, so a crash loses at most the step in flight. Instances that share a Store run a Session one at a time: another instance takes it over when it is idle or its instance is gone, and waits, then answers 409, while it runs elsewhere. When the service stops, `runner.Drain` lets every Run finish, save and release its Session, and `runner.Close` then removes the instance's Liveness row, so other instances take its Sessions over at once.
 
 ## Quick start (CLI)
 
@@ -107,9 +107,9 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Events and streaming | done, with gaps: messages on their way into a Session have no Events; stream resume planned |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
-| Drain | in part: stops new Runs and waits for those in flight; the full order is planned |
+| Drain | done: marks the Liveness row draining, answers 503 on `/readyz`, lets every Run finish and save, and tells a stopped stream to reconnect |
 | CLI: `run`, `session`, `context`, `tools`, `events`, `doctor`, `serve` | done |
-| One writer per Session across instances | done; stream resume, the activation limit and drain with reconnect codes planned |
+| One writer per Session across instances | done; stream resume and the activation limit planned |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
 | MCP, provider rate-limit information, typed Event payloads, streamed reasoning | later |

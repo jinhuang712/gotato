@@ -117,23 +117,23 @@ Exit:
 
 ## Phase 5 — One writer 🚧
 
-The part that keeps two instances from running one Session is built, and ships in the next 0.1.x release. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
+The part that keeps two instances from running one Session is built, and so is the drain; both ship in the next 0.1.x release. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
 - ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
 - ⬜ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header, an instance past its hard limit refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain.
-- 🚧 Drain in order, on SIGTERM or an endpoint: take no new Sessions, tell every live Session at once, let each finish, save and release, then close each stream with a reconnect code. Today `Runner.Close` ends the Liveness row after a drain, so another instance takes its Sessions over at once.
+- ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
 - ⬜ A stream resumes on any instance from its last position, with the Record's epoch.
 - ⬜ Lifecycle Events: a Session activated, taken over, released or fenced.
 - 🚧 The multi-instance harness: several instances over one shared store, with requests sent to random instances, concurrent messages and an instance killed. A hashing proxy in front of them is still to build.
-- ⬜ Ended Liveness rows are cleaned up.
+- ✅ Ended Liveness rows are cleaned up: an instance removes its own row when it stops, and the store conformance suite checks that a removed row reads as not alive.
 
 Exit:
 
 - ✅ G-G08 passes for every message an instance accepts.
 - ⬜ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
 - ⬜ A stream cut at every Event of the reference workload resumes equal to an uncut one.
-- ⬜ A drained instance commits its Runs and releases its Claims before it leaves.
+- ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ⬜ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 

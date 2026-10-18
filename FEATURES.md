@@ -95,10 +95,10 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Busy policy | a second Run on a busy Session is rejected with 409, or waits | G-F27 | ✅ |
 | Capacity | past `MaxActiveRuns`, a new Run is rejected with 429 | G-F27 | ✅ |
-| Drain | on SIGTERM or an endpoint: take no new Sessions, finish each Run, save, release, then close streams with a reconnect code; `/readyz` answers 503 | G-F27 | 🚧 |
+| Drain | on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close a stopped Run's stream with a reconnect code | G-F27 | ✅ |
 | Save every step | each step is written as it happens, so a crash loses at most the step in flight | G-F27 | ✅ |
 | One writer at a time | a Claim is an Entry with an Epoch, so a writer that lost it can never write; another instance stops before it calls the model | G-F27 | ✅ |
-| Liveness rows | one row per instance in the store; when it expires, all of that instance's Claims end | G-F27 | ✅ |
+| Liveness rows | one row per instance in the store; when it expires, all of that instance's Claims end, and an instance that stops removes its own | G-F27 | ✅ |
 | Any instance answers | an idle Session moves to whichever instance a request reaches; a busy one is waited for, then refused with 409 | G-F27 | ✅ |
 | Load balancer setup | hash on `session-id`, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | 🚧 |
 | Activation limit | past a hard limit, such as memory, an instance refuses new Sessions with a 503 marked "not run" | G-F27 | ⬜ |
@@ -578,7 +578,7 @@ The file store writes each batch of Entries to a file of its own, named by its f
 | `Load` | returns the facts from the last Checkpoint, the last position, and the Summary |
 | `Log` | returns every Entry after a position, facts and log entries |
 | `List`, `Delete` | list the Summaries, and delete a Record; an append to a deleted Record fails |
-| `Beat`, `Instance` | renew and read one Liveness row per instance, timed by the store's clock |
+| `Beat`, `Instance` | renew, read and remove one Liveness row per instance, timed by the store's clock |
 
 A writer passes the Session's Summary with every write, so `List` never reads a log. `session.Writer` makes the writes, `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included.
 
@@ -598,9 +598,10 @@ The suite is `testkit/storetest`, a package of its own so that importing `testki
 - appends that continue the log, and a load that starts at the last Checkpoint;
 - a stale writer refused, an append that does not continue the head refused, and a race of eight writers with exactly one winner;
 - deletes, unknown Records and a cancelled context;
-- Liveness rows that are alive, end, and expire by the store's clock, and never come back.
+- Liveness rows that are alive, and that expire by the store's clock and never come back;
+- a row its instance ended, which is removed and reads as not alive from every handle.
 
-The suite's own tests check that it fails an adapter that moves a stale write onto the head, and one that overwrites a position.
+The suite's own tests check that it fails an adapter that moves a stale write onto the head, one that overwrites a position, one that keeps ended rows, and one that still reads a removed row as alive.
 
 ## Many instances
 
@@ -612,11 +613,11 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 |---|---|---|
 | Busy policy | ✅ | a second Run on a busy Session is rejected with 409 (`reject`, the default), or waits (`wait`) |
 | Capacity | ✅ | past `MaxActiveRuns`, a new Run is rejected with 429; off by default |
-| Drain | 🚧 | today the Runner stops taking Runs, waits for the active ones, then cancels them, and `/readyz` answers 503 while it drains. Planned: on SIGTERM or an endpoint, the instance marks itself draining, takes no new Sessions, and tells every live Session at once; each finishes its Run, saves and releases its Claim, and only then is each stream closed with a reconnect code. |
+| Drain | ✅ | on SIGTERM, or when your own endpoint calls `Runner.Drain`, the instance marks its Liveness row draining, `/readyz` answers 503, and it takes no new Run and no new Claim. Every Run in flight finishes, saves and releases its Session. At the drain timeout the Runs still going are stopped, saved and released, and only then does each of their streams end with a reconnect code. `Runner.Close` then removes the row. |
 | Save every step | ✅ | each step is written as it happens: the prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run, each tool result, each continuation. A crash loses at most the step in flight ([GOALS.md](GOALS.md) G-G01). |
 | One writer at a time | ✅ | the writer holds a Claim: a fact naming its instance and an Epoch, a number that grows with every new Claim, written at the position after the head it read. A writer that lost its Claim always writes to a taken position, so the store refuses it, and a second instance stops before it calls the model (G-G08). |
 | Liveness rows | ✅ | each instance renews one row in the store every third of its TTL, timed by the store's clock. When the row expires, every Claim of that instance ends at once. An instance that cannot show its row was renewed in time writes nothing, so it never calls the model. |
-| Any instance answers | ✅ | an instance that is not the writer takes over a Session that is idle, or whose writer is gone or draining, and loads its facts from the last Checkpoint. For a Session its live writer is using, it waits, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
+| Any instance answers | ✅ | an instance that is not the writer takes over a Session that is idle, or whose writer is gone, and loads its facts from the last Checkpoint. For a Session its live writer is using, draining or not, it waits, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
 | Activation limit | ⬜ | past a hard limit, such as its memory budget, an instance refuses to activate a new Session with a 503 marked "not run", so the load balancer can retry it elsewhere. Spreading load stays the load balancer's and the autoscaler's job. |
 | Warm Session and TTL | ⬜ | a Session stays in memory while in use, and leaves it after 60 idle minutes unless its Agent sets another TTL; the store stays the truth. Before it leaves, it is compacted, unless a setting turns this off; how it is compacted is decided in a later phase. |
 
@@ -633,15 +634,16 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 - An instance gets a new identity each time it starts, and a row that has expired never comes back to life.
 - When one instance dies, its row expires, and every Claim it held ends with it, with no write.
 - An instance that cannot show its row was renewed within its TTL, less a margin, writes nothing. Draining itself then is planned.
-- `Runner.Close` ends the row when an instance stops, so its Sessions move at once instead of after the TTL. `gotato` and `gotato-grpc` call it.
+- `Runner.Close` removes the row when an instance stops, so its Sessions move at once instead of after the TTL, and the store keeps nothing of the instance. A closed Runner writes nothing more, so its row never comes back. `gotato`, `gotato serve` and `gotato-grpc` call it.
+- The row of an instance that died is not removed: it stays in the store, expired, so it can never be renewed.
 - Planned: the row carries the instance's count of live Sessions, as a load signal.
 
 **A request that reaches an instance that is not the writer.** The instance looks at the Claim:
 
 | The Session is | The instance |
 |---|---|
-| idle, or its writer is gone or draining | claims it, loads it from the last Checkpoint and serves the request |
-| in use by its live writer | waits for that writer to release it, up to a bound, then claims it; past the bound it answers 409 with `Retry-After` |
+| idle, or its writer is gone | claims it, loads it from the last Checkpoint and serves the request |
+| in use by its live writer, also while that writer drains | waits for that writer to release it, up to a bound, then claims it; past the bound it answers 409 with `Retry-After` |
 
 This covers every case where a Session's writer is not where the load balancer points: a fork, a retry after a refusal, a Session activated before the load balancer's hash changed. A takeover drops the old writer's warm copy, and the new writer loads from the store.
 
@@ -655,21 +657,24 @@ This covers every case where a Session's writer is not where the load balancer p
 | Several instances | `MaxActiveRuns` counts per instance, not across the service |
 | A rolling deploy | an instance on an older contract version refuses what it does not know, until it is replaced |
 
-**Drain.** On an endpoint or on SIGTERM, an instance drains in this order:
+**Drain.** On SIGTERM, or when your own endpoint calls `Runner.Drain`, an instance drains in this order:
 
 ```text
-mark draining in its Liveness row ──► /readyz answers 503 ──► refuse new activations
-  ──► close(drain): every live Session finishes its Run, saves, and releases its Claim
-  ──► close each stream with a reconnect code ──► leave
+mark draining in its Liveness row ──► /readyz answers 503 ──► refuse new Runs and new Claims
+  ──► every Run finishes, saves, and releases its Session
+  ──► at the drain timeout: stop the Runs still going, then save and release them
+  ──► end each stopped Run's stream with a reconnect code ──► Close removes the row
 ```
 
-- The signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
-- A Claim is released only if it still names this instance.
-- What a drain cannot finish by its deadline is fenced by the Epoch anyway.
+- The mark lets every instance see that this one is leaving. Another instance still waits for a Session the draining instance is using, because its Run is about to be saved; taking it over would fence that Run.
+- A request the draining instance refuses gets `ErrDraining`, 409 over HTTP. A Run admitted before the drain, also one queued behind a busy Session, still runs on a Session this instance holds; one that would need a new Claim is refused.
+- A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
+- A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
+- Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
 
 **Activation limit.** While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
-**Gap:** cancel and stream requests work only on the instance that runs the Session. The drain order above, the activation limit, stream resume and the lifecycle Events wait for the rest of ROADMAP Phase 5, and ended Liveness rows are not cleaned up yet.
+**Gap:** cancel and stream requests work only on the instance that runs the Session. The activation limit, stream resume and the lifecycle Events wait for the rest of ROADMAP Phase 5.
 
 **Your load balancer** routes; Gotato never forwards a request between instances. It needs three settings:
 
@@ -740,12 +745,14 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 - The stream answers 200 before the Run is admitted.
 - So only a bad or oversized body gets a status code. Every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
-- **Resume (planned).** Every streamed Event will carry its position: a sequence number, and the Record's own epoch, which changes only if its log is reset. A client that loses its stream reconnects through the load balancer, to any instance, with the last position it saw, and the stream goes on without gaps or duplicates. If the epoch differs, the client is told the position cannot be resumed. A stream that ends says whether to reconnect and how long to wait first, so a lost instance does not make every client reconnect at the same instant.
+- A Run the drain stopped ends its stream with `event: result` and then `event: reconnect`. Its `retry:` field and `retry_after_ms` give how long to wait before the Session is continued on any instance; when the result has no `run_id`, nothing ran, and the request is sent again.
+- **Resume (planned).** Every streamed Event will carry its position: a sequence number, and the Record's own epoch, which changes only if its log is reset. A client that loses its stream reconnects through the load balancer, to any instance, with the last position it saw, and the stream goes on without gaps or duplicates. If the epoch differs, the client is told the position cannot be resumed. A stream that ends says whether to reconnect and how long to wait first, so a lost instance does not make every client reconnect at the same instant. A stream the drain stops already does this, with a wait that differs from stream to stream.
 
 **gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
 - Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `CancelRun`, `Events`, `Context`, `Compact`.
 - The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`.
+- A Run the drain stopped sends its result, then ends `StreamRun` with `UNAVAILABLE` and a `retry-after-ms` trailer.
 
 **Go API.** Call the Runner directly, and subscribe to a Run's Events as they happen.
 
@@ -899,7 +906,7 @@ Each feature above says what happens when its part fails. This table collects th
 | A limit is reached | the Run settles with a status that names the limit | G-F01 |
 | A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | G-F27 |
 | A write fails | the Run stops at that step with `store_failure` or `conflict`, and a failed model-call write stops it before the model is called; the caller retries or reports it | G-F03 |
-| An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects | G-F27 |
+| An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects; a Run still going at the drain timeout is stopped, saved and released, and its stream says to reconnect | G-F27 |
 | An instance dies mid-Run | at most the step in flight is lost, and a tool that was running is answered with an unknown outcome; another instance takes the Session over once the dead instance's row expires | G-F27 |
 | The writer loses its liveness | it writes nothing more, so it never calls the model; draining itself is planned | G-F27 |
 | A write's outcome is unknown | the writer stops, and the Session is opened again from the store, which shows whether the write landed | G-F27 |

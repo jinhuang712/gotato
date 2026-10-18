@@ -146,12 +146,12 @@ POST   /v1/sessions            GET /v1/sessions            GET|DELETE /v1/sessio
 POST   /v1/sessions/{id}/fork  GET /v1/sessions/{id}/events?kind=   GET /v1/sessions/{id}/context
 POST   /v1/sessions/{id}/compact {"keep":N}
 POST   /v1/sessions/{id}/runs {"prompt"|"continue":true,"timeout_ms"?}     → run result
-POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result
+POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result[, event: reconnect]
 POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
 POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        → create session and run
 ```
 
-Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 500 (a settled run could not be saved), 504 (request deadline). A Run that settles as `failed`, `cancelled`, or `deadline_exceeded` still returns HTTP 200 with the outcome in the body (`result.status`); only request-level failures use those status codes. On the streaming routes every failure, including a bad request, is delivered in-band as `event: error` after the stream has started. `GET /readyz` returns 503 while draining so a rolling deployment can stop sending traffic. Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server stops admitting, waits `--drain-timeout` for active runs, then cancels them (including runs queued behind a busy session).
+Errors are `{"error","code","message"}` with 400 (invalid argument), 404 (unknown session), 409 (session busy / run not active), 429 (capacity), 500 (a settled run could not be saved), 504 (request deadline). A Run that settles as `failed`, `cancelled`, or `deadline_exceeded` still returns HTTP 200 with the outcome in the body (`result.status`); only request-level failures use those status codes. On the streaming routes every failure, including a bad request, is delivered in-band as `event: error` after the stream has started. `GET /readyz` returns 503 while draining so a rolling deployment can stop sending traffic. Authentication and logging are the embedding application's: wrap the handler. On SIGINT/SIGTERM the server drains: it marks its Liveness row draining, `/readyz` answers 503, it takes no new run or session, and it waits `--drain-timeout` for active runs to finish and save. Runs still going then are stopped (including runs queued behind a busy session), saved and released, and each stopped stream ends with `event: result` and then `event: reconnect`, whose `retry_after_ms` says how long to wait before continuing the session. The server then removes its Liveness row and exits 0; stderr says `draining (up to …)` and `stopped`.
 
 ### `gotato doctor`
 

@@ -274,8 +274,13 @@ A second instance must stop before it calls the model, and a writer that lost it
 
 ### A drain finishes before it disconnects
 
-- **Instead of:** closing connections or cancelling Runs first.
-- **Why:** a deploy should not lose work. An instance stops taking new Sessions, lets every Run finish, save and release its claim, and only then closes its streams.
+- **Instead of:** closing connections or cancelling Runs first, or letting another instance take over a Session the draining one is using.
+- **Why:** a deploy should not lose work. An instance marks its liveness row draining, stops taking new Sessions, lets every Run finish, save and release its claim, and only then closes its streams. Another instance waits for a Session the draining one is using, as for any live writer, because taking it over would fence a Run that is about to be saved.
+
+### An instance removes its liveness row when it stops
+
+- **Instead of:** keeping every ended row, or a sweeper and a new store call that delete rows long expired.
+- **Why:** the instance that wrote the row knows when it is done with it, and most rows end there: every rolling deploy and every CLI command stops gently. A removed row reads as not alive, so every claim that names it ends, as when a row expires. A stopped instance never writes again, so its row never comes back. The row of an instance that died stays, expired, which keeps it from ever being renewed.
 
 ## 5. A Session can be dropped and rebuilt at any time
 
