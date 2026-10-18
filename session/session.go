@@ -333,12 +333,18 @@ func (s *Record) Write(_ context.Context, events []gotato.Event) ([]gotato.Event
 }
 
 // EventsAfter implements gotato.EventSource from the Events the Record keeps
-// in memory.
+// in memory. It fails with gotato.ErrEventsLost when the window no longer
+// reaches back to after, as a Record that is not stored cannot read them again;
+// a stored Record's Writer is the source of its Session.
 func (s *Record) EventsAfter(_ context.Context, after uint64, _ int) ([]gotato.Event, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	window := s.retainedEvents()
+	if (len(window) == 0 && s.last > after) || (len(window) > 0 && window[0].Head().Number > after+1) {
+		return nil, gotato.ErrEventsLost
+	}
 	var out []gotato.Event
-	for _, event := range s.retainedEvents() {
+	for _, event := range window {
 		if event.Head().Number > after {
 			out = append(out, event)
 		}
