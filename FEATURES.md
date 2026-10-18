@@ -809,7 +809,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 
 | Event | When | Kept |
 |---|---|---|
-| `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran; a call blocked before it ran has a `tool_ended` and no `tool_started` | Record |
+| `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran; a call blocked before it ran has a `tool_ended` and no `tool_started`. A `tool_ended` rides the write that commits its group's results, so it is sent when the group is done: in a parallel group it can wait behind the slowest sibling, though its `elapsed_ms` and time are those of its own Tool | Record |
 | `tool_progress` | a Tool reports its own progress | sent only |
 | `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
 | `toolset_activated` | the model switches on a ToolSet | Record |
@@ -852,7 +852,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `extension_failed` | an advisory extension failed, and the Run went on | Record |
 | `events_skipped` | an Instance's stream fell behind and skipped Events; it says how many | Instance |
 
-**Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
+**Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it, with one exception: when the last Run of a Session never ended, the load also reads the log since that Checkpoint, rebuilds the Cut-off reply from the `reply_part_kept` Entries, and the Instance that takes the Session over stores it as a `reply_cut_off`. A crash loses at most the last part of a reply. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
 
 **Subscriptions.** A Session puts each Event in its subscribers' queues and never waits for one:
 
@@ -868,7 +868,8 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 - With the Go API alone, a caller subscribes to the Session it built, before its first `Prompt`.
 - `Runner.StreamRun` runs the Run on its own goroutine and calls its sink from the caller's, reading a Subscription, so a slow HTTP or gRPC client slows its own stream and never the Run.
 - An Instance Event is not in a Run's stream: `session_loaded` and `session_saved` are read from the Instance's stream.
-- A Run that is not saved (`SkipSave`) has only its Run's stream; its Events are in no Record.
+- A Run that is not saved (`SkipSave`) has only its Run's stream; its Events are in no Record, so they are numbered from 1 on that stream and are not Record positions.
+- A stream that needs Events its source cannot read again, as a Session over a Record that is not stored can after the Record's window (the last 1000 Events), ends with `gotato.ErrEventsLost`.
 - The HTTP and gRPC routes for a Session's stream are designed with stream resume (G-F14).
 
 **What it replaced.** It was one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):

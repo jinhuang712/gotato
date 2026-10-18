@@ -209,6 +209,16 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
   recorder := testkit.RecordEvents(live)
   ```
 
+- **A new Record is busy until it is released.** **Breaking** for code that calls `session.Create` itself: the Record it stores is marked busy, as one that `OpenWriter` opens is, and `Writer.Release` writes the `session_released` that ends it. Before, `Create` left the Record idle, so another Instance could claim a Session whose first Run was still going, and the first Run of a new Session never wrote a release. `session.WithIdle()` is new, for a Record that nothing runs against: `Create` then writes the release in the same write as the first Claim, and `Runner.CreateSession` and `Runner.Fork` use it, so a Session that was only created is idle at once.
+
+  ```go
+  // before: idle after Create
+  writer, _ := session.Create(ctx, store, record, "instance-1")
+  // after: busy until writer.Release(ctx); or, when nothing runs against it:
+  writer, _ := session.Create(ctx, store, record, "instance-1", session.WithIdle())
+  ```
+
+- **Streams, loads and unsaved Runs keep to the Record.** A Session's stream reads from the Record any stored Event that another Instance wrote, where it skipped it; `compaction_ended` carries the Claim, so a load that starts at a compaction still knows the Writer and its Epoch; a load of a Session whose last Run never ended rebuilds the Cut-off reply from the parts kept, and stores it as a `reply_cut_off`; a `SubscribeFrom` over a Record that is not stored fails with `gotato.ErrEventsLost` where it started in the middle of the log; and a Run with `SkipSave` numbers its Events from 1 on its own stream, since it stores none.
 - **Two names moved to make room for the Events.** **Breaking:** the Session's status constants `gotato.SessionCreated`, `SessionIdle`, `SessionBusy`, `SessionClosing` and `SessionClosed` are now `SessionStatusCreated` … `SessionStatusClosed`, because `SessionCreated` is the Event; and the function type a Tool reports progress with, `gotato.ToolProgress`, is now `gotato.ToolProgressFunc`, because `ToolProgress` is the Event.
 - **New Events.** `session_claimed` (with why, and which instance held the Session before), `session_released`, `session_fenced` and `liveness_lapsed` come with the Claim; `message_queued`, `message_committed`, `message_dropped` and `message_rejected`, and `abort_requested`, come from a live Session's Steer, FollowUp and Abort; `model_retried` comes from the gateway; `reply_part_kept` is the stored part of a streaming reply; `session_created`, `metadata_changed` and `compaction_*` come from the Record; `run_requested`, `run_waiting`, `run_rejected`, `session_loaded`, `session_saved`, `session_deleted` and `store_write_failed` are Instance Events. An Instance that opens a Session it holds already writes `session_claimed` again, with the same Epoch, where it wrote a busy mark.
 - **New in the Go API:** `gotato.Feed`, `gotato.Subscription`, `gotato.WithFeed`, `gotato.WithRunStart`, `gotato.MarshalEvent`, `gotato.UnmarshalEvent`, `gotato.ReportModelRetry` (for a gateway), `session.StoredEvents`, `session.WithPublisher`, `session.WithWaited`, `service.Runner.SubscribeSession`, `SubscribeInstance` and `service.ForAgents`.
