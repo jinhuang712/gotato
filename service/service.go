@@ -514,6 +514,15 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error)
 // advisory: it stops delivery, not the Run. StreamRun returns after the Run
 // settles and its last Event has been delivered.
 func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResult, error) {
+	return r.StreamRunAdmitted(ctx, request, nil, sink)
+}
+
+// StreamRunAdmitted is StreamRun with a call, on the caller's goroutine, once
+// the Run is admitted and before its first Event is delivered. A Run that is
+// refused at admission (draining, at capacity, past the activation limit)
+// returns its error without the call, so an endpoint can still answer the
+// request with a status of its own before it starts to stream.
+func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResult, error) {
 	if sink == nil {
 		return r.run(ctx, request, nil)
 	}
@@ -525,12 +534,38 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 		err    error
 	}
 	subs := make(chan gotato.Subscription, 1)
+	admit := make(chan struct{}, 1)
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := r.run(ctx, request, &runStream{ready: func(sub gotato.Subscription) { subs <- sub }})
+		result, err := r.run(ctx, request, &runStream{ready: func(sub gotato.Subscription) { subs <- sub }, admitted: admit})
 		done <- outcome{result, err}
 	}()
 	var finished *outcome
+	call := func() {
+		if admitted != nil {
+			admitted()
+		}
+	}
+	select {
+	case <-admit:
+		call()
+	case o := <-done:
+		finished = &o
+		select {
+		case <-admit:
+			call()
+		default:
+		}
+	}
+	if finished != nil {
+		// The Run ended: it may have handed over its stream first.
+		select {
+		case sub := <-subs:
+			deliver(ctx, sub, sink)
+		default:
+		}
+		return finished.result, finished.err
+	}
 	select {
 	case sub := <-subs:
 		deliver(ctx, sub, sink)
@@ -573,6 +608,9 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 		}
 		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResult{}, err
+	}
+	if stream != nil && stream.admitted != nil {
+		stream.admitted <- struct{}{}
 	}
 	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	release := sync.OnceFunc(r.release)

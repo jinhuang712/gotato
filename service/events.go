@@ -154,7 +154,9 @@ func (s *feedSubscription) done() { s.once.Do(s.release) }
 // as soon as the Run holds its Session.
 type runStream struct {
 	ready func(gotato.Subscription)
-	sub   gotato.Subscription
+	// admitted receives one value once the Run is admitted.
+	admitted chan struct{}
+	sub      gotato.Subscription
 }
 
 // tracker follows the Run the live Session started: its ID, which the

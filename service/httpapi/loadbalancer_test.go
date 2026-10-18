@@ -220,10 +220,16 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 		t.Fatalf("Sessions before %d, after %d: the refusals created one", len(before), len(after))
 	}
 
-	// A streaming request answers 200 first, so the refusal is in-band, with the mark.
-	frames := <-openStream(t, server, "/v1/runs/stream", `{"prompt":"new"}`)
-	if len(frames) != 1 || frames[0].event != "error" || !strings.Contains(frames[0].data, `"not_run":true`) || !strings.Contains(frames[0].data, `"overloaded"`) {
-		t.Fatalf("a streamed refusal = %+v", frames)
+	// A streaming request is refused before the stream starts, with the same
+	// 503 and mark, so a load balancer can retry it on another instance.
+	for _, path := range []string{"/v1/runs/stream", "/v1/sessions/" + idle.ID() + "/runs/stream"} {
+		resp, data = send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
+		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" || !strings.Contains(string(data), `"not_run":true`) {
+			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get("Gotato-Not-Run"))
+		}
+		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+			t.Fatalf("%s started a stream", path)
+		}
 	}
 
 	// Other 503s are not marked: a refusal for any other reason keeps it off.

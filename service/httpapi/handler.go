@@ -377,11 +377,25 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flusher, _ := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+	started := false
+	start := func() {
+		if !started {
+			started = true
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+		}
+	}
 	sink := func(event gotato.Event) error { return writeEvent(w, flusher, event) }
-	result, runErr := h.runner.StreamRun(r.Context(), request, sink)
+	// The stream answers 200 once the Run is admitted. A request refused as not
+	// run (past the activation limit) never gets there: it answers 503 marked
+	// not run, which a load balancer can retry on another instance.
+	result, runErr := h.runner.StreamRunAdmitted(r.Context(), request, start, sink)
+	if !started && runErr != nil && result.SessionID == "" && notRun(runErr) {
+		writeFailure(w, runErr)
+		return
+	}
+	start()
 	switch {
 	case runErr != nil && result.SessionID == "":
 		data, _ := json.Marshal(failureOf(runErr))
