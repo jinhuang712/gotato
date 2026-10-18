@@ -1423,7 +1423,7 @@ func (r *Runner) admit(handle *runHandle) error {
 	if r.draining {
 		return ErrDraining
 	}
-	if limit := r.admission.MaxActiveSessions; limit > 0 && len(r.handles[handle.sessionID]) == 0 && r.activeSessionsLocked() >= limit {
+	if limit := r.admission.MaxActiveSessions; limit > 0 && (handle.sessionID == "" || len(r.handles[handle.sessionID]) == 0) && r.activeSessionsLocked() >= limit {
 		return ErrOverloaded
 	}
 	if r.admission.MaxActiveRuns > 0 && r.inflight >= r.admission.MaxActiveRuns {
