@@ -234,7 +234,13 @@ func NewSession(options ...Option) (*Session, error) {
 		a.journal = journal
 		a.durable = true
 	} else {
-		a.journal = &memoryJournal{}
+		// A Transcript that keeps no Events: they are numbered in memory,
+		// after the last number of a Feed the host shares with other Runs.
+		journal := &memoryJournal{}
+		if cfg.feed != nil {
+			journal.last = cfg.feed.Last()
+		}
+		a.journal = journal
 	}
 	a.feed = cfg.feed
 	if a.feed == nil {

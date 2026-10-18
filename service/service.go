@@ -881,7 +881,10 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 // and keeps the Session's Events in memory. extra options come after the
 // Agent's own.
 func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Writer, override InspectOptions, extra ...gotato.Option) (*gotato.Session, *modelctx.AutoCompactor, error) {
-	var transcript gotato.Transcript = s
+	// Without a writer nothing is stored: the live Session numbers its Events
+	// on its own stream, and does not use the Record's numbers, which are
+	// positions in the log that this Run does not write.
+	var transcript gotato.Transcript = unjournaled{s}
 	if writer != nil {
 		transcript = writer
 	}
@@ -1386,3 +1389,12 @@ func (r *Runner) release() {
 	}
 	r.mu.Unlock()
 }
+
+// unjournaled is a Record as a Transcript that is not a Journal, so a Session
+// over it keeps no Events in the Record.
+type unjournaled struct{ record *session.Record }
+
+func (u unjournaled) Len() int                      { return u.record.Len() }
+func (u unjournaled) Messages() []gotato.Message    { return u.record.Messages() }
+func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
+func (u unjournaled) ID() string                    { return u.record.ID() }
