@@ -602,12 +602,14 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 		case <-s.wake:
 		case <-tick:
 			// Nothing came for a while: look in the source, which holds what
-			// another Instance wrote.
-			s.mu.Lock()
-			if s.cursorSet && !s.behind {
-				s.behind, s.resume = true, s.cursor
+			// another Instance wrote. The stream stays live while it reads, so
+			// a delta published meanwhile is not lost.
+			if err := s.look(ctx); err != nil {
+				if timer != nil {
+					timer.Stop()
+				}
+				return nil, false, err
 			}
-			s.mu.Unlock()
 		case <-s.done:
 			if timer != nil {
 				timer.Stop()
@@ -623,6 +625,45 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 			timer.Stop()
 		}
 	}
+}
+
+// look reads the stored Events after the last one this subscriber has from the
+// Feed's source, and queues those that are still the next ones once the read
+// is done: a live Event that arrived meanwhile has moved the cursor, and what
+// it covers is not queued twice.
+func (s *subscription) look(ctx context.Context) error {
+	s.mu.Lock()
+	if !s.cursorSet || s.behind {
+		s.mu.Unlock()
+		return nil
+	}
+	after := s.cursor
+	s.mu.Unlock()
+	batch, err := s.feed.eventsAfter(ctx, after, catchUpBatch)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.behind {
+		return nil
+	}
+	for _, event := range batch {
+		number := event.Head().Number
+		if number <= s.cursor {
+			continue
+		}
+		if number != s.cursor+1 {
+			// A gap: the catch-up reads from the cursor on.
+			s.behind, s.resume = true, s.cursor
+			return nil
+		}
+		s.cursor = number
+		if s.filter == nil || s.filter(event) {
+			s.queue = append(s.queue, event)
+		}
+	}
+	return nil
 }
 
 // Next implements Subscription.
