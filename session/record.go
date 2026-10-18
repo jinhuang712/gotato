@@ -19,9 +19,13 @@ func (s *Record) startLog() {
 	s.pending = nil
 	s.events, s.eventHead = nil, 0
 	s.last = 0
+	if s.epoch == "" {
+		s.epoch = newEpoch()
+	}
 	created := gotato.SessionCreated{
 		Header:      s.header(),
 		CreatedAt:   s.createdAt,
+		RecordEpoch: s.epoch,
 		Messages:    cloneMessages(s.messages),
 		Metadata:    maps.Clone(s.metadata),
 		Compactions: slices.Clone(s.compactions),
@@ -150,6 +154,7 @@ func (s *Record) apply(entry Entry) error {
 	case gotato.SessionCreated:
 		s.id = string(e.SessionID)
 		s.createdAt = e.CreatedAt
+		s.epoch = e.RecordEpoch
 		s.parentID, s.parentSeq = "", 0
 		if e.ForkedFrom != nil {
 			s.parentID, s.parentSeq = string(e.ForkedFrom.SessionID), e.ForkedFrom.Number

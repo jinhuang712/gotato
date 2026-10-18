@@ -30,14 +30,17 @@ var ErrExpired = errors.New("session: liveness row expired")
 // Summary is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
 type Summary struct {
-	ID        string            `json:"id"`
-	ParentID  string            `json:"parent_id,omitempty"`
-	CreatedAt string            `json:"created_at"`
-	UpdatedAt string            `json:"updated_at"`
-	Messages  int               `json:"messages"`
-	Runs      int               `json:"runs"`
-	Usage     gotato.Usage      `json:"usage"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id,omitempty"`
+	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch). A
+	// store keeps it with the rest of the Summary; Epoch reads it.
+	RecordEpoch string            `json:"record_epoch,omitempty"`
+	CreatedAt   string            `json:"created_at"`
+	UpdatedAt   string            `json:"updated_at"`
+	Messages    int               `json:"messages"`
+	Runs        int               `json:"runs"`
+	Usage       gotato.Usage      `json:"usage"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 	// Seq is the position of the last Entry the store holds.
 	Seq uint64 `json:"seq,omitempty"`
 	// Running is the Run that started and has not ended, if any.
@@ -45,6 +48,16 @@ type Summary struct {
 	// Busy says the writer opened the Session and has not released it: a
 	// Run or a change is under way, also before its Run has started.
 	Busy bool `json:"busy,omitempty"`
+}
+
+// Epoch returns the Record's epoch: its own, or for a Record written before
+// epochs, one made of its creation time, which also tells a Record from one
+// created later under the same ID.
+func (s Summary) Epoch() string {
+	if s.RecordEpoch != "" {
+		return s.RecordEpoch
+	}
+	return "created-" + s.CreatedAt
 }
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
@@ -182,6 +195,7 @@ func (s *Record) Summary() Summary {
 
 func (s *Record) summaryLocked() Summary {
 	summary := summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
+	summary.RecordEpoch = s.epoch
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy

@@ -57,18 +57,20 @@ type Run struct {
 // and from a Record. A document of an earlier version holds the Events of its
 // time; they are not read again.
 type Document struct {
-	SchemaVersion int               `json:"schema_version"`
-	ID            string            `json:"id"`
-	ParentID      string            `json:"parent_id,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	Messages      []gotato.Message  `json:"messages"`
-	Runs          []Run             `json:"runs,omitempty"`
-	Events        []gotato.Event    `json:"events,omitempty"`
-	Usage         gotato.Usage      `json:"usage"`
-	Compactions   []Compaction      `json:"compactions,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
-	EventLimit    int               `json:"event_limit,omitempty"`
+	SchemaVersion int    `json:"schema_version"`
+	ID            string `json:"id"`
+	ParentID      string `json:"parent_id,omitempty"`
+	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch).
+	RecordEpoch string            `json:"record_epoch,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	Messages    []gotato.Message  `json:"messages"`
+	Runs        []Run             `json:"runs,omitempty"`
+	Events      []gotato.Event    `json:"events,omitempty"`
+	Usage       gotato.Usage      `json:"usage"`
+	Compactions []Compaction      `json:"compactions,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	EventLimit  int               `json:"event_limit,omitempty"`
 	// Seq is the position of the last Entry the store held when this
 	// Document was read; 0 for a Record never stored.
 	Seq uint64 `json:"seq,omitempty"`
@@ -112,9 +114,11 @@ type replyPart struct {
 // for concurrent use; the live gotato.Session that runs against it must still
 // be the only writer of Messages during a Run.
 type Record struct {
-	mu        sync.RWMutex
-	id        string
-	parentID  string
+	mu       sync.RWMutex
+	id       string
+	parentID string
+	// epoch is the Record's identity as a log (see RecordEpoch).
+	epoch     string
 	createdAt time.Time
 	updatedAt time.Time
 	messages  []gotato.Message
@@ -205,9 +209,32 @@ func New(options ...Option) *Record {
 	if s.metadata == nil {
 		s.metadata = map[string]string{}
 	}
+	s.epoch = newEpoch()
 	s.createdAt = s.now().UTC()
 	s.updatedAt = s.createdAt
 	return s
+}
+
+// newEpoch returns a random identity for a new Record.
+func newEpoch() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic("session: crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(buf[:])
+}
+
+// RecordEpoch returns the Record's identity as a log: chosen when the Record
+// is created, the same on every load and on every Instance, and different only
+// when the Record is deleted and created again under the same ID. A stored
+// Event's number means the same Event only within one epoch, so a client that
+// resumes a stream from a number sends the epoch it saw. A Record written
+// before epochs returns "" until it is stored again; Summary.Epoch falls back
+// to its creation time.
+func (s *Record) RecordEpoch() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.epoch
 }
 
 // NewID returns a random, restart-safe identifier.
@@ -232,6 +259,7 @@ func Load(doc Document) (*Record, error) {
 	}
 	s := &Record{
 		id:          doc.ID,
+		epoch:       doc.RecordEpoch,
 		parentID:    doc.ParentID,
 		createdAt:   doc.CreatedAt,
 		updatedAt:   doc.UpdatedAt,
@@ -267,6 +295,7 @@ func (s *Record) Snapshot() Document {
 		SchemaVersion: SchemaVersion,
 		ID:            s.id,
 		ParentID:      s.parentID,
+		RecordEpoch:   s.epoch,
 		CreatedAt:     s.createdAt,
 		UpdatedAt:     s.updatedAt,
 		Messages:      cloneMessages(s.messages),

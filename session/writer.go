@@ -284,6 +284,9 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	if r.parentID == "" {
 		r.parentID = loaded.Summary.ParentID
 	}
+	if r.epoch == "" {
+		r.epoch = loaded.Summary.RecordEpoch
+	}
 	r.baseRuns = loaded.Summary.Runs
 	r.usage = loaded.Summary.Usage
 	r.running = loaded.Summary.Running
