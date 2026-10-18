@@ -200,18 +200,21 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 }
 
 // create writes a new Session's Record as this Runner's Instance. A draining
-// Runner creates one too: creating writes the store and activates nothing.
-func (r *Runner) create(ctx context.Context, s *session.Record, publish func(gotato.Event), options ...session.WriterOption) (*session.Writer, error) {
+// Runner creates one too: creating writes the store and activates nothing. The
+// Events it writes go to the new Record's Feed, if this Instance has one, and
+// to the Instance's otherwise, with agent's name.
+func (r *Runner) create(ctx context.Context, s *session.Record, agent string, options ...session.WriterOption) (*session.Writer, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
+	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
 	options = append([]session.WriterOption{session.WithGuard(r.guard), session.WithPublisher(publish)}, options...)
 	writer, err := session.Create(ctx, r.store, s, r.instance, options...)
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}
 	if err == nil {
-		r.cutStreams(s.ID(), s.RecordEpoch())
+		r.cutStreams(s.ID(), s.RecordEpoch(), s.Head())
 	}
 	return writer, err
 }
@@ -219,31 +222,39 @@ func (r *Runner) create(ctx context.Context, s *session.Record, publish func(got
 // open opens a stored Session for writing as this Runner's Instance. When the
 // Session runs on another live Instance, it waits for that Run to end, up to
 // Liveness.Wait, and then refuses with a busy error that says when to retry.
-func (r *Runner) open(ctx context.Context, sessionID string, publish func(gotato.Event)) (*session.Writer, error) {
+//
+// The Events the open writes, a claim among them, are not published: open
+// returns them, for the caller to publish to the Feed of the Record it opened,
+// whose epoch only the load tells (publishOpened). The caller sets the
+// Writer's publisher before it writes again.
+func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, []gotato.Event, error) {
 	if err := r.live(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	deadline := time.Now().Add(r.liveness.Wait)
 	pause := 20 * time.Millisecond
 	waited := false
 	for {
-		options := []session.WriterOption{session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck), session.WithPublisher(publish)}
+		var early []gotato.Event
+		keep := func(event gotato.Event) { early = append(early, event) }
+		options := []session.WriterOption{session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck), session.WithPublisher(keep)}
 		if waited {
 			options = append(options, session.WithWaited())
 		}
 		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
-		if err == nil || (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
-			if err == nil {
-				r.cutStreams(sessionID, writer.Record().RecordEpoch())
-			}
-			return writer, err
+		if err == nil {
+			r.cutStreams(sessionID, writer.Record().RecordEpoch(), writer.Record().Head())
+			return writer, early, nil
+		}
+		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
+			return nil, nil, err
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
-			return nil, busyElsewhere(r.liveness.Wait)
+			return nil, nil, busyElsewhere(r.liveness.Wait)
 		}
 		if !waited {
 			r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
@@ -251,7 +262,7 @@ func (r *Runner) open(ctx context.Context, sessionID string, publish func(gotato
 		waited = true
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-time.After(min(pause, remaining)):
 		}
 		pause = min(pause*2, 500*time.Millisecond)

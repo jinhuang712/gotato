@@ -54,6 +54,10 @@ type StreamFrom struct {
 // after a number, read from the Record, and then the live ones, across Runs,
 // on whichever Instance it is opened. Deltas are live only: a reconnect does
 // not repeat those sent before it, and the finished Message holds their text.
+//
+// A stream is bound to the Record it opened, the one RecordEpoch names: it
+// reads that Record's Feed, and every read of the store that returns Events is
+// checked against the epoch before they are delivered.
 type SessionStream struct {
 	*feedSubscription
 	// RecordEpoch is the Record's epoch, for the client to keep and send back.
@@ -149,13 +153,14 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 		}
 		return nil
 	}
-	sub, err := r.openSessionStream(ctx, sessionID, from.After, gotato.SubscribeVerify(verify))
+	key := feedKey{sessionID, epoch}
+	sub, err := r.openSessionStream(ctx, key, from.After, gotato.SubscribeVerify(verify))
 	if err != nil {
 		return nil, err
 	}
 	stream := &SessionStream{feedSubscription: sub, RecordEpoch: epoch, Head: loaded.Head, sessionID: sessionID}
 	sub.release = func() {
-		r.releaseFeed(sessionID)
+		r.releaseFeed(key)
 		r.streamsMu.Lock()
 		delete(r.streams, stream)
 		r.streamsMu.Unlock()
@@ -183,9 +188,9 @@ func cannotResume(why, epoch string, head uint64) error {
 
 // cutStreams ends the open Session streams of a Session whose Record has
 // another epoch than theirs, with cannot_resume. This Instance calls it when it
-// opens or creates a Record, before any of its Events is published, so a stream
-// never goes on with the Events of a Record created again under the same ID.
-func (r *Runner) cutStreams(sessionID, epoch string) {
+// has opened or created a Record, so the open streams of the Record it
+// replaced end at once, instead of waiting for a read of the store to show it.
+func (r *Runner) cutStreams(sessionID, epoch string, head uint64) {
 	r.streamsMu.Lock()
 	var stale []*SessionStream
 	for stream := range r.streams {
@@ -195,7 +200,7 @@ func (r *Runner) cutStreams(sessionID, epoch string) {
 	}
 	r.streamsMu.Unlock()
 	for _, stream := range stale {
-		stream.failWith(cannotResume("the Record was created again", epoch, 0))
+		stream.failWith(cannotResume("the Record was created again", epoch, head))
 	}
 }
 
@@ -232,19 +237,19 @@ func (r *Runner) endStreams() {
 	}
 }
 
-// openSessionStream subscribes to a Session's Feed after a number, with the
+// openSessionStream subscribes to a Record's Feed after a number, with the
 // tail that follows other Instances' writes. The Feed is given back when the
 // subscription ends.
-func (r *Runner) openSessionStream(ctx context.Context, sessionID string, after uint64, extra ...gotato.SubscribeOption) (*feedSubscription, error) {
-	feed := r.acquireFeed(sessionID, "")
+func (r *Runner) openSessionStream(ctx context.Context, key feedKey, after uint64, extra ...gotato.SubscribeOption) (*feedSubscription, error) {
+	feed := r.acquireFeed(key, "")
 	options := append([]gotato.SubscribeOption{gotato.SubscribeAfter(after)}, extra...)
 	if r.streamPoll > 0 {
 		options = append(options, gotato.SubscribeTail(r.streamPoll))
 	}
 	sub, err := feed.Subscribe(ctx, options...)
 	if err != nil {
-		r.releaseFeed(sessionID)
+		r.releaseFeed(key)
 		return nil, err
 	}
-	return &feedSubscription{Subscription: sub, release: func() { r.releaseFeed(sessionID) }}, nil
+	return &feedSubscription{Subscription: sub, release: func() { r.releaseFeed(key) }}, nil
 }

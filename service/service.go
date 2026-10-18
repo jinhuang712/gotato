@@ -168,10 +168,11 @@ type Runner struct {
 	locks *sessionLocks
 
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
-	// Sessions in use, each mirrored to it (see events.go).
+	// Records in use, one per Session ID and epoch, each mirrored to it (see
+	// events.go).
 	instanceFeed *gotato.Feed
 	feedsMu      sync.Mutex
-	feeds        map[string]*sessionFeed
+	feeds        map[feedKey]*sessionFeed
 
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
@@ -289,7 +290,7 @@ func New(cfg Config) (*Runner, error) {
 		agents:     map[string]Agent{},
 		admission:  cfg.Admission,
 		locks:      newSessionLocks(),
-		feeds:      map[string]*sessionFeed{},
+		feeds:      map[feedKey]*sessionFeed{},
 		handles:    map[string][]*runHandle{},
 		byRun:      map[gotato.RunID]*runHandle{},
 	}
@@ -416,7 +417,7 @@ func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[s
 	}
 	// Nothing runs against a Session that is only created: it is released in
 	// the write that creates it.
-	if _, err := r.create(ctx, s, r.publisher(s.ID(), spec.Name), session.WithIdle()); err != nil {
+	if _, err := r.create(ctx, s, spec.Name, session.WithIdle()); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -651,11 +652,11 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			stream.sub.End()
 		}
 	}()
-	// A Session's Feed is shared and counted; a Run that is not saved has a
+	// A Record's Feed is shared and counted; a Run that is not saved has a
 	// Feed of its own, since its Events are in no Record.
-	acquired := ""
+	var acquired feedKey
 	defer func() {
-		if acquired != "" {
+		if acquired != (feedKey{}) {
 			r.releaseFeed(acquired)
 		}
 	}()
@@ -678,12 +679,12 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 			// The Run's stream starts before the Session is created, so its
 			// first Event is the session_created that the Run caused.
-			feed = r.acquireFeed(fresh.ID(), spec.Name)
-			acquired = fresh.ID()
+			acquired = feedKey{fresh.ID(), fresh.RecordEpoch()}
+			feed = r.acquireFeed(acquired, spec.Name)
 			if err := r.streamTo(ctx, feed, stream, track); err != nil {
 				return RunResult{}, err
 			}
-			writer, err = r.create(runCtx, fresh, r.publisher(fresh.ID(), spec.Name))
+			writer, err = r.create(runCtx, fresh, spec.Name)
 			stats := session.WriteStats{}
 			if writer != nil {
 				stats = writer.Stats()
@@ -713,28 +714,24 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		// not be resurrected from a stale copy.
 		var loadTime time.Duration
 		// The Events the open writes, a claim among them, are published once
-		// the Run knows its Agent, so they carry its name.
+		// the Run knows its Record and its Agent, so they go to that Record's
+		// Feed and carry the Agent's name.
 		var early []gotato.Event
 		if request.SessionID != "" {
-			if request.SkipSave {
-				feed = gotato.NewFeed(nil)
-				defer feed.Close()
-			} else {
-				feed = r.acquireFeed(sessionID, request.Agent)
-				acquired = sessionID
-			}
-			if err := r.streamTo(ctx, feed, stream, track); err != nil {
-				return err
-			}
 			// A Run writes as this Instance: opening the Session claims it
 			// when another Instance held it, and a stale writer is fenced.
 			began := time.Now()
 			var err error
 			if request.SkipSave {
+				feed = gotato.NewFeed(nil)
+				defer feed.Close()
+				if err := r.streamTo(ctx, feed, stream, track); err != nil {
+					return err
+				}
 				s, err = session.Open(runCtx, r.store, sessionID)
 				loadTime = time.Since(began)
 			} else {
-				writer, err = r.open(runCtx, sessionID, func(event gotato.Event) { early = append(early, event) })
+				writer, early, err = r.open(runCtx, sessionID)
 				if writer != nil {
 					loadTime = writer.Stats().Load
 					s = writer.Record()
@@ -746,6 +743,19 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				r.notice(loadedEvent(sessionID, 0, loadTime, err), request.Agent)
 				r.noteFailure(err, sessionID, request.Agent)
 				return err
+			}
+			if writer != nil {
+				// The Record's epoch is known once it is loaded: the Run uses
+				// that Record's Feed, and its stream starts there, with the
+				// claim the open wrote.
+				acquired = feedKey{sessionID, s.RecordEpoch()}
+				feed = r.acquireFeed(acquired, request.Agent)
+				if err := r.streamTo(ctx, feed, stream, track); err != nil {
+					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+					_ = writer.Release(releaseCtx)
+					cancelRelease()
+					return err
+				}
 			}
 		}
 		for key, value := range request.Update {
@@ -764,7 +774,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 			feed.SetLabel(label)
 			if writer != nil {
-				writer.SetPublisher(r.publisher(sessionID, label))
+				writer.SetPublisher(r.publisher(acquired, label))
 			}
 			for _, event := range early {
 				feed.Publish(event)
@@ -1172,14 +1182,13 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		agent := ""
-		writer, err := r.open(ctx, sessionID, r.publisher(sessionID, ""))
+		writer, early, err := r.open(ctx, sessionID)
 		if err != nil {
 			return err
 		}
 		s := writer.Record()
-		agent, _ = s.Get(MetaAgent)
-		writer.SetPublisher(r.publisher(sessionID, agent))
+		agent, _ := s.Get(MetaAgent)
+		r.publishOpened(writer, early, agent)
 		spec, ok := r.Agent(agent)
 		if !ok {
 			_ = writer.Release(ctx)
@@ -1215,13 +1224,12 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		agentName := ""
-		writer, err := r.open(ctx, sessionID, r.publisher(sessionID, ""))
+		writer, early, err := r.open(ctx, sessionID)
 		if err != nil {
 			return err
 		}
-		agentName, _ = writer.Record().Get(MetaAgent)
-		writer.SetPublisher(r.publisher(sessionID, agentName))
+		agentName, _ := writer.Record().Get(MetaAgent)
+		r.publishOpened(writer, early, agentName)
 		if spec, ok := r.Agent(agentName); ok && modelctx.DropsReasoning(spec.Model) {
 			opts.DropReasoning = true
 		}
@@ -1269,7 +1277,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	// The store's Create is the existence check, so two concurrent forks with
 	// the same explicit newID cannot both succeed.
 	childAgent, _ := child.Get(MetaAgent)
-	if _, err := r.create(ctx, child, r.publisher(child.ID(), childAgent), session.WithIdle()); err != nil {
+	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
 		if errors.Is(err, ErrSessionExists) {
 			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+child.ID()+" already exists")
 		}
