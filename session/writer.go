@@ -297,7 +297,7 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 	if _, err := w.record.Write(ctx, events); err != nil {
 		return nil, err
 	}
-	return w.flush(ctx)
+	return w.flush(ctx, false)
 }
 
 // EventsAfter implements gotato.EventSource: the stored Events after number
@@ -335,12 +335,8 @@ const writeTimeout = 10 * time.Second
 // Flush writes the Record's queued Events, if any, in one write, and hands
 // them to the publisher.
 func (w *Writer) Flush(ctx context.Context) error {
-	events, err := w.flush(ctx)
-	if err != nil {
-		return err
-	}
-	w.send(events)
-	return nil
+	_, err := w.flush(ctx, true)
+	return err
 }
 
 func (w *Writer) send(events []gotato.Event) {
@@ -355,8 +351,10 @@ func (w *Writer) send(events []gotato.Event) {
 	}
 }
 
-// flush writes the Record's queued Events in one write and returns them.
-func (w *Writer) flush(ctx context.Context) ([]gotato.Event, error) {
+// flush writes the Record's queued Events in one write and returns them. With
+// publish, it hands them to the publisher before it lets go of the lock that
+// orders writes, so Events are published in the order they were written.
+func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer cancel()
 	w.mu.Lock()
@@ -389,6 +387,11 @@ func (w *Writer) flush(ctx context.Context) ([]gotato.Event, error) {
 		return nil, err
 	}
 	w.record.stored(entries[len(entries)-1].Seq)
+	if publish && w.publish != nil {
+		for _, event := range events {
+			w.publish(event)
+		}
+	}
 	return events, nil
 }
 

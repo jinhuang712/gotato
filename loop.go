@@ -113,6 +113,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	a.runMu.Lock()
 	a.currentRunID = runID
 	a.currentTurn = 0
+	a.runEnding = false
 	a.currentRunStop = cancel
 	a.runMu.Unlock()
 	defer func() {
@@ -165,7 +166,15 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	// nothing was stored, and nothing is sent.
 	end := func(turn TurnNumber, result RunResult, extra func(*RunEnded)) {
 		a.discardControl(runID, turn)
+		// No Abort can start a write from here on, and the ones that did
+		// have finished: an abort_requested never follows run_ended.
+		a.runMu.Lock()
+		a.runEnding = true
+		a.runMu.Unlock()
 		a.waitForAborts()
+		if a.endingHook != nil {
+			a.endingHook()
+		}
 		metrics := runMetrics()
 		ended := RunEnded{
 			Header:         hd(turn),

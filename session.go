@@ -319,7 +319,10 @@ type Session struct {
 	runMu          sync.Mutex
 	currentRunID   RunID
 	currentTurn    TurnNumber
+	runEnding      bool
 	currentRunStop context.CancelFunc
+	// endingHook, for tests, runs when a Run has begun to write its end.
+	endingHook func()
 }
 
 type sessionCommandKind uint8
@@ -515,15 +518,19 @@ func (a *Session) abort() bool {
 	a.runMu.Lock()
 	stop := a.currentRunStop
 	header := NewHeader(a.id, a.currentRunID, a.currentTurn)
-	a.runMu.Unlock()
-	if stop == nil {
+	if stop == nil || a.runEnding {
+		// No Run, or one that is writing its end: an abort_requested after
+		// run_ended would say the Abort came after the Run.
+		a.runMu.Unlock()
 		return false
 	}
 	// The Run stops at once; the Event is written beside it, and the Run's
-	// last write waits for it.
+	// last write waits for it. It is counted while the Run cannot yet be
+	// ending.
 	a.abortMu.Lock()
 	a.aborts++
 	a.abortMu.Unlock()
+	a.runMu.Unlock()
 	go func() {
 		_ = a.writeNow(context.Background(), AbortRequested{Header: header})
 		a.abortMu.Lock()
