@@ -192,7 +192,7 @@ func (s *Record) apply(entry Entry) error {
 		}
 		s.started[e.CallID] = true
 	case gotato.ReplyPartKept:
-		s.addPart(replyPart{MessageID: e.MessageID, Text: e.Text, Reasoning: e.Reasoning})
+		s.addPart(replyPart{RunID: e.RunID, MessageID: e.MessageID, Text: e.Text, Reasoning: e.Reasoning})
 	case gotato.MetadataChanged:
 		if e.Value == "" {
 			delete(s.metadata, e.Key)
@@ -209,6 +209,9 @@ func (s *Record) apply(entry Entry) error {
 		s.running = e.RunID
 	case gotato.RunEnded:
 		s.endRun(runEnded(e))
+		// A reply of a Run that ended and left parts but no Message was
+		// refused, by a limit for one: it is not part of the history.
+		s.dropParts(e.RunID)
 	}
 	if s.retainRead {
 		s.retain(event)
@@ -232,6 +235,12 @@ func (s *Record) addPart(part replyPart) {
 		}
 	}
 	s.openParts = append(s.openParts, part)
+}
+
+// dropParts forgets the parts of the replies of a Run that ended. The caller
+// holds the lock.
+func (s *Record) dropParts(runID gotato.RunID) {
+	s.openParts = slices.DeleteFunc(s.openParts, func(part replyPart) bool { return part.RunID == runID })
 }
 
 // closeParts ends the streaming replies whose Message never arrived, but the

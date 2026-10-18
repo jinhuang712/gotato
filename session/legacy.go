@@ -133,7 +133,7 @@ func (s *Record) applyLegacy(entry Entry) error {
 		if err := decode(&part); err != nil {
 			return err
 		}
-		s.addPart(replyPart{MessageID: part.MessageID, Text: part.Text, Reasoning: part.Reasoning})
+		s.addPart(replyPart{RunID: part.RunID, MessageID: part.MessageID, Text: part.Text, Reasoning: part.Reasoning})
 	case legacyKindMetadata:
 		var change legacyMetadataChange
 		if err := decode(&change); err != nil {
@@ -174,6 +174,7 @@ func (s *Record) applyLegacy(entry Entry) error {
 			return err
 		}
 		s.endRun(run)
+		s.dropParts(run.RunID)
 	case legacyKindModelCall, legacyKindEvents, legacyKindRelease, legacyKindBusy:
 		// Nothing to rebuild: the Events they held are not read again.
 	}

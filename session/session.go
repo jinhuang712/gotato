@@ -102,6 +102,7 @@ func (d *Document) UnmarshalJSON(data []byte) error {
 // replyPart is the text and reasoning a streaming reply produced, collected
 // while a log is read.
 type replyPart struct {
+	RunID     gotato.RunID
 	MessageID gotato.MessageID
 	Text      string
 	Reasoning string
