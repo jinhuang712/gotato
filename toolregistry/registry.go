@@ -76,7 +76,7 @@ type canonicalTool struct {
 
 func (t canonicalTool) Spec() gotato.ToolSpec { return cloneSpec(t.spec) }
 
-func (t canonicalTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgress) (gotato.ToolResult, error) {
+func (t canonicalTool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	return t.tool.Execute(ctx, use, progress)
 }
 

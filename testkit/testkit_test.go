@@ -113,15 +113,16 @@ func TestLoadReplay(t *testing.T) {
 
 func TestFakeToolAndEventRecorder(t *testing.T) {
 	tool := testkit.NewFakeTool("fake", "result")
-	recorder := testkit.NewEventRecorder()
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "fake", Arguments: []byte(`{"x":1}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(tool), gotato.WithExtension(recorder))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
+	recorder := testkit.RecordEvents(agent)
+	defer recorder.Close()
 	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
@@ -130,11 +131,23 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		t.Fatalf("uses = %+v", tool.Uses())
 	}
 	kinds := recorder.Kinds()
-	if kinds[0] != gotato.EventRunStart || kinds[len(kinds)-1] != gotato.EventRunEnd {
+	if len(kinds) == 0 || kinds[0] != gotato.KindRunStarted || kinds[len(kinds)-1] != gotato.KindRunEnded {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	if len(recorder.OfKind(gotato.EventToolExecutionEnd)) != 1 {
-		t.Fatalf("tool end events = %d", len(recorder.OfKind(gotato.EventToolExecutionEnd)))
+	if len(recorder.OfKind(gotato.KindToolEnded)) != 1 {
+		t.Fatalf("tool end events = %d", len(recorder.OfKind(gotato.KindToolEnded)))
+	}
+	// Stored Events are numbered by their position in the Record, in order.
+	var last uint64
+	for _, event := range recorder.Events() {
+		if event.Kind().Class() != gotato.ClassStored {
+			continue
+		}
+		if number := event.Head().Number; number <= last {
+			t.Fatalf("%s numbered %d after %d", event.Kind(), number, last)
+		} else {
+			last = number
+		}
 	}
 	recorder.Reset()
 	if len(recorder.Events()) != 0 {
@@ -165,19 +178,22 @@ func TestFakeToolUsesAreIsolated(t *testing.T) {
 	}
 }
 
-func TestEventRecorderEventsAreIsolated(t *testing.T) {
-	recorder := testkit.NewEventRecorder()
-	payload := map[string]any{"summary": map[string]any{"tool_results": []map[string]any{{"status": "ok"}}}}
-	if err := recorder.Observe(context.Background(), gotato.Event{Kind: gotato.EventTurnEnd, Payload: payload}); err != nil {
+func TestEventRecorderWaitsForAMatchingEvent(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("done"))
+	agent, err := gotato.NewSession(gotato.WithModel(model))
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	events := recorder.Events()
-	events[0].Payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"] = "reader"
-
-	again := recorder.Events()
-	status := again[0].Payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"]
-	if status != "ok" {
-		t.Fatalf("payload mutation reached the recording: %v", status)
+	recorder := testkit.RecordEvents(agent)
+	defer recorder.Close()
+	defer func() { _ = agent.Close(context.Background()) }()
+	if recorder.Wait(10*time.Millisecond, func(e gotato.Event) bool { return e.Kind() == gotato.KindRunEnded }) {
+		t.Fatal("Wait matched an Event before any Run")
+	}
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	if !recorder.Wait(time.Second, func(e gotato.Event) bool { return e.Kind() == gotato.KindRunEnded }) {
+		t.Fatalf("Wait did not see run_ended in %v", recorder.Kinds())
 	}
 }

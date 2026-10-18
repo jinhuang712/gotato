@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -129,12 +130,12 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 	lines := strings.Split(trimmed, "\n")
 	for _, line := range lines {
-		var filtered gotato.Event
-		if err := json.Unmarshal([]byte(line), &filtered); err != nil {
+		filtered, err := gotato.UnmarshalEvent([]byte(line))
+		if err != nil {
 			t.Fatal(err)
 		}
-		if filtered.Kind != gotato.EventContextBuilt {
-			t.Fatalf("event kind = %q, want context_built", filtered.Kind)
+		if filtered.Kind() != gotato.KindContextBuilt {
+			t.Fatalf("event kind = %q, want context_built", filtered.Kind())
 		}
 	}
 
@@ -239,11 +240,15 @@ func TestStreamRunSSE(t *testing.T) {
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	// A one-shot Run saves the new Session before run_start and the
-	// settled one after run_end.
-	if len(events) < 5 || events[0] != "session_saved" || events[1] != "run_start" ||
-		events[len(events)-2] != "session_saved" || events[len(events)-1] != "result" {
+	// A one-shot Run streams the Session's stored Events, from the ones that
+	// made the Session to run_ended, and then its result. The store's timings
+	// are Instance Events: they are not in it.
+	if len(events) < 5 || events[0] != "session_created" || !slices.Contains(events, "run_started") ||
+		events[len(events)-2] != "run_ended" || events[len(events)-1] != "result" {
 		t.Fatalf("events = %v", events)
+	}
+	if slices.Contains(events, "session_saved") || slices.Contains(events, "session_loaded") {
+		t.Fatalf("a Run's stream carries Instance Events: %v", events)
 	}
 	var result service.RunResult
 	if err := json.Unmarshal([]byte(resultLine), &result); err != nil || result.Result.Status != gotato.RunCompleted {
@@ -339,7 +344,7 @@ type failingSaveStore struct {
 	session.Store
 	mu    sync.Mutex
 	saves int
-	// failFinal fails the write that ends a Run: the one holding run_end.
+	// failFinal fails the write that ends a Run: the one holding run_ended.
 	failFinal bool
 }
 
@@ -348,7 +353,7 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	defer s.mu.Unlock()
 	s.saves++
 	for _, entry := range entries {
-		if s.failFinal && entry.Kind == session.EntryRunEnd {
+		if s.failFinal && entry.Kind == gotato.KindRunEnded {
 			return true
 		}
 	}

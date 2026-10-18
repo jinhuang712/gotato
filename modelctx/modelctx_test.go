@@ -3,6 +3,7 @@ package modelctx_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -95,6 +96,10 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	for _, message := range toolConversation() {
 		_ = s.Append(message)
 	}
+	// Store the Record, so that it keeps its Events as a stored Record does.
+	if _, err := session.Create(context.Background(), session.NewMemoryStore(), s, "instance-a"); err != nil {
+		t.Fatal(err)
+	}
 	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -113,9 +118,23 @@ func TestCompactRewritesSessionAndRecords(t *testing.T) {
 	if len(compactions) != 1 || compactions[0].ReplacedMessages != 4 || compactions[0].FromMessageID != "m1" || compactions[0].ToMessageID != "m4" || compactions[0].SummaryMessageID != messages[0].ID {
 		t.Fatalf("compactions = %+v", compactions)
 	}
-	events := s.Events()
-	if len(events) != 1 || events[0].Kind != gotato.EventSessionCompacted || events[0].Payload["replaced_messages"] != 4 {
-		t.Fatalf("events = %+v", events)
+	var started, ended int
+	for _, event := range s.Events() {
+		switch e := event.(type) {
+		case gotato.CompactionStarted:
+			started++
+			if ended != 0 || e.Why != gotato.CompactionOnDemand {
+				t.Fatalf("compaction_started = %+v after %d ended", e, ended)
+			}
+		case gotato.CompactionEnded:
+			ended++
+			if e.Compaction == nil || e.Compaction.ReplacedMessages != 4 || len(e.Messages) != 3 || len(e.History) != 1 {
+				t.Fatalf("compaction_ended = %+v", e)
+			}
+		}
+	}
+	if started != 1 || ended != 1 {
+		t.Fatalf("compaction_started=%d compaction_ended=%d, want one each: %v", started, ended, s.Events())
 	}
 	again, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 10})
 	if err != nil || again.Replaced {
@@ -308,5 +327,43 @@ func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
 	}
 	if len(s.Messages()) != before {
 		t.Fatalf("history changed on failure: %d -> %d", before, len(s.Messages()))
+	}
+}
+
+type failingSummarizer struct{}
+
+func (failingSummarizer) Name() string { return "failing" }
+func (failingSummarizer) Summarize(context.Context, []gotato.Message) (gotato.Message, error) {
+	return gotato.Message{}, errors.New("summarizer down")
+}
+
+// A failed summary leaves the Messages as they are, and the Record says so:
+// compaction_started, then compaction_failed, and no Checkpoint.
+func TestCompactFailureEmitsCompactionFailed(t *testing.T) {
+	s := session.New()
+	for _, message := range toolConversation() {
+		_ = s.Append(message)
+	}
+	if _, err := session.Create(context.Background(), session.NewMemoryStore(), s, "instance-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2, Summarizer: failingSummarizer{}}); err == nil {
+		t.Fatal("Compact hid the summarizer's failure")
+	}
+	if s.Len() != 6 || len(s.Compactions()) != 0 {
+		t.Fatalf("a failed compaction changed the Record: %d Messages, %+v", s.Len(), s.Compactions())
+	}
+	var kinds []gotato.EventKind
+	for _, event := range s.Events() {
+		kinds = append(kinds, event.Kind())
+	}
+	n := len(kinds)
+	if n < 2 || kinds[n-2] != gotato.KindCompactionStarted || kinds[n-1] != gotato.KindCompactionFailed {
+		t.Fatalf("kinds = %v, want compaction_started then compaction_failed last", kinds)
+	}
+	for _, kind := range kinds {
+		if kind == gotato.KindCompactionEnded {
+			t.Fatalf("a failed compaction wrote a Checkpoint: %v", kinds)
+		}
 	}
 }

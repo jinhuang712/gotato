@@ -17,7 +17,7 @@ func (t stalledTool) Spec() ToolSpec {
 	return ToolSpec{ID: "slow", Name: "slow", Description: "stalls", InputSchema: []byte(`{"type":"object"}`)}
 }
 
-func (t stalledTool) Execute(context.Context, ToolUse, ToolProgress) (ToolResult, error) {
+func (t stalledTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
 	<-t.blocked
 	return ToolResult{Status: ToolResultOK}, nil
 }
@@ -56,7 +56,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		if nextErr != nil {
 			t.Fatalf("waiting for the Tool to start: %v", nextErr)
 		}
-		if event.Kind == EventToolExecutionStart {
+		if event.Kind() == KindToolStarted {
 			break
 		}
 	}
@@ -82,7 +82,7 @@ func (t *concurrentProgressTool) Spec() ToolSpec {
 	return ToolSpec{ID: "progress", Name: "progress", InputSchema: []byte(`{"type":"object"}`)}
 }
 
-func (t *concurrentProgressTool) Execute(_ context.Context, _ ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *concurrentProgressTool) Execute(_ context.Context, _ ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	var wg sync.WaitGroup
 	for i := 0; i < t.workers; i++ {
 		wg.Add(1)
@@ -128,10 +128,10 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 				observed <- nextErr
 				return
 			}
-			if event.Kind == EventToolExecutionUpdate {
+			if event.Kind() == KindToolProgress {
 				updates++
 			}
-			if event.Kind == EventRunEnd {
+			if event.Kind() == KindRunEnded {
 				observed <- nil
 				return
 			}
@@ -147,7 +147,7 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("event stream did not reach run_end")
+		t.Fatal("event stream did not reach run_ended")
 	}
 	if updates != want {
 		t.Fatalf("progress updates = %d, want %d", updates, want)
@@ -164,7 +164,7 @@ func (t hookTool) Spec() ToolSpec {
 	return ToolSpec{ID: t.id, InputSchema: []byte(`{"type":"object"}`)}
 }
 
-func (t hookTool) Execute(context.Context, ToolUse, ToolProgress) (ToolResult, error) {
+func (t hookTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
 	if t.hook != nil {
 		t.hook()
 	}
@@ -191,26 +191,22 @@ func resultsByCall(messages []Message) map[ToolCallID]ToolResult {
 	return out
 }
 
-// eventLog records every Event in order.
-type eventLog struct {
-	mu     sync.Mutex
-	events []Event
-}
-
-func (l *eventLog) Observe(_ context.Context, event Event) error {
-	l.mu.Lock()
-	l.events = append(l.events, event)
-	l.mu.Unlock()
-	return nil
-}
-
-func (l *eventLog) count(kind EventKind, call ToolCallID) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+// countCall counts the Events of one kind that name a Tool call.
+func countCall(events []Event, kind EventKind, call ToolCallID) int {
 	n := 0
-	for _, event := range l.events {
-		if event.Kind == kind && event.ToolCallID == call {
-			n++
+	for _, event := range events {
+		if event.Kind() != kind {
+			continue
+		}
+		switch e := event.(type) {
+		case ToolStarted:
+			if e.CallID == call {
+				n++
+			}
+		case ToolEnded:
+			if e.CallID == call {
+				n++
+			}
 		}
 	}
 	return n
@@ -231,12 +227,12 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 			callsScript("abort", "later", "later"),
 			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 		}}
-		log := &eventLog{}
 		var err error
-		agent, err = NewSession(WithModel(model), WithTools(abort, count), WithExtension(log))
+		agent, err = NewSession(WithModel(model), WithTools(abort, count))
 		if err != nil {
 			t.Fatal(err)
 		}
+		log := recordAll(t, agent)
 		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrCancelled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
@@ -253,7 +249,7 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 			if !ok || result.Status != ToolResultCanceled || result.Executed {
 				t.Fatalf("attempt %d: result of %s = %+v (found %v)", attempt, id, result, ok)
 			}
-			if starts, ends := log.count(EventToolExecutionStart, id), log.count(EventToolExecutionEnd, id); starts != 1 || ends != 1 {
+			if starts, ends := countCall(log.events(), KindToolStarted, id), countCall(log.events(), KindToolEnded, id); starts != 1 || ends != 1 {
 				t.Fatalf("attempt %d: %s has %d starts and %d ends", attempt, id, starts, ends)
 			}
 		}
@@ -270,19 +266,19 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		callsScript("slow"),
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	log := &eventLog{}
-	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}), WithExtension(log))
+	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	log := recordAll(t, agent)
 	done := make(chan error, 1)
 	go func() {
 		_, promptErr := agent.Prompt(context.Background(), UserMessage("go"))
 		done <- promptErr
 	}()
 	deadline := time.Now().Add(2 * time.Second)
-	for log.count(EventToolExecutionStart, "c1") == 0 {
+	for countCall(log.events(), KindToolStarted, "c1") == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the Tool did not start")
 		}

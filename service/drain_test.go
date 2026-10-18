@@ -62,14 +62,14 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	var runEnd, release session.Entry
 	for _, entry := range entries {
 		switch entry.Kind {
-		case session.EntryRunEnd:
+		case gotato.KindRunEnded:
 			runEnd = entry
-		case session.EntryRelease:
+		case gotato.KindSessionReleased:
 			release = entry
 		}
 	}
 	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || release.Instance != instance {
-		t.Fatalf("Session %s: run_end at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
+		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
 	if loaded, err := store.Load(ctx, id); err != nil || loaded.Summary.Busy || loaded.Summary.Running != "" {
 		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Summary, err)

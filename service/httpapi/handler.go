@@ -203,7 +203,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
-	s, err := h.runner.Session(r.Context(), r.PathValue("id"))
+	events, err := h.runner.Events(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -211,8 +211,8 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	enc := json.NewEncoder(w)
-	for _, event := range s.Events() {
-		if kind != "" && string(event.Kind) != kind {
+	for _, event := range events {
+		if kind != "" && string(event.Kind()) != kind {
 			continue
 		}
 		if err := enc.Encode(event); err != nil {
@@ -311,7 +311,7 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Kind, data); err != nil {
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Kind(), data); err != nil {
 			return err
 		}
 		if flusher != nil {

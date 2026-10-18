@@ -26,7 +26,8 @@ import (
 // write a position, also from two processes on one directory, and a crash
 // never leaves a torn write behind. Liveness rows are timed by this machine's
 // clock. A Record of the earlier format, one document at <dir>/<id>.json, is
-// read as a Checkpoint and moved into its directory by its first write.
+// read as a session_created Event and moved into its directory by its first
+// write.
 type FileStore struct {
 	dir string
 	now func() time.Time
@@ -169,7 +170,7 @@ func syncDir(path string) error {
 }
 
 // readLegacy reads a Record of the earlier format as its first write: a
-// Checkpoint and a log snapshot.
+// session_created Event and a log snapshot.
 func (f *FileStore) readLegacy(id string) (fileBatch, error) {
 	data, err := os.ReadFile(f.legacyPath(id))
 	if err != nil {
@@ -188,10 +189,18 @@ func (f *FileStore) readLegacy(id string) (fileBatch, error) {
 	}
 	record.now = func() time.Time { return doc.UpdatedAt }
 	record.startLog()
-	entries, summary, err := record.takePending()
+	entries, _, summary, err := record.takePending()
 	if err != nil {
 		return fileBatch{}, err
 	}
+	// The document kept its Runs and usage beside its Messages: they go in a
+	// log Entry of the earlier format, which a rebuild still reads.
+	snapshot, err := legacySnapshotEntry(entries[len(entries)-1].Seq+1, record)
+	if err != nil {
+		return fileBatch{}, err
+	}
+	entries = append(entries, snapshot)
+	summary.Seq = snapshot.Seq
 	return fileBatch{Entries: entries, Summary: summary}, nil
 }
 

@@ -601,15 +601,14 @@ func (c *cli) cmdEvents(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	s, err := session.View(ctx, store, *sessionID)
+	events, err := session.StoredEvents(ctx, store, *sessionID, 0)
 	if err != nil {
 		return c.failErr(err)
 	}
-	events := s.Events()
 	if *kind != "" {
 		filtered := events[:0]
 		for _, event := range events {
-			if string(event.Kind) == *kind {
+			if string(event.Kind()) == *kind {
 				filtered = append(filtered, event)
 			}
 		}

@@ -48,6 +48,8 @@ type heartbeat struct {
 	closed   bool
 	lastSent time.Time
 	expired  bool
+	// reported says liveness_lapsed was published once already.
+	reported bool
 	stop     chan struct{}
 	done     chan struct{}
 }
@@ -148,6 +150,10 @@ func (r *Runner) guard() error {
 	r.beat.mu.Lock()
 	defer r.beat.mu.Unlock()
 	if r.beat.expired || time.Since(r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5 {
+		if !r.beat.reported && !r.beat.closed {
+			r.beat.reported = true
+			r.notice(gotato.LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: r.instance}, "")
+		}
 		return errLapsed
 	}
 	return nil
@@ -195,11 +201,12 @@ func (r *Runner) holderCheck(ctx context.Context, holder session.Claim, busy boo
 
 // create writes a new Session's Record as this Runner's Instance. A draining
 // Runner creates one too: creating writes the store and activates nothing.
-func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer, error) {
+func (r *Runner) create(ctx context.Context, s *session.Record, publish func(gotato.Event), options ...session.WriterOption) (*session.Writer, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
-	writer, err := session.Create(ctx, r.store, s, r.instance, session.WithGuard(r.guard))
+	options = append([]session.WriterOption{session.WithGuard(r.guard), session.WithPublisher(publish)}, options...)
+	writer, err := session.Create(ctx, r.store, s, r.instance, options...)
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}
@@ -209,14 +216,19 @@ func (r *Runner) create(ctx context.Context, s *session.Record) (*session.Writer
 // open opens a stored Session for writing as this Runner's Instance. When the
 // Session runs on another live Instance, it waits for that Run to end, up to
 // Liveness.Wait, and then refuses with a busy error that says when to retry.
-func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, error) {
+func (r *Runner) open(ctx context.Context, sessionID string, publish func(gotato.Event)) (*session.Writer, error) {
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
 	deadline := time.Now().Add(r.liveness.Wait)
 	pause := 20 * time.Millisecond
+	waited := false
 	for {
-		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck))
+		options := []session.WriterOption{session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck), session.WithPublisher(publish)}
+		if waited {
+			options = append(options, session.WithWaited())
+		}
+		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil || (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
@@ -224,8 +236,13 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, e
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
+			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
 			return nil, busyElsewhere(r.liveness.Wait)
 		}
+		if !waited {
+			r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy_elsewhere"}, "")
+		}
+		waited = true
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -250,6 +267,9 @@ func busyElsewhere(retryAfter time.Duration) error {
 // store keeps nothing of this Instance. Call it after Drain. A closed Runner
 // writes nothing more, so its row never comes back. Closing twice is a no-op.
 func (r *Runner) Close(ctx context.Context) error {
+	// The Instance's stream ends: its subscribers read what is queued, and
+	// then io.EOF.
+	defer r.instanceFeed.Close()
 	r.beat.mu.Lock()
 	started := r.beat.started
 	stop, done := r.beat.stop, r.beat.done

@@ -18,13 +18,26 @@ func fixedClock() func() time.Time {
 	return func() time.Time { return at }
 }
 
-// sameState compares two Records' documents, which is everything a Record
-// holds.
+// sameState compares what two Records hold: Messages, metadata, Runs, usage,
+// compaction history and the numbers and kinds of the Events they keep.
 func sameState(t *testing.T, got, want *session.Record) {
 	t.Helper()
-	g, _ := json.Marshal(got.Snapshot())
-	w, _ := json.Marshal(want.Snapshot())
-	if string(g) != string(w) {
+	view := func(r *session.Record) string {
+		type eventView struct {
+			Kind   gotato.EventKind
+			Number uint64
+		}
+		var events []eventView
+		for _, event := range r.Events() {
+			events = append(events, eventView{event.Kind(), event.Head().Number})
+		}
+		data, _ := json.Marshal(map[string]any{
+			"id": r.ID(), "messages": r.Messages(), "metadata": r.Metadata(), "runs": r.Runs(),
+			"usage": r.Usage(), "compactions": r.Compactions(), "events": events,
+		})
+		return string(data)
+	}
+	if g, w := view(got), view(want); g != w {
 		t.Fatalf("rebuilt Record differs\n got: %s\nwant: %s", g, w)
 	}
 }
@@ -37,18 +50,30 @@ func layers(entries []session.Entry) map[session.EntryKind]session.Layer {
 	return out
 }
 
+func runEvent(kind string, runID gotato.RunID, at time.Time) gotato.Event {
+	hd := gotato.Header{Time: at, RunID: runID}
+	if kind == "start" {
+		return gotato.RunStarted{Header: hd}
+	}
+	return gotato.RunEnded{Header: hd, Status: gotato.RunCompleted, Turns: 1, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
+}
+
 func TestEntriesRebuildEveryChange(t *testing.T) {
+	ctx := context.Background()
 	r := session.New(session.WithClock(fixedClock()), session.WithMessages(gotato.UserMessage("history")))
 	session.StartLog(r)
 	var entries []session.Entry
 	entries = append(entries, session.TakePending(r)...)
 
-	_ = r.Append(gotato.UserMessage("hi"))
+	commit(t, r, gotato.UserMessage("hi"))
 	r.Set("agent", "support")
-	r.RecordRunStart("run-1", time.Date(2026, 10, 17, 12, 0, 1, 0, time.UTC))
-	r.RecordEvent(gotato.Event{Kind: gotato.EventRunStart, Class: gotato.EventProtected, RunID: "run-1"})
-	_ = r.Append(gotato.AssistantMessage("hello"))
-	r.RecordRunEnd("run-1", gotato.RunCompleted, "", "", 1, 0, gotato.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}, time.Date(2026, 10, 17, 12, 0, 2, 0, time.UTC))
+	if _, err := r.Write(ctx, []gotato.Event{runEvent("start", "run-1", time.Date(2026, 10, 17, 12, 0, 1, 0, time.UTC))}); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, r, gotato.AssistantMessage("hello"))
+	if _, err := r.Write(ctx, []gotato.Event{runEvent("end", "run-1", time.Date(2026, 10, 17, 12, 0, 2, 0, time.UTC))}); err != nil {
+		t.Fatal(err)
+	}
 	r.Set("agent", "")
 	entries = append(entries, session.TakePending(r)...)
 
@@ -59,9 +84,9 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 	}
 	got := layers(entries)
 	want := map[session.EntryKind]session.Layer{
-		session.EntryCheckpoint: session.LayerFact, session.EntryLogSnapshot: session.LayerLog,
-		session.EntryMessage: session.LayerFact, session.EntryMetadata: session.LayerFact,
-		session.EntryRunStart: session.LayerLog, session.EntryRunEnd: session.LayerLog, session.EntryEvents: session.LayerLog,
+		gotato.KindSessionCreated: session.LayerFact, gotato.KindMessageCommitted: session.LayerFact,
+		gotato.KindMetadataChanged: session.LayerFact, gotato.KindReplyEnded: session.LayerFact,
+		gotato.KindRunStarted: session.LayerLog, gotato.KindRunEnded: session.LayerLog,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry layers = %v, want %v", got, want)
@@ -74,15 +99,26 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 	if rebuilt.Head() != uint64(len(entries)) {
 		t.Fatalf("Head = %d, want %d", rebuilt.Head(), len(entries))
 	}
+	if runs := rebuilt.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunCompleted || rebuilt.Usage().TotalTokens != 12 {
+		t.Fatalf("rebuilt Runs = %+v usage = %+v", runs, rebuilt.Usage())
+	}
+	// The window of Events a rebuilt Record keeps is typed and numbered by position.
+	for i, event := range rebuilt.Events() {
+		if event.Head().Number != uint64(i+1) || event.Head().SessionID != gotato.SessionID(r.ID()) {
+			t.Fatalf("event %d = %s numbered %d for session %q", i, event.Kind(), event.Head().Number, event.Head().SessionID)
+		}
+	}
 }
 
 func TestFactsAloneRebuildTheTranscript(t *testing.T) {
 	r := session.New(session.WithClock(fixedClock()))
 	session.StartLog(r)
-	_ = r.Append(gotato.UserMessage("hi"))
-	r.RecordRunStart("run-1", time.Now())
+	commit(t, r, gotato.UserMessage("hi"))
+	if _, err := r.Write(context.Background(), []gotato.Event{runEvent("start", "run-1", time.Now())}); err != nil {
+		t.Fatal(err)
+	}
 	r.Set("k", "v")
-	_ = r.Append(gotato.AssistantMessage("hello"))
+	commit(t, r, gotato.AssistantMessage("hello"))
 	entries := session.TakePending(r)
 	var facts []session.Entry
 	for _, entry := range entries {
@@ -106,21 +142,24 @@ func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
 	r := session.New(session.WithClock(fixedClock()))
 	session.StartLog(r)
 	for _, text := range []string{"one", "two", "three"} {
-		_ = r.Append(gotato.UserMessage(text))
+		commit(t, r, gotato.UserMessage(text))
 	}
 	summary := gotato.AssistantMessage("summary of one and two")
-	r.Checkpoint([]gotato.Message{summary, gotato.UserMessage("three")}, &session.Compaction{ReplacedMessages: 2, Summarizer: "test"})
-	_ = r.Append(gotato.UserMessage("four"))
+	r.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &session.Compaction{ReplacedMessages: 2, Summarizer: "test"})
+	commit(t, r, gotato.UserMessage("four"))
 	entries := session.TakePending(r)
 
 	last := -1
 	for i, entry := range entries {
-		if entry.Kind == session.EntryCheckpoint {
+		if entry.Kind == gotato.KindCompactionEnded {
 			last = i
+		}
+		if entry.IsCheckpoint() != (entry.Kind == gotato.KindSessionCreated || entry.Kind == gotato.KindCompactionEnded) {
+			t.Fatalf("%s: IsCheckpoint = %v", entry.Kind, entry.IsCheckpoint())
 		}
 	}
 	if last <= 0 {
-		t.Fatalf("no second checkpoint in %+v", entries)
+		t.Fatalf("no compaction_ended in %+v", entries)
 	}
 	fromCheckpoint, err := session.FromEntries(entries[last:])
 	if err != nil {
@@ -138,10 +177,13 @@ func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
 		if len(rebuilt.Compactions()) != 1 {
 			t.Fatalf("rebuilt Compactions = %+v", rebuilt.Compactions())
 		}
+		if rebuilt.ID() != r.ID() {
+			t.Fatalf("rebuilt ID = %q, want %q", rebuilt.ID(), r.ID())
+		}
 	}
 }
 
-func TestCompactionAppendsOneCheckpoint(t *testing.T) {
+func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
 	r := session.New()
 	for _, text := range []string{"one", "two", "three", "four"} {
 		_ = r.Append(gotato.UserMessage(text))
@@ -153,17 +195,15 @@ func TestCompactionAppendsOneCheckpoint(t *testing.T) {
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
-	checkpoints := 0
+	var kinds []gotato.EventKind
 	for _, entry := range session.TakePending(r) {
-		if entry.Kind == session.EntryCheckpoint {
-			checkpoints++
-		}
-		if entry.Kind == session.EntryMessage {
+		kinds = append(kinds, entry.Kind)
+		if entry.Kind == gotato.KindMessageCommitted || entry.Kind == gotato.KindReplyEnded {
 			t.Fatalf("compaction rewrote Messages one by one: %+v", entry)
 		}
 	}
-	if checkpoints != 1 {
-		t.Fatalf("checkpoints = %d, want 1", checkpoints)
+	if want := []gotato.EventKind{gotato.KindCompactionStarted, gotato.KindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}
 }
 
@@ -171,7 +211,7 @@ func TestUnknownEntryKindIsRefused(t *testing.T) {
 	r := session.New()
 	session.StartLog(r)
 	entries := session.TakePending(r)
-	entries = append(entries, session.Entry{Seq: uint64(len(entries) + 1), Kind: "from_the_future", Layer: session.LayerFact, Data: json.RawMessage(`{}`)})
+	entries = append(entries, session.Entry{Seq: uint64(len(entries) + 1), Kind: "from_the_future", Layer: session.LayerFact, Data: json.RawMessage(`{"kind":"from_the_future"}`)})
 	_, err := session.FromEntries(entries)
 	var runtimeErr *gotato.RuntimeError
 	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.ErrNotSupported {
@@ -182,7 +222,8 @@ func TestUnknownEntryKindIsRefused(t *testing.T) {
 func TestALogMustStartAtACheckpointInOrder(t *testing.T) {
 	r := session.New()
 	session.StartLog(r)
-	_ = r.Append(gotato.UserMessage("hi"))
+	commit(t, r, gotato.UserMessage("hi"))
+	commit(t, r, gotato.UserMessage("again"))
 	entries := session.TakePending(r)
 	if _, err := session.FromEntries(entries[1:]); err == nil {
 		t.Fatal("FromEntries accepted a log that does not start at a checkpoint")
@@ -196,8 +237,10 @@ func TestALogMustStartAtACheckpointInOrder(t *testing.T) {
 func TestUnstoredRecordKeepsNoPending(t *testing.T) {
 	r := session.New()
 	for range 100 {
-		_ = r.Append(gotato.UserMessage("hi"))
-		r.RecordEvent(gotato.Event{Kind: gotato.EventRunStart, Class: gotato.EventProtected})
+		commit(t, r, gotato.UserMessage("hi"))
+		if _, err := r.Write(context.Background(), []gotato.Event{runEvent("start", "run", time.Now())}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if entries := session.TakePending(r); len(entries) != 0 {
 		t.Fatalf("a Record never stored queued %d Entries", len(entries))
@@ -214,35 +257,49 @@ func TestSetSameValueAppendsNothing(t *testing.T) {
 		t.Fatalf("Set without a change queued %+v", entries)
 	}
 	r.Set("agent", "sales")
-	if entries := session.TakePending(r); len(entries) != 1 || entries[0].Kind != session.EntryMetadata {
+	if entries := session.TakePending(r); len(entries) != 1 || entries[0].Kind != gotato.KindMetadataChanged {
 		t.Fatalf("Set with a change queued %+v", entries)
 	}
 }
 
-func TestRecorderKeepsNoCoalescableEvents(t *testing.T) {
+// An Entry is a stored Event: its Seq is the Event's number, its Kind the
+// Event's kind, and EventOf decodes it back into the typed Event.
+func TestEntryIsTheStoredEvent(t *testing.T) {
 	r := session.New()
-	recorder := session.NewRecorder(r)
-	_ = recorder.Observe(context.Background(), gotato.Event{Kind: gotato.EventMessageUpdate, Class: gotato.EventCoalescable, Payload: map[string]any{"text": "he"}})
-	_ = recorder.Observe(context.Background(), gotato.Event{Kind: gotato.EventMessageEnd, Class: gotato.EventProtected})
-	events := r.Events()
-	if len(events) != 1 || events[0].Kind != gotato.EventMessageEnd {
-		t.Fatalf("retained Events = %+v, want message_end only", events)
+	session.StartLog(r)
+	commit(t, r, gotato.UserMessage("hi"))
+	for _, entry := range session.TakePending(r) {
+		event, ok, err := session.EventOf(entry, gotato.SessionID(r.ID()))
+		if err != nil || !ok {
+			t.Fatalf("EventOf(%s) = %v, %v", entry.Kind, ok, err)
+		}
+		if event.Kind() != entry.Kind || event.Head().Number != entry.Seq || event.Head().SessionID != gotato.SessionID(r.ID()) {
+			t.Fatalf("EventOf(%+v) = %s numbered %d", entry, event.Kind(), event.Head().Number)
+		}
+		if session.LayerOf(entry.Kind) != entry.Layer {
+			t.Fatalf("%s: layer %s, LayerOf says %s", entry.Kind, entry.Layer, session.LayerOf(entry.Kind))
+		}
 	}
 }
 
 func TestForkRecordsWhereItBranched(t *testing.T) {
 	parent := session.New()
 	session.StartLog(parent)
-	_ = parent.Append(gotato.UserMessage("hi"))
+	commit(t, parent, gotato.UserMessage("hi"))
 	head := session.TakePending(parent)
 	child := session.Fork(parent)
 	session.StartLog(child)
 	entries := session.TakePending(child)
-	var checkpoint session.Checkpoint
-	if err := json.Unmarshal(entries[0].Data, &checkpoint); err != nil {
-		t.Fatal(err)
+	event, ok, err := session.EventOf(entries[0], gotato.SessionID(child.ID()))
+	created, isCreated := event.(gotato.SessionCreated)
+	if err != nil || !ok || !isCreated {
+		t.Fatalf("first entry = %v %v %v", event, ok, err)
 	}
-	if checkpoint.ParentID != parent.ID() || checkpoint.ParentSeq != head[len(head)-1].Seq || len(checkpoint.Messages) != 1 {
-		t.Fatalf("fork checkpoint = %+v", checkpoint)
+	if created.ForkedFrom == nil || created.ForkedFrom.SessionID != gotato.SessionID(parent.ID()) || created.ForkedFrom.Number != head[len(head)-1].Seq || len(created.Messages) != 1 {
+		t.Fatalf("fork session_created = %+v", created)
+	}
+	rebuilt, err := session.FromEntries(entries)
+	if err != nil || rebuilt.ParentID() != parent.ID() {
+		t.Fatalf("rebuilt fork = %v, %v", rebuilt, err)
 	}
 }

@@ -89,14 +89,3 @@ func TestContextCheckReportsAMismatch(t *testing.T) {
 		t.Fatalf("report = %+v", report)
 	}
 }
-
-func TestNumberReadsPayloadValues(t *testing.T) {
-	for _, value := range []any{3, int64(3), uint32(3), uint64(3), float64(3)} {
-		if got := number(value); got != 3 {
-			t.Errorf("number(%#v) = %d", value, got)
-		}
-	}
-	if number(nil) != 0 || number("x") != 0 || number(-1) != 0 {
-		t.Fatal("an absent or bad value reads as 0")
-	}
-}

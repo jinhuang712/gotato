@@ -112,29 +112,27 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 	if got := len(transcript.Messages()); got != 4 {
 		t.Fatalf("transcript length = %d, want 4", got)
 	}
-	var built *Event
+	var built *ContextBuilt
 	for {
 		event, err := stream.Next(context.Background())
 		if err != nil {
 			break
 		}
-		if event.Kind == EventContextBuilt {
-			copied := event
-			built = &copied
+		if e, ok := event.(ContextBuilt); ok {
+			built = &e
 		}
-		if event.Kind == EventRunEnd {
+		if _, ok := event.(RunEnded); ok {
 			break
 		}
 	}
 	if built == nil {
 		t.Fatal("no context_built event")
 	}
-	if built.Payload["strategy"] != "last_only" || built.Payload["messages"] != 1 || built.Payload["source_messages"] != 3 || built.Payload["selected_messages"] != 1 {
-		t.Fatalf("context_built payload = %v", built.Payload)
+	if built.Strategy != "last_only" || built.Messages != 1 || built.SourceMessages != 3 || built.SelectedMessages != 1 {
+		t.Fatalf("ContextBuilt = %+v", *built)
 	}
-	metadata, _ := built.Payload["metadata"].(map[string]any)
-	if metadata["source_messages"] != "99" || metadata["dropped_messages"] != "2" || metadata["strategy"] != "last_only" {
-		t.Fatalf("context_built metadata = %v", built.Payload["metadata"])
+	if built.Metadata["source_messages"] != "99" || built.Metadata["dropped_messages"] != "2" || built.Metadata["strategy"] != "last_only" {
+		t.Fatalf("ContextBuilt metadata = %v", built.Metadata)
 	}
 }
 
@@ -268,12 +266,11 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	}
 	// Close removes every subscription deterministically; this cannot depend on
 	// goroutine scheduling.
-	core := agent
-	core.events.mu.Lock()
-	remaining := len(core.events.subs)
-	core.events.mu.Unlock()
+	agent.feed.mu.Lock()
+	remaining := len(agent.feed.subs)
+	agent.feed.mu.Unlock()
 	if remaining != 0 {
-		t.Fatalf("event hub retained %d subscriptions after Close", remaining)
+		t.Fatalf("the Feed retained %d subscriptions after Close", remaining)
 	}
 	// The per-subscription waiter goroutines must exit too. Poll to the exact
 	// baseline (no slack) so a real leak fails, tolerating transient runtime

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -221,18 +221,23 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	ctx := context.Background()
 	var kinds []gotato.EventKind
 	result, err := runner.StreamRun(ctx, service.RunRequest{Prompt: "hi"}, func(event gotato.Event) error {
-		kinds = append(kinds, event.Kind)
+		kinds = append(kinds, event.Kind())
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Runner's store Events frame the Loop's: the new Session is saved
-	// before run_start and the settled one after run_end.
+	// The Run's stream is the Session's own stored Events, ending at
+	// run_ended; the store's timings are Instance Events and are not in it.
+	// A new Session's stream opens with the Events that made it.
 	last := len(kinds) - 1
-	if kinds[0] != gotato.EventSessionSaved || kinds[1] != gotato.EventRunStart ||
-		kinds[last-1] != gotato.EventRunEnd || kinds[last] != gotato.EventSessionSaved {
+	if kinds[0] != gotato.KindSessionCreated || !slices.Contains(kinds, gotato.KindRunStarted) || kinds[last] != gotato.KindRunEnded {
 		t.Fatalf("kinds = %v", kinds)
+	}
+	for _, kind := range kinds {
+		if kind.Class() == gotato.ClassInstance {
+			t.Fatalf("the Run's stream carries %s: %v", kind, kinds)
+		}
 	}
 	for range 3 {
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: result.SessionID, Prompt: "more"}); err != nil {
@@ -406,7 +411,7 @@ type failingSaveStore struct {
 	session.Store
 	mu    sync.Mutex
 	saves int
-	// failFinal fails the write that ends a Run: the one holding run_end.
+	// failFinal fails the write that ends a Run: the one holding run_ended.
 	failFinal bool
 }
 
@@ -415,7 +420,7 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	defer s.mu.Unlock()
 	s.saves++
 	for _, entry := range entries {
-		if s.failFinal && entry.Kind == session.EntryRunEnd {
+		if s.failFinal && entry.Kind == gotato.KindRunEnded {
 			return true
 		}
 	}
@@ -553,38 +558,37 @@ func TestRunLoadsTheSessionOnce(t *testing.T) {
 	}
 }
 
-// eventLog is an EventObserver that keeps every Event it sees.
-type eventLog struct {
-	mu     sync.Mutex
-	events []gotato.Event
+// instanceRecorder records the Runner's Instance stream from now on.
+func instanceRecorder(t *testing.T, runner *service.Runner, options ...gotato.SubscribeOption) *testkit.EventRecorder {
+	t.Helper()
+	sub, err := runner.SubscribeInstance(context.Background(), options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := testkit.RecordSubscription(sub)
+	t.Cleanup(rec.Close)
+	return rec
 }
 
-func (l *eventLog) Observe(_ context.Context, event gotato.Event) error {
-	l.mu.Lock()
-	l.events = append(l.events, event)
-	l.mu.Unlock()
-	return nil
-}
-
-func (l *eventLog) kinds() []gotato.EventKind {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	kinds := make([]gotato.EventKind, len(l.events))
-	for i, event := range l.events {
-		kinds[i] = event.Kind
+func kindsOf(events []gotato.Event) []gotato.EventKind {
+	kinds := make([]gotato.EventKind, len(events))
+	for i, event := range events {
+		kinds[i] = event.Kind()
 	}
 	return kinds
 }
 
-func TestStoreEventsFrameTheRun(t *testing.T) {
-	observer := &eventLog{}
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Extensions: []any{observer}})
+// A load and a save are Instance Events: they time the store, they go to the
+// Instance's subscribers, and they are neither in a Run's stream nor in the
+// Session's Record.
+func TestStoreEventsAreInstanceEvents(t *testing.T) {
+	runner, store := newRunner(t)
+	instance := instanceRecorder(t, runner)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	observer.events = nil
 
 	var events []gotato.Event
 	result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "two"}, func(event gotato.Event) error {
@@ -594,35 +598,51 @@ func TestStoreEventsFrameTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, saved := events[0], events[len(events)-1]
-	if loaded.Kind != gotato.EventSessionLoaded || loaded.RunID != "" || loaded.Sequence != 0 ||
-		string(loaded.SessionID) != first.SessionID || loaded.Payload["messages"] != first.Messages {
-		t.Fatalf("first Event = %+v, want session_loaded of the %d stored messages", loaded, first.Messages)
+	if kinds := kindsOf(events); len(kinds) == 0 || !slices.Contains(kinds, gotato.KindRunStarted) || kinds[len(kinds)-1] != gotato.KindRunEnded {
+		t.Fatalf("the Run's stream = %v, want it to hold run_started and end at run_ended", kinds)
 	}
-	if elapsed, ok := loaded.Payload["elapsed_ms"].(float64); !ok || elapsed < 0 {
-		t.Fatalf("session_loaded elapsed_ms = %#v", loaded.Payload["elapsed_ms"])
-	}
-	end := events[len(events)-2]
-	if saved.Kind != gotato.EventSessionSaved || saved.RunID != result.Result.RunID || saved.SessionID != end.SessionID ||
-		saved.Sequence != end.Sequence+1 || saved.Payload["messages"] != result.Messages {
-		t.Fatalf("last Event = %+v after %+v, want session_saved right after the Run's last Event", saved, end)
-	}
-	if _, failed := saved.Payload["failed"]; failed {
-		t.Fatalf("a save that worked is flagged failed: %+v", saved.Payload)
+	for _, event := range events {
+		if event.Kind().Class() == gotato.ClassInstance {
+			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
+		}
 	}
 
-	// An observer in the Spec sees the same Events as the sink.
-	if got := observer.kinds(); len(got) != len(events) || got[0] != gotato.EventSessionLoaded || got[len(got)-1] != gotato.EventSessionSaved {
-		t.Fatalf("observer kinds = %v", got)
+	isSaved := func(event gotato.Event) bool {
+		saved, ok := event.(gotato.SessionSaved)
+		return ok && saved.RunID == result.Result.RunID
 	}
-	// They time the store; they are not part of the Session's own record.
-	stored, err := session.View(ctx, store, first.SessionID)
+	if !instance.Wait(5*time.Second, isSaved) {
+		t.Fatalf("the Instance stream never saw the save of %s: %v", result.Result.RunID, instance.Kinds())
+	}
+	var loaded gotato.SessionLoaded
+	var saved gotato.SessionSaved
+	for _, event := range instance.Events() {
+		switch e := event.(type) {
+		case gotato.SessionLoaded:
+			if string(e.SessionID) == first.SessionID {
+				loaded = e
+			}
+		case gotato.SessionSaved:
+			if e.RunID == result.Result.RunID {
+				saved = e
+			}
+		}
+	}
+	if loaded.Kind() == "" || loaded.RunID != "" || loaded.Number != 0 || loaded.Messages != first.Messages || loaded.ElapsedMS < 0 || loaded.Failed {
+		t.Fatalf("session_loaded = %+v, want the %d stored messages", loaded, first.Messages)
+	}
+	if string(saved.SessionID) != first.SessionID || saved.Messages != result.Messages || saved.Failed {
+		t.Fatalf("session_saved = %+v, want %d messages", saved, result.Messages)
+	}
+
+	// They time the store; they are not part of the Session's own Record.
+	stored, err := session.StoredEvents(ctx, store, first.SessionID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range stored.Events() {
-		if event.Kind == gotato.EventSessionLoaded || event.Kind == gotato.EventSessionSaved {
-			t.Fatalf("the Session recorded %s", event.Kind)
+	for _, event := range stored {
+		if event.Kind().Class() == gotato.ClassInstance {
+			t.Fatalf("the Record holds %s", event.Kind())
 		}
 	}
 }
@@ -633,25 +653,40 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	instance := instanceRecorder(t, runner)
 	ctx := context.Background()
-	var events []gotato.Event
-	sink := func(event gotato.Event) error { events = append(events, event); return nil }
+	sink := func(gotato.Event) error { return nil }
 	if _, err := runner.StreamRun(ctx, service.RunRequest{Prompt: "hi"}, sink); !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
 	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: "missing", Prompt: "hi"}, sink); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
+	instance.Wait(5*time.Second, func(event gotato.Event) bool {
+		loaded, ok := event.(gotato.SessionLoaded)
+		return ok && loaded.Failed
+	})
 	var flagged []gotato.EventKind
-	for _, event := range events {
-		if strings.Contains(fmt.Sprint(event.Payload), "disk full") {
-			t.Fatalf("%s carries the store's error text: %v", event.Kind, event.Payload)
+	for _, event := range instance.Events() {
+		raw, err := gotato.MarshalEvent(event)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if event.Payload["failed"] == true {
-			flagged = append(flagged, event.Kind)
+		if strings.Contains(string(raw), "disk full") {
+			t.Fatalf("%s carries the store's error text: %s", event.Kind(), raw)
+		}
+		switch e := event.(type) {
+		case gotato.SessionSaved:
+			if e.Failed {
+				flagged = append(flagged, e.Kind())
+			}
+		case gotato.SessionLoaded:
+			if e.Failed {
+				flagged = append(flagged, e.Kind())
+			}
 		}
 	}
-	if len(flagged) != 2 || flagged[0] != gotato.EventSessionSaved || flagged[1] != gotato.EventSessionLoaded {
+	if len(flagged) != 2 || flagged[0] != gotato.KindSessionSaved || flagged[1] != gotato.KindSessionLoaded {
 		t.Fatalf("flagged = %v, want the failed save and the failed load", flagged)
 	}
 }
@@ -933,8 +968,8 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 
 	var prefix any
 	if _, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Continue: true}, func(event gotato.Event) error {
-		if event.Kind == gotato.EventContextBuilt {
-			prefix = event.Payload["prefix_hash"]
+		if built, ok := event.(gotato.ContextBuilt); ok {
+			prefix = built.PrefixHash
 		}
 		return nil
 	}); err != nil {
@@ -1008,8 +1043,8 @@ func TestCancelledRunKeepsItsRunID(t *testing.T) {
 			done := make(chan service.RunResult, 1)
 			go func() {
 				result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}, func(event gotato.Event) error {
-					if event.Kind == gotato.EventRunStart {
-						started <- event.RunID
+					if event.Kind() == gotato.KindRunStarted {
+						started <- event.Head().RunID
 					}
 					return nil
 				})

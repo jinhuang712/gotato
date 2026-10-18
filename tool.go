@@ -6,7 +6,7 @@ import (
 
 type Tool interface {
 	Spec() ToolSpec
-	Execute(context.Context, ToolUse, ToolProgress) (ToolResult, error)
+	Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error)
 }
 
 type ToolSpec struct {
@@ -99,4 +99,4 @@ type ToolUse struct {
 	Effect ToolEffect `json:"effect,omitempty"`
 }
 
-type ToolProgress func(string)
+type ToolProgressFunc func(string)

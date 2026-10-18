@@ -72,7 +72,7 @@ func (t *countingTool) Spec() ToolSpec {
 	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
 }
 
-func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
@@ -195,110 +195,99 @@ func TestTransformersShapeTheModelViewOnly(t *testing.T) {
 	}
 }
 
-type eventObserver struct {
-	mu       sync.Mutex
-	kinds    []EventKind
-	failOn   EventKind
-	advisory bool
-	panicOn  EventKind
-}
-
-func (o *eventObserver) Observe(ctx context.Context, event Event) error {
-	o.mu.Lock()
-	o.kinds = append(o.kinds, event.Kind)
-	o.mu.Unlock()
-	if o.panicOn != "" && event.Kind == o.panicOn {
-		panic("observer exploded")
-	}
-	if o.failOn != "" && event.Kind == o.failOn {
-		return errors.New("observer refused " + string(event.Kind))
-	}
-	return nil
-}
-
-func (o *eventObserver) Advisory() bool { return o.advisory }
-
-func (o *eventObserver) seen() []EventKind {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return append([]EventKind(nil), o.kinds...)
-}
-
-func TestObserverSeesProductionOrder(t *testing.T) {
-	observer := &eventObserver{}
+// The Session's Events are read through a subscription, never through an
+// Extension: a Run's Events come in production order, and the Record numbers
+// them without a gap.
+func TestSubscriberSeesProductionOrder(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	seen := recordAll(t, agent)
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	kinds := observer.seen()
-	if len(kinds) == 0 || kinds[0] != EventRunStart || kinds[len(kinds)-1] != EventRunEnd {
+	kinds := seen.kinds()
+	if len(kinds) == 0 || kinds[0] != KindRunStarted || kinds[len(kinds)-1] != KindRunEnded {
 		t.Fatalf("observed order = %v", kinds)
 	}
-}
-
-// payloadMutator reaches into a nested Payload value and rewrites it.
-type payloadMutator struct{}
-
-func (payloadMutator) Observe(ctx context.Context, event Event) error {
-	if summary, ok := event.Payload["summary"].(map[string]any); ok {
-		summary["elapsed_ms"] = "mutated"
+	var last uint64
+	for _, event := range seen.events() {
+		if event.Kind().Class() != ClassStored {
+			continue
+		}
+		if event.Head().Number != last+1 {
+			t.Fatalf("stored Event numbers have a gap: %d after %d (%v)", event.Head().Number, last, kinds)
+		}
+		last = event.Head().Number
 	}
-	return nil
 }
 
-func TestObserverPayloadMutationIsIsolated(t *testing.T) {
+// Events are values: what one subscriber does to its copy of an Event is not
+// seen by another subscriber of the same Session.
+func TestSubscriberEditsOfItsEventCopyAreIsolated(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(payloadMutator{}))
+	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.Subscribe(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Close() }()
-
+	first := recordAll(t, agent)
+	second := recordAll(t, agent)
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	var summary map[string]any
-	for {
-		event, nextErr := events.Next(context.Background())
-		if nextErr != nil {
-			t.Fatal(nextErr)
-		}
-		if event.Kind == EventTurnEnd {
-			summary, _ = event.Payload["summary"].(map[string]any)
-		}
-		if event.Kind == EventRunEnd {
-			break
+	for _, event := range first.events() {
+		if ended, ok := event.(TurnEnded); ok {
+			ended.ElapsedMS = -1
+			ended.TextBytes = 12345
 		}
 	}
-	if summary == nil {
-		t.Fatal("no turn_end summary")
+	found := false
+	for _, event := range second.events() {
+		if ended, ok := event.(TurnEnded); ok {
+			found = true
+			if ended.ElapsedMS == -1 || ended.TextBytes == 12345 {
+				t.Fatal("one subscriber's edit leaked into another's Event")
+			}
+		}
 	}
-	if summary["elapsed_ms"] == "mutated" {
-		t.Fatal("observer mutation leaked into the subscribed Event Payload")
+	if !found {
+		t.Fatal("no TurnEnded Event")
 	}
 }
 
-func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
-	observer := &eventObserver{failOn: EventTurnStart}
+// extensionFault is a ContextTransformer that fails or panics on every call.
+// It is blocking unless advisory is set.
+type extensionFault struct {
+	advisory bool
+	panics   bool
+}
+
+func (f extensionFault) Transform(ctx context.Context, snapshot ContextSnapshot) ([]Message, error) {
+	if f.panics {
+		panic("extension exploded")
+	}
+	return nil, errors.New("extension refused")
+}
+
+func (f extensionFault) Advisory() bool { return f.advisory }
+
+// A blocking extension that fails settles the Run before the Model is called,
+// and the Record holds exactly one RunEnded.
+func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	seen := recordAll(t, agent)
 	result, err := agent.Prompt(context.Background(), UserMessage("hello"))
 	if !IsCode(err, ErrExtensionFailure) {
-		t.Fatalf("blocking observer failure = %v", err)
+		t.Fatalf("blocking extension failure = %v", err)
 	}
 	if result.Status != RunFailed {
 		t.Fatalf("result = %+v", result)
@@ -307,9 +296,15 @@ func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 		t.Fatalf("Model was called %d times after a blocking failure", model.calls())
 	}
 	terminal := 0
-	for _, kind := range observer.seen() {
-		if kind == EventRunEnd {
+	for _, event := range seen.events() {
+		if ended, ok := event.(RunEnded); ok {
 			terminal++
+			if ended.Status != RunFailed || ended.Cause != ErrExtensionFailure {
+				t.Fatalf("RunEnded = %+v", ended)
+			}
+		}
+		if _, ok := event.(ExtensionFailed); ok {
+			t.Fatal("a blocking failure settles the Run; it is not an advisory ExtensionFailed")
 		}
 	}
 	if terminal != 1 {
@@ -317,14 +312,16 @@ func TestBlockingObserverFailureSettlesTheRun(t *testing.T) {
 	}
 }
 
-func TestAdvisoryObserverFailureDoesNotSettleTheRun(t *testing.T) {
-	observer := &eventObserver{failOn: EventTurnStart, advisory: true}
+// An advisory extension that fails is recorded as a stored ExtensionFailed
+// Event, and the Run goes on.
+func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{advisory: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	seen := recordAll(t, agent)
 	result, err := agent.Prompt(context.Background(), UserMessage("hello"))
 	if err != nil {
 		t.Fatal(err)
@@ -332,12 +329,26 @@ func TestAdvisoryObserverFailureDoesNotSettleTheRun(t *testing.T) {
 	if result.Status != RunCompleted {
 		t.Fatalf("result = %+v", result)
 	}
+	var failed []ExtensionFailed
+	for _, event := range seen.events() {
+		if e, ok := event.(ExtensionFailed); ok {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) != 1 {
+		t.Fatalf("ExtensionFailed Events = %+v", failed)
+	}
+	if failed[0].Stage != "ContextTransformer" || failed[0].Code != ErrExtensionFailure || failed[0].Number == 0 {
+		t.Fatalf("ExtensionFailed = %+v", failed[0])
+	}
+	if failed[0].Kind().Class() != ClassStored {
+		t.Fatalf("ExtensionFailed class = %s", failed[0].Kind().Class())
+	}
 }
 
 func TestExtensionPanicIsRecovered(t *testing.T) {
-	observer := &eventObserver{panicOn: EventTurnStart}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{panics: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +356,7 @@ func TestExtensionPanicIsRecovered(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, ErrExtensionFailure) {
 		t.Fatalf("panicking extension = %v", err)
 	}
-	if got := agent.Status(); got != SessionIdle {
+	if got := agent.Status(); got != SessionStatusIdle {
 		t.Fatalf("status after a panicking extension = %s", got)
 	}
 }
@@ -416,11 +427,7 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.Subscribe(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Close() }()
+	seen := recordAll(t, agent)
 
 	result, err := agent.Prompt(context.Background(), UserMessage("use tool"))
 	if err != nil {
@@ -435,54 +442,48 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	if tool.count() != 1 {
 		t.Fatalf("the stopped Turn was not preserved: tool calls = %d", tool.count())
 	}
-	var terminal Event
-	for {
-		event, nextErr := events.Next(context.Background())
-		if nextErr != nil {
-			t.Fatal(nextErr)
-		}
-		if event.Kind == EventRunEnd {
-			terminal = event
-			break
+	var terminal *RunEnded
+	for _, event := range seen.events() {
+		if ended, ok := event.(RunEnded); ok {
+			terminal = &ended
 		}
 	}
-	if terminal.Payload["stopped_by_extension"] != true || terminal.Payload["stop_reason"] != "budget" {
-		t.Fatalf("terminal payload = %+v", terminal.Payload)
+	if terminal == nil {
+		t.Fatal("no RunEnded Event")
+	}
+	if !terminal.StoppedByExtension || terminal.StopReason != "budget" {
+		t.Fatalf("RunEnded = %+v", *terminal)
 	}
 }
 
-type reentrantObserver struct {
+// reentrantExtension tries to Prompt the Session that is calling it.
+type reentrantExtension struct {
 	agent *Session
 	err   error
 	once  sync.Once
 }
 
-func (o *reentrantObserver) Observe(ctx context.Context, event Event) error {
-	if event.Kind != EventTurnStart {
-		return nil
-	}
+func (o *reentrantExtension) Transform(ctx context.Context, snapshot ContextSnapshot) ([]Message, error) {
 	o.once.Do(func() {
 		_, o.err = o.agent.Prompt(context.Background(), UserMessage("reentrant"))
 	})
-	return nil
+	return snapshot.Messages, nil
 }
 
-func (o *reentrantObserver) Advisory() bool { return true }
-
 func TestExtensionCannotReenterTheSameSession(t *testing.T) {
-	observer := &reentrantObserver{}
+	extension := &reentrantExtension{}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(observer))
+	agent, err := NewSession(WithModel(model), WithExtension(extension))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observer.agent = agent
+	extension.agent = agent
 	defer func() { _ = agent.Close(context.Background()) }()
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	if !IsCode(observer.err, ErrBusy) {
-		t.Fatalf("reentrant Prompt = %v", observer.err)
+	if !IsCode(extension.err, ErrBusy) {
+		t.Fatalf("reentrant Prompt = %v", extension.err)
 	}
 }
 

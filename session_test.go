@@ -90,7 +90,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	if result.Metrics.Turns != 1 || result.Metrics.TextBytes != uint64(len("hello")) {
 		t.Fatalf("run metrics = %+v", result.Metrics)
 	}
-	if got := agent.Status(); got != SessionIdle {
+	if got := agent.Status(); got != SessionStatusIdle {
 		t.Fatalf("status after Run = %s", got)
 	}
 	if _, err := agent.Prompt(context.Background(), UserMessage("again")); err != nil {
@@ -99,18 +99,18 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := agent.Status(); got != SessionClosed {
+	if got := agent.Status(); got != SessionStatusClosed {
 		t.Fatalf("status after Close = %s", got)
 	}
 	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, ErrSessionClosed) {
 		t.Fatalf("expected closed error, got %v", err)
 	}
 
-	// Close closed the Event stream, so every Event is buffered and the drain
-	// is deterministic. Each Run must end with exactly one run_end as its
-	// final Event: a duplicate or late terminal Event must fail this test.
+	// Close ended the stream after the Events queued for it, so the drain is
+	// deterministic. Each Run must end with exactly one RunEnded as its final
+	// Event: a duplicate or late terminal Event must fail this test.
 	var kinds []EventKind
-	var turnSummary map[string]any
+	var turnEnded *TurnEnded
 	terminals := map[RunID]int{}
 	lastKind := map[RunID]EventKind{}
 	for {
@@ -121,47 +121,46 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
-		kinds = append(kinds, event.Kind)
-		lastKind[event.RunID] = event.Kind
-		if event.Kind == EventTurnEnd && turnSummary == nil {
-			summary, ok := event.Payload["summary"].(map[string]any)
-			if !ok {
-				t.Fatalf("turn summary = %#v", event.Payload["summary"])
-			}
-			turnSummary = summary
+		kinds = append(kinds, event.Kind())
+		if run := event.Head().RunID; run != "" {
+			lastKind[run] = event.Kind()
 		}
-		if event.Kind == EventRunEnd {
-			terminals[event.RunID]++
+		if ended, ok := event.(TurnEnded); ok && turnEnded == nil {
+			turnEnded = &ended
+		}
+		if _, ok := event.(RunEnded); ok {
+			terminals[event.Head().RunID]++
 		}
 	}
-	if turnSummary == nil || turnSummary["tool_calls"] != 0 {
-		t.Fatalf("unexpected turn summary = %#v", turnSummary)
+	if turnEnded == nil || turnEnded.ToolCalls != 0 || turnEnded.TextBytes != uint64(len("hello")) {
+		t.Fatalf("unexpected TurnEnded = %#v", turnEnded)
 	}
 	if len(terminals) != 2 {
 		t.Fatalf("Runs with a terminal Event = %d in %v", len(terminals), kinds)
 	}
 	for run, count := range terminals {
 		if count != 1 {
-			t.Fatalf("run_end count = %d for run %s in %v", count, run, kinds)
+			t.Fatalf("run_ended count = %d for run %s in %v", count, run, kinds)
 		}
-		if lastKind[run] != EventRunEnd {
-			t.Fatalf("run %s ended with %s, want run_end", run, lastKind[run])
+		if lastKind[run] != KindRunEnded {
+			t.Fatalf("run %s ended with %s, want run_ended", run, lastKind[run])
 		}
 	}
-	if len(kinds) == 0 || kinds[len(kinds)-1] != EventRunEnd {
+	// The Session says it left: SessionUnloaded is the last Event of the stream.
+	if len(kinds) == 0 || kinds[len(kinds)-1] != KindSessionUnloaded {
 		t.Fatalf("final Event = %v", kinds)
 	}
-	messageStart, messageUpdate := -1, -1
+	replyStarted, textDelta := -1, -1
 	for i, kind := range kinds {
-		if kind == EventMessageStart && messageStart < 0 {
-			messageStart = i
+		if kind == KindReplyStarted && replyStarted < 0 {
+			replyStarted = i
 		}
-		if kind == EventMessageUpdate && messageUpdate < 0 {
-			messageUpdate = i
+		if kind == KindTextDelta && textDelta < 0 {
+			textDelta = i
 		}
 	}
-	if messageStart < 0 || messageUpdate < 0 || messageStart > messageUpdate {
-		t.Fatalf("message event order = %v", kinds)
+	if replyStarted < 0 || textDelta < 0 || replyStarted > textDelta {
+		t.Fatalf("reply event order = %v", kinds)
 	}
 	_ = stream.Close()
 }
@@ -197,8 +196,8 @@ func TestSessionCancelRun(t *testing.T) {
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
-		if event.Kind == EventRunStart {
-			runID = event.RunID
+		if _, ok := event.(RunStarted); ok {
+			runID = event.Head().RunID
 		}
 	}
 	if err := agent.CancelRun(context.Background(), runID); err != nil {
@@ -249,7 +248,7 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	promptDone := make(chan error, 1)
 	go func() { _, runErr := agent.Prompt(context.Background(), UserMessage("blocking")); promptDone <- runErr }()
 	deadline := time.Now().Add(time.Second)
-	for agent.Status() != SessionBusy {
+	for agent.Status() != SessionStatusBusy {
 		if time.Now().After(deadline) {
 			t.Fatal("Session did not become Busy")
 		}
@@ -260,7 +259,7 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	if err := agent.Close(closeCtx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected bounded Close timeout, got %v", err)
 	}
-	if got := agent.Status(); got != SessionClosing {
+	if got := agent.Status(); got != SessionStatusClosing {
 		t.Fatalf("status after timeout = %s", got)
 	}
 	close(release)
@@ -272,7 +271,7 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	if err := agent.Close(waitCtx); err != nil {
 		t.Fatal(err)
 	}
-	if got := agent.Status(); got != SessionClosed {
+	if got := agent.Status(); got != SessionStatusClosed {
 		t.Fatalf("status after close = %s", got)
 	}
 }
@@ -285,7 +284,7 @@ type scriptedTool struct {
 func (t *scriptedTool) Spec() ToolSpec {
 	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
 }
-func (t *scriptedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *scriptedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()

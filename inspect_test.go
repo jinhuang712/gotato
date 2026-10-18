@@ -37,7 +37,6 @@ func (shout) Convert(_ context.Context, messages []gotato.Message) ([]gotato.Mes
 func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	s := testkit.NewRecord("where is order 42?", "let me check", "please hurry")
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
-	recorder := testkit.NewEventRecorder()
 	temperature := 0.2
 	agent, err := gotato.NewSession(
 		gotato.WithModel(model),
@@ -45,12 +44,13 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 		gotato.WithTranscript(s),
 		gotato.WithTool(testkit.NewFakeTool("orders.lookup", "shipped")),
 		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &temperature, MaxTokens: 512}),
-		gotato.WithExtensions(policyNote{}, shout{}, recorder),
+		gotato.WithExtensions(policyNote{}, shout{}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	recorder := testkit.RecordEvents(agent)
 
 	inspection, err := agent.InspectContext(context.Background())
 	if err != nil {
@@ -75,9 +75,12 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("the Turn sent a different request\n got: %s\nwant: %s", got, want)
 	}
-	built := recorder.OfKind(gotato.EventContextBuilt)
-	if len(built) != 1 || built[0].Payload["prefix_hash"] != inspection.PrefixHash {
-		t.Fatalf("context_built = %+v, inspection prefix %s", built, inspection.PrefixHash)
+	built := recorder.OfKind(gotato.KindContextBuilt)
+	if len(built) != 1 {
+		t.Fatalf("context_built = %+v", built)
+	}
+	if event, ok := built[0].(gotato.ContextBuilt); !ok || event.PrefixHash != inspection.PrefixHash {
+		t.Fatalf("context_built = %+v, inspection prefix %s", built[0], inspection.PrefixHash)
 	}
 }
 

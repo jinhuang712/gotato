@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // toolPlan is one preflighted Tool Call. Preflight is always source ordered,
@@ -42,7 +43,7 @@ type openBatch struct {
 // The closing results are exempt from the Message and transcript limits,
 // because the Run may be ending on one of them. A call keeps Executed true when
 // its executor's outcome had already arrived.
-func (a *Session) closeOpenCalls(runID RunID, sequence *uint64, batch *openBatch, cause *RuntimeError, status RunStatus) {
+func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeError, status RunStatus) {
 	if batch.next >= len(batch.calls) {
 		*batch = openBatch{}
 		return
@@ -66,9 +67,7 @@ func (a *Session) closeOpenCalls(runID RunID, sequence *uint64, batch *openBatch
 		if err := a.appendMessage(message, false); err != nil {
 			break
 		}
-		// Like run_end, these Events are emitted even after an observer
-		// failed: the Run is already ending.
-		_ = a.emit(runID, sequence, EventToolResultCommitted, EventProtected, batch.turn, message.ID, call.ID, map[string]any{"status": resultStatus})
+		a.stage(ToolResultCommitted{Header: NewHeader(a.id, runID, batch.turn), Message: message.Clone(), CallID: call.ID, Status: resultStatus})
 	}
 	*batch = openBatch{}
 }
@@ -105,8 +104,8 @@ func (a *Session) visibleToolIDs() string {
 	return strings.Join(ids, ", ")
 }
 
-// toolSignal carries one worker's Event back to the Session goroutine, which is
-// the only place Events are sequenced and observers are awaited.
+// toolSignal carries one worker's report back to the Session goroutine, which
+// is the only place Events are staged.
 type toolSignal struct {
 	index  int
 	update bool
@@ -154,50 +153,37 @@ func groupPlans(plans []toolPlan, workers int) [][]int {
 }
 
 // executeToolGroup runs one group of admitted Tools and returns their outcomes
-// by plan index. Completion Events are emitted in actual completion order
-// while the Session goroutine waits here; results commit in source order later.
+// by plan index. A ToolEnded is staged as each outcome becomes known, so they
+// follow actual completion order while the Session goroutine waits here;
+// results commit in source order later.
 func (a *Session) executeToolGroup(
 	ctx context.Context,
 	runID RunID,
-	sequence *uint64,
 	turn TurnNumber,
-	messageID MessageID,
 	plans []toolPlan,
 	group []int,
-) (map[int]ToolResult, *RuntimeError) {
+) map[int]ToolResult {
 	outcomes := make(map[int]ToolResult, len(group))
-	// settle records one outcome and emits its completion Event as the outcome
-	// becomes known, so completion Events follow actual completion order.
-	// Commitment happens later, in assistant source order.
-	settle := func(index int, result ToolResult) *RuntimeError {
+	launched := time.Now()
+	// settle records one outcome and stages its ToolEnded as the outcome
+	// becomes known. Commitment happens later, in assistant source order.
+	settle := func(index int, result ToolResult) {
 		outcomes[index] = result
-		return a.emit(runID, sequence, EventToolExecutionEnd, EventProtected, turn, messageID, plans[index].call.ID, map[string]any{"status": result.Status, "executed": result.Executed})
-	}
-	// unsettled ends the group on an observer failure. It still returns what
-	// is known, and records for every other call whether its executor was
-	// started, so the closing results of the failed Run keep Executed true.
-	unsettled := func(err *RuntimeError, launched bool) (map[int]ToolResult, *RuntimeError) {
-		for _, index := range group {
-			if _, done := outcomes[index]; !done {
-				outcomes[index] = ToolResult{CallID: plans[index].call.ID, Status: ToolResultFailed, Executed: launched}
-			}
-		}
-		return outcomes, err
+		elapsed := float64(time.Since(launched).Microseconds()) / 1000
+		a.stage(ToolEnded{Header: NewHeader(a.id, runID, turn), CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: elapsed})
 	}
 	// cancelRest settles every call of the group that has no outcome yet as
-	// cancelled. launched says whether their executors were started: a started
+	// cancelled. started says whether their executors were started: a started
 	// Tool may have carried out its side effect before it saw the
 	// cancellation, so it is recorded as executed, with its outcome unknown.
-	cancelRest := func(launched bool) (map[int]ToolResult, *RuntimeError) {
+	cancelRest := func(started bool) map[int]ToolResult {
 		for _, index := range group {
 			if _, done := outcomes[index]; done {
 				continue
 			}
-			if err := settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: launched}); err != nil {
-				return unsettled(err, launched)
-			}
+			settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: started})
 		}
-		return outcomes, nil
+		return outcomes
 	}
 	// A Run cancelled before this group started never launches it: a Tool that
 	// ignores its context would still carry out its side effect.
@@ -275,9 +261,7 @@ func (a *Session) executeToolGroup(
 					if signal.update {
 						continue
 					}
-					if err := settle(signal.index, cancelledOutcome(ctx, signal.result)); err != nil {
-						return unsettled(err, true)
-					}
+					settle(signal.index, cancelledOutcome(ctx, signal.result))
 				default:
 					break drain
 				}
@@ -285,19 +269,13 @@ func (a *Session) executeToolGroup(
 			return cancelRest(true)
 		case signal := <-signals:
 			if signal.update {
-				if err := a.emit(runID, sequence, EventToolExecutionUpdate, EventCoalescable, turn, messageID, plans[signal.index].call.ID, map[string]any{"text": signal.text}); err != nil {
-					// Returning closes abandon, so no worker goroutine outlives
-					// the Run.
-					return unsettled(err, true)
-				}
+				a.send(ToolProgress{Header: a.deltaHeader(runID, turn), CallID: plans[signal.index].call.ID, Text: signal.text})
 				continue
 			}
-			if err := settle(signal.index, cancelledOutcome(ctx, signal.result)); err != nil {
-				return unsettled(err, true)
-			}
+			settle(signal.index, cancelledOutcome(ctx, signal.result))
 		}
 	}
-	return outcomes, nil
+	return outcomes
 }
 
 // cancelledOutcome marks an outcome that arrived after the Run was cancelled.

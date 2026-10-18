@@ -25,7 +25,7 @@ func newSessionLocks() *sessionLocks { return &sessionLocks{locks: map[string]*s
 
 // acquire takes the lock for id. When wait is false a busy Session fails
 // with ErrBusy; otherwise the caller waits until the lock frees or ctx ends.
-func (l *sessionLocks) acquire(ctx context.Context, id string, wait bool) error {
+func (l *sessionLocks) acquire(ctx context.Context, id string, wait bool, onWait func()) error {
 	l.mu.Lock()
 	lock := l.locks[id]
 	if lock == nil {
@@ -44,6 +44,9 @@ func (l *sessionLocks) acquire(ctx context.Context, id string, wait bool) error 
 	ready := make(chan struct{})
 	lock.waiters = append(lock.waiters, ready)
 	l.mu.Unlock()
+	if onWait != nil {
+		onWait()
+	}
 	select {
 	case <-ready:
 		// release handed the lock to this waiter. Honour a cancellation that

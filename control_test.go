@@ -181,11 +181,7 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent
-	events, err := agent.Subscribe(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Close() }()
+	seen := recordAll(t, agent)
 
 	done := make(chan RunResult, 1)
 	go func() {
@@ -215,17 +211,14 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 	}
 
 	terminals, steered := 0, 0
-	for {
-		event, nextErr := events.Next(context.Background())
-		if nextErr != nil {
-			t.Fatal(nextErr)
-		}
-		if event.Kind == EventMessageEnd && event.Payload["source"] == "steer" {
-			steered++
-		}
-		if event.Kind == EventRunEnd {
+	for _, event := range seen.events() {
+		switch e := event.(type) {
+		case MessageCommitted:
+			if e.Source == SourceSteer {
+				steered++
+			}
+		case RunEnded:
 			terminals++
-			break
 		}
 	}
 	if terminals != 1 || steered != 1 {
@@ -362,7 +355,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("aborted Run did not return")
 	}
-	if got := agent.Status(); got != SessionIdle {
+	if got := agent.Status(); got != SessionStatusIdle {
 		t.Fatalf("status after Abort = %s", got)
 	}
 }

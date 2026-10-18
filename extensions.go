@@ -71,12 +71,6 @@ type PostToolUse interface {
 	After(context.Context, ToolResult) (ToolResult, error)
 }
 
-// EventObserver receives canonical Events in production order and is awaited
-// before Core continues. It must be local, fast, Context-aware, and bounded.
-type EventObserver interface {
-	Observe(context.Context, Event) error
-}
-
 // TurnStopper runs after turn_end and before continuation selection.
 type TurnStopper interface {
 	Stop(context.Context, TurnSnapshot) (StopDecision, error)
@@ -113,10 +107,6 @@ func WithExtension(extension any) Option {
 			c.extensions.post = append(c.extensions.post, typed)
 			installed = true
 		}
-		if typed, ok := extension.(EventObserver); ok {
-			c.extensions.observers = append(c.extensions.observers, typed)
-			installed = true
-		}
 		if typed, ok := extension.(TurnStopper); ok {
 			c.extensions.stoppers = append(c.extensions.stoppers, typed)
 			installed = true
@@ -149,14 +139,16 @@ type extensionSet struct {
 	converters   []MessageConverter
 	pre          []PreToolUse
 	post         []PostToolUse
-	observers    []EventObserver
 	stoppers     []TurnStopper
 	preparers    []RunPreparer
+	// report tells the Session that an advisory extension failed, so it
+	// stores an ExtensionFailed Event. It is set by NewSession.
+	report func(stage string, err *RuntimeError)
 }
 
 func (s extensionSet) empty() bool {
 	return len(s.transformers) == 0 && len(s.converters) == 0 && len(s.pre) == 0 &&
-		len(s.post) == 0 && len(s.observers) == 0 && len(s.stoppers) == 0 && len(s.preparers) == 0
+		len(s.post) == 0 && len(s.stoppers) == 0 && len(s.preparers) == 0
 }
 
 // prepareRun runs every RunPreparer in installation order before the prompt
@@ -165,7 +157,7 @@ func (s extensionSet) prepareRun(ctx context.Context, transcript Transcript) *Ru
 	for _, preparer := range s.preparers {
 		current := preparer
 		if err := guard("RunPreparer", func() error { return current.PrepareRun(ctx, transcript) }); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return err
@@ -174,13 +166,17 @@ func (s extensionSet) prepareRun(ctx context.Context, transcript Transcript) *Ru
 	return nil
 }
 
-// advisoryFailure reports whether a failure from this Extension is advisory.
-// Blocking is the default.
-func advisoryFailure(extension any) bool {
-	if typed, ok := extension.(AdvisoryExtension); ok {
-		return typed.Advisory()
+// advisory reports whether a failure from this Extension is advisory, and
+// reports it as an ExtensionFailed Event when it is. Blocking is the default.
+func (s extensionSet) advisory(extension any, failure *RuntimeError) bool {
+	typed, ok := extension.(AdvisoryExtension)
+	if !ok || !typed.Advisory() {
+		return false
 	}
-	return false
+	if s.report != nil && failure != nil {
+		s.report(failure.Operation, failure)
+	}
+	return true
 }
 
 // guard runs one Extension stage, converting a panic into an ordinary error so
@@ -215,7 +211,7 @@ func (s extensionSet) transformContext(ctx context.Context, snapshot ContextSnap
 			produced = result
 			return failure
 		}); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return nil, err
@@ -231,7 +227,7 @@ func (s extensionSet) transformContext(ctx context.Context, snapshot ContextSnap
 			produced = result
 			return failure
 		}); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return nil, err
@@ -254,7 +250,7 @@ func (s extensionSet) beforeTool(ctx context.Context, use ToolUse) (PreToolDecis
 			decision = result
 			return failure
 		}); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return PreToolDecision{}, err
@@ -280,7 +276,7 @@ func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolRes
 			produced = out
 			return failure
 		}); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return result, err
@@ -290,59 +286,6 @@ func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolRes
 		result = produced
 	}
 	return result, nil
-}
-
-// observe awaits every observer at the Event boundary. Each observer receives
-// its own deep copy of the Payload so an observer cannot mutate what later
-// observers or Event subscribers see.
-func (s extensionSet) observe(ctx context.Context, event Event) *RuntimeError {
-	for _, observer := range s.observers {
-		current := observer
-		view := event
-		view.Payload = clonePayload(event.Payload)
-		if err := guard("EventObserver", func() error { return current.Observe(ctx, view) }); err != nil {
-			if advisoryFailure(current) {
-				continue
-			}
-			return err
-		}
-	}
-	return nil
-}
-
-// clonePayload deep-copies an Event Payload. Event Payloads are small and built
-// by Core, so a bounded recursive copy of the map, slice, and map-slice shapes
-// they use is enough to keep nested values from being shared.
-func clonePayload(payload map[string]any) map[string]any {
-	if payload == nil {
-		return nil
-	}
-	out := make(map[string]any, len(payload))
-	for key, value := range payload {
-		out[key] = clonePayloadValue(value)
-	}
-	return out
-}
-
-func clonePayloadValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return clonePayload(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayloadValue(item)
-		}
-		return out
-	case []map[string]any:
-		out := make([]map[string]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayload(item)
-		}
-		return out
-	default:
-		return value
-	}
 }
 
 // stopTurn asks every stopper whether the Run ends after this Turn.
@@ -355,7 +298,7 @@ func (s extensionSet) stopTurn(ctx context.Context, snapshot TurnSnapshot) (Stop
 			decision = result
 			return failure
 		}); err != nil {
-			if advisoryFailure(current) {
+			if s.advisory(current, err) {
 				continue
 			}
 			return StopDecision{}, err

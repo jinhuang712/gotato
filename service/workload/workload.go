@@ -345,70 +345,77 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 
 	// Every number about a Run comes from its Events, as a team would
 	// compute it from its own telemetry. The model's time runs from a Turn's
-	// context_built to its reply's message_end, or to run_end when the
-	// call failed; a tool's time runs from tool_execution_start to
-	// tool_execution_end; the store's time is in session_loaded and
-	// session_saved.
+	// context_built to its reply_ended, or to run_ended when the call failed;
+	// a tool's time runs from tool_started to tool_ended; the store's time is
+	// in the Instance's session_loaded and session_saved.
 	var answers []string
 	var calls []toolCall
 	var waiting time.Time
 	toolStarts := map[gotato.ToolCallID]time.Time{}
 	toolIDs := map[gotato.ToolCallID]string{}
 	turn := 0
+	storeEvents, err := runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(event gotato.Event) bool {
+		switch event.(type) {
+		case gotato.SessionLoaded, gotato.SessionSaved:
+			return event.Head().SessionID == gotato.SessionID(s.ID())
+		}
+		return false
+	}))
+	if err != nil {
+		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
+		return p
+	}
+	defer func() { _ = storeEvents.Close() }()
 	for _, prompt := range task.Prompts {
 		started := time.Now()
 		requested, streaming := false, false
 		result, err := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}, func(event gotato.Event) error {
-			switch event.Kind {
-			case gotato.EventSessionLoaded:
-				p.stats.addLoad(elapsed(event))
-			case gotato.EventSessionSaved:
-				p.stats.addSave(elapsed(event))
-			case gotato.EventTurnStart:
+			switch e := event.(type) {
+			case gotato.TurnStarted:
 				p.turns++
-			case gotato.EventContextBuilt:
-				prefix, _ := event.Payload["prefix_hash"].(string)
-				p.builds = append(p.builds, build{messages: int(number(event.Payload["source_messages"])), prefix: prefix})
-				waiting, streaming = event.Timestamp, false
+			case gotato.ContextBuilt:
+				p.builds = append(p.builds, build{messages: e.SourceMessages, prefix: e.PrefixHash})
+				waiting, streaming = e.Time, false
 				if !requested {
-					p.stats.addBeforeRequest(event.Timestamp.Sub(started))
+					p.stats.addBeforeRequest(e.Time.Sub(started))
 					requested = true
 				}
-			case gotato.EventMessageUpdate:
+			case gotato.TextDelta:
 				// The first text delta of a Turn: the model's time to its
 				// first token.
 				if !streaming && !waiting.IsZero() {
-					p.stats.addFirstToken(event.Timestamp.Sub(waiting))
+					p.stats.addFirstToken(e.Time.Sub(waiting))
 					streaming = true
 				}
-			case gotato.EventMessageEnd:
-				// The model's reply carries tool_calls; a prompt or a steered
-				// message carries its role instead.
-				if _, reply := event.Payload["tool_calls"]; reply && !waiting.IsZero() {
-					p.stats.addModel(event.Timestamp.Sub(waiting))
+			case gotato.ReplyEnded:
+				if !waiting.IsZero() {
+					p.stats.addModel(e.Time.Sub(waiting))
 					waiting = time.Time{}
 				}
-			case gotato.EventToolExecutionStart:
-				toolStarts[event.ToolCallID] = event.Timestamp
-				toolIDs[event.ToolCallID], _ = event.Payload["tool_id"].(string)
-			case gotato.EventToolExecutionEnd:
-				if since, ok := toolStarts[event.ToolCallID]; ok {
-					p.stats.addTool(event.Timestamp.Sub(since))
+			case gotato.ToolStarted:
+				toolStarts[e.CallID] = e.Time
+				toolIDs[e.CallID] = e.ToolID
+			case gotato.ToolEnded:
+				if since, ok := toolStarts[e.CallID]; ok {
+					p.stats.addTool(e.Time.Sub(since))
 				}
-				executed, _ := event.Payload["executed"].(bool)
-				calls = append(calls, toolCall{id: event.ToolCallID, toolID: toolIDs[event.ToolCallID], status: fmt.Sprint(event.Payload["status"]), executed: executed})
-			case gotato.EventTurnEnd:
+				calls = append(calls, toolCall{id: e.CallID, toolID: e.ToolID, status: string(e.Status), executed: e.Executed})
+			case gotato.TurnEnded:
 				// A play's first Turn has nothing cached yet; G-B01 counts
 				// from the second on.
 				if turn > 0 {
-					summary, _ := event.Payload["summary"].(map[string]any)
-					p.laterInput += number(summary["input_tokens"])
-					p.laterCached += number(summary["cache_read_tokens"])
+					p.laterInput += e.Usage.InputTokens
+					p.laterCached += e.Usage.CacheReadTokens
 				}
 				turn++
-			case gotato.EventRunEnd:
+			case gotato.ReplyCutOff:
 				if !waiting.IsZero() {
-					p.stats.addModel(event.Timestamp.Sub(waiting))
+					p.stats.addModel(e.Time.Sub(waiting))
+					waiting = time.Time{}
+				}
+			case gotato.RunEnded:
+				if !waiting.IsZero() {
+					p.stats.addModel(e.Time.Sub(waiting))
 					waiting = time.Time{}
 				}
 			}
@@ -421,6 +428,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 			p.failures = append(p.failures, f)
 		}
 		answers = append(answers, result.FinalText)
+		readStoreTimes(ctx, storeEvents, p.stats)
 	}
 
 	// The committed tool results add the text of each failure to the
@@ -455,7 +463,27 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 	return p
 }
 
-// toolCall is one tool_execution_end Event.
+// readStoreTimes adds the store's time for one Run: the Instance's
+// session_loaded, and the session_saved that ends the Run.
+func readStoreTimes(ctx context.Context, events gotato.Subscription, stats *stats) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for {
+		event, err := events.Next(ctx)
+		if err != nil {
+			return
+		}
+		switch e := event.(type) {
+		case gotato.SessionLoaded:
+			stats.addLoad(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
+		case gotato.SessionSaved:
+			stats.addSave(time.Duration(e.ElapsedMS * float64(time.Millisecond)))
+			return
+		}
+	}
+}
+
+// toolCall is one tool_ended Event.
 type toolCall struct {
 	id       gotato.ToolCallID
 	toolID   string
@@ -618,28 +646,4 @@ func addUsage(a, b gotato.Usage) gotato.Usage {
 		CacheReadTokens:  a.CacheReadTokens + b.CacheReadTokens,
 		CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
 	}
-}
-
-// elapsed reads the store's time from a session_loaded or session_saved
-// Event.
-func elapsed(event gotato.Event) time.Duration {
-	ms, _ := event.Payload["elapsed_ms"].(float64)
-	return time.Duration(ms * float64(time.Millisecond))
-}
-
-// number reads a numeric Event payload value, in Go or as decoded from JSON.
-func number(value any) uint64 {
-	switch typed := value.(type) {
-	case int:
-		return uint64(max(typed, 0))
-	case int64:
-		return uint64(max(typed, 0))
-	case uint32:
-		return uint64(typed)
-	case uint64:
-		return typed
-	case float64:
-		return uint64(max(typed, 0))
-	}
-	return 0
 }

@@ -1,7 +1,8 @@
 // Package storetest checks that a session.Store keeps the contract Gotato
 // relies on: a Record is an append-only log, every write is all or nothing,
 // a position is written once, a stale writer is refused, a load starts at the
-// last Checkpoint, Liveness rows expire by the store's clock, and a row its
+// last Checkpoint (a session_created or compaction_ended Entry, or the
+// "checkpoint" of the earlier format), Liveness rows expire by the store's clock, and a row its
 // Instance ended is removed.
 //
 // An adapter runs it from its own tests:
@@ -26,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -47,6 +49,7 @@ var checks = []check{
 	{"create twice", checkCreateTwice},
 	{"append continues the log", checkAppend},
 	{"load starts at the last checkpoint", checkLastCheckpoint},
+	{"a checkpoint of the earlier format still starts a load", checkLegacyCheckpoint},
 	{"a stale writer is refused", checkStaleWriter},
 	{"a write must continue the head", checkContinuesHead},
 	{"one writer wins a position", checkRace},
@@ -106,16 +109,22 @@ func entry(seq uint64, kind session.EntryKind, layer session.Layer, writer strin
 	return session.Entry{Seq: seq, Kind: kind, Layer: layer, At: time.Date(2026, 10, 17, 0, 0, int(seq), 0, time.UTC), Data: data}
 }
 
+// checkpoint is the first Entry of a Record: a session_created Event.
 func checkpoint(seq uint64, writer string) session.Entry {
-	return entry(seq, session.EntryCheckpoint, session.LayerFact, writer)
+	return entry(seq, gotato.KindSessionCreated, session.LayerFact, writer)
+}
+
+// compaction is a later Checkpoint: a compaction_ended Event.
+func compaction(seq uint64, writer string) session.Entry {
+	return entry(seq, gotato.KindCompactionEnded, session.LayerFact, writer)
 }
 
 func fact(seq uint64, writer string) session.Entry {
-	return entry(seq, session.EntryMessage, session.LayerFact, writer)
+	return entry(seq, gotato.KindMessageCommitted, session.LayerFact, writer)
 }
 
 func logEntry(seq uint64, writer string) session.Entry {
-	return entry(seq, session.EntryEvents, session.LayerLog, writer)
+	return entry(seq, gotato.KindTurnStarted, session.LayerLog, writer)
 }
 
 func summary(id string, seq uint64, updated string) session.Summary {
@@ -223,7 +232,7 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 	if _, err := create(ctx, store, "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	more := []session.Entry{checkpoint(4, "a"), logEntry(5, "a"), fact(6, "a")}
+	more := []session.Entry{compaction(4, "a"), logEntry(5, "a"), fact(6, "a")}
 	if err := store.Append(ctx, "r1", 3, more, summary("r1", 6, "2026-10-17T00:00:06.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -235,6 +244,31 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 		return fmt.Errorf("load head = %d, want 6", loaded.Head)
 	}
 	return sameEntries(loaded.Facts, []session.Entry{more[0], more[2]})
+}
+
+// checkLegacyCheckpoint checks that a Record written before the Event design,
+// whose Entries have the kinds of its time, is still stored and loaded: its
+// first Entry is a "checkpoint" fact.
+func checkLegacyCheckpoint(ctx context.Context, open Open) error {
+	store := open()
+	old := []session.Entry{
+		entry(1, "checkpoint", session.LayerFact, "a"),
+		entry(2, "message", session.LayerFact, "a"),
+		entry(3, "events", session.LayerLog, "a"),
+		entry(4, "checkpoint", session.LayerFact, "a"),
+		entry(5, "message", session.LayerFact, "a"),
+	}
+	if err := store.Create(ctx, "old", old[:3], summary("old", 3, "2026-10-17T00:00:03.000Z")); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := store.Append(ctx, "old", 3, old[3:], summary("old", 5, "2026-10-17T00:00:05.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	loaded, err := open().Load(ctx, "old")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	return sameEntries(loaded.Facts, []session.Entry{old[3], old[4]})
 }
 
 func checkStaleWriter(ctx context.Context, open Open) error {

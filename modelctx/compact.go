@@ -156,6 +156,9 @@ type CompactOptions struct {
 	DropReasoning bool
 	// Now overrides the clock (tests).
 	Now func() time.Time
+	// Why says why the compaction runs, for its Events: on demand (the
+	// default), past the ceiling, or before the Session leaves memory.
+	Why gotato.CompactionWhy
 }
 
 // RoundReasoner is implemented by a Model that sends its provider only the
@@ -188,10 +191,12 @@ type Result struct {
 }
 
 // Compact replaces the Messages before the last opts.Keep with one summary
-// Message, records a session.Compaction, and records a session_compacted
-// Event in the Session. It appends a Checkpoint (session.Record.Checkpoint):
-// the replaced Messages stay in the store, and a load starts after them. It must not run while a Run is
-// using the Session (AutoCompact runs it at the sanctioned point).
+// Message and records a session.Compaction. It appends a Checkpoint
+// (session.Record.Checkpoint), the compaction_ended Event, between a
+// compaction_started and, when the summary fails, a compaction_failed: the
+// replaced Messages stay in the store, and a load starts after them. It must
+// not run while a Run is using the Session (AutoCompact runs it at the
+// sanctioned point).
 //
 // A cut is chosen at a user Message so a tool call is never separated from its
 // results; when no user Message can anchor the tail, the requested Keep
@@ -223,9 +228,15 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 			TokensAfter:    tokens,
 		}, nil
 	}
+	why := opts.Why
+	if why == "" {
+		why = gotato.CompactionOnDemand
+	}
 	before, _ := json.Marshal(messages)
+	s.Emit(gotato.CompactionStarted{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
 	summary, err := summarizer.Summarize(ctx, messages[:cut])
 	if err != nil {
+		s.Emit(gotato.CompactionFailed{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
 		return Result{}, err
 	}
 	summary = tagSummary(summary)
@@ -250,21 +261,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		BytesBefore:      len(before),
 		BytesAfter:       len(after),
 	}
-	s.Checkpoint(replaced, &record)
-	s.RecordEvent(gotato.Event{
-		SessionID: gotato.SessionID(s.ID()),
-		Kind:      gotato.EventSessionCompacted,
-		Class:     gotato.EventProtected,
-		MessageID: summary.ID,
-		Timestamp: record.At,
-		Payload: map[string]any{
-			"replaced_messages":  cut,
-			"summary_message_id": string(summary.ID),
-			"summarizer":         summarizer.Name(),
-			"bytes_before":       len(before),
-			"bytes_after":        len(after),
-		},
-	})
+	s.Checkpoint(why, replaced, &record)
 	return Result{
 		SessionID: s.ID(), Replaced: true, Compaction: &record,
 		MessagesBefore: len(messages), MessagesAfter: len(replaced),
@@ -312,7 +309,7 @@ func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) err
 		return nil
 	}
 	keep := tailWithinBudget(messages, a.policy.Floor)
-	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Summarizer: a.policy.Summarizer, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now})
+	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Summarizer: a.policy.Summarizer, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now, Why: gotato.CompactionPastCeiling})
 	if err != nil {
 		return err
 	}

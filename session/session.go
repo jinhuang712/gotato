@@ -2,25 +2,27 @@
 // the Stores that keep it.
 //
 // A Record holds the Session's identity, the committed Messages, per-Run
-// records, usage, a bounded window of runtime Events, compaction history, and
-// free-form application metadata. Once it is stored, every change to it is
-// also an Entry of its log: facts, which rebuild the Session, and log
-// Entries, which record what happened (see Entry). It implements
-// gotato.Transcript, so a live gotato.Session commits to it directly and
-// takes its ID:
+// records, usage, a bounded window of its stored Events, compaction history,
+// and free-form application metadata. Once it is stored, it is the Session's
+// Event log: every Entry is a stored Event, numbered by its position. Facts,
+// which rebuild the Session, and log Entries, which record what happened, are
+// both Events (see Entry). A Record implements gotato.Transcript and
+// gotato.Journal, so a live gotato.Session commits to it directly, takes its
+// ID, and keeps its Events in it:
 //
 //	r := session.New()
-//	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r), gotato.WithExtension(session.NewRecorder(r)))
+//	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
 //	s.Prompt(ctx, gotato.UserMessage("hi"))
-//	store.Save(ctx, r)
 //
 // Tasks, projects, roles, and agent hierarchy are application semantics and
 // belong in Metadata.
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"maps"
 	"slices"
 	"sync"
@@ -32,11 +34,13 @@ import (
 // SchemaVersion is the persisted document version written by stores.
 const SchemaVersion = 1
 
-// DefaultEventLimit bounds the Events retained in a Session. Older Events are
-// dropped first; Runs, Messages, and Usage are never dropped.
+// DefaultEventLimit bounds the Events a Record keeps in memory. Older Events
+// are dropped first; Runs, Messages, and Usage are never dropped, and the
+// store keeps every Event.
 const DefaultEventLimit = 1000
 
-// Run is the per-Run record kept in a Record.
+// Run is the per-Run record kept in a Record: what its RunStarted and RunEnded
+// Events say.
 type Run struct {
 	RunID      gotato.RunID     `json:"run_id"`
 	Status     gotato.RunStatus `json:"status"`
@@ -49,21 +53,9 @@ type Run struct {
 	StopReason string           `json:"stop_reason,omitempty"`
 }
 
-// Compaction records one replacement of a Message prefix by a summary, so an
-// application can always tell what was compacted and what replaced it.
-type Compaction struct {
-	At               time.Time        `json:"at"`
-	ReplacedMessages int              `json:"replaced_messages"`
-	FromMessageID    gotato.MessageID `json:"from_message_id,omitempty"`
-	ToMessageID      gotato.MessageID `json:"to_message_id,omitempty"`
-	SummaryMessageID gotato.MessageID `json:"summary_message_id"`
-	Summarizer       string           `json:"summarizer"`
-	BytesBefore      int              `json:"bytes_before"`
-	BytesAfter       int              `json:"bytes_after"`
-}
-
-// Document is the serializable form of a Record. Stores persist it; Snapshot
-// and Load convert to and from a Record.
+// Document is the serializable form of a Record. Snapshot and Load convert to
+// and from a Record. A document of an earlier version holds the Events of its
+// time; they are not read again.
 type Document struct {
 	SchemaVersion int               `json:"schema_version"`
 	ID            string            `json:"id"`
@@ -82,6 +74,39 @@ type Document struct {
 	Seq uint64 `json:"seq,omitempty"`
 }
 
+// UnmarshalJSON reads the Events of a document by their kind, and drops the
+// ones it cannot read, such as those of an earlier version.
+func (d *Document) UnmarshalJSON(data []byte) error {
+	type plain Document
+	aux := struct {
+		*plain
+		Events []json.RawMessage `json:"events,omitempty"`
+	}{plain: (*plain)(d)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	d.Events = nil
+	for _, raw := range aux.Events {
+		event, err := gotato.UnmarshalEvent(raw)
+		if err != nil {
+			continue
+		}
+		if _, unknown := event.(gotato.UnknownEvent); unknown {
+			continue
+		}
+		d.Events = append(d.Events, event)
+	}
+	return nil
+}
+
+// replyPart is the text and reasoning a streaming reply produced, collected
+// while a log is read.
+type replyPart struct {
+	MessageID gotato.MessageID
+	Text      string
+	Reasoning string
+}
+
 // Record is what the Store keeps of a Session: what happened in it. It is safe
 // for concurrent use; the live gotato.Session that runs against it must still
 // be the only writer of Messages during a Run.
@@ -93,9 +118,9 @@ type Record struct {
 	updatedAt time.Time
 	messages  []gotato.Message
 	runs      []Run
-	events    []gotato.Event
-	// eventHead is the ring-buffer position of the oldest retained Event once
-	// events is full. It is always 0 until the window reaches eventLimit.
+	// events is the window of stored Events the Record keeps in memory, in a
+	// ring once it is full: eventHead is the position of the oldest Event.
+	events      []gotato.Event
 	eventHead   int
 	usage       gotato.Usage
 	compactions []Compaction
@@ -105,13 +130,14 @@ type Record struct {
 
 	// parentSeq is the parent's head when this Record was forked from it.
 	parentSeq uint64
-	// head is the Seq of the last Entry the store holds. logging turns on
-	// once the Record is stored; from then on every change queues a pending
-	// Entry, and the Events it retains wait in pendingEvents.
-	head          uint64
-	logging       bool
-	pending       []pendingEntry
-	pendingEvents []gotato.Event
+	// head is the Seq of the last Entry the store holds, and last the number
+	// of the last Event numbered, stored or not. logging turns on once the
+	// Record is stored; from then on every change queues its Event in
+	// pending, until a write takes it.
+	head    uint64
+	last    uint64
+	logging bool
+	pending []gotato.Event
 	// instance names the Instance whose writes this Record's Entries are,
 	// and claim the Record's writer as its facts last named it.
 	instance string
@@ -125,7 +151,9 @@ type Record struct {
 	// started and openParts hold, while a log is read, the Tool calls that
 	// started and the replies that were streaming, for repair.
 	started   map[gotato.ToolCallID]bool
-	openParts []ReplyPart
+	openParts []replyPart
+	// retainRead says Events read from a log are kept in the window.
+	retainRead bool
 }
 
 // Option configures New.
@@ -134,8 +162,8 @@ type Option func(*Record)
 // WithID sets the Session ID. Default: a random 16-byte hex ID.
 func WithID(id string) Option { return func(s *Record) { s.id = id } }
 
-// WithEventLimit bounds retained Events. Zero keeps DefaultEventLimit; a
-// negative value disables Event retention.
+// WithEventLimit bounds the Events kept in memory. Zero keeps
+// DefaultEventLimit; a negative value keeps none.
 func WithEventLimit(limit int) Option {
 	return func(s *Record) {
 		if limit == 0 {
@@ -151,7 +179,7 @@ func WithMetadata(metadata map[string]string) Option {
 }
 
 // WithMessages sets the Messages a new Record starts with, as history that
-// its first Checkpoint holds rather than Messages committed one by one.
+// its first Entry holds rather than Messages committed one by one.
 func WithMessages(messages ...gotato.Message) Option {
 	return func(s *Record) { s.messages = cloneMessages(messages) }
 }
@@ -161,7 +189,7 @@ func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = n
 
 // New creates an empty Record.
 func New(options ...Option) *Record {
-	s := &Record{eventLimit: DefaultEventLimit, now: time.Now}
+	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, retainRead: true}
 	for _, option := range options {
 		if option != nil {
 			option(s)
@@ -205,15 +233,18 @@ func Load(doc Document) (*Record, error) {
 		updatedAt:   doc.UpdatedAt,
 		messages:    cloneMessages(doc.Messages),
 		runs:        slices.Clone(doc.Runs),
-		events:      cloneEvents(doc.Events),
 		usage:       doc.Usage,
 		compactions: slices.Clone(doc.Compactions),
 		metadata:    maps.Clone(doc.Metadata),
 		eventLimit:  doc.EventLimit,
 		now:         time.Now,
+		retainRead:  true,
 	}
 	if s.eventLimit == 0 {
 		s.eventLimit = DefaultEventLimit
+	}
+	for _, event := range doc.Events {
+		s.retain(event)
 	}
 	if s.metadata == nil {
 		s.metadata = map[string]string{}
@@ -236,7 +267,7 @@ func (s *Record) Snapshot() Document {
 		UpdatedAt:     s.updatedAt,
 		Messages:      cloneMessages(s.messages),
 		Runs:          slices.Clone(s.runs),
-		Events:        cloneEvents(s.retainedEvents()),
+		Events:        slices.Clone(s.retainedEvents()),
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
@@ -275,15 +306,103 @@ func (s *Record) Len() int {
 	return len(s.messages)
 }
 
-// Append implements gotato.Transcript.
+// Append implements gotato.Transcript. The Message is stored by the Event
+// that carries it, which the live Session writes next.
 func (s *Record) Append(message gotato.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	message = message.Clone()
-	s.messages = append(s.messages, message)
+	s.messages = append(s.messages, message.Clone())
 	s.touch()
-	s.queue(EntryMessage, LayerFact, message)
 	return nil
+}
+
+// Write implements gotato.Journal: it numbers events as the next Events of the
+// Record, folds what they say into its Runs and usage, and keeps them. The
+// Events of a stored Record also wait for the next write of its Writer, which
+// numbers them the same way.
+func (s *Record) Write(_ context.Context, events []gotato.Event) ([]gotato.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]gotato.Event, len(events))
+	for i, event := range events {
+		event = gotato.WithSession(event, gotato.SessionID(s.id))
+		out[i] = s.number(event)
+		s.foldLive(out[i])
+	}
+	return out, nil
+}
+
+// EventsAfter implements gotato.EventSource from the Events the Record keeps
+// in memory.
+func (s *Record) EventsAfter(_ context.Context, after uint64, _ int) ([]gotato.Event, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []gotato.Event
+	for _, event := range s.retainedEvents() {
+		if event.Head().Number > after {
+			out = append(out, event)
+		}
+	}
+	return out, nil
+}
+
+// number gives event the next number, keeps it in the window, and queues it
+// as an Entry once the Record is stored. The caller holds the lock.
+func (s *Record) number(event gotato.Event) gotato.Event {
+	s.last++
+	event = gotato.WithNumber(event, s.last)
+	s.retain(event)
+	if s.logging {
+		s.pending = append(s.pending, event)
+	}
+	s.touch()
+	return event
+}
+
+// emit queues an Event of the Record's own, such as a metadata change, for the
+// next write, once the Record is stored. The caller holds the lock.
+func (s *Record) emit(event gotato.Event) {
+	if !s.logging {
+		return
+	}
+	s.number(event)
+}
+
+// header is the Header of an Event the Record itself produces.
+func (s *Record) header() gotato.Header {
+	return gotato.NewHeader(gotato.SessionID(s.id), "", 0)
+}
+
+// Emit queues a stored Event for the next write of the Record's Writer, such
+// as a CompactionStarted. It does nothing while the Record is not stored.
+func (s *Record) Emit(event gotato.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emit(gotato.WithSession(event, gotato.SessionID(s.id)))
+}
+
+// foldLive applies what a Run's Event says about Runs and usage. Messages and
+// metadata are already in the Record: the Transcript and Set put them there.
+// The caller holds the lock.
+func (s *Record) foldLive(event gotato.Event) {
+	switch e := event.(type) {
+	case gotato.RunStarted:
+		s.runs = append(s.runs, runStarted(e))
+		s.running = e.RunID
+	case gotato.RunEnded:
+		s.endRun(runEnded(e))
+	}
+}
+
+func runStarted(e gotato.RunStarted) Run {
+	return Run{RunID: e.RunID, Status: gotato.RunRunning, StartedAt: e.Time.UTC()}
+}
+
+func runEnded(e gotato.RunEnded) Run {
+	return Run{
+		RunID: e.RunID, Status: e.Status, Error: string(e.Cause), StopReason: e.StopReason,
+		EndedAt: e.Time.UTC(), Turns: e.Turns, ToolCalls: e.ToolCalls, Usage: e.Usage,
+	}
 }
 
 // Runs returns the Run records.
@@ -291,27 +410,6 @@ func (s *Record) Runs() []Run {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.runs)
-}
-
-// RecordRunStart adds a running Run record.
-func (s *Record) RecordRunStart(runID gotato.RunID, at time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := Run{RunID: runID, Status: gotato.RunRunning, StartedAt: at.UTC()}
-	s.runs = append(s.runs, run)
-	s.running = runID
-	s.touch()
-	s.queue(EntryRunStart, LayerLog, run)
-}
-
-// RecordRunEnd finalizes the matching Run record and aggregates usage.
-func (s *Record) RecordRunEnd(runID gotato.RunID, status gotato.RunStatus, errText, stopReason string, turns, toolCalls uint32, usage gotato.Usage, at time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := Run{RunID: runID, Status: status, Error: errText, StopReason: stopReason, EndedAt: at.UTC(), Turns: turns, ToolCalls: toolCalls, Usage: usage}
-	run = s.endRun(run)
-	s.touch()
-	s.queue(EntryRunEnd, LayerLog, run)
 }
 
 // endRun finalizes the Run record with run's RunID, or adds run when there is
@@ -349,28 +447,13 @@ func (s *Record) Usage() gotato.Usage {
 	return s.usage
 }
 
-// Events returns the retained Events in order, with copied payloads.
+// Events returns the stored Events the Record keeps in memory, in order: the
+// last DefaultEventLimit of them, unless WithEventLimit says otherwise. Events
+// are values; do not modify what they point to.
 func (s *Record) Events() []gotato.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneEvents(s.retainedEvents())
-}
-
-// RecordEvent retains one Event, dropping the oldest beyond the limit. Once the
-// window is full the backing slice is reused as a ring buffer so a streaming
-// producer does not reallocate the whole window on every Event.
-func (s *Record) RecordEvent(event gotato.Event) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.eventLimit < 0 {
-		return
-	}
-	event = cloneEvent(event)
-	s.retain(event)
-	if s.logging {
-		s.pendingEvents = append(s.pendingEvents, event)
-	}
-	s.touch()
+	return slices.Clone(s.retainedEvents())
 }
 
 // retain keeps one Event in the bounded window. The caller holds the lock.
@@ -380,20 +463,20 @@ func (s *Record) retain(event gotato.Event) {
 	}
 	if len(s.events) < s.eventLimit {
 		s.events = append(s.events, event)
-	} else {
-		if len(s.events) > s.eventLimit {
-			// A loaded document held more Events than the limit; normalize.
-			s.events = slices.Clone(s.events[len(s.events)-s.eventLimit:])
-			s.eventHead = 0
-		}
-		s.events[s.eventHead] = event
-		s.eventHead = (s.eventHead + 1) % s.eventLimit
+		return
 	}
+	if len(s.events) > s.eventLimit {
+		// A loaded document held more Events than the limit; normalize.
+		s.events = slices.Clone(s.events[len(s.events)-s.eventLimit:])
+		s.eventHead = 0
+	}
+	s.events[s.eventHead] = event
+	s.eventHead = (s.eventHead + 1) % s.eventLimit
 }
 
 // retainedEvents returns the retained Events in insertion order. When the ring
 // buffer has wrapped it returns a fresh slice; otherwise it aliases s.events
-// and must only be read under the Session lock.
+// and must only be read under the lock.
 func (s *Record) retainedEvents() []gotato.Event {
 	if s.eventHead == 0 || s.eventHead >= len(s.events) {
 		return s.events
@@ -440,7 +523,7 @@ func (s *Record) Set(key, value string) {
 		s.metadata[key] = value
 	}
 	s.touch()
-	s.queue(EntryMetadata, LayerFact, MetadataChange{Key: key, Value: value})
+	s.emit(gotato.MetadataChanged{Header: s.header(), Key: key, Value: value})
 }
 
 func (s *Record) touch() { s.updatedAt = s.now().UTC() }
@@ -452,14 +535,18 @@ func (s *Record) Claim() Claim {
 	return s.claim
 }
 
-// claimFor makes instance the Record's writer with the next Epoch, as a fact.
-func (s *Record) claimFor(instance string) {
+// claimFor makes instance the Record's writer, as a fact. A new Claim takes
+// the next Epoch; an Instance that holds the Record already keeps its own.
+func (s *Record) claimFor(instance string, why gotato.ClaimWhy) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	from := s.claim.Instance
+	if from != instance || s.claim.Epoch == 0 {
+		s.claim = Claim{Instance: instance, Epoch: s.claim.Epoch + 1}
+	}
 	s.instance = instance
-	s.claim = Claim{Instance: instance, Epoch: s.claim.Epoch + 1}
 	s.touch()
-	s.queue(EntryClaim, LayerFact, s.claim)
+	s.emit(gotato.SessionClaimed{Header: s.header(), Instance: instance, Epoch: s.claim.Epoch, Why: why, From: from})
 }
 
 // interruptRun ends a Run that started and never ended, because the writer
@@ -475,9 +562,12 @@ func (s *Record) interruptRun(runID gotato.RunID) {
 		// The Run is counted in baseRuns already; ending it adds its record.
 		s.baseRuns--
 	}
-	run := s.endRun(Run{RunID: runID, Status: gotato.RunFailed, Error: "interrupted", EndedAt: s.now().UTC()})
+	header := s.header()
+	header.RunID = runID
+	ended := gotato.RunEnded{Header: header, Status: gotato.RunFailed, Cause: "interrupted"}
+	s.endRun(runEnded(ended))
 	s.touch()
-	s.queue(EntryRunEnd, LayerLog, run)
+	s.emit(ended)
 }
 
 // Fork creates the Record of a new Session from the current state of parent.
@@ -512,61 +602,4 @@ func cloneMessages(messages []gotato.Message) []gotato.Message {
 		out[i] = message.Clone()
 	}
 	return out
-}
-
-// cloneEvents copies the Event list and each Payload map (deep), so a caller
-// cannot mutate committed or persisted state through a returned Event.
-func cloneEvents(events []gotato.Event) []gotato.Event {
-	out := make([]gotato.Event, len(events))
-	for i, event := range events {
-		out[i] = cloneEvent(event)
-	}
-	return out
-}
-
-func cloneEvent(event gotato.Event) gotato.Event {
-	event.Payload = clonePayload(event.Payload)
-	return event
-}
-
-// clonePayload deep-copies an Event payload, including nested maps and
-// slices, so a caller cannot mutate committed or persisted state through a
-// returned Event. Only the map/slice shapes an Event payload actually uses are
-// cloned; other values are passed through.
-func clonePayload(payload map[string]any) map[string]any {
-	if payload == nil {
-		return nil
-	}
-	out := make(map[string]any, len(payload))
-	for key, value := range payload {
-		out[key] = clonePayloadValue(value)
-	}
-	return out
-}
-
-func clonePayloadValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return clonePayload(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayloadValue(item)
-		}
-		return out
-	case []map[string]any:
-		out := make([]map[string]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayload(item)
-		}
-		return out
-	case map[string]string:
-		return maps.Clone(typed)
-	case []string:
-		return slices.Clone(typed)
-	case []byte:
-		return slices.Clone(typed)
-	default:
-		return value
-	}
 }

@@ -1,6 +1,6 @@
 // Package testkit provides deterministic doubles for testing Gotato runtimes
 // without a network provider: scripted and replayed Models, a recording
-// FakeTool, an EventRecorder Extension, Session fixtures, the echo/demo
+// FakeTool, an EventRecorder over a Subscription, Session fixtures, the echo/demo
 // Models used by the CLI and the reference service, and the tasks of the
 // reference workload (ReferenceTasks).
 package testkit
@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -217,7 +218,7 @@ func (t *FakeTool) WithSchema(schema string) *FakeTool {
 func (t *FakeTool) Spec() gotato.ToolSpec { return t.spec }
 
 // Execute implements gotato.Tool.
-func (t *FakeTool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolProgress) (gotato.ToolResult, error) {
+func (t *FakeTool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	t.mu.Lock()
 	t.uses = append(t.uses, use)
 	handler, err, result := t.Handler, t.Err, t.Result
@@ -256,74 +257,109 @@ func (t *FakeTool) Calls() int {
 	return len(t.uses)
 }
 
-// EventRecorder is an EventObserver Extension that keeps every Event in
-// production order. Install with gotato.WithExtension.
+// EventRecorder keeps every Event of a Subscription in order, for a test to
+// read. It reads the Subscription on a goroutine of its own, as any
+// subscriber does, so the Session under test never waits for it.
 type EventRecorder struct {
-	mu     sync.Mutex
-	events []gotato.Event
+	mu        sync.Mutex
+	changed   *sync.Cond
+	events    []gotato.Event
+	published func() uint64
+	base      uint64
+	sub       gotato.Subscription
+	done      chan struct{}
 }
 
-// NewEventRecorder creates an empty recorder.
-func NewEventRecorder() *EventRecorder { return &EventRecorder{} }
-
-// Observe implements gotato.EventObserver.
-func (r *EventRecorder) Observe(_ context.Context, event gotato.Event) error {
-	r.mu.Lock()
-	r.events = append(r.events, event)
-	r.mu.Unlock()
-	return nil
+// RecordEvents subscribes to a live Session and records every Event it
+// publishes from now on, the stored Events and the deltas. Call it right after
+// NewSession, before the first Prompt. Events waits until the recorder has
+// read everything the Session has published, so a test can read the
+// recording as soon as Prompt returns.
+func RecordEvents(s *gotato.Session) *EventRecorder {
+	sub, err := s.Subscribe(context.Background(), gotato.SubscribeBuffer(1<<16))
+	if err != nil {
+		panic("testkit: " + err.Error())
+	}
+	r := newRecorder(sub)
+	r.published, r.base = s.Published, s.Published()
+	return r
 }
 
-// Advisory implements gotato.AdvisoryExtension: recording never fails a Run.
-func (r *EventRecorder) Advisory() bool { return true }
+// RecordSubscription records every Event of sub until it ends. Events returns
+// what has arrived so far; Wait waits for more.
+func RecordSubscription(sub gotato.Subscription) *EventRecorder { return newRecorder(sub) }
 
-// Events returns a copy of the recorded Events, deep-copied so a caller
-// cannot mutate the recording.
+func newRecorder(sub gotato.Subscription) *EventRecorder {
+	r := &EventRecorder{sub: sub, done: make(chan struct{})}
+	r.changed = sync.NewCond(&r.mu)
+	go func() {
+		defer close(r.done)
+		defer func() {
+			r.mu.Lock()
+			r.changed.Broadcast()
+			r.mu.Unlock()
+		}()
+		for {
+			event, err := sub.Next(context.Background())
+			if err != nil {
+				return
+			}
+			r.mu.Lock()
+			r.events = append(r.events, event)
+			r.changed.Broadcast()
+			r.mu.Unlock()
+		}
+	}()
+	return r
+}
+
+// Events returns the recorded Events, in the order they were published.
 func (r *EventRecorder) Events() []gotato.Event {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]gotato.Event, len(r.events))
-	for i, event := range r.events {
-		out[i] = cloneEvent(event)
-	}
-	return out
-}
-
-func cloneEvent(event gotato.Event) gotato.Event {
-	event.Payload = clonePayload(event.Payload)
-	return event
-}
-
-func clonePayload(payload map[string]any) map[string]any {
-	if payload == nil {
-		return nil
-	}
-	out := make(map[string]any, len(payload))
-	for key, value := range payload {
-		out[key] = clonePayloadValue(value)
-	}
-	return out
-}
-
-func clonePayloadValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return clonePayload(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayloadValue(item)
+	if r.published != nil {
+		deadline := time.Now().Add(5 * time.Second)
+		for uint64(len(r.events)) < r.published()-r.base && time.Now().Before(deadline) {
+			r.mu.Unlock()
+			time.Sleep(time.Millisecond)
+			r.mu.Lock()
 		}
-		return out
-	case []map[string]any:
-		out := make([]map[string]any, len(typed))
-		for i, item := range typed {
-			out[i] = clonePayload(item)
-		}
-		return out
-	default:
-		return value
 	}
+	return slices.Clone(r.events)
+}
+
+// Wait blocks until the recording holds an Event for which match is true, or
+// timeout passes, and reports whether it found one.
+func (r *EventRecorder) Wait(timeout time.Duration, match func(gotato.Event) bool) bool {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		r.mu.Lock()
+		r.changed.Broadcast()
+		r.mu.Unlock()
+	})
+	defer timer.Stop()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for {
+		if slices.ContainsFunc(r.events, match) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-r.done:
+			return slices.ContainsFunc(r.events, match)
+		default:
+		}
+		r.changed.Wait()
+	}
+}
+
+// Close ends the Subscription and the recorder's goroutine.
+func (r *EventRecorder) Close() {
+	_ = r.sub.Close()
+	<-r.done
 }
 
 // Kinds returns the recorded Event kinds in order.
@@ -331,7 +367,7 @@ func (r *EventRecorder) Kinds() []gotato.EventKind {
 	events := r.Events()
 	out := make([]gotato.EventKind, len(events))
 	for i, event := range events {
-		out[i] = event.Kind
+		out[i] = event.Kind()
 	}
 	return out
 }
@@ -340,7 +376,7 @@ func (r *EventRecorder) Kinds() []gotato.EventKind {
 func (r *EventRecorder) OfKind(kind gotato.EventKind) []gotato.Event {
 	var out []gotato.Event
 	for _, event := range r.Events() {
-		if event.Kind == kind {
+		if event.Kind() == kind {
 			out = append(out, event)
 		}
 	}
@@ -351,6 +387,9 @@ func (r *EventRecorder) OfKind(kind gotato.EventKind) []gotato.Event {
 func (r *EventRecorder) Reset() {
 	r.mu.Lock()
 	r.events = nil
+	if r.published != nil {
+		r.base = r.published()
+	}
 	r.mu.Unlock()
 }
 

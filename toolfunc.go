@@ -26,14 +26,14 @@ func NewFuncTool[In any, Out any](name, description string, fn func(context.Cont
 	if fn == nil {
 		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "function is nil", nil)
 	}
-	return NewFuncToolWithProgress(name, description, func(ctx context.Context, in In, _ ToolProgress) (Out, error) {
+	return NewFuncToolWithProgress(name, description, func(ctx context.Context, in In, _ ToolProgressFunc) (Out, error) {
 		return fn(ctx, in)
 	})
 }
 
 // NewFuncToolWithProgress is NewFuncTool for a function that reports bounded
 // progress while it runs.
-func NewFuncToolWithProgress[In any, Out any](name, description string, fn func(context.Context, In, ToolProgress) (Out, error)) (Tool, error) {
+func NewFuncToolWithProgress[In any, Out any](name, description string, fn func(context.Context, In, ToolProgressFunc) (Out, error)) (Tool, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "Tool name is empty", nil)
 	}
@@ -70,12 +70,12 @@ func WithFunc[In any, Out any](name, description string, fn func(context.Context
 
 type funcTool[In any, Out any] struct {
 	spec ToolSpec
-	fn   func(context.Context, In, ToolProgress) (Out, error)
+	fn   func(context.Context, In, ToolProgressFunc) (Out, error)
 }
 
 func (t *funcTool[In, Out]) Spec() ToolSpec { return cloneToolSpec(t.spec) }
 
-func (t *funcTool[In, Out]) Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *funcTool[In, Out]) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	var input In
 	if len(use.ArgumentsJSON) > 0 {
 		if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {

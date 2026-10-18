@@ -6,8 +6,10 @@
 // ContextBuilder for the ModelContext of each Turn, streams the Model,
 // executes the requested Tools, and repeats until the Model stops calling
 // Tools or a limit, a TurnStopper, or cancellation ends the Run. Extensions
-// hook into the stages of a Turn, and every step is published as a runtime
-// Event.
+// hook into the stages of a Turn, and every step is an Event: a value of a Go
+// type of its own, such as RunStarted or TextDelta, that a caller reads from a
+// Subscription (Session.Subscribe, SubscribeRun, SubscribeFrom). A stored Event
+// is written before it is sent, and the Session never waits for a subscriber.
 //
 //	s, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(tools...))
 //	if err != nil {

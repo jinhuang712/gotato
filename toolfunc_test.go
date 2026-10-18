@@ -289,16 +289,16 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("weather")); err != nil {
 		t.Fatal(err)
 	}
-	status := any(nil)
+	var status ToolResultStatus
 	for {
 		event, nextErr := events.Next(context.Background())
 		if nextErr != nil {
-			t.Fatalf("event stream ended before run_end: %v", nextErr)
+			t.Fatalf("event stream ended before run_ended: %v", nextErr)
 		}
-		if event.Kind == EventToolExecutionEnd {
-			status = event.Payload["status"]
+		if ended, ok := event.(ToolEnded); ok {
+			status = ended.Status
 		}
-		if event.Kind == EventRunEnd {
+		if event.Kind() == KindRunEnded {
 			break
 		}
 	}
@@ -308,7 +308,7 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 }
 
 func TestFuncToolStringOutputBecomesText(t *testing.T) {
-	tool, err := NewFuncToolWithProgress("say", "Say something.", func(ctx context.Context, in struct{}, progress ToolProgress) (string, error) {
+	tool, err := NewFuncToolWithProgress("say", "Say something.", func(ctx context.Context, in struct{}, progress ToolProgressFunc) (string, error) {
 		progress("working")
 		return "spoken", nil
 	})

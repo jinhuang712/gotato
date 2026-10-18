@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"math"
 	"runtime/debug"
@@ -21,11 +20,11 @@ import (
 type SessionStatus string
 
 const (
-	SessionCreated SessionStatus = "created"
-	SessionIdle    SessionStatus = "idle"
-	SessionBusy    SessionStatus = "busy"
-	SessionClosing SessionStatus = "closing"
-	SessionClosed  SessionStatus = "closed"
+	SessionStatusCreated SessionStatus = "created"
+	SessionStatusIdle    SessionStatus = "idle"
+	SessionStatusBusy    SessionStatus = "busy"
+	SessionStatusClosing SessionStatus = "closing"
+	SessionStatusClosed  SessionStatus = "closed"
 )
 
 // Option configures a Session built by NewSession.
@@ -46,6 +45,30 @@ type sessionConfig struct {
 	modelOptions   ModelOptions
 	cacheKey       string
 	maxEffect      ToolEffect
+	feed           *Feed
+	onRunStart     func(RunID)
+}
+
+// WithFeed has the Session publish its Events to feed instead of a Feed of
+// its own, so the host that built it, such as a service.Runner, can offer
+// the Session's stream across Runs. The host owns the Feed and closes it; it
+// also sets the Feed's source, which is where a subscriber that falls behind
+// catches up.
+func WithFeed(feed *Feed) Option {
+	return func(c *sessionConfig) error {
+		if feed == nil {
+			return runtimeError(ErrInvalidArgument, "WithFeed", "feed is nil", nil)
+		}
+		c.feed = feed
+		return nil
+	}
+}
+
+// WithRunStart calls fn on the Session's goroutine with each Run's ID, as the
+// Run starts and before its first Event. fn must not block. A host uses it
+// to find the Run it started.
+func WithRunStart(fn func(RunID)) Option {
+	return func(c *sessionConfig) error { c.onRunStart = fn; return nil }
 }
 
 func WithModel(model Model) Option {
@@ -204,23 +227,35 @@ func NewSession(options ...Option) (*Session, error) {
 		admission:      make(chan struct{}, 1),
 		steer:          make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
 		followUp:       make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
-		events:         newEventHub(),
-		lifecycle:      newLifecycleHub(),
 		stateChange:    make(chan struct{}),
+		onRunStart:     cfg.onRunStart,
 	}
 	if journal, ok := cfg.transcript.(Journal); ok {
 		a.journal = journal
+		a.durable = true
+	} else {
+		a.journal = &memoryJournal{}
 	}
-	a.setStatus(SessionCreated)
+	a.feed = cfg.feed
+	if a.feed == nil {
+		a.feed = NewFeed(nil)
+		a.ownFeed = true
+		if source, ok := cfg.transcript.(EventSource); ok {
+			a.feed.SetSource(source)
+		}
+	}
+	a.extensions.report = a.reportExtension
+	a.abortCond = sync.NewCond(&a.abortMu)
+	a.setStatus(SessionStatusCreated)
 	go a.loop()
 	<-a.ready
 	return a, nil
 }
 
 // Session is a live Session: one conversation running one Agent. Prompt,
-// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe streams its
-// Events; Status, Done and SubscribeLifecycle report its life; Tools and
-// InspectContext show what its next Turn would send.
+// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe, SubscribeRun
+// and SubscribeFrom stream its Events; Status and Done report its life; Tools
+// and InspectContext show what its next Turn would send.
 //
 // Until the Runner keeps Sessions warm, it builds one from a session.Record
 // for each Run and closes it afterwards; the Record stays the truth.
@@ -243,13 +278,26 @@ type Session struct {
 	transcript      Transcript
 	transcriptBytes uint64
 	contextBuilder  ContextBuilder
-	// journal is the Transcript when it writes the Run's steps as they
-	// happen (see Journal).
+	// journal keeps the Session's stored Events: the Transcript when it is a
+	// Journal (durable), and a numbering of its own otherwise.
 	journal Journal
+	durable bool
+	feed    *Feed
+	ownFeed bool
+	// staged holds the stored Events of the step in progress, on the Session
+	// goroutine. They are written, and then sent, by flush. emitMu makes a
+	// write and its sending one step, so Events reach subscribers in the
+	// order of their numbers, whichever goroutine writes them.
+	staged     []Event
+	emitMu     sync.Mutex
+	lastNumber atomic.Uint64
+	onRunStart func(RunID)
 
-	// observerCtx belongs to the Run in flight. Only the Session goroutine
-	// reads and writes it, so Event observers see the owning Run Context.
-	observerCtx context.Context
+	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
+	// is written after them.
+	abortMu   sync.Mutex
+	abortCond *sync.Cond
+	aborts    int
 
 	commands    chan sessionCommand
 	closeSignal chan struct{}
@@ -262,6 +310,7 @@ type Session struct {
 	followUp    chan Message
 
 	closeRequested atomic.Bool
+	inRun          atomic.Bool
 	status         atomic.Uint32
 
 	stateMu     sync.Mutex
@@ -269,10 +318,8 @@ type Session struct {
 
 	runMu          sync.Mutex
 	currentRunID   RunID
+	currentTurn    TurnNumber
 	currentRunStop context.CancelFunc
-
-	events    *eventHub
-	lifecycle *lifecycleHub
 }
 
 type sessionCommandKind uint8
@@ -298,8 +345,8 @@ func (a *Session) ID() SessionID { return a.id }
 
 func (a *Session) Status() SessionStatus {
 	status := decodeSessionStatus(a.status.Load())
-	if a.closeRequested.Load() && status != SessionClosed {
-		return SessionClosing
+	if a.closeRequested.Load() && status != SessionStatusClosed {
+		return SessionStatusClosing
 	}
 	return status
 }
@@ -318,21 +365,40 @@ func (a *Session) CancelRun(ctx context.Context, runID RunID) error {
 	}
 	a.runMu.Lock()
 	currentID := a.currentRunID
-	stop := a.currentRunStop
 	a.runMu.Unlock()
-	if currentID != runID || stop == nil {
+	if currentID != runID || !a.abort() {
 		return runtimeError(ErrInvalidState, "CancelRun", "Run is not active", nil)
 	}
-	stop()
 	return nil
 }
 
-func (a *Session) Subscribe(ctx context.Context) (EventStream, error) {
-	return a.events.subscribe(ctx)
+// Subscribe starts a Subscription to the Session's stored Events and deltas,
+// from now on, across Runs. Subscribe before the first Prompt to see
+// everything. A subscriber that reads slowly slows only itself: the Session
+// never waits for it.
+func (a *Session) Subscribe(ctx context.Context, options ...SubscribeOption) (Subscription, error) {
+	return a.feed.Subscribe(ctx, options...)
 }
 
-func (a *Session) SubscribeLifecycle(ctx context.Context) (LifecycleStream, error) {
-	return a.lifecycle.subscribe(ctx)
+// Published returns how many Events the Session has published: its stored
+// Events and its deltas. A test that reads a Subscription compares it with how
+// many it has read, to know that it has seen everything.
+func (a *Session) Published() uint64 { return a.feed.Published() }
+
+// SubscribeRun starts a Subscription to the next Run that starts: its Events
+// and deltas, from its RunStarted to its RunEnded, with the same numbers the
+// Session's stream gives them. Call it before Prompt.
+func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
+	return a.feed.Subscribe(ctx, NextRun()...)
+}
+
+// SubscribeFrom starts a Subscription to the Session's stream after the
+// stored Event numbered after: the later Events first, from the Record, and
+// then the live ones. A client that was cut off reconnects with the Number of
+// the last Event it saw. SubscribeFrom(ctx, 0) starts at the Session's first
+// Event.
+func (a *Session) SubscribeFrom(ctx context.Context, after uint64) (Subscription, error) {
+	return a.feed.Subscribe(ctx, SubscribeAfter(after))
 }
 
 func (a *Session) Prompt(ctx context.Context, message Message) (RunResult, error) {
@@ -389,52 +455,100 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 // Steer delivers guidance for the Run in flight. The Session commits it at the
 // next Turn boundary; it never interrupts the current Model or Tool work. A
 // Steer that arrives where the Run would settle keeps the Run going for one
-// more Turn rather than being dropped.
+// more Turn rather than being dropped. Its way into the Session is reported
+// as Events: MessageQueued, and then MessageCommitted, or MessageDropped when
+// the Run ends first, or MessageRejected when the queue is full.
 func (a *Session) Steer(message Message) error {
-	return a.enqueueControl(a.steer, message, "Steer")
+	return a.enqueueControl(a.steer, message, "Steer", SourceSteer)
 }
 
 // FollowUp supplies the continuation to use where the Run would otherwise
 // settle. It is not a general external request queue: the buffer is bounded
 // and belongs to this Session.
 func (a *Session) FollowUp(message Message) error {
-	return a.enqueueControl(a.followUp, message, "FollowUp")
+	return a.enqueueControl(a.followUp, message, "FollowUp", SourceFollowUp)
 }
 
-func (a *Session) enqueueControl(target chan Message, message Message, operation string) error {
+func (a *Session) enqueueControl(target chan Message, message Message, operation string, source MessageSource) error {
 	if err := validateControlMessage(message, operation); err != nil {
 		return err
 	}
 	if err := a.admissionError(operation); err != nil {
 		return err
 	}
+	message = message.Clone()
+	if message.ID == "" {
+		message.ID = MessageID(nextID("message"))
+	}
+	reject := func(why string, err error) error {
+		// A refusal is reported as an Event, written on a best-effort basis:
+		// the caller already gets the error.
+		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
+		return err
+	}
 	if cap(target) == 0 {
-		return runtimeError(ErrLimitExceeded, operation, operation+" is disabled by the configured limit", nil)
+		return reject("disabled", runtimeError(ErrLimitExceeded, operation, operation+" is disabled by the configured limit", nil))
+	}
+	if len(target) >= cap(target) {
+		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
+	}
+	// The message is written as queued before it can be committed, so the
+	// Record never shows a commit with no queueing.
+	if err := a.writeNow(context.Background(), MessageQueued{Header: a.nowHeader(), MessageID: message.ID, Source: source}); err != nil {
+		return err
 	}
 	select {
-	case target <- message.Clone():
+	case target <- message:
 		return nil
 	default:
-		return runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil)
+		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
 	}
 }
 
-// Abort cancels the current Run. It does not close the Session, and it is a
-// no-op when no Run is active.
-func (a *Session) Abort() {
+// Abort cancels the current Run, and writes an AbortRequested Event before the
+// Run's RunEnded. It does not close the Session, and it is a no-op when no Run
+// is active.
+func (a *Session) Abort() { a.abort() }
+
+// abort cancels the Run in flight, if any, and reports whether there was one.
+func (a *Session) abort() bool {
 	a.runMu.Lock()
 	stop := a.currentRunStop
+	header := NewHeader(a.id, a.currentRunID, a.currentTurn)
 	a.runMu.Unlock()
-	if stop != nil {
-		stop()
+	if stop == nil {
+		return false
 	}
+	// The Run stops at once; the Event is written beside it, and the Run's
+	// last write waits for it.
+	a.abortMu.Lock()
+	a.aborts++
+	a.abortMu.Unlock()
+	go func() {
+		_ = a.writeNow(context.Background(), AbortRequested{Header: header})
+		a.abortMu.Lock()
+		a.aborts--
+		a.abortCond.Broadcast()
+		a.abortMu.Unlock()
+	}()
+	stop()
+	return true
+}
+
+// waitForAborts blocks until every AbortRequested write has finished.
+func (a *Session) waitForAborts() {
+	a.abortMu.Lock()
+	for a.aborts > 0 {
+		a.abortCond.Wait()
+	}
+	a.abortMu.Unlock()
 }
 
 func (a *Session) admissionError(operation string) error {
 	switch a.Status() {
-	case SessionClosing:
+	case SessionStatusClosing:
 		return runtimeError(ErrSessionClosing, operation, "Session is closing", nil)
-	case SessionClosed:
+	case SessionStatusClosed:
 		return runtimeError(ErrSessionClosed, operation, "Session is closed", nil)
 	default:
 		return nil
@@ -447,8 +561,7 @@ func (a *Session) Close(ctx context.Context) error {
 	}
 	a.closeOnce.Do(func() {
 		a.closeRequested.Store(true)
-		a.setStatus(SessionClosing)
-		a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionClosing, SessionID: a.id, Timestamp: time.Now()})
+		a.setStatus(SessionStatusClosing)
 		close(a.closeSignal)
 	})
 	select {
@@ -471,9 +584,9 @@ func (a *Session) WaitForIdle(ctx context.Context) error {
 		changed := a.stateChange
 		a.stateMu.Unlock()
 		switch a.Status() {
-		case SessionIdle:
+		case SessionStatusIdle:
 			return nil
-		case SessionCreated, SessionBusy:
+		case SessionStatusCreated, SessionStatusBusy:
 			select {
 			case <-changed:
 			case <-ctx.Done():
@@ -486,8 +599,7 @@ func (a *Session) WaitForIdle(ctx context.Context) error {
 }
 
 func (a *Session) loop() {
-	a.setStatus(SessionIdle)
-	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionCreated, SessionID: a.id, Timestamp: time.Now()})
+	a.setStatus(SessionStatusIdle)
 	close(a.ready)
 	defer a.finishClose()
 
@@ -514,7 +626,7 @@ func (a *Session) loop() {
 						continue
 					}
 				}
-				a.setStatus(SessionBusy)
+				a.setStatus(SessionStatusBusy)
 				var prompt *Message
 				if cmd.kind == commandPrompt {
 					prompt = &cmd.message
@@ -529,7 +641,7 @@ func (a *Session) loop() {
 					cmd.result <- promptResponse{result: result, err: err}
 					return
 				}
-				a.setStatus(SessionIdle)
+				a.setStatus(SessionStatusIdle)
 				cmd.result <- promptResponse{result: result, err: err}
 			}
 		}
@@ -537,10 +649,13 @@ func (a *Session) loop() {
 }
 
 func (a *Session) finishClose() {
-	a.setStatus(SessionClosed)
-	a.lifecycle.publish(LifecycleEvent{Kind: LifecycleSessionClosed, SessionID: a.id, Timestamp: time.Now()})
-	a.events.close()
-	a.lifecycle.close()
+	a.setStatus(SessionStatusClosed)
+	if a.ownFeed {
+		// A Session that owns its Feed says it left, and ends its streams.
+		// A host's Feed outlives the Session, and the host closes it.
+		a.feed.Publish(SessionUnloaded{Header: NewHeader(a.id, "", 0), Why: "close"})
+		a.feed.Close()
+	}
 	a.doneOnce.Do(func() { close(a.done) })
 }
 
@@ -555,15 +670,15 @@ func (a *Session) setStatus(status SessionStatus) {
 
 func encodeSessionStatus(status SessionStatus) uint32 {
 	switch status {
-	case SessionCreated:
+	case SessionStatusCreated:
 		return 1
-	case SessionIdle:
+	case SessionStatusIdle:
 		return 2
-	case SessionBusy:
+	case SessionStatusBusy:
 		return 3
-	case SessionClosing:
+	case SessionStatusClosing:
 		return 4
-	case SessionClosed:
+	case SessionStatusClosed:
 		return 5
 	default:
 		return 0
@@ -573,17 +688,17 @@ func encodeSessionStatus(status SessionStatus) uint32 {
 func decodeSessionStatus(status uint32) SessionStatus {
 	switch status {
 	case 1:
-		return SessionCreated
+		return SessionStatusCreated
 	case 2:
-		return SessionIdle
+		return SessionStatusIdle
 	case 3:
-		return SessionBusy
+		return SessionStatusBusy
 	case 4:
-		return SessionClosing
+		return SessionStatusClosing
 	case 5:
-		return SessionClosed
+		return SessionStatusClosed
 	default:
-		return SessionCreated
+		return SessionStatusCreated
 	}
 }
 
@@ -643,24 +758,6 @@ func (a *Session) measureTranscript() error {
 	return nil
 }
 
-// emit assigns the next Run sequence number, awaits local Event observers, and
-// publishes the Event. A blocking observer failure settles the owning Run, so
-// the caller must not continue past a non-nil result.
-func (a *Session) emit(runID RunID, seq *uint64, kind EventKind, class EventClass, turn TurnNumber, messageID MessageID, callID ToolCallID, payload map[string]any) *RuntimeError {
-	*seq++
-	event := Event{SessionID: a.id, RunID: runID, Sequence: *seq, Kind: kind, Class: class, Turn: turn, MessageID: messageID, ToolCallID: callID, Payload: payload, Timestamp: time.Now()}
-	var failure *RuntimeError
-	if len(a.extensions.observers) > 0 {
-		ctx := a.observerCtx
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		failure = a.extensions.observe(ctx, event)
-	}
-	a.events.publish(event)
-	return failure
-}
-
 func addUsage(total, current Usage) Usage {
 	total.InputTokens += current.InputTokens
 	total.OutputTokens += current.OutputTokens
@@ -668,641 +765,6 @@ func addUsage(total, current Usage) Usage {
 	total.CacheReadTokens += current.CacheReadTokens
 	total.CacheWriteTokens += current.CacheWriteTokens
 	return total
-}
-
-// summarizeTurn builds a bounded, provider-neutral heartbeat payload. It
-// describes work performed by the loop without copying prompt, answer,
-// reasoning, or Tool arguments into operational logs.
-func summarizeTurn(assistant Message, usage Usage, elapsed time.Duration, toolResults []map[string]any) map[string]any {
-	var textBytes, reasoningBytes uint64
-	for _, part := range assistant.Parts {
-		switch part.Kind {
-		case ContentText:
-			textBytes += uint64(len(part.Text))
-		case ContentReasoning:
-			reasoningBytes += uint64(len(part.Text))
-		}
-	}
-	summary := map[string]any{
-		"elapsed_ms":      elapsed.Milliseconds(),
-		"text_bytes":      textBytes,
-		"reasoning_bytes": reasoningBytes,
-		"tool_calls":      len(assistant.ToolCalls),
-		"input_tokens":    usage.InputTokens,
-		"output_tokens":   usage.OutputTokens,
-		"total_tokens":    usage.TotalTokens,
-	}
-	if usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0 {
-		summary["cache_read_tokens"] = usage.CacheReadTokens
-		summary["cache_write_tokens"] = usage.CacheWriteTokens
-	}
-	if len(toolResults) > 0 {
-		summary["tool_results"] = toolResults
-	}
-	return summary
-}
-
-// executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
-// appends no user Message and picks up the committed transcript as it stands.
-func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	if a.limits.RunDeadline > 0 {
-		var deadlineCancel context.CancelFunc
-		runCtx, deadlineCancel = context.WithTimeout(runCtx, a.limits.RunDeadline)
-		defer deadlineCancel()
-	}
-
-	runID := RunID(nextID("run"))
-	a.runMu.Lock()
-	a.currentRunID = runID
-	a.currentRunStop = cancel
-	a.runMu.Unlock()
-	defer func() {
-		a.runMu.Lock()
-		if a.currentRunID == runID {
-			a.currentRunID = ""
-			a.currentRunStop = nil
-		}
-		a.runMu.Unlock()
-	}()
-	// A Run that ends before a commit boundary must not leave a staged ToolSet
-	// behind for the next Run to activate unasked.
-	defer a.registry.abortPending()
-
-	var sequence uint64
-	var totalUsage Usage
-	var final *Message
-	var toolCalls uint32
-	var turns uint32
-	var truncatedContinuations uint32
-	var textBytes, reasoningBytes uint64
-	runStarted := time.Now()
-	runMetrics := func() RunMetrics {
-		return RunMetrics{
-			ElapsedMS:      time.Since(runStarted).Milliseconds(),
-			Turns:          turns,
-			ToolCalls:      toolCalls,
-			TextBytes:      textBytes,
-			ReasoningBytes: reasoningBytes,
-		}
-	}
-	a.observerCtx = runCtx
-	defer func() { a.observerCtx = nil }()
-	// batch is the Tool batch of the last committed assistant Message, while
-	// some of its calls still have no committed result.
-	var batch openBatch
-
-	fail := func(err *RuntimeError) (RunResult, error) {
-		if err == nil {
-			err = runtimeError(ErrInternalInvariant, "Run", "nil terminal error", nil)
-		}
-		result := RunResult{RunID: runID, Status: RunFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
-		if errors.Is(err.Cause, context.Canceled) || err.Code == ErrCancelled {
-			result.Status = RunCanceled
-		}
-		if err.Code == ErrDeadlineExceeded {
-			result.Status = RunDeadlineExceeded
-		}
-		a.closeOpenCalls(runID, &sequence, &batch, err, result.Status)
-		// The terminal Event is emitted even when an observer already failed:
-		// a Run may not end without exactly one run_end.
-		_ = a.emit(runID, &sequence, EventRunEnd, EventProtected, 0, "", "", map[string]any{"status": result.Status, "error": err.Code})
-		a.discardControl()
-		return result, err
-	}
-
-	if err := a.emit(runID, &sequence, EventRunStart, EventProtected, 0, "", "", nil); err != nil {
-		return fail(err)
-	}
-	if err := a.extensions.prepareRun(runCtx, a.transcript); err != nil {
-		return fail(err)
-	}
-	if err := a.measureTranscript(); err != nil {
-		return fail(asRuntimeError(err))
-	}
-
-	if prompt != nil {
-		prompt.ID = MessageID(nextID("message"))
-		if err := a.commitMessage(*prompt); err != nil {
-			return fail(asRuntimeError(err))
-		}
-		if err := a.journalStep(runCtx, Step{Kind: StepPrompt, RunID: runID, MessageID: prompt.ID}); err != nil {
-			return fail(err)
-		}
-		payload := map[string]any{"role": string(prompt.Role)}
-		if err := a.emit(runID, &sequence, EventMessageStart, EventProtected, 0, prompt.ID, "", payload); err != nil {
-			return fail(err)
-		}
-		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, 0, prompt.ID, "", payload); err != nil {
-			return fail(err)
-		}
-	}
-
-	for turn := TurnNumber(1); ; turn++ {
-		if limitExceededUint32(a.limitsSet, a.limits.MaxTurns, uint32(turn)) {
-			return fail(runtimeError(ErrLimitExceeded, "Run", "maximum Turns exceeded", nil))
-		}
-		if err := contextFailure(runCtx, "turn"); err != nil {
-			return fail(err)
-		}
-		turns++
-		if err := a.emit(runID, &sequence, EventTurnStart, EventProtected, turn, "", "", nil); err != nil {
-			return fail(err)
-		}
-		turnStarted := time.Now()
-
-		// The Tool surface is refreshed at the Turn boundary so every Tool the
-		// Model is shown in this request resolves for the whole Turn.
-		if err := a.refreshTools(); err != nil {
-			return fail(asRuntimeError(err))
-		}
-
-		snapshot := ContextSnapshot{
-			SessionID:          a.id,
-			RunID:              runID,
-			Turn:               turn,
-			SystemInstructions: a.instruction,
-			Messages:           cloneMessages(a.transcript.Messages()),
-		}
-		built, request, prefix, assembleErr := a.assembleTurn(runCtx, snapshot)
-		if assembleErr != nil {
-			return fail(assembleErr)
-		}
-		contextPayload := map[string]any{
-			"strategy":          built.Metadata["strategy"],
-			"messages":          len(request.Messages),
-			"source_messages":   len(snapshot.Messages),
-			"selected_messages": len(built.Messages),
-			"prefix_hash":       prefix,
-			"prefix_messages":   max(len(request.Messages)-1, 0),
-			"system_bytes":      len(request.SystemInstructions),
-			"tools":             len(request.Tools),
-		}
-		// The builder's Metadata keeps its own key, so it can never replace
-		// a count above with its string form.
-		if len(built.Metadata) > 0 {
-			metadata := make(map[string]any, len(built.Metadata))
-			for key, value := range built.Metadata {
-				metadata[key] = value
-			}
-			contextPayload["metadata"] = metadata
-		}
-		// The model call is written before context_built, so the store's time
-		// stays out of the model's, and a writer that can no longer write
-		// stops here, before the model is called.
-		if err := a.journalStep(runCtx, Step{Kind: StepModelCall, RunID: runID, Turn: turn}); err != nil {
-			return fail(err)
-		}
-		if err := a.emit(runID, &sequence, EventContextBuilt, EventProtected, turn, "", "", contextPayload); err != nil {
-			return fail(err)
-		}
-		assistant, usage, modelErr := a.readAssistant(runCtx, runID, &sequence, turn, request)
-		totalUsage = addUsage(totalUsage, usage)
-		for _, part := range assistant.Parts {
-			switch part.Kind {
-			case ContentText:
-				textBytes += uint64(len(part.Text))
-			case ContentReasoning:
-				reasoningBytes += uint64(len(part.Text))
-			}
-		}
-		if modelErr != nil {
-			// The text the Model sent before its stream broke is committed,
-			// so the Transcript keeps it; the Run still fails as it did.
-			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
-				// The Run fails with the model's error either way; a cut-off
-				// reply that cannot be written fails the Run's last write.
-				_ = a.journalStep(runCtx, Step{Kind: StepCutOff, RunID: runID, Turn: turn, MessageID: assistant.ID})
-				_ = a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": 0})
-			}
-			return fail(modelErr)
-		}
-		// A Message with Tool calls stopped for them, unless the output limit
-		// cut it off: StopMaxTokens stays, so a TurnStopper sees the cut-off.
-		if len(assistant.ToolCalls) > 0 && assistant.StopReason != StopMaxTokens {
-			assistant.StopReason = StopToolCalls
-		}
-		if err := a.commitMessage(assistant); err != nil {
-			return fail(asRuntimeError(err))
-		}
-		if len(assistant.ToolCalls) > 0 {
-			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
-		}
-		if err := a.journalStep(runCtx, Step{Kind: StepReply, RunID: runID, Turn: turn, MessageID: assistant.ID}); err != nil {
-			return fail(err)
-		}
-		if err := a.emit(runID, &sequence, EventMessageEnd, EventProtected, turn, assistant.ID, "", map[string]any{"tool_calls": len(assistant.ToolCalls)}); err != nil {
-			return fail(err)
-		}
-
-		settle := func(stopped bool, reason string) (RunResult, error) {
-			finalCopy := assistant.Clone()
-			final = &finalCopy
-			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
-			payload := map[string]any{"status": result.Status}
-			if stopped {
-				payload["stopped_by_extension"] = true
-				if reason != "" {
-					payload["stop_reason"] = reason
-				}
-			}
-			_ = a.emit(runID, &sequence, EventRunEnd, EventProtected, turn, "", "", payload)
-			a.discardControl()
-			return result, nil
-		}
-
-		if len(assistant.ToolCalls) == 0 {
-			if err := a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
-				"stop_reason": assistant.StopReason,
-				"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), nil),
-			}); err != nil {
-				return fail(err)
-			}
-			// A TurnStopper runs after turn_end and before continuation
-			// selection. A stop preserves the Turn and settles the Run.
-			decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-				SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
-			})
-			if stopErr != nil {
-				return fail(stopErr)
-			}
-			if decision.Stop {
-				return settle(true, decision.Reason)
-			}
-			// Safe boundary at settlement: Steer and FollowUp both apply here.
-			// Cancellation is checked first so a queued continuation is never
-			// committed to a Run that is already ending.
-			if err := contextFailure(runCtx, "continuation"); err != nil {
-				return fail(err)
-			}
-			injected, controlErr := a.consumeControl(runCtx, runID, &sequence, turn, true)
-			if controlErr != nil {
-				return fail(controlErr)
-			}
-			if injected {
-				continue
-			}
-			// A Turn cut off at the output limit before any Tool Call is not
-			// an answer: the Model ran out of room, often while reasoning.
-			// Within the configured bound the Run continues instead of
-			// settling on it.
-			if assistant.StopReason == StopMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
-				truncatedContinuations++
-				if err := a.commitContinuation(runCtx, runID, &sequence, turn, UserMessage(TruncatedContinuationText), "truncated"); err != nil {
-					return fail(err)
-				}
-				continue
-			}
-			return settle(false, "")
-		}
-
-		// Preflight is source ordered: resolve, validate, and run the Pre
-		// chain before any executor starts.
-		plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &toolCalls)
-		if planErr != nil {
-			return fail(planErr)
-		}
-		// A blocked Tool is already settled at preflight, so its start and end
-		// Events are emitted together, in source order.
-		outcomes := make(map[int]ToolResult, len(plans))
-		batch.outcomes = outcomes
-		for i := range plans {
-			if err := a.emit(runID, &sequence, EventToolExecutionStart, EventProtected, turn, assistant.ID, plans[i].call.ID, map[string]any{"tool_id": plans[i].call.ToolID}); err != nil {
-				return fail(err)
-			}
-			if plans[i].blocked {
-				outcomes[i] = plans[i].result
-				if err := a.emit(runID, &sequence, EventToolExecutionEnd, EventProtected, turn, assistant.ID, plans[i].call.ID, map[string]any{"status": plans[i].result.Status, "executed": plans[i].result.Executed}); err != nil {
-					return fail(err)
-				}
-			}
-		}
-
-		// Results commit in source order, as soon as every call before them
-		// has settled: after each group runs, and for blocked calls, which
-		// settled at preflight. So a crash loses at most the group in flight.
-		toolResults := make([]map[string]any, 0, len(plans))
-		settledResults := make([]ToolResult, 0, len(plans))
-		committed := 0
-		commitUpTo := func(end int) *RuntimeError {
-			for ; committed < end; committed++ {
-				call := plans[committed].call
-				toolResult := outcomes[committed]
-				// Post-Tool-Use sees executed, blocked, failed, and cancelled
-				// outcomes alike, in reverse installation order.
-				finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
-				if postErr != nil {
-					return postErr
-				}
-				toolResult = finalized
-				if err := validateToolResultSize(a.limits, a.limitsSet, toolResult); err != nil {
-					return err
-				}
-				content := cloneContent(toolResult.Content)
-				resultMessage := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
-				if err := a.commitMessage(resultMessage); err != nil {
-					return asRuntimeError(err)
-				}
-				batch.next = committed + 1
-				if err := a.journalStep(runCtx, Step{Kind: StepToolResult, RunID: runID, Turn: turn, MessageID: resultMessage.ID}); err != nil {
-					return err
-				}
-				if err := a.emit(runID, &sequence, EventToolResultCommitted, EventProtected, turn, resultMessage.ID, call.ID, map[string]any{"status": toolResult.Status}); err != nil {
-					return err
-				}
-				settledResults = append(settledResults, toolResult.Clone())
-				toolResults = append(toolResults, map[string]any{
-					"tool_id":  call.ToolID,
-					"call_id":  call.ID,
-					"status":   toolResult.Status,
-					"executed": toolResult.Executed,
-				})
-			}
-			return nil
-		}
-
-		// Execution may be sequential or bounded parallel. Completion Events
-		// are emitted inside the group as each outcome arrives, so they follow
-		// actual completion order; commitment stays source ordered.
-		for _, group := range groupPlans(plans, a.parallelWorkers()) {
-			// The calls are written before they run, so a crash during them
-			// leaves calls that are known to have started.
-			calls := make([]ToolCallID, len(group))
-			for j, index := range group {
-				calls[j] = plans[index].call.ID
-			}
-			if err := a.journalStep(runCtx, Step{Kind: StepToolStart, RunID: runID, Turn: turn, MessageID: assistant.ID, Calls: calls}); err != nil {
-				return fail(err)
-			}
-			completed, groupErr := a.executeToolGroup(runCtx, runID, &sequence, turn, assistant.ID, plans, group)
-			// A failed group still reports what it knows, so the closing
-			// results of the failed Run keep Executed true for started Tools.
-			for index, result := range completed {
-				outcomes[index] = result
-			}
-			if groupErr != nil {
-				return fail(groupErr)
-			}
-			if err := commitUpTo(group[len(group)-1] + 1); err != nil {
-				return fail(err)
-			}
-		}
-		if err := commitUpTo(len(plans)); err != nil {
-			return fail(err)
-		}
-		batch = openBatch{}
-
-		// ToolSet activation commits at the batch boundary, so newly active
-		// Tools appear only in the next Model request. registryMu serializes
-		// the visibility write with ToolInspector.Tools on other goroutines.
-		a.registryMu.Lock()
-		activated, activationErr := a.registry.commitPending()
-		a.registryMu.Unlock()
-		if activationErr != nil {
-			return fail(asRuntimeError(activationErr))
-		}
-		for _, name := range activated {
-			if err := a.emit(runID, &sequence, EventToolSetActivated, EventProtected, turn, "", "", map[string]any{"toolset": name}); err != nil {
-				return fail(err)
-			}
-		}
-
-		if err := a.emit(runID, &sequence, EventTurnEnd, EventProtected, turn, "", "", map[string]any{
-			"stop_reason": StopToolCalls,
-			"summary":     summarizeTurn(assistant, usage, time.Since(turnStarted), toolResults),
-		}); err != nil {
-			return fail(err)
-		}
-		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopToolCalls,
-		})
-		if stopErr != nil {
-			return fail(stopErr)
-		}
-		if decision.Stop {
-			return settle(true, decision.Reason)
-		}
-		// Safe boundary between Turns: Steer applies, FollowUp waits for
-		// settlement.
-		if err := contextFailure(runCtx, "continuation"); err != nil {
-			return fail(err)
-		}
-		if _, controlErr := a.consumeControl(runCtx, runID, &sequence, turn, false); controlErr != nil {
-			return fail(controlErr)
-		}
-	}
-}
-
-// consumeControl commits the control Messages that apply at this boundary. It
-// runs inside the Session execution unit, so committing them keeps the Session
-// goroutine as the only mutation authority for the transcript.
-func (a *Session) consumeControl(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, settling bool) (bool, *RuntimeError) {
-	injected := false
-	commit := func(message Message, source string) *RuntimeError {
-		if err := a.commitContinuation(ctx, runID, sequence, turn, message, source); err != nil {
-			return err
-		}
-		injected = true
-		return nil
-	}
-	for {
-		select {
-		case message := <-a.steer:
-			if err := commit(message, "steer"); err != nil {
-				return injected, err
-			}
-			continue
-		default:
-		}
-		break
-	}
-	if !settling {
-		return injected, nil
-	}
-	for {
-		select {
-		case message := <-a.followUp:
-			if err := commit(message, "follow_up"); err != nil {
-				return injected, err
-			}
-			continue
-		default:
-		}
-		break
-	}
-	return injected, nil
-}
-
-// commitContinuation commits a Message the Loop continues with (a control
-// Message, or the truncation continuation) and emits its message events
-// with the source that produced it.
-func (a *Session) commitContinuation(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, message Message, source string) *RuntimeError {
-	message.ID = MessageID(nextID("message"))
-	if err := a.commitMessage(message); err != nil {
-		return asRuntimeError(err)
-	}
-	if err := a.journalStep(ctx, Step{Kind: StepContinuation, RunID: runID, Turn: turn, MessageID: message.ID}); err != nil {
-		return err
-	}
-	payload := map[string]any{"role": string(message.Role), "source": source}
-	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, message.ID, "", payload); err != nil {
-		return err
-	}
-	return a.emit(runID, sequence, EventMessageEnd, EventProtected, turn, message.ID, "", payload)
-}
-
-// discardControl drops control Messages left over when a Run reaches its
-// terminal Event. Nothing may continue after run_end, so a leftover control
-// Message must not silently reappear inside the next Run.
-func (a *Session) discardControl() {
-	for {
-		select {
-		case <-a.steer:
-		case <-a.followUp:
-		default:
-			return
-		}
-	}
-}
-
-func (a *Session) readAssistant(ctx context.Context, runID RunID, sequence *uint64, turn TurnNumber, request ModelRequest) (Message, Usage, *RuntimeError) {
-	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
-	defer cancel()
-	stream, err := a.model.Stream(modelCtx, request)
-	if err != nil {
-		return Message{}, Usage{}, classifyModelError(err)
-	}
-	if stream == nil {
-		return Message{}, Usage{}, runtimeError(ErrModelFailure, "Model.Stream", "Model returned a nil stream", nil)
-	}
-	defer func() { _ = stream.Close() }()
-
-	assistant := Message{ID: MessageID(nextID("message")), Role: RoleAssistant}
-	if err := a.emit(runID, sequence, EventMessageStart, EventProtected, turn, assistant.ID, "", map[string]any{"role": string(RoleAssistant)}); err != nil {
-		return Message{}, Usage{}, err
-	}
-	var usage Usage
-	var complete bool
-	// Once the stream has started, a failure keeps the text received so far
-	// as a cut-off reply, so what the Model said is not lost.
-	broken := func(err *RuntimeError) (Message, Usage, *RuntimeError) {
-		partial := cutOffReply(assistant)
-		partial.Usage = usage
-		return partial, usage, err
-	}
-	// A streaming reply is written in parts, every second or every few KiB,
-	// so a crash loses at most the last part of it.
-	var partText, partReasoning strings.Builder
-	partStarted := time.Now()
-	writePart := func() *RuntimeError {
-		if a.journal == nil {
-			return nil
-		}
-		size := partText.Len() + partReasoning.Len()
-		if size == 0 || (size < replyPartBytes && time.Since(partStarted) < replyPartEvery) {
-			return nil
-		}
-		step := Step{Kind: StepReplyPart, RunID: runID, Turn: turn, MessageID: assistant.ID, Text: partText.String(), Reasoning: partReasoning.String()}
-		partText.Reset()
-		partReasoning.Reset()
-		partStarted = time.Now()
-		return a.journalStep(ctx, step)
-	}
-	for {
-		modelEvent, recvErr := stream.Recv(modelCtx)
-		if recvErr != nil {
-			if errors.Is(recvErr, io.EOF) && complete {
-				break
-			}
-			if errors.Is(recvErr, io.EOF) {
-				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
-			}
-			return broken(classifyModelError(recvErr))
-		}
-		if complete {
-			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
-		}
-		if modelEvent.Model != "" {
-			assistant.Model = modelEvent.Model
-		}
-		switch modelEvent.Kind {
-		case ModelTextDelta:
-			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentText, Text: modelEvent.Text})
-				if err := a.emit(runID, sequence, EventMessageUpdate, EventCoalescable, turn, assistant.ID, "", map[string]any{"text": modelEvent.Text}); err != nil {
-					return broken(err)
-				}
-				partText.WriteString(modelEvent.Text)
-				if err := writePart(); err != nil {
-					return broken(err)
-				}
-			}
-		case ModelReasoningDelta:
-			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning, Text: modelEvent.Text})
-				partReasoning.WriteString(modelEvent.Text)
-				if err := writePart(); err != nil {
-					return broken(err)
-				}
-			}
-		case ModelReasoningDone:
-			// The Done signs the block its deltas opened. A block that
-			// streamed no deltas (redacted, or with its display omitted)
-			// finds the last reasoning Part already signed, and gets a Part
-			// of its own instead of overwriting that signature.
-			partIndex := -1
-			for i := len(assistant.Parts) - 1; i >= 0; i-- {
-				if assistant.Parts[i].Kind == ContentReasoning {
-					partIndex = i
-					break
-				}
-			}
-			if partIndex == -1 || len(assistant.Parts[partIndex].Signature) > 0 {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning})
-				partIndex = len(assistant.Parts) - 1
-			}
-			assistant.Parts[partIndex].Signature = slices.Clone(modelEvent.ReasoningArtifact)
-		case ModelToolCall:
-			if modelEvent.ToolCall == nil || modelEvent.ToolCall.ID == "" || modelEvent.ToolCall.ToolID == "" {
-				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
-			}
-			for _, existing := range assistant.ToolCalls {
-				if existing.ID == modelEvent.ToolCall.ID {
-					return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil))
-				}
-			}
-			call := *modelEvent.ToolCall
-			call.Arguments = slices.Clone(call.Arguments)
-			call.Signature = slices.Clone(call.Signature)
-			assistant.ToolCalls = append(assistant.ToolCalls, call)
-		case ModelUsage:
-			usage = modelEvent.Usage
-		case ModelDone:
-			complete = true
-			assistant.StopReason = modelEvent.StopReason
-			if assistant.StopReason == "" {
-				assistant.StopReason = StopEndTurn
-			}
-			if modelEvent.Usage.TotalTokens != 0 || modelEvent.Usage.InputTokens != 0 || modelEvent.Usage.OutputTokens != 0 {
-				usage = modelEvent.Usage
-			}
-		default:
-			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "unknown Model event", nil))
-		}
-		if complete {
-			break
-		}
-	}
-	if !complete {
-		return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "missing completion", nil))
-	}
-	assistant.Parts = coalesceDeltas(assistant.Parts)
-	assistant.Usage = usage
-	return assistant, usage, nil
 }
 
 // cutOffReply is what a Turn keeps of a reply whose stream broke: the text
@@ -1362,7 +824,7 @@ func coalesceDeltas(parts []ContentPart) []ContentPart {
 	return out
 }
 
-func executeToolSafely(tool Tool, ctx context.Context, use ToolUse, progress ToolProgress) (result ToolResult, err error) {
+func executeToolSafely(tool Tool, ctx context.Context, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			// Match the Extension guard: a short, client-safe Message with the

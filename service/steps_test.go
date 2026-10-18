@@ -67,7 +67,7 @@ func TestEveryStepIsStoredBeforeTheNext(t *testing.T) {
 }
 
 // crashingStore fails every write, and every renewal of the instance's
-// Liveness row, once a write has held a tools_started Entry, as the
+// Liveness row, once a write has held a tool_started Entry, as the
 // instance's death right after a tool starts would.
 type crashingStore struct {
 	session.Store
@@ -89,7 +89,7 @@ func (s *crashingStore) Append(ctx context.Context, id string, after uint64, ent
 	s.mu.Lock()
 	crashed := s.crashed
 	for _, entry := range entries {
-		if entry.Kind == session.EntryToolsStarted {
+		if entry.Kind == gotato.KindToolStarted {
 			s.crashed = true
 		}
 	}

@@ -477,7 +477,7 @@ func (t *activationTool) Spec() ToolSpec {
 	}
 }
 
-func (t *activationTool) Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *activationTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	var input struct {
 		Name string `json:"name"`
 	}

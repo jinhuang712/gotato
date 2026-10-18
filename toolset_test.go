@@ -26,7 +26,7 @@ func (t *namedTool) Spec() ToolSpec {
 	}
 }
 
-func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgress) (ToolResult, error) {
+func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	if t.tracker != nil {
 		t.tracker.enter()
 		defer t.tracker.leave()
@@ -77,6 +77,12 @@ func (c *concurrencyTracker) leave() {
 	c.mu.Lock()
 	c.active--
 	c.mu.Unlock()
+}
+
+func (c *concurrencyTracker) activeValue() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.active
 }
 
 func (c *concurrencyTracker) peakValue() int {
@@ -148,13 +154,13 @@ func TestToolSetStaysHiddenUntilTheNextRequest(t *testing.T) {
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
-		if event.Kind == EventToolSetActivated {
-			if event.Class != EventProtected || event.Payload["toolset"] != "files" {
-				t.Fatalf("activation event = %+v", event)
+		if activated, ok := event.(ToolSetActivated); ok {
+			if activated.Kind().Class() != ClassStored || activated.ToolSet != "files" || activated.Number == 0 {
+				t.Fatalf("activation event = %+v", activated)
 			}
 			activations++
 		}
-		if event.Kind == EventRunEnd {
+		if event.Kind() == KindRunEnded {
 			break
 		}
 	}
@@ -289,15 +295,15 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	}
 	defer func() { _ = events.Close() }()
 
-	// Reading Events in step with the batch keeps the completion order
-	// deterministic: "slow" is released only after the first completion Event
-	// has already been emitted, and only "fast" can have produced it.
+	// The Events of a step are written together, so a ToolEnded is sent only
+	// after the whole group has settled. To keep the completion order
+	// deterministic, "slow" is released only after "fast" has left its
+	// executor and had time to report; the stored ToolEnded Events must follow
+	// that completion order, while the Tool Results commit in source order.
 	var mu sync.Mutex
 	var ends, commits []ToolCallID
-	firstEnd := make(chan struct{})
 	observed := make(chan error, 1)
 	go func() {
-		var once sync.Once
 		for {
 			event, nextErr := events.Next(context.Background())
 			if nextErr != nil {
@@ -305,15 +311,14 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 				return
 			}
 			mu.Lock()
-			switch event.Kind {
-			case EventToolExecutionEnd:
-				ends = append(ends, event.ToolCallID)
-				once.Do(func() { close(firstEnd) })
-			case EventToolResultCommitted:
-				commits = append(commits, event.ToolCallID)
+			switch e := event.(type) {
+			case ToolEnded:
+				ends = append(ends, e.CallID)
+			case ToolResultCommitted:
+				commits = append(commits, e.CallID)
 			}
 			mu.Unlock()
-			if event.Kind == EventRunEnd {
+			if event.Kind() == KindRunEnded {
 				observed <- nil
 				return
 			}
@@ -327,11 +332,14 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	}()
 	awaitArrivals(t, arrive, 2)
 	close(fastRelease)
-	select {
-	case <-firstEnd:
-	case <-time.After(3 * time.Second):
-		t.Fatal("no completion Event arrived while one Tool was still held")
+	deadline := time.Now().Add(3 * time.Second)
+	for tracker.activeValue() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the released Tool did not finish while the other was held")
+		}
+		time.Sleep(time.Millisecond)
 	}
+	time.Sleep(50 * time.Millisecond)
 	close(slowRelease)
 	select {
 	case err := <-done:
@@ -347,7 +355,7 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Event stream did not reach run_end")
+		t.Fatal("Event stream did not reach run_ended")
 	}
 	if tracker.peakValue() != 2 {
 		t.Fatalf("parallel peak = %d", tracker.peakValue())

@@ -113,19 +113,19 @@ func TestDemoToolLoopAndEvents(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	kinds := map[string]int{}
 	for _, line := range lines {
-		var event gotato.Event
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
+		event, err := gotato.UnmarshalEvent([]byte(line))
+		if err != nil {
 			t.Fatalf("bad event line %q: %v", line, err)
 		}
-		kinds[string(event.Kind)]++
+		kinds[string(event.Kind())]++
 	}
-	if kinds["run_start"] != 1 || kinds["run_end"] != 1 || kinds["context_built"] != 2 || kinds["tool_execution_end"] != 1 {
+	if kinds["run_started"] != 1 || kinds["run_ended"] != 1 || kinds["context_built"] != 2 || kinds["tool_ended"] != 1 {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	// --kind filters.
-	out = h.ok("events", "--session", id, "--kind", "turn_end")
+	out = h.ok("events", "--session", id, "--kind", "turn_ended")
 	if got := len(strings.Split(strings.TrimSpace(out), "\n")); got != 2 {
-		t.Fatalf("turn_end lines = %d", got)
+		t.Fatalf("turn_ended lines = %d", got)
 	}
 	// session events <id> is the same data.
 	if h.ok("session", "events", id) != h.ok("events", "--session", id) {
@@ -140,12 +140,20 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 	if len(lines) < 5 {
 		t.Fatalf("too few lines: %d", len(lines))
 	}
-	// The Runner saves the new Session before the Loop's run_start.
-	var first, second gotato.Event
-	h.mustJSON(lines[0], &first)
-	h.mustJSON(lines[1], &second)
-	if first.Kind != gotato.EventSessionSaved || second.Kind != gotato.EventRunStart {
-		t.Fatalf("first line kinds = %s, %s", first.Kind, second.Kind)
+	// A Run's stream holds the Session's own stored Events only: the ones that
+	// made a new Session, then the Run's. The Instance Events (session_loaded,
+	// session_saved) are not in it.
+	for i, line := range lines[:len(lines)-1] {
+		event, err := gotato.UnmarshalEvent([]byte(line))
+		if err != nil {
+			t.Fatalf("line %d %q: %v", i, line, err)
+		}
+		if i == 0 && event.Kind() != gotato.KindSessionCreated {
+			t.Fatalf("first line kind = %s, want session_created", event.Kind())
+		}
+		if event.Kind().Class() == gotato.ClassInstance {
+			t.Fatalf("line %d is the Instance Event %s", i, event.Kind())
+		}
 	}
 	var last struct {
 		Kind   string     `json:"kind"`
@@ -195,11 +203,10 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	out := h.ok("run", "--session", id, "--events", "jsonl", "four")
 	sawBuild := false
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		var event gotato.Event
-		if json.Unmarshal([]byte(line), &event) == nil && event.Kind == gotato.EventContextBuilt {
+		if event, err := gotato.UnmarshalEvent([]byte(line)); err == nil && event.Kind() == gotato.KindContextBuilt {
 			sawBuild = true
-			if _, ok := event.Payload["panel_bytes"]; ok {
-				t.Fatalf("context_built still reports panel_bytes: %v", event.Payload)
+			if strings.Contains(line, "panel_bytes") {
+				t.Fatalf("context_built still reports panel_bytes: %s", line)
 			}
 		}
 	}
@@ -406,8 +413,18 @@ func TestVersionAndEmptyEventsJSON(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("events exit = %d", code)
 	}
-	if strings.TrimSpace(out) != "[]" {
-		t.Fatalf("empty events json = %q", out)
+	// A Session nobody ran holds the Events that made it, and no Run's.
+	var recorded []struct {
+		Kind string `json:"kind"`
+	}
+	h.mustJSON(out, &recorded)
+	if len(recorded) == 0 || recorded[0].Kind != "session_created" {
+		t.Fatalf("events json = %q, want a Record that opens with session_created", out)
+	}
+	for _, event := range recorded {
+		if strings.HasPrefix(event.Kind, "run_") {
+			t.Fatalf("a Session nobody ran holds %s: %q", event.Kind, out)
+		}
 	}
 }
 

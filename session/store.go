@@ -78,7 +78,7 @@ type InstanceState struct {
 // it.
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
-	// Checkpoint. It fails with ErrExists when the ID is taken.
+	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is taken.
 	Create(ctx context.Context, id string, entries []Entry, summary Summary) error
 	// Append writes entries at after+1 onward and replaces the Summary. It
 	// fails with ErrConflict unless after is the Record's last position, and
@@ -135,7 +135,7 @@ func checkBatch(after uint64, entries []Entry) error {
 			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d of a write after %d has Seq %d", i, after, entry.Seq))
 		}
 	}
-	if after == 0 && (entries[0].Kind != EntryCheckpoint || entries[0].Layer != LayerFact) {
+	if after == 0 && (!entries[0].IsCheckpoint() || entries[0].Layer != LayerFact) {
 		return gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a Record must start with a checkpoint")
 	}
 	return nil
@@ -156,7 +156,7 @@ func cloneEntries(entries []Entry) []Entry {
 func factsFrom(entries []Entry) []Entry {
 	start := 0
 	for i := len(entries) - 1; i >= 0; i-- {
-		if entries[i].Kind == EntryCheckpoint {
+		if entries[i].IsCheckpoint() {
 			start = i
 			break
 		}

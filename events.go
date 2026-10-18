@@ -1,420 +1,596 @@
 package gotato
 
 import (
-	"context"
-	"errors"
-	"io"
-	"sync"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"reflect"
 	"time"
 )
 
+// Event is something that happened to a Session or an Instance, as a value of
+// its own type, named for what happened: RunStarted, ToolEnded,
+// SessionClaimed. A caller switches on the type and reads fields the
+// compiler checks:
+//
+//	switch e := event.(type) {
+//	case gotato.RunStarted:
+//	case gotato.TextDelta:
+//		fmt.Print(e.Text)
+//	case gotato.RunEnded:
+//		fmt.Println(e.Status)
+//	}
+//
+// Every type carries a Header. In JSON an Event is one flat object whose
+// "kind" names its type; MarshalEvent and UnmarshalEvent convert it, and an
+// unknown kind comes back as an UnknownEvent, so a consumer tolerates kinds
+// that a later version adds.
+type Event interface {
+	// Kind names the Event's type, such as "run_started".
+	Kind() EventKind
+	// Head returns the Event's Header.
+	Head() Header
+}
+
+// EventKind names the type of an Event, in its JSON "kind".
+type EventKind string
+
+// Class returns where an Event of this kind lives: stored in the Record, only
+// sent, or an Instance Event.
+func (k EventKind) Class() EventClass { return eventClasses[k] }
+
+// EventClass says where an Event lives.
 type EventClass string
 
 const (
-	EventProtected   EventClass = "protected"
-	EventCoalescable EventClass = "coalescable"
+	// ClassStored Events are Entries of the Session's Record. Their Number is
+	// the Entry's position, so every Instance reads the same number.
+	ClassStored EventClass = "stored"
+	// ClassDelta Events are sent and never stored: text, reasoning and tool
+	// progress. What they carry ends up whole in a Message or a Tool Result.
+	ClassDelta EventClass = "delta"
+	// ClassInstance Events happen where no Record can take them, because the
+	// Instance holds no Claim on the Session. They go only to that Instance's
+	// subscribers, and carry no number.
+	ClassInstance EventClass = "instance"
 )
 
-type EventKind string
+// Header is what every Event carries: when it happened and the Session it
+// concerns, if any. A stored Event also has its Number, and an Event of a Run
+// its Run and its Turn.
+type Header struct {
+	Time      time.Time `json:"time"`
+	SessionID SessionID `json:"session_id,omitempty"`
+	// Number is a stored Event's position in the Session's Record. A delta
+	// carries the Number of the stored Event it follows. An Instance Event
+	// has none.
+	Number uint64     `json:"number,omitempty"`
+	RunID  RunID      `json:"run_id,omitempty"`
+	Turn   TurnNumber `json:"turn,omitempty"`
+}
+
+// Head returns the Header; every Event type gets it by embedding Header.
+func (h Header) Head() Header { return h }
+
+// NewHeader returns a Header stamped with the current time.
+func NewHeader(session SessionID, run RunID, turn TurnNumber) Header {
+	return Header{Time: time.Now(), SessionID: session, RunID: run, Turn: turn}
+}
+
+// WithNumber returns a copy of event whose Number is number.
+func WithNumber(event Event, number uint64) Event {
+	return withHeader(event, func(h *Header) { h.Number = number })
+}
+
+// WithSession returns a copy of event whose SessionID is id, when it has none.
+func WithSession(event Event, id SessionID) Event {
+	if event.Head().SessionID != "" || id == "" {
+		return event
+	}
+	return withHeader(event, func(h *Header) { h.SessionID = id })
+}
+
+// withHeader copies an Event and edits the copy's Header. Event types are
+// plain structs that embed Header, so one reflective copy serves them all.
+func withHeader(event Event, edit func(*Header)) Event {
+	value := reflect.ValueOf(event)
+	if value.Kind() != reflect.Struct {
+		return event
+	}
+	field := value.FieldByName("Header")
+	if !field.IsValid() {
+		return event
+	}
+	copied := reflect.New(value.Type()).Elem()
+	copied.Set(value)
+	header := field.Interface().(Header)
+	edit(&header)
+	copied.FieldByName("Header").Set(reflect.ValueOf(header))
+	return copied.Interface().(Event)
+}
+
+// MarshalEvent encodes an Event as one flat JSON object whose "kind" names
+// its type.
+func MarshalEvent(event Event) ([]byte, error) { return json.Marshal(event) }
+
+// UnmarshalEvent decodes the JSON that MarshalEvent wrote. A kind this
+// version does not know comes back as an UnknownEvent.
+func UnmarshalEvent(data []byte) (Event, error) {
+	var probe struct {
+		Kind EventKind `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("gotato: decode Event: %w", err)
+	}
+	decode, ok := eventDecoders[probe.Kind]
+	if !ok {
+		unknown := UnknownEvent{EventKind: probe.Kind, Raw: append(json.RawMessage(nil), data...)}
+		_ = json.Unmarshal(data, &unknown.Header)
+		return unknown, nil
+	}
+	return decode(data)
+}
+
+func decodeAs[E Event](data []byte) (Event, error) {
+	var event E
+	if err := json.Unmarshal(data, &event); err != nil {
+		return nil, fmt.Errorf("gotato: decode Event: %w", err)
+	}
+	return event, nil
+}
+
+// marshalKind encodes v, an object, with "kind" as its first key.
+func marshalKind(kind EventKind, v any) ([]byte, error) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	out.WriteString(`{"kind":`)
+	name, _ := json.Marshal(kind)
+	out.Write(name)
+	if len(body) > 2 {
+		out.WriteByte(',')
+		out.Write(body[1:])
+	} else {
+		out.WriteByte('}')
+	}
+	return out.Bytes(), nil
+}
+
+// UnknownEvent is an Event whose kind this version does not know, kept as its
+// JSON so a consumer can pass it on.
+type UnknownEvent struct {
+	Header
+	EventKind EventKind
+	Raw       json.RawMessage
+}
+
+// Kind implements Event.
+func (e UnknownEvent) Kind() EventKind { return e.EventKind }
+
+// MarshalJSON writes the Event as it was read.
+func (e UnknownEvent) MarshalJSON() ([]byte, error) {
+	if len(e.Raw) == 0 {
+		return marshalKind(e.EventKind, struct{}{})
+	}
+	return e.Raw, nil
+}
+
+// ---- reasons ----------------------------------------------------------------
+
+// ClaimWhy says why an Instance claimed a Session.
+type ClaimWhy string
 
 const (
-	EventRunStart            EventKind = "run_start"
-	EventTurnStart           EventKind = "turn_start"
-	EventMessageStart        EventKind = "message_start"
-	EventMessageUpdate       EventKind = "message_update"
-	EventMessageEnd          EventKind = "message_end"
-	EventToolExecutionStart  EventKind = "tool_execution_start"
-	EventToolExecutionUpdate EventKind = "tool_execution_update"
-	EventToolExecutionEnd    EventKind = "tool_execution_end"
-	EventToolResultCommitted EventKind = "tool_result_committed"
-	EventToolSetActivated    EventKind = "toolset_activated"
-	EventTurnEnd             EventKind = "turn_end"
-	EventRunEnd              EventKind = "run_end"
-	// EventContextBuilt is emitted once per Turn, after the ContextBuilder
-	// and context Extensions ran and before the Model request is sent.
-	EventContextBuilt EventKind = "context_built"
-	// EventSessionCompacted is recorded when a Session prefix was replaced by
-	// a summary. It is produced by the compaction operation, not by the Loop.
-	EventSessionCompacted EventKind = "session_compacted"
-	// EventSessionLoaded and EventSessionSaved time the store. The service
-	// Runner emits session_loaded for the load before run_start, and
-	// session_saved after run_end, summing every write the Run made.
-	// They reach the same places as the Loop's Events but are not recorded
-	// in the Session. An Event emitted before the Run starts has a
-	// SessionID, but no RunID and sequence 0.
-	EventSessionLoaded EventKind = "session_loaded"
-	EventSessionSaved  EventKind = "session_saved"
+	// ClaimNewSession: the Instance created the Session.
+	ClaimNewSession ClaimWhy = "new_session"
+	// ClaimIdle: the Session was idle, released by its last Writer.
+	ClaimIdle ClaimWhy = "idle"
+	// ClaimWriterGone: its Writer's Liveness row was no longer alive.
+	ClaimWriterGone ClaimWhy = "writer_gone"
+	// ClaimWaited: the Instance waited for its Writer to finish first.
+	ClaimWaited ClaimWhy = "waited"
 )
 
-// Payload keys by Kind. Consumers must tolerate unknown keys and kinds.
-//
-//	run_start               (none)
-//	run_end                 status, error?, stopped_by_extension?, stop_reason?
-//	turn_start              (none)
-//	turn_end                stop_reason, summary{elapsed_ms,text_bytes,reasoning_bytes,tool_calls,input_tokens,output_tokens,total_tokens,
-//	                        cache_read_tokens?,cache_write_tokens?,tool_results?}
-//	context_built           strategy, messages, source_messages, selected_messages, prefix_hash, prefix_messages,
-//	                        system_bytes, tools, metadata?{the ContextBuilder's Metadata, as strings}
-//	message_start           role, source? (steer|follow_up)
-//	message_update          text
-//	message_end             role?, tool_calls?
-//	tool_execution_start    tool_id
-//	tool_execution_update   text
-//	tool_execution_end      status, executed
-//	tool_result_committed   status
-//	toolset_activated       toolset
-//	session_compacted       replaced_messages, summary_message_id, summarizer
-//	session_loaded          messages, elapsed_ms (fractional), failed?
-//	session_saved           messages, elapsed_ms (fractional, every write since the Session was opened), writes, failed?
-
-type Event struct {
-	SessionID  SessionID      `json:"session_id"`
-	RunID      RunID          `json:"run_id"`
-	Sequence   uint64         `json:"sequence"`
-	Kind       EventKind      `json:"kind"`
-	Class      EventClass     `json:"event_class"`
-	Turn       TurnNumber     `json:"turn,omitempty"`
-	MessageID  MessageID      `json:"message_id,omitempty"`
-	ToolCallID ToolCallID     `json:"tool_call_id,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
-	Timestamp  time.Time      `json:"timestamp"`
-}
-
-type LifecycleKind string
+// CompactionWhy says why a compaction ran.
+type CompactionWhy string
 
 const (
-	LifecycleSessionCreated LifecycleKind = "session_created"
-	LifecycleSessionClosing LifecycleKind = "session_closing"
-	LifecycleSessionClosed  LifecycleKind = "session_closed"
+	CompactionOnDemand     CompactionWhy = "on_demand"
+	CompactionPastCeiling  CompactionWhy = "past_ceiling"
+	CompactionBeforeUnload CompactionWhy = "before_unload"
 )
 
-type LifecycleEvent struct {
-	Kind      LifecycleKind `json:"kind"`
-	SessionID SessionID     `json:"session_id"`
-	Reason    string        `json:"reason,omitempty"`
-	Timestamp time.Time     `json:"timestamp"`
+// MessageSource says where a user Message came from.
+type MessageSource string
+
+const (
+	SourcePrompt   MessageSource = "prompt"
+	SourceSteer    MessageSource = "steer"
+	SourceFollowUp MessageSource = "follow_up"
+	// SourceContinuation is a Message the Loop wrote itself to go on after a
+	// reply the output limit cut off.
+	SourceContinuation MessageSource = "continuation"
+)
+
+// Compaction records one replacement of a Message prefix by a summary, so an
+// application can always tell what was compacted and what replaced it.
+type Compaction struct {
+	At               time.Time `json:"at"`
+	ReplacedMessages int       `json:"replaced_messages"`
+	FromMessageID    MessageID `json:"from_message_id,omitempty"`
+	ToMessageID      MessageID `json:"to_message_id,omitempty"`
+	SummaryMessageID MessageID `json:"summary_message_id"`
+	Summarizer       string    `json:"summarizer"`
+	BytesBefore      int       `json:"bytes_before"`
+	BytesAfter       int       `json:"bytes_after"`
 }
 
-type EventStream interface {
-	Next(context.Context) (Event, error)
-	Close() error
+// ForkedFrom names the Session a new Session was forked from, and the
+// position of its Record the fork branches at.
+type ForkedFrom struct {
+	SessionID SessionID `json:"session_id"`
+	Number    uint64    `json:"number"`
 }
 
-type LifecycleStream interface {
-	Next(context.Context) (LifecycleEvent, error)
-	Close() error
+// ToolOutcome is how one Tool call of a Turn ended.
+type ToolOutcome struct {
+	ToolID   string           `json:"tool_id"`
+	CallID   ToolCallID       `json:"call_id"`
+	Status   ToolResultStatus `json:"status"`
+	Executed bool             `json:"executed"`
 }
 
-type eventHub struct {
-	mu     sync.Mutex
-	nextID uint64
-	subs   map[uint64]*eventSubscription
-	closed bool
+// ---- Runs and replies -------------------------------------------------------
+
+// RunStarted: a Run starts.
+type RunStarted struct{ Header }
+
+// RunEnded: a Run settles, with its status, its cause and its stop reason.
+type RunEnded struct {
+	Header
+	Status RunStatus `json:"status"`
+	// Cause is the error code that ended a Run that did not complete.
+	Cause ErrorCode `json:"cause,omitempty"`
+	// StoppedByExtension is set when a TurnStopper ended the Run; StopReason
+	// is the reason it gave.
+	StoppedByExtension bool   `json:"stopped_by_extension,omitempty"`
+	StopReason         string `json:"stop_reason,omitempty"`
+	Turns              uint32 `json:"turns"`
+	ToolCalls          uint32 `json:"tool_calls"`
+	Usage              Usage  `json:"usage"`
+	ElapsedMS          int64  `json:"elapsed_ms"`
+	TextBytes          uint64 `json:"text_bytes,omitempty"`
+	ReasoningBytes     uint64 `json:"reasoning_bytes,omitempty"`
 }
 
-type eventSubscription struct {
-	mu      sync.Mutex
-	ch      chan Event
-	done    chan struct{}
-	closed  bool
-	err     error
-	closeFn func(*eventSubscription)
+// TurnStarted: a Turn starts.
+type TurnStarted struct{ Header }
+
+// TurnEnded: a Turn ends, with its usage.
+type TurnEnded struct {
+	Header
+	StopReason     StopReason    `json:"stop_reason"`
+	Usage          Usage         `json:"usage"`
+	ElapsedMS      int64         `json:"elapsed_ms"`
+	TextBytes      uint64        `json:"text_bytes"`
+	ReasoningBytes uint64        `json:"reasoning_bytes"`
+	ToolCalls      int           `json:"tool_calls"`
+	Tools          []ToolOutcome `json:"tools,omitempty"`
 }
 
-func newEventHub() *eventHub { return &eventHub{subs: make(map[uint64]*eventSubscription)} }
-
-func (h *eventHub) subscribe(ctx context.Context) (EventStream, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	s := &eventSubscription{ch: make(chan Event, 128), done: make(chan struct{})}
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return nil, io.EOF
-	}
-	h.nextID++
-	id := h.nextID
-	h.subs[id] = s
-	s.closeFn = func(sub *eventSubscription) {
-		h.mu.Lock()
-		delete(h.subs, id)
-		h.mu.Unlock()
-	}
-	h.mu.Unlock()
-	if ctx.Done() != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				s.closeWith(ctx.Err())
-			case <-s.done:
-			}
-		}()
-	}
-	return s, nil
+// ContextBuilt: a Turn's Context is built, with its prefix hash and sizes.
+type ContextBuilt struct {
+	Header
+	Strategy         string            `json:"strategy,omitempty"`
+	Messages         int               `json:"messages"`
+	SourceMessages   int               `json:"source_messages"`
+	SelectedMessages int               `json:"selected_messages"`
+	PrefixHash       string            `json:"prefix_hash"`
+	PrefixMessages   int               `json:"prefix_messages"`
+	SystemBytes      int               `json:"system_bytes"`
+	Tools            int               `json:"tools"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
-func (h *eventHub) publish(ev Event) {
-	h.mu.Lock()
-	subs := make([]*eventSubscription, 0, len(h.subs))
-	for _, s := range h.subs {
-		subs = append(subs, s)
-	}
-	h.mu.Unlock()
-	for _, s := range subs {
-		s.enqueue(ev)
-	}
+// ReplyStarted: the model's reply starts. It is stored before the Model is
+// called, so a Writer that can no longer write keeps the Model from being
+// called.
+type ReplyStarted struct {
+	Header
+	MessageID MessageID `json:"message_id"`
 }
 
-func (h *eventHub) close() {
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return
-	}
-	h.closed = true
-	subs := make([]*eventSubscription, 0, len(h.subs))
-	for _, s := range h.subs {
-		subs = append(subs, s)
-	}
-	h.subs = make(map[uint64]*eventSubscription)
-	h.mu.Unlock()
-	for _, s := range subs {
-		s.closeWith(nil)
-	}
+// ReplyEnded: the model's reply ends, with the Message it committed, the model
+// that answered and why it stopped.
+type ReplyEnded struct {
+	Header
+	Message    Message    `json:"message"`
+	Model      string     `json:"model,omitempty"`
+	StopReason StopReason `json:"stop_reason"`
+	ToolCalls  int        `json:"tool_calls"`
 }
 
-func (s *eventSubscription) enqueue(ev Event) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	select {
-	case s.ch <- ev:
-		return
-	default:
-	}
-	if ev.Class == EventCoalescable {
-		// Progress is optional; drop it rather than displacing state.
-		return
-	}
-	// A protected event must not be lost to a backlog of coalescable progress.
-	// Make room by discarding the oldest coalescable event; only when the
-	// buffer holds nothing but protected events does the subscription end.
-	buffered := make([]Event, 0, cap(s.ch)+1)
-	for {
-		select {
-		case queued := <-s.ch:
-			buffered = append(buffered, queued)
-		default:
-			buffered = append(buffered, ev)
-			if len(buffered) > cap(s.ch) {
-				drop := -1
-				for i, queued := range buffered {
-					if queued.Class == EventCoalescable {
-						drop = i
-						break
-					}
-				}
-				if drop < 0 {
-					// Even without progress events the buffer is full: the
-					// subscriber is too slow and the subscription ends.
-					s.closed = true
-					s.err = errors.New("gotato: protected event buffer full")
-					close(s.ch)
-					close(s.done)
-					if s.closeFn != nil {
-						s.closeFn(s)
-					}
-					return
-				}
-				buffered = append(buffered[:drop], buffered[drop+1:]...)
-			}
-			for _, pending := range buffered {
-				s.ch <- pending
-			}
-			return
-		}
-	}
+// TextDelta: a piece of the reply's text. A delta is sent and never stored.
+type TextDelta struct {
+	Header
+	MessageID MessageID `json:"message_id"`
+	Text      string    `json:"text"`
 }
 
-func (s *eventSubscription) closeWith(err error) {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return
-	}
-	s.closed = true
-	if err != nil && !errors.Is(err, context.Canceled) {
-		s.err = err
-	}
-	close(s.ch)
-	close(s.done)
-	closeFn := s.closeFn
-	s.mu.Unlock()
-	if closeFn != nil {
-		closeFn(s)
-	}
+// ReasoningDelta: a piece of the reply's reasoning.
+type ReasoningDelta struct {
+	Header
+	MessageID MessageID `json:"message_id"`
+	Text      string    `json:"text"`
 }
 
-func (s *eventSubscription) Next(ctx context.Context) (Event, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	select {
-	case ev, ok := <-s.ch:
-		if ok {
-			return ev, nil
-		}
-		s.mu.Lock()
-		err := s.err
-		s.mu.Unlock()
-		if err != nil {
-			return Event{}, err
-		}
-		return Event{}, io.EOF
-	case <-ctx.Done():
-		return Event{}, ctx.Err()
-	}
+// ReplyCutOff: the reply's stream broke, and the text so far is kept as a
+// Cut-off reply.
+type ReplyCutOff struct {
+	Header
+	Message Message   `json:"message"`
+	Cause   ErrorCode `json:"cause,omitempty"`
 }
 
-func (s *eventSubscription) Close() error { s.closeWith(nil); return nil }
-
-type lifecycleHub struct {
-	mu     sync.Mutex
-	nextID uint64
-	subs   map[uint64]*lifecycleSubscription
-	closed bool
+// ReplyPartKept: the text and reasoning a streaming reply has produced since
+// the previous part, kept in the Record every second or few KiB so that a
+// crash loses at most the last part.
+type ReplyPartKept struct {
+	Header
+	MessageID MessageID `json:"message_id"`
+	Text      string    `json:"text,omitempty"`
+	Reasoning string    `json:"reasoning,omitempty"`
 }
 
-type lifecycleSubscription struct {
-	mu      sync.Mutex
-	ch      chan LifecycleEvent
-	done    chan struct{}
-	closed  bool
-	err     error
-	closeFn func(*lifecycleSubscription)
+// ModelRetried: the gateway calls the model again.
+type ModelRetried struct {
+	Header
+	Attempt int    `json:"attempt"`
+	WaitMS  int64  `json:"wait_ms"`
+	Error   string `json:"error,omitempty"`
 }
 
-func newLifecycleHub() *lifecycleHub {
-	return &lifecycleHub{subs: make(map[uint64]*lifecycleSubscription)}
+// ---- Tools ------------------------------------------------------------------
+
+// ToolStarted: a Tool starts. It is stored before the Tool runs, so a call
+// that started is known to have started.
+type ToolStarted struct {
+	Header
+	MessageID MessageID  `json:"message_id,omitempty"`
+	CallID    ToolCallID `json:"call_id"`
+	ToolID    string     `json:"tool_id"`
 }
 
-func (h *lifecycleHub) subscribe(ctx context.Context) (LifecycleStream, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	s := &lifecycleSubscription{ch: make(chan LifecycleEvent, 32), done: make(chan struct{})}
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return nil, io.EOF
-	}
-	h.nextID++
-	id := h.nextID
-	h.subs[id] = s
-	s.closeFn = func(sub *lifecycleSubscription) { h.mu.Lock(); delete(h.subs, id); h.mu.Unlock() }
-	h.mu.Unlock()
-	if ctx.Done() != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				s.closeWith(ctx.Err())
-			case <-s.done:
-			}
-		}()
-	}
-	return s, nil
+// ToolEnded: a Tool ends, with its status and how long it ran.
+type ToolEnded struct {
+	Header
+	CallID    ToolCallID       `json:"call_id"`
+	ToolID    string           `json:"tool_id,omitempty"`
+	Status    ToolResultStatus `json:"status"`
+	Executed  bool             `json:"executed"`
+	ElapsedMS float64          `json:"elapsed_ms"`
 }
 
-func (h *lifecycleHub) publish(ev LifecycleEvent) {
-	h.mu.Lock()
-	subs := make([]*lifecycleSubscription, 0, len(h.subs))
-	for _, s := range h.subs {
-		subs = append(subs, s)
-	}
-	h.mu.Unlock()
-	for _, s := range subs {
-		s.enqueue(ev)
-	}
+// ToolProgress: a Tool reports its own progress. It is sent and never stored.
+type ToolProgress struct {
+	Header
+	CallID ToolCallID `json:"call_id"`
+	Text   string     `json:"text"`
 }
 
-func (h *lifecycleHub) close() {
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return
-	}
-	h.closed = true
-	subs := make([]*lifecycleSubscription, 0, len(h.subs))
-	for _, s := range h.subs {
-		subs = append(subs, s)
-	}
-	h.subs = make(map[uint64]*lifecycleSubscription)
-	h.mu.Unlock()
-	for _, s := range subs {
-		s.closeWith(nil)
-	}
+// ToolResultCommitted: a Tool Result enters the Transcript, in the order the
+// model asked.
+type ToolResultCommitted struct {
+	Header
+	Message Message          `json:"message"`
+	CallID  ToolCallID       `json:"call_id"`
+	Status  ToolResultStatus `json:"status"`
 }
 
-func (s *lifecycleSubscription) enqueue(ev LifecycleEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	select {
-	case s.ch <- ev:
-	default:
-		s.closed = true
-		s.err = errors.New("gotato: lifecycle event buffer full")
-		close(s.ch)
-		close(s.done)
-		if s.closeFn != nil {
-			s.closeFn(s)
-		}
-	}
+// ToolSetActivated: the model switches on a ToolSet.
+type ToolSetActivated struct {
+	Header
+	ToolSet string `json:"toolset"`
 }
 
-func (s *lifecycleSubscription) closeWith(err error) {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return
-	}
-	s.closed = true
-	if err != nil && !errors.Is(err, context.Canceled) {
-		s.err = err
-	}
-	close(s.ch)
-	close(s.done)
-	closeFn := s.closeFn
-	s.mu.Unlock()
-	if closeFn != nil {
-		closeFn(s)
-	}
+// ---- Messages into a Session ------------------------------------------------
+
+// RunRequested: a request for a new Run arrives. An Instance Event.
+type RunRequested struct {
+	Header
+	Agent string `json:"agent,omitempty"`
 }
 
-func (s *lifecycleSubscription) Next(ctx context.Context) (LifecycleEvent, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	select {
-	case ev, ok := <-s.ch:
-		if ok {
-			return ev, nil
-		}
-		s.mu.Lock()
-		err := s.err
-		s.mu.Unlock()
-		if err != nil {
-			return LifecycleEvent{}, err
-		}
-		return LifecycleEvent{}, io.EOF
-	case <-ctx.Done():
-		return LifecycleEvent{}, ctx.Err()
-	}
+// RunWaiting: a request waits for a busy Session. An Instance Event.
+type RunWaiting struct {
+	Header
+	Why string `json:"why,omitempty"`
 }
 
-func (s *lifecycleSubscription) Close() error { s.closeWith(nil); return nil }
+// RunRejected: a request is refused: busy, at capacity or draining. An
+// Instance Event.
+type RunRejected struct {
+	Header
+	Why string `json:"why"`
+}
+
+// MessageQueued: a Steer or FollowUp waits for its point in the Run.
+type MessageQueued struct {
+	Header
+	MessageID MessageID     `json:"message_id"`
+	Source    MessageSource `json:"source"`
+}
+
+// MessageCommitted: a user Message enters the Transcript, with where it came
+// from: the prompt, a Steer or a FollowUp.
+type MessageCommitted struct {
+	Header
+	Message Message       `json:"message"`
+	Source  MessageSource `json:"source"`
+}
+
+// MessageDropped: a waiting message is dropped because the Run ended first.
+type MessageDropped struct {
+	Header
+	MessageID MessageID     `json:"message_id"`
+	Source    MessageSource `json:"source"`
+	Why       string        `json:"why"`
+}
+
+// MessageWithdrawn: a waiting message is withdrawn by its caller.
+type MessageWithdrawn struct {
+	Header
+	MessageID MessageID     `json:"message_id"`
+	Source    MessageSource `json:"source"`
+}
+
+// MessageRejected: a message is refused because the queue is full, or is
+// disabled by a limit.
+type MessageRejected struct {
+	Header
+	MessageID MessageID     `json:"message_id"`
+	Source    MessageSource `json:"source"`
+	Why       string        `json:"why"`
+}
+
+// AbortRequested: an Abort arrives. The Run's RunEnded follows, and the time
+// between the two is how long the Abort took.
+type AbortRequested struct{ Header }
+
+// ---- Claims -----------------------------------------------------------------
+
+// SessionClaimed: an Instance claims the Session, with why, and which Instance
+// held it before. A Writer that opens a Session it holds already writes it
+// again, with the same Epoch.
+type SessionClaimed struct {
+	Header
+	Instance string   `json:"instance"`
+	Epoch    uint64   `json:"epoch"`
+	Why      ClaimWhy `json:"why"`
+	From     string   `json:"from,omitempty"`
+}
+
+// SessionReleased: the Writer lets the Session go.
+type SessionReleased struct {
+	Header
+	Instance string `json:"instance"`
+	Epoch    uint64 `json:"epoch"`
+}
+
+// SessionFenced: a write is refused because another Instance holds the Claim.
+// An Instance Event.
+type SessionFenced struct {
+	Header
+	Instance string `json:"instance"`
+	// Position is the position of the Record that the refused write needed.
+	Position uint64 `json:"position,omitempty"`
+}
+
+// LivenessLapsed: this Instance's Liveness row was not renewed in time, so it
+// writes nothing more. An Instance Event.
+type LivenessLapsed struct {
+	Header
+	Instance string `json:"instance"`
+}
+
+// ---- The Session ------------------------------------------------------------
+
+// SessionCreated: a Session is created, with the Messages and metadata its
+// Record starts with. It is the first Entry of every Record, and a Checkpoint.
+type SessionCreated struct {
+	Header
+	CreatedAt  time.Time         `json:"created_at"`
+	ForkedFrom *ForkedFrom       `json:"forked_from,omitempty"`
+	Messages   []Message         `json:"messages,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	// Compactions is the compaction history a fork inherits.
+	Compactions []Compaction `json:"compactions,omitempty"`
+}
+
+// MetadataChanged: a setting in the Session's metadata changes. An empty Value
+// deletes the key.
+type MetadataChanged struct {
+	Header
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+}
+
+// CompactionStarted: a compaction starts.
+type CompactionStarted struct {
+	Header
+	Why CompactionWhy `json:"why"`
+}
+
+// CompactionEnded: a compaction appends its Checkpoint: the Messages and
+// metadata the Session continues with, and every compaction so far.
+type CompactionEnded struct {
+	Header
+	Why        CompactionWhy     `json:"why"`
+	Compaction *Compaction       `json:"compaction,omitempty"`
+	History    []Compaction      `json:"history,omitempty"`
+	Messages   []Message         `json:"messages"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+// CompactionFailed: a compaction failed.
+type CompactionFailed struct {
+	Header
+	Why   CompactionWhy `json:"why"`
+	Cause ErrorCode     `json:"cause,omitempty"`
+}
+
+// SessionUnloaded: the Session leaves this Instance's memory, with why: its
+// TTL, a drain or a close. An Instance Event.
+type SessionUnloaded struct {
+	Header
+	Why string `json:"why"`
+}
+
+// SessionDeleted: the Session's Record is deleted. An Instance Event.
+type SessionDeleted struct{ Header }
+
+// ---- The store and extensions -----------------------------------------------
+
+// SessionLoaded: how long the store took to load the Session. An Instance
+// Event.
+type SessionLoaded struct {
+	Header
+	Messages  int     `json:"messages"`
+	ElapsedMS float64 `json:"elapsed_ms"`
+	Failed    bool    `json:"failed,omitempty"`
+}
+
+// SessionSaved: how long the store took to write a Run's steps, summed, and
+// how many writes that was. An Instance Event.
+type SessionSaved struct {
+	Header
+	Messages  int     `json:"messages"`
+	ElapsedMS float64 `json:"elapsed_ms"`
+	Writes    int     `json:"writes"`
+	Failed    bool    `json:"failed,omitempty"`
+}
+
+// StoreWriteFailed: a write failed, for another reason than a taken position.
+// An Instance Event; the store's own error text stays out, because Events
+// reach clients.
+type StoreWriteFailed struct {
+	Header
+	Code ErrorCode `json:"code,omitempty"`
+}
+
+// ExtensionFailed: an advisory extension failed, and the Run went on.
+type ExtensionFailed struct {
+	Header
+	Stage string    `json:"stage"`
+	Code  ErrorCode `json:"code,omitempty"`
+}
+
+// EventsSkipped: an Instance's stream fell behind and skipped Events. Each
+// stored Event names its Session and number, so the subscriber can read what
+// it missed from the Record. An Instance Event.
+type EventsSkipped struct {
+	Header
+	Skipped uint64 `json:"skipped"`
+}

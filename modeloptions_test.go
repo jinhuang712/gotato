@@ -37,27 +37,25 @@ func TestWithModelOptionsReachesEveryModelCall(t *testing.T) {
 func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) {
 	// run plays a two-Turn Run and returns its requests and the prefix hash
 	// each Turn's context_built reported.
-	run := func(options ...gotato.Option) ([]gotato.ModelRequest, []any) {
+	run := func(options ...gotato.Option) ([]gotato.ModelRequest, []string) {
 		t.Helper()
 		model := testkit.NewFakeModel(
 			testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
 			testkit.Text("done"),
 		)
-		recorder := testkit.NewEventRecorder()
-		options = append(options, gotato.WithModel(model), gotato.WithTool(testkit.DemoEchoTool()), gotato.WithExtension(recorder))
+		options = append(options, gotato.WithModel(model), gotato.WithTool(testkit.DemoEchoTool()))
 		agent, err := gotato.NewSession(options...)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = agent.Close(context.Background()) }()
+		recorder := testkit.RecordEvents(agent)
 		if _, err := agent.Prompt(context.Background(), gotato.UserMessage("hi")); err != nil {
 			t.Fatal(err)
 		}
-		var prefixes []any
-		for _, event := range recorder.Events() {
-			if event.Kind == gotato.EventContextBuilt {
-				prefixes = append(prefixes, event.Payload["prefix_hash"])
-			}
+		var prefixes []string
+		for _, event := range recorder.OfKind(gotato.KindContextBuilt) {
+			prefixes = append(prefixes, event.(gotato.ContextBuilt).PrefixHash)
 		}
 		return model.Requests(), prefixes
 	}

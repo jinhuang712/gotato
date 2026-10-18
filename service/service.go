@@ -4,7 +4,7 @@
 // Session semantics stay in the runtime. For every Run the Runner loads the
 // Session's Record, takes the Session's lock, builds a live gotato.Session
 // from the Agent exactly as an application would (WithTranscript,
-// WithContextBuilder, WithToolSource, session.NewRecorder,
+// WithContextBuilder, WithToolSource, WithFeed,
 // modelctx.AutoCompact), runs it, closes it, and saves the Record.
 // Continuity lives in the Store, so any process holding the Store can serve
 // any Session.
@@ -25,7 +25,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"sort"
 	"strconv"
@@ -152,6 +151,12 @@ type Runner struct {
 
 	locks *sessionLocks
 
+	// instanceFeed is the Instance's stream; feeds are the Feeds of the
+	// Sessions in use, each mirrored to it (see events.go).
+	instanceFeed *gotato.Feed
+	feedsMu      sync.Mutex
+	feeds        map[string]*sessionFeed
+
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
 	byRun    map[gotato.RunID]*runHandle
@@ -261,6 +266,7 @@ func New(cfg Config) (*Runner, error) {
 		agents:    map[string]Agent{},
 		admission: cfg.Admission,
 		locks:     newSessionLocks(),
+		feeds:     map[string]*sessionFeed{},
 		handles:   map[string][]*runHandle{},
 		byRun:     map[gotato.RunID]*runHandle{},
 	}
@@ -273,6 +279,7 @@ func New(cfg Config) (*Runner, error) {
 	if r.admission.Queue != RejectWhileBusy && r.admission.Queue != WaitWhileBusy {
 		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
 	}
+	r.instanceFeed = gotato.NewInstanceFeed()
 	r.idle = sync.NewCond(&r.mu)
 	for _, spec := range cfg.Agents {
 		name := strings.TrimSpace(spec.Name)
@@ -305,6 +312,14 @@ func (r *Runner) Instance() string { return r.instance }
 // usage and Events. It changes nothing.
 func (r *Runner) Session(ctx context.Context, sessionID string) (*session.Record, error) {
 	return session.View(ctx, r.store, sessionID)
+}
+
+// Events reads a Session's stored Events from the store: every Entry of its
+// Record that is an Event, in the order of their numbers, as typed Events. A
+// Record written before the Event design shows gaps in the numbers where an
+// Entry has no Event.
+func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
+	return session.StoredEvents(ctx, r.store, sessionID, 0)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first.
@@ -343,11 +358,13 @@ func (r *Runner) Draining() bool {
 // CreateSession creates and saves a Session bound to an Agent. It fails with
 // ErrSessionExists when an ID given in options is taken.
 func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Record, error) {
-	s, _, err := r.newSession(agent, metadata, options...)
+	s, spec, err := r.newSession(agent, metadata, options...)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := r.create(ctx, s); err != nil {
+	// Nothing runs against a Session that is only created: it is released in
+	// the write that creates it.
+	if _, err := r.create(ctx, s, r.publisher(s.ID(), spec.Name), session.WithIdle()); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -430,13 +447,52 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error)
 	return r.run(ctx, request, nil)
 }
 
-// StreamRun executes one Run and delivers every runtime Event to sink as it
-// is produced. A sink error is advisory: it stops delivery, not the Run.
+// StreamRun executes one Run and delivers every Event of its stream to sink as
+// it is produced, on the caller's goroutine: the Session's stored Events and
+// its deltas, from the first Event of the Run to its RunEnded. The Run itself
+// runs on another goroutine, and sink reads a Subscription, so a sink that is
+// slow slows only itself: the Session never waits for it, and a stored Event
+// the sink falls behind on is read again from the Record. A sink error is
+// advisory: it stops delivery, not the Run. StreamRun returns after the Run
+// settles and its last Event has been delivered.
 func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResult, error) {
-	return r.run(ctx, request, sink)
+	if sink == nil {
+		return r.run(ctx, request, nil)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	type outcome struct {
+		result RunResult
+		err    error
+	}
+	subs := make(chan gotato.Subscription, 1)
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := r.run(ctx, request, &runStream{ready: func(sub gotato.Subscription) { subs <- sub }})
+		done <- outcome{result, err}
+	}()
+	var finished *outcome
+	select {
+	case sub := <-subs:
+		deliver(ctx, sub, sink)
+	case o := <-done:
+		finished = &o
+		// A Run that ended may have handed over its stream first.
+		select {
+		case sub := <-subs:
+			deliver(ctx, sub, sink)
+		default:
+		}
+	}
+	if finished == nil {
+		o := <-done
+		finished = &o
+	}
+	return finished.result, finished.err
 }
 
-func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResult, error) {
+func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -444,8 +500,14 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 		return RunResult{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required")
 	}
 	if err := r.admit(); err != nil {
+		why := "at_capacity"
+		if errors.Is(err, ErrDraining) {
+			why = "draining"
+		}
+		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResult{}, err
 	}
+	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	release := sync.OnceFunc(r.release)
 	defer release()
 
@@ -456,7 +518,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, sink func(gotato.E
 	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
 	r.registerHandle(handle)
 	defer r.unregisterHandle(handle)
-	out, err := r.serve(ctx, runCtx, request, sink, handle)
+	out, err := r.serve(ctx, runCtx, request, stream, handle)
 	if handle.stoppedByDrain() && out.Result.Status != gotato.RunCompleted {
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
@@ -488,14 +550,30 @@ func reconnectHint() *Reconnect {
 }
 
 // serve runs one admitted Run.
-func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink func(gotato.Event) error, handle *runHandle) (RunResult, error) {
+func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle) (RunResult, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
 	var s *session.Record
 	var writer *session.Writer
 	var saved session.WriteStats
+	var feed *gotato.Feed
+	track := &tracker{}
 	sessionID := request.SessionID
+	// The Run's stream ends with the Run: what is queued is still delivered.
+	defer func() {
+		if stream != nil && stream.sub != nil {
+			stream.sub.End()
+		}
+	}()
+	// A Session's Feed is shared and counted; a Run that is not saved has a
+	// Feed of its own, since its Events are in no Record.
+	acquired := ""
+	defer func() {
+		if acquired != "" {
+			r.releaseFeed(acquired)
+		}
+	}()
 	if sessionID == "" {
 		if request.SkipSave {
 			// No persistence: build an in-memory Session for this Run only.
@@ -503,18 +581,30 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 			for key, value := range request.Metadata {
 				s.Set(key, value)
 			}
+			feed = gotato.NewFeed(nil)
+			defer feed.Close()
+			if err := r.streamTo(ctx, feed, stream, track); err != nil {
+				return RunResult{}, err
+			}
 		} else {
 			fresh, spec, err := r.newSession(request.Agent, request.Metadata)
 			if err != nil {
 				return RunResult{}, err
 			}
-			writer, err = r.create(runCtx, fresh)
+			// The Run's stream starts before the Session is created, so its
+			// first Event is the session_created that the Run caused.
+			feed = r.acquireFeed(fresh.ID(), spec.Name)
+			acquired = fresh.ID()
+			if err := r.streamTo(ctx, feed, stream, track); err != nil {
+				return RunResult{}, err
+			}
+			writer, err = r.create(runCtx, fresh, r.publisher(fresh.ID(), spec.Name))
 			stats := session.WriteStats{}
 			if writer != nil {
 				stats = writer.Stats()
 				saved = stats
 			}
-			r.emitRunnerEvent(context.WithoutCancel(runCtx), &spec, sink, storeEvent(gotato.EventSessionSaved, fresh.ID(), fresh.Len(), stats, err))
+			r.notice(savedEvent(fresh.ID(), "", fresh.Len(), stats, err), spec.Name)
 			if err != nil {
 				return RunResult{}, err
 			}
@@ -537,7 +627,20 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 		// may have saved it meanwhile, and a Session deleted in between must
 		// not be resurrected from a stale copy.
 		var loadTime time.Duration
+		// The Events the open writes, a claim among them, are published once
+		// the Run knows its Agent, so they carry its name.
+		var early []gotato.Event
 		if request.SessionID != "" {
+			if request.SkipSave {
+				feed = gotato.NewFeed(nil)
+				defer feed.Close()
+			} else {
+				feed = r.acquireFeed(sessionID, request.Agent)
+				acquired = sessionID
+			}
+			if err := r.streamTo(ctx, feed, stream, track); err != nil {
+				return err
+			}
 			// A Run writes as this Instance: opening the Session claims it
 			// when another Instance held it, and a stale writer is fenced.
 			began := time.Now()
@@ -546,7 +649,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 				s, err = session.Open(runCtx, r.store, sessionID)
 				loadTime = time.Since(began)
 			} else {
-				writer, err = r.open(runCtx, sessionID)
+				writer, err = r.open(runCtx, sessionID, func(event gotato.Event) { early = append(early, event) })
 				if writer != nil {
 					loadTime = writer.Stats().Load
 					s = writer.Record()
@@ -555,7 +658,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 				}
 			}
 			if err != nil {
-				r.emitRunnerEvent(runCtx, nil, sink, storeEvent(gotato.EventSessionLoaded, sessionID, 0, session.WriteStats{Load: loadTime}, err))
+				r.notice(loadedEvent(sessionID, 0, loadTime, err), request.Agent)
+				r.noteFailure(err, sessionID, request.Agent)
 				return err
 			}
 		}
@@ -569,11 +673,18 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 		}
 		spec, ok := r.Agent(agentName)
 		if request.SessionID != "" {
-			observers := &spec
+			label := spec.Name
 			if !ok {
-				observers = nil
+				label = ""
 			}
-			r.emitRunnerEvent(runCtx, observers, sink, storeEvent(gotato.EventSessionLoaded, sessionID, s.Len(), session.WriteStats{Load: loadTime}, nil))
+			feed.SetLabel(label)
+			if writer != nil {
+				writer.SetPublisher(r.publisher(sessionID, label))
+			}
+			for _, event := range early {
+				feed.Publish(event)
+			}
+			r.notice(loadedEvent(sessionID, s.Len(), loadTime, nil), label)
 		}
 		// A Run that cannot start still releases the Session it opened.
 		abandon := func(err error) error {
@@ -592,7 +703,6 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 			s.Set(MetaModel, spec.ModelName)
 		}
 
-		tracker := &runTracker{runner: r, handle: handle}
 		if request.Timeout > 0 {
 			limits := gotato.DefaultLimits()
 			if spec.Limits != nil {
@@ -601,7 +711,12 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 			limits.RunDeadline = request.Timeout
 			spec.Limits = &limits
 		}
-		live, auto, err := r.buildSession(spec, s, writer, sink, tracker, InspectOptions{})
+		onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
+			track.set(runID)
+			r.attachRunID(handle, runID)
+			handle.abortIfStopped()
+		})
+		live, auto, err := r.buildSession(spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed))
 		if err != nil {
 			return abandon(err)
 		}
@@ -619,6 +734,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 			result, runErr = live.Prompt(ctx, gotato.UserMessage(request.Prompt))
 		}
 		_ = live.Close(context.Background())
+		if stream != nil && stream.sub != nil {
+			stream.sub.End()
+		}
 
 		if writer != nil {
 			// Persist the settled Session even when the Run was cancelled, but
@@ -627,9 +745,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
 			saveErr := writer.Release(saveCtx)
 			cancelSave()
-			event := storeEvent(gotato.EventSessionSaved, s.ID(), s.Len(), writer.Stats().Since(saved), saveErr)
-			tracker.stamp(&event)
-			r.emitRunnerEvent(context.WithoutCancel(runCtx), &spec, sink, event)
+			r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(saved), saveErr), spec.Name)
+			r.noteFailure(saveErr, s.ID(), spec.Name)
 			if saveErr != nil {
 				// The Session state is lost whether or not the Run failed: keep
 				// the Run error and add the persistence failure so callers can
@@ -642,6 +759,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 				}
 			}
 		}
+		r.noteFailure(runErr, s.ID(), spec.Name)
 		out = RunResult{
 			SessionID: s.ID(),
 			Agent:     spec.Name,
@@ -688,6 +806,23 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, sink fun
 	return out, runErr
 }
 
+// noteFailure publishes the Instance Event for a write that failed: a
+// session_fenced when another Instance holds the Claim, and a
+// store_write_failed for any other store failure. A write refused because this
+// Instance's Liveness row lapsed is reported by liveness_lapsed instead.
+func (r *Runner) noteFailure(err error, sessionID, agent string) {
+	if err == nil || lapsed(err) {
+		return
+	}
+	header := gotato.NewHeader(gotato.SessionID(sessionID), "", 0)
+	switch {
+	case errors.Is(err, session.ErrConflict):
+		r.notice(gotato.SessionFenced{Header: header, Instance: r.instance}, agent)
+	case gotato.IsCode(err, gotato.ErrStoreFailure):
+		r.notice(gotato.StoreWriteFailed{Header: header, Code: gotato.ErrStoreFailure}, agent)
+	}
+}
+
 // cancelledRunResult reports a Run cancelled before its Agent started as a
 // settled cancelled Run.
 func cancelledRunResult(sessionID, agent string, err error) RunResult {
@@ -707,7 +842,13 @@ func cancelledRunResult(sessionID, agent string, err error) RunResult {
 // caller waits. Every Session mutation goes through it: Runs, compaction,
 // tool activation, and deletion.
 func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func() error) error {
-	if err := r.locks.acquire(ctx, sessionID, r.admission.Queue == WaitWhileBusy); err != nil {
+	onWait := func() {
+		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+	}
+	if err := r.locks.acquire(ctx, sessionID, r.admission.Queue == WaitWhileBusy, onWait); err != nil {
+		if errors.Is(err, ErrBusy) {
+			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+		}
 		return err
 	}
 	defer r.locks.release(sessionID)
@@ -735,10 +876,11 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 
 // buildSession builds the live Session for one Run from its Agent and its
 // Record's own settings. override replaces the Session's instruction for an
-// inspection; a Run passes none.
-// buildSession builds the live Session for s. With a writer, the writer is its
-// Transcript, so every step of a Run is written as it happens.
-func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Writer, sink func(gotato.Event) error, tracker *runTracker, override InspectOptions) (*gotato.Session, *modelctx.AutoCompactor, error) {
+// inspection; a Run passes none. With a writer, the writer is its Transcript,
+// so every step of a Run is written as it happens; without one the Record is,
+// and keeps the Session's Events in memory. extra options come after the
+// Agent's own.
+func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Writer, override InspectOptions, extra ...gotato.Option) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	var transcript gotato.Transcript = s
 	if writer != nil {
 		transcript = writer
@@ -763,16 +905,10 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Wri
 		}
 	}
 	var auto *modelctx.AutoCompactor
-	extensions := []any{session.NewRecorder(s)}
-	if tracker != nil {
-		extensions = append(extensions, tracker)
-	}
+	var extensions []any
 	if policy.Ceiling > 0 {
 		auto = modelctx.AutoCompact(s, policy)
 		extensions = append(extensions, auto)
-	}
-	if sink != nil {
-		extensions = append(extensions, sinkObserver{fn: sink})
 	}
 	extensions = append(extensions, spec.Extensions...)
 
@@ -781,8 +917,10 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Wri
 		gotato.WithInstruction(instruction),
 		gotato.WithTranscript(transcript),
 		gotato.WithContextBuilder(builder),
-		gotato.WithExtensions(extensions...),
 		gotato.WithCacheKey(sessionCacheKey(s)),
+	}
+	if len(extensions) > 0 {
+		options = append(options, gotato.WithExtensions(extensions...))
 	}
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s}))
 	if spec.MaxEffect != gotato.EffectUnspecified {
@@ -792,6 +930,7 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Wri
 		options = append(options, gotato.WithLimits(*spec.Limits))
 	}
 	options = append(options, spec.Options...)
+	options = append(options, extra...)
 	agent, err := gotato.NewSession(options...)
 	if err != nil {
 		return nil, nil, err
@@ -820,11 +959,6 @@ func sessionCacheKey(s *session.Record) string {
 	return CacheKey(s.ID())
 }
 
-type sinkObserver struct{ fn func(gotato.Event) error }
-
-func (o sinkObserver) Observe(_ context.Context, event gotato.Event) error { return o.fn(event) }
-func (o sinkObserver) Advisory() bool                                      { return true }
-
 // InspectOptions override Session settings for one inspection without
 // touching the Session.
 type InspectOptions struct {
@@ -850,7 +984,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if len(options) > 0 {
 		override = options[0]
 	}
-	live, auto, err := r.buildSession(spec, s, nil, nil, nil, override)
+	live, auto, err := r.buildSession(spec, s, nil, override)
 	if err != nil {
 		return modelctx.Report{}, err
 	}
@@ -942,12 +1076,14 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, err := r.open(ctx, sessionID)
+		agent := ""
+		writer, err := r.open(ctx, sessionID, r.publisher(sessionID, ""))
 		if err != nil {
 			return err
 		}
 		s := writer.Record()
-		agent, _ := s.Get(MetaAgent)
+		agent, _ = s.Get(MetaAgent)
+		writer.SetPublisher(r.publisher(sessionID, agent))
 		spec, ok := r.Agent(agent)
 		if !ok {
 			_ = writer.Release(ctx)
@@ -983,11 +1119,13 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, err := r.open(ctx, sessionID)
+		agentName := ""
+		writer, err := r.open(ctx, sessionID, r.publisher(sessionID, ""))
 		if err != nil {
 			return err
 		}
-		agentName, _ := writer.Record().Get(MetaAgent)
+		agentName, _ = writer.Record().Get(MetaAgent)
+		writer.SetPublisher(r.publisher(sessionID, agentName))
 		if spec, ok := r.Agent(agentName); ok && modelctx.DropsReasoning(spec.Model) {
 			opts.DropReasoning = true
 		}
@@ -1008,7 +1146,11 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 // is never resurrected by a delete or vice versa.
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
-		return r.store.Delete(ctx, sessionID)
+		if err := r.store.Delete(ctx, sessionID); err != nil {
+			return err
+		}
+		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
+		return nil
 	})
 }
 
@@ -1029,7 +1171,8 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	child.Set(MetaCacheKey, sessionCacheKey(parent))
 	// The store's Create is the existence check, so two concurrent forks with
 	// the same explicit newID cannot both succeed.
-	if _, err := r.create(ctx, child); err != nil {
+	childAgent, _ := child.Get(MetaAgent)
+	if _, err := r.create(ctx, child, r.publisher(child.ID(), childAgent), session.WithIdle()); err != nil {
 		if errors.Is(err, ErrSessionExists) {
 			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+child.ID()+" already exists")
 		}
@@ -1242,87 +1385,4 @@ func (r *Runner) release() {
 		r.idle.Broadcast()
 	}
 	r.mu.Unlock()
-}
-
-// runTracker is an advisory EventObserver that attaches the RunID the Session
-// assigned to the admitted Run handle as soon as run_start fires.
-type runTracker struct {
-	runner *Runner
-	handle *runHandle
-
-	mu       sync.Mutex
-	runID    gotato.RunID
-	sequence uint64
-}
-
-func (t *runTracker) Advisory() bool { return true }
-
-func (t *runTracker) Observe(_ context.Context, event gotato.Event) error {
-	t.mu.Lock()
-	t.runID, t.sequence = event.RunID, max(t.sequence, event.Sequence)
-	t.mu.Unlock()
-	if event.Kind != gotato.EventRunStart {
-		return nil
-	}
-	t.runner.attachRunID(t.handle, event.RunID)
-	t.handle.abortIfStopped()
-	return nil
-}
-
-// stamp places an Event the Runner emits after the Run in that Run, right
-// after its last Event.
-func (t *runTracker) stamp(event *gotato.Event) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	event.RunID, event.Sequence = t.runID, t.sequence+1
-}
-
-// storeEvent builds a session_loaded or session_saved Event: a load times the
-// store's Load, and a save sums every write since the previous save Event,
-// and counts them. The elapsed time keeps microseconds, because a load from
-// memory takes far less than a millisecond. A failure is only flagged: the
-// store's error text can name paths and hosts, and Events reach HTTP and gRPC
-// clients.
-func storeEvent(kind gotato.EventKind, sessionID string, messages int, stats session.WriteStats, err error) gotato.Event {
-	elapsed := stats.Elapsed
-	if kind == gotato.EventSessionLoaded {
-		elapsed = stats.Load
-	}
-	payload := map[string]any{
-		"messages":   messages,
-		"elapsed_ms": float64(elapsed.Microseconds()) / 1000,
-	}
-	if kind == gotato.EventSessionSaved {
-		payload["writes"] = stats.Writes
-	}
-	if err != nil {
-		payload["failed"] = true
-	}
-	return gotato.Event{SessionID: gotato.SessionID(sessionID), Kind: kind, Class: gotato.EventProtected, Payload: payload, Timestamp: time.Now()}
-}
-
-// emitRunnerEvent delivers an Event the Runner produces itself to the Run's
-// sink and to the EventObservers among the Agent's Extensions, the same places
-// the live Session's Events reach. A nil spec reaches the sink only. Every
-// delivery is advisory: a failing or panicking observer never fails the Run.
-func (r *Runner) emitRunnerEvent(ctx context.Context, spec *Agent, sink func(gotato.Event) error, event gotato.Event) {
-	if sink != nil {
-		deliver(func() error { return sink(event) })
-	}
-	if spec == nil {
-		return
-	}
-	for _, extension := range spec.Extensions {
-		if observer, ok := extension.(gotato.EventObserver); ok {
-			view := event
-			view.Payload = maps.Clone(event.Payload)
-			deliver(func() error { return observer.Observe(ctx, view) })
-		}
-	}
-}
-
-// deliver calls fn and drops its error or panic.
-func deliver(fn func() error) {
-	defer func() { _ = recover() }()
-	_ = fn()
 }

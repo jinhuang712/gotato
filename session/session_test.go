@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,7 +18,6 @@ func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt stri
 	agent, err := gotato.NewSession(
 		gotato.WithModel(model),
 		gotato.WithTranscript(s),
-		gotato.WithExtension(session.NewRecorder(s)),
 		gotato.WithTool(testkit.DemoEchoTool()),
 	)
 	if err != nil {
@@ -41,8 +41,8 @@ func TestLiveSessionTakesItsRecordID(t *testing.T) {
 		t.Fatal("no Events recorded")
 	}
 	for _, event := range events {
-		if event.SessionID != "order-42" {
-			t.Fatalf("%s carries session_id %q, want order-42", event.Kind, event.SessionID)
+		if event.Head().SessionID != "order-42" {
+			t.Fatalf("%s carries session_id %q, want order-42", event.Kind(), event.Head().SessionID)
 		}
 	}
 	live, err := gotato.NewSession(gotato.WithModel(testkit.EchoModel{}))
@@ -82,12 +82,13 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("no events recorded")
 	}
-	if events[0].Kind != gotato.EventRunStart || events[len(events)-1].Kind != gotato.EventRunEnd {
-		t.Fatalf("events = %d first=%s", len(events), events[0].Kind)
+	kinds := kindsOf(events)
+	if kinds[0] != gotato.KindRunStarted || kinds[len(kinds)-1] != gotato.KindRunEnded {
+		t.Fatalf("events = %v", kinds)
 	}
 	var built int
 	for _, event := range events {
-		if event.Kind == gotato.EventContextBuilt {
+		if event.Kind() == gotato.KindContextBuilt {
 			built++
 		}
 	}
@@ -195,14 +196,18 @@ func TestForkIsIndependentState(t *testing.T) {
 	}
 }
 
+func turnStarted() gotato.Event { return gotato.TurnStarted{Header: header()} }
+
 func TestEventLimitBoundsRetention(t *testing.T) {
 	s := session.New(session.WithEventLimit(3))
-	for i := range 10 {
-		s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart, Sequence: uint64(i)})
+	for range 10 {
+		if _, err := s.Write(context.Background(), []gotato.Event{turnStarted()}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	events := s.Events()
-	if len(events) != 3 || events[0].Sequence != 7 {
-		t.Fatalf("events = %+v", events)
+	if len(events) != 3 || events[0].Head().Number != 8 || events[2].Head().Number != 10 {
+		t.Fatalf("events = %+v, want numbers 8 to 10", events)
 	}
 }
 
@@ -211,12 +216,16 @@ func TestEventLimitZeroKeepsDefault(t *testing.T) {
 	if got := s.Snapshot().EventLimit; got != session.DefaultEventLimit {
 		t.Fatalf("event limit = %d, want default %d", got, session.DefaultEventLimit)
 	}
-	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart})
+	if _, err := s.Write(context.Background(), []gotato.Event{turnStarted()}); err != nil {
+		t.Fatal(err)
+	}
 	if len(s.Events()) != 1 {
 		t.Fatalf("zero limit retained %d events, want 1", len(s.Events()))
 	}
 	disabled := session.New(session.WithEventLimit(-1))
-	disabled.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart})
+	if _, err := disabled.Write(context.Background(), []gotato.Event{turnStarted()}); err != nil {
+		t.Fatal(err)
+	}
 	if len(disabled.Events()) != 0 {
 		t.Fatalf("negative limit retained %d events", len(disabled.Events()))
 	}
@@ -243,96 +252,95 @@ func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
 	}
 }
 
-func TestEventPayloadIsIsolated(t *testing.T) {
+// The Events a Record returns are a copy of its window: a caller that edits
+// the slice does not change what the Record keeps.
+func TestEventsReturnsACopyOfTheWindow(t *testing.T) {
 	s := session.New()
-	payload := map[string]any{"text": "original"}
-	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnStart, Payload: payload})
-	payload["text"] = "mutated by caller"
-
+	if _, err := s.Write(context.Background(), []gotato.Event{turnStarted(), gotato.TurnEnded{Header: header()}}); err != nil {
+		t.Fatal(err)
+	}
 	events := s.Events()
-	if got := events[0].Payload["text"]; got != "original" {
-		t.Fatalf("caller mutation reached the Event: %v", got)
-	}
-	events[0].Payload["text"] = "mutated by reader"
-	if got := s.Events()[0].Payload["text"]; got != "original" {
-		t.Fatalf("reader mutation reached the Event: %v", got)
+	events[0] = gotato.RunEnded{Header: header()}
+	if kinds := kindsOf(s.Events()); len(kinds) != 2 || kinds[0] != gotato.KindTurnStarted || kinds[1] != gotato.KindTurnEnded {
+		t.Fatalf("a caller's edit reached the Record's window: %v", kinds)
 	}
 }
 
-func TestEventPayloadNestedIsIsolated(t *testing.T) {
+// Events keep their own typed fields: a RunEnded read back holds what was
+// written, whatever the caller does to its own copy of the value afterwards.
+func TestEventsKeepTheirFields(t *testing.T) {
 	s := session.New()
-	payload := map[string]any{
-		"summary": map[string]any{
-			"tool_results": []map[string]any{{"tool_id": "echo", "status": "ok"}},
-		},
-		"tags": []any{"a", "b"},
+	ended := gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunCompleted, Turns: 2, Usage: gotato.Usage{TotalTokens: 9}}
+	if _, err := s.Write(context.Background(), []gotato.Event{ended}); err != nil {
+		t.Fatal(err)
 	}
-	s.RecordEvent(gotato.Event{Kind: gotato.EventTurnEnd, Payload: payload})
-
-	// Mutating the caller's nested values must not reach the stored Event.
-	payload["summary"].(map[string]any)["tool_results"].([]map[string]any)[0]["status"] = "caller"
-	payload["tags"].([]any)[0] = "caller"
-
-	stored := s.Events()
-	summary := stored[0].Payload["summary"].(map[string]any)
-	if status := summary["tool_results"].([]map[string]any)[0]["status"]; status != "ok" {
-		t.Fatalf("caller nested mutation reached the Event: %v", status)
-	}
-	if tag := stored[0].Payload["tags"].([]any)[0]; tag != "a" {
-		t.Fatalf("caller nested slice mutation reached the Event: %v", tag)
-	}
-
-	// Mutating a returned nested value must not reach the stored Event.
-	summary["tool_results"].([]map[string]any)[0]["status"] = "reader"
-	summary["tool_results"] = nil
-	stored[0].Payload["tags"].([]any)[0] = "reader"
-
-	again := s.Events()
-	againSummary := again[0].Payload["summary"].(map[string]any)
-	if status := againSummary["tool_results"].([]map[string]any)[0]["status"]; status != "ok" {
-		t.Fatalf("reader nested mutation reached the Event: %v", status)
-	}
-	if tag := again[0].Payload["tags"].([]any)[0]; tag != "a" {
-		t.Fatalf("reader nested slice mutation reached the Event: %v", tag)
+	ended.Turns = 99
+	got, ok := s.Events()[0].(gotato.RunEnded)
+	if !ok || got.Turns != 2 || got.Usage.TotalTokens != 9 || got.RunID != "run-1" {
+		t.Fatalf("event = %+v", s.Events()[0])
 	}
 }
 
-func TestRecordEventRingBufferKeepsNewest(t *testing.T) {
+func TestRingBufferKeepsNewestInOrder(t *testing.T) {
 	s := session.New(session.WithEventLimit(2))
 	for i := range 5 {
-		s.RecordEvent(gotato.Event{
-			Kind:     gotato.EventTurnStart,
-			Sequence: uint64(i),
-			Payload:  map[string]any{"seq": i},
-		})
+		hd := header()
+		hd.Turn = gotato.TurnNumber(i)
+		if _, err := s.Write(context.Background(), []gotato.Event{gotato.TurnStarted{Header: hd}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	events := s.Events()
-	if len(events) != 2 || events[0].Sequence != 3 || events[1].Sequence != 4 {
+	if len(events) != 2 || events[0].Head().Number != 4 || events[1].Head().Number != 5 || events[0].Head().Turn != 3 || events[1].Head().Turn != 4 {
 		t.Fatalf("events = %+v", events)
-	}
-	// The payload must stay bound to its own Event across ring overwrites.
-	if events[0].Payload["seq"] != 3 || events[1].Payload["seq"] != 4 {
-		t.Fatalf("payloads = %+v", events)
 	}
 }
 
-func TestRecordEventNormalizesOverfullLoadedDocument(t *testing.T) {
-	doc := session.Document{
-		ID:            "x",
-		SchemaVersion: session.SchemaVersion,
-		EventLimit:    2,
-		Events: []gotato.Event{
-			{Sequence: 1}, {Sequence: 2}, {Sequence: 3}, {Sequence: 4},
-		},
+func TestLoadNormalizesAnOverfullDocument(t *testing.T) {
+	var events []gotato.Event
+	for i := 1; i <= 4; i++ {
+		events = append(events, gotato.TurnStarted{Header: gotato.Header{Number: uint64(i), Turn: gotato.TurnNumber(i)}})
 	}
+	doc := session.Document{ID: "x", SchemaVersion: session.SchemaVersion, EventLimit: 2, Events: events}
 	s, err := session.Load(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.RecordEvent(gotato.Event{Sequence: 5})
-	events := s.Events()
-	if len(events) != 2 || events[0].Sequence != 4 || events[1].Sequence != 5 {
-		t.Fatalf("events = %+v", events)
+	if _, err := s.Write(context.Background(), []gotato.Event{gotato.TurnEnded{Header: header()}}); err != nil {
+		t.Fatal(err)
+	}
+	got := s.Events()
+	if len(got) != 2 || got[0].Head().Turn != 4 || got[1].Kind() != gotato.KindTurnEnded {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A Document holds typed Events and reads them back by their kind; an Event of
+// a kind this version does not know, such as one a later version adds, is
+// dropped, not an error.
+func TestDocumentRoundTripsTypedEvents(t *testing.T) {
+	s := session.New()
+	if _, err := s.Write(context.Background(), []gotato.Event{gotato.RunStarted{Header: gotato.NewHeader("", "run-1", 0)}, gotato.TurnStarted{Header: header()}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(s.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc session.Document
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if kinds := kindsOf(doc.Events); len(kinds) != 2 || kinds[0] != gotato.KindRunStarted || kinds[1] != gotato.KindTurnStarted {
+		t.Fatalf("document events = %v", kinds)
+	}
+	withFuture := []byte(`{"id":"x","schema_version":1,"events":[{"kind":"from_the_future"},{"kind":"turn_started","time":"2026-10-17T12:00:00Z"}]}`)
+	var future session.Document
+	if err := json.Unmarshal(withFuture, &future); err != nil {
+		t.Fatal(err)
+	}
+	if kinds := kindsOf(future.Events); len(kinds) != 1 || kinds[0] != gotato.KindTurnStarted {
+		t.Fatalf("future document events = %v", kinds)
 	}
 }
 
