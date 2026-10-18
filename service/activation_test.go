@@ -67,24 +67,34 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 
 	// A new Session, and the idle stored one, are refused: they did not run.
-	for name, request := range map[string]service.RunRequest{
-		"new session":         {Prompt: "three"},
-		"idle stored Session": {SessionID: idle.ID(), Prompt: "wake"},
-	} {
-		result, err := runner.Run(ctx, request)
+	refusals := []struct {
+		name    string
+		request service.RunRequest
+	}{
+		{"new session", service.RunRequest{Prompt: "three"}},
+		{"idle stored Session", service.RunRequest{SessionID: idle.ID(), Prompt: "wake"}},
+	}
+	for _, refusal := range refusals {
+		result, err := runner.Run(ctx, refusal.request)
 		if !errors.Is(err, service.ErrOverloaded) || !gotato.IsCode(err, gotato.ErrOverloaded) {
-			t.Fatalf("%s: err = %v, want ErrOverloaded", name, err)
+			t.Fatalf("%s: err = %v, want ErrOverloaded", refusal.name, err)
 		}
 		if result.SessionID != "" || result.Result.RunID != "" {
-			t.Fatalf("%s: a refused request returned a result: %+v", name, result)
+			t.Fatalf("%s: a refused request returned a result: %+v", refusal.name, result)
 		}
 	}
-	rejected := instance.Wait(5*time.Second, func(e gotato.Event) bool {
-		r, ok := e.(gotato.RunRejected)
-		return ok && r.Why == "activation_limit" && r.SessionID == gotato.SessionID(idle.ID())
-	})
-	if !rejected {
-		t.Fatalf("no run_rejected Event for the idle Session; got %v", instance.Kinds())
+	// The Instance Events reach the recorder on their own goroutine: wait for
+	// both before counting them.
+	// The two refusals differ by Session: the new one names none. Wait is
+	// called again on the same Events, so count by what they name.
+	seen := map[gotato.SessionID]bool{}
+	if !instance.Wait(5*time.Second, func(e gotato.Event) bool {
+		if r, ok := e.(gotato.RunRejected); ok {
+			seen[r.SessionID] = true
+		}
+		return len(seen) >= 2 && seen[gotato.SessionID(idle.ID())]
+	}) {
+		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
 	}
 	var reasons []string
 	for _, event := range instance.OfKind(gotato.KindRunRejected) {
