@@ -627,7 +627,7 @@ func failureOf(err error) errorResponse {
 		out.Code = string(runtimeErr.Code)
 		out.RecordEpoch = runtimeErr.Details["record_epoch"]
 	}
-	if status >= http.StatusInternalServerError {
+	if status >= http.StatusInternalServerError && !out.NotRun {
 		// Keep store and filesystem internals in the server log; the client
 		// gets a stable body.
 		log.Printf("httpapi: %d %s: %v", status, out.Error, err)

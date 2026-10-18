@@ -315,25 +315,36 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 
 	savedTwice := func(session string) func() bool {
 		return func() bool {
-			saves := 0
+			saves, ended := 0, 0
 			for _, event := range all.Events() {
-				if _, ok := event.(gotato.SessionSaved); ok && string(event.Head().SessionID) == session {
+				if string(event.Head().SessionID) != session {
+					continue
+				}
+				switch event.Kind() {
+				case gotato.KindSessionSaved:
 					saves++
+				case gotato.KindRunEnded:
+					ended++
 				}
 			}
-			return saves >= 2
+			// A stored Event reaches the stream on the Session's way, and a
+			// store timing on the Runner's, so one can arrive before the other.
+			return saves >= 2 && ended >= 2
 		}
 	}
 	waitFor(t, savedTwice(sessions["alpha"]))
 	waitFor(t, savedTwice(sessions["beta"]))
 	waitFor(t, func() bool {
-		saves := 0
+		saves, ended := 0, 0
 		for _, event := range onlyBeta.Events() {
-			if event.Kind() == gotato.KindSessionSaved {
+			switch event.Kind() {
+			case gotato.KindSessionSaved:
 				saves++
+			case gotato.KindRunEnded:
+				ended++
 			}
 		}
-		return saves >= 2
+		return saves >= 2 && ended >= 2
 	})
 
 	kindsOf := func(rec *testkit.EventRecorder, session string) map[gotato.EventKind]int {
