@@ -110,11 +110,13 @@ func Create(ctx context.Context, store Store, r *Record, instance string, option
 }
 
 // OpenWriter loads a Record from its facts and returns a Writer for it, held
-// by instance. When the Record's last Claim names another Instance, it asks
-// the holder check, if any, and then claims the Record with the next Epoch,
-// and a Run that started and never ended is ended as interrupted. Both are
-// written before OpenWriter returns, so a writer that held the Record before
-// can no longer write to it.
+// by instance, and marks the Record busy until Release. When the Record's
+// last Claim names another Instance, it asks the holder check, if any, and
+// then claims the Record with the next Epoch, and a Run that started and
+// never ended is ended as interrupted. When instance holds the Claim already,
+// it writes a busy mark instead. Either is written before OpenWriter returns,
+// so a writer that held the Record before can no longer write to it, and an
+// Instance that opens it at the same moment gets a conflict.
 func OpenWriter(ctx context.Context, store Store, id, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	began := time.Now()
@@ -141,9 +143,16 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 		}
 	}
 	// The Session is busy from this write on, so another Instance waits
-	// instead of claiming it before this writer's Run has started.
+	// instead of claiming it before this writer's Run has started. A writer
+	// that holds the Claim already writes a busy mark instead: it takes the
+	// next position too, so when another Instance claims the Record at the
+	// same moment, exactly one of the two writes lands, and the other sees a
+	// conflict before it calls the model.
 	r.mu.Lock()
 	r.busy = true
+	if claimed {
+		r.queue(EntryBusy, LayerLog, r.claim)
+	}
 	r.mu.Unlock()
 	if !claimed {
 		r.claimFor(instance)

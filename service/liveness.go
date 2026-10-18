@@ -56,6 +56,14 @@ type heartbeat struct {
 // alive: another Instance may hold its Sessions by now.
 var errLapsed = gotato.ErrorOf(gotato.ErrConflict, "service: this instance's liveness row may have expired")
 
+// lapsed reports whether err is errLapsed itself. errors.Is cannot tell:
+// a RuntimeError matches any other of the same Code, so it would match every
+// conflict, and a lost race would never be looked at again.
+func lapsed(err error) bool {
+	var runtimeErr *gotato.RuntimeError
+	return errors.As(err, &runtimeErr) && runtimeErr == errLapsed
+}
+
 // errHolderBusy reports, inside open, a Session running on another live
 // Instance.
 var errHolderBusy = errors.New("service: the session is running on another instance")
@@ -212,7 +220,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, e
 		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck))
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
-		if err == nil || (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || errors.Is(err, errLapsed) {
+		if err == nil || (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
 			return writer, err
 		}
 		remaining := time.Until(deadline)

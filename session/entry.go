@@ -57,6 +57,10 @@ const (
 	// EntryRelease is a log Entry holding a Claim: its writer stopped using
 	// the Session, which is no longer busy.
 	EntryRelease EntryKind = "release"
+	// EntryBusy is a log Entry holding a Claim: the writer that holds it
+	// opened the Session again, which is busy until the next release. A new
+	// Claim marks the Session busy on its own.
+	EntryBusy EntryKind = "busy"
 )
 
 // Entry is one line of a Record's log. Seq numbers a Record's Entries from 1,
@@ -334,7 +338,7 @@ func (s *Record) apply(entry Entry) error {
 		if err := decode(&call); err != nil {
 			return err
 		}
-	case EntryRelease:
+	case EntryRelease, EntryBusy:
 		var claim Claim
 		if err := decode(&claim); err != nil {
 			return err

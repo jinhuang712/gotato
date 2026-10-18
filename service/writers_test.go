@@ -385,3 +385,52 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 		t.Fatalf("a second Close = %v", err)
 	}
 }
+
+// TestTwoInstancesOpenOneIdleSessionAtOnce: when the instance that holds an
+// idle Session and another one open it at the same time, one of them runs
+// first and the other waits for it. Neither fails with a conflict.
+func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
+	for _, kind := range []struct {
+		name   string
+		rounds int
+	}{{"memory", 50}, {"file", 15}} {
+		t.Run(kind.name, func(t *testing.T) {
+			ctx := context.Background()
+			open := sharedStores(t, kind.name)
+			a := instanceRunner(t, open(), "instance-a", testkit.EchoModel{}, fastLiveness)
+			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, fastLiveness)
+			s, err := a.CreateSession(ctx, "echo", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}); err != nil {
+				t.Fatal(err)
+			}
+			var failed []error
+			for round := range kind.rounds {
+				errs := make(chan error, 2)
+				for _, runner := range []*service.Runner{a, b} {
+					go func() {
+						_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: fmt.Sprintf("%s-%d", runner.Instance(), round)})
+						errs <- err
+					}()
+				}
+				for range 2 {
+					if err := <-errs; err != nil {
+						failed = append(failed, err)
+					}
+				}
+			}
+			if len(failed) > 0 {
+				t.Fatalf("%d of %d Runs failed, first: %v", len(failed), 2*kind.rounds, failed[0])
+			}
+			view, err := session.View(ctx, open(), s.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := len(view.Messages()), 2+4*kind.rounds; got != want {
+				t.Fatalf("messages = %d, want %d", got, want)
+			}
+		})
+	}
+}

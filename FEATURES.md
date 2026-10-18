@@ -624,6 +624,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 **One writer.** Only the writer may append to a Session's Record, and it holds a Claim with an Epoch.
 
 - A Claim is a fact written at the position after the head its instance read, with the next Epoch. Its write also marks the Session busy until the writer releases it, so another instance waits instead of claiming a Session whose Run has not started.
+- A writer that holds the Claim already writes a busy mark when it opens the Session again. The mark takes the next position too, so when the writer and another instance open an idle Session at the same moment, exactly one write lands, and the other instance waits for that Run instead of failing.
 - When a write fails because its position is taken, the writer drops its copy at once.
 - When a write fails for another reason, its outcome is unknown: the writer stops, and the Session is opened again from the store, which shows whether the write landed. A late write can only take a free position, so it never overwrites anything.
 - A second instance learns that the Session has a writer before it calls the model, so it never pays for a Turn it cannot commit. One case is beyond any check: an instance paused for longer than its row lives may send one request when it wakes, before it notices. Its result can never be written.
@@ -652,7 +653,7 @@ This covers every case where a Session's writer is not where the load balancer p
 | Place | What differs from a single instance |
 |---|---|
 | The writer dies mid-Run | the step in flight is lost, and a tool that was running is answered with an unknown outcome; the stream ends, and the Session waits for the dead instance's row to expire before another instance takes it over |
-| Two requests for one Session reach two instances at once | one waits for the other; when the Session's writer had just reopened it, the other may claim it first, and the writer's request is refused with 409 before any model call, and can be retried |
+| Two requests for one Session reach two instances at once | whichever opens it first runs, and the other waits for it, up to `Liveness.Wait` whatever the busy policy, then answers 409 |
 | The load balancer's hash changes | for a few seconds, a message may wait for a running Run, and a Steer then starts a new Run |
 | Several instances | `MaxActiveRuns` counts per instance, not across the service |
 | A rolling deploy | an instance on an older contract version refuses what it does not know, until it is replaced |

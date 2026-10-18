@@ -50,19 +50,48 @@ func TestStaleCopyCannotOverwriteANewerRecord(t *testing.T) {
 	}
 }
 
-func TestReopeningByTheSameInstanceWritesNoClaim(t *testing.T) {
+// TestReopeningByTheHolderWritesABusyMark: the Instance that holds the Claim
+// writes no new Claim when it opens the Record again, but it does mark the
+// Record busy in the store, at the next position, so another Instance that
+// claims it at the same moment loses that position, or wins it.
+func TestReopeningByTheHolderWritesABusyMark(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	created, err := session.Create(ctx, store, session.New(), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := session.OpenWriter(ctx, store, created.Record().ID(), "instance-a")
+	id := created.Record().ID()
+	before, err := store.Load(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats := reopened.Stats(); stats.Writes != 0 {
-		t.Fatalf("reopening wrote %d times", stats.Writes)
+	reopened, err := session.OpenWriter(ctx, store, id, "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats := reopened.Stats(); stats.Writes != 1 {
+		t.Fatalf("reopening wrote %d times, want one busy mark", stats.Writes)
+	}
+	if claim := reopened.Record().Claim(); claim != (session.Claim{Instance: "instance-a", Epoch: 1}) {
+		t.Fatalf("claim = %+v, want instance-a still at epoch 1", claim)
+	}
+	entries, err := store.Log(ctx, id, before.Head)
+	if err != nil || len(entries) != 1 || entries[0].Kind != session.EntryBusy || entries[0].Seq != before.Head+1 {
+		t.Fatalf("written after the head = %+v, %v; want one busy mark at %d", entries, err, before.Head+1)
+	}
+	after, err := store.Load(ctx, id)
+	if err != nil || !after.Summary.Busy {
+		t.Fatalf("summary = %+v, %v; want busy", after.Summary, err)
+	}
+	if err := reopened.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if released, err := store.Load(ctx, id); err != nil || released.Summary.Busy {
+		t.Fatalf("summary after Release = %+v, %v; want idle", released.Summary, err)
+	}
+	if _, err := session.View(ctx, store, id); err != nil {
+		t.Fatalf("a Record with a busy mark does not load: %v", err)
 	}
 }
 
