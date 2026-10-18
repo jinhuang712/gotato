@@ -21,7 +21,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -268,7 +267,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 		response: response,
 		reader:   bufio.NewReader(response.Body),
 		nameMap:  names,
-		calls:    make(map[int]*callBuffer),
+		byIndex:  make(map[int]*callBuffer),
 		restart:  restarter{client: c, body: body, open: open},
 	}, nil
 }
@@ -588,10 +587,15 @@ type wireFunctionCall struct {
 }
 
 type stream struct {
-	response  *http.Response
-	reader    *bufio.Reader
-	nameMap   map[string]string
-	calls     map[int]*callBuffer
+	response *http.Response
+	reader   *bufio.Reader
+	nameMap  map[string]string
+	// calls are the Tool calls in the order they first appeared; byIndex
+	// is the call each provider index names now, and last the call the
+	// latest delta added to.
+	calls     []*callBuffer
+	byIndex   map[int]*callBuffer
+	last      *callBuffer
 	queue     []gotato.ModelEvent
 	finish    gotato.StopReason
 	usage     gotato.Usage
@@ -616,7 +620,7 @@ type wireChunk struct {
 			Content          string `json:"content"`
 			ReasoningContent string `json:"reasoning_content"`
 			ToolCalls        []struct {
-				Index    int    `json:"index"`
+				Index    *int   `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
 					Name      string `json:"name"`
@@ -689,7 +693,9 @@ func (s *stream) reopen(response *http.Response) {
 	}
 	s.response = response
 	s.reader = bufio.NewReader(response.Body)
-	s.calls = make(map[int]*callBuffer)
+	s.calls = nil
+	s.byIndex = make(map[int]*callBuffer)
+	s.last = nil
 	s.queue = nil
 	s.finish = ""
 	s.usage = gotato.Usage{}
@@ -777,11 +783,7 @@ func (s *stream) processChunk(chunk wireChunk) {
 			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: choice.Delta.Content})
 		}
 		for _, delta := range choice.Delta.ToolCalls {
-			call := s.calls[delta.Index]
-			if call == nil {
-				call = &callBuffer{}
-				s.calls[delta.Index] = call
-			}
+			call := s.callFor(delta.Index, delta.ID)
 			if delta.ID != "" {
 				call.id = delta.ID
 			}
@@ -799,14 +801,30 @@ func (s *stream) processChunk(chunk wireChunk) {
 	}
 }
 
-func (s *stream) finishStream() {
-	indices := make([]int, 0, len(s.calls))
-	for index := range s.calls {
-		indices = append(indices, index)
+// callFor returns the Tool call a delta adds to. The chat API names each
+// call by its index, and sends its ID once, in its first delta. Gemini's chat
+// API sends parallel calls whole, each with its own ID, but without an
+// index, with a null one, or all at index 0. So a delta that names an ID
+// other than the one its index holds starts a new call, and a delta without
+// an index adds to the last call.
+func (s *stream) callFor(index *int, id string) *callBuffer {
+	call := s.last
+	if index != nil {
+		call = s.byIndex[*index]
 	}
-	sort.Ints(indices)
-	for _, index := range indices {
-		call := s.calls[index]
+	if call == nil || (id != "" && call.id != "" && id != call.id) {
+		call = &callBuffer{}
+		s.calls = append(s.calls, call)
+		if index != nil {
+			s.byIndex[*index] = call
+		}
+	}
+	s.last = call
+	return call
+}
+
+func (s *stream) finishStream() {
+	for _, call := range s.calls {
 		name := call.name
 		if original, ok := s.nameMap[name]; ok {
 			name = original
