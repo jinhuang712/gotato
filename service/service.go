@@ -769,6 +769,11 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			Messages:  s.Len(),
 			Events:    len(s.Events()),
 		}
+		if request.SkipSave {
+			// The Run stored nothing: its Events are those of its own stream,
+			// numbered from 1, so the last number counts them.
+			out.Events = int(feed.Last())
+		}
 		if result.FinalMessage != nil {
 			out.FinalText = gotato.TextOf(*result.FinalMessage)
 		}
