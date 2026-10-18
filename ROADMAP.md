@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-18 -->
+<!-- what-we-build: drafted 2026-10-19 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -16,11 +16,12 @@ Phase 3  Names           the Agent, the live Session and its Record take their g
          ── design discussion: how a Turn is saved, who writes, where messages go (answered) ──
 Phase 4  Durable steps   every step is appended as it happens, and every append is fenced
 Phase 5  One writer      any instance answers like the only one, with one writer at a time, and resumes any stream
-Phase 6  Warm Session    a Session stays in memory while in use, and takes Steer, Interrupt and Stop from any endpoint
+Phase 6  Warm Session    a Session stays in memory while in use, is compacted before its cache goes cold,
+                         and takes Steer, Interrupt and Stop from any endpoint
 Phase 7  Structured      an Agent's final reply fits a JSON schema
 Phase 8  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
 Phase 9  Compatibility   CI flags a removed or changed exported identifier
-         ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache, how a Session is compacted ──
+         ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
 ```
 
 Why this order:
@@ -30,6 +31,7 @@ Why this order:
 - **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 6 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
 - **Each of the last three phases builds on the one before.** One writer needs Turns that are appended and fenced, and a warm Session needs a writer to hold it.
+- **Compaction is built with the warm Session,** because its main trigger, compacting before the cache goes cold, runs on the warm Session's idle timer.
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the many-instance goals carry the pitch.
@@ -143,10 +145,10 @@ Exit:
 
 ## Phase 6 — Warm Session
 
-- Runtime notices (G-F29), designed on 2026-10-18, are built: a notice is a Message of its own kind, waits in the queue that holds a Steer, and goes in right before the next model call. The compaction summary and the output-limit continuation become notices, and a service sends its own through `Runner.Notice`, HTTP, gRPC and the CLI.
+- Runtime notices (G-F29), designed on 2026-10-18, are built: a notice is a Message of its own kind, waits in the queue that holds a Steer, and goes in right before the next model call. The output-limit continuation becomes a notice, and a service sends its own through `Runner.Notice`, HTTP, gRPC and the CLI.
 - The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) reach the Runner and the endpoints with the queue that holds those messages. Phase 5 builds their types, and emits them where the Go API already queues messages.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
-- Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
+- Compaction (G-F06), designed on 2026-10-19, is built, once the checks against real providers that [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-) lists have passed ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)). Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix. A warm Session that idles is compacted by default shortly before its prompt cache expires or it leaves memory, and a setting turns this off. A Run is compacted past the ceiling, mid-Run included, and once after the provider refuses a request as too long. The model reads a Segment back with `read_segment`, and the gateway configuration gains `context_window`.
 - Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
 - A keepalive for a warm Session's cache (G-F33) is designed with the warm Session. The longer retention it builds on is set in the gateway (G-F07).
 - `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
@@ -156,6 +158,8 @@ Exit:
 - G-G08 passes with messages that arrive mid-Run.
 - A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript.
 - A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API in its own form.
+- A test on a fake model compacts an idle Session before its cache expires, a Run past the ceiling mid-Run, and a request refused as too long. It checks that the Segments before keep their bytes, that a tool call stays with its result in the kept tail, that every instance builds the same request from the Checkpoint, and that a Recap that fails leaves a Segment without one.
+- A user Message and a Tool Result that hold the start or the end of one of the four tags reach the model escaped.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Phase 7 — Structured output
@@ -196,7 +200,6 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 | G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | next: G-F29 is designed |
 | G-F31 — Recovering a cut stream | runtime notices (G-F29) | next: G-F29 is designed |
 | G-F32 — Changes that keep the cache | a reference task that switches a tool set on, to measure what a change costs | after that measurement |
-| G-F06 — How a Session is compacted: who writes the summary, what stays word for word, how compacting before the TTL relates to the ceiling at the start of a Run, and what happens to a notice that still applies | the append-only Record and its Checkpoints (Phase 4), and the warm Session's TTL (Phase 6) | after Phase 6 |
 
 ## Every release
 

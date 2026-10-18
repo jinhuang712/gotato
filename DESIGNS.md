@@ -342,7 +342,7 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 ### An idle Session leaves memory at its TTL
 
 - **Instead of:** staying in memory until someone destroys it.
-- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL. It is compacted first, unless a setting turns this off (see [principle 6](#compaction-appends-a-checkpoint-when-the-cache-has-gone-cold)).
+- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL. It is compacted shortly before then, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 6](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
 
 ### A Fork writes the store and activates nothing
 
@@ -391,7 +391,7 @@ What the model sees is a value built on every Turn, not the history sent as it i
 
 ### What is not the user's words goes to the model as a notice — 2026-10-18
 
-Gotato and the service sometimes have to tell the model something the user did not say: the history was compacted, this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
+Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
 
 | Option | For | Against |
 |---|---|---|
@@ -399,7 +399,7 @@ Gotato and the service sometimes have to tell the model something the user did n
 | A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
 | Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
 
-- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `compaction_ended`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
+- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
 - **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
 - **Each wire API in its own form.** A system message where the model accepts one mid-conversation, a developer message on OpenAI's Responses API, and otherwise tagged text in the adjacent user Message ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
@@ -435,17 +435,42 @@ A thinking model writes a lot of reasoning, and some models think on every reply
 - **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
 - **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there.
 - **A change of model.** Reasoning goes as it is, whichever model wrote it. The provider drops what its model cannot read. Turning reasoning into text instead would make the new model take it for its own answer.
-- **Compaction.** For Claude and OpenAI, a Checkpoint keeps the kept Messages without their reasoning, because the summary changes the prefix that reasoning was written under. For DeepSeek and unrecognized providers, the reasoning stays.
+- **Compaction.** A Segment holds no reasoning. The tail a compaction keeps goes to Claude and OpenAI without its reasoning, because the Segment changes the prefix that reasoning was written under, and to DeepSeek and unrecognized providers with it. What Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going, is checked against them before it is built.
 
 ### Cache retention is set where the provider is configured
 
 - **Instead of:** a retention on each Agent, or one value for every provider.
 - **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
 
-### Compaction appends a Checkpoint, when the cache has gone cold
+### Compaction closes a Segment, before the cache goes cold — 2026-10-19
 
-- **Instead of:** replacing the history with a summary, or compacting while the cache is still warm.
-- **Why:** nothing a Session said is lost to compaction. Compacting before a Session leaves memory at its TTL breaks no cache that is still alive, since the provider's cache has expired by then. How a Session is compacted is still open ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+A Session's user often comes back long after the provider's cache has expired, and a long Run can outgrow the model's window. Compaction has to keep as much of the conversation as it can, and make the first request after a long pause cheap. A Segment is one stretch of history that a compaction closed, and its Recap is the part the model writes ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
+
+| Option | For | Against |
+|---|---|---|
+| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary, so nothing drifts. The Segments before keep their bytes, so a request can still read them from the cache. It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. |
+| One summary of everything before the kept tail, written again at every compaction | One block, whose size stays bounded. | Each compaction summarizes the summary before it, so early facts blur or drop out, and the whole prefix changes every time. |
+| The provider's own compaction | No code in Gotato. | Its result cannot be read, does not carry over to another model, differs from one provider to the next, and cannot close one Segment at a time. It may become an option later. |
+
+- **Before the cache goes cold.** An idle Session is compacted shortly before its prompt cache expires, or before it leaves memory if its TTL comes first. The request that writes the Recap still reads the cache, and the user who comes back later pays full price only for a smaller Context.
+- **The ceiling is the exception.** A Run about to outgrow the model's window is compacted while the cache is still warm, mid-Run if need be, because it cannot go on otherwise. The same goes for a request the provider refuses as too long, which is compacted and sent again once, and for a compaction asked for on demand.
+- **Nothing is lost.** The Record keeps every Message a Segment covers, and the model can read a Segment back in full with a built-in tool.
+- **The tools change with it.** Only the ToolSets used in the Segment being closed stay active. The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
+
+### Code builds a Segment, and the model writes only the Recap at its end
+
+- **Instead of:** asking a model to summarize the whole stretch.
+- **Why:** what code can keep exactly, it keeps. The user's messages and each Run's final reply stay word for word, and each tool call becomes one line inside its Run, so every answer shows the calls it came from; reasoning, a Run's intermediate text and the tool results are left out. The model writes only what code cannot: the Recap, with the facts the tool results held, the decisions, what is still open, and where a Run stands. It comes last, so a mistake by the model cannot damage the rest, and the model reads it right before the Messages that follow.
+
+### The Agent's own model writes the Recap, on the cached prefix
+
+- **Instead of:** a separate model, or a request built only to summarize.
+- **Why:** the request is the last model call's Context, unchanged, with one plain user message after it that asks for the Recap, so the whole prefix is read from the cache. That message is never stored and carries no tag, because it asks for work rather than stating a fact. A Recap fails when the reply calls a tool, misses its headings or is cut off, and the compaction still goes on: the Segment is kept without a Recap, with the conversation and its tool call lines, so a mistake by the model never loses the conversation. A library user can bring their own writer of Recaps.
+
+### A notice is for runtime facts, and a Segment has tags of its own
+
+- **Instead of:** a notice that carries a summary of the history, or history and notices as untagged text.
+- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags, so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message or Tool Result that holds the start or the end of one of the four tags has its `<` escaped, so neither a user nor outside data can speak as the system.
 
 ## 7. A Session can be stopped and seen
 
