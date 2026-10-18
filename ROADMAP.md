@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-18 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -143,7 +143,7 @@ Exit:
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Before it leaves, the Session is compacted by default, and a setting turns this off. How it is compacted waits for its own design ([Waiting for design](#waiting-for-design)); until then, the TTL only removes the Session from memory.
 - Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
-- Longer prompt cache retention, and a keepalive for a warm Session's cache (G-F33), are designed with the warm Session.
+- A keepalive for a warm Session's cache (G-F33) is designed with the warm Session. The longer retention it builds on is set in the gateway (G-F07).
 - `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
 
 Exit:

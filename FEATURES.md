@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-18 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -35,7 +35,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
 | Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
-| Cache markers | after the system part, the tools and on the last message; `cache_control` on Anthropic | G-F04 | ✅ |
+| Cache markers | after the system part, the tools and on the last message, and on Claude where the Round started; `cache_control` on Anthropic | G-F04 | ✅ |
 | Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
 | Context inspection | the request the next Turn sends, with its prefix hash, without calling the model | G-F05 | ✅ |
@@ -68,7 +68,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Retries | on no response, 429 (not a hard quota), 500, 502 to 504, 529, or an overloaded provider; a provider's `Retry-After` wins | G-F07 | ✅ |
 | Broken-stream restart | a stream that broke before any output is sent again | G-F07 | ✅ |
 | Output-limit report | a reply cut off by the output limit says `max_tokens` | G-F07 | ✅ |
-| Reasoning replay | a thinking model's reasoning is kept and sent back, on every wire API | G-F07 | ✅ |
+| Reasoning replay | the current Round's reasoning goes back to Claude and OpenAI, and all of it to any other provider | G-F07 | ✅ |
+| Provider rules | name the provider, or let the gateway recognize its own address, for its reasoning and cache rules | G-F07 | ✅ |
 | Cache reads | counted on every wire API | G-F07 | ✅ |
 | Cache key on the wire | sent in a body field (`prompt_cache_key` on Responses) or a header, as configured | G-F07 | ✅ |
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
@@ -102,7 +103,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Load balancer setup | hash on `session-id`, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | 🚧 |
 | Activation limit | past a hard limit, such as memory, an instance refuses new Sessions with a 503 marked "not run" | G-F27 | ⬜ |
 | Warm Session and TTL | a Session stays in memory while in use, and leaves after 60 idle minutes unless its Agent sets another TTL, compacted first by default | G-F27 | ⬜ |
-| Prompt cache retention and keepalive | longer provider cache retention, and keeping a warm Session's cache from expiring | G-F33 | ⬜ |
+| Prompt cache retention and keepalive | the provider's longest cache retention, set per model or for all of them; keeping a warm Session's cache from expiring | G-F33 | 🚧 |
 
 **Endpoints**
 
@@ -337,7 +338,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the Transcript
 
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
 - **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
-- Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept.
+- Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept. For a recognized Claude, the gateway adds one where the last Round started, because a new Round leaves the last Round's reasoning out ([G-F07](#g-f07--models-and-providers-)).
 - Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewSession`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
@@ -369,6 +370,7 @@ An old part of the Transcript can be replaced by one summary, so a long conversa
 - The summary comes from truncation or from a model (`--summarizer truncate|model`).
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
 - A compaction appends a Checkpoint (G-F03) instead of rewriting the Record, so the old part stays in the store and is no longer loaded. A Checkpoint holds the whole state of the facts, the summary and the kept tail included, so a load never mixes a summary with the entries it summarized.
+- When the Agent's model is sent only the current Round's reasoning (a recognized Claude or OpenAI, see [G-F07](#g-f07--models-and-providers-)), the kept tail is kept without its reasoning, because the summary changes the prefix that reasoning was written under. The Runner asks the model (`modelctx.DropsReasoning`); with `modelctx.Compact` alone, set `CompactOptions.DropReasoning`. For DeepSeek and unrecognized providers, the reasoning stays.
 
 **Setting:** a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0), because compaction loses detail, and the team decides when that trade is worth it. The planned compaction before a warm Session leaves memory (G-F27) is the other way round: on by default, because a Session that comes back after its TTL starts cold anyway.
 
@@ -466,9 +468,27 @@ model: your-model
 
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
 - A reply records the model that answered it (`Message.Model`), as the provider reports it: `model` in each chat chunk, in Responses' `response.created` and `response.completed`, and in Anthropic's `message_start`. Behind a gateway that falls back to another model, it names the fallback, not the model requested. It is a record only, and never sent back.
-- A thinking model's reasoning is kept and sent back on the next call, on every wire API: `reasoning_content` on the chat API, as DeepSeek requires; encrypted reasoning items on Responses; signed `thinking` and `redacted_thinking` blocks on Anthropic.
+- A thinking model's reasoning is kept in the Transcript, and sent back as each wire API carries it: `reasoning_content` on the chat API, as DeepSeek requires; encrypted reasoning items on Responses; signed `thinking` and `redacted_thinking` blocks on Anthropic. How much of it goes back depends on the provider (below).
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
+
+**Provider rules**
+
+A few providers have rules of their own for reasoning and the cache. The gateway follows them for the provider that `provider` names, or, without it, for the provider whose own address it calls: `api.anthropic.com`, `api.openai.com` or `api.deepseek.com`. It never guesses from a model name, because behind a gateway a model name may be an alias. `provider: other` turns this off.
+
+| Provider | Reasoning sent back | Added to the request |
+|---|---|---|
+| `anthropic` | only the current Round's | `cache_control` with `"ttl": "1h"`; on Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5, `thinking.block_binding` with `drop_block`, its beta header, and `thinking.type: "adaptive"`, their default |
+| `openai` | only the current Round's | on Responses from GPT-5.6, `prompt_cache_options.ttl: "30m"` |
+| `deepseek`, and any provider not recognized | all of it | nothing |
+
+- **A Round** is a user Message and every reply and Tool Result after it, so the reasoning that goes back is the reasoning of the replies after the last user Message. A Steer starts a new Round. A Continue without a new prompt stays in the Round it resumes. On Responses, an earlier Round's function call goes without its item ID too.
+- **DeepSeek** refuses a request that leaves out earlier `reasoning_content` once tools are in play, on its chat API and on its Anthropic one, and an unknown provider may do the same. Both get all the reasoning, and no field or header beyond the request.
+- **A new model** gets the reasoning as it is. The provider drops what its model cannot read.
+- **Block binding.** Claude's newest models check that a thinking block comes after the same system prompt, tools and Messages it was written under. Leaving out every earlier Round's reasoning keeps that true; `drop_block` asks Claude to drop a block whose prefix changed anyway, instead of refusing the request. `no_drop_block: true` turns it off. Claude reports what it dropped in `input_transformations`, which Gotato does not read yet.
+- **Cache retention.** `cache_retention` sets how long the provider keeps the cache. Without it, a recognized provider gets its longest; a shorter value than the provider's longer option keeps its default. OpenAI models before GPT-5.6 keep their own default, which is 24 hours for an organization without Zero Data Retention. `GOTATO_GATEWAY_CACHE_RETENTION` sets it for every model in the process and wins over each model's own.
+
+The reasoning rule and the retention were checked against the providers' documentation on 2026-10-18, not yet against the providers themselves.
 
 **The prompt cache key**
 
@@ -495,8 +515,11 @@ All the settings in the YAML file:
 | `cache_key_header` | none | the header that carries the prompt cache key, such as `session-id`, for a provider that keys its cache by a session header |
 | `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
+| `provider` | recognized from the provider's own address, else none | `anthropic`, `openai`, `deepseek` or `other`: whose rules for reasoning and the cache apply |
+| `cache_retention` | the recognized provider's longest | how long the provider keeps the prompt cache, such as `5m` to keep Claude's default and its lower write price. `GOTATO_GATEWAY_CACHE_RETENTION` wins over it. |
+| `no_drop_block` | false | stops asking Claude to drop a thinking block whose prefix changed, so such a request is refused instead |
 
-Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY` and `GOTATO_GATEWAY_MODEL`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
+Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY`, `GOTATO_GATEWAY_MODEL` and `GOTATO_GATEWAY_PROVIDER`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
 
 ### G-F28 — Structured output ⬜
 
@@ -668,14 +691,14 @@ Settings, on `service.Config` or `gotato serve`:
 
 `gotato-grpc` takes `--max-runs` but not `--queue` or `--drain-timeout`, so its busy policy is always `reject`.
 
-### G-F33 — Prompt cache retention and keepalive ⬜
+### G-F33 — Prompt cache retention and keepalive 🚧
 
 A provider keeps a cached prefix for minutes, and a conversation that pauses longer pays full price to start again.
 
-- **Retention:** ask for the provider's longer cache retention where it offers one, such as an hour on Anthropic, per Agent.
+- **Retention:** the gateway asks a recognized provider for its longest cache retention: an hour on Claude, and 30 minutes on OpenAI's Responses API from GPT-5.6. It is set where the provider is configured, not per Agent: `cache_retention` for one model, and `GOTATO_GATEWAY_CACHE_RETENTION` for every model, winning over each model's own ([G-F07](#g-f07--models-and-providers-)). An hour on Claude doubles the price of a cache write; `5m` keeps its default.
 - **Keepalive:** while a warm Session is in memory (G-F27), refresh its cache shortly before it expires. Each refresh costs a cache read of the whole prefix, so it pays only when the Session is likely to come back soon; it is a setting per Agent, with a limit.
 
-**Design first:** with the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
+**Gap:** the keepalive is not built. **Design first:** with the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
 
 ## Endpoints
 

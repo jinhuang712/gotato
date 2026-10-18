@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-18 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -79,7 +79,7 @@ cmd/gotato, gRPC adapter  ──►  service, service/httpapi  ──►  sessio
 
 ### Providers are configured by wire API — 2026-09-17
 
-A provider is configuration: an endpoint, a key, a wire API and its models. Gotato implements each wire API once (`openai-chat-completions`, `openai-responses` and `anthropic-messages`), and any vendor that speaks one of them works without new code.
+A provider is configuration: an endpoint, a key, a wire API and its models. Gotato implements each wire API once (`openai-chat-completions`, `openai-responses` and `anthropic-messages`), and any vendor that speaks one of them works without new code. A few providers have rules of their own for reasoning and the cache, so the configuration may also name the provider ([principle 6](#reasoning-goes-back-for-the-current-round-where-the-provider-allows-it--2026-10-18)).
 
 | Option | For | Against |
 |---|---|---|
@@ -393,6 +393,28 @@ What the model sees is a value built on every Turn, not the history sent as it i
 
 - **Instead of:** a key per request or per instance.
 - **Why:** a provider that keys its cache serves one conversation from one cache, on whichever instance it runs. A Fork shares its parent's prefix, so it shares the key.
+
+### Reasoning goes back for the current Round, where the provider allows it — 2026-10-18
+
+A thinking model writes a lot of reasoning, and some models think on every reply. A Session can live for weeks, so reasoning sent back on every Turn fills the window, and the bill, long after it stopped helping. A Round is a user Message and every reply and Tool Result after it.
+
+| Option | For | Against |
+|---|---|---|
+| **The current Round's reasoning to Claude and OpenAI, all of it to any other provider** (chosen) | Reasoning stops piling up where the provider allows it. The rule reads only the Record, so every instance sends the same bytes. DeepSeek and unrecognized providers work as they always did. | Once per Round, the last Round's replies are cached again without their reasoning. DeepSeek and unrecognized providers still carry every reasoning artifact until compaction. |
+| All reasoning to every provider | The prefix only ever grows. | A weeks-long Session carries all of its reasoning, and Claude's newer models keep and bill all of it. |
+| No reasoning at all | The smallest requests. | Claude and OpenAI need the reasoning of a tool loop in progress, and DeepSeek refuses the request. |
+
+- **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and a runtime notice (G-F29) must not either, because it is not the user speaking.
+- **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
+- **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
+- **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there.
+- **A change of model.** Reasoning goes as it is, whichever model wrote it. The provider drops what its model cannot read. Turning reasoning into text instead would make the new model take it for its own answer.
+- **Compaction.** For Claude and OpenAI, a Checkpoint keeps the kept Messages without their reasoning, because the summary changes the prefix that reasoning was written under. For DeepSeek and unrecognized providers, the reasoning stays.
+
+### Cache retention is set where the provider is configured
+
+- **Instead of:** a retention on each Agent, or one value for every provider.
+- **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
 
 ### Compaction appends a Checkpoint, when the cache has gone cold
 

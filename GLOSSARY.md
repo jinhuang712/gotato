@@ -25,6 +25,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 |---|---|---|---|
 | **Run** | One request to a Session, from the input to the settled result. It may take many Turns. | job, task | `gotato.RunResult`, `service.RunRequest` |
 | **Turn** | One model call plus the tool calls it asked for. | step, iteration | `turn_start`, `turn_end` events |
+| **Round** | A user Message and every reply and Tool Result after it, up to the next user Message. A Steer starts a new Round; a Continue without a new prompt stays in its Round. Claude and OpenAI are sent only the current Round's reasoning. | turn (a provider's word for it, and a Turn is something else) | no type; the `gateway` finds it from the last user Message |
 | **Step** | One thing a Run does that is written as it happens: the prompt, a model call starting, part of a streaming reply, a reply, Tools starting, a Tool Result, a continuation. A Turn has several. A crash loses at most the Step in flight. | | `gotato.Step`, written through `gotato.Journal` by `session.Writer` |
 | **Message** | One entry in the Transcript: user input, an assistant reply or a tool result. | | `gotato.Message` |
 | **Cut-off reply** | An assistant reply whose stream broke before the model finished. The Transcript keeps the text received so far, and the reply is never sent to a model again. | partial message | a `gotato.Message` with `StopCutOff` |
