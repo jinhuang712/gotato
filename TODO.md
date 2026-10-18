@@ -4,7 +4,7 @@ Open defects and design decisions, verified against the code. Planned capabiliti
 
 ## Defects
 
-- [ ] **Gemini's thought signatures are lost on the chat API (not verified).** Gemini 3 and later refuse a function call of the current Round that comes back without its thought signature. On its OpenAI-compatible API the signature is in `tool_calls[].extra_content.google.thought_signature`, which the chat gateway neither reads nor sends back, so the second tool call of a Round may fail with a 400. Keep `extra_content` on the call (`ToolCall.Signature`) and send it back (`gateway/gateway.go`); Gemini is an unrecognized provider today, so its reasoning rule stays as it is.
+None open.
 
 ## Decisions
 

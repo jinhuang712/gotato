@@ -499,7 +499,13 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 		if err != nil {
 			return wireMessage{}, err
 		}
-		out.ToolCalls = append(out.ToolCalls, wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}})
+		wire := wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}}
+		// The call's extra_content goes back as it came. Another wire API's
+		// artifact, such as a Responses item ID, is not an object.
+		if isJSONObject(call.Signature) {
+			wire.ExtraContent = json.RawMessage(call.Signature)
+		}
+		out.ToolCalls = append(out.ToolCalls, wire)
 	}
 	return out, nil
 }
@@ -511,10 +517,16 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 // model why. Sending the broken text back would make the provider refuse the
 // whole request, and so end the Run the Loop meant to continue.
 func replayArguments(arguments []byte) []byte {
-	if trimmed := bytes.TrimSpace(arguments); len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
+	if isJSONObject(arguments) {
 		return arguments
 	}
 	return []byte(`{}`)
+}
+
+// isJSONObject reports whether data is one JSON object.
+func isJSONObject(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed)
 }
 
 // toolResultText renders a Tool Result Message as text for a provider. Every
@@ -566,6 +578,9 @@ type wireToolCall struct {
 	ID       string           `json:"id"`
 	Type     string           `json:"type"`
 	Function wireFunctionCall `json:"function"`
+	// ExtraContent is provider data on a call, kept as it came: Gemini puts
+	// the thought signature it requires back here (google.thought_signature).
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 type wireFunctionCall struct {
 	Name      string `json:"name"`
@@ -586,7 +601,11 @@ type stream struct {
 	closeOnce sync.Once
 }
 
-type callBuffer struct{ id, name, arguments string }
+type callBuffer struct {
+	id, name, arguments string
+	// extra is the call's extra_content, from whichever delta carried it.
+	extra json.RawMessage
+}
 
 type wireChunk struct {
 	// Model is the model that answered, which a gateway with fallbacks may
@@ -603,6 +622,7 @@ type wireChunk struct {
 					Name      string `json:"name"`
 					Arguments string `json:"arguments"`
 				} `json:"function"`
+				ExtraContent json.RawMessage `json:"extra_content"`
 			} `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
@@ -769,6 +789,9 @@ func (s *stream) processChunk(chunk wireChunk) {
 				call.name += delta.Function.Name
 			}
 			call.arguments += delta.Function.Arguments
+			if isJSONObject(delta.ExtraContent) {
+				call.extra = delta.ExtraContent
+			}
 		}
 		if choice.FinishReason != nil {
 			s.finish = mapStopReason(*choice.FinishReason)
@@ -795,7 +818,7 @@ func (s *stream) finishStream() {
 		if strings.TrimSpace(arguments) == "" {
 			arguments = "{}"
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(arguments)}})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(arguments), Signature: call.extra}})
 	}
 	if s.finish == "" {
 		s.finish = gotato.StopEndTurn

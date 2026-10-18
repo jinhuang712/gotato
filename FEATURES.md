@@ -469,6 +469,7 @@ model: your-model
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.
 - A reply records the model that answered it (`Message.Model`), as the provider reports it: `model` in each chat chunk, in Responses' `response.created` and `response.completed`, and in Anthropic's `message_start`. Behind a gateway that falls back to another model, it names the fallback, not the model requested. It is a record only, and never sent back.
 - A thinking model's reasoning is kept in the Transcript, and sent back as each wire API carries it: `reasoning_content` on the chat API, as DeepSeek requires; encrypted reasoning items on Responses; signed `thinking` and `redacted_thinking` blocks on Anthropic. How much of it goes back depends on the provider (below).
+- A tool call's `extra_content` on the chat API is kept on the call and sent back as it came. Gemini 3 and later put the thought signature there, and refuse a call of the current Round that comes back without it. Google documents the field on a whole response; that it arrives in a streamed call's delta is not yet checked against Gemini.
 - Cache reads are counted on every wire API, from `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens` on the chat API.
 - A tool goes to the provider under its own ID when the provider accepts that name, and otherwise with each other character replaced by `_` (`demo.echo` becomes `demo_echo`), so the model reads and repeats a real name.
 

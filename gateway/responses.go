@@ -283,7 +283,8 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 			}
 			arguments := string(replayArguments(call.Arguments))
 			callID, itemID := splitResponsesCallID(string(call.ID))
-			if len(call.Signature) > 0 {
+			// A JSON object is the chat API's extra_content, not an item ID.
+			if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
 				itemID = string(call.Signature)
 			}
 			// A call whose reasoning item is left out goes without its item
