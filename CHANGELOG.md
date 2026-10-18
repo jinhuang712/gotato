@@ -4,7 +4,7 @@ What changed in each Gotato release, from the user's side. Newest first. A break
 
 ## Unreleased
 
-Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the parts of Phase 5 that keep two instances from running one Session and let an instance leave without losing work: the Effect cap, the names, every step of a Run written as it happens, one writer per Session, and the drain. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
+Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and Phase 5, except stream resume on the endpoints and the load balancer's part: the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, and the Event design, with the Claim Events. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
 ### Names
 
@@ -18,11 +18,11 @@ Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the parts of Phase 5 that kee
   | `gotato.AgentID` | `gotato.SessionID` |
   | `gotato.AgentStatus`, `AgentCreated` … `AgentClosed` | `gotato.SessionStatus`, `SessionCreated` … `SessionClosed` |
   | `ErrAgentClosed`, `ErrAgentClosing` (`agent_closed`, `agent_closing`) | `ErrSessionClosed`, `ErrSessionClosing` (`session_closed`, `session_closing`) |
-  | `EventAgentStart`, `EventAgentEnd` (`agent_start`, `agent_end`) | `EventRunStart`, `EventRunEnd` (`run_start`, `run_end`) |
-  | `LifecycleAgentCreated`, `…Closing`, `…Closed` (`agent_created`, …) | `LifecycleSessionCreated`, `…Closing`, `…Closed` (`session_created`, …) |
+  | `EventAgentStart`, `EventAgentEnd` (`agent_start`, `agent_end`) | `run_started`, `run_ended` (see Events) |
+  | `LifecycleAgentCreated`, `…Closing`, `…Closed` (`agent_created`, …) | removed with `SubscribeLifecycle` (see Events) |
   | `AgentID` (`agent_id`) on `Event`, `LifecycleEvent` and the extension inputs | `SessionID` (`session_id`) |
   | `session.Session` | `session.Record` |
-  | `session.Record(s)`, the recorder | `session.NewRecorder(r)` |
+  | `session.Record(s)`, the recorder | removed: a `session.Record` is a `gotato.Journal` (see Events) |
   | `testkit.NewSession` | `testkit.NewRecord` |
   | `BenchmarkAgentFootprint`, `heap-B/agent` | `BenchmarkSessionFootprint`, `heap-B/session` |
 
@@ -31,10 +31,10 @@ Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the parts of Phase 5 that kee
   agent, err := gotato.NewAgent(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(session.Record(s)))
   runner, err := service.New(service.Config{Store: store, Specs: []service.AgentSpec{{Name: "default", Model: model}}})
   // after
-  live, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r), gotato.WithExtension(session.NewRecorder(r)))
+  live, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
   runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "default", Model: model}}})
   ```
-- **A live Session's ID is its Session ID, and every Event carries it.** `gotato.Session` takes its ID from its Transcript when the Transcript has an `ID() string` method, as a `session.Record` does, and generates one otherwise. The Runner's own Events carry it too, so `session_loaded` now has a Session, though still no Run. **Breaking:** the `session_id` payload key of `session_loaded`, `session_saved` and `session_compacted` is gone; read `Event.SessionID` instead.
+- **A live Session's ID is its Session ID, and every Event carries it.** `gotato.Session` takes its ID from its Transcript when the Transcript has an `ID() string` method, as a `session.Record` does, and generates one otherwise. The Runner's own Events carry it too. **Breaking:** the `session_id` payload key of `session_loaded`, `session_saved` and `session_compacted` is gone; read the Header's `SessionID` instead.
 - **A Run record no longer has `agent_id`.** It held a counter that meant nothing after a restart, and nothing read it. `Record.RecordRunStart` takes the Run's ID and time only. A Record saved before still loads; the old key is ignored, and its stored Events keep their old kinds and `agent_id`.
 - Error messages say "Session is closed" and "Session is already processing a Run" where they said "Agent".
 
@@ -75,7 +75,7 @@ Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the parts of Phase 5 that kee
   // after
   r.Checkpoint(kept, &c)
   ```
-- **A Record no longer keeps `message_update` Events.** The Recorder keeps protected Events only. The text deltas still reach live streams and `EventObserver`s, and the reply they make up is in its Message. **Breaking:** `GET /v1/sessions/{id}/events`, the gRPC events call and `gotato events` no longer list `message_update`.
+- **A Record keeps no text deltas.** The reply they make up is in its Message. **Breaking:** `GET /v1/sessions/{id}/events`, the gRPC events call and `gotato events` do not list text deltas (`message_update` before the rename, `text_delta` now).
 - **`Record.Set` with an unchanged value changes nothing.** It no longer moves `UpdatedAt`.
 
 ### Sessions and stores
@@ -132,11 +132,104 @@ Phases 2, 3 and 4 of [ROADMAP.md](ROADMAP.md), and the parts of Phase 5 that kee
 - **The chat gateway sends `{}` for a tool call with empty arguments.** A provider may stream a call to a tool that takes no arguments with `arguments: ""`. The Loop accepts only JSON, so the call failed as invalid arguments and the tool could never run. The chat gateway now sends `{}` in its place, as the Responses and Anthropic Messages gateways already did.
 - **A reply records the model that answered it.** Behind a gateway that falls back to another model, the model that answers can differ from the one requested, and nothing said so. `Message.Model` now holds the model the provider reported, read from `model` in each chat chunk, from Responses' `response.created` and `response.completed`, and from Anthropic's `message_start`. A custom `gotato.Model` reports it in the new `ModelEvent.Model`. It is empty when the provider names none, and `ForModel` drops it, so it never reaches a request. Stored Messages and the HTTP and gRPC session documents gain an optional `model`.
 
+### Events
+
+The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against v0.1.2. It is one break. It shares the contract version change that this release already holds (HTTP and gRPC `"4"`, CLI `"2"`); the versions are not raised a second time.
+
+- **Each kind of Event is a Go type, and a stored Event is an Entry of the Record.** `gotato.Event` is an interface with one type for each kind, such as `gotato.RunStarted`, and every type embeds a `gotato.Header`: `Time`, `SessionID`, `Number`, `RunID`, `Turn`. The number is the Entry's position in the Session's Record, so it counts the whole Record, and every instance reads the same number. A stored Event reaches subscribers only after it is written; deltas (`text_delta`, `reasoning_delta`, `tool_progress`) are sent at once, with the number of the stored Event they follow. A Session with no store numbers its Events in memory. **Breaking:**
+
+  | Before | After |
+  |---|---|
+  | `gotato.Event{Kind, Class, Sequence, Turn, MessageID, ToolCallID, Payload map[string]any, Timestamp}` | `gotato.Event` interface; `event.Kind()`, `event.Head()`; one struct per kind with checked fields |
+  | `Sequence`, counted within one Run | `Number`, the position in the Record |
+  | `Timestamp`, `event_class`, `EventClass` with `EventProtected` and `EventCoalescable` | `Time`; `Kind().Class()` is `ClassStored`, `ClassDelta` or `ClassInstance` |
+  | `EventKind` constants `EventRunStart`, `EventMessageUpdate`, … | `KindRunStarted`, `KindTextDelta`, … |
+
+  ```go
+  // before
+  for event := range events {
+      if event.Kind == gotato.EventRunEnd {
+          fmt.Println(event.Payload["status"], event.Sequence)
+      }
+  }
+  // after
+  for {
+      event, err := sub.Next(ctx)
+      if err != nil { break }
+      if ended, ok := event.(gotato.RunEnded); ok {
+          fmt.Println(ended.Status, ended.Number)
+      }
+  }
+  ```
+
+- **Names say what happened, in the glossary's words.** **Breaking:** the kinds are renamed. New kinds are listed in [FEATURES.md → G-F13](FEATURES.md#g-f13--events-).
+
+  | Before | After |
+  |---|---|
+  | `run_start`, `run_end` | `run_started`, `run_ended` (with `cause`, `turns`, `tool_calls`, `usage`) |
+  | `turn_start`, `turn_end` | `turn_started`, `turn_ended` |
+  | `message_start`, `message_end` of a reply | `reply_started`, `reply_ended`; a cut-off reply is `reply_cut_off` |
+  | `message_start`, `message_end` of a user Message | `message_committed`, with `source`: `prompt`, `steer`, `follow_up` or `continuation` |
+  | `message_update` | `text_delta`; the reasoning is now streamed too, as `reasoning_delta` |
+  | `tool_execution_start`, `tool_execution_end` | `tool_started`, `tool_ended`; a blocked call has only a `tool_ended` |
+  | `tool_execution_update` | `tool_progress` |
+  | `tool_result_committed`, `toolset_activated`, `context_built` | the same kinds, with typed fields |
+  | `session_compacted` | `compaction_ended`, after a `compaction_started`, or a `compaction_failed` |
+
+- **Every Entry is an Event, and the `events` log Entry is gone.** The Record no longer keeps a copy of the Events, so facts and log entries are said once. **Breaking** for a store adapter and for code that reads Entries: an Entry's `Kind` is the Event's kind, such as `message_committed`, and its `Data` is the Event as JSON. A Checkpoint is a `session_created` or `compaction_ended` Entry (`Entry.IsCheckpoint`), where it was a `checkpoint` Entry, so a load starts at the last of those; `testkit/storetest` checks it. A Record written before is still read: its Entries keep their old kinds, new Events are appended after them, and `session.StoredEvents` maps them onto Events (a legacy Entry that has no Event, such as a log snapshot, shows as a gap in the numbers).
+
+  | Before | After |
+  |---|---|
+  | `session.EntryCheckpoint`, `EntryMessage`, `EntryRunStart`, `EntryEvents`, … | `gotato.KindSessionCreated`, `KindMessageCommitted`, `KindRunStarted`, …; there is no `events` Entry |
+  | `session.Recorder`, `session.NewRecorder(r)` | none: `gotato.WithTranscript(r)` is enough, because a `session.Record` is a `gotato.Journal` |
+  | `Record.RecordEvent`, `RecordRunStart`, `RecordRunEnd` | none: the Run's Events carry them |
+  | `Record.Checkpoint(messages, compaction)` | `Record.Checkpoint(why, messages, compaction)`; `Record.Emit(event)` queues another stored Event |
+  | `gotato.Journal.Step(ctx, Step)`, `gotato.Step`, `StepKind` | `gotato.Journal.Write(ctx, []Event) ([]Event, error)` |
+  | `session.LogSnapshot`, `session.Checkpoint`, `session.ToolsStarted`, `session.ModelCall`, `session.ReplyPart`, `session.MetadataChange`, and the `session.Entry*` constants | removed; `session.EntryKind` is `gotato.EventKind`, and `session.Compaction` is `gotato.Compaction` |
+  | `session.Document.Events []gotato.Event` (a struct with a payload) | the same field, now typed Events; the last 1000 stored Events of the Record |
+
+- **Subscriptions replace observers, and a Session never waits for one.** A Run's stream, a Session's stream from after any number, and an Instance's stream. Each subscriber has one goroutine and its own queue; one that falls too far behind is no longer buffered and catches up from the Record by number, so only deltas can be skipped; an Instance's stream says how many Events it skipped with an `events_skipped` Event. **Breaking:**
+
+  | Before | After |
+  |---|---|
+  | `gotato.EventObserver`, installed with `WithExtension`, awaited before the Loop went on | removed; `s.Subscribe(ctx)`, `s.SubscribeRun(ctx)`, `s.SubscribeFrom(ctx, after)` |
+  | `Session.Subscribe(ctx) (EventStream, error)`, `EventStream` | `Session.Subscribe(ctx, opts...) (gotato.Subscription, error)` |
+  | `Session.SubscribeLifecycle`, `LifecycleEvent`, `LifecycleStream` | removed; `session_created` and `session_unloaded` |
+  | an extension that failed with `Advisory() == true` was skipped silently | the failure is stored as `extension_failed` |
+  | `Runner.StreamRun(ctx, request, sink)` called the sink on the Run's goroutine | the same signature, but the Run runs on its own goroutine and the sink is called from the caller's, reading a Subscription, so a slow sink never slows the Run |
+  | `session_loaded`, `session_saved` in a Run's stream | Instance Events: `Runner.SubscribeInstance` |
+  | `testkit.NewEventRecorder()` with `WithExtension` | `testkit.RecordEvents(session)` right after `NewSession`, or `testkit.RecordSubscription(sub)` |
+
+  ```go
+  // before
+  recorder := testkit.NewEventRecorder()
+  live, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithExtension(recorder))
+  // after
+  live, _ := gotato.NewSession(gotato.WithModel(model))
+  recorder := testkit.RecordEvents(live)
+  ```
+
+- **Two names moved to make room for the Events.** **Breaking:** the Session's status constants `gotato.SessionCreated`, `SessionIdle`, `SessionBusy`, `SessionClosing` and `SessionClosed` are now `SessionStatusCreated` … `SessionStatusClosed`, because `SessionCreated` is the Event; and the function type a Tool reports progress with, `gotato.ToolProgress`, is now `gotato.ToolProgressFunc`, because `ToolProgress` is the Event.
+- **New Events.** `session_claimed` (with why, and which instance held the Session before), `session_released`, `session_fenced` and `liveness_lapsed` come with the Claim; `message_queued`, `message_committed`, `message_dropped` and `message_rejected`, and `abort_requested`, come from a live Session's Steer, FollowUp and Abort; `model_retried` comes from the gateway; `reply_part_kept` is the stored part of a streaming reply; `session_created`, `metadata_changed` and `compaction_*` come from the Record; `run_requested`, `run_waiting`, `run_rejected`, `session_loaded`, `session_saved`, `session_deleted` and `store_write_failed` are Instance Events. An Instance that opens a Session it holds already writes `session_claimed` again, with the same Epoch, where it wrote a busy mark.
+- **New in the Go API:** `gotato.Feed`, `gotato.Subscription`, `gotato.WithFeed`, `gotato.WithRunStart`, `gotato.MarshalEvent`, `gotato.UnmarshalEvent`, `gotato.ReportModelRetry` (for a gateway), `session.StoredEvents`, `session.WithPublisher`, `session.WithWaited`, `service.Runner.SubscribeSession`, `SubscribeInstance` and `service.ForAgents`.
+- **HTTP.** Every Event, in `…/runs/stream` and in `GET …/events`, is one flat object with `kind`, `time`, `session_id` and `number`, and the fields of its kind at the same level, where it had `payload`. The SSE `event:` name is the new kind. **Breaking**, within the version change above:
+
+  ```json
+  // before
+  {"session_id":"s1","run_id":"r1","sequence":9,"kind":"run_end","event_class":"protected","payload":{"status":"completed"},"timestamp":"…"}
+  // after
+  {"kind":"run_ended","time":"…","session_id":"s1","number":19,"run_id":"r1","status":"completed","turns":2,"tool_calls":1,"usage":{…},"elapsed_ms":8}
+  ```
+
+  A Run's stream starts with the Event that claimed, or created, its Session and ends with `run_ended`. `GET …/events` lists every stored Event of the Session, read from its Record, messages included; it listed the retained window of protected Events, 1000 at most, before.
+- **gRPC.** `Event` is an `EventHeader` and a `oneof event` with one message for each type; `payload_json`, `event_class`, `sequence`, `kind` and `message_id` are gone. A Message that an Event carries travels as JSON bytes (`message_json`). `Usage` adds `cache_read_tokens` and `cache_write_tokens`. **Breaking**, within the version change above. `adapter/grpc` has `KindOf(event)` for the kind of an Event on the wire. The generated code is regenerated with `buf generate`.
+- **CLI.** `events` and `run --events jsonl` print the flat objects above, where they printed `payload`; the Run's stream begins with `session_created` and `session_claimed` for a new session, and has no `session_loaded` or `session_saved`. **Breaking**, within the version change above.
+
 ### Contracts
 
-- HTTP: the contract version is now `"4"`. Every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and the kinds `run_start` and `run_end`. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry. A stream whose Run the drain stopped ends with `event: result` and then `event: reconnect`, which carries an SSE `retry:` field and `{"retry_after_ms": N}`; a run result adds `reconnect`.
-- gRPC: the contract version is now `"4"`. `Event.agent_id = 1` is now `session_id = 1`, with the same field number. A `StreamRun` whose Run the drain stopped sends its result, then ends with `UNAVAILABLE` and a `retry-after-ms` trailer, where it ended with `OK` before. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation.
-- CLI: the contract version that `doctor` reports is now `"2"`, because `events` and `run --events jsonl` print `run_start`, `run_end` and `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
+- HTTP: the contract version is now `"4"`. Every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and is the flat object that Events describes. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry. A stream whose Run the drain stopped ends with `event: result` and then `event: reconnect`, which carries an SSE `retry:` field and `{"retry_after_ms": N}`; a run result adds `reconnect`.
+- gRPC: the contract version is now `"4"`. `Event` is now an `EventHeader` and a `oneof`, as Events describes. A `StreamRun` whose Run the drain stopped sends its result, then ends with `UNAVAILABLE` and a `retry-after-ms` trailer, where it ended with `OK` before. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation.
+- CLI: the contract version that `doctor` reports is now `"2"`, because `events` and `run --events jsonl` print the flat Events that Events describes, with `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
 ## v0.1.2 — 2026-10-16
 

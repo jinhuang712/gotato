@@ -319,7 +319,7 @@ A crash should lose as little as it can, and a rebuild should read only what it 
 | Every Run, at its end | One write per Run. | A crash loses the whole Run. |
 
 - **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
-- **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release and a busy mark, and the parts of a streaming reply, written every second or few KiB. A rebuild never reads them.
+- **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release, and the parts of a streaming reply, written every second or few KiB. A rebuild never reads them.
 - **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 - **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
 - **What a crash leaves is answered when the Session is read, and nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again.

@@ -74,7 +74,7 @@ Creates a session when `--session` is omitted. `-` reads the prompt from stdin. 
 }
 ```
 
-`--events jsonl` streams every runtime event as one JSON line while the run executes (`session_loaded` or, for a new session, `session_saved`, then `run_start`, `context_built`, `message_*`, `tool_execution_*`, `turn_end`, `run_end` and `session_saved`, …) and ends with one line `{"kind":"run_result","result":{…outcome…}}`. The `session_*` lines time the store and carry `elapsed_ms`.
+`--events jsonl` streams the Run's Events as one JSON line each while the run executes, and ends with one line `{"kind":"run_result","result":{…outcome…}}`. A run on a new session starts with `session_created` and `session_claimed`; every run then goes through `run_started`, `message_committed`, `turn_started`, `context_built`, `reply_started`, `text_delta`, `reply_ended`, `tool_started`, `tool_ended`, `tool_result_committed`, `turn_ended` and `run_ended`. Each line is one flat object whose `kind` names the Event (see `events.go` in the root package). Stored Events carry `number`, their position in the session's Record; deltas (`text_delta`, `reasoning_delta`, `tool_progress`) carry the number of the Event they follow. Instance Events such as `session_loaded` and `session_saved` are not in this stream.
 
 Human mode prints the final text on stdout and a one-line status on stderr.
 
@@ -84,7 +84,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 |---|---|
 | `session create [--id ID] [--meta k=v,…] [--instruction S] [--compact-ceiling N]` | summary `{id, created_at, updated_at, messages, runs, usage, metadata}` |
 | `session list` | array of summaries, newest first (`--jsonl`: one per line) |
-| `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[], usage, compactions[], metadata` |
+| `session show <id>` | the full session document: `schema_version, id, parent_id, created_at, updated_at, messages[], runs[], events[] (the last 1000 stored Events, each a flat object with `kind`), usage, compactions[], metadata` |
 | `session fork <id> [--id ID]` | summary of the new session; `parent_id` names the source; an `--id` that already exists is rejected (exit 2) |
 | `session events <id>` | same as `events --session <id>` |
 | `session resume <id> "prompt"` | same as `run --session <id> "prompt"` |
@@ -100,7 +100,7 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 
 The agent builds the report with the code its turns run, so the request includes its extensions, its tools and its model options, and `prefix_hash` equals the one the next turn's `context_built` event reports. The request is laid out for prompt caching: system prompt, sorted tools, then the append-only history. `prefix_hash` covers everything but the last message; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
-Compaction replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores a `session_compacted` event. It appends a checkpoint: the replaced messages stay in the store, and a load starts after them. `truncate` needs no model.
+Compaction replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores `compaction_started` and `compaction_ended` events. It appends a checkpoint: the replaced messages stay in the store, and a load starts after them. `truncate` needs no model.
 
 ### `gotato tools`
 
@@ -124,13 +124,13 @@ Builtin tools: `demo.echo` (returns its `value`), `time.now` (RFC 3339 UTC).
 gotato events --session <id> [--kind KIND] [--json]
 ```
 
-Default output is JSON Lines, one runtime `Event` per line, in production order:
+Default output is JSON Lines, one stored `Event` per line, in the order of the Record. The Events are the session's Record: its messages, its runs, its claims, its compactions. Each is one flat object:
 
 ```json
-{"session_id":"…","run_id":"…","sequence":7,"kind":"context_built","event_class":"protected","turn":1,"payload":{"strategy":"full_history","messages":1,"source_messages":1,"selected_messages":1,…,"metadata":{…}},"timestamp":"…"}
+{"kind":"context_built","time":"…","session_id":"…","number":7,"run_id":"…","turn":1,"strategy":"full_history","messages":1,"source_messages":1,"selected_messages":1,"prefix_hash":"…","prefix_messages":0,"system_bytes":0,"tools":1}
 ```
 
-`--json` prints one array instead. Event payload keys per kind are documented in `events.go` of the root package.
+`--json` prints one array instead. The fields of each kind are the fields of its type in `events.go` of the root package. The command reads every Event of the Record; deltas and Instance Events are not stored.
 
 ### `gotato serve`
 

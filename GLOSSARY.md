@@ -24,16 +24,16 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
 | **Run** | One request to a Session, from the input to the settled result. It may take many Turns. | job, task | `gotato.RunResult`, `service.RunRequest` |
-| **Turn** | One model call plus the tool calls it asked for. | step, iteration | `turn_start`, `turn_end` events |
+| **Turn** | One model call plus the tool calls it asked for. | step, iteration | `turn_started`, `turn_ended` Events |
 | **Round** | A user Message and every reply and Tool Result after it, up to the next user Message. A Steer starts a new Round; a Continue without a new prompt stays in its Round. Claude and OpenAI are sent only the current Round's reasoning. | turn (a provider's word for it, and a Turn is something else) | no type; the `gateway` finds it from the last user Message |
-| **Step** | One thing a Run does that is written as it happens: the prompt, a model call starting, part of a streaming reply, a reply, Tools starting, a Tool Result, a continuation. A Turn has several. A crash loses at most the Step in flight. | | `gotato.Step`, written through `gotato.Journal` by `session.Writer` |
+| **Step** | One thing a Run does that is written as it happens: the prompt, a model call starting, part of a streaming reply, a reply, Tools starting, a Tool Result, a continuation. A Turn has several. A crash loses at most the Step in flight. | | no type: the Events a Step stages are written together by `gotato.Journal.Write`, which `session.Writer` implements |
 | **Message** | One entry in the Transcript: user input, an assistant reply or a tool result. | | `gotato.Message` |
 | **Cut-off reply** | An assistant reply whose stream broke before the model finished. The Transcript keeps the text received so far, and the reply is never sent to a model again. | partial message | a `gotato.Message` with `StopCutOff` |
 | **Limits** | Caps on a Run: Turns, bytes, tool calls and deadlines. | quotas | `gotato.CoreLimits` |
 | **Continue** | Resume a Loop without new input. | | `Session.Continue` |
 | **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |
 | **FollowUp** | Queue a Message that the Run picks up when it would otherwise settle, so the same Run goes on. | | `Session.FollowUp` |
-| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelRun` |
+| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelRun`; it is an `abort_requested` Event, and the Run's `run_ended` follows |
 
 ## Configuration and capabilities
 
@@ -54,11 +54,11 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
 | **Store** | Where Sessions are saved, as Records: memory, a file, or your own database. The Store is the truth, and a Runner's memory is only a cache. | repository, persistence | `session.Store`, with memory and file stores, and the conformance suite `testkit/storetest` for your own |
-| **Entry** | One line of a Record, at a position no other Entry ever takes: a Fact or a Log entry. Every Entry is a stored Event, and its position is that Event's number. | row | `session.Entry`. Until the Event design is built, a Session's Events are a separate `gotato.Event`, kept in a Log entry of their own. |
+| **Entry** | One line of a Record, at a position no other Entry ever takes: a Fact or a Log entry. Every Entry is a stored Event, and its position is that Event's number. | row | `session.Entry`: its `Kind` is the Event's kind, and its `Seq` is the Event's number. |
 | **Fact** | An Entry a rebuild reads: a Message, Tool calls that started, a metadata change, a Claim or a Checkpoint. The Context is built from the Facts on every Turn and is never stored. | | `session.LayerFact` |
-| **Log entry** | An Entry that records what happened, for people and telemetry: a Run's start and end, usage, a model call, a retry, a release or busy mark, part of a streaming reply. A rebuild never reads it. | | `session.LayerLog` |
+| **Log entry** | An Entry that records what happened, for people and telemetry: a Run's start and end, usage, a model call, a retry, a release, part of a streaming reply. A rebuild never reads it. | | `session.LayerLog` |
 | **Compaction** | Appending a Checkpoint whose summary stands in for an old part of the Transcript. The old part stays in the Record but is no longer loaded. | summarization, pruning | `modelctx.Compact`, `modelctx.AutoCompact`, through `Record.Checkpoint` |
-| **Checkpoint** | A Fact that holds the whole state of a Session's Facts at one point, so it stands in for everything before it. Every Record starts with one, and Compaction appends one with its summary. A load starts at the last one. | snapshot | `session.Checkpoint`, `Record.Checkpoint` |
+| **Checkpoint** | A Fact that holds the whole state of a Session's Facts at one point, so it stands in for everything before it. Every Record starts with one, and Compaction appends one with its summary. A load starts at the last one. | snapshot | the `session_created` and `compaction_ended` Entries (`Entry.IsCheckpoint`), and `Record.Checkpoint` |
 | **Fork** | Starting a new Session from another Session's Record, as a branch at one point of its log. It writes the Store and activates nothing. | clone | `session.Fork`, `Runner.Fork`: the new Record starts with a Checkpoint of its parent, and names the position it branches at. |
 | **Static block** | Labeled reference content that an Agent places after its instruction, such as a schema or a runbook. It stays the same for every Turn, so the provider's prompt cache reuses it. | resource, reference | `modelctx.WithStatic`, set through `service.Agent.ContextBuilder` |
 
@@ -66,8 +66,8 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Event** | Something that happened to a Session or an Instance, as a value of its own type, named for what happened, such as `run_started`. A stored Event is an Entry, numbered by its position in the Record. A delta, such as `text_delta`, is only sent. An Instance Event happens where no Claim is held, and goes only to that Instance's Subscriptions. | log line | `gotato.Event`: one type with a map of fields, numbered within its Run. The Event design of 2026-10-18 replaces it ([ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer-)). |
-| **Subscription** | A queue of Events, in order: a Run's, a Session's from any number, or an Instance's. A Session never waits for one; a subscriber that falls behind catches up from the Record. | observer, listener | `Session.Subscribe` for one live Session, and `EventObserver` extensions, which a Session waits for, until the Event design is built |
+| **Event** | Something that happened to a Session or an Instance, as a value of its own type, named for what happened, such as `run_started`. A stored Event is an Entry, numbered by its position in the Record. A delta, such as `text_delta`, is only sent. An Instance Event happens where no Claim is held, and goes only to that Instance's Subscriptions. | log line | `gotato.Event`, an interface with one Go type for each kind, such as `gotato.RunStarted`, each with a `gotato.Header`. |
+| **Subscription** | A queue of Events, in order: a Run's, a Session's from any number, or an Instance's. A Session never waits for one; a subscriber that falls behind catches up from the Record. | observer, listener | `gotato.Subscription`, from `Session.Subscribe`, `SubscribeRun` and `SubscribeFrom`, and from `Runner.StreamRun`, `SubscribeSession` and `SubscribeInstance`. A `gotato.Feed` fills them. |
 | **Extension** | Code that wraps the Loop at a defined point, such as before a Tool runs or at the end of a Turn. | hook, middleware, plugin | `gotato.WithExtension` and its stage interfaces |
 
 ## Cluster and positioning

@@ -23,7 +23,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Interrupt | stop the step in flight and go on with a new message, in the same Run | G-F26 | ⬜ |
 | Runtime notices | tell the model something that is not the user's words, as a developer or system message after the Turn's tool results | G-F29 | ⬜ |
 | A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
-| Sessions | one conversation: every Message, each Run's record, usage, recent Events and compactions | G-F02 | ✅ |
+| Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's Record; it writes the store and activates nothing | G-F02 | ✅ |
 | One Run per Session | a second Run on a busy Session is rejected or waits | G-F02 | ✅ |
@@ -113,7 +113,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
 | Stream resume | reconnect on any instance and go on after the number of the last Event seen; a stream that ends says whether and when to reconnect | G-F14 | ⬜ |
 | gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
-| Go API | call the Runner directly, and subscribe to a Run's Events | G-F14 | ✅ |
+| Go API | call the Runner directly, and subscribe to a Run's, a Session's or the Instance's Events | G-F14 | ✅ |
 | Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
 | Access hooks | the caller's identity reaches every extension and store call, and a "not allowed" error answers 403 | G-F14 | ⬜ |
 
@@ -121,17 +121,14 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
-| Events | every step of a Run, with its Run, Turn, sequence number and time | G-F13 | 🚧 |
-| Store Events | `session_loaded` times the load before a Run, and `session_saved` sums and counts every write the Run made | G-F13 | ✅ |
-| Session lifecycle stream | in the Go API, a live Session reports that it was created, is closing and has closed | G-F13 | ✅ |
-| The Record as the Event log | every stored Event is an Entry, numbered by its position, and written before it is sent | G-F13 | ⬜ |
-| Typed Events | one Go type for each kind of Event, named for what happened | G-F13 | ⬜ |
-| Subscriptions | a Run's stream, a Session's from any number, and an Instance's; a Session never waits for any of them | G-F13 | ⬜ |
-| Claim Events | a Session claimed, released or fenced, and a Liveness row that lapsed | G-F13 | ⬜ |
-| Message Events | a message queued, committed, dropped, withdrawn or rejected, and an Abort requested; through the Runner and the endpoints with the warm Session | G-F13 | ⬜ |
-| Streamed reasoning | the model's reasoning as it arrives, as `reasoning_delta` | G-F13 | ⬜ |
-| Extensions | seven stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
-| Advisory extensions | may fail without failing the Run | G-F15 | ✅ |
+| Events | every step of a Session as a Go type of its own for each kind of Event, named for what happened | G-F13 | ✅ |
+| The Record as the Event log | every stored Event is an Entry, numbered by its position, and written before it is sent | G-F13 | ✅ |
+| Subscriptions | a Run's stream, a Session's from any number, and an Instance's, in the Go API; a Session never waits for any of them | G-F13 | ✅ |
+| Claim Events | a Session claimed, released or fenced, and a Liveness row that lapsed | G-F13 | ✅ |
+| Message Events | a message queued, committed, dropped, withdrawn or rejected, and an Abort requested; a live Session sends them, and the Runner and the endpoints with the warm Session | G-F13 | 🚧 |
+| Streamed reasoning | the model's reasoning as it arrives, as `reasoning_delta` | G-F13 | ✅ |
+| Extensions | six stages around the Loop, from `RunPreparer` to `TurnStopper` | G-F15 | ✅ |
+| Advisory extensions | may fail without failing the Run, and say so in an `extension_failed` Event | G-F15 | ✅ |
 
 **The CLI**
 
@@ -213,7 +210,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
 - Every Run settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped.
-- When an extension stops the Run, its reason is in the `run_end` Event and in the Session's Record of the Run.
+- When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 
 The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults:
 
@@ -313,7 +310,7 @@ A Run that reaches `MaxTurns` now fails with `limit_exceeded`, and the caller ge
 A Session is one conversation that runs an Agent. It keeps everything that happened, so the next message continues where the last one ended.
 
 - You create a Session with `POST /v1/sessions` or `gotato session create`, optionally with your own ID, metadata, instruction and compaction ceiling. `POST /v1/runs` creates a Session and runs it in one call.
-- A Session keeps every Message, a record of each Run, its token usage, its 1,000 most recent Events and every compaction. The Store keeps them as the Session's Record, `session.Record`.
+- A Session keeps every Message, a record of each Run, its token usage, its Events and every compaction. The Store keeps them as the Session's Record, `session.Record`, which holds every stored Event as an Entry and keeps the last 1,000 of them in memory.
 - Forking a Session starts a new one from its Record and records the parent, and the position of the parent's log it branches at. A fork writes the store and activates nothing, so its first request activates it on whichever instance that request reaches. The fork keeps its parent's prompt cache key, so its first Turn reads the parent's cached prefix there too.
 - A fork's Record starts with a Checkpoint of its parent's facts. Referring to the parent's entries instead is a later optimization, and it would pin them against deletion.
 - One Session runs one Run at a time. A second Run on a busy Session is rejected, or waits, as the Runner's busy policy says (G-F27).
@@ -627,7 +624,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 **One writer.** Only the writer may append to a Session's Record, and it holds a Claim with an Epoch.
 
 - A Claim is a fact written at the position after the head its instance read, with the next Epoch. Its write also marks the Session busy until the writer releases it, so another instance waits instead of claiming a Session whose Run has not started.
-- A writer that holds the Claim already writes a busy mark when it opens the Session again. The mark takes the next position too, so when the writer and another instance open an idle Session at the same moment, exactly one write lands, and the other instance waits for that Run instead of failing.
+- A writer that holds the Claim already writes it again, as a `session_claimed` Event with the same Epoch, when it opens the Session again. The write takes the next position too, so when the writer and another instance open an idle Session at the same moment, exactly one write lands, and the other instance waits for that Run instead of failing.
 - When a write fails because its position is taken, the writer drops its copy at once.
 - When a write fails for another reason, its outcome is unknown: the writer stops, and the Session is opened again from the store, which shows whether the write landed. A late write can only take a free position, so it never overwrites anything.
 - A second instance learns that the Session has a writer before it calls the model, so it never pays for a Turn it cannot commit. One case is beyond any check: an instance paused for longer than its row lives may send one request when it wakes, before it notices. Its result can never be written.
@@ -678,7 +675,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 
 **Activation limit.** While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
-**Gap:** cancel and stream requests work only on the instance that runs the Session. The activation limit, stream resume and the Claim Events (G-F13) wait for the rest of ROADMAP Phase 5.
+**Gap:** cancel and stream requests work only on the instance that runs the Session. The activation limit and stream resume wait for the rest of ROADMAP Phase 5.
 
 **Your load balancer** routes; Gotato never forwards a request between instances. It needs three settings:
 
@@ -731,7 +728,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 - A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
-- `GET …/events` filters with `?kind=`.
+- `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
 - A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. Only request-level problems use error codes:
 
 | Code | When |
@@ -745,7 +742,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 | 500 | a settled Run could not be saved |
 | 504 | the request's deadline passed |
 
-**Streaming.** The `/stream` routes send each Event as server-sent events (`event: <kind>`), and end with `event: result`.
+**Streaming.** The `/stream` routes send each Event of the Run's stream as server-sent events (`event: <kind>`, `data:` one flat JSON object), and end with `event: result`. The handler reads a Subscription, so a client that reads slowly never slows the Run.
 
 - The stream answers 200 before the Run is admitted.
 - So only a bad or oversized body gets a status code. Every other failure (busy, capacity, not found, draining) arrives in-band as `event: error`.
@@ -755,10 +752,11 @@ POST   /v1/runs                  POST /v1/runs/stream
 **gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
 - Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `CancelRun`, `Events`, `Context`, `Compact`.
+- An Event is a message with a header and a `oneof` that holds one message for each type of Event, so a client reads checked fields, not a JSON payload. A Message that an Event carries travels as JSON bytes.
 - The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`.
 - A Run the drain stopped sends its result, then ends `StreamRun` with `UNAVAILABLE` and a `retry-after-ms` trailer.
 
-**Go API.** Call the Runner directly, and subscribe to a Run's Events as they happen.
+**Go API.** Call the Runner directly, and subscribe to Events as they happen: `Runner.StreamRun` for one Run, `Runner.SubscribeSession` for a Session from any number, and `Runner.SubscribeInstance` for the Instance ([G-F13](#g-f13--events-)).
 
 **For all of them:**
 
@@ -772,35 +770,25 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 ### G-F13 — Events 🚧
 
-Every step of a Session is reported as an Event, so you can watch, log or measure it. Today's Events come first; the Event design that replaces them follows.
+Every step of a Session is reported as an Event, so you can watch, log or measure it. Each kind of Event is a Go type of its own, a stored Event is an Entry of the Session's Record, and a Session never waits for anyone who reads its Events ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 
-**Today**
+- **The Record is the Event log.** Every stored Event is an Entry of the Session's Record, and its number is that Entry's position, so every instance reads the same number. The number counts the whole Record, not one Run.
+- **Written, then sent.** A stored Event reaches its subscribers only after its write. Most ride the write of their step; the few between steps, such as a retry, an Abort request or a queued message, get a write of their own. Deltas are sent at once, marked with the number of the Event they follow. A Session without a store, in library use, still numbers and sends its Events.
+- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type embeds a `gotato.Header` with its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance Event has no number. In JSON an Event is one flat object whose `kind` names its type (`gotato.MarshalEvent`, `gotato.UnmarshalEvent`); in gRPC it is a `oneof`. A kind a later version adds comes back as a `gotato.UnknownEvent`, so a consumer tolerates it.
 
-| Kinds | When |
-|---|---|
-| `run_start`, `run_end` | a Run starts, and settles with its status and stop reason |
-| `turn_start`, `turn_end` | a Turn starts, and ends with its usage |
-| `context_built` | the Context for a Turn is built, with its prefix hash and sizes |
-| `message_start`, `message_update`, `message_end` | the model's reply arrives |
-| `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, `tool_result_committed` | a tool runs and its result is kept |
-| `toolset_activated` | the model switches on a tool set |
-| `session_compacted` | a compaction replaced part of the Transcript; recorded in the Record only, never streamed |
-| `session_loaded`, `session_saved` | the Runner loaded the Session before a Run, or wrote its steps, with the message count, the store's time in `elapsed_ms`, and for a save the number of `writes`; streamed, never recorded in the Record |
-
-- Every Event carries its Session's ID as `session_id`. An Event of a Run also carries its Run, its Turn, a sequence number and a timestamp.
-- A Session's Record keeps its protected Events. Coalescable ones, such as `message_update`, reach live streams and `EventObserver`s but are not kept, because the reply they make up is in its Message.
-- The payload keys of each kind are documented with the kind.
-- `session_compacted` is the exception: compaction writes it into the Session outside any Run, so it has no Run, Turn or sequence number.
-- The Runner emits the store Events around the Loop's, to the same stream and to the `EventObserver`s in the Agent's extensions. `session_loaded` comes before the Run starts, so it has its Session but no Run, and sequence 0. `session_saved` after the Run takes the Run and the next sequence number. A one-shot Run that creates its Session also emits a `session_saved` before it starts. A failed load or save is marked `failed`, without the store's error text.
-- In the Go API, a live Session also reports its own life on a separate stream, `Session.SubscribeLifecycle`: `session_created`, `session_closing` and `session_closed`. These are not Run Events, and HTTP and gRPC do not stream them.
-
-**Planned: the Event design**
-
-Decided on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)), and built in [ROADMAP.md → Phase 5](ROADMAP.md#phase-5--one-writer-); the message Events reach the Runner and the endpoints with the warm Session in Phase 6.
-
-- **The Record is the Event log.** Every stored Event is an Entry of the Session's Record, and its number is that Entry's position, so every instance reads the same number.
-- **Written, then sent.** A stored Event reaches its subscribers only after its write. Most ride the write of their step; the few between steps, such as a retry, an Abort request or a queued message, get a write of their own. Deltas are sent at once, marked with the number of the Event they follow.
-- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type carries its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance Event has no number. In JSON an Event is one flat object whose `kind` names its type; in gRPC it is a `oneof`.
+```go
+sub, _ := live.SubscribeRun(ctx) // before Prompt
+for {
+	event, err := sub.Next(ctx)
+	if err != nil { break }
+	switch e := event.(type) {
+	case gotato.TextDelta:
+		fmt.Print(e.Text)
+	case gotato.RunEnded:
+		fmt.Println(e.Status, e.Number)
+	}
+}
+```
 
 Each Event is kept in one of three places: in the **Record**, which a subscriber can read again from any number; **sent only**, for deltas; or on the **Instance**, for an Instance Event, from an Instance that holds no Claim on the Session.
 
@@ -809,18 +797,19 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | Event | When | Kept |
 |---|---|---|
 | `run_started`, `run_ended` | a Run starts, and settles with its status, its cause and its stop reason | Record |
-| `turn_started`, `turn_ended` | a Turn starts, and ends with its usage and any reasoning the provider dropped | Record |
+| `turn_started`, `turn_ended` | a Turn starts, and ends with its usage | Record |
 | `context_built` | a Turn's Context is built, with its prefix hash and sizes | Record |
-| `reply_started`, `reply_ended` | the model's reply starts, and ends with the model that answered and why it stopped | Record |
+| `reply_started`, `reply_ended` | the model's reply starts, and ends with the Message, the model that answered and why it stopped | Record |
 | `text_delta`, `reasoning_delta` | a piece of the reply's text or reasoning | sent only |
+| `reply_part_kept` | the text and reasoning streamed since the last part, kept every second or few KiB so that a crash loses at most the last part | Record |
 | `reply_cut_off` | the reply's stream broke, and the text so far is kept as a Cut-off reply | Record |
-| `model_retried` | the gateway calls the model again, with the attempt, the wait and the error | Record |
+| `model_retried` | the gateway calls the model again, with the attempt, the wait and why | Record |
 
 *Tools*
 
 | Event | When | Kept |
 |---|---|---|
-| `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran | Record |
+| `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran; a call blocked before it ran has a `tool_ended` and no `tool_started` | Record |
 | `tool_progress` | a Tool reports its own progress | sent only |
 | `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
 | `toolset_activated` | the model switches on a ToolSet | Record |
@@ -831,7 +820,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 |---|---|---|
 | `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused, with why: busy, at capacity or draining | Instance |
 | `message_queued` | a Steer or FollowUp waits for its point in the Run | Record |
-| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer or a FollowUp | Record |
+| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp, or the Loop's own continuation | Record |
 | `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped because the Run ended first, withdrawn by its caller, or refused because the queue is full | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
@@ -839,7 +828,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 
 | Event | When | Kept |
 |---|---|---|
-| `session_claimed` | an Instance claims the Session, with why (a new Session, an idle one, a Writer that is gone, or a Writer it waited for) and which Instance held it before | Record |
+| `session_claimed` | an Instance claims the Session, with why (a new Session, an idle one, a Writer that is gone, or a Writer it waited for) and which Instance held it before. An Instance that opens a Session it holds already writes it again, with the same Epoch | Record |
 | `session_released` | the Writer lets the Session go | Record |
 | `session_fenced` | a write is refused because another Instance holds the Claim | Instance |
 | `liveness_lapsed` | this Instance's Liveness row was not renewed in time, so it writes nothing more | Instance |
@@ -848,10 +837,10 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 
 | Event | When | Kept |
 |---|---|---|
-| `session_created` | a Session is created; a fork names the Session and the position it came from (`forked_from`) | Record |
+| `session_created` | a Session is created; a fork names the Session and the position it came from (`forked_from`). It is the first Entry of every Record | Record |
 | `metadata_changed` | a setting in the Session's metadata changes, such as its instruction, its model or its Agent | Record |
-| `compaction_started`, `compaction_ended`, `compaction_failed` | a compaction starts, appends its Checkpoint, or fails, with why it ran: on demand, past the ceiling, or before the Session leaves memory | Record |
-| `session_unloaded` | the Session leaves this Instance's memory, with why: its TTL, a drain or a close | Instance |
+| `compaction_started`, `compaction_ended`, `compaction_failed` | a compaction starts, appends its Checkpoint, or fails, with why it ran: on demand or past the ceiling | Record |
+| `session_unloaded` | the Session leaves this Instance's memory, with why. A live Session in the Go API sends it when it closes | Instance |
 | `session_deleted` | the Session's Record is deleted | Instance |
 
 *The store and extensions*
@@ -861,30 +850,36 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `session_loaded`, `session_saved` | how long the store took to load the Session, and to write a Run's steps | Instance |
 | `store_write_failed` | a write failed, for another reason than a taken position | Instance |
 | `extension_failed` | an advisory extension failed, and the Run went on | Record |
+| `events_skipped` | an Instance's stream fell behind and skipped Events; it says how many | Instance |
+
+**Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
 
 **Subscriptions.** A Session puts each Event in its subscribers' queues and never waits for one:
 
 | Subscription | For | What it carries |
 |---|---|---|
-| A Run's stream | the caller of a Run: `/runs/stream`, gRPC `StreamRun`, or the Go API | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers |
-| A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live |
-| An Instance's stream | the service's own telemetry, in the Go API | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents |
+| A Run's stream | the caller of a Run: `Session.SubscribeRun`, `Runner.StreamRun`, `/runs/stream`, gRPC `StreamRun` | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers. For a Run the Runner starts, the first Event is the claim, or the creation of the Session, that the Run caused |
+| A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live. `Session.SubscribeFrom`, `Runner.SubscribeSession` |
+| An Instance's stream | the service's own telemetry | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents (`service.ForAgents`). `Runner.SubscribeInstance` |
 
 - Each subscriber has one goroutine that forwards its Events in order, so a slow subscriber slows only itself.
 - A subscriber that falls too far behind is no longer buffered in memory. It catches up from the Record by number and then rejoins the live Events, so it never misses a stored Event; only deltas can be skipped.
-- An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in an Instance Event; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
+- An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in an `events_skipped` Instance Event; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
 - With the Go API alone, a caller subscribes to the Session it built, before its first `Prompt`.
+- `Runner.StreamRun` runs the Run on its own goroutine and calls its sink from the caller's, reading a Subscription, so a slow HTTP or gRPC client slows its own stream and never the Run.
+- An Instance Event is not in a Run's stream: `session_loaded` and `session_saved` are read from the Instance's stream.
+- A Run that is not saved (`SkipSave`) has only its Run's stream; its Events are in no Record.
 - The HTTP and gRPC routes for a Session's stream are designed with stream resume (G-F14).
 
-**What the design replaces.** It is one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md). It raises the contract versions once; a release that holds another break raises them once for both:
+**What it replaced.** It was one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):
 
 - the map of fields in each Event, and `payload_json` on gRPC;
 - the sequence number that counts within one Run;
-- the `events` Log entry that keeps a copy of the Events, `session.Recorder`, which writes it, and `session_compacted`, which `compaction_ended` replaces;
-- `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replace;
+- the `events` Log entry that kept a copy of the Events, `session.Recorder`, which wrote it, and `session_compacted`, which `compaction_ended` replaced;
+- `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
 - today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
-**Gap:** the Event design is decided, not built. Today each Event carries a plain map of fields, the model's reasoning is not streamed as it arrives, a message's way into a Session and a Session's Claims have no Events, and a slow `EventObserver` slows its Session.
+**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until the warm Session (Phase 6). `message_withdrawn` has no way to happen before that, and `session_unloaded` comes only from a live Session that closes. The Session's stream has no HTTP or gRPC route yet, and a stream does not resume across instances over the wire.
 
 ### G-F15 — Extensions ✅
 
@@ -897,12 +892,11 @@ Extensions add behavior at fixed points of the Loop, without forking it. You ins
 | `MessageConverter` | when Messages are converted for the model |
 | `PreToolUse` | before a tool runs, and may refuse the call |
 | `PostToolUse` | after a tool runs |
-| `EventObserver` | for every Event |
 | `TurnStopper` | at the end of a Turn, and may stop the Run |
 
 - Each stage runs on the Run's own goroutine, so a slow extension slows the Run.
-- An extension marked advisory may fail without failing the Run.
-- **Planned:** `EventObserver` goes, because a Session never waits for a subscriber ([G-F13](#g-f13--events-)). A service reads Events from a Subscription instead, and an advisory stage that fails is reported as `extension_failed`. The other six stages stay.
+- An extension marked advisory may fail without failing the Run. The failure is stored as an `extension_failed` Event, with the stage.
+- There is no observer stage: a Session never waits for a subscriber ([G-F13](#g-f13--events-)). A service reads Events from a Subscription instead.
 
 ## The CLI
 

@@ -36,21 +36,23 @@ record := session.New()                           // what the store keeps: what 
 s, err := gotato.NewSession(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
-    gotato.WithTranscript(record),                // the Session commits to its Record and takes its ID
+    gotato.WithTranscript(record),                // the Session commits to its Record, takes its ID, and keeps its Events in it
     gotato.WithContextBuilder(modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", rules))),
     gotato.WithExtension(modelctx.AutoCompact(record, modelctx.CompactPolicy{Ceiling: 60000})),
     gotato.WithToolSource(toolregistry.MustNew(tools...)),
-    gotato.WithExtension(session.NewRecorder(record)), // runs, events, usage into the Record
 )
 if err != nil {
     return err
 }
 defer s.Close(context.Background())
 
+events, _ := s.SubscribeRun(ctx) // before Prompt: this Run's Events, never waited for
 result, err := s.Prompt(ctx, gotato.UserMessage("inspect this repository"))
 ```
 
 `gotato.NewSession(gotato.WithModel(model))` alone runs against a private in-memory transcript with full-history context.
+
+Every Event the Session produces is a Go type (`gotato.RunStarted`, `gotato.TextDelta`, …): switch on the type. A stored Event is written to the Record before it is sent, and a Session never waits for a subscriber.
 
 To keep the Session in a store while it runs, store its Record first and give the Session the Writer instead: every step is written as it happens, and `Release` writes the end of the Run.
 
@@ -104,7 +106,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
 | Context: full history, static blocks, compaction, inspection | done |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
-| Events and streaming | done, with gaps: messages on their way into a Session have no Events. Planned: typed Events, the Record as the Event log, Subscriptions a Session never waits for, streamed reasoning, and stream resume |
+| Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. Planned: the Session's stream on HTTP and gRPC, and stream resume |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
 | Drain | done: marks the Liveness row draining, answers 503 on `/readyz`, lets every Run finish and save, and tells a stopped stream to reconnect |

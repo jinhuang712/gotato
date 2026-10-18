@@ -78,7 +78,7 @@ When writing or rewriting a project document:
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
 | prove a `session.Store` adapter keeps the store contract | `storetest.Run` in `testkit/storetest` |
-| capture every runtime event in order | `testkit.EventRecorder` (install with `gotato.WithExtension`) |
+| capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
 | the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()` |
