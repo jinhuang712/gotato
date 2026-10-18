@@ -177,7 +177,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 // Every wire API sends a past call's arguments back as they were when they
 // are a JSON object, and as {} otherwise.
 func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
-	encoders := map[string]func(string, gotato.ModelRequest) ([]byte, map[string]string, error){
+	encoders := map[string]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
 		APIChatCompletions:   encodeRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
@@ -198,7 +198,7 @@ func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
 				Messages: []gotato.Message{gotato.UserMessage("go"), call, result},
 				Tools:    []gotato.ToolSpec{{ID: "echo"}},
 			}
-			body, _, err := encoders[api]("m", request)
+			body, _, err := encoders[api]("m", request, providerRules{})
 			if err != nil {
 				t.Fatalf("%s, arguments %q: %v", api, sent, err)
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"strings"
 )
 
 // DefaultUserAgent identifies Gotato when neither the configuration nor the
@@ -51,6 +52,21 @@ func RequestHeaders(ctx context.Context) map[string]string {
 	}
 	headers, _ := ctx.Value(requestHeadersKey{}).(map[string]string)
 	return headers
+}
+
+// addAnthropicBeta adds a beta to the anthropic-beta header, after any
+// betas the configuration or the request context already names.
+func addAnthropicBeta(header http.Header, beta string) {
+	current := header.Get("anthropic-beta")
+	for _, name := range strings.Split(current, ",") {
+		if strings.TrimSpace(name) == beta {
+			return
+		}
+	}
+	if current != "" {
+		beta = current + "," + beta
+	}
+	header.Set("anthropic-beta", beta)
 }
 
 // applyHeaders sets the default User-Agent, then configured headers, then

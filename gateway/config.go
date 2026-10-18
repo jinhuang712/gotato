@@ -38,6 +38,11 @@ type YAMLConfig struct {
 	MaxRetries     int    `yaml:"max_retries"`
 	NoRetries      bool   `yaml:"no_retries"`
 	RetryBackoff   string `yaml:"retry_backoff"`
+	// Provider, CacheRetention (a duration such as 1h) and NoDropBlock are
+	// Config's fields of the same names.
+	Provider       string `yaml:"provider"`
+	CacheRetention string `yaml:"cache_retention"`
+	NoDropBlock    bool   `yaml:"no_drop_block"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -77,6 +82,15 @@ func ParseYAML(data []byte) (Config, error) {
 		CacheKeyField:  fileConfig.CacheKeyField,
 		MaxRetries:     fileConfig.MaxRetries,
 		NoRetries:      fileConfig.NoRetries,
+		Provider:       fileConfig.Provider,
+		NoDropBlock:    fileConfig.NoDropBlock,
+	}
+	if fileConfig.CacheRetention != "" {
+		retention, err := time.ParseDuration(strings.TrimSpace(fileConfig.CacheRetention))
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid cache_retention %q: %w", fileConfig.CacheRetention, err)
+		}
+		config.CacheRetention = retention
 	}
 	if fileConfig.Auth != nil {
 		config.Auth = *fileConfig.Auth

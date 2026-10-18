@@ -70,7 +70,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 // Reasoning is omitted from requests to providers that never produced it,
 // so a strict provider sees no unknown field.
 func TestChatRequestOmitsEmptyReasoning(t *testing.T) {
-	body, _, err := encodeRequest("m", gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}})
+	body, _, err := encodeRequest("m", gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}}, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}

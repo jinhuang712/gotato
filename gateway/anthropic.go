@@ -28,7 +28,7 @@ const (
 )
 
 func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeAnthropicRequest(c.model, request)
+	body, names, err := encodeAnthropicRequest(c.model, request, c.rules)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,19 @@ type anthropicRequest struct {
 	Messages    []anthropicMessage `json:"messages"`
 	Tools       []anthropicTool    `json:"tools,omitempty"`
 	Temperature *float64           `json:"temperature,omitempty"`
+	Thinking    *anthropicThinking `json:"thinking,omitempty"`
 	Stream      bool               `json:"stream"`
+}
+
+// anthropicThinking is sent only to carry block_binding, on the models whose
+// default is "adaptive" (thinkingPrefixModels), so it changes nothing else.
+type anthropicThinking struct {
+	Type         string                `json:"type"`
+	BlockBinding anthropicBlockBinding `json:"block_binding"`
+}
+
+type anthropicBlockBinding struct {
+	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
 }
 
 type anthropicMessage struct {
@@ -76,7 +88,7 @@ type anthropicTool struct {
 // blockRef locates the last content block a gotato Message produced.
 type blockRef struct{ message, block int }
 
-func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
@@ -90,6 +102,9 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, 
 	}
 	if request.Options.MaxTokens != 0 {
 		payload.MaxTokens = request.Options.MaxTokens
+	}
+	if rules.blockBinding {
+		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}
 	}
 	if request.SystemInstructions != "" {
 		payload.System = []anthropicBlock{{"type": "text", "text": request.SystemInstructions}}
@@ -110,8 +125,9 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, 
 	}
 
 	ends := make([]blockRef, len(request.Messages))
+	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		role, blocks, err := anthropicBlocks(message, names)
+		role, blocks, err := anthropicBlocks(message, names, rules.keepsReasoning(i, start))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -129,7 +145,11 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, 
 		last := len(payload.Messages) - 1
 		ends[i] = blockRef{message: last, block: len(payload.Messages[last].Content) - 1}
 	}
-	applyAnthropicCacheBreakpoints(&payload, request.CacheBreakpoints, ends)
+	breakpoints := request.CacheBreakpoints
+	if rules.roundReasoning {
+		breakpoints = withRoundBreakpoint(breakpoints, request.Messages)
+	}
+	applyAnthropicCacheBreakpoints(&payload, breakpoints, ends, rules.anthropicCacheTTL)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -138,7 +158,7 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest) ([]byte, 
 	return body, names, nil
 }
 
-func anthropicBlocks(message gotato.Message, names map[string]string) (string, []anthropicBlock, error) {
+func anthropicBlocks(message gotato.Message, names map[string]string, keepReasoning bool) (string, []anthropicBlock, error) {
 	switch message.Role {
 	case gotato.RoleUser:
 		var blocks []anthropicBlock
@@ -184,7 +204,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string) (string, [
 			case gotato.ContentReasoning:
 				// Only a signed provider block can be replayed; plain
 				// reasoning text stays in the transcript.
-				if len(part.Signature) == 0 {
+				if len(part.Signature) == 0 || !keepReasoning {
 					continue
 				}
 				var block anthropicBlock
@@ -218,11 +238,51 @@ func anthropicBlocks(message gotato.Message, names map[string]string) (string, [
 	}
 }
 
-// applyAnthropicCacheBreakpoints places cache_control markers. When a request
-// carries more breakpoints than the provider accepts, the last ones win: they
-// cover the longest prefixes.
-func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []gotato.CacheBreakpoint, ends []blockRef) {
-	marker := func() anthropicBlock { return anthropicBlock{"type": "ephemeral"} }
+// withRoundBreakpoint adds a cache marker on the last user Message before the
+// final Message, in prefix order. When a new Round leaves the last Round's
+// reasoning out, the request differs from the last one at its first thinking
+// block, so the entry cached at the end of the last request no longer
+// matches, and the provider looks back only about 20 blocks from a marker for
+// an earlier one. This marker sits where the last Round started, whose prefix
+// every request since has shared: the first request of a Round reads the
+// cache up to the Round before it, and a request in a tool loop up to its own
+// Round's start.
+func withRoundBreakpoint(breakpoints []gotato.CacheBreakpoint, messages []gotato.Message) []gotato.CacheBreakpoint {
+	if len(messages) < 2 {
+		return breakpoints
+	}
+	start := roundStart(messages[:len(messages)-1])
+	if start < 0 {
+		return breakpoints
+	}
+	marker := gotato.CacheBreakpoint{After: gotato.CacheAfterMessage, Index: start}
+	out := make([]gotato.CacheBreakpoint, 0, len(breakpoints)+1)
+	placed := false
+	for _, point := range breakpoints {
+		if !placed && point.After == gotato.CacheAfterMessage && point.Index >= start {
+			if point.Index > start {
+				out = append(out, marker)
+			}
+			placed = true
+		}
+		out = append(out, point)
+	}
+	if !placed {
+		out = append(out, marker)
+	}
+	return out
+}
+
+// applyAnthropicCacheBreakpoints places cache_control markers, each with ttl
+// when it is set. When a request carries more breakpoints than the provider
+// accepts, the last ones win: they cover the longest prefixes.
+func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []gotato.CacheBreakpoint, ends []blockRef, ttl string) {
+	marker := func() anthropicBlock {
+		if ttl != "" {
+			return anthropicBlock{"type": "ephemeral", "ttl": ttl}
+		}
+		return anthropicBlock{"type": "ephemeral"}
+	}
 	type target struct {
 		anchor gotato.CacheAnchor
 		ref    blockRef

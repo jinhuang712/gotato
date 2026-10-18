@@ -93,7 +93,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 
 func TestResponsesReplaysReasoningArtifact(t *testing.T) {
 	artifact := []byte(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`)
-	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Signature: artifact}}}, gotato.UserMessage("next")}})
+	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Signature: artifact}}}, gotato.UserMessage("next")}}, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestResponsesReplaysToolCallItemID(t *testing.T) {
 				gotato.UserMessage("go"),
 				{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{tc.call}},
 				{Role: gotato.RoleToolResult, ToolResult: &result},
-			}})
+			}}, providerRules{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -319,7 +319,7 @@ func TestConvertResponsesMessageJoinsAdjacentText(t *testing.T) {
 	message := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{
 		{Kind: gotato.ContentText, Text: "hel"}, {Kind: gotato.ContentText, Text: "lo"}, {Kind: gotato.ContentText, Text: " world"},
 	}}
-	items, err := convertResponsesMessage(message, map[string]string{})
+	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestConvertResponsesMessageToolResultKeepsJSONContent(t *testing.T) {
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
 		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
 	}
-	items, err := convertResponsesMessage(message, map[string]string{})
+	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestConvertResponsesMessageToolResultFallsBackToSafeError(t *testing.T) {
 		Role:       gotato.RoleToolResult,
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
 	}
-	items, err := convertResponsesMessage(message, map[string]string{})
+	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

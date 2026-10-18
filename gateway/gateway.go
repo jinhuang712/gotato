@@ -5,7 +5,8 @@
 // It builds on the provider-neutral gotato Model contract and net/http, and
 // reads its configuration file with yaml.v3. Provider authentication, request
 // encoding, retries, SSE decoding, and provider error classification live here,
-// outside Core.
+// outside Core, and so do the rules a few providers set for sending reasoning
+// back and for prompt cache retention (see Config.Provider).
 package gateway
 
 import (
@@ -67,6 +68,22 @@ type Config struct {
 	// NoRetries disables retries entirely. MaxRetries counts retries after
 	// the first attempt; 0 means the default.
 	NoRetries bool
+	// Provider names who serves the model: ProviderAnthropic,
+	// ProviderOpenAI, ProviderDeepSeek, or ProviderOther. Empty recognizes
+	// only the providers' own addresses (api.anthropic.com, api.openai.com,
+	// api.deepseek.com); behind any other address, name the provider here.
+	Provider string
+	// CacheRetention is how long the provider should keep the prompt cache.
+	// Zero asks a recognized provider for its longest: an hour on Claude,
+	// and 30 minutes on OpenAI's Responses API from GPT-5.6 on. A shorter
+	// value than the provider's longer option keeps its default. An
+	// unrecognized provider is sent no retention. The environment variable
+	// CacheRetentionEnv, when set, wins over this field.
+	CacheRetention time.Duration
+	// NoDropBlock stops asking Claude to drop a thinking block whose prefix
+	// changed (block_binding drop_block) on the models that check it; the
+	// provider then refuses such a request instead.
+	NoDropBlock bool
 }
 
 type Client struct {
@@ -80,6 +97,8 @@ type Client struct {
 	cacheKeyField  string
 	maxRetries     int
 	retryBackoff   time.Duration
+	provider       string
+	rules          providerRules
 }
 
 func New(config Config) (*Client, error) {
@@ -117,6 +136,14 @@ func New(config Config) (*Client, error) {
 	}
 	if config.Model == "" {
 		return nil, fmt.Errorf("gateway: Model is required")
+	}
+	provider, err := resolveProvider(config.Provider, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	retention, err := cacheRetention(config.CacheRetention)
+	if err != nil {
+		return nil, err
 	}
 	if config.MaxRetries < 0 {
 		return nil, fmt.Errorf("gateway: MaxRetries cannot be negative")
@@ -178,6 +205,8 @@ func New(config Config) (*Client, error) {
 		cacheKeyField:  cacheKeyField,
 		maxRetries:     maxRetries,
 		retryBackoff:   backoff,
+		provider:       provider,
+		rules:          newProviderRules(provider, api, config.Model, retention, config.NoDropBlock),
 	}, nil
 }
 
@@ -209,6 +238,7 @@ func NewFromEnv() (*Client, error) {
 		BaseURL:  base,
 		APIKey:   firstEnv("GOTATO_GATEWAY_API_KEY", "OPENAI_API_KEY"),
 		Model:    firstEnv("GOTATO_GATEWAY_MODEL", "OPENAI_MODEL"),
+		Provider: firstEnv("GOTATO_GATEWAY_PROVIDER", ""),
 	})
 }
 
@@ -222,7 +252,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 	case APIAnthropicMessages:
 		return c.streamAnthropic(ctx, request)
 	}
-	body, names, err := encodeRequest(c.model, request)
+	body, names, err := encodeRequest(c.model, request, c.rules)
 	if err == nil {
 		body, err = c.withCacheKeyField(body, request.CacheKey)
 	}
@@ -275,6 +305,9 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			// A configured anthropic-version header pins another API version.
 			if req.Header.Get("anthropic-version") == "" {
 				req.Header.Set("anthropic-version", anthropicVersion)
+			}
+			if c.rules.blockBinding {
+				addAnthropicBeta(req.Header, anthropicBindingBeta)
 			}
 			if c.apiKey != "" {
 				req.Header.Set("x-api-key", c.apiKey)
@@ -382,7 +415,7 @@ func retryAfterDuration(header http.Header) time.Duration {
 	return -1
 }
 
-func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+func encodeRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
@@ -391,10 +424,16 @@ func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[strin
 	if request.SystemInstructions != "" {
 		messages = append(messages, wireMessage{Role: "system", Content: request.SystemInstructions})
 	}
-	for _, message := range request.Messages {
-		converted, err := convertMessage(message, names)
+	start := roundStart(request.Messages)
+	for i, message := range request.Messages {
+		keep := rules.keepsReasoning(i, start)
+		converted, err := convertMessage(message, names, keep)
 		if err != nil {
 			return nil, nil, err
+		}
+		// A reply that was only reasoning has nothing left to send.
+		if !keep && converted.Role == "assistant" && converted.Content == "" && len(converted.ToolCalls) == 0 && gotato.ReasoningOf(message) != "" {
+			continue
 		}
 		messages = append(messages, converted)
 	}
@@ -427,7 +466,7 @@ func encodeRequest(model string, request gotato.ModelRequest) ([]byte, map[strin
 	return body, names, nil
 }
 
-func convertMessage(message gotato.Message, names map[string]string) (wireMessage, error) {
+func convertMessage(message gotato.Message, names map[string]string, keepReasoning bool) (wireMessage, error) {
 	role := string(message.Role)
 	if role == string(gotato.RoleToolResult) {
 		content := toolResultText(message)
@@ -452,7 +491,7 @@ func convertMessage(message gotato.Message, names map[string]string) (wireMessag
 		}
 	}
 	out := wireMessage{Role: role, Content: gotato.TextOf(message)}
-	if role == string(gotato.RoleAssistant) {
+	if role == string(gotato.RoleAssistant) && keepReasoning {
 		out.ReasoningContent = gotato.ReasoningOf(message)
 	}
 	for _, call := range message.ToolCalls {

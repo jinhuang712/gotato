@@ -26,7 +26,7 @@ const (
 )
 
 func (c *Client) streamResponses(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	body, names, err := encodeResponsesRequest(c.model, request)
+	body, names, err := encodeResponsesRequest(c.model, request, c.rules)
 	if err == nil {
 		body, err = c.withCacheKeyField(body, request.CacheKey)
 	}
@@ -107,6 +107,12 @@ type responsesRequest struct {
 	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
 	Temperature       *float64            `json:"temperature,omitempty"`
 	MaxOutputTokens   uint32              `json:"max_output_tokens,omitempty"`
+	// PromptCacheOptions asks GPT-5.6 and later to keep the prompt cache.
+	PromptCacheOptions *responsesCacheOptions `json:"prompt_cache_options,omitempty"`
+}
+
+type responsesCacheOptions struct {
+	TTL string `json:"ttl"`
 }
 
 type responsesText struct {
@@ -152,14 +158,15 @@ type responsesFunctionOutput struct {
 	Output string `json:"output"`
 }
 
-func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, map[string]string, error) {
+func encodeResponsesRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
 	}
 	input := make([]any, 0, len(request.Messages)*2)
-	for _, message := range request.Messages {
-		items, err := convertResponsesMessage(message, names)
+	start := roundStart(request.Messages)
+	for i, message := range request.Messages {
+		items, err := convertResponsesMessage(message, names, rules.keepsReasoning(i, start))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -204,6 +211,9 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, 
 	if request.Options.MaxTokens != 0 {
 		payload.MaxOutputTokens = request.Options.MaxTokens
 	}
+	if rules.responsesCacheTTL != "" {
+		payload.PromptCacheOptions = &responsesCacheOptions{TTL: rules.responsesCacheTTL}
+	}
 	if request.Options.ReasoningEffort != "" {
 		summary := request.Options.ReasoningSummary
 		if summary == "" {
@@ -218,7 +228,7 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest) ([]byte, 
 	return body, names, nil
 }
 
-func convertResponsesMessage(message gotato.Message, names map[string]string) ([]any, error) {
+func convertResponsesMessage(message gotato.Message, names map[string]string, keepReasoning bool) ([]any, error) {
 	role := string(message.Role)
 	switch message.Role {
 	case gotato.RoleUser:
@@ -248,7 +258,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 		for _, part := range message.Parts {
 			switch part.Kind {
 			case gotato.ContentReasoning:
-				if len(part.Signature) == 0 {
+				if len(part.Signature) == 0 || !keepReasoning {
 					continue
 				}
 				var reasoning json.RawMessage
@@ -275,6 +285,12 @@ func convertResponsesMessage(message gotato.Message, names map[string]string) ([
 			callID, itemID := splitResponsesCallID(string(call.ID))
 			if len(call.Signature) > 0 {
 				itemID = string(call.Signature)
+			}
+			// A call whose reasoning item is left out goes without its item
+			// ID too, as a call from another wire API does, so it never
+			// names an output its reasoning came with.
+			if !keepReasoning {
+				itemID = ""
 			}
 			items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
 		}

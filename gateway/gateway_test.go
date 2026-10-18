@@ -272,7 +272,7 @@ func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
 		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
 	}
-	wire, err := convertMessage(message, map[string]string{})
+	wire, err := convertMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
 		Role:       gotato.RoleToolResult,
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
 	}
-	wire, err := convertMessage(message, map[string]string{})
+	wire, err := convertMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

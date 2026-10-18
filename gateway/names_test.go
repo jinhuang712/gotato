@@ -52,7 +52,7 @@ func TestAssignFunctionNameResolvesCollisions(t *testing.T) {
 // by ID and '.' sorts before '_', so a.b used to claim a_b first, and the
 // chat and Responses adapters named the history's calls before the Tools.
 func TestAcceptedToolIDsKeepTheirNamesInACollision(t *testing.T) {
-	encoders := map[string]func(string, gotato.ModelRequest) ([]byte, map[string]string, error){
+	encoders := map[string]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
 		APIChatCompletions:   encodeRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
@@ -72,7 +72,7 @@ func TestAcceptedToolIDsKeepTheirNamesInACollision(t *testing.T) {
 	}
 	for _, api := range wireAPIs {
 		for label, request := range requests {
-			_, names, err := encoders[api]("m", request)
+			_, names, err := encoders[api]("m", request, providerRules{})
 			if err != nil {
 				t.Fatalf("%s, %s: %v", api, label, err)
 			}

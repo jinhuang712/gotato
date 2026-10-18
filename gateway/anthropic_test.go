@@ -152,7 +152,7 @@ func TestAnthropicRequestReplaysReasoningMergesToolResultsAndPlacesCacheMarkers(
 		},
 		Options: gotato.ModelOptions{MaxTokens: 512},
 	}
-	body, _, err := encodeAnthropicRequest("m", request)
+	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestAnthropicCacheBreakpointsKeepTheLastFour(t *testing.T) {
 		request.CacheBreakpoints = append(request.CacheBreakpoints, gotato.CacheBreakpoint{After: gotato.CacheAfterMessage, Index: 2*i + 1})
 	}
 	request.CacheBreakpoints = append([]gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}}, request.CacheBreakpoints...)
-	body, _, err := encodeAnthropicRequest("m", request)
+	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
