@@ -113,6 +113,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 - Root types `Segment`, `SegmentSource` (which Record range a Segment number covers, with the Session ID for a fork's inherited Segments) and `ToolCallLine`. `Compaction` gains the Segment number, tokens before and after, the ceiling, the Recap writer (or `none`), the Recap call's usage and the ToolSets kept. `CompactionWhy` gains `before_cache_expires` and `overflow`.
 - The Record keeps a Message ID → {number, time} index since the last Checkpoint, `Segments()`, and `CheckpointSegments(...)`; `Fork` copies Segments; the gRPC proto gains a typed `Segment` (regenerate with `buf generate`).
 - All fields are additions; the storetest suite must still pass.
+- `MaxMessages` and `MaxTranscriptBytes` keep counting what a load reads, which now includes a Segment's Messages. Raise the default of `MaxMessages` or drop the count in this stage, with a CHANGELOG note (the default is a documented limit).
 
 ### Stage 5 — Segments built by code
 

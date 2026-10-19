@@ -222,7 +222,7 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 |---|---|---|
 | `MaxTurns` | 32 | stops a Loop that never reaches an answer |
 | `MaxToolCalls` | 128 | stops a Run that calls tools without end |
-| `MaxMessages`, `MaxTranscriptBytes` | 1,000 messages, 32 MiB | keeps what the model is sent from growing without bound. They count what a load reads, the last Checkpoint's Messages and what follows it, not every Message the Record holds ([G-F06](#g-f06--compaction-)). |
+| `MaxMessages`, `MaxTranscriptBytes` | 1,000 messages, 32 MiB | keeps what the model is sent from growing without bound. They count what a load reads, the last Checkpoint's Messages and what follows it, not every Message the Record holds ([G-F06](#g-f06--compaction-)). With Segments, the Messages a Segment keeps word for word count too, since a load reads them; so the count limit is raised or dropped in the change that builds Segments, and `MaxTranscriptBytes` stays. |
 | `MaxMessageBytes`, `MaxToolResultBytes` | 4 MiB each | keeps one reply or one tool result from filling the context |
 | `MaxParallelTools` | 1 | tools run in order, unless the team knows they are safe to run together |
 | `RunDeadline` | 5 minutes | a Run always ends, even when a call hangs |
@@ -610,6 +610,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 - The Checkpoint is the `compaction_ended` Event, as today: the whole state after the compaction, which a load starts from. It holds every Segment, the kept tail and the active ToolSets, so every instance that loads the Session from it offers the same tools. Activation is kept only in Checkpoints: between two compactions, an instance that loads the Session offers only the ToolSets of the last Checkpoint.
 - A Segment is stored as data: its number, its first and last time, the Messages it keeps word for word, its tool call lines, its Recap, and the range of the Record it covers. The rules that turn it into a request are fixed, so every instance sends the same bytes.
 - The compaction's record adds the Segment's number, the estimated tokens before and after, the usage of the model call that wrote the Recap, from which its cost follows, and the ToolSets kept.
+- **The limits.** `MaxMessages` and `MaxTranscriptBytes` count only the Messages a load reads, as they do today, and a Segment's Messages are among them. It is the size of the Context that matters, not the number of messages, and a Context that grows too large is compacted by the ceiling and the Segments' budget. So once Segments exist, the default of 1,000 messages is raised or the count dropped; a Session of short messages must not reach it before it reaches a ceiling counted in tokens.
 - An idle compaction runs outside any Run, so its usage is on its compaction Event, not on a Run.
 
 **Settings.** Each can be configured, and their names are settled when built; these are the defaults:
