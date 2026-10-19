@@ -123,7 +123,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 - The Claude encoder gives the Recap its own content block, and the gateway moves the fourth cache marker from where the last Round started to the end of the last Segment right after a compaction, back once a new Round begins (to verify in Stage 0).
 - Times in RFC 3339 with seconds; tool-call lines `HH:MM`, with the date when it changes. Time zone UTC by default, set per Agent.
 - An old summary Checkpoint becomes Segment 1 holding only a Recap with its text.
-- `Compact`, `Runner.Compact`, and the HTTP, gRPC and CLI compact surfaces close a Segment; `--summarizer truncate|model|none` (CLI default stays `truncate`); `keep` stays as the tail's size, cut at a Turn boundary (pending *What `--keep N` and `CompactPolicy.Floor` mean with Segments* in [TODO.md](TODO.md)).
+- `Compact`, `Runner.Compact`, and the HTTP, gRPC and CLI compact surfaces close a Segment; `--summarizer truncate|model|none` (CLI default stays `truncate`); `keep` stays as the tail's size, cut at a Turn boundary (decided: `--keep`, `{"keep":N}` and `CompactPolicy.Floor` stay as the size of the kept tail, so nothing breaks).
 - Tests: a golden render of the payments example, escaping inside Segments, repeated calls, the 100-line cap, a tool call never split from its result, Segment 1's bytes unchanged after Segment 2, an old Record compacting. Update the compaction tests in `modelctx`, `service`, `httpapi`, `cmd/gotato` and `session`.
 - CHANGELOG: breaking, the summary Message becomes a Segment and `Summarizer` is renamed.
 - Risk: Chat Completions encoders must join consecutive user Messages, which changes requests that already have two in a row.
@@ -145,7 +145,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 - The Loop calls the `TurnPreparer` after assembling a Turn and before `context_built`, bounded by `ModelCallDeadline`. After a rewrite it re-measures, syncs ToolSets, rebuilds the request and adds the Recap's usage. At most one rewrite per Turn.
 - `AutoCompactor`: the ceiling from the policy or Session metadata, else window − max(10%, 16K) when the window is known, else off. Size: the last usage after the Checkpoint plus an estimate of what follows; with none, the request bytes ÷ 4. Cut: the earliest Turn boundary in this Run whose tail is at most min(20K tokens, a quarter of the window or of the ceiling); with no finished Turn, the cut falls before the prompt. Still past after compacting: `limit_exceeded` with `Details{"limit":"context"}`.
-- `buildSession` always installs the AutoCompactor (for overflow). `CompactPolicy.Floor` gives way to a tail size (breaking).
+- `buildSession` always installs the AutoCompactor (for overflow). `CompactPolicy.Floor` stays as the tail's size in tokens; its default changes from half the ceiling to the kept-tail rule above, which needs a CHANGELOG note but is not a break of the field.
 - Tests: a mid-Run compaction with large Tool Results (cut between Turns, the prompt inside the Segment, *Where it stands* in the Recap, the next Turn sends the tail, `context_built` matches inspection), once per Turn, `limit_exceeded`, Abort during the Recap call.
 
 ### Stage 9 — Overflow
