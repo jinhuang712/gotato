@@ -843,7 +843,7 @@ The file store writes each batch of Entries to a file of its own, named by its f
 | Call | What it does |
 |---|---|
 | `Create` | writes a new Record, starting with a Checkpoint; fails when the ID is taken |
-| `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last |
+| `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last and the Summary's epoch is the Record's; a writer of a Record deleted and created again gets `ErrNotFound` |
 | `Load` | returns the facts from the last Checkpoint, the last position, and the Summary |
 | `Log` | returns every Entry after a position, facts and log entries |
 | `List`, `Delete` | list the Summaries, and delete a Record; an append to a deleted Record fails |
@@ -866,11 +866,12 @@ The suite is `testkit/storetest`, a package of its own so that importing `testki
 - a Record created, loaded and listed, and a second create of one ID refused;
 - appends that continue the log, and a load that starts at the last Checkpoint;
 - a stale writer refused, an append that does not continue the head refused, and a race of eight writers with exactly one winner;
+- a writer of a deleted Record refused with `ErrNotFound` when the Record was created again, at the same length or longer;
 - deletes, unknown Records and a cancelled context;
 - Liveness rows that are alive, and that expire by the store's clock and never come back;
 - a row its instance ended, which is removed and reads as not alive from every handle.
 
-The suite's own tests check that it fails an adapter that moves a stale write onto the head, one that overwrites a position, one that keeps ended rows, and one that still reads a removed row as alive.
+The suite's own tests check that it fails an adapter that moves a stale write onto the head, one that overwrites a position, one that compares only the length, one that keeps ended rows, and one that still reads a removed row as alive.
 
 ## Many instances
 

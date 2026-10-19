@@ -434,3 +434,76 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 		})
 	}
 }
+
+// A Run whose Record is deleted, and created again at the same length, under
+// it, fails and writes nothing into the new Record.
+func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
+	a := instanceRunner(t, store, "instance-a", held, fastLiveness)
+	s, err := a.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		done <- err
+	}()
+	<-held.started
+	old, err := store.Load(ctx, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Another process deletes the Record and creates it again, as long as the
+	// old one is now.
+	if err := store.Delete(ctx, s.ID()); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := session.Create(ctx, store, session.New(session.WithID(s.ID())), "other", session.WithIdle())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		loaded, err := store.Load(ctx, s.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loaded.Head >= old.Head {
+			if loaded.Head != old.Head {
+				t.Skipf("the new Record cannot be made exactly %d long", old.Head)
+			}
+			break
+		}
+		commit(t, fresh, gotato.UserMessage("x"))
+	}
+	before, err := store.Log(ctx, s.ID(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	close(held.gate)
+	if err := <-done; err == nil {
+		t.Fatal("the Run of the deleted Session succeeded")
+	}
+	after, err := store.Log(ctx, s.ID(), 0)
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
+	}
+	loaded, err := store.Load(ctx, s.ID())
+	if err != nil || loaded.Summary.Epoch() != fresh.Record().RecordEpoch() {
+		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Summary.Epoch(), err, fresh.Record().RecordEpoch())
+	}
+}
+
+func commit(t *testing.T, w *session.Writer, message gotato.Message) {
+	t.Helper()
+	if err := w.Append(message); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(context.Background(), []gotato.Event{gotato.MessageCommitted{Header: gotato.NewHeader("", "", 0), Message: message, Source: gotato.SourcePrompt}}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -33,7 +33,18 @@ type FileStore struct {
 	now func() time.Time
 
 	mu    sync.Mutex
-	heads map[string]uint64
+	heads map[string]fileHead
+}
+
+// fileHead is what this process last saw of a Record's last write: its last
+// position and the Record's epoch, and the file of that write, so the cache is
+// trusted only while that file is still the one in the directory. A Record
+// that another process deleted and created again has a new file there.
+type fileHead struct {
+	head  uint64
+	first uint64
+	epoch string
+	info  os.FileInfo
 }
 
 // fileBatch is one file of a Record: the Entries of one write, and the
@@ -59,7 +70,7 @@ func NewFileStore(dir string, options ...StoreOption) (*FileStore, error) {
 		return nil, err
 	}
 	config := newStoreConfig(options)
-	return &FileStore{dir: dir, now: config.now, heads: map[string]uint64{}}, nil
+	return &FileStore{dir: dir, now: config.now, heads: map[string]fileHead{}}, nil
 }
 
 // Dir returns the directory.
@@ -113,42 +124,48 @@ func readBatch(path string) (fileBatch, error) {
 
 // writeBatch writes one batch at its first position, failing with ErrConflict
 // when that position's file exists and with ErrNotFound when the Record's
-// directory is gone.
-func (f *FileStore) writeBatch(dir string, batch fileBatch) error {
+// directory is gone. It returns the written file's info, which a link shares
+// with the file it was made from.
+func (f *FileStore) writeBatch(dir string, batch fileBatch) (os.FileInfo, error) {
 	data, err := json.Marshal(batch)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
-		return err
+		return nil, err
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return err
+		return nil, err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return err
+		return nil, err
+	}
+	info, err := tmp.Stat()
+	if err != nil {
+		_ = tmp.Close()
+		return nil, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.Link(tmpName, filepath.Join(dir, batchName(batch.Entries[0].Seq))); err != nil {
 		switch {
 		case errors.Is(err, os.ErrExist):
-			return ErrConflict
+			return nil, ErrConflict
 		case errors.Is(err, os.ErrNotExist):
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
-		return err
+		return nil, err
 	}
-	return syncDir(dir)
+	return info, syncDir(dir)
 }
 
 // syncDir fsyncs a directory so a completed link or rename is durable.
@@ -263,7 +280,8 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary}); err != nil {
+	info, err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary})
+	if err != nil {
 		if errors.Is(err, ErrConflict) {
 			return ErrExists
 		}
@@ -272,7 +290,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := syncDir(f.dir); err != nil {
 		return err
 	}
-	f.setHead(id, entries[len(entries)-1].Seq)
+	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, epoch: summary.Epoch(), info: info})
 	return nil
 }
 
@@ -288,62 +306,80 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 		return err
 	}
 	dir := f.recordDir(id)
-	head, err := f.head(id, after)
+	last, err := f.head(id, after)
 	if err != nil {
 		return err
 	}
-	if head != after {
+	// A writer of another Record under this ID, one deleted and created again,
+	// is refused before its position is looked at: its position may be free
+	// or taken in the new Record, and neither says anything.
+	if last.epoch != summary.Epoch() {
+		return ErrNotFound
+	}
+	if last.head != after {
 		return ErrConflict
 	}
-	if err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary}); err != nil {
+	info, err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary})
+	if err != nil {
 		return err
 	}
-	f.setHead(id, entries[len(entries)-1].Seq)
+	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, epoch: summary.Epoch(), info: info})
 	return nil
 }
 
-// head returns a Record's last position, from this process's cache when it
-// agrees with want, and from the directory otherwise. A legacy Record is
-// moved into its directory first.
-func (f *FileStore) head(id string, want uint64) (uint64, error) {
+// head returns what a Record's last write says: its last position and the
+// Record's epoch. It comes from this process's cache when the cache agrees
+// with want and its file is still the one in the directory, and from the
+// directory otherwise. A legacy Record is moved into its directory first.
+func (f *FileStore) head(id string, want uint64) (fileHead, error) {
+	dir := f.recordDir(id)
 	f.mu.Lock()
 	cached, ok := f.heads[id]
 	f.mu.Unlock()
-	if ok && cached == want {
-		return cached, nil
+	if ok && cached.head == want {
+		if info, err := os.Stat(filepath.Join(dir, batchName(cached.first))); err == nil && os.SameFile(info, cached.info) {
+			return cached, nil
+		}
 	}
-	dir := f.recordDir(id)
 	firsts, err := batchFirsts(dir)
 	if errors.Is(err, os.ErrNotExist) || (err == nil && len(firsts) == 0) {
 		legacy, legacyErr := f.readLegacy(id)
 		if legacyErr != nil {
-			return 0, legacyErr
+			return fileHead{}, legacyErr
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return 0, err
+			return fileHead{}, err
 		}
 		// Another process may have moved it already; its write is the same.
-		if err := f.writeBatch(dir, legacy); err != nil && !errors.Is(err, ErrConflict) {
-			return 0, err
+		if _, err := f.writeBatch(dir, legacy); err != nil && !errors.Is(err, ErrConflict) {
+			return fileHead{}, err
 		}
 		if err := os.Remove(f.legacyPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return 0, err
+			return fileHead{}, err
 		}
 		return f.head(id, want)
 	}
 	if err != nil {
-		return 0, err
+		return fileHead{}, err
 	}
-	last, err := readBatch(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
+	path := filepath.Join(dir, batchName(firsts[len(firsts)-1]))
+	// The file is looked at before it is read: if another process replaces it
+	// in between, the info is the old file's and no longer matches, so the
+	// next write reads again instead of trusting what this read saw.
+	info, err := os.Stat(path)
 	if err != nil {
-		return 0, err
+		return fileHead{}, err
 	}
-	head := lastSeq([]fileBatch{last})
+	last, err := readBatch(path)
+	if err != nil {
+		return fileHead{}, err
+	}
+	head := fileHead{head: lastSeq([]fileBatch{last}), first: firsts[len(firsts)-1], epoch: last.Summary.Epoch(), info: info}
 	f.setHead(id, head)
 	return head, nil
 }
 
-func (f *FileStore) setHead(id string, head uint64) {
+func (f *FileStore) setHead(id string, head fileHead) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.heads[id] = head
@@ -354,7 +390,7 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
-	batches, legacy, err := f.readAll(id)
+	batches, _, err := f.readAll(id)
 	if err != nil {
 		return Loaded{}, err
 	}
@@ -363,11 +399,6 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 		entries = append(entries, batch.Entries...)
 	}
 	head := lastSeq(batches)
-	if !legacy {
-		// A legacy Record is moved into its directory by its first write,
-		// which a cached head would skip.
-		f.setHead(id, head)
-	}
 	return Loaded{Facts: factsFrom(entries), Head: head, Summary: batches[len(batches)-1].Summary}, nil
 }
 

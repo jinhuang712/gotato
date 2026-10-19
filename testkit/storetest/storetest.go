@@ -56,6 +56,7 @@ var checks = []check{
 	{"list returns summaries", checkList},
 	{"the record epoch survives every read", checkRecordEpoch},
 	{"delete", checkDelete},
+	{"a writer of a deleted record is refused", checkDeletedWriter},
 	{"an unknown record", checkUnknown},
 	{"a cancelled context", checkCancelled},
 	{"liveness rows", checkLiveness},
@@ -433,6 +434,69 @@ func checkDelete(ctx context.Context, open Open) error {
 		return fmt.Errorf("list after Delete = %+v, %v", list, err)
 	}
 	return nil
+}
+
+// checkDeletedWriter holds a store to the epoch in Append's Summary: a writer
+// of a Record that was deleted and created again under the same ID gets
+// ErrNotFound, whether or not the new Record is as long as the old one was,
+// and the new Record is left as it was.
+func checkDeletedWriter(ctx context.Context, open Open) error {
+	withEpoch := func(s session.Summary, epoch string) session.Summary {
+		s.RecordEpoch = epoch
+		return s
+	}
+	old := open()
+	if err := old.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, withEpoch(summary("r1", 3, "2026-10-17T00:00:03.000Z"), "epoch-old")); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	// A write that lands warms any cache the handle keeps.
+	if err := old.Append(ctx, "r1", 3, []session.Entry{fact(4, "a")}, withEpoch(summary("r1", 4, "2026-10-17T00:00:04.000Z"), "epoch-old")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	if err := open().Delete(ctx, "r1"); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	// The new Record is as long as the old one: a length check passes.
+	fresh := open()
+	if err := fresh.Create(ctx, "r1", []session.Entry{checkpoint(1, "b"), fact(2, "b"), logEntry(3, "b")}, withEpoch(summary("r1", 3, "2026-10-17T00:00:05.000Z"), "epoch-new")); err != nil {
+		return fmt.Errorf("create again: %w", err)
+	}
+	if err := fresh.Append(ctx, "r1", 3, []session.Entry{fact(4, "b")}, withEpoch(summary("r1", 4, "2026-10-17T00:00:06.000Z"), "epoch-new")); err != nil {
+		return fmt.Errorf("append to the new record: %w", err)
+	}
+	err := old.Append(ctx, "r1", 4, []session.Entry{fact(5, "a")}, withEpoch(summary("r1", 5, "2026-10-17T00:00:07.000Z"), "epoch-old"))
+	if !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("an append of the deleted record, at the new record's length = %v, want ErrNotFound", err)
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil || loaded.Head != 4 || loaded.Summary.Epoch() != "epoch-new" {
+		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Summary.Epoch(), err)
+	}
+
+	// The new Record is longer, written as one batch that covers the
+	// position the old writer wants: it must not be written twice.
+	if err := open().Delete(ctx, "r1"); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if err := old.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, withEpoch(summary("r1", 3, "2026-10-17T00:00:08.000Z"), "epoch-third")); err != nil {
+		return fmt.Errorf("create a third time: %w", err)
+	}
+	if err := open().Delete(ctx, "r1"); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	longer := []session.Entry{checkpoint(1, "c"), fact(2, "c"), logEntry(3, "c"), fact(4, "c")}
+	if err := open().Create(ctx, "r1", longer, withEpoch(summary("r1", 4, "2026-10-17T00:00:09.000Z"), "epoch-fourth")); err != nil {
+		return fmt.Errorf("create a fourth time: %w", err)
+	}
+	err = old.Append(ctx, "r1", 3, []session.Entry{fact(4, "a")}, withEpoch(summary("r1", 4, "2026-10-17T00:00:10.000Z"), "epoch-third"))
+	if !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("an append of the deleted record, over a position the new record holds = %v, want ErrNotFound", err)
+	}
+	log, err := open().Log(ctx, "r1", 0)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	return sameEntries(log, longer)
 }
 
 func checkUnknown(ctx context.Context, open Open) error {

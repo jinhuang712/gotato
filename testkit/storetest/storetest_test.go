@@ -191,3 +191,27 @@ func mentions(problems []error, check string) bool {
 	}
 	return false
 }
+
+// lengthOnly compares only the length, as a store did before an Append named
+// the epoch it wrote for: a writer of a deleted Record writes into the Record
+// created again at the same length.
+type lengthOnly struct{ *session.MemoryStore }
+
+func (s lengthOnly) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+	loaded, err := s.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	summary.RecordEpoch = loaded.Summary.RecordEpoch
+	return s.MemoryStore.Append(ctx, id, after, entries, summary)
+}
+
+func TestTheSuiteCatchesAStoreThatComparesOnlyTheLength(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := lengthOnly{session.NewMemoryStore()}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "a writer of a deleted record is refused") {
+		t.Fatalf("problems = %v, want the deleted writer check to fail", problems)
+	}
+}

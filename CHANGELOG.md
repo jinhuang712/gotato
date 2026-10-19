@@ -80,6 +80,12 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
 ### Sessions and stores
 
+- **A writer of a deleted Record can no longer append to the Record created again.** `Store.Append` took only a position, so a writer that loaded a Record, which was then deleted and created again under the same ID at the same length, wrote into the new Record, and the new Record's Summary named the old epoch. On a file store shared by two processes, a position could be written twice. The Summary that `Append` already takes now carries the writer's epoch (`Summary.RecordEpoch`, read with `Summary.Epoch`), and a store refuses with `ErrNotFound` when the Record's epoch is another. The signature does not change. `MemoryStore` and `FileStore` do it, the file store's head cache now knows the epoch and is trusted only while its file is the one in the directory, and `testkit/storetest` adds a check, so an adapter that compares only the length now fails the suite. **Breaking** for a store adapter only:
+
+  | Before | After |
+  |---|---|
+  | `Append` checks the position, and `ErrNotFound` only for a Record that is gone | `Append` also compares `summary.Epoch()` with the stored Summary's, before the position, and returns `ErrNotFound` when they differ |
+
 - **A store keeps each Session as an append-only log.** `session.Store` writes `session.Entry` batches, each all or nothing and only at positions that are still free, so an adapter maps a write to an insert on a unique (session, position) key. `Load` returns the facts from the last Checkpoint, and `Log` returns every Entry after a position. A `session.Writer` writes a Record: `session.Create` stores a new one, `session.OpenWriter` opens a stored one, and `Writer.Flush` writes what changed since. `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included. **Breaking:** an adapter implements the new calls, and code that saved and read Records moves as follows.
 
   | Before | After |

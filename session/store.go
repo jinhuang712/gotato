@@ -96,9 +96,13 @@ type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
 	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is taken.
 	Create(ctx context.Context, id string, entries []Entry, summary Summary) error
-	// Append writes entries at after+1 onward and replaces the Summary. It
-	// fails with ErrConflict unless after is the Record's last position, and
-	// with ErrNotFound for an unknown or deleted Record.
+	// Append writes entries at after+1 onward and replaces the Summary. The
+	// Summary names the epoch of the Record the writer loaded
+	// (Summary.Epoch). It fails with ErrNotFound for an unknown or deleted
+	// Record, and for a Record whose epoch is not the Summary's: the Record
+	// was deleted and created again under the ID, and its writer is of the
+	// old one. That is checked before the position. It fails with ErrConflict
+	// unless after is the Record's last position.
 	Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error
 	// Load returns the facts from the last Checkpoint on.
 	Load(ctx context.Context, id string) (Loaded, error)
