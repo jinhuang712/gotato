@@ -148,6 +148,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 - When the provider refuses a request as too long before any output and the Turn has not compacted, the Loop calls the hook with the overflow flag and sends again once. A second refusal, or no rewrite, ends the Run with the new code.
 - The model Recap is skipped on overflow, since its request would overflow too; the Segment is kept without one.
+- When the Segments alone are past the limit, merge the oldest (Stage 11) before sending again. Open: a merge's Recap request on the whole Context would overflow too, so how an overflow merge gets its Recap (a request holding only the Recaps being merged, or no Recap) is to settle here and check in Stage 0.
 - Tests: one refusal, two refusals, an overflow after a ceiling compaction in the same Turn.
 
 ### Stage 10 — `read_segment`
@@ -157,8 +158,8 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 ### Stage 11 — Merge the oldest Segments
 
-- When the Segments' estimated size passes half the ceiling, merge the oldest so the total falls under it: header `n="1-3"`, one Recap of their Recaps from a merge instruction (to be drafted and approved), the original numbers still readable with `read_segment`. A failed merge Recap leaves the Segments unmerged.
-- What triggers a merge with no ceiling is *Without a ceiling, Segments are never merged* in [TODO.md](TODO.md).
+- When the Segments' estimated size passes their budget (half the ceiling; with no ceiling, a default budget whose number is still to choose), merge the oldest so the total falls under it: header `n="1-3"`, one Recap of their Recaps from a merge instruction (to be drafted and approved), the original numbers still readable with `read_segment`. A failed merge Recap leaves the Segments unmerged.
+- The default budget makes a merge run with no ceiling too; on an overflow (Stage 9) it merges the oldest Segments when they alone are past the limit in the refusal.
 - Runs after a ceiling compaction now, at the idle trigger later.
 
 ### Stage 12 — Idle trigger (waits for Phase 6)
