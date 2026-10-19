@@ -48,7 +48,7 @@ Other items still open from earlier work, unrelated to compaction:
 | 4 | The Record keeps Segments and message positions | now |
 | 5 | Segments built by code, on demand and at Run start | after check 2 |
 | 6 | The Agent's model writes the Recap on the cached prefix | now; default after check 1 |
-| 7 | A compaction keeps only the ToolSets the Segment used | after 3, 5 and check 3 |
+| 7 | A compaction keeps only the ToolSets the Segment used | after 3 and 5 |
 | 8 | Past the ceiling before any model call, mid-Run included | after 2, 5, 6 and check 4 |
 | 9 | Overflow: compact and send again once | after 2 and 8 |
 | 10 | `read_segment` | after 4 and 5 |
@@ -79,11 +79,12 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 ### Stage 0 — Provider checks
 
 - A file of live checks, either `gateway/livecheck_test.go` behind `//go:build live` (a new convention here) or a `-check` mode in `cmd/gotato-workload`. It reads the gateway config from the environment and never runs in CI.
-- The four checks FEATURES G-F06 lists (the maintainer still has to approve the list, see TODO):
+- The checks FEATURES G-F06 lists:
   1. Recap quality on the payments example: a follow-up needs an ID that appeared only in a tool result.
   2. The model reads `<tool_calls>` lines as calls already made: it neither repeats them nor copies the text.
-  3. A request whose history holds a call to a tool no longer defined, on all three wire APIs.
   4. The reasoning of a tail kept mid-Run, on Claude and OpenAI.
+  5. Whether Claude reads the Segments before from the cache at a marker at the end of the last Segment.
+- Check 3, dropped unless a case is found (the numbers of the others stay): a request whose history holds a call to a tool no longer defined. Compaction makes none (a kept tail keeps the ToolSets it calls, a Segment holds its calls as text). If Stage 7 or a user's ToolSet change shows one, check it on all three wire APIs then.
 - Also measure whether Chat Completions providers accept two user Messages in a row, and the exact overflow error bodies (Stage 2).
 - A cache marker at the end of the last Segment on Claude, in place of the one at the last Round's start right after a compaction: does a request read the Segments before from the cache there, and does the next compaction's request?
 - Results go into FEATURES G-F06.

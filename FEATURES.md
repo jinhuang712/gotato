@@ -631,8 +631,10 @@ tail          Turns 27–30 as they were, tool calls and results included
 
 - the Recap's quality: whether the Agent's model, writing on the cached prefix, keeps the IDs, numbers and open items a later question needs;
 - how the model reads a `<tool_calls>` block between a user message and the reply: as a record of calls already made, not as calls to make again or text to copy;
-- whether each provider accepts a request whose history holds a call to a tool that is no longer defined, as a history can after a ToolSet is switched off;
-- what Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going while the Segment changed the prefix that reasoning was written under.
+- what Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going while the Segment changed the prefix that reasoning was written under;
+- whether Claude reads the Segments before from the cache at a marker at the end of the last Segment ([G-F04](#g-f04--context-)).
+
+The checks can each change what is built, so building waits for them ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)). A history that holds a call to a tool no longer defined is not checked, because compaction makes none: a kept tail keeps the ToolSets it calls, and a Segment holds its calls as text. It is checked if a case is found.
 
 ### G-F32 — Changes that keep the cache ⬜
 
