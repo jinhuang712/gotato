@@ -131,7 +131,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 - `ModelRecap`: the Context the next model call would send, plus one plain user message holding the instruction in FEATURES G-F06, `MaxTokens` 8192. It fails on a tool call, a cut-off reply, empty text or the heading rule; on failure the Segment has no Recap and the record says `none`. A cancelled context fails the whole compaction.
 - The Recap's usage goes to the compaction record and, mid-Run, to the Run's usage.
-- Built here for later: `modelctx.IdleDue(lastCall, ttl, retention, lead)` and the 20K-token minimum, tested with a fake clock.
+- Built here for later: `modelctx.IdleDue(lastCall, ttl, retention, lead)` and the 20K-token minimum, tested with a fake clock. It uses the TTL alone when the retention is unknown or not well above the lead (a 5-minute retention counts as not well above); test both.
 - `CompactPolicy` gains the Recap writer, its token limit, the time zone, the tool-line limits and the idle settings.
 - Risks: a model-written Recap can take a minute or more, against `ModelCallDeadline` (2 min) and `RunDeadline` (5 min). The tools stay in the request so the cache is reused, so the model may call one; `tool_choice: none` (G-F30) would help if it keeps the cache (unverified).
 
@@ -168,7 +168,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 ### Stage 12 — Idle trigger (waits for Phase 6)
 
 - FEATURES and ROADMAP tie it to the warm Session's TTL timer, its queue (a new message cancels the compaction) and `before_unload`. A Runner-level timer built earlier would be thrown away in Phase 6. The due-time function and the compaction exist by then, so Phase 6 adds the timer and the defaults.
-- A short or unknown cache retention is *Idle compaction with a short or unknown cache retention* in [TODO.md](TODO.md).
+- With a short or unknown cache retention the trigger uses the TTL alone (Stage 6's `IdleDue`); what counts as well above the lead is set there.
 
 ### Stage 13 — Native forms and notices (waits for G-F29 and G-F32)
 
