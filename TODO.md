@@ -11,4 +11,4 @@ Open defects and design decisions, verified against the code. Planned capabiliti
 
 ## Decisions
 
-- [ ] **The compaction record holds the Recap call's usage, not its cost.** The approved draft asks for both. Gotato keeps no prices: the model catalog is in FEATURES.md → Later, and DESIGNS.md → Every number about a Run comes from Events and `Usage`. So FEATURES.md → G-F06 records the usage of the model call that wrote the Recap, from which its cost follows. Options: usage only; or a cost too, once the model catalog has prices. Recommendation: usage only, until the model catalog exists.
+None open. The compaction decisions were settled on 2026-10-19 and written into the project documents.

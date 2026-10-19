@@ -8,7 +8,7 @@ Written 2026-10-19, for the next session that picks this work up. Delete this fi
 |---|---|
 | Design | Written into the docs on `main`: [DESIGNS.md](DESIGNS.md) → *Compaction closes a Segment, before the cache goes cold*, [FEATURES.md](FEATURES.md) → G-F06 (🚧), G-F10, G-F29 and the gateway `context_window` row, [GLOSSARY.md](GLOSSARY.md) → Segment and Recap, [ROADMAP.md](ROADMAP.md) → Phase 6 |
 | Review marks | DESIGNS, FEATURES and ROADMAP are `drafted 2026-10-19`; they need the maintainer's approval |
-| Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed; the rest are open decisions in [TODO.md](TODO.md) → Decisions. The fix commit was link-checked, not reviewed again |
+| Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed, and the nine open decisions were settled on 2026-10-19 by taking each recommendation, and written into the docs. Neither round was reviewed again by a second reader |
 | Build plan | Below. Written from reading the code at main 52e9786; **not reviewed**, nothing built or run |
 | Code | None written |
 
@@ -16,8 +16,8 @@ Not in the repository: notes on how four other agent harnesses compact their con
 
 ## Before building
 
-1. **The maintainer settles the nine items in [TODO.md](TODO.md) → Decisions.** The most important is the first: with no `context_window` and no ceiling, Segments are never merged, so a long conversation can grow until every request is refused.
-2. **The maintainer approves the drafted docs.**
+1. **The nine decisions are settled**: Segments merge on an overflow and by a default budget (its number is still to choose); a Segment's Messages count toward the limits as a load reads them, and the 1,000-message default is raised or dropped; the Claude cache marker moves to the last Segment's end after a compaction; idle compaction uses the TTL alone when the retention is short or unknown; the provider checks 1, 2 and 4 stay and check 3 is dropped unless a case is found; a notice or Recap with no user Message after it follows G-F29's forms; ToolSet activation is a fact; `--keep N` and `Floor` stay as the kept tail's size; the Recap call records usage, not cost.
+2. **The maintainer approves the drafted docs**, and picks the default Segment budget's number, or leaves it to Stage 0's measurements.
 3. **Agree the plan's four cross-stage choices** (D1–D4 below), and review the plan with an independent reviewer before Stage 1.
 4. **Stage 0 needs real provider keys** (a gateway config); its checks never run in CI.
 
@@ -131,7 +131,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 ### Stage 6 — The model writes the Recap
 
 - `ModelRecap`: the Context the next model call would send, plus one plain user message holding the instruction in FEATURES G-F06, `MaxTokens` 8192. It fails on a tool call, a cut-off reply, empty text or the heading rule; on failure the Segment has no Recap and the record says `none`. A cancelled context fails the whole compaction.
-- The Recap's usage goes to the compaction record and, mid-Run, to the Run's usage.
+- The Recap's usage goes to the compaction record and, mid-Run, to the Run's usage. Usage only, no cost, until the model catalog has prices.
 - Built here for later: `modelctx.IdleDue(lastCall, ttl, retention, lead)` and the 20K-token minimum, tested with a fake clock. It uses the TTL alone when the retention is unknown or not well above the lead (a 5-minute retention counts as not well above); test both.
 - `CompactPolicy` gains the Recap writer, its token limit, the time zone, the tool-line limits and the idle settings.
 - Risks: a model-written Recap can take a minute or more, against `ModelCallDeadline` (2 min) and `RunDeadline` (5 min). The tools stay in the request so the cache is reused, so the model may call one; `tool_choice: none` (G-F30) would help if it keeps the cache (unverified).
