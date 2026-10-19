@@ -184,7 +184,9 @@ type Runner struct {
 	streamsMu   sync.Mutex
 	streams     map[*SessionStream]struct{}
 	streamsOver bool
-	streamPoll  time.Duration
+	// streamStarts counts the starts of Session streams (SessionStream.startedAt).
+	streamStarts uint64
+	streamPoll   time.Duration
 	// drained is made by the first Drain and closed once every Run admitted
 	// before it has settled and released its Session.
 	drained chan struct{}

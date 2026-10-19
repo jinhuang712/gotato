@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"math/rand/v2"
 	"strconv"
 	"sync"
@@ -75,6 +76,9 @@ type SessionStream struct {
 	// its ID, "" for a delete, and it checks them against its own first.
 	started bool
 	seen    []string
+	// startedAt is the number of the start (Runner.streamStarts) at which the
+	// stream started; 0 until then.
+	startedAt uint64
 
 	mu      sync.Mutex
 	ended   *Reconnect
@@ -263,6 +267,8 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 		return true, nil, false
 	}
 	stream.started = true
+	r.streamStarts++
+	stream.startedAt = r.streamStarts
 	for other := range r.streams {
 		if other == stream || other.sessionID != stream.sessionID {
 			continue
@@ -278,15 +284,46 @@ func (r *Runner) startStream(stream *SessionStream) (recheck bool, older []*Sess
 	return false, older, r.streamsOver
 }
 
+// streamMark returns the number of the last stream start, to take before a
+// read of the Record. A stream that started after it may have read the Record
+// after that read, and so be of a newer Record than the one read.
+func (r *Runner) streamMark() uint64 {
+	r.streamsMu.Lock()
+	defer r.streamsMu.Unlock()
+	return r.streamStarts
+}
+
 // cutStreams ends the Session streams of a Session whose Record has another
 // epoch than theirs, with cannot_resume. This Instance calls it when it has
 // opened or created a Record, so the open streams of the Record it replaced
-// end at once, instead of waiting for a read of the store to show it. A
-// stream still opening is marked instead, and reads its epoch again before it
-// starts.
-func (r *Runner) cutStreams(sessionID, epoch string, head uint64) {
-	for _, stream := range r.markStreams(sessionID, epoch) {
+// end at once, instead of waiting for a read of the store to show it. mark is
+// streamMark from before the open read the Record, or before create wrote it.
+//
+// A stream that started before mark, with another epoch, is of an older
+// Record, and is cut. One that started after mark may be of an older or of a
+// newer Record, since the Record can be deleted and created again on another
+// Instance after the claim was written, and a client can stream the new one
+// here before this runs. For those it reads the Record once more, and cuts the
+// ones whose epoch is not the Record's now: an epoch never comes back, so such
+// a stream is of a Record that was replaced. Should that read fail, they stay,
+// and the checks of the stream itself cut them. A stream still opening is
+// marked instead, and reads its epoch again before it starts.
+func (r *Runner) cutStreams(ctx context.Context, sessionID, epoch string, head uint64, mark uint64) {
+	stale, unsure := r.markStreams(sessionID, epoch, mark)
+	for _, stream := range stale {
 		stream.failWith(cannotResume("the Record was created again", epoch, head))
+	}
+	if len(unsure) == 0 {
+		return
+	}
+	now, err := r.store.Load(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	for _, stream := range unsure {
+		if stream.RecordEpoch != now.Summary.Epoch() {
+			stream.failWith(cannotResume("the Record was created again", now.Summary.Epoch(), now.Head))
+		}
 	}
 }
 
@@ -295,17 +332,19 @@ func (r *Runner) cutStreams(sessionID, epoch string, head uint64) {
 // under the same ID is not read as a continuation. A stream still opening is
 // marked instead, and reads the Record again before it starts.
 func (r *Runner) endSessionStreams(sessionID string, err error) {
-	for _, stream := range r.markStreams(sessionID, "") {
+	stale, _ := r.markStreams(sessionID, "", math.MaxUint64)
+	for _, stream := range stale {
 		stream.failWith(err)
 	}
 }
 
 // markStreams returns the started streams of a Session whose epoch is not
-// epoch, "" for a Session deleted, and marks those still opening with it.
-func (r *Runner) markStreams(sessionID, epoch string) []*SessionStream {
+// epoch, "" for a Session deleted, and marks those still opening with it. The
+// ones that started up to mark are stale; the later ones are unsure (see
+// cutStreams).
+func (r *Runner) markStreams(sessionID, epoch string, mark uint64) (stale, unsure []*SessionStream) {
 	r.streamsMu.Lock()
 	defer r.streamsMu.Unlock()
-	var stale []*SessionStream
 	for stream := range r.streams {
 		if stream.sessionID != sessionID {
 			continue
@@ -314,11 +353,15 @@ func (r *Runner) markStreams(sessionID, epoch string) []*SessionStream {
 			stream.seen = append(stream.seen, epoch)
 			continue
 		}
-		if stream.RecordEpoch != epoch {
+		switch {
+		case stream.RecordEpoch == epoch:
+		case stream.startedAt <= mark:
 			stale = append(stale, stream)
+		default:
+			unsure = append(unsure, stream)
 		}
 	}
-	return stale
+	return stale, unsure
 }
 
 // endStreams ends every Session stream with the advice to reconnect, once the

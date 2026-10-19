@@ -207,6 +207,7 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
+	mark := r.streamMark()
 	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
 	options = append([]session.WriterOption{session.WithGuard(r.guard), session.WithPublisher(publish)}, options...)
 	writer, err := session.Create(ctx, r.store, s, r.instance, options...)
@@ -214,7 +215,7 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 		return nil, ErrSessionExists
 	}
 	if err == nil {
-		r.cutStreams(s.ID(), s.RecordEpoch(), s.Head())
+		r.cutStreams(ctx, s.ID(), s.RecordEpoch(), s.Head(), mark)
 	}
 	return writer, err
 }
@@ -241,11 +242,12 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 		if waited {
 			options = append(options, session.WithWaited())
 		}
+		mark := r.streamMark()
 		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil {
-			r.cutStreams(sessionID, writer.Record().RecordEpoch(), writer.Record().Head())
+			r.cutStreams(ctx, sessionID, writer.Record().RecordEpoch(), writer.Record().Head(), mark)
 			return writer, early, nil
 		}
 		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
