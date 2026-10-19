@@ -35,7 +35,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
 | Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
-| Cache markers | after the system part, the tools and on the last message, and on Claude where the Round started; `cache_control` on Anthropic | G-F04 | ✅ |
+| Cache markers | after the system part, the tools and on the last message, and on Claude where the Round started, or, right after a compaction, at the end of the last Segment; `cache_control` on Anthropic | G-F04 | ✅ |
 | Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
 | Context inspection | the request the next Turn sends, with its prefix hash, without calling the model | G-F05 | ✅ |
@@ -398,7 +398,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the Transcript
 
 - **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
 - **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
-- Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept. For a recognized Claude, the gateway adds one where the last Round started, because a new Round leaves the last Round's reasoning out ([G-F07](#g-f07--models-and-providers-)).
+- Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept. For a recognized Claude, the gateway adds one where the last Round started, because a new Round leaves the last Round's reasoning out ([G-F07](#g-f07--models-and-providers-)). Claude takes at most four, so right after a compaction that one moves to the end of the last Segment ([G-F06](#g-f06--compaction-)).
 - Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewSession`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
 - Another way to choose what the model sees, such as retrieval or a window, is your own `ContextBuilder` ([G-N10](#g-n10--context-organization-beyond-full-history-belongs-to-applications)).
 
@@ -443,7 +443,7 @@ before   [Segment 1][Segment 2] the Messages since the last compaction …
 after    [Segment 1][Segment 2][Segment 3] the kept tail
 ```
 
-- There is no summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same. On Claude that needs a cache marker at the end of the last Segment, which is an open decision ([TODO.md](TODO.md#decisions)).
+- There is no summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same. On Claude that needs a cache marker at the end of the last Segment, because Claude reads a cached prefix only up to a marker an earlier request placed. Right after a compaction, the gateway puts there the marker it otherwise puts where the last Round started, since Claude takes at most four and G-F04 places four; the Recap that ends the Segment is then its own content block, so the marker falls between blocks and not inside a Message. The marker goes back to where the last Round started once a new Round begins. OpenAI reads any prefix without markers. Whether Claude reads the Segments before from the cache at that marker, and what the next compaction's request then costs, is to verify in Stage 0.
 - Each Segment has a number, and the times its stretch began and ended.
 - The Record keeps every Message a Segment covers, unless the team prunes the entries before a Checkpoint ([G-F03](#g-f03--stores-)). A load starts at the last Checkpoint, and the model reads a Segment back with `read_segment` (below).
 

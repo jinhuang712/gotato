@@ -85,6 +85,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
   3. A request whose history holds a call to a tool no longer defined, on all three wire APIs.
   4. The reasoning of a tail kept mid-Run, on Claude and OpenAI.
 - Also measure whether Chat Completions providers accept two user Messages in a row, and the exact overflow error bodies (Stage 2).
+- A cache marker at the end of the last Segment on Claude, in place of the one at the last Round's start right after a compaction: does a request read the Segments before from the cache there, and does the next compaction's request?
 - Results go into FEATURES G-F06.
 
 ### Stage 1 — Tags and escaping
@@ -118,6 +119,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 ### Stage 5 — Segments built by code
 
 - `modelctx/segment.go`: the builder (user text and each Round's final reply word for word; reasoning, intermediate text, Tool Results and cut-off replies left out; one tool-call line per call as `HH:MM tool {args cut at 200 chars} → ok|failed|blocked|cancelled[: code]`, repeats as one line `×N`, at most 100 lines then counts per tool) and the renderer (header Part, `<tool_calls>` Parts, final replies as assistant Messages with their IDs, the `<recap>` in a trailing user Message).
+- The Claude encoder gives the Recap its own content block, and the gateway moves the fourth cache marker from where the last Round started to the end of the last Segment right after a compaction, back once a new Round begins (to verify in Stage 0).
 - Times in RFC 3339 with seconds; tool-call lines `HH:MM`, with the date when it changes. Time zone UTC by default, set per Agent.
 - An old summary Checkpoint becomes Segment 1 holding only a Recap with its text.
 - `Compact`, `Runner.Compact`, and the HTTP, gRPC and CLI compact surfaces close a Segment; `--summarizer truncate|model|none` (CLI default stays `truncate`); `keep` stays as the tail's size, cut at a Turn boundary (pending *What `--keep N` and `CompactPolicy.Floor` mean with Segments* in [TODO.md](TODO.md)).
@@ -177,6 +179,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 - The exact overflow error text for each provider.
 - Whether Chat Completions providers accept consecutive user Messages, and their cache retention.
 - Whether `tool_choice` changes caching on Anthropic.
+- Whether Claude reads the Segments before from the cache at a marker at the end of the last Segment.
 - How Claude behaves with a mid-Run tail without its thinking.
 - How long a Recap takes on real models.
 - Whether every overflow path reaches the Loop before any output.
