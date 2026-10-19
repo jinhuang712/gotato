@@ -6,9 +6,9 @@ Written 2026-10-19, for the next session that picks this work up. Delete this fi
 
 | What | State |
 |---|---|
-| Design | Written into the docs on branch `docs/compaction-design`: [DESIGNS.md](DESIGNS.md) → *Compaction closes a Segment, before the cache goes cold*, [FEATURES.md](FEATURES.md) → G-F06 (🚧), G-F10, G-F29 and the gateway `context_window` row, [GLOSSARY.md](GLOSSARY.md) → Segment and Recap, [ROADMAP.md](ROADMAP.md) → Phase 6 |
+| Design | Written into the docs on `main`: [DESIGNS.md](DESIGNS.md) → *Compaction closes a Segment, before the cache goes cold*, [FEATURES.md](FEATURES.md) → G-F06 (🚧), G-F10, G-F29 and the gateway `context_window` row, [GLOSSARY.md](GLOSSARY.md) → Segment and Recap, [ROADMAP.md](ROADMAP.md) → Phase 6 |
 | Review marks | DESIGNS, FEATURES and ROADMAP are `drafted 2026-10-19`; they need the maintainer's approval |
-| Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed on the branch; the rest are open decisions in [TODO.md](TODO.md) → Decisions. The fix commit was link-checked, not reviewed again |
+| Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed; the rest are open decisions in [TODO.md](TODO.md) → Decisions. The fix commit was link-checked, not reviewed again |
 | Build plan | Below. Written from reading the code at main 52e9786; **not reviewed**, nothing built or run |
 | Code | None written |
 
@@ -31,7 +31,7 @@ Other items still open from earlier work, unrelated to compaction:
 ## How to work here
 
 - **Follow [AGENTS.md](AGENTS.md)**, especially *Editing the Project Documents* and the Definition of Done.
-- **Worktree:** `git worktree add .claude/worktrees/compaction -b feat/compaction docs/compaction-design`, then work only there.
+- **Worktree:** `git worktree add .claude/worktrees/compaction -b feat/compaction main`, then work only there.
 - **One stage at a time.** After each stage: `gofmt -l .`, `go vet ./...`, `go test -race ./...`, `golangci-lint run ./...` (and the same in `adapter/grpc` when the proto or root types change), then an independent review, then fixes.
 - **Landing:** rebase on `main` and fast-forward only, never a merge commit, and only after the maintainer says so. Commits follow [GITFLOW.md](GITFLOW.md).
 
