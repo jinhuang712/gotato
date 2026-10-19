@@ -173,7 +173,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 ### Stage 13 — Native forms and notices (waits for G-F29 and G-F32)
 
-- Route Parts marked `MetaTag` the way notices go per wire API (the request bytes change once). Inside Segments, keep a service notice word for word and leave out Gotato's own. Fold `settings_changed` into the prefix (G-F32).
+- Route Parts marked `MetaTag` the way notices go per wire API (the request bytes change once). With no user Message after a tagged Part (after an idle compaction, a `Continue` without a prompt, a FollowUp), use the native form where there is one; on Chat Completions send a user message on the wire that the Record keeps as a notice, so `roundStart` is not moved. Check it in Stage 0. Inside Segments, keep a service notice word for word and leave out Gotato's own. Fold `settings_changed` into the prefix (G-F32).
 
 ### Not confirmed while planning
 
