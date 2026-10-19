@@ -108,7 +108,7 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 - `KindToolSetActivated` joins the facts (`session/entry.go`); the Record keeps the active names (`ActiveToolSets()`), set by `CompactionEnded.ToolSets` and `SessionCreated.ToolSets`, copied by `Fork`.
 - `newToolRegistry` restores them from the Transcript, respecting `MaxActiveToolSets`; a ToolSet that no longer resolves stays off. ToolSets installed with `WithActiveToolSet` are marked as configured and are never switched off.
 - Tests: Run 1 activates a ToolSet and Run 2's first request carries its tools, also through a second Runner on the same store; a Checkpoint round trip; old Records restore nothing.
-- This settles *ToolSet activation is not a fact* in [TODO.md](TODO.md) once the maintainer agrees.
+- Decided: activation is a fact. It is built before Segments, and the compaction design relies on it.
 
 ### Stage 4 — Segments and message positions in the Record
 
