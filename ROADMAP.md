@@ -159,7 +159,8 @@ Exit:
 - A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript.
 - A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API in its own form.
 - A test on a fake model compacts an idle Session before its cache expires, a Run past the ceiling mid-Run, and a request refused as too long. It checks that the Segments before keep their bytes, that a tool call stays with its result in the kept tail, that every instance builds the same request from the Checkpoint, and that a Recap that fails leaves a Segment without one.
-- A user Message and a Tool Result that hold the start or the end of one of the four tags reach the model escaped.
+- A test reads a Segment back with `read_segment`, merges the oldest Segments, and checks that every instance offers the same ToolSets after a load from a Checkpoint.
+- A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Phase 7 — Structured output
