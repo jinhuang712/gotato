@@ -7,7 +7,7 @@ Written 2026-10-19, for the next session that picks this work up. Delete this fi
 | What | State |
 |---|---|
 | Design | Written into the docs on `main`: [DESIGNS.md](DESIGNS.md) → *Compaction closes a Segment, before the cache goes cold*, [FEATURES.md](FEATURES.md) → G-F06 (🚧), G-F10, G-F29 and the gateway `context_window` row, [GLOSSARY.md](GLOSSARY.md) → Segment and Recap, [ROADMAP.md](ROADMAP.md) → Phase 6 |
-| Review marks | DESIGNS, FEATURES and ROADMAP are `drafted 2026-10-19`; they need the maintainer's approval |
+| Review marks | DESIGNS, FEATURES and ROADMAP are `approved 2026-10-19` |
 | Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed, and the nine open decisions were settled on 2026-10-19 by taking each recommendation, and written into the docs. Neither round was reviewed again by a second reader |
 | Build plan | Below. Written from reading the code at main 52e9786; **not reviewed**, nothing built or run |
 | Code | None written |
@@ -17,7 +17,7 @@ Not in the repository: notes on how four other agent harnesses compact their con
 ## Before building
 
 1. **The nine decisions are settled**: Segments merge on an overflow and by a default budget (its number is still to choose); a Segment's Messages count toward the limits as a load reads them, and the 1,000-message default is raised or dropped; the Claude cache marker moves to the last Segment's end after a compaction; idle compaction uses the TTL alone when the retention is short or unknown; the provider checks 1, 2 and 4 stay and check 3 is dropped unless a case is found; a notice or Recap with no user Message after it follows G-F29's forms; ToolSet activation is a fact; `--keep N` and `Floor` stay as the kept tail's size; the Recap call records usage, not cost.
-2. **The maintainer approves the drafted docs**, and picks the default Segment budget's number, or leaves it to Stage 0's measurements.
+2. **The docs are approved** (2026-10-19). The default Segment budget's number is still to pick, or to leave to Stage 0's measurements.
 3. **Agree the plan's four cross-stage choices** (D1–D4 below), and review the plan with an independent reviewer before Stage 1.
 4. **Stage 0 needs real provider keys** (a gateway config); its checks never run in CI.
 
@@ -26,7 +26,7 @@ Other items still open from earlier work, unrelated to compaction:
 - Whether a run refused while the service is draining should be marked "not run".
 - `MaxActiveToolSets` stays 16; a service with hundreds of MCP servers may want it higher.
 - The designs for G-F30 and G-F31, a check of the notice forms against real APIs, and whether the queue is rebuilt after a crash (Phase 6).
-- Two defects in [TODO.md](TODO.md) → Defects (a writer of a deleted Record, a stream cut by an open).
+- One defect in [TODO.md](TODO.md) → Defects: an output-limit continuation starts a new Round, which G-F29 fixes.
 
 ## How to work here
 
