@@ -21,12 +21,7 @@ Not in the repository: notes on how four other agent harnesses compact their con
 3. **Agree the plan's four cross-stage choices** (D1–D4 below), and review the plan with an independent reviewer before Stage 1.
 4. **Stage 0 needs real provider keys** (a gateway config); its checks never run in CI.
 
-Other items still open from earlier work, unrelated to compaction:
-
-- Whether a run refused while the service is draining should be marked "not run".
-- `MaxActiveToolSets` stays 16; a service with hundreds of MCP servers may want it higher.
-- The designs for G-F30 and G-F31, a check of the notice forms against real APIs, and whether the queue is rebuilt after a crash (Phase 6).
-- One defect in [TODO.md](TODO.md) → Defects: an output-limit continuation starts a new Round, which G-F29 fixes.
+Open defects and decisions unrelated to compaction are in [TODO.md](TODO.md), and the features that wait for a design in [ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design).
 
 ## How to work here
 

@@ -1,6 +1,6 @@
 # Gotato TODO
 
-Open defects and design decisions, verified against the code. Planned capabilities (one writer per Session across instances, the warm Session and its TTL, fault injection and the multi-instance harness) and the *Later* list (MCP, rate-limit info, examples and more) are tracked in [FEATURES.md](FEATURES.md). Remove an item in the commit that resolves it.
+Open defects and design decisions, verified against the code. Planned capabilities (the warm Session and its TTL, compaction with Segments, runtime notices, steering a Run through the Runner) and the *Later* list (MCP, rate-limit info, examples and more) are tracked in [FEATURES.md](FEATURES.md), and their order in [ROADMAP.md](ROADMAP.md). Remove an item in the commit that resolves it.
 
 ## Defects
 
@@ -9,4 +9,5 @@ Open defects and design decisions, verified against the code. Planned capabiliti
 
 ## Decisions
 
-None open. The compaction decisions were settled on 2026-10-19 and written into the project documents.
+- [ ] **A draining instance refuses a Run with 409, not with a 503 marked "not run".** A Run the draining instance refuses at admission gets `ErrDraining` (`service/service.go`), an `ErrInvalidState`: 409 over HTTP and `FailedPrecondition` over gRPC (FEATURES.md → G-F27 and G-F14). A Run refused past the activation limit gets 503 with `Gotato-Not-Run: true`, so a load balancer may send it to another instance. A draining refusal did not run either, and another instance can serve it, but 409 says the request conflicts with the Session's state. Options: keep 409; or answer 503 with `Gotato-Not-Run: true` over HTTP and `Unavailable` over gRPC, a contract change with a CHANGELOG note. Recommendation: 503 marked "not run", the same as the activation limit, because the request is safe to send elsewhere.
+- [ ] **Whether a queued notice outlives its writer.** A notice waits in the queue that holds a Steer, and one still waiting when a Run settles waits for the next Run (FEATURES.md → G-F29). Its `notice_queued` Event is stored in the Record (G-F13), and `Notice` answers with that Event's number. A Steer the writer accepted but has not committed is lost if the writer dies, and the caller sends it again (G-F26). The design does not say whether an instance that loads the Session after its writer died rebuilds the queue from stored `notice_queued` Events that have no `notice_committed`, or drops them. Options: rebuild them on load; or drop them, as with a Steer, and the service sends them again. Recommendation: rebuild them on load, because the service was answered with a stored number and takes the notice as accepted. To settle when Phase 6 builds G-F29.
