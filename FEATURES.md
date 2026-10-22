@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-19 -->
+<!-- what-we-build: drafted 2026-10-22 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -836,7 +836,7 @@ The Record is an append-only log ([DESIGNS.md → The Record is an append-only l
 - An Entry of an unknown kind is refused, never misread. A session file of the earlier format (`schema_version` 1) is read as a Checkpoint, and moved into the new layout by its first write.
 - The Record grows with every step. A team that wants to bound its storage deletes the entries before a Checkpoint itself.
 
-The file store writes each batch of Entries to a file of its own, named by its first position, and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write.
+The file store writes each batch of Entries to a file of its own, named by its first position, and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write. One window is left: a writer compares its epoch with the Record's before it writes its file and links it, so a Record that another process, or another goroutine, deletes and creates again under the same ID in those few milliseconds still takes the old writer's batch. The memory store checks and writes under one lock and has no such window.
 
 **The store contract** is eight calls, each one ordinary conditional write or read, so a plain SQL or document database can do it:
 

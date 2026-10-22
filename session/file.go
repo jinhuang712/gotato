@@ -313,7 +313,9 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	}
 	// A writer of another Record under this ID, one deleted and created again,
 	// is refused before its position is looked at: its position may be free
-	// or taken in the new Record, and neither says anything.
+	// or taken in the new Record, and neither says anything. A Record deleted
+	// and created again between this check and the link still takes the batch;
+	// TODO.md keeps that window.
 	if last.epoch != summary.Epoch() {
 		return ErrNotFound
 	}
