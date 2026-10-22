@@ -39,7 +39,8 @@ type FileStore struct {
 // fileHead is what this process last saw of a Record's last write: its last
 // position and the Record's epoch, and the file of that write, so the cache is
 // trusted only while that file is still the one in the directory. A Record
-// that another process deleted and created again has a new file there.
+// that another process deleted and created again has a new file there, even
+// when it reuses the old file's inode number (sameBatchFile).
 type fileHead struct {
 	head  uint64
 	first uint64
@@ -337,7 +338,7 @@ func (f *FileStore) head(id string, want uint64) (fileHead, error) {
 	cached, ok := f.heads[id]
 	f.mu.Unlock()
 	if ok && cached.head == want {
-		if info, err := os.Stat(filepath.Join(dir, batchName(cached.first))); err == nil && os.SameFile(info, cached.info) {
+		if info, err := os.Stat(filepath.Join(dir, batchName(cached.first))); err == nil && sameBatchFile(info, cached.info) {
 			return cached, nil
 		}
 	}
@@ -377,6 +378,14 @@ func (f *FileStore) head(id string, want uint64) (fileHead, error) {
 	head := fileHead{head: lastSeq([]fileBatch{last}), first: firsts[len(firsts)-1], epoch: last.Summary.Epoch(), info: info}
 	f.setHead(id, head)
 	return head, nil
+}
+
+// sameBatchFile says whether info is still the batch file a head cache
+// remembers. A batch file is never written again, so one with the same inode
+// number but another modification time or size is a new file: a file system
+// may give a deleted file's number to a new one, as ext4 does.
+func sameBatchFile(info, cached os.FileInfo) bool {
+	return os.SameFile(info, cached) && info.ModTime().Equal(cached.ModTime()) && info.Size() == cached.Size()
 }
 
 func (f *FileStore) setHead(id string, head fileHead) {
