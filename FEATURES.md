@@ -434,7 +434,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 
 - **On demand:** `gotato context compact <id> --keep N`, `POST /v1/sessions/{id}/compact`, gRPC `Compact` and `Runner.Compact`.
 - **Automatically:** at the start of a Run, when the estimated tokens pass the ceiling: a ceiling per Agent in the service, and per Session with `gotato.compact_ceiling`. It is off by default (a ceiling of 0).
-- The summary comes from truncation or from a model (`--summarizer truncate|model`), and reaches the model as a user message.
+- The summary comes from truncation or from a model (`--recap truncate|model`), and reaches the model as a user message.
 - Every compaction is recorded in the Session: what it replaced, with what, and the sizes before and after.
 - A compaction appends a Checkpoint (G-F03) instead of rewriting the Record, so the old part stays in the store and is no longer loaded. A Checkpoint holds the whole state of the facts, the summary and the kept tail included, so a load never mixes a summary with the entries it summarized.
 - A Record whose Context holds Segments is not compacted by this path: `Compact` refuses it with `invalid_state` (`modelctx.ErrHasSegments`) instead of flattening its Segments into one summary. It answers 409 over HTTP and `FailedPrecondition` over gRPC, and the CLI exits 1. Compacting Segments is what *Closing Segments* below builds.
@@ -545,7 +545,7 @@ the segment in full.
 - The request is the Context the next model call would send, with the same instruction, tools and Messages, and one plain user message after it, so the whole prefix is read from the cache. That message carries no tag: it is never stored, and it asks for work rather than stating a fact. Neither the request nor its reply becomes a Message; only the Recap is kept, in the Checkpoint.
 - Its output limit is 8K tokens. A Recap cut off fails, so the limit is high; output not used costs nothing.
 - A Recap fails when the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened`. A heading with nothing under it may be left out. The compaction still goes on: the Segment is kept without a Recap, with its conversation and tool call lines, and its Event says `recap: none`.
-- A `modelctx.RecapWriter` writes a Recap (`Name()` and `WriteRecap(ctx, RecapRequest)`), so a library user can bring their own. `ModelRecap{Model, MaxTokens, Label}` is the Agent's model writing it, `NoRecap{}` writes none, and `TruncateRecap` serves tests and use without a model. `Summarizer`, `ModelSummarizer` and `TruncateSummarizer` are replaced by these, with no old names kept; `CompactOptions.Summarizer` and `CompactPolicy.Summarizer` become `Recap`, and the CLI flag `--summarizer` becomes `--recap`, with a before-and-after note in the changelog. The code still has the old names until then.
+- A `modelctx.RecapWriter` writes a Recap (`Name()` and `WriteRecap(ctx, RecapRequest)`), so a library user can bring their own. `ModelRecap{Model, MaxTokens, Label}` is the Agent's model writing it, `NoRecap{}` writes none, and `TruncateRecap` serves tests and use without a model. `RecapWriter`, `ModelRecap`, `TruncateRecap`, `CompactOptions.Recap`, `CompactPolicy.Recap` and the CLI flag `--recap` already carry these names (✅); `WriteRecap` still takes the Messages and returns a Message, `RecapRequest` and `NoRecap` are ⬜.
 
 The message, for the Segment above:
 

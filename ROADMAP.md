@@ -152,7 +152,7 @@ Exit:
   - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, and the Run on every Message ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
   - The rest, in this order. None of it waits for the warm Session except the last two, so it is an order inside this phase:
     1. ⬜ Checks against real providers: waits for gateway keys; never run in CI.
-    2. ⬜ Recap names: `RecapWriter` replaces `Summarizer`; waits for nothing.
+    2. ✅ Recap names: `RecapWriter` replaces `Summarizer`; waits for nothing.
     3. ⬜ Segments built by code: waits for the Recap names and the tool-call-line check.
     4. ⬜ The model writes the Recap: waits for nothing; on by default after the Recap-quality check.
     5. ⬜ ToolSets kept by a compaction: waits for Segments built by code.
