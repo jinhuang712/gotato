@@ -1,7 +1,7 @@
-<!-- what-we-build: drafted 2026-10-17 -->
+<!-- what-we-build: drafted 2026-10-25 -->
 # Gotato — Goals
 
-GOALS holds two kinds of number. A **goal** is a check Gotato passes or fails, and its number is fixed by its nature: 0 failures, or 100%. A **benchmark** is a number Gotato tracks. Alone it means nothing, so each one names what it is compared with: the previous release, the model's own time, or another stack.
+GOALS holds two kinds of number. A **goal** is a check Gotato passes or fails, and its number is fixed by its nature: 0 failures, or 100%. A **benchmark** is a number Gotato tracks. Alone it means nothing, so each one names what it is compared with: the previous release, the model's own time, or another stack. Until the first release is cut, "the previous release" means the numbers of Phase 1 in [ROADMAP.md](ROADMAP.md).
 
 Every number is measured on this repository's own workloads:
 

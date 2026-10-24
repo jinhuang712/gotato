@@ -3,7 +3,7 @@
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
 
-Gotato stays at 0.1.x until it is stable, so each phase ships as a 0.1.x release, with no date. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names.
+Gotato has made no release yet. The first release is named 0.1.0, and it is cut when every phase below is done, so there are no point releases before it. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names. No phase has a date.
 
 ## The order
 
@@ -40,7 +40,7 @@ Why this order:
 
 ## Phase 1 — Measure ✅
 
-Shipped in v0.1.2.
+Built.
 
 Builds the tools that most goals need, and gives every benchmark a number. Each item is marked ✅ built, 🚧 started, or ⬜ to build.
 
@@ -63,7 +63,7 @@ Exit:
 
 ## Phase 2 — Effect cap ✅
 
-Built, and ships in the next 0.1.x release.
+Built.
 
 - ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
 - ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
@@ -76,7 +76,7 @@ Exit:
 
 ## Phase 3 — Names ✅
 
-Built, and ships in the next 0.1.x release.
+Built.
 
 - ✅ `service.AgentSpec` becomes `service.Agent`.
 - ✅ The old `gotato.Agent` becomes `gotato.Session`, the live Session: one concrete type, with the interfaces it was split into removed. The Loop stays a concept ([FEATURES.md → The live Session is `gotato.Session`](FEATURES.md#the-live-session-is-gotatosession-and-its-record-is-sessionrecord--2026-10-16)).
@@ -103,7 +103,7 @@ Exit: the maintainer approves the three Decisions.
 
 ## Phase 4 — Durable steps ✅
 
-Built, and ships in the next 0.1.x release.
+Built.
 
 - ✅ The Record becomes an append-only log of facts and log entries ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)). Every step is appended as it happens, at a position the store never gives twice, so a crash loses at most the step in flight. A reply cut off mid-stream is kept, and each reply records the model that answered it.
 - ✅ A compaction appends a Checkpoint, and a load reads the facts from the last one.
@@ -120,13 +120,13 @@ Exit:
 
 ## Phase 5 — One writer ✅
 
-Built, and ships in the next 0.1.x release. The part that keeps two instances from running one Session is built, and so is the drain. The Event design, decided on 2026-10-18, is built too, because stream resume and the Claim Events stand on it, and so are the routes that resume a stream, the load balancer's part and the harness behind a hashing proxy.
+Built. The part that keeps two instances from running one Session is built, and so is the drain. The Event design, decided on 2026-10-18, is built too, because stream resume and the Claim Events stand on it, and so are the routes that resume a stream, the load balancer's part and the harness behind a hashing proxy.
 
 - ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
 - ✅ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header as a check and answer with it when they create a Session, an instance past its hard limit (`MaxActiveSessions`, `--max-sessions`) refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain and the active Sessions ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
 - ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
-- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the version change that the unreleased release already holds. The message Events have their types, and a live Session sends them; the Runner and the endpoints get them in Phase 6.
+- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the contract version change that Phase 3 made. The message Events have their types, and a live Session sends them; the Runner and the endpoints get them in Phase 6.
 - ✅ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch: `GET /v1/sessions/{id}/stream` (`Last-Event-ID`, `after`) and gRPC `StreamSession`. A Run's stream carries each Event's number, and a stream that ends says whether to reconnect and after how long, spread at random ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
 - ✅ Claim Events: `session_claimed`, with why and from which instance, `session_released`, `session_fenced` and `liveness_lapsed`.
 - ✅ The multi-instance harness: several instances over one shared store behind a hashing proxy, with requests sent through it and straight to random instances, concurrent messages and an instance killed.
@@ -138,7 +138,7 @@ Exit:
 - ✅ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
 - ✅ A stream cut at every Event of the reference workload resumes equal to an uncut one, over HTTP and over gRPC.
 - ✅ A subscriber that stops reading never slows its Session, and catches up from the Record with every stored Event once.
-- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), under the contract version change that the unreleased release already holds.
+- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), under the contract version change that Phase 3 made.
 - ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ✅ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
@@ -200,10 +200,10 @@ Exit:
 
 ## Phase 9 — Compatibility check
 
-- CI compares the exported identifiers of the root package and the standard runtime packages with the last release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
-- It starts when mass testing begins, and the maintainer sets the date.
+- CI compares the exported identifiers of the root package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
+- It starts when mass testing begins, and the maintainer sets the date. Until the first release is tagged there is nothing to compare with, so CI does not run the check, and its tests use a baseline of their own.
 
-Exit: a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
+Exit: against a test baseline, a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
 
 ## Waiting for design
 
@@ -215,10 +215,10 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 | G-F31 — Recovering a cut stream | runtime notices (G-F29) | next: G-F29 is designed |
 | G-F32 — Changes that keep the cache | a reference task that switches a tool set on, to measure what a change costs | after that measurement |
 
-## Every release
+## Every release, from the first on
 
 - Every goal that passed keeps passing.
-- Every benchmark but G-B13 is measured again, and compared with the previous release and with what its row in GOALS.md names.
+- Every benchmark but G-B13 is measured again, and compared with the previous release (for the first release, with the numbers of Phase 1) and with what its row in GOALS.md names.
 - G-G06 is checked: each break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
 
 ## Not scheduled

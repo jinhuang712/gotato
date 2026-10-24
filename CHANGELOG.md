@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in each Gotato release, from the user's side. Newest first. A breaking change carries a before/after note, so you can move your code in one pass. Additive changes may be listed, but breaking ones must be.
+What changed in Gotato, from the user's side. Newest first. Gotato has made no release yet, so *Unreleased* holds the changes since 2026-10-16, and the dated sections below it hold the work before that. When the first release is cut, it gets its own section. A breaking change carries a before/after note, so you can move your code in one pass. Additive changes may be listed, but breaking ones must be.
 
 ## Unreleased
 
@@ -182,7 +182,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
 ### Events
 
-The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against v0.1.2. It is one break. It shares the contract version change that this release already holds (HTTP and gRPC `"4"`, CLI `"2"`); the versions are not raised a second time.
+The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against the build of 2026-10-16. It is one break. It shares the contract version change that the changes above already hold (HTTP and gRPC `"4"`, CLI `"2"`); the versions are not raised a second time.
 
 - **Each kind of Event is a Go type, and a stored Event is an Entry of the Record.** `gotato.Event` is an interface with one type for each kind, such as `gotato.RunStarted`, and every type embeds a `gotato.Header`: `Time`, `SessionID`, `Number`, `RunID`, `Turn`. The number is the Entry's position in the Session's Record, so it counts the whole Record, and every instance reads the same number. A stored Event reaches subscribers only after it is written; deltas (`text_delta`, `reasoning_delta`, `tool_progress`) are sent at once, with the number of the stored Event they follow. A Session with no store numbers its Events in memory. **Breaking:**
 
@@ -285,7 +285,7 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
 
 ### Many instances
 
-These are additions, within the version change that the unreleased release already holds, but for one break: the streaming routes answer a refusal at admission with a status, before the stream starts.
+These are additions, within the version change that the changes above already hold, but for one break: the streaming routes answer a refusal at admission with a status, before the stream starts.
 
 - **An instance refuses a new Session past a hard limit.** `service.Admission.MaxActiveSessions` (`gotato serve --max-sessions`, `gotato-grpc --max-sessions`; off by default) counts the Sessions an instance has active. A Run that would activate another one past it is refused before anything is loaded, claimed or created: `service.ErrOverloaded` (the new code `gotato.ErrOverloaded`, `overloaded`), and a `run_rejected` Instance Event with the reason `activation_limit`. HTTP answers 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, also for the streaming routes, which answer it before the stream starts (`Runner.StreamRunAdmitted`); gRPC answers `UNAVAILABLE` with the trailer `gotato-not-run: true`. The mark tells it from the 503 of a store failure, which may have run. A Run on a Session that is active already, and creating or forking a Session, are not refused. `Runner.ActiveSessions` reports the count, and `/readyz` adds `active_sessions`.
 - **The streaming routes answer a refusal at admission with a status.** `POST /v1/runs/stream` and `POST /v1/sessions/{id}/runs/stream` know whether a Run is admitted before they write a byte, so a refused Run gets the status and body that `/v1/runs` gives it, and no stream: draining 409, capacity (`MaxActiveRuns`) 429, and the new activation limit 503 marked not run. Every failure after admission still arrives in-band as `event: error`. No status code or mark of `/v1/runs` changed, and gRPC already answered with a status. **Breaking** for a client of the streaming routes that read these refusals from the stream:
@@ -312,7 +312,7 @@ These are additions, within the version change that the unreleased release alrea
 - gRPC: the contract version is now `"4"`. `Event` is now an `EventHeader` and a `oneof`, as Events describes. A `StreamRun` whose Run the drain stopped sends its result, then ends with `UNAVAILABLE` and a `retry-after-ms` trailer, where it ended with `OK` before. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation. The additions of Many instances are not a break, so the version stays: the method `StreamSession` with `StreamSessionRequest`, `StreamStart` and `SessionUpdate`, `record_epoch` on `SessionSummary`, `RunResult` and `SessionCreated`, the `session-id` metadata, and the trailer `gotato-not-run`.
 - CLI: the contract version that `doctor` reports is now `"2"`, because `events` and `run --events jsonl` print the flat Events that Events describes, with `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
-## v0.1.2 — 2026-10-16
+## Before the first release — 2026-10-16
 
 Phase 1 of [ROADMAP.md](ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](GOALS.md) but G-B13. The HTTP and gRPC contract version is now `"3"`.
 
@@ -369,7 +369,7 @@ Phase 1 of [ROADMAP.md](ROADMAP.md), Measure: the reference workload, the live r
 - **Per-request headers.** `gateway.WithRequestHeaders(ctx, headers)` adds headers to the requests of one Run, for a provider that routes each conversation by a header. Configured and per-request headers can set `User-Agent` (default `gotato/0.1`) but never the authentication, content-type or streaming headers.
 - **The chat gateway counts cache reads.** `Usage.CacheReadTokens` is filled from `prompt_tokens_details.cached_tokens` and DeepSeek's `prompt_cache_hit_tokens`, as the Responses and Anthropic adapters already did.
 
-## v0.1.1 — 2026-10-15
+## Before the first release — 2026-10-15
 
 ### Runtime
 
@@ -379,9 +379,9 @@ Phase 1 of [ROADMAP.md](ROADMAP.md), Measure: the reference workload, the live r
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.
 
-## v0.1.0 — 2026-10-11
+## Before the first release — 2026-10-11
 
-The first tagged release. The notes below list the breaking changes from the development builds before it.
+The notes below list the breaking changes from the development builds before 2026-10-11.
 
 ### Tool Registry
 

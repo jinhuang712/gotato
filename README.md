@@ -132,7 +132,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | [TODO.md](TODO.md) | open defects and design decisions, verified against the code |
 | [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
 | [GITFLOW.md](GITFLOW.md) | Git policy |
-| [CHANGELOG.md](CHANGELOG.md) | changes per release, with before/after notes for breaking changes |
+| [CHANGELOG.md](CHANGELOG.md) | what changed, newest first, with before/after notes for breaking changes |
 
 ## Development
 
