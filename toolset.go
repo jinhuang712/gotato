@@ -183,9 +183,10 @@ func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 }
 
 // restore switches on again the ToolSets a Session's earlier Runs activated.
-// It never fails the Session: a name nothing installed carries, a ToolSet that
-// no longer resolves, and a ToolSet past MaxActiveToolSets all stay off, so
-// the model can activate them again.
+// It never fails the Session over a restored name: a name nothing installed
+// carries, a ToolSet that no longer resolves, a ToolSet whose Tools collide with
+// Tools already visible, and a ToolSet past MaxActiveToolSets all stay off,
+// each on its own, so the model can activate them again.
 func (r *toolRegistry) restore(names []string) {
 	for _, name := range names {
 		for _, state := range r.sets {
@@ -201,6 +202,12 @@ func (r *toolRegistry) restore(names []string) {
 			}
 			state.resolved = tools
 			state.active = true
+			if err := r.rebuild(); err != nil {
+				// Only this ToolSet stays off; the rest of the Session starts.
+				state.active = false
+				state.resolved = nil
+				_ = r.rebuild()
+			}
 			break
 		}
 	}

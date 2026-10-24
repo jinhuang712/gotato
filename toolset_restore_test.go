@@ -72,8 +72,28 @@ func TestRestoredToolSetsSkipWhatCannotBeKept(t *testing.T) {
 func TestAConfiguredToolSetIsNeverOff(t *testing.T) {
 	git := &stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}
 	// Whatever the Transcript remembers, a ToolSet installed active stays on.
+	// Nothing switches a ToolSet off yet, so this guards the marking that a
+	// later change which deactivates ToolSets will read.
 	ids := restoredToolIDs(t, &activeNames{names: []string{}}, WithActiveToolSet(git))
 	if !slices.Contains(ids, "git.status") {
+		t.Fatalf("tools = %v", ids)
+	}
+}
+
+func TestARestoredToolSetThatCollidesStaysOff(t *testing.T) {
+	// A root Tool already holds the qualified ID "files.read", so activating
+	// the "files" ToolSet would collide. It stays off; "git" is restored and
+	// the Session starts.
+	files := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}
+	git := &stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}
+	ids := restoredToolIDs(t, &activeNames{names: []string{"files", "git"}}, WithTool(&namedTool{id: "files.read"}), WithToolSet(files), WithToolSet(git))
+	count := 0
+	for _, id := range ids {
+		if id == "files.read" {
+			count++
+		}
+	}
+	if count != 1 || !slices.Contains(ids, "git.status") || !slices.Contains(ids, ActivationToolName) {
 		t.Fatalf("tools = %v", ids)
 	}
 }
