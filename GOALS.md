@@ -11,7 +11,7 @@ What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a pr
 | G-G09 | ⭐ The same Record gives the same request | The store is the only truth | ✅ |
 | G-G07 | ⭐ No unplanned change to the prefix | A request only grows at its end | ✅ |
 | G-G10 | ⭐ A long Session stays within its window | The Context is a bounded view | ⬜ |
-| G-G11 | ⭐ A failure leaves the Session usable | A failure stays local | 🚧 |
+| G-G11 | ⭐ A failure leaves the Session usable | A failure stays local | ✅ |
 | G-G08 | One owner across instances | No instance is special | ✅ |
 | G-G02 | No silent stream cutoffs | A failure stays local | ✅ |
 | G-G04 | No failures caused by Gotato | A failure stays local | ✅ |
@@ -94,8 +94,8 @@ Each check is a test or a harness that passes or fails.
 
 - **Serves:** [A failure stays local](DESIGNS.md#4-a-failure-stays-local)
 - **Measure:** After each injected failure (a provider error, a Tool that panics or hangs, a store write that fails, a subscriber that stops reading, a client that disconnects, an instance that dies), every step committed before it is still in the Record, and the Session's next Run succeeds, in 100% of fault points.
-- **Method:** fault injection over the reference workload. G-G01 covers an instance that dies and G-G02 a client that disconnects; the other faults are *(to build)*.
-- **Status:** 🚧 A crash and a disconnect pass (G-G01, G-G02). The other faults are not injected yet.
+- **Method:** `TestFailureLeavesTheSessionUsable` injects each fault through a Runner into a Run of a Session that already holds a finished Run, then checks the Record, the failed Run's status and cause, and that the next Run's first request holds the history a load from the store gives. G-G01 (`TestCrashAtEveryWriteRebuildsTheLastStep`) covers an instance that dies and G-G02 (`TestStreamDisconnectSettlesAndSavesTheRun`) a client that disconnects. The faults are not yet injected over the reference workload's tasks.
+- **Status:** ✅ Passes for every fault, 2026-10-25: a provider error (a refused call and a stream cut mid-reply, each on the first call and after a tool step), a Tool that panics, a Tool that hangs (ended by the Run's deadline, and by a cancel), a store write that fails once (all 10 write points of a Run), a subscriber that stops reading, and a stream sink that stops reading. A crash and a disconnect pass through G-G01 and G-G02. On a failed write, the Run settles as failed, or returns the store error, and is never reported as a success.
 
 ### G-G08 — One owner across instances
 
