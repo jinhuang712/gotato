@@ -63,7 +63,49 @@ func compactionOf(c *gotato.Compaction) *gotatov2.Compaction {
 	return &gotatov2.Compaction{
 		At: wireTime(c.At), ReplacedMessages: int32(c.ReplacedMessages), FromMessageId: string(c.FromMessageID), ToMessageId: string(c.ToMessageID),
 		SummaryMessageId: string(c.SummaryMessageID), Summarizer: c.Summarizer, BytesBefore: int32(c.BytesBefore), BytesAfter: int32(c.BytesAfter),
+		Segment: int32(c.Segment), TokensBefore: int32(c.TokensBefore), TokensAfter: int32(c.TokensAfter), Ceiling: int32(c.Ceiling),
+		RecapUsage: recapUsageOf(c.RecapUsage), ToolSets: c.ToolSets,
 	}
+}
+
+func recapUsageOf(u *gotato.Usage) *gotatov2.Usage {
+	if u == nil {
+		return nil
+	}
+	return usageOf(*u)
+}
+
+func segmentNumbers(numbers []int) []int32 {
+	out := make([]int32, len(numbers))
+	for i, number := range numbers {
+		out[i] = int32(number)
+	}
+	return out
+}
+
+func positionsOf(positions []gotato.MessagePosition) []*gotatov2.MessagePosition {
+	out := make([]*gotatov2.MessagePosition, len(positions))
+	for i, p := range positions {
+		out[i] = &gotatov2.MessagePosition{Id: string(p.ID), Number: p.Number, Time: wireTime(p.Time)}
+	}
+	return out
+}
+
+// segmentOf is the wire form of a Segment, with its rendered Messages as JSON.
+func segmentOf(s gotato.Segment) (*gotatov2.Segment, error) {
+	messages, err := messagesJSON(s.Messages)
+	if err != nil {
+		return nil, err
+	}
+	lines := make([]*gotatov2.ToolCallLine, len(s.ToolCalls))
+	for i, line := range s.ToolCalls {
+		lines[i] = &gotatov2.ToolCallLine{At: wireTime(line.At), ToolId: line.ToolID, Args: line.Args, Status: string(line.Status), Code: line.Code, Count: int32(line.Count)}
+	}
+	return &gotatov2.Segment{
+		Number: int32(s.Number), From: wireTime(s.From), To: wireTime(s.To),
+		Source:       &gotatov2.SegmentSource{SessionId: string(s.Source.SessionID), FromNumber: s.Source.FromNumber, ToNumber: s.Source.ToNumber},
+		MessagesJson: messages, Rendered: int32(s.Rendered), ToolCalls: lines, Recap: s.Recap, ToolSets: s.ToolSets,
+	}, nil
 }
 
 func compactionsOf(cs []gotato.Compaction) []*gotatov2.Compaction {
@@ -286,6 +328,9 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			MessagesJson: messages,
 			Metadata:     e.Metadata,
 			Compactions:  compactionsOf(e.Compactions),
+			ToolSets:     e.ToolSets,
+			Segments:     segmentNumbers(e.Segments),
+			Tail:         positionsOf(e.Tail),
 		}}
 	case gotato.MetadataChanged:
 		wire.Event = &gotatov2.Event_MetadataChanged{MetadataChanged: &gotatov2.MetadataChanged{
@@ -307,7 +352,16 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			History:      compactionsOf(e.History),
 			MessagesJson: messages,
 			Metadata:     e.Metadata,
+			ToolSets:     e.ToolSets,
+			Segments:     segmentNumbers(e.Segments),
+			Tail:         positionsOf(e.Tail),
 		}}
+	case gotato.SegmentClosed:
+		segment, err := segmentOf(e.Segment)
+		if err != nil {
+			return fail(err)
+		}
+		wire.Event = &gotatov2.Event_SegmentClosed{SegmentClosed: &gotatov2.SegmentClosed{Segment: segment}}
 	case gotato.CompactionFailed:
 		wire.Event = &gotatov2.Event_CompactionFailed{CompactionFailed: &gotatov2.CompactionFailed{
 			Why:   string(e.Why),

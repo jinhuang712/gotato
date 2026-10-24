@@ -255,6 +255,7 @@ message Event {
     ExtensionFailed extension_failed = 50;
     EventsSkipped events_skipped = 51;
     UnknownEvent unknown = 52;
+    SegmentClosed segment_closed = 53;
   }
 }
 
@@ -285,6 +286,53 @@ message Compaction {
   string summarizer = 6;
   int32 bytes_before = 7;
   int32 bytes_after = 8;
+  // segment is the number of the Segment the compaction closed, or 0.
+  int32 segment = 9;
+  int32 tokens_before = 10;
+  int32 tokens_after = 11;
+  int32 ceiling = 12;
+  // recap_usage is what the call that wrote the Recap used; unset for none.
+  Usage recap_usage = 13;
+  repeated string tool_sets = 14;
+}
+
+// Segment is one stretch of history a compaction closed, written once. See the
+// Go type gotato.Segment.
+message Segment {
+  int32 number = 1;
+  string from = 2;
+  string to = 3;
+  SegmentSource source = 4;
+  // messages_json are the Messages that render the Segment, never rewritten.
+  repeated bytes messages_json = 5;
+  int32 rendered = 6;
+  repeated ToolCallLine tool_calls = 7;
+  string recap = 8;
+  repeated string tool_sets = 9;
+}
+
+// SegmentSource says which Entries of which Record a Segment covers.
+message SegmentSource {
+  // session_id is empty when the Entries are in the Record the Segment is in.
+  string session_id = 1;
+  uint64 from_number = 2;
+  uint64 to_number = 3;
+}
+
+message ToolCallLine {
+  string at = 1;
+  string tool_id = 2;
+  string args = 3;
+  string status = 4;
+  string code = 5;
+  int32 count = 6;
+}
+
+// MessagePosition says where in the Record a Message was committed.
+message MessagePosition {
+  string id = 1;
+  uint64 number = 2;
+  string time = 3;
 }
 
 // RunStarted: see the Event type of the same name in the Go API.
@@ -496,6 +544,11 @@ message SessionCreated {
   repeated bytes messages_json = 3;
   map<string, string> metadata = 4;
   repeated Compaction compactions = 5;
+  repeated string tool_sets = 7;
+  // segments are the numbers of the Segments the Context starts with, before
+  // messages_json.
+  repeated int32 segments = 8;
+  repeated MessagePosition tail = 9;
 }
 
 // MetadataChanged: see the Event type of the same name in the Go API.
@@ -516,6 +569,16 @@ message CompactionEnded {
   repeated Compaction history = 3;
   repeated bytes messages_json = 4;
   map<string, string> metadata = 5;
+  repeated string tool_sets = 6;
+  // segments are the numbers of the Segments the Context starts with, in
+  // order; messages_json holds the Messages after them.
+  repeated int32 segments = 7;
+  repeated MessagePosition tail = 8;
+}
+
+// SegmentClosed: see the Event type of the same name in the Go API.
+message SegmentClosed {
+  Segment segment = 1;
 }
 
 // CompactionFailed: see the Event type of the same name in the Go API.
