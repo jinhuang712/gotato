@@ -138,6 +138,15 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 - **A Responses tool call keeps the provider's item ID out of its call ID.** The Responses adapter packed the provider's item ID into `ToolCall.ID` as `call_…|fc_…`, so a provider-private ID was stored in the Session and reached `Event.ToolCallID`. `ToolCall` now has `Signature`, an opaque provider artifact that the adapter sets and reads back on replay, like `ContentPart.Signature`. `ToolCall.ID` is the call ID alone. A Session saved before still replays: the adapter reads a packed call ID as it did.
 - **The chat gateway sends `{}` for a tool call with empty arguments.** A provider may stream a call to a tool that takes no arguments with `arguments: ""`. The Loop accepts only JSON, so the call failed as invalid arguments and the tool could never run. The chat gateway now sends `{}` in its place, as the Responses and Anthropic Messages gateways already did.
 - **A reply records the model that answered it.** Behind a gateway that falls back to another model, the model that answers can differ from the one requested, and nothing said so. `Message.Model` now holds the model the provider reported, read from `model` in each chat chunk, from Responses' `response.created` and `response.completed`, and from Anthropic's `message_start`. A custom `gotato.Model` reports it in the new `ModelEvent.Model`. It is empty when the provider names none, and `ForModel` drops it, so it never reaches a request. Stored Messages and the HTTP and gRPC session documents gain an optional `model`.
+- **A request the provider refuses as too long ends the Run with `context_overflow`.** The gateway marks a 400 or 413 whose error body says the request is longer than the context window (`gateway.Error.Overflow`, `ContextOverflow()`), on all three wire APIs and in the error events of the Responses and Messages streams. The Loop reads any Model error with a `ContextOverflow() bool` method, so a custom `gotato.Model` can say the same. The new code is `gotato.ErrContextOverflow`; gRPC maps it to `RESOURCE_EXHAUSTED`. The phrases it looks for are in `gateway/overflow.go`, and have not yet been checked against live providers. **Breaking:** a Run that overflows fails with another cause.
+
+  ```text
+  before  run_ended {"status":"failed","cause":"model_failure"}
+  after   run_ended {"status":"failed","cause":"context_overflow"}
+  ```
+
+  A Claude reply that stops with `model_context_window_exceeded` is now a cut-off reply (`max_tokens`), where it was read as a finished one.
+- **A model's context window and cache retention are known to the gateway.** The new `context_window` key (`Config.ContextWindow`, in tokens; 0 is unknown, and gotato keeps no table of windows) is read back by `Client.ContextWindow()`. `Client.CacheRetention()` says how long the provider keeps the prompt cache as the client asks for it: 1 hour or 5 minutes on Claude's Messages API, 30 minutes on Responses when it sends a ttl, and 0 (unknown) elsewhere. `modelctx.WindowOf` and `modelctx.RetentionOf` read both from any `gotato.Model` that has the methods.
 
 ### Events
 

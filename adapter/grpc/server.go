@@ -459,7 +459,7 @@ func statusOf(err error) error {
 			code = codes.Canceled
 		case gotato.ErrDeadlineExceeded:
 			code = codes.DeadlineExceeded
-		case gotato.ErrLimitExceeded:
+		case gotato.ErrLimitExceeded, gotato.ErrContextOverflow:
 			code = codes.ResourceExhausted
 		case gotato.ErrNotSupported:
 			code = codes.Unimplemented

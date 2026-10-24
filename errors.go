@@ -9,12 +9,17 @@ import (
 type ErrorCode string
 
 const (
-	ErrInvalidArgument       ErrorCode = "invalid_argument"
-	ErrInvalidState          ErrorCode = "invalid_state"
-	ErrBusy                  ErrorCode = "busy"
-	ErrSessionClosed         ErrorCode = "session_closed"
-	ErrSessionClosing        ErrorCode = "session_closing"
-	ErrModelFailure          ErrorCode = "model_failure"
+	ErrInvalidArgument ErrorCode = "invalid_argument"
+	ErrInvalidState    ErrorCode = "invalid_state"
+	ErrBusy            ErrorCode = "busy"
+	ErrSessionClosed   ErrorCode = "session_closed"
+	ErrSessionClosing  ErrorCode = "session_closing"
+	ErrModelFailure    ErrorCode = "model_failure"
+	// ErrContextOverflow means the Model refused a request as longer than its
+	// context window. A Model reports it by returning an error with a
+	// `ContextOverflow() bool` method that answers true, as the gateway's
+	// Error does; any other Model failure is ErrModelFailure.
+	ErrContextOverflow       ErrorCode = "context_overflow"
 	ErrModelProtocolFailure  ErrorCode = "model_protocol_failure"
 	ErrToolResolutionFailure ErrorCode = "tool_resolution_failure"
 	ErrToolArgumentFailure   ErrorCode = "tool_argument_validation_failure"

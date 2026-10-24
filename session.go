@@ -871,6 +871,10 @@ func classifyModelError(err error) *RuntimeError {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return runtimeError(codeForContext(err), "Model", err.Error(), err)
 	}
+	var overflow interface{ ContextOverflow() bool }
+	if errors.As(err, &overflow) && overflow.ContextOverflow() {
+		return runtimeError(ErrContextOverflow, "Model", err.Error(), err)
+	}
 	return runtimeError(ErrModelFailure, "Model", err.Error(), err)
 }
 

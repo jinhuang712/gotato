@@ -220,6 +220,13 @@ func TestStatusOfMapsContextErrors(t *testing.T) {
 	}
 }
 
+func TestStatusOfMapsContextOverflowToResourceExhausted(t *testing.T) {
+	err := gotato.ErrorOf(gotato.ErrContextOverflow, "the request is longer than the window")
+	if code := status.Code(statusOf(err)); code != codes.ResourceExhausted {
+		t.Fatalf("context_overflow = %v", code)
+	}
+}
+
 func TestStreamRunCanceledContextMapsToCanceled(t *testing.T) {
 	client := newTestClient(t)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -551,7 +551,7 @@ func runFailure(result service.RunResult, err error) (failure, bool) {
 // causeOf attributes a Run's error code.
 func causeOf(code gotato.ErrorCode) Cause {
 	switch code {
-	case gotato.ErrModelFailure, gotato.ErrModelProtocolFailure:
+	case gotato.ErrModelFailure, gotato.ErrContextOverflow, gotato.ErrModelProtocolFailure:
 		return CauseProvider
 	case gotato.ErrToolExecutionFailure:
 		return CauseTool
