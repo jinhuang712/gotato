@@ -40,6 +40,7 @@ const (
 	KindCompactionStarted   EventKind = "compaction_started"
 	KindCompactionEnded     EventKind = "compaction_ended"
 	KindCompactionFailed    EventKind = "compaction_failed"
+	KindSegmentClosed       EventKind = "segment_closed"
 	KindSessionUnloaded     EventKind = "session_unloaded"
 	KindSessionDeleted      EventKind = "session_deleted"
 	KindSessionLoaded       EventKind = "session_loaded"
@@ -85,6 +86,7 @@ var eventClasses = map[EventKind]EventClass{
 	KindCompactionStarted:   ClassStored,
 	KindCompactionEnded:     ClassStored,
 	KindCompactionFailed:    ClassStored,
+	KindSegmentClosed:       ClassStored,
 	KindSessionUnloaded:     ClassInstance,
 	KindSessionDeleted:      ClassInstance,
 	KindSessionLoaded:       ClassInstance,
@@ -410,6 +412,15 @@ func (e CompactionFailed) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
+func (SegmentClosed) Kind() EventKind { return KindSegmentClosed }
+
+// MarshalJSON writes the Event as one flat object whose kind names its type.
+func (e SegmentClosed) MarshalJSON() ([]byte, error) {
+	type plain SegmentClosed
+	return marshalKind(KindSegmentClosed, plain(e))
+}
+
+// Kind implements Event.
 func (SessionUnloaded) Kind() EventKind { return KindSessionUnloaded }
 
 // MarshalJSON writes the Event as one flat object whose kind names its type.
@@ -509,6 +520,7 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	KindCompactionStarted:   decodeAs[CompactionStarted],
 	KindCompactionEnded:     decodeAs[CompactionEnded],
 	KindCompactionFailed:    decodeAs[CompactionFailed],
+	KindSegmentClosed:       decodeAs[SegmentClosed],
 	KindSessionUnloaded:     decodeAs[SessionUnloaded],
 	KindSessionDeleted:      decodeAs[SessionDeleted],
 	KindSessionLoaded:       decodeAs[SessionLoaded],

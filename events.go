@@ -200,6 +200,11 @@ const (
 	CompactionOnDemand     CompactionWhy = "on_demand"
 	CompactionPastCeiling  CompactionWhy = "past_ceiling"
 	CompactionBeforeUnload CompactionWhy = "before_unload"
+	// CompactionBeforeCacheExpires: the Session was idle, and was compacted
+	// shortly before the provider's prompt cache expired.
+	CompactionBeforeCacheExpires CompactionWhy = "before_cache_expires"
+	// CompactionOverflow: the provider refused a request as too long.
+	CompactionOverflow CompactionWhy = "overflow"
 )
 
 // MessageSource says where a user Message came from.
@@ -222,9 +227,23 @@ type Compaction struct {
 	FromMessageID    MessageID `json:"from_message_id,omitempty"`
 	ToMessageID      MessageID `json:"to_message_id,omitempty"`
 	SummaryMessageID MessageID `json:"summary_message_id"`
-	Summarizer       string    `json:"summarizer"`
-	BytesBefore      int       `json:"bytes_before"`
-	BytesAfter       int       `json:"bytes_after"`
+	// Summarizer names what wrote the Recap, or "none" when the Segment
+	// has none.
+	Summarizer  string `json:"summarizer"`
+	BytesBefore int    `json:"bytes_before"`
+	BytesAfter  int    `json:"bytes_after"`
+	// Segment is the number of the Segment the compaction closed, or 0 for
+	// a compaction that closed none.
+	Segment int `json:"segment,omitempty"`
+	// TokensBefore and TokensAfter are estimates of the Context before and
+	// after, and Ceiling the ceiling in force, or 0 for none.
+	TokensBefore int `json:"tokens_before,omitempty"`
+	TokensAfter  int `json:"tokens_after,omitempty"`
+	Ceiling      int `json:"ceiling,omitempty"`
+	// RecapUsage is what the model call that wrote the Recap used.
+	RecapUsage *Usage `json:"recap_usage,omitempty"`
+	// ToolSets are the ToolSets the compaction kept active.
+	ToolSets []string `json:"tool_sets,omitempty"`
 }
 
 // ForkedFrom names the Session a new Session was forked from, and the
@@ -518,6 +537,12 @@ type SessionCreated struct {
 	// ToolSets are the ToolSets the model had switched on, in the order it
 	// did, which a fork inherits.
 	ToolSets []string `json:"tool_sets,omitempty"`
+	// Segments are the numbers of the Segments the Context starts with, in
+	// order, before Messages: a fork inherits them. Their SegmentClosed
+	// Events follow this one.
+	Segments []int `json:"segments,omitempty"`
+	// Tail says where Messages were committed, when it is known.
+	Tail []MessagePosition `json:"tail,omitempty"`
 }
 
 // MetadataChanged: a setting in the Session's metadata changes. An empty Value
@@ -534,8 +559,8 @@ type CompactionStarted struct {
 	Why CompactionWhy `json:"why"`
 }
 
-// CompactionEnded: a compaction appends its Checkpoint: the Messages and
-// metadata the Session continues with, every compaction so far, and the Claim
+// CompactionEnded: a compaction appends its Checkpoint: the Segments by
+// number, the Messages and metadata the Session continues with, every compaction so far, and the Claim
 // in force, so that a load that starts here still knows the Writer and its
 // Epoch.
 type CompactionEnded struct {
@@ -550,6 +575,22 @@ type CompactionEnded struct {
 	// ToolSets are the ToolSets the model had switched on, in the order it
 	// did, as a Checkpoint keeps them.
 	ToolSets []string `json:"tool_sets,omitempty"`
+	// Segments are the numbers of the Segments the Context starts with, in
+	// order. A load resolves each to the Messages its SegmentClosed Event
+	// stored, so the Checkpoint does not copy them.
+	Segments []int `json:"segments,omitempty"`
+	// Tail says where the Messages the Checkpoint keeps, which follow the
+	// Segments, were committed: their IDs, Entry numbers and times.
+	Tail []MessagePosition `json:"tail,omitempty"`
+}
+
+// SegmentClosed: a compaction closed a Segment. It is written once, before
+// the Checkpoint (CompactionEnded) that lists its number, and holds the
+// Messages that render the Segment, which are never rewritten. The Entries it
+// covers stay in the Record.
+type SegmentClosed struct {
+	Header
+	Segment Segment `json:"segment"`
 }
 
 // CompactionFailed: a compaction failed.
