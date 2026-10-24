@@ -287,6 +287,8 @@ func (a *Session) Transcript() Transcript { return a.transcript }
 // same bytes.
 //
 //   - Messages are reduced to what a provider needs (ForModel).
+//   - When a Message holds a Part marked MetaTag, the system part ends with
+//     TagsSentence; a request without one is unchanged.
 //   - Cache breakpoints are placed after the system prompt, after the tools,
 //     and on the last Message, so the whole request is cached for the next
 //     Turn; a provider finds the previous Turn's entry by looking back from
@@ -296,8 +298,15 @@ func (a *Session) Transcript() Transcript { return a.transcript }
 //     prefix to the provider.
 func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string) {
 	messages := ForModel(built.Messages)
+	system := built.RenderSystem()
+	if hasTagMeta(built.Messages) {
+		if system != "" {
+			system += "\n\n"
+		}
+		system += TagsSentence
+	}
 	request := ModelRequest{
-		SystemInstructions: built.RenderSystem(),
+		SystemInstructions: system,
 		Messages:           messages,
 		Tools:              cloneToolSpecs(tools),
 	}
@@ -319,6 +328,11 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 // (IDs, usage, stop reasons) are dropped so they can never perturb the prompt
 // bytes between Turns. A reply cut off mid-stream (StopCutOff) is left out:
 // the Model sees what it saw before that reply started.
+//
+// Text that imitates one of Gotato's four tags (see EscapeTags) is escaped in
+// user and assistant text, Tool Result content and SafeError, so neither a
+// user, outside data nor the model's own words can speak as the system. A Part
+// marked MetaTag is Gotato's own tagged text and is left as it is.
 func ForModel(messages []Message) []Message {
 	out := make([]Message, 0, len(messages))
 	for _, message := range messages {
@@ -328,15 +342,21 @@ func ForModel(messages []Message) []Message {
 		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
 		m.Parts = make([]ContentPart, 0, len(message.Parts))
 		for _, part := range message.Parts {
+			if _, tagged := part.Metadata[MetaTag]; !tagged && part.Kind == ContentText {
+				part.Text = EscapeTags(part.Text)
+			}
 			part.Metadata = nil
 			part.Data = slices.Clone(part.Data)
 			part.Signature = slices.Clone(part.Signature)
 			m.Parts = append(m.Parts, part)
 		}
 		if message.ToolResult != nil {
-			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: message.ToolResult.SafeError}
+			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: EscapeTags(message.ToolResult.SafeError)}
 			result.Content = cloneContent(message.ToolResult.Content)
 			for j := range result.Content {
+				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged && result.Content[j].Kind == ContentText {
+					result.Content[j].Text = EscapeTags(result.Content[j].Text)
+				}
 				result.Content[j].Metadata = nil
 			}
 			m.ToolResult = &result

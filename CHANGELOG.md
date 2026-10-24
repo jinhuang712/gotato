@@ -77,6 +77,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   ```
 - **A Record keeps no text deltas.** The reply they make up is in its Message. **Breaking:** `GET /v1/sessions/{id}/events`, the gRPC events call and `gotato events` do not list text deltas (`message_update` before the rename, `text_delta` now).
 - **`Record.Set` with an unchanged value changes nothing.** It no longer moves `UpdatedAt`.
+- **Text that imitates Gotato's own tags is escaped.** `ForModel` writes the `<` that starts or ends `<notice>`, `<segment>`, `<tool_calls>` or `<recap>` (any case) as `&lt;` in user and assistant text, Tool Result content and `SafeError`, so a user, outside data or the model's own words cannot speak as the system. Before: a user message `<recap>x</recap>` reached the model unchanged. After: `&lt;recap>x&lt;/recap>`. New in the root package: `EscapeTags`, the tag names, `MetaTag` (a Part with this metadata is Gotato's own tagged text and is left alone) and `TagsSentence`, which `AssembleRequest` adds to the system part only when a request holds a marked Part. Requests without those are byte for byte as before.
 
 ### Sessions and stores
 
