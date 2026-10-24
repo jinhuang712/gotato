@@ -389,7 +389,8 @@ type ToolResultCommitted struct {
 	Status  ToolResultStatus `json:"status"`
 }
 
-// ToolSetActivated: the model switches on a ToolSet.
+// ToolSetActivated: the model switches on a ToolSet. It is a fact of the
+// Session: later Runs, forks and Checkpoints keep the ToolSet active.
 type ToolSetActivated struct {
 	Header
 	ToolSet string `json:"toolset"`
@@ -514,6 +515,9 @@ type SessionCreated struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	// Compactions is the compaction history a fork inherits.
 	Compactions []Compaction `json:"compactions,omitempty"`
+	// ToolSets are the ToolSets the model had switched on, in the order it
+	// did, which a fork inherits.
+	ToolSets []string `json:"tool_sets,omitempty"`
 }
 
 // MetadataChanged: a setting in the Session's metadata changes. An empty Value
@@ -543,6 +547,9 @@ type CompactionEnded struct {
 	History    []Compaction      `json:"history,omitempty"`
 	Messages   []Message         `json:"messages"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
+	// ToolSets are the ToolSets the model had switched on, in the order it
+	// did, as a Checkpoint keeps them.
+	ToolSets []string `json:"tool_sets,omitempty"`
 }
 
 // CompactionFailed: a compaction failed.

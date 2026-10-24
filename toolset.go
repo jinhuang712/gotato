@@ -63,6 +63,16 @@ func WithRootNamespace(namespace string) Option {
 	}
 }
 
+// ActiveToolSetSource is an optional method set of a Transcript: the names of
+// the ToolSets the model switched on in earlier Runs of the Session, in the
+// order it switched them on. NewSession switches those ToolSets on again, so
+// a ToolSet the model activated stays active for the Session; a session.Record
+// implements it. A name that no installed ToolSet carries, or whose ToolSet no
+// longer resolves, or that would pass MaxActiveToolSets, is left off.
+type ActiveToolSetSource interface {
+	ActiveToolSets() []string
+}
+
 type toolSetConfig struct {
 	set    ToolSet
 	active bool
@@ -72,10 +82,13 @@ type toolSetConfig struct {
 // active ToolSet; it is filled in one atomic step so a failed resolution
 // exposes nothing.
 type toolSetState struct {
-	set      ToolSet
-	spec     ToolSetSpec
-	active   bool
-	resolved []Tool
+	set    ToolSet
+	spec   ToolSetSpec
+	active bool
+	// configured marks a ToolSet installed with WithActiveToolSet: the
+	// Agent's choice, never switched off by the Session's own state.
+	configured bool
+	resolved   []Tool
 }
 
 // toolRegistry owns Tool identity, visibility, and activation for one Session.
@@ -145,7 +158,7 @@ func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 				return nil, runtimeError(ErrLimitExceeded, "ToolSet", "maximum active ToolSets exceeded", nil)
 			}
 		}
-		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, active: entry.active})
+		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, active: entry.active, configured: entry.active})
 	}
 	// Resolving the active ToolSets during construction keeps the first
 	// Model request deterministic and surfaces a broken ToolSet before the
@@ -160,10 +173,37 @@ func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 		}
 		state.resolved = tools
 	}
+	if source, ok := cfg.transcript.(ActiveToolSetSource); ok {
+		registry.restore(source.ActiveToolSets())
+	}
 	if err := registry.rebuild(); err != nil {
 		return nil, err
 	}
 	return registry, nil
+}
+
+// restore switches on again the ToolSets a Session's earlier Runs activated.
+// It never fails the Session: a name nothing installed carries, a ToolSet that
+// no longer resolves, and a ToolSet past MaxActiveToolSets all stay off, so
+// the model can activate them again.
+func (r *toolRegistry) restore(names []string) {
+	for _, name := range names {
+		for _, state := range r.sets {
+			if state.spec.Name != name || state.active {
+				continue
+			}
+			if limitExceededUint32(r.explicit, r.maxActive, r.activeCount()+1) {
+				return
+			}
+			tools, err := resolveToolSet(context.Background(), state)
+			if err != nil {
+				break
+			}
+			state.resolved = tools
+			state.active = true
+			break
+		}
+	}
 }
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
