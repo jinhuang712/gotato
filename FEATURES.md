@@ -235,19 +235,19 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 
 #### The live Session is `gotato.Session`, and its record is `session.Record` — 2026-10-16
 
-The object a caller builds and talks to already has what the glossary gives a Session: an ID, a Status and its state machine, a queue for Steer and FollowUp, a Transcript, a `ContextBuilder` and its tools. It lacks only saving itself and a TTL, which Phase 6 adds. So it takes the name Session, and the stored record takes the name Record.
+The object a caller builds and talks to already has what the glossary gives a Session: an ID, a Status and its state machine, a queue for Steer and FollowUp, a Transcript, a `ContextBuilder` and its tools. It lacks only saving itself and a TTL, which Phase 7 adds. So it takes the name Session, and the stored record takes the name Record.
 
 | Option | For | Against |
 |---|---|---|
-| **`gotato.Session` for the live unit, `session.Record` for what the store keeps** (chosen) | The type is named after the thing a caller holds. Phase 6 grows the same type, so the name does not change again. | The record's name is settled before Phase 6, so this rename is larger. |
+| **`gotato.Session` for the live unit, `session.Record` for what the store keeps** (chosen) | The type is named after the thing a caller holds. Phase 7 grows the same type, so the name does not change again. | The record's name is settled before Phase 7, so this rename is larger. |
 | `gotato.Loop` | Matches the old plan for this rename. | The Loop is a concept, the cycle inside a Session, not a thing a caller holds. |
-| A role name, such as `gotato.Executor` | The smallest change. The record keeps its name. | In Phase 6, the Session either wraps the Executor or the type is renamed again. |
+| A role name, such as `gotato.Executor` | The smallest change. The record keeps its name. | In Phase 7, the Session either wraps the Executor or the type is renamed again. |
 
 Three choices come with it:
 
 - **One concrete type, no interfaces.** `gotato.NewSession` returns a `*Session`. There is one implementation, and no caller implements the interfaces the old type was split into, so they go. A caller that wants a fake defines its own small interface, as Go code usually does.
 - **One ID.** A live Session's ID is its Session ID: it comes from its record, or is generated when there is none. Every Event carries it as `session_id`.
-- **Today a live Session lives for one Run.** The Runner builds one from the record, runs it and closes it, so it behaves like a Session whose TTL is zero, and the store stays the truth. Phase 6 keeps it warm.
+- **Today a live Session lives for one Run.** The Runner builds one from the record, runs it and closes it, so it behaves like a Session whose TTL is zero, and the store stays the truth. Phase 7 keeps it warm.
 
 ### G-F26 — Steering a Run 🚧
 
@@ -448,7 +448,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
 - **A Message carries the Run** that committed it (`Message.RunID`), so a Segment can group Messages by Run (*What a Segment keeps*, below).
 
-**Gap:** each compaction summarizes the summary before it, it waits for the start of a Run, and nothing compacts an idle Session. Everything below was designed on 2026-10-19, and what closes a Segment is built with the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
+**Gap:** each compaction summarizes the summary before it, it waits for the start of a Run, and nothing compacts an idle Session. Everything below was designed on 2026-10-19, and what closes a Segment is built before the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)). Until the warm Session has an idle timer, a service compacts its idle Sessions itself (*Who compacts*, below).
 
 **Segments.** Each compaction closes what came since the last Checkpoint into a Segment, a stretch of history that is never rewritten, and appends it after the Segments before it:
 
@@ -458,6 +458,7 @@ after    [Segment 1][Segment 2][Segment 3] the kept tail
 ```
 
 - There is no summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same. On Claude that needs a cache marker at the end of the last Segment, because Claude reads a cached prefix only up to a marker an earlier request placed. Right after a compaction, the gateway puts there the marker it otherwise puts where the last Round started, since Claude takes at most four and G-F04 places four; the Recap that ends the Segment is then its own content block, so the marker falls between blocks and not inside a Message. The marker goes back to where the last Round started once a new Round begins. OpenAI reads any prefix without markers. Whether Claude reads the Segments before from the cache at that marker, and what the next compaction's request then costs, is to verify against Claude before it is built (*Checked with real provider requests*, below).
+- **Why Segments.** A cloud Session is compacted often: its user is rarely there, so each idle stretch is compacted before the cache goes cold. One summary written again at every compaction would blur a little more each time. Segments keep the user's words and the replies as they were, so a user who comes back finds the conversation they left, and the model can read the rest back. The bytes that stay the same help the cache only while it is warm: mid-Run, or for compactions close together. A user who comes back after the cache expired pays for the whole prefix anyway, and what Segments save then is size.
 - Each Segment has a number, and the times its stretch began and ended.
 - The Record keeps every Message a Segment covers, unless the team prunes the entries before a Checkpoint ([G-F03](#g-f03--stores-)). A load starts at the last Checkpoint, and the model reads a Segment back with `read_segment` (below).
 
@@ -587,10 +588,20 @@ first heading.
 - **Idle.** The cache is still warm, so the Recap's request reads it, and a user who comes back later pays full price only for the smaller Context. The cache retention is the one the gateway configuration sets ([G-F33](#g-f33--prompt-cache-retention-and-keepalive-)). When it is unknown, as for an unrecognized provider, which is sent none, or not well above the 5-minute lead, as with `cache_retention: 5m`, the trigger uses the TTL alone: a retention of 5 minutes less the lead is 0, and the Session would be compacted the moment a Run ends, so a user who answers a minute later would pay to write a new prefix instead of reading a warm one. The compaction then runs before the Session leaves memory (`before_unload`). How much above the lead counts as well above is set with the lead when it is built. Five minutes ahead, because a compaction can take a minute or more. How a keepalive moves this trigger is settled with G-F33's keepalive design.
 - **The smallest stretch.** Below 20K tokens an idle Session is not compacted, which saves a model call: if a user comes back 30 to 50 percent of the time, a compaction pays for itself from 10K to 17K tokens. That return rate is an assumption, tuned once real numbers are in.
 - **Who compacts.** The instance that holds the warm Session, on its TTL timer ([G-F27](#g-f27--service-many-instances-)). A message that arrives meanwhile cancels the compaction and is served first, while the cache is still warm. If that instance goes away first, as in a deploy, the stretch waits for the next idle time or the ceiling.
+- **Before the warm Session.** Until the warm Session has its timer ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)), the service runs the idle trigger itself: its own timer calls the compact endpoint for a Session shortly before the provider's cache expires, and sets `min_tokens` to the smallest stretch worth compacting. Any instance can serve the call, because a compaction claims the Session first, and a Session in a Run answers that it is busy. Such a compaction is recorded as `on_demand`. The warm Session's timer later calls the same compaction.
+- **`min_tokens`.** The compact endpoints take `min_tokens` (`CompactOptions.MinTokens`, `{"min_tokens":N}`, `--min-tokens N`): a stretch since the last Checkpoint estimated below it is not compacted, and the answer says so. The default, 0, always compacts.
 - **Past the ceiling.** The size is the input and output tokens the last model call reported, plus an estimate of what came after it (bytes ÷ 4). After a compaction, the old usage no longer counts and the size is estimated afresh, so a compaction does not set off another at once. The ceiling is the window less max(10% of it, 16K tokens): 180K for a 200K window, and always at least 16K for a reply and a Recap. The window is the model's `context_window` in the gateway configuration ([G-F07](#g-f07--models-and-providers-)); without it there is no default ceiling, and this trigger is off unless the Agent or the Session sets one. Segments are still merged at their default budget. A ceiling set without a window is used as it is, since the room left for a reply and a Recap cannot be known.
 - **Mid-Run.** The cut falls between two Turns, so a tool call never leaves its result. The Run's latest Turns stay in the kept tail, tool results included, with reasoning as [DESIGNS.md → Reasoning](DESIGNS.md#reasoning-goes-back-for-the-current-round-where-the-provider-allows-it--2026-10-18) says, checked against Claude and OpenAI (below), up to 20K tokens and no more than a quarter of the window, or of the ceiling when no window is known. The Run's prompt stays word for word in the Segment, which has no final reply yet, and the Recap says where the Run stands: the step it is on and the next one.
 - **Overflow.** When the provider refuses a request as too long before any output (to verify: an Anthropic stream may report it in the middle of a reply, see [TODO.md](TODO.md)), the Session is compacted and the call sent again, unless the Turn has compacted already. The oldest Segments are merged too when the Segments alone are past the limit (see *Many Segments*).
 - **Once per Turn.** A Turn compacts at most once, whatever the trigger. Still past the ceiling after it, the Run ends with `limit_exceeded`, and the Event says why. When the provider still refuses the request as too long after it, the Run ends with `context_overflow`. Either usually means one tool result is too large, so `MaxToolResultBytes` is the first guard.
+- **A compaction that fails.** A compaction helps a Run but is not a step it needs, so its failure stays local ([DESIGNS.md → A failure stays local](DESIGNS.md#4-a-failure-stays-local)):
+
+  | Failure | What happens |
+  |---|---|
+  | the Recap fails | the Segment is kept without one (*The Recap*, above) |
+  | a write to the store fails | the compaction is dropped, an Event says why, and the Run goes on with the Context it had |
+  | the Run is stopped during it | the Run settles as cancelled |
+  | still past the ceiling after a dropped compaction | the Run ends with `limit_exceeded`, and the Event says the compaction failed |
 - **The hook.** The Loop calls a `gotato.TurnPreparer` on the Session's goroutine before every model call, with no Tool call open: `PrepareTurn(ctx, PendingTurn) (TurnPrepared, error)`. `PendingTurn` carries the Session and Run IDs, the Turn, the Transcript, where the Run started, the request about to be sent, whether this is a retry after an overflow, and a `Flush` that writes what is staged. `AutoCompactor` is a `TurnPreparer`, not a `RunPreparer`, and `RunPreparer` loses `PrepareRun` ([G-F15](#g-f15--extensions-)); the first call of a Run does what `PrepareRun` did. The policy (the ceiling, the idle TTL, the overflow) stays in `AutoCompactor`; the hook only gives it the chance.
 
 **A Segment closed mid-Run.** A Run that investigates an alert nears the ceiling at its 30th Turn, after four earlier compactions. The cut falls between Turns 26 and 27, and the model is sent this, from the top:
@@ -628,6 +639,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 - **The originals stay.** The Entries a Segment covers stay in the log, unread by the Context and readable by their range, which is how `read_segment` finds them.
 - **What a load reads.** A load returns the facts from the last Checkpoint and every `segment_closed` Entry before it (`Loaded.Segments`), including one a later Checkpoint no longer lists, such as a Segment that was merged. A load therefore grows with the number of Segments, a cost accepted for keeping each Segment written once. A Record that holds Segments is read only by a Gotato that knows them.
 - The compaction's record adds the Segment's number, the estimated tokens before and after, the usage of the model call that wrote the Recap, and the ToolSets kept. It records usage only, not cost: Gotato keeps no prices, and a cost is added once the model catalog ([Later](#later)) has them.
+- **A Record compacted before Segments.** A Record whose last Checkpoint holds one summary is read as it is, and the compaction that closes Segments refuses it with `invalid_state` instead of turning that summary into a Segment. Gotato has made no release, so no such Record has to carry on.
 - **The kept tail.** With Segments, a compaction closes everything since the last Checkpoint and keeps only a tail. `--keep N`, `{"keep":N}` on `POST /v1/sessions/{id}/compact` and `CompactPolicy.Floor` stay, as the size of that tail: `keep` in Messages and `Floor` in tokens, cut at a Turn boundary so a tool call keeps its result. Their meaning, "how much recent history stays", does not change, so the versioned CLI and HTTP contract does not break. Only the default of an automatic compaction changes, to the kept tail mid-Run in the settings below.
 - **The limits.** `MaxMessages` and `MaxTranscriptBytes` count only the Messages a load reads, as they do today, and a Segment's Messages are among them. It is the size of the Context that matters, not the number of messages, and a Context that grows too large is compacted by the ceiling and the Segments' budget. So the default of `MaxMessages` is 10,000, and a Session of short messages reaches a ceiling counted in tokens first.
 - An idle compaction runs outside any Run, so its usage is on its compaction Event, not on a Run.
@@ -645,6 +657,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 | Recap output limit | 8K tokens | a Recap cut off fails, and output not used costs nothing |
 | Segments' budget | half the ceiling; with no ceiling, a default budget whose number is not chosen yet | the oldest Segments are merged when the Segments pass it, and on an overflow, so a long Session is safe by default and leaves room for the conversation that follows |
 | tool call lines | 100 per Segment, arguments cut at 200 characters | one busy Run does not fill its Segment |
+| time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
 
 **Checked with real provider requests before it is built:**
 
@@ -653,7 +666,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 - what Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going while the Segment changed the prefix that reasoning was written under;
 - whether Claude reads the Segments before from the cache at a marker at the end of the last Segment ([G-F04](#g-f04--context-)).
 
-The checks can each change what is built, so building waits for them ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)). A history that holds a call to a tool no longer defined is not checked, because compaction makes none: a kept tail keeps the ToolSets it calls, and a Segment holds its calls as text. It is checked if a case is found.
+The checks can each change what is built, so building waits for them ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)). A history that holds a call to a tool no longer defined is not checked, because compaction makes none: a kept tail keeps the ToolSets it calls, and a Segment holds its calls as text. It is checked if a case is found.
 
 ### G-F32 — Changes that keep the cache ⬜
 
@@ -960,13 +973,13 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 - A request the draining instance refuses gets `ErrDraining`, 409 over HTTP. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
 - A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
 - A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
-- Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
+- Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
 
 **Activation limit.** An instance counts the Sessions it has activated: those that a Run holds or waits for, each once. `Admission.MaxActiveSessions` (`--max-sessions`) is the hard limit on that count; zero, the default, has none.
 
 - **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, gRPC `UNAVAILABLE` with the trailer `gotato-not-run: true`, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run.
 - **What is not refused.** A Run on a Session that is active here already, which reaches the busy policy instead; creating or forking a Session, which activates nothing; and the short changes that open a Session under its lock (compact, tool activation, delete).
-- **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)) the same setting counts the Sessions held in memory.
+- **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)) the same setting counts the Sessions held in memory.
 - **Why `/readyz` does not fail at the limit.** A full instance still serves the Sessions it holds, and a consistent hash sends their requests here. `/readyz` answers 503 for a drain only, and reports `active_sessions` beside `active_runs`, so an operator sees how close the instance is.
 - While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
@@ -1009,7 +1022,7 @@ A provider keeps a cached prefix for minutes, and a conversation that pauses lon
 - **Retention:** the gateway asks a recognized provider for its longest cache retention: an hour on Claude, and 30 minutes on OpenAI's Responses API from GPT-5.6. It is set where the provider is configured, not per Agent: `cache_retention` for one model, and `GOTATO_GATEWAY_CACHE_RETENTION` for every model, winning over each model's own ([G-F07](#g-f07--models-and-providers-)). An hour on Claude doubles the price of a cache write; `5m` keeps its default.
 - **Keepalive:** while a warm Session is in memory (G-F27), refresh its cache shortly before it expires. Each refresh costs a cache read of the whole prefix, so it pays only when the Session is likely to come back soon; it is a setting per Agent, with a limit.
 
-**Gap:** the keepalive is not built. **Design first:** with the warm Session ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--warm-session)).
+**Gap:** the keepalive is not built. **Design first:** with the warm Session ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)).
 
 ## Endpoints
 
@@ -1200,7 +1213,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
 - today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
-**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until the warm Session (Phase 6). `message_withdrawn` has no way to happen before that, and `session_unloaded` comes only from a live Session that closes.
+**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until the warm Session (Phase 7). `message_withdrawn` has no way to happen before that, and `session_unloaded` comes only from a live Session that closes.
 
 ### G-F15 — Extensions ✅
 
@@ -1310,7 +1323,7 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
 ```
 
-**Gap:** an API-compatibility check in CI, which flags a removed or changed exported identifier, is scheduled for when mass testing begins (ROADMAP Phase 9).
+**Gap:** an API-compatibility check in CI, which flags a removed or changed exported identifier, is scheduled for when mass testing begins (ROADMAP Phase 10).
 
 ## When something fails
 

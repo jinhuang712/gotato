@@ -88,7 +88,7 @@ Each check is a test or a harness that passes or fails.
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Measure:** A Session played for 2,000 Turns, each with a 20 KB Tool Result, against a fake model with a 128K-token window, sends 0 requests over the window and fails 0 Runs for its size. These sizes are a starting point, to tune once the task exists.
 - **Method:** a reference task, `long_session` *(to build)*
-- **Status:** ⬜ Waits for compaction that closes Segments ([ROADMAP.md](ROADMAP.md) Phase 6).
+- **Status:** ⬜ Waits for compaction that closes Segments ([ROADMAP.md](ROADMAP.md) Phase 6, step 3).
 
 ### G-G11 — A failure leaves the Session usable ⭐
 
@@ -161,7 +161,7 @@ Its cached input tokens and its cost, when the user comes back after the cache r
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Compared with:** the same Session without idle compaction
 - **Method:** live run with a pause longer than the cache retention *(to build)*
-- **Last measured:** Not measured. Waits for the warm Session ([ROADMAP.md](ROADMAP.md) Phase 6).
+- **Last measured:** Not measured. Waits for the Recap the model writes ([ROADMAP.md](ROADMAP.md) Phase 6, step 2), when a service can compact its idle Sessions.
 
 ### G-B16 — Cost of a compaction
 
@@ -231,7 +231,7 @@ Peak heap per Run, and heap per Session in memory.
 - **Serves:** [Keep subtracting](DESIGNS.md#5-keep-subtracting)
 - **Compared with:** the previous release, and a coding-agent session's 1 GiB starting point ([Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting))
 - **Method:** `BenchmarkSessionFootprint`, and the reference service's resident memory
-- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. A Runner keeps no Session in memory between Runs, so heap per Session in memory waits for the warm Session (ROADMAP Phase 6). 2026-10-16.
+- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. A Runner keeps no Session in memory between Runs, so heap per Session in memory waits for the warm Session (ROADMAP Phase 7). 2026-10-16.
 
 ### G-B09 — CPU per Turn, at 10, 100 and 1,000 messages
 
@@ -287,5 +287,5 @@ Each evaluation needs a person or a real model, so it runs on demand.
 
 - **Serves:** [Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **Measure:** 100% of breaking changes have a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), and a contract version bump when they touch HTTP or gRPC
-- **Method:** review at each release, and an API-compatibility check in CI *(to build, ROADMAP Phase 9)*
+- **Method:** review at each release, and an API-compatibility check in CI *(to build, ROADMAP Phase 10)*
 - **Status:** ⬜ Not audited.
