@@ -9,7 +9,7 @@ What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a pr
 |---|---|---|---|
 | G-G01 | ⭐ Session reconstructable | The store is the only truth | ✅ |
 | G-G09 | ⭐ The same Record gives the same request | The store is the only truth | ✅ |
-| G-G07 | ⭐ No unplanned change to the prefix | A request only grows at its end | ✅ |
+| G-G07 | ⭐ No unplanned change to the prefix | A request only grows at its end | 🚧 |
 | G-G10 | ⭐ A long Session stays within its window | The Context is a bounded view | ⬜ |
 | G-G11 | ⭐ A failure leaves the Session usable | A failure stays local | ✅ |
 | G-G08 | One owner across instances | No instance is special | ✅ |
@@ -81,7 +81,7 @@ Each check is a test or a harness that passes or fails.
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Measure:** Every request starts with the bytes of the request before it in the same Session, across Turns, across Runs, after a reload and on another instance, in 100% of request pairs. The only exceptions are the moments [DESIGNS.md → A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end) names: a new Round leaving out the last Round's reasoning, a compaction, and a merge of the oldest Segments.
 - **Method:** `TestPrefixHashStableAcrossAppendOnlyTurns` for consecutive Turns of one Run; `TestRequestOnlyGrowsAtItsEnd` plays each reference task as several Runs on one Session, with a reload and a change of instance between Runs, and compares every request with the one before it: the same instruction, Tools, options, cache key and system and Tools breakpoints, and the earlier request's Messages first, byte for byte. It plays every task twice, the second time with reasoning in every reply.
-- **Status:** ✅ Consecutive Turns of one Run keep the same prefix hash and the same cache breakpoints, 2026-10-15. 50 of 50 request pairs in each of the two plays, across Runs, reloads and instances, 2026-10-25. The play has no exception: no compaction, and the last Round's reasoning is left out in the gateway's encoder, after the request is built, so the `ModelRequest` keeps it (the encoder is not covered by this check).
+- **Status:** 🚧 Consecutive Turns of one Run keep the same prefix hash and the same cache breakpoints, 2026-10-15. 50 of 50 request pairs in each of the two plays, across Runs, reloads and instances, 2026-10-25. The play has no exception: no compaction, and the last Round's reasoning is left out in the gateway's encoder, after the request is built, so the `ModelRequest` keeps it (the encoder is not covered by this check). The check reads the `ModelRequest`; the bytes the gateway's encoder sends to the provider are not checked yet.
 
 ### G-G10 — A long Session stays within its window ⭐
 
