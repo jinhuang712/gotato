@@ -64,11 +64,16 @@ func (s Summary) Epoch() string {
 }
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
-// Checkpoint on, the position of its last Entry, and its Summary.
+// Checkpoint on, the segment_closed Entries before it, the position of its
+// last Entry, and its Summary.
 type Loaded struct {
-	Facts   []Entry
-	Head    uint64
-	Summary Summary
+	Facts []Entry
+	// Segments are the segment_closed Entries from before the Checkpoint
+	// Facts start at, in order. The Checkpoint lists the Segments it uses by
+	// number, and these Entries hold their Messages.
+	Segments []Entry
+	Head     uint64
+	Summary  Summary
 }
 
 // InstanceRow is one Instance's Liveness row.
@@ -104,7 +109,10 @@ type Store interface {
 	// old one. That is checked before the position. It fails with ErrConflict
 	// unless after is the Record's last position.
 	Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error
-	// Load returns the facts from the last Checkpoint on.
+	// Load returns the facts from the last Checkpoint on, and the
+	// segment_closed Entries before it (Loaded.Segments), which that
+	// Checkpoint may list by number. An adapter reads the Entry's Kind for
+	// them, as it reads it for the Checkpoint.
 	Load(ctx context.Context, id string) (Loaded, error)
 	// Log returns every Entry, facts and log, after position after, in order.
 	Log(ctx context.Context, id string, after uint64) ([]Entry, error)
@@ -172,8 +180,10 @@ func cloneEntries(entries []Entry) []Entry {
 	return out
 }
 
-// factsFrom returns the facts of entries from the last Checkpoint on.
-func factsFrom(entries []Entry) []Entry {
+// loadedFrom returns the facts of entries from the last Checkpoint on, and
+// the segment_closed Entries before that Checkpoint, which the Checkpoint
+// may list. It is the whole of what a Store reads of an Entry's kind.
+func loadedFrom(entries []Entry) (facts, segments []Entry) {
 	start := 0
 	for i := len(entries) - 1; i >= 0; i-- {
 		if entries[i].IsCheckpoint() {
@@ -181,13 +191,17 @@ func factsFrom(entries []Entry) []Entry {
 			break
 		}
 	}
-	var facts []Entry
+	for _, entry := range entries[:start] {
+		if entry.Kind == gotato.KindSegmentClosed {
+			segments = append(segments, entry)
+		}
+	}
 	for _, entry := range entries[start:] {
 		if entry.Layer == LayerFact {
 			facts = append(facts, entry)
 		}
 	}
-	return facts
+	return facts, segments
 }
 
 // SummaryOf builds the listing view of a Session.

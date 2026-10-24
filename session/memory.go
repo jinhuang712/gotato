@@ -85,7 +85,8 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if !ok {
 		return Loaded{}, ErrNotFound
 	}
-	return Loaded{Facts: cloneEntries(factsFrom(record.entries)), Head: uint64(len(record.entries)), Summary: cloneSummary(record.summary)}, nil
+	facts, segments := loadedFrom(record.entries)
+	return Loaded{Facts: cloneEntries(facts), Segments: cloneEntries(segments), Head: uint64(len(record.entries)), Summary: cloneSummary(record.summary)}, nil
 }
 
 // Log implements Store.

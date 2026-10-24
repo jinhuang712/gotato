@@ -262,7 +262,7 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 			entries, head = tail, max(head, tail[len(tail)-1].Seq)
 		}
 	}
-	r, err := fromEntries(entries, false)
+	r, err := fromEntries(entries, false, loaded.Segments)
 	if err != nil {
 		return nil, err
 	}

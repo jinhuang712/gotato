@@ -410,7 +410,8 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 		entries = append(entries, batch.Entries...)
 	}
 	head := lastSeq(batches)
-	return Loaded{Facts: factsFrom(entries), Head: head, Summary: batches[len(batches)-1].Summary}, nil
+	facts, segments := loadedFrom(entries)
+	return Loaded{Facts: facts, Segments: segments, Head: head, Summary: batches[len(batches)-1].Summary}, nil
 }
 
 // Log implements Store.

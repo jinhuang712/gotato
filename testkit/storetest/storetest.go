@@ -2,7 +2,8 @@
 // relies on: a Record is an append-only log, every write is all or nothing,
 // a position is written once, a stale writer is refused, a load starts at the
 // last Checkpoint (a session_created or compaction_ended Entry, or the
-// "checkpoint" of the earlier format), Liveness rows expire by the store's clock, and a row its
+// "checkpoint" of the earlier format) and hands back the segment_closed
+// Entries before it, Liveness rows expire by the store's clock, and a row its
 // Instance ended is removed.
 //
 // An adapter runs it from its own tests:
@@ -49,6 +50,7 @@ var checks = []check{
 	{"create twice", checkCreateTwice},
 	{"append continues the log", checkAppend},
 	{"load starts at the last checkpoint", checkLastCheckpoint},
+	{"a load returns the segments stored before the last checkpoint", checkSegments},
 	{"a checkpoint of the earlier format still starts a load", checkLegacyCheckpoint},
 	{"a stale writer is refused", checkStaleWriter},
 	{"a write must continue the head", checkContinuesHead},
@@ -246,6 +248,44 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 		return fmt.Errorf("load head = %d, want 6", loaded.Head)
 	}
 	return sameEntries(loaded.Facts, []session.Entry{more[0], more[2]})
+}
+
+func segment(seq uint64, writer string) session.Entry {
+	return entry(seq, gotato.KindSegmentClosed, session.LayerFact, writer)
+}
+
+// checkSegments checks that a load hands back the segment_closed Entries from
+// before the last Checkpoint apart from the facts, since the Checkpoint lists
+// the Segments it uses by number and does not hold their Messages, and that a
+// segment_closed Entry after the Checkpoint is an ordinary fact.
+func checkSegments(ctx context.Context, open Open) error {
+	store := open()
+	first := []session.Entry{checkpoint(1, "a"), segment(2, "a"), fact(3, "a"), logEntry(4, "a")}
+	if err := store.Create(ctx, "r1", first, summary("r1", 4, "2026-10-17T00:00:04.000Z")); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if len(loaded.Segments) != 0 {
+		return fmt.Errorf("a load from the first Checkpoint returns segments %v apart; the Entry after it is a fact", seqs(loaded.Segments))
+	}
+	if err := sameEntries(loaded.Facts, []session.Entry{first[0], first[1], first[2]}); err != nil {
+		return fmt.Errorf("facts from the first Checkpoint: %w", err)
+	}
+	more := []session.Entry{segment(5, "a"), compaction(6, "a"), segment(7, "a"), fact(8, "a")}
+	if err := store.Append(ctx, "r1", 4, more, summary("r1", 8, "2026-10-17T00:00:08.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	loaded, err = open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load after a compaction: %w", err)
+	}
+	if err := sameEntries(loaded.Segments, []session.Entry{first[1], more[0]}); err != nil {
+		return fmt.Errorf("segments before the last Checkpoint: %w", err)
+	}
+	return sameEntries(loaded.Facts, []session.Entry{more[1], more[2], more[3]})
 }
 
 // checkLegacyCheckpoint checks that a Record written before the Event design,

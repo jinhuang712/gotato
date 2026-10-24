@@ -71,8 +71,11 @@ type Document struct {
 	Compactions []Compaction      `json:"compactions,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	// ToolSets are the ToolSets the model switched on (Record.ActiveToolSets).
-	ToolSets   []string `json:"tool_sets,omitempty"`
-	EventLimit int      `json:"event_limit,omitempty"`
+	ToolSets []string `json:"tool_sets,omitempty"`
+	// Segments are the Segments the Messages start with (Record.Segments);
+	// their rendered Messages are the first of Messages.
+	Segments   []gotato.Segment `json:"segments,omitempty"`
+	EventLimit int              `json:"event_limit,omitempty"`
 	// Seq is the position of the last Entry the store held when this
 	// Document was read; 0 for a Record never stored.
 	Seq uint64 `json:"seq,omitempty"`
@@ -136,6 +139,17 @@ type Record struct {
 	toolSets   []string
 	eventLimit int
 	now        func() time.Time
+
+	// closed holds every Segment the Record has seen closed, by number, and
+	// used the numbers of those the Context starts with, in order: the
+	// first Messages of messages are their rendered Messages. maxSegment is
+	// the highest number seen.
+	closed     map[int]gotato.Segment
+	used       []int
+	maxSegment int
+	// positions says where each Message since the last Checkpoint was
+	// committed.
+	positions map[gotato.MessageID]gotato.MessagePosition
 
 	// parentSeq is the parent's head when this Record was forked from it.
 	parentSeq uint64
@@ -201,7 +215,7 @@ func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = n
 
 // New creates an empty Record.
 func New(options ...Option) *Record {
-	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, retainRead: true}
+	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, retainRead: true, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, option := range options {
 		if option != nil {
 			option(s)
@@ -284,11 +298,18 @@ func Load(doc Document) (*Record, error) {
 		metadata:    maps.Clone(doc.Metadata),
 		toolSets:    slices.Clone(doc.ToolSets),
 		eventLimit:  doc.EventLimit,
+		closed:      map[int]gotato.Segment{},
+		positions:   map[gotato.MessageID]gotato.MessagePosition{},
 		now:         time.Now,
 		retainRead:  true,
 	}
 	if s.eventLimit == 0 {
 		s.eventLimit = DefaultEventLimit
+	}
+	for _, segment := range doc.Segments {
+		s.closed[segment.Number] = segment.Clone()
+		s.used = append(s.used, segment.Number)
+		s.maxSegment = max(s.maxSegment, segment.Number)
 	}
 	for _, event := range doc.Events {
 		s.retain(event)
@@ -320,6 +341,7 @@ func (s *Record) Snapshot() Document {
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
 		ToolSets:      slices.Clone(s.toolSets),
+		Segments:      s.segmentsLocked(),
 		EventLimit:    s.eventLimit,
 		Seq:           s.head,
 	}
@@ -377,6 +399,7 @@ func (s *Record) Write(_ context.Context, events []gotato.Event) ([]gotato.Event
 		event = gotato.WithSession(event, gotato.SessionID(s.id))
 		out[i] = s.number(event)
 		s.foldLive(out[i])
+		s.indexMessage(out[i], out[i].Head().Time)
 	}
 	return out, nil
 }
@@ -668,6 +691,7 @@ func Fork(parent *Record, options ...Option) *Record {
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
 	child.toolSets = doc.ToolSets
+	child.inheritSegments(doc.ID, doc.Segments, parent.maxSegmentNumber(), parent.positionTimes())
 	if len(child.metadata) == 0 {
 		child.metadata = doc.Metadata
 		if child.metadata == nil {

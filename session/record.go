@@ -22,20 +22,28 @@ func (s *Record) startLog() {
 	if s.epoch == "" {
 		s.epoch = newEpoch()
 	}
+	// The Segments the Context starts with are stored once, each as its own
+	// Entry after this Checkpoint, so session_created holds the tail alone.
+	tail := cloneMessages(s.messages[min(s.prefixLen(), len(s.messages)):])
 	created := gotato.SessionCreated{
 		Header:      s.header(),
 		CreatedAt:   s.createdAt,
 		RecordEpoch: s.epoch,
-		Messages:    cloneMessages(s.messages),
+		Messages:    tail,
 		Metadata:    maps.Clone(s.metadata),
 		Compactions: slices.Clone(s.compactions),
 		ToolSets:    slices.Clone(s.toolSets),
+		Segments:    slices.Clone(s.used),
+		Tail:        tailPositions(tail, s.positions),
 	}
 	created.Time = s.createdAt
 	if s.parentID != "" {
 		created.ForkedFrom = &gotato.ForkedFrom{SessionID: gotato.SessionID(s.parentID), Number: s.parentSeq}
 	}
 	s.number(created)
+	for _, number := range s.used {
+		s.number(gotato.SegmentClosed{Header: s.header(), Segment: s.closed[number].Clone()})
+	}
 }
 
 // takePending returns the Entries of the pending Events, numbered from
@@ -83,21 +91,17 @@ func (s *Record) Head() uint64 {
 
 // Checkpoint replaces the committed Messages with messages, as a Compaction
 // does, records compaction when it is not nil, and appends a compaction_ended
-// Event, a Checkpoint, to the log. Nothing written before is rewritten: the
-// Messages it replaces stay in the store, and a load starts after them. It
-// must not run while a Run is using the Record.
+// Event, a Checkpoint, to the log. The Context is then messages alone, with no
+// Segments (see CheckpointSegments for a Context that starts with some).
+// Nothing written before is rewritten: the Messages it replaces stay in the
+// store, and a load starts after them. It must not run while a Run is using
+// the Record.
 func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message, compaction *Compaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = cloneMessages(messages)
-	if compaction != nil {
-		s.compactions = append(s.compactions, *compaction)
-	}
-	s.touch()
-	s.emit(gotato.CompactionEnded{
-		Header: s.header(), Instance: s.claim.Instance, Epoch: s.claim.Epoch, Why: why, Compaction: compaction, History: slices.Clone(s.compactions),
-		Messages: cloneMessages(s.messages), Metadata: maps.Clone(s.metadata), ToolSets: slices.Clone(s.toolSets),
-	})
+	s.used = nil
+	s.checkpointLocked(why, messages, compaction)
 }
 
 // FromEntries rebuilds a Record from its log, starting at a Checkpoint: the
@@ -106,14 +110,25 @@ func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message,
 // needs, and the log adds Runs, usage and Events. An Entry of an unknown kind
 // is refused rather than misread.
 func FromEntries(entries []Entry) (*Record, error) {
-	return fromEntries(entries, true)
+	return fromEntries(entries, true, nil)
 }
 
-func fromEntries(entries []Entry, retain bool) (*Record, error) {
+// fromEntries rebuilds a Record from entries, which start at a Checkpoint.
+// segments are the segment_closed Entries from before that Checkpoint, which
+// it may list.
+func fromEntries(entries []Entry, retain bool, segments []Entry) (*Record, error) {
 	if len(entries) == 0 || !entries[0].IsCheckpoint() {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a log must start at a checkpoint")
 	}
-	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain}
+	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
+	for _, entry := range segments {
+		if entry.Kind != gotato.KindSegmentClosed {
+			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
+		}
+		if err := s.apply(entry); err != nil {
+			return nil, err
+		}
+	}
 	for i, entry := range entries {
 		if i > 0 && entry.Seq <= entries[i-1].Seq {
 			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d follows entry %d", entry.Seq, entries[i-1].Seq))
@@ -125,6 +140,9 @@ func fromEntries(entries []Entry, retain bool) (*Record, error) {
 	}
 	if s.id == "" {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: checkpoint has no id")
+	}
+	if err := s.resolveSegments(); err != nil {
+		return nil, err
 	}
 	before := len(s.messages)
 	s.closeParts("")
@@ -167,6 +185,7 @@ func (s *Record) apply(entry Entry) error {
 		}
 		s.compactions = e.Compactions
 		s.toolSets = slices.Clone(e.ToolSets)
+		s.startContext(e.Segments, e.Tail)
 		s.started = nil
 		s.openParts = nil
 	case gotato.CompactionEnded:
@@ -181,11 +200,14 @@ func (s *Record) apply(entry Entry) error {
 		}
 		s.compactions = e.History
 		s.toolSets = slices.Clone(e.ToolSets)
+		s.startContext(e.Segments, e.Tail)
 		if e.Instance != "" {
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 		}
 		s.started = nil
 		s.openParts = nil
+	case gotato.SegmentClosed:
+		s.closeLocked(e.Segment)
 	case gotato.MessageCommitted:
 		s.addMessage(e.Message)
 	case gotato.ReplyEnded:
@@ -223,10 +245,26 @@ func (s *Record) apply(entry Entry) error {
 		// refused, by a limit for one: it is not part of the history.
 		s.dropParts(e.RunID)
 	}
+	at := event.Head().Time
+	if at.IsZero() {
+		at = entry.At
+	}
+	s.indexMessage(event, at)
 	if s.retainRead {
 		s.retain(event)
 	}
 	return nil
+}
+
+// startContext begins the Context a Checkpoint holds: the Segments it lists,
+// whose Messages resolveSegments puts in front once the load has read them,
+// and the positions of the Messages it keeps.
+func (s *Record) startContext(segments []int, tail []gotato.MessagePosition) {
+	s.used = slices.Clone(segments)
+	s.positions = map[gotato.MessageID]gotato.MessagePosition{}
+	for _, position := range tail {
+		s.positions[position.ID] = position
+	}
 }
 
 func (s *Record) addMessage(message gotato.Message) {
