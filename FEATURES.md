@@ -895,7 +895,7 @@ The suite's own tests check that it fails an adapter that moves a stale write on
 
 ### G-F27 — Service: many instances 🚧
 
-A Runner hosts Sessions inside your service, on as many instances as you run. Any instance answers a request as if it were the only one ([DESIGNS.md → Many instances from day one](DESIGNS.md#4-many-instances-from-day-one)).
+A Runner hosts Sessions inside your service, on as many instances as you run. Any instance answers a request as if it were the only one ([DESIGNS.md → No instance is special](DESIGNS.md#8-no-instance-is-special)).
 
 | Capability | Status | What happens |
 |---|---|---|

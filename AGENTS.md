@@ -49,7 +49,7 @@ These root documents are the single source of truth for Gotato's design.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
 5. **Use CLI integration tests** (`cmd/gotato/cli_test.go`) for user-visible runtime behavior; assert on JSON, not on prose.
 6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, `cmd/gotato/README.md` for CLI changes, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
-7. **Do not silently break CLI JSON schemas or exit codes.** Add fields; do not rename or remove without a migration note.
+7. **Never break CLI JSON schemas or exit codes silently.** Until the first release, a field or exit code may be renamed or removed, with no old name kept; every such break has a before/after entry in `CHANGELOG.md`.
 8. **Format**: `gofmt -l .` must print nothing.
 
 ## Editing the Project Documents

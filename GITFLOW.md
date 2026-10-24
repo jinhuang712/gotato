@@ -56,7 +56,7 @@ A breaking change to the public Go API, CLI contract, or event kinds must:
 
 1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
 2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
-3. prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low.
+3. until the first release, keep no old symbol: rename or remove it directly. From the first release on, prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low.
 
 ## Generated Files
 

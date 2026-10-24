@@ -3,21 +3,309 @@
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
 
-Gotato is designed around seven principles:
+Gotato is designed around nine principles, in three groups.
 
-1. **Keep subtracting.** Gotato does the least it takes to run Sessions in the cloud, and anything new has to show that Gotato cannot do without it.
-2. **Stay inside the boundary.** Routing, authentication, databases, telemetry and user interfaces are needed, but the service around Gotato already has them, so Gotato leaves seams for them instead of building them.
-3. **Serve purpose-built agents.** Gotato is built for agents whose tools the team writes and whose jobs it can predict, not for general assistants or for coding in the cloud.
-4. **Many instances from day one.** Gotato is designed for many instances, one instance is only the simplest case, and no instance is special.
-5. **A Session can be dropped and rebuilt at any time.** A live Session is a goroutine running its Record, so dropping it loses nothing and rebuilding it is cheap.
-6. **The model's input is built, and laid out for the cache.** What the model sees is built on every Turn, and its prefix stays the same from one Turn to the next.
-7. **A Session can be stopped and seen.** A Session runs with nobody watching, so it can be stopped while it runs, and what it did can be seen afterward.
+**What Gotato guarantees**
 
-A principle is a question to ask of every new requirement. Each section below names that question, then lists the decisions that follow from the principle: what was chosen, what was not, and why. The decisions that weighed several options keep their table and their date. After the principles comes the order that decides when two of them pull apart.
+1. **The store is the only truth.** A step counts once it is in the store, and the live Session, the Context, the bytes of each request and the Events are derived from it, so every instance derives the same thing at any moment.
+2. **A request only grows at its end.** Each request is the one before with new content after it, and no byte already sent changes, so the provider serves most of every request from its prompt cache.
+3. **The Context is a bounded view.** What the model sees is built for it on every Turn, not the log, and it fits the model's window whether the Session has lived a day or several weeks.
+4. **A failure stays local.** A failure costs the step it happened in and no more: a mistake the model can fix becomes a tool result, and no failure loses the conversation.
+
+**What Gotato is**
+
+5. **Keep subtracting.** Gotato does the least it takes to run Sessions in the cloud, and anything new has to show that Gotato cannot do without it.
+6. **Stay inside the boundary.** Routing, authentication, databases, telemetry and user interfaces are needed, but the service around Gotato already has them, so Gotato leaves seams for them instead of building them.
+7. **Serve purpose-built agents.** Gotato is built for agents whose tools the team writes and whose jobs it can predict, with their bounds in their definition and defaults that err on the safe side.
+
+**How Gotato runs**
+
+8. **No instance is special.** Instances coordinate only through the store, and one instance is only the simplest case of many.
+9. **A Session can be stopped and seen.** Every Run can be stopped at any point, and what it did and what it cost are computed from its Events.
+
+A principle is a question to ask of every new requirement. The four guarantees are asked of every decision on this page, whatever its section: a decision about tools or instances can still lose a step, change a byte already sent, or let the Context grow without bound. Each section below names its question, then lists the decisions that follow from the principle: what was chosen, what was not, and why. The decisions that weighed several options keep their table and their date. After the principles comes the order that decides when two of them pull apart.
 
 This page describes the design we intend, not the state of the code. What is built, and how each feature works, is in [FEATURES.md](FEATURES.md). Open design questions are in [ROADMAP.md](ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
 
-## 1. Keep subtracting
+## 1. The store is the only truth
+
+A Session's Record in the store is the one copy of what happened. A step counts only once it is written there, and everything else is derived from it: the live Session that runs it, the Context the model sees, the bytes of each request and the Events a client reads. Two instances, or one instance a week later, derive the same thing from the same Record. A live Session is a goroutine running its Record, not a process kept until someone destroys it, so dropping it loses nothing and any instance rebuilds it cheaply. A library user who runs a Session with no store gives this up knowingly: the live Session's Transcript is then all there is.
+
+The store keeps the original. What a request needs changed, such as text that imitates a tag, is changed when the request is built, so a rule that changes later applies to the whole history. Only what is written once to be reused as it is, such as a Segment (a stretch of history a compaction closed), is stored in its final form.
+
+**Ask:** if this instance stopped right now, would anything be lost, and would another instance derive the same thing from the Record?
+
+### The store is the truth, and memory is a cache — 2026-10-15
+
+A Session behaves like a live unit while it is in use, and like a record while it waits.
+
+| Option | For | Against |
+|---|---|---|
+| **A live unit kept warm, with the store as the truth** (chosen) | Holds a Session's queue, stream and status while it works. Survives the loss of any instance. The TTL only frees memory. | A write per step. Machinery to load and to let go. |
+| Nothing in memory: load and save around every Run (today's code) | The fewest moving parts. | The Session has no queue of its own, so a message that arrives mid-Run can only wait or be rejected. |
+| A long-lived unit in memory that owns its state | Fast, and natural for queues and streams. | Lost with its instance. Pins each conversation to one instance. |
+
+An earlier version of Gotato kept agents in memory for their whole life, and a later one replaced them with a stored record. This decision brings a long-lived unit back. It is safe this time, because a Session's identity is its record, not the memory that holds it.
+
+### A Session's identity is its Record
+
+- **Instead of:** a live object with an identity of its own.
+- **Why:** the Session ID is its Record's ID, so whichever instance builds the Session, it is the same Session.
+
+### The Record is an append-only log — 2026-10-16
+
+A save had to cost the size of what changed, and a stale copy had to fail instead of overwriting a newer one.
+
+| Option | For | Against |
+|---|---|---|
+| **Append only, with checkpoints for compaction** (chosen) | A save costs one step. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
+| Rewrite the whole Record, with a version check | The simplest contract. | A save costs the whole Session, megabytes for long ones. |
+| Append, plus a rewrite for compaction | Compaction stays a replacement. | Two write paths, and the rewrite brings the cost back. |
+
+### The Record keeps every step, as facts and a log — 2026-10-17
+
+A crash should lose as little as it can, and a rebuild should read only what it needs.
+
+| Option | For | Against |
+|---|---|---|
+| **Every step, written as it happens, as facts and a log** (chosen) | A crash loses at most the step in flight: the last second of a reply, or the result of the tool that was running. A tool that started is known to have started. A rebuild reads only the facts. | A write for every step: eight for a short Run with one tool call. |
+| Every Turn, at its end | One write per Turn. | A crash loses the Turn in flight, and with it the record that a tool started. |
+| Every Run, at its end | One write per Run. | A crash loses the whole Run. |
+
+- **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
+- **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release, and the parts of a streaming reply, written every second or few KiB. A rebuild does not read them, except to answer a crash: when a Run never ended, a load also reads the log since the last Checkpoint for the parts of that Run's reply.
+- **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
+- **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
+- **What a crash leaves is answered when the Session is read, and, but for one case, nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again. The cut-off reply is the one exception to writing nothing: its parts are in the log, so the Instance that takes the Session over rebuilds it from them and writes it as a fact, and every later load has it.
+
+### Every step is an Event, and a stored Event is an Entry — 2026-10-18
+
+Events are facts a program can read, instead of log lines. A Session's Record and its Events tell the same story: kept apart, they say it twice under two sets of names, and a number that counts within one Run means nothing to another instance.
+
+| Option | For | Against |
+|---|---|---|
+| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP, gRPC and CLI contracts change version. |
+| Events replace the log entries only | Half the duplication goes. | Facts and Events still say the same things twice. |
+| Events kept apart from the Record | No change. | Everything is said twice, and only one instance can resume a stream. |
+
+Every Event carries its time and the Session it concerns, if any; a stored Event also carries its number, and an Event of a Run its Run and its Turn. Events come in three kinds, by where they live:
+
+- **Stored Events** are Entries: every change of state the Writer sees, such as a Run starting, a reply ending, a Tool starting, a message queued or a Claim.
+- **Deltas** are sent and never stored: text, reasoning and tool progress. What they carry ends up whole in a Message or a Tool Result.
+- **Instance Events** happen where no Record can take them, because the Instance holds no Claim: a request waiting or refused, a fenced write, a Liveness row that lapsed, a failed write, the time a load or save took. They go only to that Instance's subscribers.
+
+### An Event is written before it is sent
+
+- **Instead of:** sending an Event first, and writing it with the next step.
+- **Why:** a client never holds an Event the Record lacks, so a resumed stream never shows one number with two meanings. Most Events ride the write of their step, which delays them by the write alone. The few that fall between steps, such as a retry, an Abort request or a queued message, get a write of their own, because they are rare. Deltas are sent at once, marked with the number of the Event they follow.
+
+### A load starts from the last Checkpoint
+
+- **Instead of:** replaying the whole history.
+- **Why:** rebuilding a Session costs the part since its last Checkpoint, so a Session that lives long stays cheap to rebuild.
+
+### The Context depends only on the Record and the Agent
+
+- **Instead of:** state that lives on one instance.
+- **Why:** every instance builds the same Context for a Session, so the provider's cache serves it whichever instance sends it.
+
+### A live Session is a goroutine
+
+- **Instead of:** a process, a subprocess or a sandbox for each Session.
+- **Why:** a goroutine costs kilobytes and starts in microseconds, so one instance holds many Sessions, most of them idle.
+
+### A Session holds only what is cheap to rebuild
+
+- **Instead of:** a Session that opens its own subprocesses or holds its own long-lived connections.
+- **Why:** anything expensive in a Session makes dropping it expensive. Model clients and connections belong to the instance, and its Sessions share them.
+
+### Sessions are built when needed
+
+- **Instead of:** a pool of prepared Sessions.
+- **Why:** building one is cheap enough that a pool would only add state to keep right.
+
+### An idle Session leaves memory at its TTL
+
+- **Instead of:** staying in memory until someone destroys it.
+- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL. It is compacted shortly before then, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 6](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
+
+### A Fork writes the store and activates nothing
+
+- **Instead of:** copying a live Session in memory.
+- **Why:** the new Session is a new Record, so whichever instance its first request reaches activates it.
+
+### A stream resumes from a position
+
+- **Instead of:** a stream that must reconnect to the same instance, or start over.
+- **Why:** an instance can go away at any time. A stored Event's number is its Entry's position in the Record, which every instance reads the same. A client reconnects to any instance with the number of the last Event it saw, gets every later Event from the Record and then the live ones, and the stream goes on without gaps or duplicates.
+- **The Record's epoch.** A number means the same Event only within one Record. A Record deleted and created again under the same ID would give a client holding number 40 the 41st Event of another conversation, so every Record has an epoch, chosen when it is created and kept in `session_created` and in its Summary, and a client that sends the epoch it saw is refused when it is not the Record's. We took it from `session_created` and the Summary because both are written already. An adapter keeps it with the rest of the Summary, and the store contract test checks that it does.
+- **An open stream follows one epoch.** An instance keeps a Feed for each Record, named by its Session ID and its epoch, not one for each Session ID, so a stream is never handed another Record's Events, and a new Record's streams never wait for the old one's numbers. A stream ends, instead of going on with another Record's numbers, once it learns that its Record was deleted or created again: at once when its own instance deletes the Session, or opens, creates or streams the new Record, and elsewhere at a read of the store, since an idle stream reads only what follows its number.
+- **Deltas and the end of a stream.** A delta is not a position, and what it carried ends up whole in a Message, so a reconnect does not send again what was sent before it. A stream that ends says whether to come back and how long to wait, spread at random, so a lost instance does not bring every client back in the same instant.
+- **Any instance serves it.** An idle stream reads the Record at intervals, which is the cost of not binding a Session to an instance. The read does not take the stream out of its live mode, so a delta that arrives meanwhile is not lost, and on the writer it finds nothing new. The load balancer's hash keeps most streams on the writer, where Events arrive as they are written.
+
+## 2. A request only grows at its end
+
+At scale, what the model reads costs more than what the service holds ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)). A provider serves the part of a request it has seen before from its prompt cache, at a fraction of the price, as long as every byte of that part is the same. So each request is the one before with new content after it: what never changes comes first, what grows comes last, and a change is told at the end instead of rewritten at the top.
+
+The same Record giving the same bytes (*The store is the only truth*) is not enough on its own. A rule that sorted the tools again whenever a ToolSet was switched on would give the same bytes for the same Record, and still make the provider read everything after the tools at full price.
+
+A few decisions change bytes already sent, on purpose and at a known moment: the last Round's reasoning is left out once a new Round starts, a compaction changes the tool list, and the oldest Segments are merged when they pass their budget. Each says so, and why the cost is worth it.
+
+**Ask:** does this change any byte the provider has already been sent?
+
+### Stable content first, growing content last
+
+- **Instead of:** an order by time or by kind.
+- **Why:** the instruction and the Static blocks come first, then the tools sorted by ID, then the Transcript. Because the Record only grows at its end, one Turn's prefix is the next Turn's prefix.
+
+### Nothing that changes every Turn goes into the request
+
+- **Instead of:** a dynamic system prompt, or the current time in every request.
+- **Why:** such content is never cached, so it costs its full price on every Turn. A fact the model needs now comes from a tool it calls.
+
+### A change is appended, not rewritten into the prefix
+
+- **Instead of:** rewriting the instruction or the tool list at the top of the request.
+- **Why:** a change at the top makes the provider read the whole history again at full price. A change is told to the model in a notice, the next decision.
+
+### What is not the user's words goes to the model as a notice — 2026-10-18
+
+Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
+
+| Option | For | Against |
+|---|---|---|
+| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, and each wire API needs its own form for it. |
+| A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
+| Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
+
+- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
+- **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
+- **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
+- **Each wire API in its own form.** A system message where the model accepts one mid-conversation, a developer message on OpenAI's Responses API, and otherwise tagged text in the adjacent user Message ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
+- **Facts, not orders.** A notice says what is true; what the model should do about it belongs in the instruction.
+
+### Cache markers are neutral in the core
+
+- **Instead of:** one provider's cache syntax in the core.
+- **Why:** the core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`.
+
+### One cache key per Session, inherited by a Fork
+
+- **Instead of:** a key per request or per instance.
+- **Why:** a provider that keys its cache serves one conversation from one cache, on whichever instance it runs. A Fork shares its parent's prefix, so it shares the key.
+
+### Cache retention is set where the provider is configured
+
+- **Instead of:** a retention on each Agent, or one value for every provider.
+- **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
+
+### A Segment is written once, and a Checkpoint points to it — 2026-10-24
+
+- **Instead of:** copying every Segment's Messages into each Checkpoint, or storing a Segment as data and rendering it when a request is built.
+- **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the ToolSets it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
+- **What it costs.** A load reads every `segment_closed` Entry before the last Checkpoint, including one a later Checkpoint no longer lists, so a load grows with the history. A Record that holds Segments is read only by a Gotato that knows them.
+
+## 3. The Context is a bounded view
+
+What the model sees is a value built on every Turn, not the history sent as it is. A `ContextBuilder` chooses and lays it out, so it can be inspected, and it stays within the model's window however long the Session lives. A Session can last weeks, its user often comes back long after the provider's cache has expired, and a long Run can outgrow the window. Compaction keeps the view bounded and keeps as much of the conversation as it can, and it is part of the design rather than an option: with no settings at all, the Segments have a budget, so a long conversation never grows until every request is refused.
+
+**Ask:** after weeks of use, does the model's view still fit its window, and still hold what the model needs?
+
+### The Transcript and the Context are separate values
+
+- **Instead of:** sending the history to the model as it is.
+- **Why:** a `ContextBuilder` builds the Context from the Transcript on every Turn, so what the model sees can be chosen, laid out and inspected.
+
+### Full history by default, and your own `ContextBuilder` for the rest
+
+- **Instead of:** built-in retrieval or memory search.
+- **Why:** retrieval and windowing depend on the application's data. Gotato ships full history, Static blocks and Compaction.
+
+### Reasoning goes back for the current Round, where the provider allows it — 2026-10-18
+
+A thinking model writes a lot of reasoning, and some models think on every reply. A Session can live for weeks, so reasoning sent back on every Turn fills the window, and the bill, long after it stopped helping. A Round is a user Message and every reply and Tool Result after it.
+
+| Option | For | Against |
+|---|---|---|
+| **The current Round's reasoning to Claude and OpenAI, all of it to any other provider** (chosen) | Reasoning stops piling up where the provider allows it. The rule reads only the Record, so every instance sends the same bytes. DeepSeek and unrecognized providers work as they always did. | Once per Round, the last Round's replies are cached again without their reasoning. DeepSeek and unrecognized providers still carry every reasoning artifact until compaction. |
+| All reasoning to every provider | The prefix only ever grows. | A weeks-long Session carries all of its reasoning, and Claude's newer models keep and bill all of it. |
+| No reasoning at all | The smallest requests. | Claude and OpenAI need the reasoning of a tool loop in progress, and DeepSeek refuses the request. |
+
+- **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and neither does a notice, because it is not the user speaking.
+- **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
+- **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
+- **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there. Right after a compaction, that marker moves to the end of the last Segment, so the next compaction's request can read the Segments before from the cache ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
+- **A change of model.** Reasoning goes as it is, whichever model wrote it. The provider drops what its model cannot read. Turning reasoning into text instead would make the new model take it for its own answer.
+- **Compaction.** A Segment, the stretch of history a compaction closes ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)), holds no reasoning. The tail a compaction keeps goes to Claude and OpenAI without its reasoning, because the Segment changes the prefix that reasoning was written under, and to DeepSeek and unrecognized providers with it. What Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going, is checked against them before it is built.
+
+### Compaction closes a Segment, before the cache goes cold — 2026-10-19
+
+A Session's user often comes back long after the provider's cache has expired, and a long Run can outgrow the model's window. Compaction has to keep as much of the conversation as it can, and make the first request after a long pause cheap. A Segment is one stretch of history that a compaction closed, and its Recap is the part the model writes ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
+
+| Option | For | Against |
+|---|---|---|
+| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same; on Claude that needs a cache marker at the end of the last Segment, which takes the place of the marker at the last Round's start right after a compaction, since Claude takes at most four markers (to verify against Claude before it is built). It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. A merge writes one Recap of the oldest Recaps, and the words of the Segments it merged stay readable with `read_segment`. |
+| One summary of everything before the kept tail, written again at every compaction | One block, whose size stays bounded. | Each compaction summarizes the summary before it, so early facts blur or drop out, and the whole prefix changes every time. |
+| The provider's own compaction | No code in Gotato. | Its result cannot be read, does not carry over to another model, differs from one provider to the next, and cannot close one Segment at a time. It may become an option later. |
+
+- **Before the cache goes cold.** An idle Session is compacted shortly before its prompt cache expires, or before it leaves memory if its TTL comes first, or if the cache retention is unknown or not well above the lead, where the TTL alone sets the time. The request that writes the Recap still reads the cache, and the user who comes back later pays full price only for a smaller Context.
+- **Safe by default.** Segments have a token budget, so the oldest are merged when they pass it, and on an overflow too. With no `context_window` and no ceiling there is still a default budget, so a long conversation cannot grow until every request is refused. Its number is not chosen yet.
+- **The ceiling is the exception.** A Run about to outgrow the model's window is compacted while the cache is still warm, mid-Run if need be, because it cannot go on otherwise. The same goes for a request the provider refuses as too long, which is compacted and sent again once, and for a compaction asked for on demand.
+- **Nothing is lost,** unless the team prunes the entries before a Checkpoint. The Record keeps every Message a Segment covers, and the model can read a Segment back in full with a built-in tool; after such a prune, the tool says the Segment's Messages were removed.
+- **The tools change with it.** Only the ToolSets used in the Segment being closed, and those a kept tail still calls, stay active. The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
+
+### Code builds a Segment, and the model writes only the Recap at its end
+
+- **Instead of:** asking a model to summarize the whole stretch.
+- **Why:** what code can keep exactly, it keeps. The user's messages and each Run's final reply stay word for word, and each tool call becomes one line inside its Run, so every answer shows the calls it came from; reasoning, a Run's intermediate text and the tool results are left out. The model writes only what code cannot: the Recap, with the facts the tool results held, the decisions, what is still open, and where a Run stands. It comes last, so a mistake by the model cannot damage the rest, and the model reads it right before the Messages that follow. Code groups a Segment's Messages by the Run that committed them: a Run's final reply is its last assistant Message without tool calls, and a Message that came from no Run, such as history a Record started with, is kept or left out by its own rule, not grouped.
+
+### The Agent's own model writes the Recap, on the cached prefix
+
+- **Instead of:** a separate model, or a request built only to summarize.
+- **Why:** the request is the Context the next model call would send, with one plain user message after it that asks for the Recap, so the whole prefix is read from the cache. That message is never stored and carries no tag, because it asks for work rather than stating a fact. A Recap fails when the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened`; a heading with nothing under it may be left out. The compaction still goes on: the Segment is kept without a Recap, with the conversation and its tool call lines, so a mistake by the model never loses the conversation. A merge whose Recap fails leaves the Segments unmerged. A library user can bring their own writer of Recaps.
+
+### One hook runs before every model call — 2026-10-24
+
+- **Instead of:** preparing a Run only when it starts.
+- **Why:** a Run can outgrow the window between two Turns, and a request can be refused as too long, so compaction has to be able to run before any model call. The Loop calls a `TurnPreparer` on the Session's goroutine before every model call, with no Tool call open, and gives it the Session and Run, the Turn, the Transcript, where the Run started, the request about to be sent, whether this is a retry after a refusal, and a way to write what is staged. Compaction is its first use, and replaces the hook that ran at the start of a Run. The policy (the ceiling, the idle time, the refusal) stays in the compactor; the hook only gives it the chance.
+
+### A notice is for runtime facts, and a Segment has tags of its own
+
+- **Instead of:** a notice that carries a summary of the history, or history and notices as untagged text.
+- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round (to verify against the providers before it is built), so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
+
+## 4. A failure stays local
+
+A Session runs with nobody watching each step, so something will fail: a model call, a tool, the store, a client, an instance. A failure costs the step it happened in and no more. A mistake the model can fix goes back to it and the Run goes on; a Run that cannot go on settles and says why; a slow reader slows only itself; and no failure loses the conversation, because the Record already holds every step before it.
+
+**Ask:** when this fails, what does it cost beyond itself?
+
+### A mistake the model can fix becomes a tool result
+
+- **Instead of:** failing the Run.
+- **Why:** an unknown tool or bad arguments go back to the model as a failed tool result, and the Run goes on. The limits bound a model that keeps getting it wrong.
+
+### Every Run ends
+
+- **Instead of:** no limits, left to the caller.
+- **Why:** Turns, tool calls, bytes and time each have a default cap, so a Run settles even when the model never answers or a call hangs.
+
+### Every Run settles with a status and a cause
+
+- **Instead of:** one generic error.
+- **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, a cancel or Gotato.
+
+### A Session never waits for a subscriber
+
+- **Instead of:** observers that the Session's goroutine calls and waits for.
+- **Why:** one slow client or exporter would slow every step of the Session. A Session puts each Event in its subscribers' queues and moves on. There are three subscriptions: a Run's stream, a Session's stream from any number, and an Instance's stream, which the service's own telemetry reads. Each subscriber has one goroutine that forwards its Events in order. A subscriber that falls too far behind is no longer buffered in memory: it catches up from the Record by number, because the Record only grows, so only deltas can be skipped. An Instance's stream mixes Sessions and has no single number, so it marks a gap with an Instance Event that says how many it skipped.
+
+### A conflict is found before the model is called
+
+- **Instead of:** finding out after a Turn that it cannot be committed.
+- **Why:** a Turn costs money and seconds, so a second instance learns that the Session has a writer before it spends either. A writer writes each model call before it makes it, and checks before each write that its own liveness row was renewed in time, so a writer that lost its claim stops there. One case is beyond any check: an instance paused for longer than its row lives may send one request when it wakes, before it notices. Its result can never be written.
+
+## 5. Keep subtracting
 
 Gotato does the least it takes to run Sessions in the cloud. Every addition is weight that each service embedding Gotato carries for as long as it does, so the default answer to a new feature is no.
 
@@ -63,6 +351,11 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 - **Instead of:** a required server, daemon or database.
 - **Why:** a small `main` with a fake model runs an agent in-process, so the service and the store are choices, not the price of entry.
 
+### Tests never call a network model
+
+- **Instead of:** tests that depend on a live model.
+- **Why:** fake and replay models keep every test deterministic, and CI runs with no provider credentials.
+
 ### Dependencies point inward
 
 - **Instead of:** behavior that only the CLI or only the service has, or a core that knows about the service.
@@ -87,7 +380,7 @@ A provider is configuration: an endpoint, a key, a wire API and its models. Gota
 | One adapter per vendor | Each vendor's full feature set. | Code for every vendor, and the list never ends. |
 | Vendor SDKs | Maintained by the vendors. | Their dependencies land in every service. |
 
-## 2. Stay inside the boundary
+## 6. Stay inside the boundary
 
 Gotato is a library inside your service. Routing, authentication, databases, telemetry and user interfaces are all needed, and your service already has them. Gotato does not replace them: it does its own job well, and leaves seams for theirs. Where *Keep subtracting* asks whether something is needed at all, this principle asks whose job it is. Routing is needed; it is just not Gotato's.
 
@@ -143,11 +436,11 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 ### A named, versioned contract
 
 - **Instead of:** changes that slip in unannounced.
-- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the root and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Additions are free, and consumers tolerate unknown Event kinds. A break is rare, raises the version, and has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
+- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the root and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Until the first release, any part of it may change: Gotato keeps no old names and no compatibility shims, and every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), so a break is never silent. From the first release on, additions are free and a break is rare and raises the version. Consumers tolerate unknown Event kinds either way.
 
-## 3. Serve purpose-built agents
+## 7. Serve purpose-built agents
 
-Gotato is built for agents whose tools the team chooses and writes, and whose jobs it can predict ([PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)). A general assistant or a coding agent in the cloud needs a machine and a person standing by, and Gotato provides neither.
+Gotato is built for agents whose tools the team chooses and writes, and whose jobs it can predict ([PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)). A general assistant or a coding agent in the cloud needs a machine and a person standing by, and Gotato provides neither. Its defaults err on the safe side: a tool that declares no Effect is taken as destructive, and an Agent never runs a tool above its cap.
 
 **Ask:** does a purpose-built agent need this, or only a general assistant?
 
@@ -208,23 +501,11 @@ A team that still wants an extra check can add one with the `PreToolUse` extensi
 - **Instead of:** growing one Agent until it is general.
 - **Why:** when reach and narrowness pull apart, the narrower answer wins ([PHILOSOPHY.md → When the answers collide](PHILOSOPHY.md#when-the-answers-collide)). Reach comes from more Agents, not bigger ones.
 
-## 4. Many instances from day one
+## 8. No instance is special
 
-Gotato is designed for many instances behind your load balancer. One instance is the simplest case of that design, not the case it starts from, and a caller cannot tell which instance served it. This principle adds the most machinery, so *Keep subtracting* applies inside it: Gotato picks the least machinery that is still correct on many instances.
+Gotato is designed for many instances behind your load balancer. One instance is the simplest case of that design, not the case it starts from, and a caller cannot tell which instance served it. Instances coordinate only through the store, so no instance holds anything another lacks. This principle adds the most machinery, so *Keep subtracting* applies inside it: Gotato picks the least machinery that is still correct on many instances.
 
 **Ask:** is this still right when a request reaches any instance?
-
-### The store is the truth, and memory is a cache — 2026-10-15
-
-A Session behaves like a live unit while it is in use, and like a record while it waits.
-
-| Option | For | Against |
-|---|---|---|
-| **A live unit kept warm, with the store as the truth** (chosen) | Holds a Session's queue, stream and status while it works. Survives the loss of any instance. The TTL only frees memory. | A write per step. Machinery to load and to let go. |
-| Nothing in memory: load and save around every Run (today's code) | The fewest moving parts. | The Session has no queue of its own, so a message that arrives mid-Run can only wait or be rejected. |
-| A long-lived unit in memory that owns its state | Fast, and natural for queues and streams. | Lost with its instance. Pins each conversation to one instance. |
-
-An earlier version of Gotato kept agents in memory for their whole life, and a later one replaced them with a stored record. This decision brings a long-lived unit back. It is safe this time, because a Session's identity is its record, not the memory that holds it.
 
 ### One writer per Session, claimed in the store — 2026-10-16
 
@@ -252,11 +533,6 @@ A second instance must stop before it calls the model, and a writer that lost it
 - **Instead of:** a heartbeat per Session, or a comparison of the instances' own clocks.
 - **Why:** one write per instance per heartbeat, however many Sessions it holds, and when a dead instance's row expires, every claim it held ends at once. The store's clock is the only one every instance shares.
 
-### A conflict is found before the model is called
-
-- **Instead of:** finding out after a Turn that it cannot be committed.
-- **Why:** a Turn costs money and seconds, so a second instance learns that the Session has a writer before it spends either. A writer writes each model call before it makes it, and checks before each write that its own liveness row was renewed in time, so a writer that lost its claim stops there. One case is beyond any check: an instance paused for longer than its row lives may send one request when it wakes, before it notices. Its result can never be written.
-
 ### No Session is bound to an instance
 
 - **Instead of:** keeping a Session on the instance that activated it.
@@ -282,259 +558,16 @@ A second instance must stop before it calls the model, and a writer that lost it
 - **Instead of:** keeping every ended row, or a sweeper and a new store call that delete rows long expired.
 - **Why:** the instance that wrote the row knows when it is done with it, and most rows end there: every rolling deploy and every CLI command stops gently. A removed row reads as not alive, so every claim that names it ends, as when a row expires. A stopped instance never writes again, so its row never comes back. The row of an instance that died stays, expired, which keeps it from ever being renewed.
 
-## 5. A Session can be dropped and rebuilt at any time
+## 9. A Session can be stopped and seen
 
-A live Session is a goroutine running its Record, not a process or a sandbox kept until someone destroys it. Dropping it loses nothing, because its Record is in the store, and any instance can rebuild it cheaply. This is what lets a Session move between instances, and cost almost nothing while it is idle.
-
-**Ask:** once this is in a Session, can the Session still be dropped at any moment and rebuilt quickly on another instance?
-
-### A live Session is a goroutine
-
-- **Instead of:** a process, a subprocess or a sandbox for each Session.
-- **Why:** a goroutine costs kilobytes and starts in microseconds, so one instance holds many Sessions, most of them idle.
-
-### A Session's identity is its Record
-
-- **Instead of:** a live object with an identity of its own.
-- **Why:** the Session ID is its Record's ID, so whichever instance builds the Session, it is the same Session.
-
-### The Record is an append-only log — 2026-10-16
-
-A save had to cost the size of what changed, and a stale copy had to fail instead of overwriting a newer one.
-
-| Option | For | Against |
-|---|---|---|
-| **Append only, with checkpoints for compaction** (chosen) | A save costs one step. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
-| Rewrite the whole Record, with a version check | The simplest contract. | A save costs the whole Session, megabytes for long ones. |
-| Append, plus a rewrite for compaction | Compaction stays a replacement. | Two write paths, and the rewrite brings the cost back. |
-
-### The Record keeps every step, as facts and a log — 2026-10-17
-
-A crash should lose as little as it can, and a rebuild should read only what it needs.
-
-| Option | For | Against |
-|---|---|---|
-| **Every step, written as it happens, as facts and a log** (chosen) | A crash loses at most the step in flight: the last second of a reply, or the result of the tool that was running. A tool that started is known to have started. A rebuild reads only the facts. | A write for every step: eight for a short Run with one tool call. |
-| Every Turn, at its end | One write per Turn. | A crash loses the Turn in flight, and with it the record that a tool started. |
-| Every Run, at its end | One write per Run. | A crash loses the whole Run. |
-
-- **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
-- **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release, and the parts of a streaming reply, written every second or few KiB. A rebuild does not read them, except to answer a crash: when a Run never ended, a load also reads the log since the last Checkpoint for the parts of that Run's reply.
-- **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
-- **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
-- **What a crash leaves is answered when the Session is read, and, but for one case, nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again. The cut-off reply is the one exception to writing nothing: its parts are in the log, so the Instance that takes the Session over rebuilds it from them and writes it as a fact, and every later load has it.
-
-### A load starts from the last Checkpoint
-
-- **Instead of:** replaying the whole history.
-- **Why:** rebuilding a Session costs the part since its last Checkpoint, so a Session that lives long stays cheap to rebuild.
-
-### A Session holds only what is cheap to rebuild
-
-- **Instead of:** a Session that opens its own subprocesses or holds its own long-lived connections.
-- **Why:** anything expensive in a Session makes dropping it expensive. Model clients and connections belong to the instance, and its Sessions share them.
-
-### Sessions are built when needed
-
-- **Instead of:** a pool of prepared Sessions.
-- **Why:** building one is cheap enough that a pool would only add state to keep right.
-
-### An idle Session leaves memory at its TTL
-
-- **Instead of:** staying in memory until someone destroys it.
-- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL. It is compacted shortly before then, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 6](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
-
-### A Fork writes the store and activates nothing
-
-- **Instead of:** copying a live Session in memory.
-- **Why:** the new Session is a new Record, so whichever instance its first request reaches activates it.
-
-### A stream resumes from a position
-
-- **Instead of:** a stream that must reconnect to the same instance, or start over.
-- **Why:** an instance can go away at any time. A stored Event's number is its Entry's position in the Record, which every instance reads the same. A client reconnects to any instance with the number of the last Event it saw, gets every later Event from the Record and then the live ones, and the stream goes on without gaps or duplicates.
-- **The Record's epoch.** A number means the same Event only within one Record. A Record deleted and created again under the same ID would give a client holding number 40 the 41st Event of another conversation, so every Record has an epoch, chosen when it is created and kept in `session_created` and in its Summary, and a client that sends the epoch it saw is refused when it is not the Record's. We took it from `session_created` and the Summary because both are written already. An adapter keeps it with the rest of the Summary, and the store contract test checks that it does.
-- **An open stream follows one epoch.** An instance keeps a Feed for each Record, named by its Session ID and its epoch, not one for each Session ID, so a stream is never handed another Record's Events, and a new Record's streams never wait for the old one's numbers. A stream ends, instead of going on with another Record's numbers, once it learns that its Record was deleted or created again: at once when its own instance deletes the Session, or opens, creates or streams the new Record, and elsewhere at a read of the store, since an idle stream reads only what follows its number.
-- **Deltas and the end of a stream.** A delta is not a position, and what it carried ends up whole in a Message, so a reconnect does not send again what was sent before it. A stream that ends says whether to come back and how long to wait, spread at random, so a lost instance does not bring every client back in the same instant.
-- **Any instance serves it.** An idle stream reads the Record at intervals, which is the cost of not binding a Session to an instance. The read does not take the stream out of its live mode, so a delta that arrives meanwhile is not lost, and on the writer it finds nothing new. The load balancer's hash keeps most streams on the writer, where Events arrive as they are written.
-
-## 6. The model's input is built, and laid out for the cache
-
-What the model sees is a value built on every Turn, not the history sent as it is. It is laid out so the provider can serve most of each request from its prompt cache, because at scale what the model reads costs more than what the service holds ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)).
-
-**Ask:** does this change the prefix between two Turns?
-
-### The Transcript and the Context are separate values
-
-- **Instead of:** sending the history to the model as it is.
-- **Why:** a `ContextBuilder` builds the Context from the Transcript on every Turn, so what the model sees can be chosen, laid out and inspected.
-
-### The Context depends only on the Record and the Agent
-
-- **Instead of:** state that lives on one instance.
-- **Why:** every instance builds the same Context for a Session, so the provider's cache serves it whichever instance sends it.
-
-### Stable content first, growing content last
-
-- **Instead of:** an order by time or by kind.
-- **Why:** the instruction and the Static blocks come first, then the tools sorted by ID, then the Transcript. Because the Record only grows at its end, one Turn's prefix is the next Turn's prefix.
-
-### Nothing that changes every Turn goes into the request
-
-- **Instead of:** a dynamic system prompt, or the current time in every request.
-- **Why:** such content is never cached, so it costs its full price on every Turn. A fact the model needs now comes from a tool it calls.
-
-### A change is appended, not rewritten into the prefix
-
-- **Instead of:** rewriting the instruction or the tool list at the top of the request.
-- **Why:** a change at the top makes the provider read the whole history again at full price. A change is told to the model in a notice, the next decision.
-
-### What is not the user's words goes to the model as a notice — 2026-10-18
-
-Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
-
-| Option | For | Against |
-|---|---|---|
-| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, and each wire API needs its own form for it. |
-| A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
-| Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
-
-- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
-- **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
-- **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
-- **Each wire API in its own form.** A system message where the model accepts one mid-conversation, a developer message on OpenAI's Responses API, and otherwise tagged text in the adjacent user Message ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
-- **Facts, not orders.** A notice says what is true; what the model should do about it belongs in the instruction.
-
-### Full history by default, and your own `ContextBuilder` for the rest
-
-- **Instead of:** built-in retrieval or memory search.
-- **Why:** retrieval and windowing depend on the application's data. Gotato ships full history, Static blocks and Compaction.
-
-### Cache markers are neutral in the core
-
-- **Instead of:** one provider's cache syntax in the core.
-- **Why:** the core marks where a provider may cache, and each wire API maps the marks to its own form, such as Anthropic's `cache_control`.
-
-### One cache key per Session, inherited by a Fork
-
-- **Instead of:** a key per request or per instance.
-- **Why:** a provider that keys its cache serves one conversation from one cache, on whichever instance it runs. A Fork shares its parent's prefix, so it shares the key.
-
-### Reasoning goes back for the current Round, where the provider allows it — 2026-10-18
-
-A thinking model writes a lot of reasoning, and some models think on every reply. A Session can live for weeks, so reasoning sent back on every Turn fills the window, and the bill, long after it stopped helping. A Round is a user Message and every reply and Tool Result after it.
-
-| Option | For | Against |
-|---|---|---|
-| **The current Round's reasoning to Claude and OpenAI, all of it to any other provider** (chosen) | Reasoning stops piling up where the provider allows it. The rule reads only the Record, so every instance sends the same bytes. DeepSeek and unrecognized providers work as they always did. | Once per Round, the last Round's replies are cached again without their reasoning. DeepSeek and unrecognized providers still carry every reasoning artifact until compaction. |
-| All reasoning to every provider | The prefix only ever grows. | A weeks-long Session carries all of its reasoning, and Claude's newer models keep and bill all of it. |
-| No reasoning at all | The smallest requests. | Claude and OpenAI need the reasoning of a tool loop in progress, and DeepSeek refuses the request. |
-
-- **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and neither does a notice, because it is not the user speaking.
-- **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
-- **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
-- **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there. Right after a compaction, that marker moves to the end of the last Segment, so the next compaction's request can read the Segments before from the cache ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
-- **A change of model.** Reasoning goes as it is, whichever model wrote it. The provider drops what its model cannot read. Turning reasoning into text instead would make the new model take it for its own answer.
-- **Compaction.** A Segment, the stretch of history a compaction closes ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)), holds no reasoning. The tail a compaction keeps goes to Claude and OpenAI without its reasoning, because the Segment changes the prefix that reasoning was written under, and to DeepSeek and unrecognized providers with it. What Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going, is checked against them before it is built.
-
-### Cache retention is set where the provider is configured
-
-- **Instead of:** a retention on each Agent, or one value for every provider.
-- **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
-
-### Compaction closes a Segment, before the cache goes cold — 2026-10-19
-
-A Session's user often comes back long after the provider's cache has expired, and a long Run can outgrow the model's window. Compaction has to keep as much of the conversation as it can, and make the first request after a long pause cheap. A Segment is one stretch of history that a compaction closed, and its Recap is the part the model writes ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
-
-| Option | For | Against |
-|---|---|---|
-| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same; on Claude that needs a cache marker at the end of the last Segment, which takes the place of the marker at the last Round's start right after a compaction, since Claude takes at most four markers (to verify against Claude before it is built). It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. A merge writes one Recap of the oldest Recaps, and the words of the Segments it merged stay readable with `read_segment`. |
-| One summary of everything before the kept tail, written again at every compaction | One block, whose size stays bounded. | Each compaction summarizes the summary before it, so early facts blur or drop out, and the whole prefix changes every time. |
-| The provider's own compaction | No code in Gotato. | Its result cannot be read, does not carry over to another model, differs from one provider to the next, and cannot close one Segment at a time. It may become an option later. |
-
-- **Before the cache goes cold.** An idle Session is compacted shortly before its prompt cache expires, or before it leaves memory if its TTL comes first, or if the cache retention is unknown or not well above the lead, where the TTL alone sets the time. The request that writes the Recap still reads the cache, and the user who comes back later pays full price only for a smaller Context.
-- **Safe by default.** Segments have a token budget, so the oldest are merged when they pass it, and on an overflow too. With no `context_window` and no ceiling there is still a default budget, so a long conversation cannot grow until every request is refused. Its number is not chosen yet.
-- **The ceiling is the exception.** A Run about to outgrow the model's window is compacted while the cache is still warm, mid-Run if need be, because it cannot go on otherwise. The same goes for a request the provider refuses as too long, which is compacted and sent again once, and for a compaction asked for on demand.
-- **Nothing is lost,** unless the team prunes the entries before a Checkpoint. The Record keeps every Message a Segment covers, and the model can read a Segment back in full with a built-in tool; after such a prune, the tool says the Segment's Messages were removed.
-- **The tools change with it.** Only the ToolSets used in the Segment being closed, and those a kept tail still calls, stay active. The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
-
-### Code builds a Segment, and the model writes only the Recap at its end
-
-- **Instead of:** asking a model to summarize the whole stretch.
-- **Why:** what code can keep exactly, it keeps. The user's messages and each Run's final reply stay word for word, and each tool call becomes one line inside its Run, so every answer shows the calls it came from; reasoning, a Run's intermediate text and the tool results are left out. The model writes only what code cannot: the Recap, with the facts the tool results held, the decisions, what is still open, and where a Run stands. It comes last, so a mistake by the model cannot damage the rest, and the model reads it right before the Messages that follow. Code groups a Segment's Messages by the Run that committed them: a Run's final reply is its last assistant Message without tool calls, and a Message that came from no Run, such as history a Record started with, is kept or left out by its own rule, not grouped.
-
-### The Agent's own model writes the Recap, on the cached prefix
-
-- **Instead of:** a separate model, or a request built only to summarize.
-- **Why:** the request is the Context the next model call would send, with one plain user message after it that asks for the Recap, so the whole prefix is read from the cache. That message is never stored and carries no tag, because it asks for work rather than stating a fact. A Recap fails when the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened`; a heading with nothing under it may be left out. The compaction still goes on: the Segment is kept without a Recap, with the conversation and its tool call lines, so a mistake by the model never loses the conversation. A merge whose Recap fails leaves the Segments unmerged. A library user can bring their own writer of Recaps.
-
-### A Segment is written once, and a Checkpoint points to it — 2026-10-24
-
-- **Instead of:** copying every Segment's Messages into each Checkpoint, or storing a Segment as data and rendering it when a request is built.
-- **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the ToolSets it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
-- **What it costs.** A load reads every `segment_closed` Entry before the last Checkpoint, including one a later Checkpoint no longer lists, so a load grows with the history. A Record that holds Segments is read only by a Gotato that knows them.
-
-### One hook runs before every model call — 2026-10-24
-
-- **Instead of:** preparing a Run only when it starts.
-- **Why:** a Run can outgrow the window between two Turns, and a request can be refused as too long, so compaction has to be able to run before any model call. The Loop calls a `TurnPreparer` on the Session's goroutine before every model call, with no Tool call open, and gives it the Session and Run, the Turn, the Transcript, where the Run started, the request about to be sent, whether this is a retry after a refusal, and a way to write what is staged. Compaction is its first use, and replaces the hook that ran at the start of a Run. The policy (the ceiling, the idle time, the refusal) stays in the compactor; the hook only gives it the chance.
-
-### A notice is for runtime facts, and a Segment has tags of its own
-
-- **Instead of:** a notice that carries a summary of the history, or history and notices as untagged text.
-- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round (to verify against the providers before it is built), so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
-
-## 7. A Session can be stopped and seen
-
-A cloud Session runs with nobody watching each step. So a Session always ends, can be stopped at any point, and leaves enough behind to see what it did and what it cost.
+A cloud Session runs with nobody watching each step. So it can be stopped at any point, and leaves enough behind to see what it did and what it cost.
 
 **Ask:** if this step goes wrong, do the Events show it, and can it be stopped?
-
-### Every Run ends
-
-- **Instead of:** no limits, left to the caller.
-- **Why:** Turns, tool calls, bytes and time each have a default cap, so a Run settles even when the model never answers or a call hangs.
 
 ### `context.Context` is the only cancellation
 
 - **Instead of:** a cancellation mechanism of Gotato's own.
 - **Why:** Go code already cancels through `ctx`, so every model call, tool call, store call and stream takes one, and stopping a Run reaches all of them.
-
-### A mistake the model can fix becomes a tool result
-
-- **Instead of:** failing the Run.
-- **Why:** an unknown tool or bad arguments go back to the model as a failed tool result, and the Run goes on. The limits bound a model that keeps getting it wrong.
-
-### Every Run settles with a status and a cause
-
-- **Instead of:** one generic error.
-- **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, a cancel or Gotato.
-
-### Every step is an Event, and a stored Event is an Entry — 2026-10-18
-
-Events are facts a program can read, instead of log lines. A Session's Record and its Events tell the same story: kept apart, they say it twice under two sets of names, and a number that counts within one Run means nothing to another instance.
-
-| Option | For | Against |
-|---|---|---|
-| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP, gRPC and CLI contracts change version. |
-| Events replace the log entries only | Half the duplication goes. | Facts and Events still say the same things twice. |
-| Events kept apart from the Record | No change. | Everything is said twice, and only one instance can resume a stream. |
-
-Every Event carries its time and the Session it concerns, if any; a stored Event also carries its number, and an Event of a Run its Run and its Turn. Events come in three kinds, by where they live:
-
-- **Stored Events** are Entries: every change of state the Writer sees, such as a Run starting, a reply ending, a Tool starting, a message queued or a Claim.
-- **Deltas** are sent and never stored: text, reasoning and tool progress. What they carry ends up whole in a Message or a Tool Result.
-- **Instance Events** happen where no Record can take them, because the Instance holds no Claim: a request waiting or refused, a fenced write, a Liveness row that lapsed, a failed write, the time a load or save took. They go only to that Instance's subscribers.
-
-### An Event is written before it is sent
-
-- **Instead of:** sending an Event first, and writing it with the next step.
-- **Why:** a client never holds an Event the Record lacks, so a resumed stream never shows one number with two meanings. Most Events ride the write of their step, which delays them by the write alone. The few that fall between steps, such as a retry, an Abort request or a queued message, get a write of their own, because they are rare. Deltas are sent at once, marked with the number of the Event they follow.
-
-### A Session never waits for a subscriber
-
-- **Instead of:** observers that the Session's goroutine calls and waits for.
-- **Why:** one slow client or exporter would slow every step of the Session. A Session puts each Event in its subscribers' queues and moves on. There are three subscriptions: a Run's stream, a Session's stream from any number, and an Instance's stream, which the service's own telemetry reads. Each subscriber has one goroutine that forwards its Events in order. A subscriber that falls too far behind is no longer buffered in memory: it catches up from the Record by number, because the Record only grows, so only deltas can be skipped. An Instance's stream mixes Sessions and has no single number, so it marks a gap with an Instance Event that says how many it skipped.
 
 ### Each kind of Event is a type of its own
 
@@ -556,17 +589,12 @@ Every Event carries its time and the Session it concerns, if any; a stored Event
 - **Instead of:** a separate preview.
 - **Why:** anyone can see what the model would receive now without calling it, and because inspection runs the code a Turn runs, the two cannot drift apart.
 
-### Tests never call a network model
-
-- **Instead of:** tests that depend on a live model.
-- **Why:** fake and replay models keep every test deterministic, and CI runs with no provider credentials.
-
 ## When principles collide
 
 When two principles pull apart, this order decides:
 
-1. **Never lose a committed Turn.** A lost conversation breaks trust in the service.
-2. **Stay minimal.** Weight is paid by every service that embeds Gotato, for as long as it does.
-3. **Stay cheap.** Cost can be tuned later.
+1. **The store is the only truth.** A lost conversation breaks trust in the service.
+2. **A request only grows at its end.** What the model reads is most of what a Session costs, and a byte changed in the prefix makes the provider read everything after it again.
+3. **Keep subtracting.** Weight is paid by every service that embeds Gotato, for as long as it does.
 
 The Effect cap is not part of the trade: an Agent never runs a tool above its cap to save a Turn or a write.
