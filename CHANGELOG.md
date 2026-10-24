@@ -127,6 +127,12 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   | `Loaded{Facts, Head, Summary}` | `Loaded{Facts, Segments, Head, Summary}`; with no Segments, `Segments` is empty and nothing changes |
   | `compaction_ended.messages` and `session_created.messages` hold every Message the Context starts with | they hold the Messages after the Segments the Checkpoint lists in `segments`; a Checkpoint with no `segments` is as before |
 
+  **`gotato.Message` gains `RunID`**, the Run that committed it, so a Segment can group Messages by Run. The Loop sets it on the prompt, each reply (a cut-off one too), each tool result including the closing results of a failed Run, and each Steer, FollowUp and truncation continuation. A Message that did not come from a Run, such as history a Record starts with, has none, and so does any Message in a Record written before this change; both load with an empty `RunID`. It is stored in the Message's JSON as `run_id` (omitted when empty), so entries, Checkpoint tails, Segments, `Fork` and `Document` keep it, and gRPC carries it inside `messages_json`. It is a record only: `ForModel` drops it, and no wire API encodes it, so a request and its `prefix_hash` are the same as before.
+
+  | Before | After |
+  |---|---|
+  | `{"id":"m1","role":"user",…}` | `{"id":"m1","run_id":"run-…","role":"user",…}`; no `run_id` when empty |
+
   The gRPC contract gains the typed `Segment`, `SegmentSource`, `ToolCallLine` and `MessagePosition`, the `segment_closed` Event, the new `Compaction` fields, and `segments`, `tail` and `tool_sets` on `session_created` and `compaction_ended` (`tool_sets` was missing there). All are additions.
 
 ### Providers

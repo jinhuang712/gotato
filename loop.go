@@ -227,6 +227,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 
 	if prompt != nil {
 		prompt.ID = MessageID(nextID("message"))
+		prompt.RunID = runID
 		if err := a.commitMessage(*prompt); err != nil {
 			return fail(asRuntimeError(err))
 		}
@@ -418,7 +419,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 					return err
 				}
 				content := cloneContent(toolResult.Content)
-				resultMessage := Message{ID: MessageID(nextID("message")), Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
+				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
 				if err := a.commitMessage(resultMessage); err != nil {
 					return asRuntimeError(err)
 				}
@@ -544,6 +545,7 @@ func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn Turn
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
+	message.RunID = runID
 	if err := a.commitMessage(message); err != nil {
 		return asRuntimeError(err)
 	}
@@ -587,7 +589,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	}
 	defer func() { _ = stream.Close() }()
 
-	assistant := Message{ID: assistantID, Role: RoleAssistant}
+	assistant := Message{ID: assistantID, RunID: runID, Role: RoleAssistant}
 	var usage Usage
 	var complete bool
 	// Once the stream has started, a failure keeps the text received so far

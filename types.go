@@ -45,7 +45,13 @@ type ContentPart struct {
 }
 
 type Message struct {
-	ID         MessageID     `json:"id,omitempty"`
+	ID MessageID `json:"id,omitempty"`
+	// RunID is the Run that committed the Message: its prompt, its replies,
+	// its tool results and the messages it took in. It is empty for a Message
+	// that did not come from a Run, such as history a Record starts with, and
+	// for a Record written before it existed. It is a record, not part of the
+	// request: ForModel drops it, so it never reaches a provider.
+	RunID      RunID         `json:"run_id,omitempty"`
 	Role       Role          `json:"role"`
 	Parts      []ContentPart `json:"parts,omitempty"`
 	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`

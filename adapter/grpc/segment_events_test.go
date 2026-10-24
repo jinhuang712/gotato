@@ -11,7 +11,7 @@ import (
 func TestSegmentClosedAndCheckpointOnTheWire(t *testing.T) {
 	at := time.Date(2026, 10, 24, 10, 2, 0, 0, time.UTC)
 	message := gotato.UserMessage("hello")
-	message.ID = "m1"
+	message.ID, message.RunID = "m1", "run-7"
 	segment := gotato.Segment{
 		Number: 2, From: at, To: at.Add(time.Hour),
 		Source:   gotato.SegmentSource{SessionID: "parent", FromNumber: 3, ToNumber: 40},
@@ -32,7 +32,7 @@ func TestSegmentClosedAndCheckpointOnTheWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.GetNumber() != 2 || got.GetSource().GetSessionId() != "parent" || got.GetSource().GetToNumber() != 40 || got.GetRendered() != 1 ||
-		decoded.ID != "m1" || got.GetToolCalls()[0].GetCode() != "timeout" || got.GetToolCalls()[0].GetCount() != 2 || got.GetRecap() == "" || got.GetToolSets()[0] != "logs" {
+		decoded.ID != "m1" || decoded.RunID != "run-7" || got.GetToolCalls()[0].GetCode() != "timeout" || got.GetToolCalls()[0].GetCount() != 2 || got.GetRecap() == "" || got.GetToolSets()[0] != "logs" {
 		t.Fatalf("segment on the wire = %v", got)
 	}
 

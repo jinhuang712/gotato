@@ -300,7 +300,7 @@ func (s *Record) closeParts(committed gotato.MessageID) {
 			continue
 		}
 		s.messages = append(s.messages, gotato.Message{
-			ID: part.MessageID, Role: gotato.RoleAssistant, StopReason: gotato.StopCutOff,
+			ID: part.MessageID, RunID: part.RunID, Role: gotato.RoleAssistant, StopReason: gotato.StopCutOff,
 			Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: part.Text}},
 		})
 	}

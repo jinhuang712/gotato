@@ -812,7 +812,7 @@ func cutOffReply(partial Message) Message {
 	if len(parts) == 0 {
 		return Message{}
 	}
-	return Message{ID: partial.ID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff, Model: partial.Model}
+	return Message{ID: partial.ID, RunID: partial.RunID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff, Model: partial.Model}
 }
 
 // coalesceDeltas merges the Parts that streamed deltas produced into one Part
