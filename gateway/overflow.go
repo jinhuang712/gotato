@@ -9,7 +9,7 @@ import (
 // body says the request was longer than the model's context window. They are
 // the only place the gateway reads that out of prose: providers publish no
 // stable code for it on every wire API. The list is short on purpose and has
-// not been checked against live providers yet (HANDOFF Stage 0); a provider
+// not been checked against live providers yet (see TODO.md); a provider
 // that words it differently is reported as an ordinary failure.
 var overflowPhrases = []string{
 	"prompt is too long",         // Anthropic Messages
