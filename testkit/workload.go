@@ -161,8 +161,8 @@ func ToolErrorTask() Task {
 
 // HistoryTask is a lookup in a Session that already holds size messages, for
 // the cold-load and per-Turn measurements at that size. Its MaxMessages
-// leaves the default room on top of the history: the default of 1,000 would
-// refuse the next Turn of a Session that already holds 1,000 messages.
+// leaves the default room on top of the history, so a larger size never meets
+// the default limit.
 func HistoryTask(size int) Task {
 	limits := gotato.DefaultLimits()
 	limits.MaxMessages += uint32(size)

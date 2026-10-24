@@ -53,7 +53,7 @@ func DefaultLimits() CoreLimits { return defaultLimits() }
 func defaultLimits() CoreLimits {
 	return CoreLimits{
 		MaxTurns:               32,
-		MaxMessages:            1000,
+		MaxMessages:            10000,
 		MaxMessageBytes:        4 << 20,
 		MaxTranscriptBytes:     32 << 20,
 		MaxToolCalls:           128,

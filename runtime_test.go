@@ -302,6 +302,24 @@ func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
 	}
 }
 
+// A Context that starts with rendered Segments counts them toward MaxMessages,
+// as a load reads them, so the default leaves room for a long Session.
+func TestDefaultMaxMessagesLeavesRoomForSegments(t *testing.T) {
+	history := &memoryTranscript{}
+	for range 1500 {
+		history.messages = append(history.messages, UserMessage("earlier"))
+	}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	agent, err := NewSession(WithModel(model), WithTranscript(history))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
+		t.Fatalf("a Session with 1,500 Messages was refused by the default limits: %v", err)
+	}
+}
+
 func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTranscriptBytes = 400
