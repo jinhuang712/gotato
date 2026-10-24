@@ -495,6 +495,12 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		delete(s.blocks, event.Index)
 		return s.finishBlock(block)
 	case "message_delta":
+		if event.Delta != nil && event.Delta.StopReason == "model_context_window_exceeded" {
+			// The window ran out during the reply. That is an overflow, not
+			// an output limit: a continuation would ask the model again on
+			// a full window. The text received stays as a cut-off reply.
+			return &Error{Message: "the context window was exceeded during the reply", Overflow: true}
+		}
 		if event.Delta != nil && event.Delta.StopReason != "" {
 			s.stop = anthropicStopReason(event.Delta.StopReason)
 		}
@@ -602,10 +608,6 @@ func anthropicStopReason(reason string) gotato.StopReason {
 		return gotato.StopMaxTokens
 	case "refusal":
 		return gotato.StopError
-	case "model_context_window_exceeded":
-		// The window ran out during the reply: a cut-off reply, like
-		// max_tokens, not a finished one.
-		return gotato.StopMaxTokens
 	default:
 		return gotato.StopEndTurn
 	}

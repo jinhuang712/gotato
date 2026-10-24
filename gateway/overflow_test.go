@@ -125,8 +125,10 @@ func TestAnthropicStreamErrorNamesOverflow(t *testing.T) {
 	}
 }
 
-func TestAnthropicContextWindowExceededIsACutOffReply(t *testing.T) {
+func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T) {
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, data := range []string{
 			`{"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}`,
@@ -140,22 +142,23 @@ func TestAnthropicContextWindowExceededIsACutOffReply(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m"})
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	limits := gotato.DefaultLimits()
+	limits.MaxTruncatedContinuations = 3
+	session, err := gotato.NewSession(gotato.WithModel(client), gotato.WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stream.Close() }()
-	events, err := collectEvents(t, stream)
-	if err != nil {
-		t.Fatal(err)
+	defer func() { _ = session.Close(context.Background()) }()
+	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
+	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.ErrContextOverflow {
+		t.Fatalf("result = %+v, err = %v; want a failed Run with context_overflow", result, err)
 	}
-	done := events[len(events)-1]
-	if done.Kind != gotato.ModelDone || done.StopReason != gotato.StopMaxTokens {
-		t.Fatalf("last event = %+v, want done with max_tokens", done)
+	if calls.Load() != 1 {
+		t.Fatalf("model calls = %d, want 1: an overflow must not trigger an output-limit continuation", calls.Load())
 	}
 }
 
