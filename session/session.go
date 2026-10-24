@@ -77,8 +77,13 @@ type Document struct {
 	ToolSets []string `json:"tool_sets,omitempty"`
 	// Segments are the Segments the Messages start with (Record.Segments);
 	// their rendered Messages are the first of Messages.
-	Segments   []gotato.Segment `json:"segments,omitempty"`
-	EventLimit int              `json:"event_limit,omitempty"`
+	Segments []gotato.Segment `json:"segments,omitempty"`
+	// MaxSegment is the largest number any Segment closed in the Record has
+	// (Record.NextSegment is one more), also one that no Checkpoint lists, so a
+	// Load does not hand its number to a new Segment. 0 when there is none; a
+	// Document written before the field existed is read from its Segments.
+	MaxSegment int `json:"max_segment,omitempty"`
+	EventLimit int `json:"event_limit,omitempty"`
 	// Seq is the position of the last Entry the store held when this
 	// Document was read; 0 for a Record never stored.
 	Seq uint64 `json:"seq,omitempty"`
@@ -309,6 +314,7 @@ func Load(doc Document) (*Record, error) {
 	if s.eventLimit == 0 {
 		s.eventLimit = DefaultEventLimit
 	}
+	s.maxSegment = max(doc.MaxSegment, 0)
 	for _, segment := range doc.Segments {
 		s.closed[segment.Number] = segment.Clone()
 		s.used = append(s.used, segment.Number)
@@ -345,6 +351,7 @@ func (s *Record) Snapshot() Document {
 		Metadata:      maps.Clone(s.metadata),
 		ToolSets:      slices.Clone(s.toolSets),
 		Segments:      s.segmentsLocked(),
+		MaxSegment:    s.maxSegment,
 		EventLimit:    s.eventLimit,
 		Seq:           s.head,
 	}

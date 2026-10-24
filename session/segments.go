@@ -109,9 +109,19 @@ func (s *Record) inheritSegments(parentID string, segments []gotato.Segment, max
 // NextSegment when it is 0. The Segment is not part of the Context until a
 // Checkpoint lists it (CheckpointSegments). Its Messages are never rewritten:
 // the provider's prompt cache reads their bytes.
+//
+// A Segment closed alone, with no Checkpoint after it, is stored and listed by
+// nothing. That is harmless: a load reads it and leaves it out of the Context,
+// and its number is never given to another Segment. A compaction that wants
+// the Segment in the Context closes and lists it in one step
+// (CloseSegmentAndCheckpoint), so no write holds the one without the other.
 func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.closeSegmentLocked(segment)
+}
+
+func (s *Record) closeSegmentLocked(segment gotato.Segment) (gotato.Segment, error) {
 	if segment.Number == 0 {
 		segment.Number = s.maxSegment + 1
 	}
@@ -132,22 +142,76 @@ func (s *Record) closeLocked(segment gotato.Segment) {
 }
 
 // CheckpointSegments replaces the Context with the Segments listed by number,
-// which must be closed already (CloseSegment), followed by tail, and appends
-// the compaction_ended Checkpoint that holds it. The Checkpoint stores the
-// numbers and tail, not the Segments' Messages, which stay where
-// CloseSegment wrote them. compaction is recorded when it is not nil. Nothing
-// written before is rewritten, and it must not run while a Run is using the
-// Record.
+// which must be closed already (CloseSegment), in ascending order and each
+// once, followed by tail, and appends the compaction_ended Checkpoint that
+// holds it. The Checkpoint stores the numbers and tail, not the Segments'
+// Messages, which stay where CloseSegment wrote them. compaction is recorded
+// when it is not nil. Nothing written before is rewritten, and it must not
+// run while a Run is using the Record.
 func (s *Record) CheckpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var prefix []gotato.Message
-	for _, number := range numbers {
-		segment, ok := s.closed[number]
-		if !ok {
+	return s.checkpointSegmentsLocked(why, numbers, tail, compaction)
+}
+
+// CloseSegmentAndCheckpoint closes segment (CloseSegment) and, in the same
+// step, appends the Checkpoint whose Context is the earlier Segments, then
+// the new one, then tail (CheckpointSegments). Both Events are queued under
+// one lock, so no write holds the Segment without the Checkpoint that lists
+// it. earlier are closed numbers in ascending order, all below the new
+// Segment's. When it returns an error, nothing was closed or checkpointed.
+func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment gotato.Segment, earlier []int, tail []gotato.Message, compaction *Compaction) (gotato.Segment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	number := segment.Number
+	if number == 0 {
+		number = s.maxSegment + 1
+	}
+	if _, taken := s.closed[number]; taken || number < 0 {
+		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is already closed", number))
+	}
+	numbers := append(slices.Clone(earlier), number)
+	if err := s.checkNumbersLocked(numbers, number); err != nil {
+		return gotato.Segment{}, err
+	}
+	closed, err := s.closeSegmentLocked(segment)
+	if err != nil {
+		return gotato.Segment{}, err
+	}
+	if err := s.checkpointSegmentsLocked(why, numbers, tail, compaction); err != nil {
+		return gotato.Segment{}, err
+	}
+	return closed, nil
+}
+
+// checkNumbersLocked says whether numbers can be a Context's Segments: each
+// is closed (pending, if not -1, is about to be), and they ascend, so none repeats and
+// the Context follows the order the Segments were closed in.
+func (s *Record) checkNumbersLocked(numbers []int, pending int) error {
+	for i, number := range numbers {
+		if _, ok := s.closed[number]; !ok && number != pending {
 			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is not closed", number))
 		}
-		prefix = append(prefix, cloneMessages(segment.Messages)...)
+		if i == 0 {
+			continue
+		}
+		switch previous := numbers[i-1]; {
+		case number == previous:
+			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is listed twice", number))
+		case number < previous:
+			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is listed after segment %d; list them in ascending order", number, previous))
+		}
+	}
+	return nil
+}
+
+func (s *Record) checkpointSegmentsLocked(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+	if err := s.checkNumbersLocked(numbers, -1); err != nil {
+		return err
+	}
+	var prefix []gotato.Message
+	for _, number := range numbers {
+		prefix = append(prefix, cloneMessages(s.closed[number].Messages)...)
 	}
 	s.used = slices.Clone(numbers)
 	s.messages = append(prefix, cloneMessages(tail)...)

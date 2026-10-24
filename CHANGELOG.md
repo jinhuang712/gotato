@@ -141,6 +141,15 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   |---|---|
   | `Compact` on a Record with Segments replaced them with one summary | `Compact` returns `ErrHasSegments` and leaves the Record as it was; `POST /v1/sessions/{id}/compact` answers 409, gRPC `FailedPrecondition`, `gotato context compact` exits 1 |
 
+- **A Checkpoint lists its Segments once and in order; a Segment can be closed and listed in one step; a Document carries the largest Segment number.** `Record.CheckpointSegments` refuses a number listed twice, a number listed after a larger one, and a number never closed, with `invalid_argument`, and changes nothing. The new `Record.CloseSegmentAndCheckpoint` closes a Segment and writes the Checkpoint that lists it as neighbouring Entries of one batch; `CloseSegment` alone still stores a Segment that no Checkpoint lists, which a load leaves out of the Context. `session.Document` gains `max_segment`, which `Snapshot` fills and `Load` restores (also over gRPC, where the Document is JSON). All are additions except the refusals, which no code reaches yet, since nothing closes a Segment.
+
+  | Before | After |
+  |---|---|
+  | `CheckpointSegments(…, []int{1, 1}, …)` and `[]int{2, 1}` put a Segment in the Context twice or out of order | both return `invalid_argument` |
+  | `Load(Snapshot())` of a Record with an unlisted Segment 2 gave `NextSegment() == 2` again | `NextSegment() == 3`; a Document with no `max_segment` is read from its Segments, as before |
+
+- **A `Document` carries a Segment's Messages twice, for now.** Once a Segment exists, `messages` holds its rendered Messages and `segments` holds them again, so a Document with Segments is larger. Nothing creates Segments yet, so no Document is larger today; this will show when compaction closes Segments, and we revisit it if the size matters.
+
 ### Providers
 
 - **Claude and OpenAI are sent only the current Round's reasoning.** A Round is a user Message and every reply and Tool Result after it. Before, every reply's reasoning went back on every request, so a long Session carried all of it, and Claude's newer models kept and billed all of it. Now a recognized Claude or OpenAI provider gets back only the reasoning of the replies after the last user Message, which is what its tool loop needs. A Steer starts a new Round, and a Continue without a new prompt stays in its Round. On Responses, an earlier Round's function call also goes without its item ID. DeepSeek, on its chat API or its Anthropic one, and every provider the gateway does not recognize still get all of it, with no field or header added. The provider is the new `provider` key (`Config.Provider`: `anthropic`, `openai`, `deepseek` or `other`); without it, the gateway recognizes only `api.anthropic.com`, `api.openai.com` and `api.deepseek.com`, never a model name. `gateway.NewFromEnv` reads `GOTATO_GATEWAY_PROVIDER`, and `Client.RoundReasoningOnly` reports the rule. **Behavior change:** a gateway on Anthropic's or OpenAI's own address sends less reasoning, and once per Round the last Round's replies are cached again without it. `provider: other` keeps the old behavior:
