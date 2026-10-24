@@ -9,8 +9,8 @@ Written 2026-10-19, for the next session that picks this work up. Delete this fi
 | Design | Written into the docs on `main`: [DESIGNS.md](DESIGNS.md) → *Compaction closes a Segment, before the cache goes cold*, [FEATURES.md](FEATURES.md) → G-F06 (🚧), G-F10, G-F29 and the gateway `context_window` row, [GLOSSARY.md](GLOSSARY.md) → Segment and Recap, [ROADMAP.md](ROADMAP.md) → Phase 6 |
 | Review marks | DESIGNS, FEATURES and ROADMAP are `approved 2026-10-19` |
 | Docs review | An independent review found 1 High, 6 Medium and 17 Low findings. The clear ones are fixed, and the nine open decisions were settled on 2026-10-19 by taking each recommendation, and written into the docs. Neither round was reviewed again by a second reader |
-| Build plan | Below. Written from reading the code at main 52e9786; **not reviewed**, nothing built or run |
-| Code | None written |
+| Build plan | Below. Written from reading the code at main 52e9786. Stages 1–4 and the `RunID` were built from it and reviewed by an independent reader, and the plan needed corrections that are now in the text. Stages 5 on have not been built |
+| Code | Stages 1–4 and `Message.RunID` are on `main` (landed 2026-10-25). Nothing closes a Segment yet, so no Record holds one |
 
 Not in the repository: notes on how four other agent harnesses compact their context, in `investigation/harness-compaction/` of the main checkout, kept untracked on purpose.
 
@@ -18,7 +18,7 @@ Not in the repository: notes on how four other agent harnesses compact their con
 
 1. **The nine decisions are settled**: Segments merge on an overflow and by a default budget (its number is still to choose); a Segment's Messages count toward the limits as a load reads them, and the 1,000-message default is raised or dropped; the Claude cache marker moves to the last Segment's end after a compaction; idle compaction uses the TTL alone when the retention is short or unknown; the provider checks 1, 2 and 4 stay and check 3 is dropped unless a case is found; a notice or Recap with no user Message after it follows G-F29's forms; ToolSet activation is a fact; `--keep N` and `Floor` stay as the kept tail's size; the Recap call records usage, not cost.
 2. **The docs are approved** (2026-10-19). The default Segment budget's number is still to pick, or to leave to Stage 0's measurements.
-3. **Agree the plan's four cross-stage choices** (D1–D4 below), and review the plan with an independent reviewer before Stage 1.
+3. **The four cross-stage choices are settled** (D1–D4 below, agreed 2026-10-24). Each stage from 5 on is reviewed by an independent reader before it lands.
 4. **Stage 0 needs real provider keys** (a gateway config); its checks never run in CI.
 
 Open defects and decisions unrelated to compaction are in [TODO.md](TODO.md), and the features that wait for a design in [ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design).
@@ -37,11 +37,13 @@ Open defects and decisions unrelated to compaction are in [TODO.md](TODO.md), an
 | # | Stage | When |
 |---|---|---|
 | 0 | Provider checks (live, not in CI) | now |
-| 1 | Tags and escaping in every request | now |
-| 2 | Gateway: `context_window`, the cache retention in effect, overflow detection | now |
-| 3 | ToolSet activation becomes Session state | now |
-| 4 | The Record keeps Segments and message positions | now |
-| 5 | Segments built by code, on demand and at Run start | after check 2 |
+| 1 | Tags and escaping in every request | ✅ landed 2026-10-25 |
+| 2 | Gateway: `context_window`, the cache retention in effect, overflow detection | ✅ landed 2026-10-25 |
+| 3 | ToolSet activation becomes Session state | ✅ landed 2026-10-25 |
+| 4 | The Record keeps Segments and message positions | ✅ landed 2026-10-25 |
+| 4b | `Message.RunID` | ✅ landed 2026-10-25 |
+| 5a | The rename: `Summarizer` becomes `RecapWriter` (D3) | now |
+| 5 | Segments built by code, on demand and at Run start | after 5a and check 2 |
 | 6 | The Agent's model writes the Recap on the cached prefix | now; default after check 1 |
 | 7 | A compaction keeps only the ToolSets the Segment used | after 3 and 5 |
 | 8 | Past the ceiling before any model call, mid-Run included | after 2, 5, 6 and check 4 |
@@ -64,12 +66,28 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 - `MaxMessages` and `MaxTranscriptBytes` already count only what a load reads (`transcript.Len()` and `Messages()` hold the last Checkpoint's Messages and what follows).
 - Also relied on: `ForModel` strips Part metadata; `Message` has no time, RunID or source; the Anthropic encoder joins consecutive user Messages and the Chat Completions encoder does not; `AutoCompactor` is a `RunPreparer` that runs only at Run start; `Compact` defaults to `TruncateSummarizer`; the HTTP and gRPC compact routes default to `keep=4`, the CLI to `--keep 4 --summarizer truncate`; Gotato has no prices; ToolSets reach a Session through `Options`, not the `Agent`.
 
-### Choices that cut across stages (to agree before Stage 4)
+### Choices that cut across stages (settled 2026-10-24)
 
-- **D1 — How a Segment is stored.** `CompactionEnded.Messages` keeps its meaning: the Messages the Session goes on with, which are the rendered Segments followed by the kept tail. The Segment's data goes in a new field, `CompactionEnded.Segments []gotato.Segment` (number, times, the Record range it covers, tool-call lines, Recap, ToolSets used, how many Messages render it). Messages kept word for word are stored once, inside `Messages`, with their original IDs; tag text is its own Part, marked `ContentPart.Metadata["gotato.tag"]`. Why: an older binary in a rolling deploy still loads a correct Context, and custom ContextBuilders, the limits and inspection keep working. This departs from a literal "stored as data, rendered at request time".
-- **D2 — A new root hook.** `gotato.TurnPreparer`, called by the Loop on the Session goroutine before every model call, with no Tool call open: `PrepareTurn(ctx, PendingTurn) (TurnPrepared, error)`, where `PendingTurn` carries the Session and Run IDs, the Turn, the Transcript, where the Run started, the request, whether this is an overflow retry, and a `Flush` that writes what is staged. `AutoCompactor` moves from `RunPreparer` to it; its `PrepareRun` goes (breaking, CHANGELOG before/after).
-- **D3 — Names.** `modelctx.RecapWriter{ Name() string; WriteRecap(ctx, RecapRequest) (Recap, error) }`, with `ModelRecap{Model, MaxTokens, Label}` and `NoRecap{}`. `TruncateSummarizer` keeps its name and implements `RecapWriter`. `Summarizer` and `ModelSummarizer` stay one release as `// Deprecated:` with an adapter. `CompactOptions.Summarizer` and `CompactPolicy.Summarizer` become `Recap` (breaking).
-- **D4 — Runs inside a Segment are grouped by Round** (a user Message and what follows it), because a Message carries no RunID. The final reply is the Round's last assistant Message without tool calls. An output-limit continuation is left out, and the replies on either side of it are joined.
+- **D1 — How a Segment is stored: written once, pointed to.** A Segment is appended once as its own `segment_closed` entry, with its rendered Messages (frozen, never rewritten) and its data (number, times, the Record range it covers, tool-call lines, Recap, ToolSets used). A Checkpoint (`CompactionEnded`) lists the Segment numbers it uses and the kept tail; it does not copy a Segment's Messages. The tail's Messages are stored in the Checkpoint too, because `DropReasoning` rewrites them when the Checkpoint is written. The original entries stay in the log, unread by the Context and readable by number range. Older binaries are not supported. Cost accepted: `Loaded.Segments` returns every `segment_closed` entry before the last Checkpoint, including ones a later Checkpoint no longer uses, so a load grows with the history. Tag text is its own Part, marked `ContentPart.Metadata["gotato.tag"]` (`gotato.MetaTag`); a Part the builder writes without it is escaped.
+- **D2 — A new root hook.** `gotato.TurnPreparer`, called by the Loop on the Session goroutine before every model call, with no Tool call open: `PrepareTurn(ctx, PendingTurn) (TurnPrepared, error)`, where `PendingTurn` carries the Session and Run IDs, the Turn, the Transcript, where the Run started, the request, whether this is an overflow retry, and a `Flush` that writes what is staged. `AutoCompactor` moves from `RunPreparer` to it; its `PrepareRun` goes (breaking, CHANGELOG before/after). The first call of a Run does what `PrepareRun` did.
+- **D3 — Names, no old names kept.** `modelctx.RecapWriter{ Name() string; WriteRecap(ctx, RecapRequest) (Recap, error) }`, with `ModelRecap{Model, MaxTokens, Label}`, `NoRecap{}` and `TruncateRecap`. `Summarizer`, `ModelSummarizer` and `TruncateSummarizer` are removed with no `Deprecated` shim. `CompactOptions.Summarizer` and `CompactPolicy.Summarizer` become `Recap`, and the CLI flag `--summarizer` becomes `--recap` (breaking, CHANGELOG before/after).
+- **D4 — Runs inside a Segment are grouped by Run.** `gotato.Message` carries `RunID` (built). The final reply is the Run's last assistant Message without tool calls. A Message with an empty `RunID` (history a Record started with, the `repair-*` results made for unanswered calls) is not from a Run and is kept or left out by its own rule, not grouped. An output-limit continuation carries its Run's ID, so the replies on either side of it are one Run.
+
+### Carry-overs from the Stage 1–4 review
+
+Findings of the independent reviewer that no current code can trigger, because nothing closes a Segment yet. Stage 5 meets them:
+
+- `modelctx.Compact` flattens a Record's Segments into one summary: it reads `Messages()`, which includes the Segment prefix. Cut only after the start of `Record.Tail()`, and call `CheckpointSegments`.
+- `CheckpointSegments` accepts duplicate and out-of-order numbers (`[1,1]` puts a Segment in the Context twice). Refuse both.
+- `CloseSegment` and `CheckpointSegments` must be called together, so that one write batch holds both. A Segment closed alone and stored is not listed by any Checkpoint.
+- A `Document` carries the Segments' Messages twice (in `messages` and in `segments`), so it is about twice the size once Segments exist. Put it in the CHANGELOG when Segments become reachable.
+- `Load(doc)` loses the largest Segment number, so `NextSegment` can reuse a number that exists as an orphan in the store.
+- `MaxMessages` was raised from 1,000 to 10,000 before anything fills it.
+- A tool call's arguments and reasoning Parts are not escaped by `ForModel`; the plan did not list them.
+- A Part with `MetaTag` is trusted. If a ToolSet bridge ever copies foreign metadata into a Tool Result, it must drop that key.
+- The overflow phrase list in `gateway/overflow.go` is six fragments, unchecked against real providers (Stage 0), and `readErrorBody` keeps only `error.message`, so an error that names the overflow only in `code` or `type` is missed. "Input and `max_tokens` too large" may match too, and compaction cannot fix that one.
+- `Client.CacheRetention()` returns 5m for any Anthropic Messages client, even when `cache_retention` is shorter.
+- `StatusFor` maps `context_overflow` to 422, but a failed Run is returned as HTTP 200 with the code in `result.error.code`; callers read the JSON.
 
 ### Stage 0 — Provider checks
 
@@ -86,11 +104,15 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 ### Stage 1 — Tags and escaping
 
+Built and landed 2026-10-25. The text below is the plan; where the build differs, the D1–D4 section above and the code are right.
+
 - New root `tags.go`: constants for the four tag names, `MetaTag = "gotato.tag"`, `EscapeTags(string) string`, and the fixed sentence (wording for the maintainer).
 - `ForModel` escapes `<` as `&lt;` where it starts one of the four tags or their closing form, case-insensitively, in user text, Tool Result content and `SafeError`, and in the Recap and kept assistant replies; it skips Parts marked `MetaTag`. `AssembleRequest` adds the sentence to the system part only when a marked Part is present.
 - Tests: escaping cases (`<Recap`, `</notice`, not `<recapture`), marked Parts untouched, the sentence only when a tag is present, the prefix unchanged for a plain transcript, the workload context check (G-G03) still passing.
 
 ### Stage 2 — Gateway
+
+Built and landed 2026-10-25. The text below is the plan; where the build differs, the D1–D4 section above and the code are right.
 
 - `YAMLConfig.ContextWindow` (`context_window`) and `Config.ContextWindow`; `(*Client).ContextWindow()` and `(*Client).CacheRetention()` (1h or 5m on Anthropic Messages, as `anthropicCacheTTL` decides; 30m on Responses when set; unknown otherwise).
 - `Error.Overflow` and `ContextOverflow() bool`, set for a 400 or 413 whose body matches a short list of phrases, in every wire path; `model_context_window_exceeded` maps to a cut-off reply.
@@ -100,12 +122,16 @@ Stages 1–11 do not need the warm Session. ROADMAP places all of G-F06 in Phase
 
 ### Stage 3 — ToolSet activation is Session state
 
+Built and landed 2026-10-25. The text below is the plan; where the build differs, the D1–D4 section above and the code are right.
+
 - `KindToolSetActivated` joins the facts (`session/entry.go`); the Record keeps the active names (`ActiveToolSets()`), set by `CompactionEnded.ToolSets` and `SessionCreated.ToolSets`, copied by `Fork`.
 - `newToolRegistry` restores them from the Transcript, respecting `MaxActiveToolSets`; a ToolSet that no longer resolves stays off. ToolSets installed with `WithActiveToolSet` are marked as configured and are never switched off.
 - Tests: Run 1 activates a ToolSet and Run 2's first request carries its tools, also through a second Runner on the same store; a Checkpoint round trip; old Records restore nothing.
 - Decided: activation is a fact. It is built before Segments, and the compaction design relies on it.
 
 ### Stage 4 — Segments and message positions in the Record
+
+Built and landed 2026-10-25. The text below is the plan; where the build differs, the D1–D4 section above and the code are right.
 
 - Root types `Segment`, `SegmentSource` (which Record range a Segment number covers, with the Session ID for a fork's inherited Segments) and `ToolCallLine`. `Compaction` gains the Segment number, tokens before and after, the ceiling, the Recap writer (or `none`), the Recap call's usage and the ToolSets kept. `CompactionWhy` gains `before_cache_expires` and `overflow`.
 - The Record keeps a Message ID → {number, time} index since the last Checkpoint, `Segments()`, and `CheckpointSegments(...)`; `Fork` copies Segments; the gRPC proto gains a typed `Segment` (regenerate with `buf generate`).
