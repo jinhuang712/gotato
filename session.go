@@ -176,7 +176,25 @@ func WithDeadlines(run, model, tool time.Duration) Option {
 // and starts it. A Model is required. The Session takes its ID from its
 // Transcript when the Transcript has an ID, as a session.Record does, and
 // generates one otherwise. Close it when it is no longer needed.
+//
+// NewSession cannot be cancelled: it resolves ToolSets with a background
+// context. Prefer NewSessionContext.
 func NewSession(options ...Option) (*Session, error) {
+	return NewSessionContext(context.Background(), options...)
+}
+
+// NewSessionContext is NewSession with a context for the work it does before
+// the Session exists: resolving the ToolSets installed active and the ones
+// the Session's earlier Runs activated. When ctx ends first, it fails with
+// cancelled or deadline_exceeded and builds nothing. ctx does not outlive the
+// call; the Session's own Runs take their contexts as before.
+func NewSessionContext(ctx context.Context, options ...Option) (*Session, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, runtimeError(codeForContext(err), "NewSession", "context ended", err)
+	}
 	cfg := sessionConfig{limits: defaultLimits()}
 	for _, option := range options {
 		if option == nil {
@@ -193,7 +211,7 @@ func NewSession(options ...Option) (*Session, error) {
 		return nil, err
 	}
 
-	registry, err := newToolRegistry(&cfg)
+	registry, err := newToolRegistry(ctx, &cfg)
 	if err != nil {
 		return nil, err
 	}

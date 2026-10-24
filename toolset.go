@@ -117,7 +117,7 @@ type toolRegistry struct {
 	mu sync.Mutex
 }
 
-func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
+func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, error) {
 	registry := &toolRegistry{
 		rootNamespace: cfg.rootNamespace,
 		rootTools:     cfg.tools,
@@ -167,14 +167,16 @@ func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 		if !state.active {
 			continue
 		}
-		tools, err := resolveToolSet(context.Background(), state)
+		tools, err := resolveToolSet(ctx, state)
 		if err != nil {
 			return nil, err
 		}
 		state.resolved = tools
 	}
 	if source, ok := cfg.transcript.(ActiveToolSetSource); ok {
-		registry.restore(source.ActiveToolSets())
+		if err := registry.restore(ctx, source.ActiveToolSets()); err != nil {
+			return nil, err
+		}
 	}
 	if err := registry.rebuild(); err != nil {
 		return nil, err
@@ -186,17 +188,22 @@ func newToolRegistry(cfg *sessionConfig) (*toolRegistry, error) {
 // It never fails the Session over a restored name: a name nothing installed
 // carries, a ToolSet that no longer resolves, a ToolSet whose Tools collide with
 // Tools already visible, and a ToolSet past MaxActiveToolSets all stay off,
-// each on its own, so the model can activate them again.
-func (r *toolRegistry) restore(names []string) {
+// each on its own, so the model can activate them again. A context that ends
+// during the restore fails it instead: the caller no longer wants the Session.
+func (r *toolRegistry) restore(ctx context.Context, names []string) error {
 	for _, name := range names {
 		for _, state := range r.sets {
 			if state.spec.Name != name || state.active {
 				continue
 			}
 			if limitExceededUint32(r.explicit, r.maxActive, r.activeCount()+1) {
-				return
+				return nil
 			}
-			tools, err := resolveToolSet(context.Background(), state)
+			tools, err := resolveToolSet(ctx, state)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// A cancelled caller gets no half-restored Session.
+				return runtimeError(codeForContext(ctxErr), "NewSession", "context ended while restoring ToolSets", ctxErr)
+			}
 			if err != nil {
 				break
 			}
@@ -211,6 +218,7 @@ func (r *toolRegistry) restore(names []string) {
 			break
 		}
 	}
+	return nil
 }
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a

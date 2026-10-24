@@ -813,7 +813,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			r.attachRunID(handle, runID)
 			handle.abortIfStopped()
 		})
-		live, auto, err := r.buildSession(spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed))
+		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed))
 		if err != nil {
 			return abandon(err)
 		}
@@ -985,7 +985,7 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 // so every step of a Run is written as it happens; without one the Record is,
 // and keeps the Session's Events in memory. extra options come after the
 // Agent's own.
-func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Writer, override InspectOptions, extra ...gotato.Option) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record, writer *session.Writer, override InspectOptions, extra ...gotato.Option) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
 	// positions in the log that this Run does not write.
@@ -1039,7 +1039,7 @@ func (r *Runner) buildSession(spec Agent, s *session.Record, writer *session.Wri
 	}
 	options = append(options, spec.Options...)
 	options = append(options, extra...)
-	agent, err := gotato.NewSession(options...)
+	agent, err := gotato.NewSessionContext(ctx, options...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1092,7 +1092,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if len(options) > 0 {
 		override = options[0]
 	}
-	live, auto, err := r.buildSession(spec, s, nil, override)
+	live, auto, err := r.buildSession(ctx, spec, s, nil, override)
 	if err != nil {
 		return modelctx.Report{}, err
 	}
