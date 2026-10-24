@@ -620,6 +620,9 @@ func StatusFor(err error) int {
 			return http.StatusServiceUnavailable
 		case gotato.ErrLimitExceeded:
 			return http.StatusTooManyRequests
+		case gotato.ErrContextOverflow:
+			// The request is well-formed, and the Model cannot take it as it is.
+			return http.StatusUnprocessableEntity
 		case gotato.ErrInvalidState:
 			return http.StatusConflict
 		case gotato.ErrDeadlineExceeded:

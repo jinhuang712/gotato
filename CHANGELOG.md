@@ -145,7 +145,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   after   run_ended {"status":"failed","cause":"context_overflow"}
   ```
 
-  A Claude reply that stops with `model_context_window_exceeded` is now a cut-off reply (`max_tokens`), where it was read as a finished one.
+  A Claude reply that stops with `model_context_window_exceeded` was read as a finished one. It now fails the Run with `context_overflow` too, keeps the text received as a cut-off reply, and is never continued as an output-limit stop (`MaxTruncatedContinuations` does not apply), since a continuation would ask the model again on a full window. HTTP maps an error with this code to `422` where it is returned as a call's error; a Run that fails with it is still a `200` with the code in `result.error`.
 - **A model's context window and cache retention are known to the gateway.** The new `context_window` key (`Config.ContextWindow`, in tokens; 0 is unknown, and gotato keeps no table of windows) is read back by `Client.ContextWindow()`. `Client.CacheRetention()` says how long the provider keeps the prompt cache as the client asks for it: 1 hour or 5 minutes on Claude's Messages API, 30 minutes on Responses when it sends a ttl, and 0 (unknown) elsewhere. `modelctx.WindowOf` and `modelctx.RetentionOf` read both from any `gotato.Model` that has the methods.
 
 ### Events

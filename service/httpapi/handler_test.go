@@ -396,3 +396,48 @@ func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
 		t.Fatalf("body = %s, want a stable message", body)
 	}
 }
+
+type overflowingModel struct{}
+
+func (overflowingModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
+	return nil, overflowErr{}
+}
+
+type overflowErr struct{}
+
+func (overflowErr) Error() string         { return "prompt is too long" }
+func (overflowErr) ContextOverflow() bool { return true }
+
+func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
+	runner, err := service.New(service.Config{
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "big", Model: overflowingModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	t.Cleanup(server.Close)
+
+	status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi"})
+	// A Run that fails is a finished Run: 200, with the failure in the result.
+	var out struct {
+		Result struct {
+			Status string `json:"status"`
+			Error  struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("body = %s: %v", body, err)
+	}
+	if status != http.StatusOK || out.Result.Status != "failed" || out.Result.Error.Code != "context_overflow" || !strings.Contains(out.Result.Error.Message, "prompt is too long") {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	// The same error, returned as a call's error, is 422.
+	if got := httpapi.StatusFor(gotato.ErrorOf(gotato.ErrContextOverflow, "prompt is too long")); got != http.StatusUnprocessableEntity {
+		t.Fatalf("StatusFor(context_overflow) = %d, want 422", got)
+	}
+}
