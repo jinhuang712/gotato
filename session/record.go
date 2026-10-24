@@ -29,6 +29,7 @@ func (s *Record) startLog() {
 		Messages:    cloneMessages(s.messages),
 		Metadata:    maps.Clone(s.metadata),
 		Compactions: slices.Clone(s.compactions),
+		ToolSets:    slices.Clone(s.toolSets),
 	}
 	created.Time = s.createdAt
 	if s.parentID != "" {
@@ -95,7 +96,7 @@ func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message,
 	s.touch()
 	s.emit(gotato.CompactionEnded{
 		Header: s.header(), Instance: s.claim.Instance, Epoch: s.claim.Epoch, Why: why, Compaction: compaction, History: slices.Clone(s.compactions),
-		Messages: cloneMessages(s.messages), Metadata: maps.Clone(s.metadata),
+		Messages: cloneMessages(s.messages), Metadata: maps.Clone(s.metadata), ToolSets: slices.Clone(s.toolSets),
 	})
 }
 
@@ -165,6 +166,7 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = e.Compactions
+		s.toolSets = slices.Clone(e.ToolSets)
 		s.started = nil
 		s.openParts = nil
 	case gotato.CompactionEnded:
@@ -178,6 +180,7 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = e.History
+		s.toolSets = slices.Clone(e.ToolSets)
 		if e.Instance != "" {
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 		}
@@ -204,6 +207,8 @@ func (s *Record) apply(entry Entry) error {
 		} else {
 			s.metadata[e.Key] = e.Value
 		}
+	case gotato.ToolSetActivated:
+		s.activate(e.ToolSet)
 	case gotato.SessionClaimed:
 		s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 		s.busy = true

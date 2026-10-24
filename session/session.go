@@ -70,7 +70,9 @@ type Document struct {
 	Usage       gotato.Usage      `json:"usage"`
 	Compactions []Compaction      `json:"compactions,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
-	EventLimit  int               `json:"event_limit,omitempty"`
+	// ToolSets are the ToolSets the model switched on (Record.ActiveToolSets).
+	ToolSets   []string `json:"tool_sets,omitempty"`
+	EventLimit int      `json:"event_limit,omitempty"`
 	// Seq is the position of the last Entry the store held when this
 	// Document was read; 0 for a Record never stored.
 	Seq uint64 `json:"seq,omitempty"`
@@ -130,8 +132,10 @@ type Record struct {
 	usage       gotato.Usage
 	compactions []Compaction
 	metadata    map[string]string
-	eventLimit  int
-	now         func() time.Time
+	// toolSets are the ToolSets the model switched on, in the order it did.
+	toolSets   []string
+	eventLimit int
+	now        func() time.Time
 
 	// parentSeq is the parent's head when this Record was forked from it.
 	parentSeq uint64
@@ -278,6 +282,7 @@ func Load(doc Document) (*Record, error) {
 		usage:       doc.Usage,
 		compactions: slices.Clone(doc.Compactions),
 		metadata:    maps.Clone(doc.Metadata),
+		toolSets:    slices.Clone(doc.ToolSets),
 		eventLimit:  doc.EventLimit,
 		now:         time.Now,
 		retainRead:  true,
@@ -314,6 +319,7 @@ func (s *Record) Snapshot() Document {
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
+		ToolSets:      slices.Clone(s.toolSets),
 		EventLimit:    s.eventLimit,
 		Seq:           s.head,
 	}
@@ -448,7 +454,25 @@ func (s *Record) foldLive(event gotato.Event) {
 		s.running = e.RunID
 	case gotato.RunEnded:
 		s.endRun(runEnded(e))
+	case gotato.ToolSetActivated:
+		s.activate(e.ToolSet)
 	}
+}
+
+// activate adds a ToolSet to the active ones. The caller holds the lock.
+func (s *Record) activate(name string) {
+	if !slices.Contains(s.toolSets, name) {
+		s.toolSets = append(s.toolSets, name)
+	}
+}
+
+// ActiveToolSets returns the names of the ToolSets the model switched on in
+// the Session, in the order it did. A Session restores them in later Runs,
+// a fork inherits them, and a Checkpoint keeps them.
+func (s *Record) ActiveToolSets() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.toolSets)
 }
 
 func runStarted(e gotato.RunStarted) Run {
@@ -643,6 +667,7 @@ func Fork(parent *Record, options ...Option) *Record {
 	child.messages = doc.Messages
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
+	child.toolSets = doc.ToolSets
 	if len(child.metadata) == 0 {
 		child.metadata = doc.Metadata
 		if child.metadata == nil {

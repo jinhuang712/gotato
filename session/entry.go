@@ -37,6 +37,7 @@ var factKinds = map[gotato.EventKind]bool{
 	gotato.KindToolResultCommitted: true,
 	gotato.KindToolStarted:         true,
 	gotato.KindMetadataChanged:     true,
+	gotato.KindToolSetActivated:    true,
 	gotato.KindSessionClaimed:      true,
 }
 

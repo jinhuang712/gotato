@@ -316,6 +316,9 @@ func (w *Writer) ID() string { return w.record.ID() }
 // Len implements gotato.Transcript.
 func (w *Writer) Len() int { return w.record.Len() }
 
+// ActiveToolSets implements gotato.ActiveToolSetSource over the Record.
+func (w *Writer) ActiveToolSets() []string { return w.record.ActiveToolSets() }
+
 // Messages implements gotato.Transcript.
 func (w *Writer) Messages() []gotato.Message { return w.record.Messages() }
 
