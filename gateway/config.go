@@ -43,6 +43,9 @@ type YAMLConfig struct {
 	Provider       string `yaml:"provider"`
 	CacheRetention string `yaml:"cache_retention"`
 	NoDropBlock    bool   `yaml:"no_drop_block"`
+	// ContextWindow is the model's context window in tokens (Config's field
+	// of the same name).
+	ContextWindow int `yaml:"context_window"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -84,6 +87,7 @@ func ParseYAML(data []byte) (Config, error) {
 		NoRetries:      fileConfig.NoRetries,
 		Provider:       fileConfig.Provider,
 		NoDropBlock:    fileConfig.NoDropBlock,
+		ContextWindow:  fileConfig.ContextWindow,
 	}
 	if fileConfig.CacheRetention != "" {
 		retention, err := time.ParseDuration(strings.TrimSpace(fileConfig.CacheRetention))

@@ -83,6 +83,10 @@ type Config struct {
 	// changed (block_binding drop_block) on the models that check it; the
 	// provider then refuses such a request instead.
 	NoDropBlock bool
+	// ContextWindow is the model's context window in tokens. Zero means
+	// unknown: the gateway keeps no table of windows, and compaction then
+	// has no default ceiling. Negative is refused.
+	ContextWindow int
 }
 
 type Client struct {
@@ -98,6 +102,7 @@ type Client struct {
 	retryBackoff   time.Duration
 	provider       string
 	rules          providerRules
+	contextWindow  int
 }
 
 func New(config Config) (*Client, error) {
@@ -143,6 +148,9 @@ func New(config Config) (*Client, error) {
 	retention, err := cacheRetention(config.CacheRetention)
 	if err != nil {
 		return nil, err
+	}
+	if config.ContextWindow < 0 {
+		return nil, fmt.Errorf("gateway: ContextWindow cannot be negative")
 	}
 	if config.MaxRetries < 0 {
 		return nil, fmt.Errorf("gateway: MaxRetries cannot be negative")
@@ -206,7 +214,30 @@ func New(config Config) (*Client, error) {
 		retryBackoff:   backoff,
 		provider:       provider,
 		rules:          newProviderRules(provider, api, config.Model, retention, config.NoDropBlock),
+		contextWindow:  config.ContextWindow,
 	}, nil
+}
+
+// ContextWindow returns the model's context window in tokens as configured,
+// or 0 when it is not. The gateway keeps no table of windows.
+func (c *Client) ContextWindow() int { return c.contextWindow }
+
+// CacheRetention returns how long the provider keeps the prompt cache after a
+// request, as far as this client knows: the cache_control ttl it sends on
+// Anthropic Messages (1h, or 5m, the provider's default, when a shorter
+// retention is configured), and 30m when it sends the Responses API a
+// prompt_cache_options ttl. It is 0, unknown, everywhere else.
+func (c *Client) CacheRetention() time.Duration {
+	switch {
+	case c.provider == ProviderAnthropic && c.api == APIAnthropicMessages:
+		if c.rules.anthropicCacheTTL == anthropicLongTTL {
+			return time.Hour
+		}
+		return 5 * time.Minute
+	case c.rules.responsesCacheTTL == responsesTTL:
+		return 30 * time.Minute
+	}
+	return 0
 }
 
 // Supported wire protocols. Legacy spellings are accepted as aliases.
@@ -276,7 +307,15 @@ type Error struct {
 	StatusCode int
 	Retryable  bool
 	Message    string
+	// Overflow is set when the provider refused the request, with a 400 or
+	// 413, because it was longer than the model's context window.
+	Overflow bool
 }
+
+// ContextOverflow reports whether the request was refused for being too long.
+// The runtime reads it by this method, so it imports nothing from here, and
+// ends the Run with the code context_overflow instead of model_failure.
+func (e *Error) ContextOverflow() bool { return e != nil && e.Overflow }
 
 func (e *Error) Error() string {
 	if e == nil {
@@ -344,7 +383,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			}
 			continue
 		}
-		return nil, &Error{StatusCode: response.StatusCode, Retryable: retryable, Message: message}
+		return nil, httpError(response.StatusCode, retryable, message)
 	}
 }
 

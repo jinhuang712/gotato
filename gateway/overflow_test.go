@@ -1,0 +1,207 @@
+package gateway
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	gotato "github.com/jinhuang712/gotato"
+)
+
+// refusingServer answers every request with status and body, and counts them.
+func refusingServer(status int, body string, calls *atomic.Int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
+	cases := []struct {
+		name   string
+		api    string
+		status int
+		body   string
+		want   bool
+	}{
+		{"chat 400", APIChatCompletions, 400, `{"error":{"message":"This model's maximum context length is 8192 tokens. However, your messages resulted in 9000 tokens.","code":"context_length_exceeded"}}`, true},
+		{"chat 413", APIChatCompletions, 413, `{"error":{"message":"Prompt is too long"}}`, true},
+		{"responses 400", APIResponses, 400, `{"error":{"message":"Your input exceeds the context window of this model."}}`, true},
+		{"anthropic 400", APIAnthropicMessages, 400, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}`, true},
+		{"anthropic input plus max_tokens", APIAnthropicMessages, 400, `{"type":"error","error":{"type":"invalid_request_error","message":"input length and max_tokens exceed context limit: 190000 + 21333 > 200000"}}`, true},
+		{"other 400", APIChatCompletions, 400, `{"error":{"message":"messages must not be empty"}}`, false},
+		{"phrase on another status", APIChatCompletions, 500, `{"error":{"message":"maximum context length"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := refusingServer(tc.status, tc.body, &calls)
+			defer server.Close()
+			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+			var gatewayErr *Error
+			if !errors.As(err, &gatewayErr) {
+				t.Fatalf("err = %v", err)
+			}
+			if gatewayErr.Overflow != tc.want || gatewayErr.ContextOverflow() != tc.want {
+				t.Fatalf("Overflow = %v, want %v (%+v)", gatewayErr.Overflow, tc.want, gatewayErr)
+			}
+			if tc.want && gatewayErr.Retryable {
+				t.Fatalf("an overflow must not be retried: %+v", gatewayErr)
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
+			}
+		})
+	}
+}
+
+func TestOverflowErrorFlowsThroughAWrappedError(t *testing.T) {
+	var err error = &Error{StatusCode: 400, Message: "prompt is too long", Overflow: true}
+	var overflow interface{ ContextOverflow() bool }
+	if !errors.As(err, &overflow) || !overflow.ContextOverflow() {
+		t.Fatal("the Error is not found by its method")
+	}
+	var nilErr *Error
+	if nilErr.ContextOverflow() {
+		t.Fatal("a nil Error is an overflow")
+	}
+}
+
+func TestResponsesStreamErrorNamesOverflow(t *testing.T) {
+	for _, event := range []string{
+		`{"type":"error","code":"context_length_exceeded","message":"Input is too large"}`,
+		`{"type":"response.failed","response":{"status":"failed","error":{"code":"context_length_exceeded","message":"too much"}}}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: " + event + "\n\n"))
+		}))
+		client, err := New(Config{API: APIResponses, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = collectEvents(t, stream)
+		_ = stream.Close()
+		server.Close()
+		var gatewayErr *Error
+		if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+			t.Fatalf("%s: err = %v", event, err)
+		}
+	}
+}
+
+func TestAnthropicStreamErrorNamesOverflow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}`)
+	}))
+	defer server.Close()
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	_, err = collectEvents(t, stream)
+	var gatewayErr *Error
+	if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAnthropicContextWindowExceededIsACutOffReply(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, data := range []string{
+			`{"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"half"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded"},"usage":{"output_tokens":2}}`,
+			`{"type":"message_stop"}`,
+		} {
+			writeSSE(t, w, data)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	events, err := collectEvents(t, stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := events[len(events)-1]
+	if done.Kind != gotato.ModelDone || done.StopReason != gotato.StopMaxTokens {
+		t.Fatalf("last event = %+v, want done with max_tokens", done)
+	}
+}
+
+func TestContextWindowFromConfigAndYAML(t *testing.T) {
+	client, err := New(Config{BaseURL: "https://gw.example.com", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.ContextWindow() != 0 {
+		t.Fatalf("unset window = %d", client.ContextWindow())
+	}
+	client, err = New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindow: 200000})
+	if err != nil || client.ContextWindow() != 200000 {
+		t.Fatalf("window = %v, err %v", client, err)
+	}
+	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindow: -1}); err == nil {
+		t.Fatal("a negative window was accepted")
+	}
+	config, err := ParseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
+	if err != nil || config.ContextWindow != 128000 {
+		t.Fatalf("config = %+v, err %v", config, err)
+	}
+}
+
+func TestCacheRetentionIsWhatTheClientAsksFor(t *testing.T) {
+	t.Setenv(CacheRetentionEnv, "")
+	cases := []struct {
+		name   string
+		config Config
+		want   time.Duration
+	}{
+		{"claude, longest", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m"}, time.Hour},
+		{"claude, one hour asked", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", CacheRetention: time.Hour}, time.Hour},
+		{"claude, shorter keeps the default", Config{API: APIAnthropicMessages, Provider: ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", CacheRetention: 10 * time.Minute}, 5 * time.Minute},
+		{"claude model behind an unrecognized address", Config{API: APIAnthropicMessages, Provider: ProviderOther, BaseURL: "https://gw.example.com", Model: "m"}, 0},
+		{"responses with a ttl", Config{API: APIResponses, Provider: ProviderOpenAI, BaseURL: "https://gw.example.com", Model: "gpt-5.6"}, 30 * time.Minute},
+		{"responses without one", Config{API: APIResponses, Provider: ProviderOpenAI, BaseURL: "https://gw.example.com", Model: "gpt-5.6", CacheRetention: 5 * time.Minute}, 0},
+		{"chat completions", Config{BaseURL: "https://gw.example.com", Model: "m"}, 0},
+	}
+	for _, tc := range cases {
+		client, err := New(tc.config)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := client.CacheRetention(); got != tc.want {
+			t.Errorf("%s: CacheRetention = %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}

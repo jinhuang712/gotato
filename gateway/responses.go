@@ -89,7 +89,7 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 			}
 			continue
 		}
-		return nil, &Error{StatusCode: response.StatusCode, Retryable: retryable, Message: message}
+		return nil, httpError(response.StatusCode, retryable, message)
 	}
 }
 
@@ -545,7 +545,11 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses response failed"
 		}
-		s.finishWithError(fmt.Errorf("gateway: Responses response failed: %s", message))
+		code := ""
+		if event.Response != nil && event.Response.Error != nil {
+			code = event.Response.Error.Code
+		}
+		s.finishWithError(responsesStreamError("Responses response failed", message, code))
 	case "error":
 		message := event.Message
 		if message == "" {
@@ -554,8 +558,17 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses stream error"
 		}
-		s.finishWithError(fmt.Errorf("gateway: Responses stream error: %s", message))
+		s.finishWithError(responsesStreamError("Responses stream error", message, event.Code))
 	}
+}
+
+// responsesStreamError is the error of a failed Responses stream. One that
+// names a context overflow is an *Error with Overflow set.
+func responsesStreamError(what, message, code string) error {
+	if mentionsOverflow(message) || mentionsOverflow(code) {
+		return &Error{Message: what + ": " + message, Overflow: true}
+	}
+	return fmt.Errorf("gateway: %s: %s", what, message)
 }
 
 func responsesItemRaw(event []byte) []byte {

@@ -515,7 +515,11 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		if event.Error != nil {
 			message, kind = event.Error.Message, event.Error.Type
 		}
-		return &Error{Retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error", Message: message}
+		return &Error{
+			Retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
+			Message:   message,
+			Overflow:  kind == "invalid_request_error" && mentionsOverflow(message),
+		}
 	}
 	return nil
 }
@@ -598,6 +602,10 @@ func anthropicStopReason(reason string) gotato.StopReason {
 		return gotato.StopMaxTokens
 	case "refusal":
 		return gotato.StopError
+	case "model_context_window_exceeded":
+		// The window ran out during the reply: a cut-off reply, like
+		// max_tokens, not a finished one.
+		return gotato.StopMaxTokens
 	default:
 		return gotato.StopEndTurn
 	}
