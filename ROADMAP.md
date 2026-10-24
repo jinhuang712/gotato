@@ -175,6 +175,9 @@ Exit:
 - A test reads a Segment back with `read_segment`, merges the oldest Segments, and checks that every instance offers the same ToolSets after a load, from a Checkpoint or between two.
 - A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
+- G-G07 and G-G09 pass across Runs, reloads and instances, and G-G11 passes for every fault it lists.
+- G-G10 passes on the `long_session` task, and G-B14, G-B15 and G-B16 have a number.
+- G-E01 is run on the payments example before the Recap written by the model is on by default.
 
 ## Phase 7 — Structured output
 
