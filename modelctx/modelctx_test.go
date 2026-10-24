@@ -223,10 +223,10 @@ func TestCompactShrinksSinglePromptToolTail(t *testing.T) {
 	}
 }
 
-func TestTruncateSummarizerCutsOnRuneBoundary(t *testing.T) {
+func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
 	messages := []gotato.Message{gotato.UserMessage(strings.Repeat("é", 100))}
 	for limit := 1; limit < 140; limit++ {
-		summary, err := (modelctx.TruncateSummarizer{MaxChars: limit}).Summarize(context.Background(), messages)
+		summary, err := (modelctx.TruncateRecap{MaxChars: limit}).WriteRecap(context.Background(), messages)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,9 +273,9 @@ func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
 	}
 }
 
-func TestModelSummarizer(t *testing.T) {
+func TestModelRecap(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("they discussed things"))
-	summary, err := modelctx.ModelSummarizer{Model: model}.Summarize(context.Background(), toolConversation())
+	summary, err := modelctx.ModelRecap{Model: model}.WriteRecap(context.Background(), toolConversation())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,22 +294,22 @@ func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.Model
 	return nil, nil
 }
 
-func TestModelSummarizerRejectsIncompleteStream(t *testing.T) {
+func TestModelRecapRejectsIncompleteStream(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
-	if _, err := (modelctx.ModelSummarizer{Model: model}).Summarize(context.Background(), toolConversation()); err == nil {
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), toolConversation()); err == nil {
 		t.Fatal("expected an error when the stream ends before ModelDone")
 	}
 }
 
-func TestModelSummarizerRejectsEmptySummary(t *testing.T) {
+func TestModelRecapRejectsEmptySummary(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}})
-	if _, err := (modelctx.ModelSummarizer{Model: model}).Summarize(context.Background(), toolConversation()); err == nil {
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), toolConversation()); err == nil {
 		t.Fatal("expected an error for an empty summary")
 	}
 }
 
-func TestModelSummarizerRejectsNilStream(t *testing.T) {
-	if _, err := (modelctx.ModelSummarizer{Model: nilStreamModel{}}).Summarize(context.Background(), toolConversation()); err == nil {
+func TestModelRecapRejectsNilStream(t *testing.T) {
+	if _, err := (modelctx.ModelRecap{Model: nilStreamModel{}}).WriteRecap(context.Background(), toolConversation()); err == nil {
 		t.Fatal("expected an error when the Model returns a nil stream")
 	}
 }
@@ -322,7 +322,7 @@ func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
 	_ = s.Append(gotato.AssistantMessage("a2"))
 	before := len(s.Messages())
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
-	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 1, Summarizer: modelctx.ModelSummarizer{Model: model}}); err == nil {
+	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 1, Recap: modelctx.ModelRecap{Model: model}}); err == nil {
 		t.Fatal("expected Compact to fail when the summary stream is incomplete")
 	}
 	if len(s.Messages()) != before {
@@ -330,11 +330,11 @@ func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
 	}
 }
 
-type failingSummarizer struct{}
+type failingRecap struct{}
 
-func (failingSummarizer) Name() string { return "failing" }
-func (failingSummarizer) Summarize(context.Context, []gotato.Message) (gotato.Message, error) {
-	return gotato.Message{}, errors.New("summarizer down")
+func (failingRecap) Name() string { return "failing" }
+func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
+	return gotato.Message{}, errors.New("recap writer down")
 }
 
 // A failed summary leaves the Messages as they are, and the Record says so:
@@ -347,8 +347,8 @@ func TestCompactFailureEmitsCompactionFailed(t *testing.T) {
 	if _, err := session.Create(context.Background(), session.NewMemoryStore(), s, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2, Summarizer: failingSummarizer{}}); err == nil {
-		t.Fatal("Compact hid the summarizer's failure")
+	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2, Recap: failingRecap{}}); err == nil {
+		t.Fatal("Compact hid the recap writer's failure")
 	}
 	if s.Len() != 6 || len(s.Compactions()) != 0 {
 		t.Fatalf("a failed compaction changed the Record: %d Messages, %+v", s.Len(), s.Compactions())

@@ -227,9 +227,9 @@ type Compaction struct {
 	FromMessageID    MessageID `json:"from_message_id,omitempty"`
 	ToMessageID      MessageID `json:"to_message_id,omitempty"`
 	SummaryMessageID MessageID `json:"summary_message_id"`
-	// Summarizer names what wrote the Recap, or "none" when the Segment
+	// Recap names what wrote the Recap, or "none" when the Segment
 	// has none.
-	Summarizer  string `json:"summarizer"`
+	Recap       string `json:"recap"`
 	BytesBefore int    `json:"bytes_before"`
 	BytesAfter  int    `json:"bytes_after"`
 	// Segment is the number of the Segment the compaction closed, or 0 for

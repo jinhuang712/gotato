@@ -107,7 +107,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 	writer.Record().Checkpoint(gotato.CompactionBeforeUnload,
 		[]gotato.Message{gotato.AssistantMessage("summary"), gotato.UserMessage("three")},
-		&session.Compaction{ReplacedMessages: 2, Summarizer: "test"})
+		&session.Compaction{ReplacedMessages: 2, Recap: "test"})
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -162,11 +162,11 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 }
 
-type failingSummarizer struct{}
+type failingRecap struct{}
 
-func (failingSummarizer) Name() string { return "failing" }
-func (failingSummarizer) Summarize(context.Context, []gotato.Message) (gotato.Message, error) {
-	return gotato.Message{}, errors.New("summarizer down")
+func (failingRecap) Name() string { return "failing" }
+func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
+	return gotato.Message{}, errors.New("recap writer down")
 }
 
 // modelctx.Compact writes compaction_started first and then compaction_ended,
@@ -184,8 +184,8 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		commit(t, writer, gotato.AssistantMessage("ok "+text))
 	}
 	before := storedKinds(t, store, "cmp-1", 0)
-	if _, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 2, Summarizer: failingSummarizer{}}); err == nil {
-		t.Fatal("Compact hid the summarizer's failure")
+	if _, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 2, Recap: failingRecap{}}); err == nil {
+		t.Fatal("Compact hid the recap writer's failure")
 	}
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)

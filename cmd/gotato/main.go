@@ -359,7 +359,7 @@ Usage:
 Commands:
   run        [--session ID] [--model echo|demo|gateway] [--compact-ceiling N] [--json|--events jsonl] "prompt"
   session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | delete <id>
-  context    inspect <id> | build <id> | compact <id> [--keep N] [--summarizer truncate|model]
+  context    inspect <id> | build <id> | compact <id> [--keep N] [--recap truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
   serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait]   HTTP session service

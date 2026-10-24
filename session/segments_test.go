@@ -64,7 +64,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			if len(record.Segments()) != 0 {
 				t.Fatal("a closed Segment is in the Context before a Checkpoint lists it")
 			}
-			if err := record.CheckpointSegments(gotato.CompactionPastCeiling, []int{1}, record.Tail()[2:], &session.Compaction{Segment: 1, Summarizer: "none"}); err != nil {
+			if err := record.CheckpointSegments(gotato.CompactionPastCeiling, []int{1}, record.Tail()[2:], &session.Compaction{Segment: 1, Recap: "none"}); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Flush(ctx); err != nil {

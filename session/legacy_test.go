@@ -415,7 +415,7 @@ func TestFileStoreLoadsASchemaV1DocumentAsALegacyRecord(t *testing.T) {
 		Runs:        []session.Run{{RunID: "run-1", Status: gotato.RunCompleted, Turns: 1}},
 		Usage:       gotato.Usage{TotalTokens: 7},
 		Metadata:    map[string]string{"agent": "support"},
-		Compactions: []session.Compaction{{ReplacedMessages: 3, Summarizer: "truncate"}},
+		Compactions: []session.Compaction{{ReplacedMessages: 3, Recap: "truncate"}},
 	}
 	if err := os.WriteFile(filepath.Join(dir, "doc-1.json"), mustJSON(t, doc), 0o600); err != nil {
 		t.Fatal(err)

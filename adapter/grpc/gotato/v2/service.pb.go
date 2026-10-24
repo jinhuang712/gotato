@@ -2396,7 +2396,7 @@ type Compaction struct {
 	FromMessageId    string                 `protobuf:"bytes,3,opt,name=from_message_id,json=fromMessageId,proto3" json:"from_message_id,omitempty"`
 	ToMessageId      string                 `protobuf:"bytes,4,opt,name=to_message_id,json=toMessageId,proto3" json:"to_message_id,omitempty"`
 	SummaryMessageId string                 `protobuf:"bytes,5,opt,name=summary_message_id,json=summaryMessageId,proto3" json:"summary_message_id,omitempty"`
-	Summarizer       string                 `protobuf:"bytes,6,opt,name=summarizer,proto3" json:"summarizer,omitempty"`
+	Recap            string                 `protobuf:"bytes,6,opt,name=recap,proto3" json:"recap,omitempty"`
 	BytesBefore      int32                  `protobuf:"varint,7,opt,name=bytes_before,json=bytesBefore,proto3" json:"bytes_before,omitempty"`
 	BytesAfter       int32                  `protobuf:"varint,8,opt,name=bytes_after,json=bytesAfter,proto3" json:"bytes_after,omitempty"`
 	// segment is the number of the Segment the compaction closed, or 0.
@@ -2476,9 +2476,9 @@ func (x *Compaction) GetSummaryMessageId() string {
 	return ""
 }
 
-func (x *Compaction) GetSummarizer() string {
+func (x *Compaction) GetRecap() string {
 	if x != nil {
-		return x.Summarizer
+		return x.Recap
 	}
 	return ""
 }
@@ -5962,17 +5962,15 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"ForkedFrom\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
-	"\x06number\x18\x02 \x01(\x04R\x06number\"\xf3\x03\n" +
+	"\x06number\x18\x02 \x01(\x04R\x06number\"\xe9\x03\n" +
 	"\n" +
 	"Compaction\x12\x0e\n" +
 	"\x02at\x18\x01 \x01(\tR\x02at\x12+\n" +
 	"\x11replaced_messages\x18\x02 \x01(\x05R\x10replacedMessages\x12&\n" +
 	"\x0ffrom_message_id\x18\x03 \x01(\tR\rfromMessageId\x12\"\n" +
 	"\rto_message_id\x18\x04 \x01(\tR\vtoMessageId\x12,\n" +
-	"\x12summary_message_id\x18\x05 \x01(\tR\x10summaryMessageId\x12\x1e\n" +
-	"\n" +
-	"summarizer\x18\x06 \x01(\tR\n" +
-	"summarizer\x12!\n" +
+	"\x12summary_message_id\x18\x05 \x01(\tR\x10summaryMessageId\x12\x14\n" +
+	"\x05recap\x18\x06 \x01(\tR\x05recap\x12!\n" +
 	"\fbytes_before\x18\a \x01(\x05R\vbytesBefore\x12\x1f\n" +
 	"\vbytes_after\x18\b \x01(\x05R\n" +
 	"bytesAfter\x12\x18\n" +

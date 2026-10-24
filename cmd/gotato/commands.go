@@ -380,7 +380,7 @@ func (c *cli) contextCompact(args []string) int {
 	var flags modelFlags
 	bindModel(fs, &flags)
 	keep := fs.Int("keep", 4, "number of recent messages to keep verbatim")
-	summarizer := fs.String("summarizer", "truncate", "truncate (deterministic) or model (uses the session's agent, or --model)")
+	recapFlag := fs.String("recap", "truncate", "truncate (deterministic) or model (uses the session's agent, or --model)")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -394,10 +394,10 @@ func (c *cli) contextCompact(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	var summ modelctx.Summarizer
-	switch *summarizer {
+	var writer modelctx.RecapWriter
+	switch *recapFlag {
 	case "truncate", "":
-		summ = modelctx.TruncateSummarizer{}
+		writer = modelctx.TruncateRecap{}
 	case "model":
 		agent, err := rt.resolveAgent(flags.model, c.getenv)
 		if err != nil {
@@ -414,11 +414,11 @@ func (c *cli) contextCompact(args []string) int {
 		if !ok {
 			return c.failErr(service.ErrUnknownAgent)
 		}
-		summ = modelctx.ModelSummarizer{Model: spec.Model, Label: "model:" + spec.Name}
+		writer = modelctx.ModelRecap{Model: spec.Model, Label: "model:" + spec.Name}
 	default:
-		return c.usageError("unknown summarizer " + *summarizer)
+		return c.usageError("unknown recap writer " + *recapFlag)
 	}
-	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactOptions{Keep: *keep, Summarizer: summ})
+	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactOptions{Keep: *keep, Recap: writer})
 	if err != nil {
 		return c.failErr(err)
 	}

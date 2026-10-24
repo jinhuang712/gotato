@@ -62,7 +62,7 @@ func compactionOf(c *gotato.Compaction) *gotatov2.Compaction {
 	}
 	return &gotatov2.Compaction{
 		At: wireTime(c.At), ReplacedMessages: int32(c.ReplacedMessages), FromMessageId: string(c.FromMessageID), ToMessageId: string(c.ToMessageID),
-		SummaryMessageId: string(c.SummaryMessageID), Summarizer: c.Summarizer, BytesBefore: int32(c.BytesBefore), BytesAfter: int32(c.BytesAfter),
+		SummaryMessageId: string(c.SummaryMessageID), Recap: c.Recap, BytesBefore: int32(c.BytesBefore), BytesAfter: int32(c.BytesAfter),
 		Segment: int32(c.Segment), TokensBefore: int32(c.TokensBefore), TokensAfter: int32(c.TokensAfter), Ceiling: int32(c.Ceiling),
 		RecapUsage: recapUsageOf(c.RecapUsage), ToolSets: c.ToolSets,
 	}

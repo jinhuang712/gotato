@@ -283,7 +283,7 @@ message Compaction {
   string from_message_id = 3;
   string to_message_id = 4;
   string summary_message_id = 5;
-  string summarizer = 6;
+  string recap = 6;
   int32 bytes_before = 7;
   int32 bytes_after = 8;
   // segment is the number of the Segment the compaction closed, or 0.

@@ -15,25 +15,25 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// Summarizer turns a run of Messages into one summary Message. The Message it
+// RecapWriter turns a run of Messages into one summary Message. The Message it
 // returns should be user-role text; Compact tags it as a compaction summary.
-type Summarizer interface {
+type RecapWriter interface {
 	Name() string
-	Summarize(context.Context, []gotato.Message) (gotato.Message, error)
+	WriteRecap(context.Context, []gotato.Message) (gotato.Message, error)
 }
 
-// TruncateSummarizer is the deterministic default: it lists the text of the
+// TruncateRecap is the deterministic default: it lists the text of the
 // Messages by role and truncates to MaxChars (default 2000). It needs no
 // Model, so it is safe in tests and CI.
-type TruncateSummarizer struct {
+type TruncateRecap struct {
 	MaxChars int
 }
 
-// Name implements Summarizer.
-func (TruncateSummarizer) Name() string { return "truncate" }
+// Name implements RecapWriter.
+func (TruncateRecap) Name() string { return "truncate" }
 
-// Summarize implements Summarizer.
-func (t TruncateSummarizer) Summarize(_ context.Context, messages []gotato.Message) (gotato.Message, error) {
+// WriteRecap implements RecapWriter.
+func (t TruncateRecap) WriteRecap(_ context.Context, messages []gotato.Message) (gotato.Message, error) {
 	limit := t.MaxChars
 	if limit <= 0 {
 		limit = 2000
@@ -70,26 +70,26 @@ func (t TruncateSummarizer) Summarize(_ context.Context, messages []gotato.Messa
 	return gotato.UserMessage(text), nil
 }
 
-// ModelSummarizer asks a Model to summarize. Instruction defaults to a
+// ModelRecap asks a Model to summarize. Instruction defaults to a
 // concise, faithful summary prompt.
-type ModelSummarizer struct {
+type ModelRecap struct {
 	Model       gotato.Model
 	Instruction string
 	Label       string
 }
 
-// Name implements Summarizer.
-func (m ModelSummarizer) Name() string {
+// Name implements RecapWriter.
+func (m ModelRecap) Name() string {
 	if m.Label != "" {
 		return m.Label
 	}
 	return "model"
 }
 
-// Summarize implements Summarizer.
-func (m ModelSummarizer) Summarize(ctx context.Context, messages []gotato.Message) (gotato.Message, error) {
+// WriteRecap implements RecapWriter.
+func (m ModelRecap) WriteRecap(ctx context.Context, messages []gotato.Message) (gotato.Message, error) {
 	if m.Model == nil {
-		return gotato.Message{}, errors.New("modelctx: ModelSummarizer has no Model")
+		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
 	}
 	instruction := m.Instruction
 	if instruction == "" {
@@ -145,8 +145,8 @@ type CompactOptions struct {
 	// Keep is the number of most recent Messages to retain verbatim. The cut
 	// moves forward to a user Message so tool calls stay with their results.
 	Keep int
-	// Summarizer produces the replacement; nil means TruncateSummarizer.
-	Summarizer Summarizer
+	// Recap produces the replacement; nil means TruncateRecap.
+	Recap RecapWriter
 	// DropReasoning leaves the reasoning out of the Messages Compact keeps,
 	// for a Model whose provider is sent only the current Round's reasoning
 	// (see DropsReasoning). The summary replaces the prefix that reasoning
@@ -221,9 +221,9 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	if len(s.Segments()) > 0 {
 		return Result{}, ErrHasSegments
 	}
-	summarizer := opts.Summarizer
-	if summarizer == nil {
-		summarizer = TruncateSummarizer{}
+	writer := opts.Recap
+	if writer == nil {
+		writer = TruncateRecap{}
 	}
 	now := opts.Now
 	if now == nil {
@@ -247,7 +247,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	}
 	before, _ := json.Marshal(messages)
 	s.Emit(gotato.CompactionStarted{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
-	summary, err := summarizer.Summarize(ctx, messages[:cut])
+	summary, err := writer.WriteRecap(ctx, messages[:cut])
 	if err != nil {
 		s.Emit(gotato.CompactionFailed{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
 		return Result{}, err
@@ -270,7 +270,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		FromMessageID:    messages[0].ID,
 		ToMessageID:      messages[cut-1].ID,
 		SummaryMessageID: summary.ID,
-		Summarizer:       summarizer.Name(),
+		Recap:            writer.Name(),
 		BytesBefore:      len(before),
 		BytesAfter:       len(after),
 	}
@@ -290,7 +290,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 type CompactPolicy struct {
 	Ceiling       int
 	Floor         int
-	Summarizer    Summarizer
+	Recap         RecapWriter
 	DropReasoning bool
 	Now           func() time.Time
 }
@@ -322,7 +322,7 @@ func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) err
 		return nil
 	}
 	keep := tailWithinBudget(messages, a.policy.Floor)
-	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Summarizer: a.policy.Summarizer, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now, Why: gotato.CompactionPastCeiling})
+	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now, Why: gotato.CompactionPastCeiling})
 	if err != nil {
 		return err
 	}
