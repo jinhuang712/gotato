@@ -1505,3 +1505,4 @@ func (u unjournaled) Len() int                      { return u.record.Len() }
 func (u unjournaled) Messages() []gotato.Message    { return u.record.Messages() }
 func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
 func (u unjournaled) ID() string                    { return u.record.ID() }
+func (u unjournaled) ActiveToolSets() []string      { return u.record.ActiveToolSets() }
