@@ -135,6 +135,12 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
   The gRPC contract gains the typed `Segment`, `SegmentSource`, `ToolCallLine` and `MessagePosition`, the `segment_closed` Event, the new `Compaction` fields, and `segments`, `tail` and `tool_sets` on `session_created` and `compaction_ended` (`tool_sets` was missing there). All are additions.
 
+- **`modelctx.Compact` refuses a Record that holds Segments.** It would have flattened them into one summary and lost what they keep. It returns the new `modelctx.ErrHasSegments`, an `invalid_state` error; the Runner's `Compact` passes it on, and a Run with `AutoCompact` fails with it past the ceiling. No code closes a Segment yet, so nothing changes for a Session today.
+
+  | Before | After |
+  |---|---|
+  | `Compact` on a Record with Segments replaced them with one summary | `Compact` returns `ErrHasSegments` and leaves the Record as it was; `POST /v1/sessions/{id}/compact` answers 409, gRPC `FailedPrecondition`, `gotato context compact` exits 1 |
+
 ### Providers
 
 - **Claude and OpenAI are sent only the current Round's reasoning.** A Round is a user Message and every reply and Tool Result after it. Before, every reply's reasoning went back on every request, so a long Session carried all of it, and Claude's newer models kept and billed all of it. Now a recognized Claude or OpenAI provider gets back only the reasoning of the replies after the last user Message, which is what its tool loop needs. A Steer starts a new Round, and a Continue without a new prompt stays in its Round. On Responses, an earlier Round's function call also goes without its item ID. DeepSeek, on its chat API or its Anthropic one, and every provider the gateway does not recognize still get all of it, with no field or header added. The provider is the new `provider` key (`Config.Provider`: `anthropic`, `openai`, `deepseek` or `other`); without it, the gateway recognizes only `api.anthropic.com`, `api.openai.com` and `api.deepseek.com`, never a model name. `gateway.NewFromEnv` reads `GOTATO_GATEWAY_PROVIDER`, and `Client.RoundReasoningOnly` reports the rule. **Behavior change:** a gateway on Anthropic's or OpenAI's own address sends less reasoning, and once per Round the last Round's replies are cached again without it. `provider: other` keeps the old behavior:

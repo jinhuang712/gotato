@@ -190,6 +190,13 @@ type Result struct {
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
 }
 
+// ErrHasSegments is what Compact returns for a Record whose Context starts
+// with Segments. Compact would flatten them into one summary and lose what
+// they keep; compaction that closes Segments is a later stage. It carries
+// gotato.ErrInvalidState, so a caller finds it with errors.Is(err,
+// ErrHasSegments) or gotato.IsCode.
+var ErrHasSegments = gotato.ErrorOf(gotato.ErrInvalidState, "modelctx: the Session's Context holds Segments, which Compact would flatten into one summary; it does not compact them yet")
+
 // Compact replaces the Messages before the last opts.Keep with one summary
 // Message and records a session.Compaction. It appends a Checkpoint
 // (session.Record.Checkpoint), the compaction_ended Event, between a
@@ -204,9 +211,15 @@ type Result struct {
 // safeCut). When even that boundary is unsafe, Compact makes no change and
 // returns a fully populated Result with Replaced==false and no Compaction, so
 // the caller can tell a no-op apart from a replacement.
+//
+// A Record whose Context holds Segments (session.Record.Segments) is refused
+// with ErrHasSegments and left as it was.
 func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
+	}
+	if len(s.Segments()) > 0 {
+		return Result{}, ErrHasSegments
 	}
 	summarizer := opts.Summarizer
 	if summarizer == nil {
