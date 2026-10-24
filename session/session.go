@@ -14,8 +14,11 @@
 //	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
 //	s.Prompt(ctx, gotato.UserMessage("hi"))
 //
-// Tasks, projects, roles, and agent hierarchy are application semantics and
-// belong in Metadata.
+// A compaction can close a stretch of history into a gotato.Segment: the
+// Record writes it once (CloseSegment), and a Checkpoint lists the Segments
+// the Context starts with by number (CheckpointSegments), so the Messages that
+// render a Segment are stored once and never change. Tasks, projects, roles,
+// and agent hierarchy are application semantics and belong in Metadata.
 package session
 
 import (
