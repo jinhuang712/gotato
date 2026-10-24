@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-19 -->
+<!-- what-we-build: drafted 2026-10-25 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -149,6 +149,19 @@ Exit:
 - The Events on a message's way into a Session (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) reach the Runner and the endpoints with the queue that holds those messages. Phase 5 builds their types, and emits them where the Go API already queues messages.
 - A Session stays in memory while it is in use, and leaves after its TTL. The store stays the truth.
 - Compaction (G-F06), designed on 2026-10-19, is built, once the checks against real providers that [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-) lists have passed ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)). Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix. A warm Session that idles is compacted by default shortly before its prompt cache expires or it leaves memory, and a setting turns this off. A Run is compacted past the ceiling, mid-Run included, and once after the provider refuses a request as too long, which also merges the oldest Segments when they alone are past the limit. Segments have a default token budget, so they merge even with no ceiling; its number is chosen when this is built. The model reads a Segment back with `read_segment`, and the gateway configuration gains `context_window`.
+  - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, and the Run on every Message ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
+  - The rest, in this order. None of it waits for the warm Session except the last two, so it is an order inside this phase:
+    1. ⬜ Checks against real providers: waits for gateway keys; never run in CI.
+    2. ⬜ Recap names: `RecapWriter` replaces `Summarizer`; waits for nothing.
+    3. ⬜ Segments built by code: waits for the Recap names and the tool-call-line check.
+    4. ⬜ The model writes the Recap: waits for nothing; on by default after the Recap-quality check.
+    5. ⬜ ToolSets kept by a compaction: waits for Segments built by code.
+    6. ⬜ Past the ceiling before any model call, with `TurnPreparer`: waits for Segments built by code, the model's Recap and the mid-Run reasoning check.
+    7. ⬜ Overflow: compact and send again once: waits for the ceiling compaction.
+    8. ⬜ `read_segment`: waits for Segments built by code.
+    9. ⬜ Merge the oldest Segments: waits for the model's Recap, the ceiling compaction and `read_segment`.
+    10. ⬜ Idle trigger: waits for the warm Session's TTL.
+    11. ⬜ Native wire forms for the tags: waits for runtime notices (G-F29) and changes that keep the cache (G-F32).
 - Steer, FollowUp and Interrupt reach a running Session through the Go API, HTTP, gRPC and the CLI, as Stop already does on the instance that runs it, and each takes effect in the writer's own process. A message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap.
 - A keepalive for a warm Session's cache (G-F33) is designed with the warm Session. The longer retention it builds on is set in the gateway (G-F07).
 - `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
