@@ -1033,7 +1033,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
 - `GET /readyz` answers 200 with `active_runs` and `active_sessions`, and 503 with `"draining": true` while the instance drains.
-- A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. Only request-level problems use error codes:
+- A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. A request the model refused as too long is such a Run: it answers 200 with `context_overflow` in `result.error.code`, and 422 is left to a call that fails with that error on its own. Only request-level problems use error codes:
 
 | Code | When |
 |---|---|
