@@ -256,6 +256,7 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		ModelName:   cfg.ModelName,
 		Instruction: task.Instruction,
 		Tools:       task.Tools,
+		Options:     task.Options,
 		Limits:      task.Limits,
 	}
 	if task.Recap {
@@ -533,7 +534,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			mismatch(fmt.Sprintf("a Turn was built from %d messages, but the Session holds %d", b.messages, len(messages)))
 			continue
 		}
-		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...))
+		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...), testkit.WithLoadedToolsOf(messages[:b.messages]))
 		if _, err := session.Create(ctx, store, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue

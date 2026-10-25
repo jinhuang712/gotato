@@ -111,7 +111,7 @@ func newCluster(t *testing.T, n int, tasks []testkit.Task, seed uint64, adjust .
 	c := &cluster{t: t, backing: session.NewMemoryStore(), random: rand.New(rand.NewPCG(seed, 99))}
 	var agents []service.Agent
 	for _, task := range tasks {
-		agents = append(agents, service.Agent{Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Limits: task.Limits})
+		agents = append(agents, service.Agent{Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits})
 	}
 	var backends []*backend
 	for i := range n {

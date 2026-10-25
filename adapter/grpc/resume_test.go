@@ -283,7 +283,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
 		Agents: []service.Agent{{
-			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Limits: task.Limits,
+			Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
 		}},
 	})
 	if err != nil {

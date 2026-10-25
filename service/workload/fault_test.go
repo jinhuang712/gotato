@@ -77,7 +77,7 @@ func taskRunner(t *testing.T, store session.Store, task testkit.Task, instance s
 	// A short TTL lets a dead instance's row expire quickly, so the next
 	// instance takes its Sessions over without a long wait.
 	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}, Agents: []service.Agent{{
-		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Limits: task.Limits,
+		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 					t.Fatalf("crash after write %d: inspect: %v", n, err)
 				}
 				reference := taskRunner(t, session.NewMemoryStore(), task, "reference")
-				before, err := reference.CreateSession(ctx, task.Name, nil, session.WithMessages(clean.states[n-1]...))
+				before, err := reference.CreateSession(ctx, task.Name, nil, session.WithMessages(clean.states[n-1]...), testkit.WithLoadedToolsOf(clean.states[n-1]))
 				if err != nil {
 					t.Fatal(err)
 				}

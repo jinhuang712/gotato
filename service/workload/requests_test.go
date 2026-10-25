@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -87,6 +88,9 @@ func (m reasoningModel) Stream(ctx context.Context, request gotato.ModelRequest)
 type playOptions struct {
 	// reasoning makes every reply carry reasoning.
 	reasoning bool
+	// compactAfter, when above 0, compacts the Session explicitly after that
+	// many Runs, keeping the last two Messages (modelctx.Compact).
+	compactAfter int
 }
 
 // extraPrompts are added to a task with fewer Runs than the schedule has
@@ -135,6 +139,11 @@ func playAcross(t *testing.T, store session.Store, task testkit.Task, options pl
 		}
 		if result.Result.Status != gotato.RunCompleted || result.Compacted {
 			t.Fatalf("%s: Run %d ended %s (compacted %t)", task.Name, i+1, result.Result.Status, result.Compacted)
+		}
+		if options.compactAfter == i+1 {
+			if _, err := runner.Compact(ctx, s.ID(), modelctx.CompactOptions{Keep: 2}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	return s.ID(), log.all()
@@ -208,7 +217,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 				// The Record as it stood at this Turn: a copy of its first n
 				// Messages under the same cache key, which is the only part of
 				// the Record's identity that reaches the request.
-				prefix, err := viewA.CreateSession(ctx, task.Name, map[string]string{service.MetaCacheKey: cacheKey}, session.WithMessages(stored[:n]...))
+				prefix, err := viewA.CreateSession(ctx, task.Name, map[string]string{service.MetaCacheKey: cacheKey}, session.WithMessages(stored[:n]...), testkit.WithLoadedToolsOf(stored[:n]))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -289,7 +298,9 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 					if prev.SystemInstructions != next.SystemInstructions {
 						t.Errorf("%s: system instruction changed", pair)
 					}
-					if !bytes.Equal(jsonOf(t, prev.Tools), jsonOf(t, next.Tools)) {
+					if hasCatalog(prev) || hasCatalog(next) {
+						checkToolLoading(t, pair, prev, next)
+					} else if !bytes.Equal(jsonOf(t, prev.Tools), jsonOf(t, next.Tools)) {
 						t.Errorf("%s: Tools changed", pair)
 					}
 					if !bytes.Equal(jsonOf(t, prev.Options), jsonOf(t, next.Options)) || prev.CacheKey != next.CacheKey {

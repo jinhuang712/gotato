@@ -28,6 +28,9 @@ type Task struct {
 	Prompts []string
 	// Tools are the Tools the Agent offers. They keep no state.
 	Tools []gotato.Tool
+	// Options are added to the Agent after its Tools, such as the ToolSets of
+	// the tool_search task. They keep no state.
+	Options []gotato.Option
 	// Model plays the task. It keeps no state and no copy of the requests,
 	// so one value serves concurrent plays.
 	Model gotato.Model
@@ -90,7 +93,7 @@ func historyOrder(id string) bool {
 
 // ReferenceTasks returns the reference workload: a short lookup, a 10-Turn
 // conversation, a tool error and its recovery, a support case the model works
-// through in several Turns, and a lookup in Sessions that already hold 10,
+// through in several Turns, a Session whose Tools load and unload, and a lookup in Sessions that already hold 10,
 // 100 and 1,000 messages.
 func ReferenceTasks() []Task {
 	tasks := []Task{
@@ -98,6 +101,7 @@ func ReferenceTasks() []Task {
 		ConversationTask(),
 		ToolErrorTask(),
 		SupportCaseTask(),
+		ToolSearchTask(),
 	}
 	for _, size := range []int{10, 100, 1000} {
 		tasks = append(tasks, HistoryTask(size))

@@ -45,7 +45,7 @@ func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest
 
 func longRunner(t *testing.T, store session.Store, task testkit.Task, model gotato.Model, instance string) *service.Runner {
 	t.Helper()
-	agent := service.Agent{Name: task.Name, Model: model, Instruction: task.Instruction, Tools: task.Tools, Limits: task.Limits}
+	agent := service.Agent{Name: task.Name, Model: model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits}
 	if task.Recap {
 		agent.Compact.Recap = modelctx.ModelRecap{}
 	}

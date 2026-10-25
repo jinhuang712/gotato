@@ -28,6 +28,7 @@ func play(t *testing.T, task testkit.Task) (*session.Record, []string) {
 	for _, tool := range task.Tools {
 		options = append(options, gotato.WithTool(tool))
 	}
+	options = append(options, task.Options...)
 	if task.Limits != nil {
 		options = append(options, gotato.WithLimits(*task.Limits))
 	}
@@ -57,7 +58,7 @@ func TestReferenceTasksPassTheirChecks(t *testing.T) {
 			t.Errorf("%s: %v (answers %q)", task.Name, err, answers)
 		}
 	}
-	if got := strings.Join(names, ","); got != "lookup,conversation,tool_error,support_case,history_10,history_100,history_1000" {
+	if got := strings.Join(names, ","); got != "lookup,conversation,tool_error,support_case,tool_search,history_10,history_100,history_1000" {
 		t.Fatalf("tasks = %s", got)
 	}
 }
