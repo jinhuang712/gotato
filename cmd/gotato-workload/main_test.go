@@ -116,3 +116,21 @@ func TestLiveRunAgainstALocalProvider(t *testing.T) {
 		t.Fatalf("lookup = %+v", lookup)
 	}
 }
+
+func TestRecapCheckPrintsTheShareBeforeAndAfter(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-recap-check", "-min-share", "0.8"}, &stdout, &stderr, func(string) string { return "" })
+	var report workload.RecapReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not a report: %v\n%s", err, stdout.String())
+	}
+	if code != exitOK || report.Check != "payments" || report.Questions != 5 || report.Before.Share != 1 || report.After.Share != 1 || !report.RecapWritten {
+		t.Fatalf("exit %d, report = %+v\n%s", code, report, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "answered 5 of 5 before the compaction, 5 of 5 after it") {
+		t.Errorf("stderr = %s", stderr.String())
+	}
+	if code, _, _ := runCommand(t, "-recap-check", "-min-share", "2"); code != exitUsage {
+		t.Errorf("-min-share 2 exits %d, want usage", code)
+	}
+}

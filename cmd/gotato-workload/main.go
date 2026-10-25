@@ -9,13 +9,23 @@
 //	gotato-workload -tasks lookup,history_100 -plays 20 -concurrency 4
 //	gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,3.75
 //
+// -recap-check runs the payments check of G-E01 instead of the tasks: it plays
+// a conversation whose facts only Tool Results held, compacts the Session with
+// the Recap the model writes, and prints the share of questions answered before
+// and after. A team runs it on its own gateway before it turns the model's
+// Recap on:
+//
+//	gotato-workload -recap-check -live -gateway-config gateway.yaml -min-share 0.8
+//
 // -price is the model's price in US dollars per million tokens: input,
 // output, cache read and cache write. Keep the model and its price fixed from
 // one release to the next, so the numbers compare.
 //
 // Exit codes: 0 when the report shows no failure caused by Gotato or the store
 // (G-G04) and no Turn whose Context differed from its inspection (G-G03); 1 on
-// an error; 2 on a usage error; 3 when one of those goals failed.
+// an error; 2 on a usage error; 3 when one of those goals failed. With
+// -recap-check, 0 means the model wrote a Recap and the share answered after
+// the compaction reached -min-share, and 3 means it did not.
 package main
 
 import (
@@ -60,6 +70,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	plays := flags.Int("plays", 1, "how many times each task is played")
 	concurrency := flags.Int("concurrency", 1, "how many plays of a task run at once")
 	storeDir := flags.String("store", "", "keep Sessions in a file store in this directory (default in memory)")
+	recapCheck := flags.Bool("recap-check", false, "run the payments check of G-E01 instead of the tasks: compact with the model's Recap and ask what only Tool Results held")
+	minShare := flags.Float64("min-share", 0, "with -recap-check: exit 3 when the share answered after the compaction is below this (0 to 1)")
+	recapTokens := flags.Uint("recap-max-tokens", 0, "with -recap-check: the Recap's output limit (default 8192)")
 	skipContext := flags.Bool("skip-context-check", false, "do not compare each Turn's Context with an inspection")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -69,6 +82,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	}
 	if flags.NArg() > 0 {
 		fmt.Fprintf(stderr, "gotato-workload: unexpected argument %q\n", flags.Arg(0))
+		return exitUsage
+	}
+	if *minShare < 0 || *minShare > 1 {
+		fmt.Fprintln(stderr, "gotato-workload: -min-share is between 0 and 1")
 		return exitUsage
 	}
 	if *plays < 1 || *concurrency < 1 {
@@ -119,6 +136,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		cfg.Store = store
 	}
 
+	if *recapCheck {
+		return runRecapCheck(ctx, workload.RecapCheckConfig{Model: cfg.Model, ModelName: cfg.ModelName, Store: cfg.Store, MaxTokens: uint32(min(*recapTokens, 1<<31))}, *minShare, stdout, stderr)
+	}
 	report, err := workload.Run(ctx, cfg, tasks)
 	if err != nil {
 		fmt.Fprintln(stderr, "gotato-workload:", err)
@@ -133,6 +153,34 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if report.GotatoFailures > 0 || report.ContextMismatches > 0 {
 		fmt.Fprintf(stderr, "gotato-workload: %d failures caused by Gotato or the store, %d Turns whose Context differed from its inspection\n",
 			report.GotatoFailures, report.ContextMismatches)
+		return exitGoalFailed
+	}
+	return exitOK
+}
+
+// runRecapCheck plays the payments check of G-E01 and prints its report. It
+// exits 3 when the model wrote no Recap that passed the rules, or when the
+// share answered after the compaction is below minShare.
+func runRecapCheck(ctx context.Context, cfg workload.RecapCheckConfig, minShare float64, stdout, stderr io.Writer) int {
+	report, err := workload.RunRecapCheck(ctx, cfg, testkit.PaymentsRecapCheck())
+	if err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return exitError
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		fmt.Fprintln(stderr, "gotato-workload:", err)
+		return exitError
+	}
+	fmt.Fprintf(stderr, "gotato-workload: answered %d of %d before the compaction, %d of %d after it\n",
+		report.Before.Correct, report.Questions, report.After.Correct, report.Questions)
+	switch {
+	case !report.RecapWritten:
+		fmt.Fprintln(stderr, "gotato-workload: the model wrote no Recap that passed the rules, so the Segment has none")
+		return exitGoalFailed
+	case report.After.Share < minShare:
+		fmt.Fprintf(stderr, "gotato-workload: the share answered after the compaction, %.2f, is below -min-share %.2f\n", report.After.Share, minShare)
 		return exitGoalFailed
 	}
 	return exitOK
