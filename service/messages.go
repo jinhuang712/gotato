@@ -252,5 +252,6 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 	if !state.Alive {
 		return nil
 	}
+	r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "not_writer"}, "")
 	return notWriter(claim.Instance, state.Address)
 }

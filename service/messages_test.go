@@ -391,7 +391,19 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 	done := startRun(t, a, s.ID(), "hello")
 	waitCall(t, model, 0)
 
+	sub, subErr := b.SubscribeInstance(ctx)
+	if subErr != nil {
+		t.Fatal(subErr)
+	}
+	seen := testkit.RecordSubscription(sub)
 	_, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "from b"})
+	// The refusal is an Instance Event of the instance that refused.
+	if !seen.Wait(5*time.Second, func(event gotato.Event) bool {
+		rejected, ok := event.(gotato.RunRejected)
+		return ok && rejected.Why == "not_writer"
+	}) {
+		t.Fatalf("no run_rejected with why not_writer; got %v", seen.Kinds())
+	}
 	address, ok := service.WriterOf(err)
 	if !gotato.IsCode(err, gotato.ErrNotWriter) || !ok || address != "" {
 		t.Fatalf("Send = %v (writer %q, %v); want not_writer without an address", err, address, ok)
