@@ -30,6 +30,7 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
@@ -115,6 +116,10 @@ type TaskReport struct {
 	ContextMismatches int    `json:"context_mismatches"`
 	ContextDetail     string `json:"context_detail,omitempty"`
 	Time              Timing `json:"time"`
+	// Window is present for a task with a window of its own
+	// (testkit.Task.Window): the size of its requests against it, and what
+	// its compactions did (G-G10, G-B14, G-B16).
+	Window *WindowReport `json:"window,omitempty"`
 }
 
 // Timing splits the time of a task's Runs, in milliseconds summed over its
@@ -238,6 +243,13 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 	if cfg.Model != nil {
 		model = cfg.Model
 	}
+	// A task with a window plays against a fake Model that has one: the
+	// driver counts every request against it, and refuses one over it.
+	var windowed *windowModel
+	if task.Window > 0 && cfg.Model == nil {
+		windowed = newWindowModel(model, task.Window)
+		model = windowed
+	}
 	spec := service.Agent{
 		Name:        task.Name,
 		Model:       model,
@@ -245,6 +257,9 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		Instruction: task.Instruction,
 		Tools:       task.Tools,
 		Limits:      task.Limits,
+	}
+	if task.Recap {
+		spec.Compact.Recap = modelctx.ModelRecap{}
 	}
 	runner, err := service.New(service.Config{Store: cfg.Store, Agents: []service.Agent{spec}})
 	if err != nil {
@@ -275,12 +290,18 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 	elapsed := time.Since(started)
 
 	report := TaskReport{Task: task.Name, Plays: cfg.Plays}
+	if windowed != nil {
+		report.Window = &WindowReport{Window: task.Window}
+	}
 	failures := newFailureSet()
 	var total stats
 	var laterInput, laterCached uint64
-	for _, p := range plays {
+	for i, p := range plays {
 		if p.passed {
 			report.Passed++
+		}
+		if windowed != nil {
+			report.Window.add(windowed.seriesOf(service.CacheKey(p.sessionID)), p.final, i == 0)
 		}
 		report.Runs += p.runs
 		report.Turns += p.turns
@@ -292,7 +313,9 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		for _, failure := range p.failures {
 			failures.add(failure)
 		}
-		if !cfg.SkipContextCheck && p.final != nil {
+		// A task with a window compacts, so a Turn is no longer built from the
+		// Session's first Messages, which this check inspects.
+		if !cfg.SkipContextCheck && p.final != nil && task.Window == 0 {
 			checkContext(ctx, inspector, inspectStore, p.final, p.builds, &report)
 		}
 	}
@@ -319,6 +342,7 @@ type play struct {
 	failures    []failure
 	stats       *stats
 	final       *session.Record
+	sessionID   string
 }
 
 // build is one Turn's context_built Event: how many committed Messages the
@@ -342,6 +366,7 @@ func playTask(ctx context.Context, runner *service.Runner, store session.Store, 
 		p.failures = append(p.failures, failure{kind: KindSetup, cause: CauseStore, message: err.Error()})
 		return p
 	}
+	p.sessionID = s.ID()
 
 	// Every number about a Run comes from its Events, as a team would
 	// compute it from its own telemetry. The model's time runs from a Turn's

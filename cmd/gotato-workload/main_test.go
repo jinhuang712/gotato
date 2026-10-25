@@ -43,6 +43,27 @@ func TestFakeRunPrintsTheReport(t *testing.T) {
 	}
 }
 
+// The long_session tasks play 2,000 Turns, so they run only when named; the
+// reference workload does not hold them.
+func TestTheLongSessionTasksRunOnlyWhenNamed(t *testing.T) {
+	all, err := selectTasks("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range all {
+		if strings.HasPrefix(task.Name, "long_session") {
+			t.Errorf("the default workload holds %s", task.Name)
+		}
+	}
+	named, err := selectTasks("long_session_recap, long_session")
+	if err != nil || len(named) != 2 || named[0].Name != "long_session_recap" || named[1].Name != "long_session" || named[0].Window != 128_000 || !named[0].Recap || named[1].Recap {
+		t.Fatalf("selectTasks = %+v, %v", named, err)
+	}
+	if _, err := selectTasks("long_sessions"); err == nil || !strings.Contains(err.Error(), "long_session_recap") {
+		t.Errorf("an unknown task does not list the long tasks: %v", err)
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"-tasks", "nope"},

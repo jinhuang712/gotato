@@ -33,6 +33,14 @@ type Task struct {
 	Model gotato.Model
 	// Limits replaces gotato.DefaultLimits when it is not nil.
 	Limits *gotato.CoreLimits
+	// Window is the window, in tokens, of the task's fake Model, 0 for a
+	// task that is not about the window. The driver gives the Model that
+	// window, so the Runner takes its default ceiling from it, counts every
+	// request against it, and refuses one over it as the provider would
+	// (workload.WindowReport).
+	Window int
+	// Recap turns the Agent's model Recap on for the task (G-B16).
+	Recap bool
 	// Check reports whether a play reached the task's goal, from the final
 	// text of each Run in order. It holds for any Model that does the task,
 	// so the live run uses it too.

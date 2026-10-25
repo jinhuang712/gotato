@@ -207,15 +207,18 @@ func parsePrice(value string) (workload.Price, error) {
 	return workload.Price{Input: numbers[0], Output: numbers[1], CacheRead: numbers[2], CacheWrite: numbers[3]}, nil
 }
 
-// selectTasks picks reference tasks by name, in the order given.
+// selectTasks picks reference tasks by name, in the order given. With no names
+// it returns the reference workload; long_session and long_session_recap, which
+// play 2,000 Turns, run only when named.
 func selectTasks(names string) ([]testkit.Task, error) {
 	all := testkit.ReferenceTasks()
 	if strings.TrimSpace(names) == "" {
 		return all, nil
 	}
+	named := append(all, testkit.LongSessionTask(), testkit.LongSessionRecapTask())
 	byName := map[string]testkit.Task{}
-	known := make([]string, 0, len(all))
-	for _, task := range all {
+	known := make([]string, 0, len(named))
+	for _, task := range named {
 		byName[task.Name] = task
 		known = append(known, task.Name)
 	}
