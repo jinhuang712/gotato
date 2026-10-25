@@ -253,10 +253,13 @@ type Runner struct {
 	// beforeDetach is a test seam: it runs when a Run has settled and its live
 	// Session still takes messages (see export_test.go).
 	beforeDetach func()
-	warmMu       sync.Mutex
-	warm         map[string]*warmEntry
-	warmClosed   bool
-	warmSeq      uint64
+	// beforeRelease is a test seam: it runs when a Run no longer takes
+	// messages and still holds the Session.
+	beforeRelease func()
+	warmMu        sync.Mutex
+	warm          map[string]*warmEntry
+	warmClosed    bool
+	warmSeq       uint64
 
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
 	// Records in use, one per Session ID and epoch, each mirrored to it (see
@@ -295,6 +298,13 @@ type runHandle struct {
 	abort   func()
 	cancel  context.CancelFunc
 	stopped bool
+	// wait makes the Run wait for a busy Session whatever the admission
+	// policy: a message that waited for the Run before it to end.
+	wait bool
+	// over is closed when the Run is unregistered, after it has released its
+	// Session.
+	over     chan struct{}
+	overOnce sync.Once
 	// drained says the drain stopped this Run at its deadline.
 	drained bool
 	// liveMu guards live, the Run's live Session while it runs, where a
@@ -696,6 +706,12 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 }
 
 func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream) (RunResult, error) {
+	return r.runWith(ctx, request, stream, false)
+}
+
+// runWith is run; wait makes the Run wait for a busy Session, as a Run that
+// follows another does.
+func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStream, wait bool) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -707,7 +723,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 	// loading its Session.
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{})}
+	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{}), wait: wait, over: make(chan struct{})}
 	if err := r.admit(handle); err != nil {
 		why := "at_capacity"
 		switch {
@@ -831,7 +847,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 	started := false
 	created := request.SessionID == "" && !request.SkipSave
 	// A Run that follows another waits for the Session whatever the busy policy.
-	lockErr := r.sessionLock(runCtx, sessionID, follow != nil, func() error {
+	lockErr := r.sessionLock(runCtx, sessionID, follow != nil || handle.wait, func() error {
 		// An existing Session is loaded once, under the lock: another Run
 		// may have saved it meanwhile, and a Session deleted in between must
 		// not be resurrected from a stale copy.
@@ -1038,6 +1054,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
 			stream.sub.End()
+		}
+		if r.beforeRelease != nil {
+			r.beforeRelease()
 		}
 
 		if writer != nil {
@@ -1796,6 +1815,7 @@ func (r *Runner) retargetHandle(handle *runHandle, sessionID string) {
 // unregisterHandle drops an admitted Run and its RunID mapping.
 func (r *Runner) unregisterHandle(handle *runHandle) {
 	handle.finish()
+	defer handle.overOnce.Do(func() { close(handle.over) })
 	r.mu.Lock()
 	list := r.handles[handle.sessionID]
 	for i, candidate := range list {

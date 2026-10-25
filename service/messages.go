@@ -127,27 +127,63 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	result := MessageResult{SessionID: request.SessionID}
 	message := gotato.UserMessage(request.Text)
 	message.ID = newMessageID()
-	handle, err := r.liveRun(ctx, request.SessionID)
-	if err != nil {
-		return result, err
-	}
-	if handle != nil {
-		err := handle.send(request.Kind, message)
-		switch {
-		case err == nil:
-			result.MessageID, result.Queued = string(message.ID), true
-			return result, nil
-		case !gone(err):
+	waited := false
+	for {
+		handle, err := r.liveRun(ctx, request.SessionID)
+		if err != nil {
 			return result, err
 		}
-		// The Run ended as the message arrived: no Run is going.
+		if handle != nil {
+			err := handle.send(request.Kind, message)
+			switch {
+			case err == nil:
+				result.MessageID, result.Queued = string(message.ID), true
+				return result, nil
+			case !gone(err):
+				return result, err
+			}
+		}
+		// No Run takes the message now. A Run that has stopped taking
+		// messages still holds the Session until it has saved and released
+		// it: wait for that, then look again, so the message is never
+		// answered busy for a Run that is only ending.
+		ended, err := r.endingRun(ctx, request.SessionID)
+		if err != nil {
+			return result, err
+		}
+		if !ended {
+			break
+		}
+		waited = true
 	}
 	if err := r.checkWriter(ctx, request.SessionID); err != nil {
 		return result, err
 	}
-	run, err := r.Run(ctx, RunRequest{SessionID: request.SessionID, Prompt: request.Text})
+	run, err := r.runWith(ctx, RunRequest{SessionID: request.SessionID, Prompt: request.Text}, nil, waited)
 	result.Run = &run
 	return result, err
+}
+
+// endingRun waits for a Run of the Session on this Instance that no longer
+// takes messages, until it has released the Session, bounded by ctx. It
+// reports whether there was one.
+func (r *Runner) endingRun(ctx context.Context, sessionID string) (bool, error) {
+	r.mu.Lock()
+	handles := append([]*runHandle(nil), r.handles[sessionID]...)
+	r.mu.Unlock()
+	for _, handle := range handles {
+		if handle.hasLive() {
+			// A Run that takes messages again, such as the one that follows.
+			return true, nil
+		}
+		select {
+		case <-handle.over:
+			return true, nil
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	return false, nil
 }
 
 // attachLive makes the Run's live Session reachable for messages.
