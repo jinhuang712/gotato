@@ -217,7 +217,7 @@ Exit:
 - ✅ A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
 - ✅ G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
-## Phase 9 — Reading large results
+## Phase 9 — Reading large results ✅
 
 A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. This phase gives the model a `bash` tool: a read-only subset of bash that queries its own Session's Record, with behavior that matches GNU and bash and a clear error for anything not supported. The design and what was ruled out are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26), and the feature is [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-). It is a module of its own, `adapter/bash`, whose engine does not import Gotato.
 
@@ -225,15 +225,15 @@ A model that reads a spilled result page by page reads all of it or guesses. Oft
 - ✅ Step 2, the engine: the interpreter's handlers taken over (commands, file opens, environment) and the syntax check that refuses loops, functions, `$( )` and writing redirects, with `cat`, `head` and `grep` running. Built in `adapter/bash` (`bash.Run`, on `mvdan.cc/sh/v3`); `grep` had `-i -v -c -n -E -F -G -e -x -l -q -H -h`, and `-o -w -r -A -B -C` came in step 3.
 - ✅ Step 3, the remaining commands, each with GNU conformance tests: `tail`, `sed -n`, `wc`, `sort`, `uniq`, `cut`, `tr`, `base64`, `echo`, `ls`, and `grep -o -w -r -A -B -C`. The commands follow the `C.UTF-8` locale; the supported flags are in the table of [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
 - ✅ Step 4, jq through gojq, and the protections: `jq` (`-r -j -c -s -n -R -e -S -a --tab --indent --arg --argjson`, with the differences from jq written in [DESIGNS.md](DESIGNS.md#jq-where-it-differs-from-jq)), the cut for a very long line (`WithMaxLine`, 8 KiB by default, on the final stdout only), `--help` on every command, and `ctx` and output bounds on a jq program (no heap watcher or timer of the engine's own: a process-wide measure is wrong in a service; a program that builds a huge value without output is ended only by the Run's deadline, a known limit). The spill of long output is the Gotato layer's, in step 5: the engine hands it the output up to the bound and `Result.Truncated`.
-- ⬜ Step 5, the Gotato layer that wraps the engine as the `bash` tool and hands it the Record as `/results`, spills output over one page like any Tool Result, and a reference task.
+- ✅ Step 5, the Gotato layer and the reference task. `adapter/bash/bashtool` wraps the engine as the `bash` tool (Effect read, one parameter `command`), installed with `SessionTools: []service.SessionToolsFunc{bashtool.Tools()}`; the generic hook `service.Agent.SessionTools` gives it the calling Session's Record and the Runner's store, and each call runs over `session.ResultsFS`. Output is bounded at four pages and spilled by the core over one page, and the spilled output is readable through the tool. The reference task is `testkit.BashLookupTask`, played by `workload.Run` and by `go run ./cmd/gotato-workload-bash` in `adapter/bash`; it cannot join `testkit.ReferenceTasks()`, because the root module cannot link the engine.
 
 Exit:
 
-- A test on a fake model reads a spilled result of 1 MB with the `bash` tool, finds one line and one field, and checks that the answer is short and the same on every instance.
-- A test checks that the tool cannot write, loop, run a program or reach anything but the data of its own Session.
-- Every supported flag passes the GNU conformance tests in CI, and every unsupported flag and every unsupported syntax fails with a clear error.
-- `adapter/bash` passes its own vet, test and lint, and the root module still imports only the standard library.
-- The decision is in DESIGNS.md and FEATURES.md, and its entry is gone from [TODO.md](TODO.md).
+- ✅ A test on a fake model reads a spilled result of 1 MB with the `bash` tool, finds one line and one field, and checks that the answer is short and the same on every instance (`TestBashLookupReferenceTask`, `TestBashLookupKeepsRequestsSmall`, `TestSameRecordSameBashOutputOnAnotherInstance` in `adapter/bash/bashtool`; the other instance reads the body from the store).
+- ✅ A test checks that the tool cannot write, loop, run a program or reach anything but the data of its own Session (`TestBashCannotReachAnotherSession`, `TestNonZeroExitIsAResultNotAFailure`; the engine's `TestACommandCannotReadARealFile`, `TestNoCommandStartsAProgram`, `TestUnsupportedSyntaxIsRefused` and `TestTheEnvironmentIsEmpty`).
+- ✅ Every supported flag passes the GNU conformance tests in CI (`TestAgainstGNU`, run by the `adapter/bash` job with `GOTATO_GNU=1`; the last CI run on `main` before step 5 passed), and every unsupported flag and every unsupported syntax fails with a clear error (`TestUnsupportedIsAClearError`, `TestHelpAndUnsupportedOptions`, `TestUnsupportedSyntaxIsRefused`).
+- ✅ `adapter/bash` passes its own vet, test and lint, and the root module still imports only the standard library (`TestLayering`).
+- ✅ The decision is in DESIGNS.md and FEATURES.md, and there is no entry for it in [TODO.md](TODO.md).
 
 ## Phase 10 — Before the release
 

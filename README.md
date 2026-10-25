@@ -130,6 +130,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Context: full history, static blocks, compaction, inspection | done, with Segments built by code, a Recap the model writes (off by default), and compaction before any model call, past the ceiling and on an overflow, `read_segment` to read a Segment back, and the oldest Segments merged when they pass their budget; compaction before the cache goes cold is planned (G-F06) |
 | Tool contract, Tool Registry, `ToolSet` with tool search | done: a ToolSet is active, listed or folded in a catalog, and the model loads its tools one by one with `search_tools` (G-F34); the tool list is the same bytes while a tool loads on Anthropic Messages and OpenAI Responses (`deferred_tools: native`), and grows on Chat Completions |
 | Large Tool Results | done: a result over one page (32 KiB) is spilled into the Record, the Context holds a preview and a ref, and `read_result` reads the rest page by page (G-F35) |
+| Reading large results | done: the `bash` tool (`adapter/bash`), a read-only bash subset over the Session's own Record, installed with one line; see below (G-F36) |
 | Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. The Session's stream is served on HTTP and gRPC, and resumes on any instance from the last number seen, with the Record's epoch |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
@@ -172,12 +173,28 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 	gotato.WithMaxEffect(gotato.EffectWriteLocal))
 ```
 
+## Reading a large result with `bash`
+
+`adapter/bash` is a module of its own. Its engine runs a read-only subset of bash (`grep`, `jq`, `head`, `sort`, `wc` and others) in process, and `adapter/bash/bashtool` wraps it as the `bash` tool. The model finds one line or one field of a spilled result at `/results/<call_id>`, and nothing runs outside the process. One line on an Agent installs it:
+
+```go
+runner, _ := service.New(service.Config{Store: store, Agents: []service.Agent{{
+	Name:         "support",
+	Model:        model,
+	Tools:        tools,
+	SessionTools: []service.SessionToolsFunc{bashtool.Tools()}, // the bash tool
+}}})
+```
+
+Each call reads the Record of the Session that makes it and no other. A service that does not install the module keeps `read_result`. `cd adapter/bash && go run ./cmd/gotato-workload-bash` plays the reference task for it.
+
 ## Development
 
 ```bash
 gofmt -l . && go vet ./... && go test -race ./...
 (cd adapter/grpc && go test ./...)
 (cd adapter/mcp && go test -race ./...)
+(cd adapter/bash && go test -race ./...)
 ```
 
 ## Origin
