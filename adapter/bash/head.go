@@ -86,12 +86,12 @@ func runHead(ctx context.Context, c *Call) int {
 	for _, name := range files {
 		in, err := c.open(name)
 		if errors.Is(err, syscall.EISDIR) {
-			c.errf("head", "error reading '%s': %s", name, errText(err))
+			c.errf("head", "error reading %s: %s", quoteAlways(name), errText(err))
 			status = 1
 			continue
 		}
 		if err != nil {
-			c.errf("head", "cannot open '%s' for reading: %s", name, errText(err))
+			c.errf("head", "cannot open %s for reading: %s", quoteAlways(name), errText(err))
 			status = 1
 			continue
 		}
@@ -123,7 +123,7 @@ func runHead(ctx context.Context, c *Call) int {
 			if out.failed() || ctx.Err() != nil {
 				return 1
 			}
-			c.errf("head", "error reading '%s': %s", name, errText(copyErr))
+			c.errf("head", "error reading %s: %s", quoteAlways(name), errText(copyErr))
 			status = 1
 		}
 	}

@@ -41,7 +41,7 @@ func runCat(ctx context.Context, c *Call) int {
 	for _, name := range files {
 		in, err := c.open(name)
 		if err != nil {
-			c.errf("cat", "%s: %s", name, errText(err))
+			c.errf("cat", "%s: %s", quoteName(name), errText(err))
 			status = 1
 			continue
 		}
@@ -56,7 +56,7 @@ func runCat(ctx context.Context, c *Call) int {
 			if out.failed() || ctx.Err() != nil {
 				return 1 // the reader of the pipe is gone, or the run was cancelled
 			}
-			c.errf("cat", "%s: %s", name, errText(copyErr))
+			c.errf("cat", "%s: %s", quoteName(name), errText(copyErr))
 			status = 1
 		}
 	}

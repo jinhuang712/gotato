@@ -176,6 +176,6 @@ func (m longSessionModel) read(run, part int) Script {
 	return ToolCalls(gotato.ToolCall{
 		ID:        gotato.ToolCallID(fmt.Sprintf("call-%d-%d", run, part)),
 		ToolID:    LogsReadID,
-		Arguments: []byte(fmt.Sprintf(`{"run":%d,"part":%d}`, run, part)),
+		Arguments: fmt.Appendf(nil, `{"run":%d,"part":%d}`, run, part),
 	})
 }

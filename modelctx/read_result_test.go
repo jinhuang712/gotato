@@ -284,7 +284,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 			if len(testkit.ToolResults(request)) > 0 && request.Messages[len(request.Messages)-1].Role == gotato.RoleToolResult {
 				return testkit.Text("done"), nil
 			}
-			return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "read_result", Arguments: []byte(fmt.Sprintf(`{"ref":%q}`, ref))}), nil
+			return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "read_result", Arguments: fmt.Appendf(nil, `{"ref":%q}`, ref)}), nil
 		})
 		agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer),
 			gotato.WithTool(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultOptions{})))
