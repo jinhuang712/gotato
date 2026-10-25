@@ -70,7 +70,7 @@ Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md
 
   | Before | After |
   |---|---|
-  | a Steer or FollowUp still queued when its live Session closed was discarded with no Event | a `message_dropped` Event with the reason `session_closed` |
+  | a Steer or FollowUp still queued when its live Session closed was discarded with no Event | in the Runner, a message queued as its Run settles runs in a following Run on the same Session and instance, in acceptance order, its ID kept (`gotato.WithQueueHandoff`, `Session.TakeQueued`, `Requeue`, `DropQueued`); dropped with `message_dropped` only for `run_ended` (stopped or cancelled), `draining`, `writer_failed` or `queue_full`. A Go `gotato.Session` without the option still drops them at the end of its Run (`run_ended`), and `session_closed` covers one left when it closes |
   | `Runner.CancelSession` and `POST …/cancel` on a Session whose Run another live instance writes: `invalid_state` ("no active run"), 409 | `not_writer`, 409, with the writer's address |
 
 - **gRPC.** The service gains `SendMessage`, and the messages `SendMessageRequest` and `SendMessageResponse`; `grpcadapter.New` takes options.

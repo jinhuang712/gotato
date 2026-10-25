@@ -94,8 +94,20 @@ func WriterOf(err error) (address string, ok bool) {
 //     which takes the Session over like any request, and Send returns when
 //     that Run settles, as Run does. The result holds the Run's.
 //
-// A message that arrives as a Run ends may be dropped instead (a
-// message_dropped Event says so).
+// A message Send reported as queued is never lost because its Run ended. If
+// the Run does not take it before it settles, the Run's goroutine starts a
+// following Run on the same Session and Instance with every message the Run
+// left, in the order they were accepted (the first is its prompt, the rest
+// wait in its queues; an Interrupt left over is a Steer). That Run holds the
+// Session lock like a Run that waits for it, whatever the busy policy, and
+// counts as the admitted Run, so a drain waits for it. Its result is not
+// returned to anyone: it is in the Session's stream, the Instance's stream and
+// the Record, and the message's ID is the one in its message_committed. The
+// leftovers are dropped instead, with a message_dropped Event, only when the
+// Run was stopped or cancelled (run_ended), the instance is draining
+// (draining), or the Run's writer failed (writer_failed); a leftover that does
+// not fit the next Run's queues says queue_full. A writer that dies loses
+// them, as it loses any accepted message.
 func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -141,22 +153,62 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 func (h *runHandle) attachLive(live *gotato.Session) {
 	h.liveMu.Lock()
 	h.live = live
+	h.closeReadyLocked()
 	h.liveMu.Unlock()
-	h.readyOnce.Do(func() { close(h.ready) })
 }
 
-// detachLive withdraws the live Session once its Run has settled. A message
-// that was delivered before it, and that the Run did not take, is dropped
-// when the Session closes (a message_dropped Event); none is delivered after.
-func (h *runHandle) detachLive() {
+func (h *runHandle) closeReadyLocked() {
+	if !h.readyClosed {
+		h.readyClosed = true
+		close(h.ready)
+	}
+}
+
+// readyChan is closed once the Run has a live Session, or is over.
+func (h *runHandle) readyChan() <-chan struct{} {
 	h.liveMu.Lock()
+	defer h.liveMu.Unlock()
+	return h.ready
+}
+
+// detachLive withdraws the live Session once its Run has settled, and takes
+// what its queues still hold, in one step under the lock a message is
+// delivered under: a message is either in the Run's queue here, or it finds no
+// live Session and starts a Run of its own. When the Run is to be followed by
+// another (follow), the handle waits for that Run's live Session, so a
+// message that arrives meanwhile queues behind the leftovers instead of
+// jumping ahead of them.
+func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) {
+	h.liveMu.Lock()
+	defer h.liveMu.Unlock()
+	live := h.live
 	h.live = nil
-	h.liveMu.Unlock()
+	if live == nil {
+		return
+	}
+	left := live.TakeQueued()
+	if len(left) > 0 && follow(left) {
+		h.next = left
+		h.ready, h.readyClosed = make(chan struct{}), false
+	}
+}
+
+// takeNext returns the leftovers the settled Run handed over, once.
+func (h *runHandle) takeNext() []gotato.Queued {
+	h.liveMu.Lock()
+	defer h.liveMu.Unlock()
+	next := h.next
+	h.next = nil
+	return next
 }
 
 // finish says the Run is over, so a message that waited for its live Session
 // stops waiting.
-func (h *runHandle) finish() { h.readyOnce.Do(func() { close(h.ready) }) }
+func (h *runHandle) finish() {
+	h.liveMu.Lock()
+	h.closeReadyLocked()
+	h.liveMu.Unlock()
+}
 
 // hasLive reports whether the Run has a live Session now.
 func (h *runHandle) hasLive() bool {
@@ -214,7 +266,7 @@ func (r *Runner) liveRun(ctx context.Context, sessionID string) (*runHandle, err
 		return nil, nil
 	}
 	select {
-	case <-handles[0].ready:
+	case <-handles[0].readyChan():
 		if handles[0].hasLive() {
 			return handles[0], nil
 		}

@@ -330,7 +330,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns are Turns of the same Run, so a `TurnStopper` counts them too. Up to 4 can wait (`MaxFollowUpMessages`).
 - `Interrupt` cancels the model call in flight and starts the next Turn of the same Run with the message. The text the call had sent is kept in the Transcript as a Cut-off reply, which the model does not read again. It shares the Steer queue and its limit.
 - `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed. The Runner's Stop is the same.
-- A message still waiting when the Run ends is dropped, not kept for the next Run, and a `message_dropped` Event says so. One that reaches a Session between Runs is not a waiting message: it starts a Run.
+- A message still waiting when a Run of a `gotato.Session` ends is dropped, not kept for the next Run, and a `message_dropped` Event says so. A host that sets `WithQueueHandoff` keeps them after a Run that completed or failed and takes them (`TakeQueued`, `Requeue`, `DropQueued`); the Runner does, so its messages are not dropped (below). One that reaches the Runner between Runs is not a waiting message: it starts a Run.
 
 **Where messages enter.** Each reaches the Run in the writer's own process, and the surface that takes it only translates:
 
@@ -343,7 +343,12 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 - A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202, gRPC `queued`). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
 - With no Run going, the message is the prompt of a new Run on this instance, which takes the Session over as it takes over any idle one. The call answers when that Run settles, with its result (HTTP 200 with `run`, gRPC `run`), as the run routes do. A client that wants the Run's Events reads the Session's stream.
-- A message that reaches a Run as it ends may be dropped instead, and a `message_dropped` Event says so (`run_ended`, or `session_closed` for one that arrived after the Run's last boundary). A message is never lost without one, unless its writer dies.
+- **A message the instance called queued is not lost because its Run ended.** If the Run does not take it before it settles, a following Run does, on the same Session and instance:
+  - the Runner stops delivering to the settled Run and takes what its queues hold in one step, so a message either reaches that Run's queue before it, or finds no live Session and waits for the following Run (or starts one, as above). Nothing slips between the two;
+  - the following Run starts when the first has saved and released the Session, with the leftovers in the order they were accepted, a Steer and a FollowUp alike: the first is its prompt, and the rest are committed in order at its boundaries. An Interrupt left over is a Steer, since no model call is in flight. The messages keep their IDs, so `message_committed` of the following Run names the ID the caller was given (the first, as a prompt);
+  - it takes the Session lock like a Run that waits for it, whatever the busy policy, so the one-Run-per-Session rule holds. It counts as the admitted Run until the last following Run ends, so a drain waits for it and `MaxActiveRuns` does not count it twice;
+  - the caller of the first Run gets that Run's result, as before, and the caller of `Send` got its 202. Neither gets the following Run's: it is in the Session's stream and the Instance's stream (`run_started`, `message_committed`, `run_ended`) and in the Record. A Stop reaches it like any Run.
+- **When leftovers are dropped instead.** Only for a cause that ends the work: the Run was stopped, cancelled or past its deadline (`message_dropped`, `run_ended`); the instance is draining (`draining`); the Run's writer failed (`writer_failed`); the following Run's queues are full (`queue_full`); or the Session was closed with the message still in a queue (`session_closed`, a safety net for a Go user of `gotato.Session` who set `WithQueueHandoff` and did not take them). A writer that dies, or a Session deleted meanwhile, loses them with it, as it loses any accepted message, and a following Run that cannot start (the store fails) loses them too.
 - A Stop with no Run going anywhere fails with `invalid_state` (`service.ErrNoRun`).
 
 Each kind takes effect at its own point:
@@ -1521,7 +1526,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused, with why: busy, at capacity, draining, past the activation limit (`activation_limit`), or, for a message to a Run that another Instance writes, `not_writer` | Instance |
 | `message_queued` | a Steer, FollowUp or Interrupt waits for its point in the Run | Record |
 | `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp, an Interrupt, or the Loop's own continuation, which becomes a notice with G-F29 | Record |
-| `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped because the Run ended first, withdrawn by its caller, or refused because the queue is full | Record |
+| `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped, with why (the Run was stopped: `run_ended`; the instance drains: `draining`; the writer failed: `writer_failed`; the next Run's queue is full: `queue_full`; the Session closed: `session_closed`), withdrawn by its caller, or refused because the queue is full | Record |
 | `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue, and goes into the Transcript right before a model call; planned with G-F29 | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
@@ -1582,7 +1587,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
 - today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
-**Messages reach every stream.** A message the Runner takes ([G-F26](#g-f26--steering-a-run-)) writes its Events through the Run's Writer, so they are in the Record and reach the Run's stream, the Session's stream on any instance, and `SubscribeInstance`. A message dropped because the Session closed with it still waiting says `session_closed` as the reason. **Gap:** `message_withdrawn` has no way to happen yet: no endpoint withdraws a message. `session_unloaded` comes from the Runner when a warm copy leaves memory, with every reason.
+**Messages reach every stream.** A message the Runner takes ([G-F26](#g-f26--steering-a-run-)) writes its Events through the Run's Writer, so they are in the Record and reach the Run's stream, the Session's stream on any instance, and `SubscribeInstance`. A message that was queued as its Run settled is run by a following Run, and dropped, with the reason, only for the causes in *G-F26*. **Gap:** `message_withdrawn` has no way to happen yet: no endpoint withdraws a message. `session_unloaded` comes from the Runner when a warm copy leaves memory, with every reason.
 
 ### G-F15 — Extensions ✅
 

@@ -167,7 +167,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	// failed on a write: a Journal that has stopped refuses it too, and then
 	// nothing was stored, and nothing is sent.
 	end := func(turn TurnNumber, result RunResult, extra func(*RunEnded)) *RuntimeError {
-		a.discardControl(runID, turn)
+		if !a.keepsQueued(result.Status) {
+			a.discardControl(runID, turn)
+		}
 		// No Abort can start a write from here on, and the ones that did
 		// have finished: an abort_requested never follows run_ended.
 		a.runMu.Lock()
@@ -229,7 +231,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 
 	if prompt != nil {
-		prompt.ID = MessageID(nextID("message"))
+		if prompt.ID == "" {
+			prompt.ID = MessageID(nextID("message"))
+		}
 		prompt.RunID = runID
 		if err := a.commitMessage(*prompt); err != nil {
 			return fail(asRuntimeError(err))

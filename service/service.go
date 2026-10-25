@@ -227,11 +227,14 @@ type Runner struct {
 	// clock times the warm Sessions. warm holds the idle ones, each a cache
 	// of a Record and never a lock; warmClosed says the Runner has let them
 	// all go and keeps none (see warm.go).
-	clock      Clock
-	warmMu     sync.Mutex
-	warm       map[string]*warmEntry
-	warmClosed bool
-	warmSeq    uint64
+	clock Clock
+	// beforeDetach is a test seam: it runs when a Run has settled and its live
+	// Session still takes messages (see export_test.go).
+	beforeDetach func()
+	warmMu       sync.Mutex
+	warm         map[string]*warmEntry
+	warmClosed   bool
+	warmSeq      uint64
 
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
 	// Records in use, one per Session ID and epoch, each mirrored to it (see
@@ -275,10 +278,13 @@ type runHandle struct {
 	// liveMu guards live, the Run's live Session while it runs, where a
 	// message for the Run goes (see messages.go). ready is closed once there
 	// is one, or the Run is over.
-	liveMu    sync.Mutex
-	live      *gotato.Session
-	ready     chan struct{}
-	readyOnce sync.Once
+	liveMu      sync.Mutex
+	live        *gotato.Session
+	ready       chan struct{}
+	readyClosed bool
+	// next holds the messages a settled Run left in its queues, for the Run that
+	// follows it (guarded by liveMu).
+	next []gotato.Queued
 }
 
 // attachAbort installs the started-Run cancellation path. Until it is
@@ -696,9 +702,22 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 	}
 	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	release := sync.OnceFunc(r.release)
-	defer release()
-	defer r.unregisterHandle(handle)
-	out, err := r.serve(ctx, runCtx, request, stream, handle)
+	followed := false
+	defer func() {
+		if !followed {
+			r.unregisterHandle(handle)
+			release()
+		}
+	}()
+	out, err := r.serve(ctx, runCtx, request, stream, handle, nil)
+	if next := handle.takeNext(); len(next) > 0 {
+		// Messages the Run accepted after its last point of taking them run in
+		// a Run that follows it, on this instance and under the same
+		// admission. This call returns with its own Run's result.
+		followed = true
+		r.followOn(ctx, handle, next, release)
+		return out, err
+	}
 	if handle.stoppedByDrain() && out.Result.Status != gotato.RunCompleted {
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
@@ -717,7 +736,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 }
 
 // serve runs one admitted Run.
-func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle) (RunResult, error) {
+func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle, follow *followOn) (RunResult, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
@@ -789,7 +808,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 	var runErr error
 	started := false
 	created := request.SessionID == "" && !request.SkipSave
-	lockErr := r.withSessionLock(runCtx, sessionID, func() error {
+	// A Run that follows another waits for the Session whatever the busy policy.
+	lockErr := r.sessionLock(runCtx, sessionID, follow != nil, func() error {
 		// An existing Session is loaded once, under the lock: another Run
 		// may have saved it meanwhile, and a Session deleted in between must
 		// not be resurrected from a stale copy.
@@ -894,9 +914,16 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			r.attachRunID(handle, runID)
 			handle.abortIfStopped()
 		})
-		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed))
+		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed), gotato.WithQueueHandoff())
 		if err != nil {
 			return abandon(err)
+		}
+		if follow != nil {
+			// The messages that waited behind the first one wait in this Run's
+			// queues, in order, before anything new can reach them.
+			if rest := live.Requeue(follow.rest); len(rest) > 0 {
+				live.DropQueued(rest, "queue_full")
+			}
 		}
 		started = true
 		// From here a stop aborts the Run inside the live Session, so Prompt
@@ -924,13 +951,39 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				runCtx, cancelDeadline = context.WithTimeout(ctx, runDeadline)
 				defer cancelDeadline()
 			}
-			if request.Continue {
+			switch {
+			case request.Continue:
 				result, runErr = live.Continue(runCtx)
-			} else {
+			case follow != nil:
+				result, runErr = live.Prompt(runCtx, follow.prompt)
+			default:
 				result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
 			}
 		}()
-		handle.detachLive()
+		// The messages the Run left in its queues are taken in the same step
+		// that stops delivering to it, and a Run follows with them unless
+		// something ends the work they were meant for.
+		if r.beforeDetach != nil {
+			r.beforeDetach()
+		}
+		handle.detachLive(func(left []gotato.Queued) bool {
+			why := ""
+			switch {
+			case writer == nil:
+				why = "run_ended"
+			case writer.Failed() != nil:
+				why = "writer_failed"
+			case r.Draining():
+				why = "draining"
+			case handle.isStopped() || runCtx.Err() != nil:
+				why = "run_ended"
+			}
+			if why != "" {
+				live.DropQueued(left, why)
+				return false
+			}
+			return true
+		})
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
 			stream.sub.End()
@@ -1070,6 +1123,12 @@ func cancelledRunResult(sessionID, agent string, err error) RunResult {
 // caller waits. Every Session mutation goes through it: Runs, compaction,
 // tool activation, and deletion.
 func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func() error) error {
+	return r.sessionLock(ctx, sessionID, false, fn)
+}
+
+// sessionLock is withSessionLock; forceWait makes the caller wait for a busy
+// Session whatever the admission policy, as the Run that follows another does.
+func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bool, fn func() error) error {
 	// A message that arrives while the Session compacts while idle cancels
 	// that compaction and is served first, so it never finds the Session busy.
 	unhold, err := r.holdWarm(ctx, sessionID)
@@ -1080,7 +1139,7 @@ func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func(
 	onWait := func() {
 		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 	}
-	if err := r.locks.acquire(ctx, sessionID, r.admission.Queue == WaitWhileBusy, onWait); err != nil {
+	if err := r.locks.acquire(ctx, sessionID, forceWait || r.admission.Queue == WaitWhileBusy, onWait); err != nil {
 		if errors.Is(err, ErrBusy) {
 			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 		}

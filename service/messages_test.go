@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -461,6 +462,12 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 		}
 		senders.Wait()
 		settled(t, done)
+		// A message queued as the Run settled runs in a Run that follows it.
+		for deadline := time.Now().Add(5 * time.Second); runner.ActiveRuns() > 0; runtime.Gosched() {
+			if time.Now().After(deadline) {
+				t.Fatal("the Runs did not end")
+			}
+		}
 		events, err := runner.Events(ctx, s.ID())
 		if err != nil {
 			t.Fatal(err)

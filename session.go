@@ -1,6 +1,7 @@
 package gotato
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,7 @@ type sessionConfig struct {
 	maxEffect      ToolEffect
 	feed           *Feed
 	onRunStart     func(RunID)
+	handoff        bool
 }
 
 // WithFeed has the Session publish its Events to feed instead of a Feed of
@@ -249,6 +251,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		followUp:       make(chan control, controlCapacity(cfg.limits.MaxFollowUpMessages)),
 		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
+		handoff:        cfg.handoff,
 	}
 	if journal, ok := cfg.transcript.(Journal); ok {
 		a.journal = journal
@@ -319,6 +322,10 @@ type Session struct {
 	emitMu     sync.Mutex
 	lastNumber atomic.Uint64
 	onRunStart func(RunID)
+	// handoff keeps the messages still queued when a Run ends in a Run that
+	// completed or failed, for the host to take (TakeQueued).
+	handoff bool
+	ctlSeq  atomic.Uint64
 
 	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
 	// is written after them.
@@ -527,6 +534,7 @@ func (a *Session) Interrupt(message Message) error {
 
 // control is a Message that waits in the Steer or FollowUp queue.
 type control struct {
+	seq     uint64
 	message Message
 	source  MessageSource
 }
@@ -581,7 +589,7 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 		return err
 	}
 	select {
-	case target <- control{message: message, source: source}:
+	case target <- control{message: message, source: source, seq: a.ctlSeq.Add(1)}:
 		return nil
 	default:
 		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
@@ -1436,4 +1444,86 @@ func cloneToolSpecs(specs []ToolSpec) []ToolSpec {
 		out[i] = cloneToolSpec(spec)
 	}
 	return out
+}
+
+// WithQueueHandoff makes the Session keep the messages (Steer, FollowUp,
+// Interrupt) still queued when a Run completes or fails, instead of dropping
+// them at its end, so the host can take them with TakeQueued and start the
+// next Run with them. A Run that is cancelled, or ends on its deadline, still
+// drops them. A host that sets it must call TakeQueued, or DropQueued, after
+// every Run; Close drops what is left (message_dropped, session_closed).
+func WithQueueHandoff() Option {
+	return func(c *sessionConfig) error { c.handoff = true; return nil }
+}
+
+// keepsQueued says whether a Run that ends with status leaves its queues for
+// the host.
+func (a *Session) keepsQueued(status RunStatus) bool {
+	return a.handoff && (status == RunCompleted || status == RunFailed)
+}
+
+// Queued is a message that waited in a queue when a Run ended.
+type Queued struct {
+	Message Message
+	Source  MessageSource
+	seq     uint64
+}
+
+// TakeQueued removes and returns the messages that wait in the Steer and
+// FollowUp queues, in the order they were accepted. It is for a host that set
+// WithQueueHandoff, between Runs: it takes them without a drop Event, and the
+// host starts the next Run with them (Requeue) or reports them (DropQueued).
+func (a *Session) TakeQueued() []Queued {
+	var out []Queued
+	for _, queue := range []chan control{a.steer, a.followUp} {
+		for {
+			select {
+			case queued := <-queue:
+				if queued.source == SourceInterrupt {
+					a.interruptTaken()
+				}
+				out = append(out, Queued{Message: queued.message, Source: queued.source, seq: queued.seq})
+				continue
+			default:
+			}
+			break
+		}
+	}
+	slices.SortFunc(out, func(a, b Queued) int { return cmp.Compare(a.seq, b.seq) })
+	return out
+}
+
+// Requeue puts messages taken from another Session's queues into this one's
+// queues, in order, without Events: they were reported as queued already. An
+// Interrupt becomes a Steer, since no model call is in flight to cut short.
+// They keep the order they had: they go into the Steer queue while it has
+// room and then into the FollowUp queue, and a Run takes the Steer queue
+// before the FollowUp queue. The queue limits apply; it returns the messages
+// that did not fit.
+func (a *Session) Requeue(messages []Queued) (rest []Queued) {
+	for _, m := range messages {
+		source := m.Source
+		if source == SourceInterrupt {
+			source = SourceSteer
+		}
+		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1)}
+		select {
+		case a.steer <- queued:
+		default:
+			select {
+			case a.followUp <- queued:
+			default:
+				rest = append(rest, m)
+			}
+		}
+	}
+	return rest
+}
+
+// DropQueued reports messages that will not run: a message_dropped Event for
+// each, with why.
+func (a *Session) DropQueued(messages []Queued, why string) {
+	for _, m := range messages {
+		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: m.Message.ID, Source: m.Source, Why: why})
+	}
 }
