@@ -226,7 +226,7 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"queued":false`) || !strings.Contains(string(body), "echo: next") {
 		t.Fatalf("message with no Run going = %d %s, want 200 with the new Run", resp.StatusCode, body)
 	}
-	if view, _ := b.runner.Session(context.Background(), id); view.Claim().Instance != "instance-b" {
+	if view, _ := b.runner.Session(context.Background(), id); view.Claim().Instance != b.runner.Instance() {
 		t.Fatalf("claim = %+v, want instance-b", view.Claim())
 	}
 }

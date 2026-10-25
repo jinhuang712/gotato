@@ -129,6 +129,9 @@ func newCluster(t *testing.T, n int, tasks []testkit.Task, seed uint64, adjust .
 			t.Fatal(err)
 		}
 		in.runner = runner
+		// The configured name is a label; the store knows the Instance by
+		// the name with its per-start suffix.
+		in.name = runner.Instance()
 		in.server = httptest.NewServer(httpapi.New(runner))
 		t.Cleanup(func() {
 			in.server.CloseClientConnections()
@@ -963,7 +966,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 		}
 		holder := record.Claim().Instance
 		busy := summary.Busy
-		if busy && holder != "instance-0" || !busy && holder != "instance-1" {
+		if busy && holder != c.instances[0].name || !busy && holder != c.instances[1].name {
 			t.Fatalf("Session %s is held by %s (busy %v): the full instance activated a Session it refused", summary.ID, holder, busy)
 		}
 	}
