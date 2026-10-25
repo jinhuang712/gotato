@@ -41,6 +41,40 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   | a ToolSet that returned an invalid or duplicate Tool failed `NewSession` with `invalid_argument` | the same ToolSet is unavailable; a bad name, a dotted name or a duplicate ToolSet name still fail `NewSession` |
   | the catalog was fixed for the life of the Session | the catalog is fixed within a Run and read again at the start of the next |
 
+### Messages from any endpoint
+
+Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+
+- **Steer, FollowUp, Interrupt and Stop reach a Run through the Runner and every endpoint.** A Run going on the instance takes the message at its own point; with no Run going, the message starts one.
+
+  | Surface | Message | Stop |
+  |---|---|---|
+  | Go | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})` → `MessageResult{SessionID, MessageID, Queued, Run}` | `Runner.CancelSession` |
+  | HTTP | `POST /v1/sessions/{id}/messages` `{"kind"?, "text"}`: 202 `{"session_id","message_id","queued":true}`, or 200 `{"session_id","queued":false,"run":{…}}` | `POST /v1/sessions/{id}/cancel` |
+  | gRPC | `SendMessage(session_id, kind, text)` → `SendMessageResponse{session_id, message_id, queued, run}` | `CancelRun` by `session_id` |
+  | CLI | `gotato session message <id> [--kind steer\|follow_up\|interrupt] "text"` | `gotato session cancel <id>` |
+
+- **`Interrupt`.** `gotato.Session.Interrupt(message)` cancels the model call in flight, keeps the text it had sent as a Cut-off reply, lets a running tool finish, and starts the next Turn of the same Run with the message. `gotato.SourceInterrupt` is the `source` of its `message_queued` and `message_committed`. It uses the Steer queue and `MaxSteerMessages`.
+- **`not_writer`.** A message or a Stop for a Run that another live instance writes is not run and retryable, with the writer's advertised address. `gotato.ErrNotWriter` joins `gotato.ErrorCodes()`; `service.WriterOf(err)` reads the address.
+
+  | Surface | Answer |
+  |---|---|
+  | HTTP | 409, `Gotato-Not-Run: true`, header `Gotato-Writer`, body `{"code":"not_writer","not_run":true,"retryable":true,"writer":"…"}` |
+  | gRPC | `FAILED_PRECONDITION`, trailers `gotato-not-run`, `gotato-retryable`, `gotato-writer` |
+  | CLI | exit 1, `{"error","exit_code":1,"code":"not_writer","not_run":true,"retryable":true,"writer":"…"}` |
+
+  The address is optional (`service.Config.Address`, `gotato serve --advertise`, `gotato-grpc --advertise`). A `run_rejected` Instance Event with the reason `not_writer` reports the refusal.
+- **Forwarding, opt in.** `httpapi.WithForwarding(client)` (`--forward`) and `grpcadapter.WithForwarding(dialOptions...)` (`gotato-grpc --forward`) send the request to the writer's address once, with the marker `Gotato-Forwarded: true` (gRPC metadata `gotato-forwarded`), and return its answer. A marked request is never forwarded again. A forward that cannot connect answers HTTP 502.
+- **Stores carry the address.** `session.InstanceRow` and `session.InstanceState` gain `Address`, and the `storetest` suite checks that a store returns it. A `session.Store` adapter that persists the whole row needs no change; one that copies fields must copy it. `session.Record.Holder()` reports the Claim and whether its holder is using the Record.
+- **A message left in a queue is reported.**
+
+  | Before | After |
+  |---|---|
+  | a Steer or FollowUp still queued when its live Session closed was discarded with no Event | a `message_dropped` Event with the reason `session_closed` |
+  | `Runner.CancelSession` and `POST …/cancel` on a Session whose Run another live instance writes: `invalid_state` ("no active run"), 409 | `not_writer`, 409, with the writer's address |
+
+- **gRPC.** The service gains `SendMessage`, and the messages `SendMessageRequest` and `SendMessageResponse`; `grpcadapter.New` takes options.
+
 ### Limits
 
 - **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.

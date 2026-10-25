@@ -101,8 +101,8 @@ Each check is a test or a harness that passes or fails.
 
 - **Serves:** [No instance is special](DESIGNS.md#8-no-instance-is-special)
 - **Measure:** With several instances, concurrent messages and random instance kills, every message lands in exactly one Turn: 0 lost, duplicated or reordered Turns, and 0 model calls by an instance that does not own the Session
-- **Method:** multi-instance harness over one shared store (`TestManyInstancesOneWriter`); a harness behind a hashing proxy is still to build
-- **Status:** ✅ Three instances over one memory store, and over one file store, take concurrent prompts sent to random instances, with one instance killed partway. Every completed Run's prompt lands once, followed by its reply, nothing is duplicated or interleaved, and 0 model calls come from an instance that does not hold the Session. A Run refused with 409 writes nothing. 2026-10-17.
+- **Method:** multi-instance harness over one shared store (`TestManyInstancesOneWriter` for prompts, `TestMessagesMidRunLandOnceOnTheWriter` and `TestManyInstancesOneWriterWithMessages` for Steers, FollowUps and Interrupts that arrive mid-Run); a harness behind a hashing proxy is still to build
+- **Status:** ✅ Three instances over one memory store, and over one file store, take concurrent prompts sent to random instances, with one instance killed partway. Every completed Run's prompt lands once, followed by its reply, nothing is duplicated or interleaved, and 0 model calls come from an instance that does not hold the Session. A Run refused with 409 writes nothing. 2026-10-17. With messages, 2026-10-25: a Run held on one instance takes 18 messages sent to three instances at once; the 6 sent to the writer land once each, in queued order per kind, and the 12 sent elsewhere are refused `not_writer` with the writer's address and land nowhere. With prompts and messages sent at random to three instances, one killed, a message lands at most once, one a live instance accepted is committed or dropped and never lost without a word, and 0 model calls come from an instance that does not hold the Session.
 
 ### G-G02 — No silent stream cutoffs
 
