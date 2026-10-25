@@ -30,6 +30,8 @@ const (
 	KindMessageQueued       EventKind = "message_queued"
 	KindMessageCommitted    EventKind = "message_committed"
 	KindMessageDropped      EventKind = "message_dropped"
+	KindNoticeQueued        EventKind = "notice_queued"
+	KindNoticeCommitted     EventKind = "notice_committed"
 	KindMessageWithdrawn    EventKind = "message_withdrawn"
 	KindMessageRejected     EventKind = "message_rejected"
 	KindAbortRequested      EventKind = "abort_requested"
@@ -78,6 +80,8 @@ var eventClasses = map[EventKind]EventClass{
 	KindMessageQueued:       ClassStored,
 	KindMessageCommitted:    ClassStored,
 	KindMessageDropped:      ClassStored,
+	KindNoticeQueued:        ClassStored,
+	KindNoticeCommitted:     ClassStored,
 	KindMessageWithdrawn:    ClassStored,
 	KindMessageRejected:     ClassStored,
 	KindAbortRequested:      ClassStored,
@@ -326,6 +330,24 @@ func (e MessageDropped) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
+func (NoticeQueued) Kind() EventKind { return KindNoticeQueued }
+
+// MarshalJSON writes the Event as one flat object whose kind names its type.
+func (e NoticeQueued) MarshalJSON() ([]byte, error) {
+	type plain NoticeQueued
+	return marshalKind(KindNoticeQueued, plain(e))
+}
+
+// Kind implements Event.
+func (NoticeCommitted) Kind() EventKind { return KindNoticeCommitted }
+
+// MarshalJSON writes the Event as one flat object whose kind names its type.
+func (e NoticeCommitted) MarshalJSON() ([]byte, error) {
+	type plain NoticeCommitted
+	return marshalKind(KindNoticeCommitted, plain(e))
+}
+
+// Kind implements Event.
 func (MessageWithdrawn) Kind() EventKind { return KindMessageWithdrawn }
 
 // MarshalJSON writes the Event as one flat object whose kind names its type.
@@ -532,6 +554,8 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	KindMessageQueued:       decodeAs[MessageQueued],
 	KindMessageCommitted:    decodeAs[MessageCommitted],
 	KindMessageDropped:      decodeAs[MessageDropped],
+	KindNoticeQueued:        decodeAs[NoticeQueued],
+	KindNoticeCommitted:     decodeAs[NoticeCommitted],
 	KindMessageWithdrawn:    decodeAs[MessageWithdrawn],
 	KindMessageRejected:     decodeAs[MessageRejected],
 	KindAbortRequested:      decodeAs[AbortRequested],

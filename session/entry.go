@@ -32,6 +32,7 @@ var factKinds = map[gotato.EventKind]bool{
 	gotato.KindSessionCreated:      true,
 	gotato.KindCompactionEnded:     true,
 	gotato.KindMessageCommitted:    true,
+	gotato.KindNoticeCommitted:     true,
 	gotato.KindReplyEnded:          true,
 	gotato.KindReplyCutOff:         true,
 	gotato.KindToolResultCommitted: true,

@@ -21,6 +21,9 @@ const (
 	RoleUser       Role = "user"
 	RoleAssistant  Role = "assistant"
 	RoleToolResult Role = "tool_result"
+	// RoleNotice is a Message that tells the model a runtime fact the user did
+	// not say (see NoticeInfo). It starts no Round and is not the user's.
+	RoleNotice Role = "notice"
 )
 
 type ContentKind string
@@ -62,6 +65,9 @@ type Message struct {
 	// reported it, and is empty when the provider named none. It is a
 	// record, not part of the request: ForModel drops it.
 	Model string `json:"model,omitempty"`
+	// Notice says what a notice is; it is set exactly on a Message with the
+	// role RoleNotice.
+	Notice *NoticeInfo `json:"notice,omitempty"`
 }
 
 func UserMessage(text string) Message {
@@ -104,6 +110,10 @@ func (m Message) Clone() Message {
 	if m.ToolResult != nil {
 		tr := m.ToolResult.Clone()
 		out.ToolResult = &tr
+	}
+	if m.Notice != nil {
+		notice := *m.Notice
+		out.Notice = &notice
 	}
 	return out
 }

@@ -386,6 +386,11 @@ func ForModel(messages []Message) []Message {
 		if message.StopReason == StopCutOff {
 			continue
 		}
+		if message.Role == RoleNotice {
+			// A notice reaches the model as tagged text the system wrote.
+			out = append(out, Message{Role: RoleNotice, Parts: []ContentPart{{Kind: ContentText, Text: renderNotice(message)}}})
+			continue
+		}
 		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
 		m.Parts = make([]ContentPart, 0, len(message.Parts))
 		for _, part := range message.Parts {

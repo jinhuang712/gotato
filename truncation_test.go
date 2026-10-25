@@ -55,11 +55,13 @@ func TestTruncatedTurnContinuesWithinTheBound(t *testing.T) {
 			if tc.calls < 2 {
 				return
 			}
-			// The continuation is a user Message the Model sees after the
-			// cut-off Turn, so the next request never ends on an assistant.
+			// The continuation is a notice the Model sees after the cut-off
+			// Turn, so the next request never ends on an assistant, and it is
+			// not the user's words (G-F29).
 			request, _ := model.LastRequest()
 			last := request.Messages[len(request.Messages)-1]
-			if last.Role != gotato.RoleUser || gotato.TextOf(last) != gotato.TruncatedContinuationText {
+			want := `<notice kind="continue">` + gotato.TruncatedContinuationText + `</notice>`
+			if last.Role != gotato.RoleNotice || gotato.TextOf(last) != want {
 				t.Fatalf("last message before the continued turn = %+v", last)
 			}
 		})

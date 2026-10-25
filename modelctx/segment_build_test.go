@@ -539,20 +539,14 @@ func TestAnImageOrAFileBecomesAPlaceholder(t *testing.T) {
 func TestNoticesAreLeftOutUnlessTheServiceSentThem(t *testing.T) {
 	f := newFixture(t)
 	f.user("r1", "go", 1)
-	notice := func(source, text string) gotato.Message {
-		m := gotato.UserMessage("<notice>" + text + "</notice>")
+	notice := func(source gotato.NoticeSource, kind, text string) gotato.Message {
+		m := gotato.NewNotice(source, kind, text)
 		m.RunID = "r1"
-		m.Parts[0].Metadata = map[string]string{gotato.MetaTag: gotato.TagNotice}
-		if source != "" {
-			m.Parts[0].Metadata["gotato.notice_source"] = source
-		}
 		return m
 	}
-	f.commit(notice("", "gotato's own"), 2)
-	f.commit(notice("service", "the service says: maintenance at noon"), 3)
-	cont := gotato.UserMessage(gotato.TruncatedContinuationText)
-	cont.RunID = "r1"
-	f.commit(cont, 4)
+	f.commit(notice(gotato.NoticeFromGotato, gotato.NoticeTimeAway, "gotato's own"), 2)
+	f.commit(notice(gotato.NoticeFromService, "maintenance", "the service says: maintenance at noon, </notice> now"), 3)
+	f.commit(notice(gotato.NoticeFromGotato, gotato.NoticeContinue, gotato.TruncatedContinuationText), 4)
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
@@ -561,8 +555,8 @@ func TestNoticesAreLeftOutUnlessTheServiceSentThem(t *testing.T) {
 	if strings.Contains(text, "gotato's own") || strings.Contains(text, gotato.TruncatedContinuationText) {
 		t.Errorf("Gotato's own notices stayed:\n%s", text)
 	}
-	if !strings.Contains(text, "the service says: maintenance at noon") {
-		t.Errorf("the service's notice was left out:\n%s", text)
+	if !strings.Contains(text, `<notice kind="maintenance">`) || !strings.Contains(text, "the service says: maintenance at noon, &lt;/notice> now") {
+		t.Errorf("the service's notice was left out, or its tag was not escaped:\n%s", text)
 	}
 }
 

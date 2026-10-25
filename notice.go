@@ -1,0 +1,202 @@
+package gotato
+
+import (
+	"context"
+	"strings"
+)
+
+// NoticeSource says who wrote a notice.
+type NoticeSource string
+
+const (
+	// NoticeFromGotato is a notice the runtime wrote itself, such as a
+	// continuation or the time away.
+	NoticeFromGotato NoticeSource = "gotato"
+	// NoticeFromService is a notice a service or an extension wrote.
+	NoticeFromService NoticeSource = "service"
+)
+
+// The kinds of notice Gotato sends itself. They are reserved: a service names
+// its own kinds, and Session.Notice refuses these.
+const (
+	// NoticeContinue: the last reply did not finish, because it hit the
+	// output limit, so go on.
+	NoticeContinue = "continue"
+	// NoticeLastTurn: this is the last Turn, so answer without tools.
+	NoticeLastTurn = "last_turn"
+	// NoticeStreamCut: the reply was cut off mid-stream, so go on from where
+	// it stopped.
+	NoticeStreamCut = "stream_cut"
+	// NoticeSettingsChanged: the instruction changed, or a tool came or went.
+	NoticeSettingsChanged = "settings_changed"
+	// NoticeRunInterrupted: the last Run was stopped before it finished.
+	NoticeRunInterrupted = "run_interrupted"
+	// NoticeTimeAway: the user was away; how long it has been, and the time now.
+	NoticeTimeAway = "time_away"
+)
+
+// ReservedNoticeKind reports whether kind is one of Gotato's own.
+func ReservedNoticeKind(kind string) bool {
+	switch kind {
+	case NoticeContinue, NoticeLastTurn, NoticeStreamCut, NoticeSettingsChanged, NoticeRunInterrupted, NoticeTimeAway:
+		return true
+	}
+	return false
+}
+
+// NoticeInfo is what a Message of the role RoleNotice says about itself.
+type NoticeInfo struct {
+	// Kind is a short label: one of Gotato's own kinds, or the service's.
+	Kind   string       `json:"kind"`
+	Source NoticeSource `json:"source"`
+	// CausedBy is the number of the Event that caused a notice of Gotato's
+	// own, when one did.
+	CausedBy uint64 `json:"caused_by,omitempty"`
+}
+
+// NewNotice returns a notice Message holding text. The text is kept as it is;
+// ForModel writes it into the request as <notice kind="…">text</notice>.
+func NewNotice(source NoticeSource, kind, text string) Message {
+	return Message{
+		Role:   RoleNotice,
+		Parts:  []ContentPart{{Kind: ContentText, Text: text}},
+		Notice: &NoticeInfo{Kind: kind, Source: source},
+	}
+}
+
+// renderNotice is the tagged text a notice reaches the model as. The kind and
+// the text are escaped, so neither can close the tag or open another.
+func renderNotice(message Message) string {
+	kind := ""
+	if message.Notice != nil {
+		kind = message.Notice.Kind
+	}
+	kind = strings.NewReplacer(`"`, "&quot;", "<", "&lt;", ">", "&gt;", "\n", " ").Replace(kind)
+	return "<" + TagNotice + ` kind="` + kind + `">` + EscapeTags(TextOf(message)) + "</" + TagNotice + ">"
+}
+
+// Notice queues a notice from your service or an extension and returns the
+// number of its notice_queued Event; it never waits for the model. The notice
+// goes into the Transcript right before the next model call, after the Tool
+// Results or the prompt that call follows, in the order it arrived among
+// Steers. It starts no Run and no Round, and never keeps a Run going: with no
+// Run, or a Run that settles first, it waits for the next one. kind is your
+// own label, which Gotato keeps and does not read; Gotato's own kinds are
+// reserved and refused. The queue is bounded by CoreLimits.MaxNotices.
+func (a *Session) Notice(ctx context.Context, kind, text string) (uint64, error) {
+	if ReservedNoticeKind(kind) {
+		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice kind "+kind+" is reserved", nil)
+	}
+	return a.QueueNotice(ctx, NewNotice(NoticeFromService, kind, text))
+}
+
+// QueueNotice queues a notice Message, of any source and kind, as Notice does.
+// It is for the host that speaks for Gotato, such as the service layer's
+// time_away; a service's own notice goes through Notice.
+func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if message.Role != RoleNotice || message.Notice == nil {
+		return 0, runtimeError(ErrInvalidArgument, "Notice", "a notice needs the role notice and its info", nil)
+	}
+	if strings.TrimSpace(message.Notice.Kind) == "" {
+		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice kind is empty", nil)
+	}
+	if !hasContent(message) {
+		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice is empty", nil)
+	}
+	if err := a.admissionError("Notice"); err != nil {
+		return 0, err
+	}
+	message = message.Clone()
+	if message.ID == "" {
+		message.ID = MessageID(nextID("message"))
+	}
+	reject := func(why string, err error) (uint64, error) {
+		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: SourceNotice, Why: why})
+		return 0, err
+	}
+	if a.noticeLimit == 0 {
+		return reject("disabled", runtimeError(ErrLimitExceeded, "Notice", "Notice is disabled by the configured limit", nil))
+	}
+	if a.noticeLen() >= a.noticeLimit {
+		return reject("queue_full", runtimeError(ErrLimitExceeded, "Notice", "notice queue is full", nil))
+	}
+	written, werr := a.writeEvents(ctx, []Event{NoticeQueued{
+		Header: a.nowHeader(), MessageID: message.ID, NoticeKind: message.Notice.Kind,
+		Source: message.Notice.Source, Text: TextOf(message),
+	}})
+	if werr != nil {
+		return 0, werr
+	}
+	number := written[0].Head().Number
+	a.noticeMu.Lock()
+	a.notices = append(a.notices, control{message: message, source: SourceNotice, seq: a.ctlSeq.Add(1), number: number})
+	a.noticeMu.Unlock()
+	return number, nil
+}
+
+func (a *Session) noticeLen() int {
+	a.noticeMu.Lock()
+	defer a.noticeMu.Unlock()
+	return len(a.notices)
+}
+
+// takeNotices removes and returns the queued notices, in order.
+func (a *Session) takeNotices() []control {
+	a.noticeMu.Lock()
+	defer a.noticeMu.Unlock()
+	out := a.notices
+	a.notices = nil
+	return out
+}
+
+// commitNotice commits a notice Message and stores its NoticeCommitted. number
+// is the notice_queued it came from, and causedBy the Event that caused a
+// notice of Gotato's own, each 0 when there is none.
+func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber, message Message, number, causedBy uint64) *RuntimeError {
+	if message.ID == "" {
+		message.ID = MessageID(nextID("message"))
+	}
+	message.RunID = runID
+	if causedBy != 0 && message.Notice != nil {
+		info := *message.Notice
+		info.CausedBy = causedBy
+		message.Notice = &info
+	}
+	if err := a.commitMessage(message); err != nil {
+		return asRuntimeError(err)
+	}
+	a.stage(NoticeCommitted{Header: NewHeader(a.id, runID, turn), Message: message.Clone(), Queued: number})
+	return a.flush(ctx)
+}
+
+// commitQueuedNotices commits every notice that waits, in order: right before
+// a model call.
+func (a *Session) commitQueuedNotices(ctx context.Context, runID RunID, turn TurnNumber) *RuntimeError {
+	for _, queued := range a.takeNotices() {
+		if err := a.commitNotice(ctx, runID, turn, queued.message, queued.number, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mergeNotices puts notices into items by arrival: each before the first item
+// that arrived after it.
+func mergeNotices(items, notices []control) []control {
+	if len(notices) == 0 {
+		return items
+	}
+	out := make([]control, 0, len(items)+len(notices))
+	pending := notices
+	for _, item := range items {
+		for len(pending) > 0 && pending[0].seq < item.seq {
+			out = append(out, pending[0])
+			pending = pending[1:]
+		}
+		out = append(out, item)
+	}
+	return append(out, pending...)
+}

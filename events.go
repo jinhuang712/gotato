@@ -220,9 +220,9 @@ const (
 	// SourceInterrupt is a Message that cut the model call in flight short
 	// and started the next Turn of the same Run.
 	SourceInterrupt MessageSource = "interrupt"
-	// SourceContinuation is a Message the Loop wrote itself to go on after a
-	// reply the output limit cut off.
-	SourceContinuation MessageSource = "continuation"
+	// SourceNotice is a notice (G-F29): in message_dropped and
+	// message_rejected it says what kind of message was dropped or refused.
+	SourceNotice MessageSource = "notice"
 )
 
 // Compaction records one replacement of a Message prefix by a summary, so an
@@ -524,6 +524,28 @@ type MessageCommitted struct {
 	Header
 	Message Message       `json:"message"`
 	Source  MessageSource `json:"source"`
+}
+
+// NoticeQueued: a notice from a service or an extension waits for the next
+// model call (G-F29). Text is kept so that the notice can be rebuilt from the
+// Event.
+type NoticeQueued struct {
+	Header
+	MessageID MessageID `json:"message_id"`
+	// NoticeKind is the notice's label; "kind" in the JSON names the Event.
+	NoticeKind string       `json:"notice_kind"`
+	Source     NoticeSource `json:"source"`
+	Text       string       `json:"text"`
+}
+
+// NoticeCommitted: a notice enters the Transcript, right before a model call.
+// Queued is the number of the notice_queued it came from, absent for a notice
+// of Gotato's own, which is committed at once; its cause is in
+// Message.Notice.CausedBy.
+type NoticeCommitted struct {
+	Header
+	Message Message `json:"message"`
+	Queued  uint64  `json:"queued,omitempty"`
 }
 
 // MessageDropped: a waiting message is dropped because the Run ended first.

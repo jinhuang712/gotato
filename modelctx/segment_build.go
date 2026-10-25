@@ -29,12 +29,6 @@ const (
 	DefaultTailTokens = 20000
 )
 
-// metaNoticeSource is the Part metadata key that tells a service's notice from
-// Gotato's own, until runtime notices (G-F29) are built: a notice Message
-// whose Part carries this key with the value "service" stays in a Segment word
-// for word, and any other notice is left out.
-const metaNoticeSource = "gotato.notice_source"
-
 // SegmentSettings are the settings of a Segment built by code. A zero value
 // takes the default.
 type SegmentSettings struct {
@@ -229,6 +223,17 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
 				items = append(items, item{role: gotato.RoleUser, parts: parts})
 			}
+		case gotato.RoleNotice:
+			// Gotato's own notices mattered only at the time: the Recap covers
+			// them. A service's stays word for word, because Gotato cannot tell
+			// whether it still applies.
+			if message.Notice == nil || message.Notice.Source != gotato.NoticeFromService {
+				continue
+			}
+			flush()
+			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
+				items = append(items, item{role: gotato.RoleUser, parts: []gotato.ContentPart{noticePart(message.Notice.Kind, parts)}})
+			}
 		case gotato.RoleAssistant:
 			var at time.Time
 			if p, ok := position(message.ID); ok {
@@ -268,18 +273,23 @@ func sameCall(a, b gotato.ToolCallLine) bool {
 	return a.ToolID == b.ToolID && a.Args == b.Args && a.Status == b.Status && a.Code == b.Code
 }
 
-// skipUser reports whether a user Message is left out of a Segment: Gotato's
-// own notices, and the continuation after a reply the output limit cut off.
-func skipUser(message gotato.Message) bool {
-	if gotato.TextOf(message) == gotato.TruncatedContinuationText {
-		return true
-	}
-	for _, part := range message.Parts {
-		if part.Metadata[gotato.MetaTag] == gotato.TagNotice {
-			return part.Metadata[metaNoticeSource] != "service"
+// noticePart is a service's notice as a Segment keeps it: its kind and its
+// text, with the text escaped like any other.
+func noticePart(kind string, parts []gotato.ContentPart) gotato.ContentPart {
+	var text strings.Builder
+	for _, part := range parts {
+		if isText(part) {
+			text.WriteString(part.Text)
 		}
 	}
-	return false
+	return taggedPart(gotato.TagNotice, [][2]string{{"kind", kind}}, gotato.EscapeTags(text.String()))
+}
+
+// skipUser reports whether a user Message is left out of a Segment: the
+// continuation a Record written before notices holds, which was a user
+// Message.
+func skipUser(message gotato.Message) bool {
+	return gotato.TextOf(message) == gotato.TruncatedContinuationText
 }
 
 // finalReplies marks each Run's final reply: its last assistant Message

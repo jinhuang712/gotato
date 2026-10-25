@@ -35,6 +35,27 @@ func (a *Session) flush(ctx context.Context) *RuntimeError {
 	return a.write(ctx, events)
 }
 
+// flushNumbered is flush that also returns the number of the last staged Event
+// of the given kind, 0 when it wrote none.
+func (a *Session) flushNumbered(ctx context.Context, kind EventKind) (uint64, *RuntimeError) {
+	if len(a.staged) == 0 {
+		return 0, nil
+	}
+	events := a.staged
+	a.staged = nil
+	written, err := a.writeEvents(ctx, events)
+	if err != nil {
+		return 0, err
+	}
+	var number uint64
+	for _, event := range written {
+		if event.Kind() == kind {
+			number = event.Head().Number
+		}
+	}
+	return number, nil
+}
+
 // writeNow writes Events of their own, between steps: a queued message, an
 // Abort. It is safe to call from any goroutine.
 func (a *Session) writeNow(ctx context.Context, events ...Event) *RuntimeError {
@@ -258,6 +279,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err := a.refreshTools(); err != nil {
 			return fail(asRuntimeError(err))
 		}
+		// A notice that waits goes in now, right before this model call: after
+		// the prompt, or after the Tool Results of the last Turn.
+		if err := a.commitQueuedNotices(runCtx, runID, turn); err != nil {
+			return fail(err)
+		}
 
 		// build makes the request of this Turn from the Transcript as it
 		// stands. A TurnPreparer that rewrote the Transcript has it built again.
@@ -395,7 +421,8 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
 		}
 		a.stage(ReplyEnded{Header: hd(turn), Message: assistant.Clone(), Model: assistant.Model, StopReason: assistant.StopReason, ToolCalls: len(assistant.ToolCalls)})
-		if err := a.flush(runCtx); err != nil {
+		replyNumber, err := a.flushNumbered(runCtx, KindReplyEnded)
+		if err != nil {
 			return fail(err)
 		}
 
@@ -454,7 +481,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// settling on it.
 			if assistant.StopReason == StopMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
 				truncatedContinuations++
-				if err := a.commitContinuation(runCtx, runID, turn, UserMessage(TruncatedContinuationText), SourceContinuation); err != nil {
+				// A notice, not a user Message: it starts no Round, so the
+				// reasoning of the cut reply stays in the request.
+				if err := a.commitNotice(runCtx, runID, turn, NewNotice(NoticeFromGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber); err != nil {
 					return fail(err)
 				}
 				continue
@@ -621,48 +650,56 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 // consumeControl commits the control Messages that apply at this boundary. It
 // runs inside the Session execution unit, so committing them keeps the Session
 // goroutine as the only mutation authority for the transcript.
+//
+// Notices wait in the same queue and go in with them, in the order they
+// arrived. A notice never keeps a Run going: at settlement they are committed
+// only when a Steer or FollowUp is, and otherwise wait for the next Run.
 func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumber, settling bool) (bool, *RuntimeError) {
-	injected := false
-	commit := func(message Message, source MessageSource) *RuntimeError {
-		if err := a.commitContinuation(ctx, runID, turn, message, source); err != nil {
-			return err
-		}
-		injected = true
-		return nil
-	}
+	var items []control
 	for {
 		select {
 		case queued := <-a.steer:
 			if queued.source == SourceInterrupt {
 				a.interruptTaken()
 			}
-			if err := commit(queued.message, queued.source); err != nil {
-				return injected, err
-			}
+			items = append(items, queued)
 			continue
 		default:
 		}
 		break
 	}
-	if !settling {
-		return injected, nil
+	if settling {
+		for {
+			select {
+			case queued := <-a.followUp:
+				items = append(items, queued)
+				continue
+			default:
+			}
+			break
+		}
 	}
-	for {
-		select {
-		case queued := <-a.followUp:
-			if err := commit(queued.message, queued.source); err != nil {
+	if len(items) > 0 || !settling {
+		items = mergeNotices(items, a.takeNotices())
+	}
+	injected := false
+	for _, item := range items {
+		if item.source == SourceNotice {
+			if err := a.commitNotice(ctx, runID, turn, item.message, item.number, 0); err != nil {
 				return injected, err
 			}
 			continue
-		default:
 		}
-		break
+		if err := a.commitContinuation(ctx, runID, turn, item.message, item.source); err != nil {
+			return injected, err
+		}
+		injected = true
 	}
 	return injected, nil
 }
 
 // commitContinuation commits a Message the Loop continues with (a control
-// Message, or the truncation continuation) and stores its MessageCommitted
+// Message) and stores its MessageCommitted
 // with the source that produced it.
 func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn TurnNumber, message Message, source MessageSource) *RuntimeError {
 	if message.ID == "" {

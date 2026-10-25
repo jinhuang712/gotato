@@ -249,6 +249,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		admission:      make(chan struct{}, 1),
 		steer:          make(chan control, controlCapacity(cfg.limits.MaxSteerMessages)),
 		followUp:       make(chan control, controlCapacity(cfg.limits.MaxFollowUpMessages)),
+		noticeLimit:    int(min(cfg.limits.MaxNotices, maxControlCapacity)),
 		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
 		handoff:        cfg.handoff,
@@ -342,6 +343,11 @@ type Session struct {
 	admission   chan struct{}
 	steer       chan control
 	followUp    chan control
+	// notices waits for the next model call, in the order it arrived; it is
+	// part of the queue the Steer is in (G-F29). noticeMu guards it.
+	noticeMu    sync.Mutex
+	notices     []control
+	noticeLimit int
 
 	// intrMu guards the Interrupts that wait in steer (intrPending), and the
 	// cancellation of the model call in flight (callCancel).
@@ -537,6 +543,8 @@ type control struct {
 	seq     uint64
 	message Message
 	source  MessageSource
+	// number is the notice_queued of a notice.
+	number uint64
 }
 
 // interruptTaken says an Interrupt left its queue, committed or dropped.
@@ -773,6 +781,9 @@ func (a *Session) dropLeftoverControl() {
 			}
 			break
 		}
+	}
+	for _, queued := range a.takeNotices() {
+		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: SourceNotice, Why: "session_closed"})
 	}
 }
 
@@ -1207,7 +1218,7 @@ func validateContinuable(messages []Message) error {
 		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
 	}
 	switch messages[last].Role {
-	case RoleUser, RoleToolResult:
+	case RoleUser, RoleToolResult, RoleNotice:
 		return nil
 	default:
 		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
@@ -1467,6 +1478,7 @@ type Queued struct {
 	Message Message
 	Source  MessageSource
 	seq     uint64
+	number  uint64
 }
 
 // TakeQueued removes and returns the messages that wait in the Steer and
@@ -1489,6 +1501,9 @@ func (a *Session) TakeQueued() []Queued {
 			break
 		}
 	}
+	for _, queued := range a.takeNotices() {
+		out = append(out, Queued{Message: queued.message, Source: SourceNotice, seq: queued.seq, number: queued.number})
+	}
 	slices.SortFunc(out, func(a, b Queued) int { return cmp.Compare(a.seq, b.seq) })
 	return out
 }
@@ -1506,7 +1521,19 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		if source == SourceInterrupt {
 			source = SourceSteer
 		}
-		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1)}
+		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1), number: m.number}
+		if source == SourceNotice {
+			a.noticeMu.Lock()
+			fits := len(a.notices) < a.noticeLimit
+			if fits {
+				a.notices = append(a.notices, queued)
+			}
+			a.noticeMu.Unlock()
+			if !fits {
+				rest = append(rest, m)
+			}
+			continue
+		}
 		select {
 		case a.steer <- queued:
 		default:

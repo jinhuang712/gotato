@@ -10,9 +10,13 @@ type CoreLimits struct {
 	MaxToolProgressUpdates uint32
 	MaxSteerMessages       uint32
 	MaxFollowUpMessages    uint32
+	// MaxNotices bounds the notices that wait for the next model call
+	// (Session.Notice). Zero refuses them. Gotato's own notices are not
+	// queued and not bounded by it.
+	MaxNotices uint32
 	// MaxTruncatedContinuations bounds, per Run, how many Turns that stopped
 	// at the Model's output limit without a Tool Call are continued with
-	// TruncatedContinuationText instead of settling the Run on a cut-off
+	// the continue notice instead of settling the Run on a cut-off
 	// Message. Zero (the default) settles as before.
 	MaxTruncatedContinuations uint32
 	// MaxParallelTools bounds the workers one Turn may run at once. Zero or
@@ -22,8 +26,8 @@ type CoreLimits struct {
 	ToolCallDeadline  time.Duration
 }
 
-// TruncatedContinuationText is the user Message a Run continues with after a
-// Turn stopped at the output limit without a Tool Call (see
+// TruncatedContinuationText is the text of the continue notice a Run goes on
+// with after a Turn stopped at the output limit without a Tool Call (see
 // CoreLimits.MaxTruncatedContinuations).
 const TruncatedContinuationText = "Your last reply was cut off at the output limit before you acted. Continue from where you stopped: keep any reasoning short and take the next step with a tool call, or give your final answer."
 
@@ -57,6 +61,7 @@ func defaultLimits() CoreLimits {
 		MaxToolProgressUpdates: 1000,
 		MaxSteerMessages:       8,
 		MaxFollowUpMessages:    4,
+		MaxNotices:             16,
 		MaxParallelTools:       1,
 		ModelCallDeadline:      2 * time.Minute,
 		ToolCallDeadline:       2 * time.Minute,

@@ -81,6 +81,9 @@ func startsTag(rest string) bool {
 // hasTagMeta reports whether any Part of messages is marked MetaTag.
 func hasTagMeta(messages []Message) bool {
 	for _, message := range messages {
+		if message.Role == RoleNotice && message.StopReason != StopCutOff {
+			return true
+		}
 		for _, part := range message.Parts {
 			if _, ok := part.Metadata[MetaTag]; ok {
 				return true

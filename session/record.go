@@ -211,6 +211,8 @@ func (s *Record) apply(entry Entry) error {
 		s.closeLocked(e.Segment)
 	case gotato.MessageCommitted:
 		s.addMessage(e.Message)
+	case gotato.NoticeCommitted:
+		s.addMessage(e.Message)
 	case gotato.ReplyEnded:
 		s.addMessage(e.Message)
 	case gotato.ReplyCutOff:

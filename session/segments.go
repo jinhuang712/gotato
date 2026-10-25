@@ -328,6 +328,8 @@ func messageOf(event gotato.Event) (gotato.Message, bool) {
 	switch e := event.(type) {
 	case gotato.MessageCommitted:
 		return e.Message, true
+	case gotato.NoticeCommitted:
+		return e.Message, true
 	case gotato.ReplyEnded:
 		return e.Message, true
 	case gotato.ReplyCutOff:
