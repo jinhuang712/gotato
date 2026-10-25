@@ -123,7 +123,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Load balancer setup | the endpoints read `session-id` and answer with it; hash on it, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | ✅ |
 | Activation limit | past a hard limit on its active Sessions, an instance refuses a new one with a 503 marked "not run" | G-F27 | ✅ |
 | Warm Session and TTL | after a Run the Session stays in memory as a cache, never a lock, and leaves after 60 idle minutes unless its Agent sets another TTL; its own timer compacts it before its cache goes cold | G-F27 | ✅ |
-| Memory limit | warm Sessions count toward `MaxActiveSessions`; at the limit the longest-idle warm Session is evicted first, and a Run is refused only when every live Session is running | G-F27 | ⬜ |
+| Memory limit | warm Sessions count toward `MaxActiveSessions`; at the limit the longest-idle warm Session is evicted first, and a Run is refused only when every live Session is running | G-F27 | ✅ |
 | A message for a Run on another instance | answered `not_writer`, not run and retryable, with the writer's advertised address; HTTP and gRPC can forward it when you opt in | G-F27 | ⬜ |
 | Prompt cache retention | the provider's longest cache retention, set per model or for all of them | G-F33 | ✅ |
 
@@ -1194,7 +1194,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 | Activation limit | ✅ | past `MaxActiveSessions`, an instance refuses a Run that would activate another Session with a 503 marked "not run" (gRPC: `UNAVAILABLE` with a trailer), emits `run_rejected` with the reason `activation_limit`, and loads, claims and creates nothing, so the load balancer can retry it elsewhere. Off by default. Spreading load stays the load balancer's and the autoscaler's job. |
 | Advertised address | ⬜ | an instance can advertise an address in its Liveness row, so `not_writer` can name where the writer is. Optional. |
 | Warm Session and TTL | ✅ | after a Run the Session stays in memory, and leaves it after 60 idle minutes unless its Agent sets another TTL (`service.Agent.Warm`, `--warm-ttl`). The warm copy is a cache, never a lock: it holds no Claim while idle, and the store stays the truth. While it idles, its own timer compacts it shortly before its prompt cache expires or it leaves, whichever comes first, unless a setting turns this off (`--no-idle-compaction`; [G-F06](#g-f06--compaction-)). |
-| Memory limit | ⬜ | warm Sessions count toward `MaxActiveSessions`. At the limit, the instance evicts the longest-idle warm Session first and refuses a Run (`overloaded`, not run) only when every live Session is running a Run. |
+| Memory limit | ✅ | warm Sessions count toward `MaxActiveSessions`. At the limit, the instance evicts the longest-idle warm Session first and refuses a Run (`overloaded`, not run) only when every live Session is running a Run. |
 | A message for a Run on another instance | ⬜ | an instance that is not the writer answers `not_writer`, not run and retryable, with the writer's advertised address ([G-F26](#g-f26--steering-a-run-)). HTTP and gRPC can forward it when you opt in. |
 
 **One writer.** Only the writer may append to a Session's Record, and it holds a Claim with an Epoch.
@@ -1230,7 +1230,7 @@ Run ends ──► warm and idle, holding no Claim ──► idle lead: compacti
 - **Idle compaction.** The Session's own timer fires at the idle lead ([G-F06](#g-f06--compaction-)) and calls the same compaction that a service's own timer calls. A message that arrives cancels it, and is served first, while the cache is still warm.
 - **What stays warm is cheap.** The copy holds the Record and its Writer; model clients and connections belong to the instance ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)). Dropping it loses nothing. The heap it holds is measured in G-B08.
 - **Other operations use the copy too.** The compact endpoint and a Tool's activation change take the Session lock, use the copy when it is current, and leave it warm. Deleting a Session drops its copy.
-- **Leaving memory is an Event.** `session_unloaded` says why: `ttl`, the TTL ended; `taken_over`, another instance wrote the Record or deleted it; `deleted`, this instance deleted the Session; `drain` or `closed`, the Runner let every copy go; `failed`, a write of the copy failed and it was dropped; `liveness_lapsed`, this instance could not show its Liveness row. The Session evicted at the memory limit says `evicted` when step 2 is built.
+- **Leaving memory is an Event.** `session_unloaded` says why: `ttl`, the TTL ended; `taken_over`, another instance wrote the Record or deleted it; `deleted`, this instance deleted the Session; `drain` or `closed`, the Runner let every copy go; `failed`, a write of the copy failed and it was dropped; `liveness_lapsed`, this instance could not show its Liveness row. The Session evicted at the memory limit says `evicted`.
 
 **A request that reaches an instance that is not the writer.** The instance looks at the Claim:
 
@@ -1277,10 +1277,12 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 - **Why `/readyz` does not fail at the limit.** A full instance still serves the Sessions it holds, and a consistent hash sends their requests here. `/readyz` answers 503 for a drain only, and reports `active_sessions` beside `active_runs`, so an operator sees how close the instance is.
 - While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
-**Memory limit (planned).** With the warm Session, `MaxActiveSessions` counts every live Session an instance holds in memory: those running a Run, those waiting for one, and those warm and idle.
+**Memory limit.** `MaxActiveSessions` counts every live Session an instance holds in memory: those running a Run, those waiting for one, and those warm and idle.
 
-- **Evict first.** A Run that would activate one Session more than the limit first evicts the longest-idle warm Session. Nothing is lost, because the store is the truth. The evicted Session is not compacted first, and its stretch waits for the next idle time or the ceiling ([G-F06](#g-f06--compaction-)). `session_unloaded` says it was evicted.
-- **Refuse last.** Only when every live Session is running a Run is the new one refused, as today: `overloaded`, marked not run, before anything is loaded, claimed or created.
+- **Evict first.** A Run that would activate one Session more than the limit first evicts the longest-idle warm Session. Nothing is lost, because the store is the truth. The evicted Session is not compacted first, and its stretch waits for the next idle time or the ceiling ([G-F06](#g-f06--compaction-)). `session_unloaded` says `evicted`.
+- **The longest idle goes first.** Idle time runs from the end of a Session's last Run; ties go to the copy that went idle first. A Session with an admitted Run is never evicted. Its timers (TTL and idle compaction) stop with it.
+- **An idle compaction in progress is cancelled.** Eviction treats it as a message does: it cancels the compaction, waits for it to let go of the Session, and goes on. The compaction leaves nothing half-written, and its stretch waits as said above. Skipping a Session that compacts would pass over the longest-idle ones, since the idle compaction runs just before the TTL, and refuse a Run for no reason.
+- **Refuse last.** Only when every live Session is running a Run is the new one refused: `overloaded`, marked not run, before anything is loaded, claimed or created.
 - **A warm Session is not a new activation.** A Run on a Session that is warm here reuses its copy and adds nothing to the count.
 
 **Gap:** cancel requests work only on the instance that runs the Session. Planned: a Stop, like any other message, reaches a Run from any instance, or is answered `not_writer` ([G-F26](#g-f26--steering-a-run-)).
@@ -1483,7 +1485,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `metadata_changed` | a setting in the Session's metadata changes, such as its instruction, its model or its Agent | Record |
 | `compaction_started`, `compaction_ended`, `compaction_failed` | a compaction starts, appends its Checkpoint, or fails, with why it ran: on demand or past the ceiling. With G-F06's Segments, also before the cache expires (`before_cache_expires`), before the Session leaves memory (`before_unload`), after the provider refused a request as too long (`overflow`), or because the Segments passed their budget at the start of a Run (`past_budget`). A merge of the oldest Segments is a compaction of its own, with the same `why` as the compaction it follows | Record |
 | `segment_closed` | a compaction closes a Segment: its data and rendered Messages, written once, before the Checkpoint that lists it ([G-F06](#g-f06--compaction-)) | Record |
-| `session_unloaded` | the Session leaves this Instance's memory, with why: `ttl`, its time in memory ended; `taken_over`, another Instance wrote the Record, so the copy was out of date; `deleted`; `drain` or `closed`; `failed`, a write of the copy failed; `liveness_lapsed`; and `evicted`, at the memory limit (planned, [G-F27](#g-f27--service-many-instances-)). A live Session in the Go API sends `close` when it closes | Instance |
+| `session_unloaded` | the Session leaves this Instance's memory, with why: `ttl`, its time in memory ended; `taken_over`, another Instance wrote the Record, so the copy was out of date; `deleted`; `drain` or `closed`; `failed`, a write of the copy failed; `liveness_lapsed`; and `evicted`, at the memory limit ([G-F27](#g-f27--service-many-instances-)). A live Session in the Go API sends `close` when it closes | Instance |
 | `session_deleted` | the Session's Record is deleted | Instance |
 
 *The store and extensions*
@@ -1523,7 +1525,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
 - today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
-**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until messages reach a Run from any endpoint (Phase 8, step 3). `message_withdrawn` has no way to happen before that. `session_unloaded` comes from the Runner when a warm copy leaves memory, with every reason but `evicted`, which comes with the memory limit (step 2).
+**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until messages reach a Run from any endpoint (Phase 8, step 3). `message_withdrawn` has no way to happen before that. `session_unloaded` comes from the Runner when a warm copy leaves memory, with every reason.
 
 ### G-F15 — Extensions ✅
 
@@ -1661,7 +1663,7 @@ Each feature above says what happens when its part fails. This table collects th
 | A write's outcome is unknown | the writer stops, and the Session is opened again from the store, which shows whether the write landed | G-F27 |
 | A request reaches an instance that is not the writer | an idle Session is taken over; a busy one is waited for, then refused with 409; a message for a Run going on the writer is answered `not_writer`, not run, with the writer's address (planned) | G-F27, G-F26 |
 | A warm copy is stale because another instance wrote the Record | the head differs from the copy's, so the instance reloads from the store before the Run, and the old copy is dropped | G-F27 |
-| An instance is full | it evicts its longest-idle warm Session first (planned); when every live Session is running, it refuses to activate a new one, with a 503 marked "not run" | G-F27 |
+| An instance is full | it evicts its longest-idle warm Session first; when every live Session is running, it refuses to activate a new one, with a 503 marked "not run" | G-F27 |
 | A stream is cut | the client reconnects through the load balancer with the number of the last Event it saw; the stream goes on from the Record. If the Record is not the one it saw, or the number is past its end, the answer is 409 `cannot_resume` and the client starts over | G-F14 |
 
 ## Later

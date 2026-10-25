@@ -430,6 +430,13 @@ These are additions, within the version change that the changes above already ho
   | `session_unloaded` came only from a live Session that closed (`why: "close"`) | the Runner sends it when a warm copy leaves: `ttl`, `taken_over`, `deleted`, `drain`, `closed`, `failed` or `liveness_lapsed` |
   | `session_saved.writes` of a Run counted the writes since the Session was opened | it counts that Run's writes, its Claim included, also on a warm copy |
   | `Runner.Close` and `Runner.Drain` released nothing for an idle Session | they drop the warm copies and write nothing, since an idle copy holds no Claim |
+- **Warm Sessions count toward `MaxActiveSessions`, and the longest-idle one is evicted first.** `Admission.MaxActiveSessions` (`--max-sessions`) now limits the Sessions an instance keeps: those with a Run and the warm ones. A Run that would activate one Session more evicts the longest-idle warm Session (`session_unloaded` with why `evicted`, not compacted first; an idle compaction in progress is cancelled) and runs. It is refused as not run (`overloaded`) only when every Session is running a Run. A Run on a Session that is warm here adds nothing to the count.
+
+  | Before | After |
+  |---|---|
+  | the limit counted the Sessions with a Run; warm Sessions were free | the limit counts warm Sessions too; at the limit a new Run evicts the longest-idle one instead of being refused |
+  | `session_unloaded` never said `evicted` | it does, when a warm Session is evicted for room |
+  | `Runner.ActiveSessions` | unchanged: it still counts the Sessions with a Run; `Runner.WarmSessions` counts the idle ones |
 - **An open or a create no longer cuts the stream of a newer Record.** When the Record was deleted and created again on another instance just after this instance wrote its claim, and a client had already streamed the new Record here, the stream ended with `cannot_resume`. A stream is now cut only when it is shown to be of a replaced Record. No field or code changes.
 
 ### Measurement
