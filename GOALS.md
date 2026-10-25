@@ -273,7 +273,7 @@ Each evaluation needs a person or a real model, so it runs on demand.
 
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Measure:** After a compaction, a real model answers questions whose answers appeared only in Tool Results before it, such as an ID, a number or an error code. The share it answers correctly, compared with the same questions before the compaction.
-- **Method:** the live check of [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-) on the payments example, run on demand *(to build)*
+- **Method:** a check on the payments example that Gotato ships and a team runs on demand against its own gateway ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)) *(to build)*. Gotato runs no checks against real providers itself.
 - **Status:** ⬜ Not measured. Waits for the Agent's model writing the Recap.
 
 ### G-B13 — Time to a first agent

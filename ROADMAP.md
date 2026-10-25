@@ -21,7 +21,7 @@ Phase 7  Warm Session    a Session stays in memory while in use, is told runtime
                          and takes Steer, Interrupt and Stop from any endpoint
 Phase 8  Structured      an Agent's final reply fits a JSON schema
 Phase 9  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
-Phase 10 Compatibility   CI flags a removed or changed exported identifier
+Phase 10 Before release  fake gateways, a local cluster, and CI that flags a removed or changed exported identifier
          ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
 ```
 
@@ -37,7 +37,7 @@ Why this order:
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the many-instance goals carry the pitch.
 - **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
-- **The compatibility check waits for mass testing,** when many callers depend on the exported API.
+- **The tests a team's own setup would run come last:** fake gateways, a local cluster and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
 
@@ -149,7 +149,7 @@ Exit:
 A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
 
 - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, the Run on every Message, and the Recap names.
-- ⬜ Checks against real providers, run on demand and never in CI, once there are gateway keys. The Recap's quality on the payments example (G-E01) comes first, because the model's Recap is on by default only once it passes.
+- Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 10.
 - ✅ Step 1, Segments built by code: a compaction on demand or at the start of a Run closes a Segment, and keeps the ToolSets the Segment used and those the kept tail calls. A user Message or final reply past 2K tokens is cut, and the line that says so names `read_segment`, which reads the rest from step 4. The compact endpoints take `min_tokens`, so a service's idle timer skips a stretch too short to be worth a model call, and a compaction that names no `keep` keeps the latest Run's Turns as its tail, as mid-Run. A Record compacted into one summary before Segments is refused, not migrated. A compaction that fails is dropped, and the Run goes on.
 - ⬜ Step 2, the model writes the Recap, on the cached prefix. With it, a service can compact its idle Sessions before their cache goes cold.
 - ⬜ Step 3, past the ceiling and on overflow: compaction before any model call, mid-Run included, through `TurnPreparer`, and once after the provider refuses a request as too long.
@@ -162,7 +162,7 @@ Exit:
 - A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - G-G07 and G-G09 pass across Runs, reloads, instances and compactions, and G-G11 passes for every fault it lists.
 - G-G10 passes on the `long_session` task, and G-B14, G-B15 and G-B16 have a number.
-- G-E01 is run on the payments example before the Recap written by the model is on by default.
+- The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
 
 ## Phase 7 — Warm Session
 
@@ -206,12 +206,24 @@ Exit:
 - A store wrapper that refuses a caller by the identity in `ctx` makes reading, running and cancelling a Session answer 403, tested on HTTP and gRPC.
 - The new code is recorded in [CHANGELOG.md](CHANGELOG.md) as an addition to both contracts.
 
-## Phase 10 — Compatibility check
+## Phase 10 — Before the release
+
+The last phase tests Gotato the way a team would run it: against gateways that behave like the providers, on several instances in a local cluster, and against the exported API it promises.
+
+- ⬜ **Fake gateways.** Test servers that speak each wire API (Claude's Messages, OpenAI's Responses, Chat Completions) and play their quirks on demand: a refusal as too long in each provider's words and fields, before any output and mid-stream; cached-token usage; a reasoning replay; a system or `developer` message mid-conversation. The gateway's adaptation and compaction's overflow path run against them.
+- ⬜ **A local cluster.** Several instances on one local Kubernetes cluster (kind), sharing a store, with a slow fake model so a Run stays in flight: a rolling deploy while Runs are in flight, a writer killed mid-Run, scaling up and down, and two instances on one Session. Gotato adds what it needs to run there: a container image, manifests, and a load driver that checks the Records afterwards.
+- ⬜ **Compatibility check**, below.
+
+### Compatibility check
 
 - CI compares the exported identifiers of the root package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
 - It starts when mass testing begins, and the maintainer sets the date. Until the first release is tagged there is nothing to compare with, so CI does not run the check, and its tests use a baseline of their own.
 
-Exit: against a test baseline, a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
+Exit:
+
+- Against a test baseline, a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
+- Each quirk the fake gateways play has a test, and an overflow in each provider's form compacts and sends again.
+- G-G08 and G-G11 pass on the local cluster through a rolling deploy and a killed writer.
 
 ## Waiting for design
 
