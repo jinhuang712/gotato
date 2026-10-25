@@ -980,6 +980,34 @@ O-88501,paid,41.20,…
 - **Pruned.** When the team has pruned the Entry, `read_result` says the body was removed, as `read_segment` does.
 - **The spill depends on size alone.** It is made when the result is committed, so every instance builds the same Message from the same Record.
 
+### G-F36 — Reading large results ⬜
+
+Design open, and decided in Phase 9 ([ROADMAP.md](ROADMAP.md#phase-9--reading-large-results)). Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). What it gets instead is the question, and [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) lists what is ruled out and why. Two candidates remain; both include paging.
+
+**(a) Typed reader parameters.** `read_result` gains parameters, each a plain field of its schema:
+
+```text
+read_result(ref="result:call_9a2", grep="timeout", context=2)
+read_result(ref="result:call_9a2", lines="120-180")
+read_result(ref="result:call_9a2", json=".items[3].charges")
+```
+
+- The standard library only. The model sees a schema, which every model reads well, and each parameter is checked before it runs.
+- A fixed set: what the parameters do not say, the model cannot ask.
+
+**(b) A terminating pipeline language.** A subset of bash syntax with a parser of Gotato's own:
+
+```text
+read_result(command="grep -i timeout result:call_9a2 | head -20")
+```
+
+- Pipes, `&&`, `||`, `;`, quotes and harmless redirects. No loops, functions, `$( )` or redirects that write.
+- Each command is a Go function that streams, and commands are joined with `io.Pipe` over an `fs.FS` view of the Session's spilled results. No dependency is added.
+- Every command ends, so every pipeline does; it can read the spilled results of its own Session and nothing else.
+- Models know the syntax from training. It reopens the question [No tool runs commands or code](DESIGNS.md#no-tool-runs-commands-or-code) answers, and the decision would say why a bounded reader of one Session's results is not that.
+
+The choice is written down in Phase 9, and this feature takes the chosen form.
+
 ## Models
 
 ### G-F07 — Models and providers ✅
@@ -1696,7 +1724,7 @@ Gotato leaves coding to developers' machines and to coding products. Sessions in
 
 ### G-N14 — No Remote Dev Environment, Shell or Sandbox on the Instances
 
-A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product.
+A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product. Reading a large Tool Result needs no machine either: [G-F36](#g-f36--reading-large-results-) is how a model filters one, and [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) lists what was ruled out.
 
 ### G-N15 — No General-Purpose Assistant
 

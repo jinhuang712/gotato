@@ -545,6 +545,25 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 - **Instead of:** built-in tools that run commands, code or a browser.
 - **Why:** Gotato is not a cloud coding agent, and a tool that runs anything is a bound nobody can read.
 
+### Reading a large result needs no machine — 2026-10-25
+
+A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)), the question is what the model is given in its place. It is decided in Phase 9, after real MCP results show what a model needs ([FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-)).
+
+| Option | For | Against |
+|---|---|---|
+| A machine, container or VM for each Session | Everything a shell does works. | It is the machine this page rules out: a cost per Session, a sandbox to keep safe, and a Session that is no longer cheap to rebuild. |
+| OS isolation inside the pod (namespaces, gVisor) | Real commands, with a wall around them. | They need `exec` or privileges that a pod of a service does not have, and a platform team would have to allow them. |
+| An in-process WebAssembly sandbox | No privileges needed. | A shrunken machine with its own footprint and cold start in every instance, to do what a few functions do. |
+| Code mode, where the model writes code that reads the result | One call can do much. | The model's program, not Gotato, decides the steps, so a Run cannot be replayed step by step. |
+| A full bash interpreter | The syntax models know best. | It lets the model express far more than we want to limit, with loops that may not end, and it brings a large dependency. |
+| A query language of our own | Exactly what we need. | Models have not seen it, so they use it badly. |
+| A virtual bash library with few users | Bash without writing it. | A dependency that few people keep up, in every service that embeds Gotato. |
+| Paging only | The simplest. | The model reads all of a result to find one line. Both candidates below include it. |
+| **(a) Typed reader parameters:** `lines`, `grep`, a `json` path (open) | The standard library only. Every model reads a schema well, and each parameter is checked before it runs. | A fixed set: what the parameters do not say, the model cannot ask. |
+| **(b) A terminating pipeline language:** a subset of bash syntax with a parser of Gotato's own (open) | Models know it. Pipes, `&&`, `||`, `;`, quotes and harmless redirects cover what they ask for. Each command is a Go function that streams, joined with `io.Pipe` over an `fs.FS` view of the Session's results, so there is no dependency, and every pipeline ends. | A parser and a set of commands to keep. It comes close to [No tool runs commands or code](#no-tool-runs-commands-or-code), and the decision would have to say why a reader that cannot write, loop or leave one Session's results is not that. It leaves out loops, functions, `$( )` and redirects that write. |
+
+Phase 9 chooses between (a) and (b). Until it does, a model reads a spilled result in pages.
+
 ### Tools are Go functions or MCP tools
 
 - **Instead of:** a tool catalog or marketplace that ships with Gotato.
