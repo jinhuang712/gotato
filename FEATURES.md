@@ -74,7 +74,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ✅ |
-| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ⬜ |
+| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ✅ |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 | Reading large results | how a model greps and filters a spilled result in a pod with no machine; design open | G-F36 | ⬜ |
 
@@ -953,20 +953,34 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 
 **Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show the catalog and which tools are loaded.
 
-### G-F12 — The MCP adapter ⬜
+### G-F12 — The MCP adapter ✅
 
-Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, as `adapter/grpc` is, on the official `github.com/modelcontextprotocol/go-sdk` (its version is checked when the adapter is built). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
+Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, as `adapter/grpc` is, on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0, Apache-2.0). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
 
-A server is one ToolSet, and its tools are `<server>.<tool>`. A sketch of its use, with names settled when it is built:
+A server is one ToolSet, and its tools are `<server>.<tool>`. How it is used:
 
 ```go
 // error handling left out
-crm, _ := mcp.NewToolSet(ctx, "crm", mcp.StreamableHTTP("https://crm.internal/mcp"))
+crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"),
+	mcp.WithDescription("Customer records"))
+defer crm.Close()
 s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm))
 ```
 
-- **Transports.** Streamable HTTP, used stateless, so any instance can make any call and no session of the server is held for a Gotato Session. And stdio, a subprocess that belongs to the instance and is shared by its Sessions, never one for each Session ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)).
-- **Effect from the tool's annotations.** A tool that declares nothing is destructive, as for any tool. A per-tool override sets another Effect.
+| Name | What it does |
+|---|---|
+| `mcp.NewToolSet(name, transport, options...)` | the ToolSet of one server; it connects to nothing, so a server that is down never fails it |
+| `mcp.StreamableHTTP(url, WithHTTPClient(c), WithoutNotifications())` | the HTTP transport; the client carries timeouts or an `Authorization` header |
+| `mcp.Stdio(name, args...)`, `mcp.StdioCommand(func() *exec.Cmd)` | a subprocess; the second form sets its environment and directory |
+| `mcp.WithDescription(text)` | the description the catalog shows |
+| `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the one the annotations give |
+| `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless the server sends `list_changed`; the default 0 asks the server at every resolution |
+| `mcp.WithClientInfo(name, version)` | what the client tells the server |
+| `(*ToolSet).Close()` | ends the connection and the subprocess |
+
+- **Transports.** Streamable HTTP, used statelessly: no state of the server is held for a Gotato Session, so any instance can make any call. And stdio, a subprocess that belongs to the instance and is shared by its Sessions, never one for each Session ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)).
+- **Who closes what.** A `*ToolSet` is made once by the service and installed in every Session that needs the server. It connects at its first resolution and keeps that one connection (for stdio, one subprocess) for all its Sessions; a connection that closes is dropped and made again by the next call. The service closes the ToolSet when it shuts down. A Session never closes it. Every call takes the Run's `ctx`, so a cancel ends the call.
+- **Effect from the tool's annotations,** with the specification's default for a hint the server left out (not read-only, destructive, open world). A tool that declares nothing is destructive, as for any tool. A per-tool override sets another Effect.
 
 | MCP annotations | Effect |
 |---|---|
@@ -975,11 +989,25 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 | not destructive, open world | `write_external` |
 | anything else | `destructive` |
 
-- **Schemas are slimmed.** The adapter drops `$schema`, `$id`, `examples`, and a `title` equal to the tool's name, since they cost tokens in every request and tell the model nothing. The rest of the schema is checked as for any tool ([G-F09](#g-f09--tools-and-their-effect-)).
-- **Content becomes Parts.** Text, images and `structuredContent` become Parts of the Tool Result. `isError` becomes a failed Tool Result. When the adapter copies a result's `_meta`, it drops the `gotato.MetaTag` key, so a server cannot write tagged text as the system ([G-F29](#g-f29--runtime-notices-)).
-- **A server's tool list can change.** The server's `list_changed` takes effect at the next Run, so the tools and the catalog do not change in the middle of a Run.
+- **Schemas are slimmed.** The adapter drops `$schema`, `$id`, `examples`, and a `title` equal to the tool's name (on a property, to the property's name), in the keywords that hold schemas and never in a property that happens to be called `title` or `examples`. They cost tokens in every request and tell the model nothing. The bytes are the same on every instance (sorted keys). The rest of the schema is checked as for any tool ([G-F09](#g-f09--tools-and-their-effect-)).
+- **Content becomes Parts.**
+
+| MCP | Part |
+|---|---|
+| text | text |
+| image | image |
+| `structuredContent` | JSON; a text block that only repeats it is dropped |
+| embedded text resource | text, under a line with its URI |
+| embedded image blob | image |
+| audio, resource link, other embedded blobs | one line of text that names the content, its type and its size, or the link |
+
+  `isError` becomes a failed Tool Result whose content the model reads. A protocol or transport failure is a failed call. `_meta` of the result and of a content block is copied as strings, and the `gotato.MetaTag` key is dropped, so a server cannot write tagged text as the system ([G-F29](#g-f29--runtime-notices-)).
+- **A server's tool list can change.** The adapter notes the server's `list_changed`, and every Run resolves its ToolSets again before its first Turn ([G-F10](#g-f10--tool-sets-and-the-registry-)), so the change takes effect at the next Run and the tools and the catalog never change in the middle of one. A server that is down at a Run is skipped with a warning, and comes back when it answers.
 - **A large result is spilled** like any other ([G-F35](#g-f35--large-tool-results-)).
+- **Tested** against an in-process server of the SDK over an in-memory transport, streamable HTTP on loopback, and stdio (the test binary is the server): the Effect, the slimmed schemas, the content mapping, `isError`, `_meta`, `list_changed`, a server that is down, cancel, one connection shared by many Sessions, and a full Run that finds a tool with `search_tools`.
 - What the adapter does not build is in [G-N20](#g-n20--mcp-features-gotato-does-not-build).
+
+**Gap:** a tool's `progress` notifications are not forwarded as `tool_progress`; a server description (its `instructions`) is not read, so the catalog's description is the one the team passes with `WithDescription`; an MCP tool that asks for input mid-call (a multi round-trip request) fails.
 
 ### G-F35 — Large Tool Results ✅
 

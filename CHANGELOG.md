@@ -31,6 +31,8 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   |---|---|
   | a load added the tool to the tool list on every wire API | the tool list is fixed while tools load on `anthropic-messages` and `openai-responses`; set `deferred_tools: list` for the old behavior |
 
+- **The MCP adapter, `adapter/mcp`.** A Go module of its own (`github.com/jinhuang712/gotato/adapter/mcp`) on the official MCP Go SDK v1.8.0: one MCP server is one `ToolSet`, over streamable HTTP or stdio, with the Effect from the tool's annotations, slimmed schemas, and the content mapped to Parts ([FEATURES.md → G-F12](FEATURES.md#g-f12--the-mcp-adapter-)). An addition; the root module imports nothing of it.
+
 - **A ToolSet that fails to resolve is skipped, and the catalog is read again at every Run.** An MCP server's `list_changed` takes effect at the next Run, also on a warm Session. A loaded tool that its ToolSet no longer carries is unloaded with `tool_unloaded` (`why: gone`); the Event's `why` gains the value `gone`. A skipped ToolSet is warned with a stored `extension_failed` Event (`stage: "toolset:<name>"`, `code: tool_resolution_failure`). No new Event kind, field or code, so HTTP, gRPC and the CLI report it as they report `extension_failed`. Step 5 of Phase 7. **Breaking** for code that relied on the failure:
 
   | Before | After |

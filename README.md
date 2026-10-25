@@ -127,7 +127,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | One writer per Session across instances | done: the activation limit, the `session-id` header, stream resume on any instance, and a multi-instance harness behind a hashing proxy |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
-| Tool search, the MCP adapter (`adapter/mcp`) | planned (Phase 7) |
+| Tool search, the MCP adapter (`adapter/mcp`) | done: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect from their annotations (G-F12) |
 | Provider rate-limit information | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
@@ -148,11 +148,25 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | [GITFLOW.md](GITFLOW.md) | Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first, with before/after notes for breaking changes |
 
+## MCP tools
+
+`adapter/mcp` is a module of its own, on the official MCP Go SDK. One MCP server is one `ToolSet`; the model finds its tools with `search_tools`, and the Effect of each tool comes from the server's annotations. The catalog is read again at every Run, so a server that adds a tool is seen at the next Run, and a server that is down is skipped with a warning.
+
+```go
+// error handling left out
+crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"),
+	mcp.WithDescription("Customer records"))
+defer crm.Close() // you made it, so you close it; a Session never does
+s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm),
+	gotato.WithMaxEffect(gotato.EffectWriteLocal))
+```
+
 ## Development
 
 ```bash
 gofmt -l . && go vet ./... && go test -race ./...
 (cd adapter/grpc && go test ./...)
+(cd adapter/mcp && go test -race ./...)
 ```
 
 ## Origin

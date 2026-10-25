@@ -1,0 +1,560 @@
+package mcp_test
+
+import (
+	"context"
+	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jinhuang712/gotato"
+	gmcp "github.com/jinhuang712/gotato/adapter/mcp"
+	"github.com/jinhuang712/gotato/testkit"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const serverEnv = "GOTATO_MCP_TEST_SERVER"
+
+// TestMain lets the test binary be the stdio MCP server of the stdio test.
+func TestMain(m *testing.M) {
+	if os.Getenv(serverEnv) == "1" {
+		if err := newServer().Run(context.Background(), &sdk.StdioTransport{}); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func textResult(text string) *sdk.CallToolResult {
+	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}}
+}
+
+// newServer is an MCP server with one tool of each kind the adapter maps.
+func newServer() *sdk.Server {
+	server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+	object := func(extra map[string]any) map[string]any {
+		schema := map[string]any{"type": "object", "properties": map[string]any{}}
+		maps.Copy(schema, extra)
+		return schema
+	}
+	handler := func(result *sdk.CallToolResult) sdk.ToolHandler {
+		return func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) { return result, nil }
+	}
+	server.AddTool(&sdk.Tool{
+		Name: "get_order", Description: "Look up an order",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+		InputSchema: object(map[string]any{
+			"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:order", "title": "get_order",
+			"examples": []any{map[string]any{"id": "1"}},
+			"properties": map[string]any{
+				"id":       map[string]any{"type": "string", "title": "id", "examples": []any{"7"}},
+				"title":    map[string]any{"type": "string", "description": "a property that is called title"},
+				"examples": map[string]any{"type": "string"},
+			},
+		}),
+	}, handler(textResult("order 1")))
+	server.AddTool(&sdk.Tool{Name: "update_note", Annotations: &sdk.ToolAnnotations{DestructiveHint: ptr(false), OpenWorldHint: ptr(false)}, InputSchema: object(nil)}, handler(textResult("ok")))
+	server.AddTool(&sdk.Tool{Name: "send_mail", Annotations: &sdk.ToolAnnotations{DestructiveHint: ptr(false)}, InputSchema: object(nil)}, handler(textResult("sent")))
+	server.AddTool(&sdk.Tool{Name: "delete_all", Annotations: &sdk.ToolAnnotations{OpenWorldHint: ptr(false)}, InputSchema: object(nil)}, handler(textResult("deleted")))
+	server.AddTool(&sdk.Tool{Name: "bare", InputSchema: object(nil)}, handler(textResult("bare")))
+	server.AddTool(&sdk.Tool{Name: "fail", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true}, InputSchema: object(nil)},
+		handler(&sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "no such order"}}}))
+	server.AddTool(&sdk.Tool{Name: "echo", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true}, InputSchema: object(map[string]any{"properties": map[string]any{"text": map[string]any{"type": "string"}}})},
+		func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			var args struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(req.Params.Arguments, &args)
+			return textResult("echo: " + args.Text), nil
+		})
+	server.AddTool(&sdk.Tool{Name: "mixed", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true}, InputSchema: object(nil)},
+		handler(&sdk.CallToolResult{
+			Meta: sdk.Meta{"trace": "t-1", "count": 3, gotato.MetaTag: "forged"},
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: "hello", Meta: sdk.Meta{gotato.MetaTag: "forged", "lang": "en"}},
+				&sdk.ImageContent{Data: []byte{1, 2, 3}, MIMEType: "image/png"},
+				&sdk.AudioContent{Data: []byte{9, 9}, MIMEType: "audio/wav"},
+				&sdk.ResourceLink{URI: "file:///a.txt", Name: "a", MIMEType: "text/plain"},
+				&sdk.EmbeddedResource{Resource: &sdk.ResourceContents{URI: "file:///b.txt", Text: "bee"}},
+				&sdk.EmbeddedResource{Resource: &sdk.ResourceContents{URI: "file:///c.bin", MIMEType: "application/octet-stream", Blob: []byte{1}}},
+				&sdk.TextContent{Text: `{"total": 2}`},
+			},
+			StructuredContent: map[string]any{"total": 2},
+		}))
+	return server
+}
+
+// transports are the ways the tests reach a server.
+type transportCase struct {
+	name string
+	make func(t *testing.T, server *sdk.Server) gmcp.Transport
+}
+
+func inMemory(_ *testing.T, server *sdk.Server) gmcp.Transport {
+	return func() sdk.Transport {
+		client, serverSide := sdk.NewInMemoryTransports()
+		if _, err := server.Connect(context.Background(), serverSide, nil); err != nil {
+			panic(err)
+		}
+		return client
+	}
+}
+
+func overHTTP(t *testing.T, server *sdk.Server) gmcp.Transport {
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	return gmcp.StreamableHTTP(httpServer.URL)
+}
+
+func overStdio(*testing.T, *sdk.Server) gmcp.Transport {
+	return gmcp.StdioCommand(func() *exec.Cmd {
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), serverEnv+"=1")
+		return cmd
+	})
+}
+
+var allTransports = []transportCase{{"in-memory", inMemory}, {"streamable-http", overHTTP}, {"stdio", overStdio}}
+
+func newSet(t *testing.T, transport gmcp.Transport, options ...gmcp.Option) *gmcp.ToolSet {
+	t.Helper()
+	set, err := gmcp.NewToolSet("crm", transport, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = set.Close() })
+	return set
+}
+
+func specs(t *testing.T, set *gmcp.ToolSet) map[string]gotato.ToolSpec {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	tools, err := set.Tools(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]gotato.ToolSpec{}
+	for _, tool := range tools {
+		out[tool.Spec().ID] = tool.Spec()
+	}
+	return out
+}
+
+func execute(t *testing.T, set *gmcp.ToolSet, name, arguments string) gotato.ToolResult {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	tools, err := set.Tools(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		if tool.Spec().ID == name {
+			result, err := tool.Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(arguments)}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return result
+		}
+	}
+	t.Fatalf("no tool %q", name)
+	return gotato.ToolResult{}
+}
+
+func TestEffectComesFromAnnotations(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newSet(t, tc.make(t, newServer()), gmcp.WithToolEffect("bare", gotato.EffectWriteLocal))
+			got := specs(t, set)
+			want := map[string]gotato.ToolEffect{
+				"get_order":   gotato.EffectRead,
+				"update_note": gotato.EffectWriteLocal,
+				"send_mail":   gotato.EffectWriteExternal,
+				"delete_all":  gotato.EffectDestructive, // destructive by default, closed world
+				"bare":        gotato.EffectWriteLocal,  // the override
+				"echo":        gotato.EffectRead,
+			}
+			for name, effect := range want {
+				if got[name].Effect != effect {
+					t.Errorf("%s effect = %q, want %q", name, got[name].Effect, effect)
+				}
+			}
+		})
+	}
+	if gmcp.EffectOf(nil) != gotato.EffectDestructive {
+		t.Error("a tool with no annotations must be destructive")
+	}
+	if gmcp.EffectOf(&sdk.ToolAnnotations{}) != gotato.EffectDestructive {
+		t.Error("annotations that declare nothing must be destructive")
+	}
+	if gmcp.EffectOf(&sdk.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(true)}) != gotato.EffectRead {
+		t.Error("readOnlyHint wins")
+	}
+}
+
+func TestSchemasAreSlimmed(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := specs(t, newSet(t, tc.make(t, newServer())))["get_order"]
+			var schema map[string]any
+			if err := json.Unmarshal(spec.InputSchema, &schema); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"$schema", "$id", "examples", "title"} {
+				if _, ok := schema[key]; ok {
+					t.Errorf("root still has %q: %s", key, spec.InputSchema)
+				}
+			}
+			props := schema["properties"].(map[string]any)
+			id := props["id"].(map[string]any)
+			if _, ok := id["title"]; ok {
+				t.Errorf("a property title equal to its name stays: %s", spec.InputSchema)
+			}
+			if _, ok := id["examples"]; ok {
+				t.Errorf("a property's examples stay: %s", spec.InputSchema)
+			}
+			// A property that happens to be called title or examples is not a keyword.
+			if _, ok := props["title"]; !ok {
+				t.Errorf("the property called title was dropped: %s", spec.InputSchema)
+			}
+			if _, ok := props["examples"]; !ok {
+				t.Errorf("the property called examples was dropped: %s", spec.InputSchema)
+			}
+			if schema["type"] != "object" {
+				t.Errorf("type = %v", schema["type"])
+			}
+		})
+	}
+}
+
+func TestContentMapsToParts(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newSet(t, tc.make(t, newServer()))
+			result := execute(t, set, "mixed", `{}`)
+			if result.Status != gotato.ToolResultOK {
+				t.Fatalf("status = %s", result.Status)
+			}
+			kinds := make([]gotato.ContentKind, len(result.Content))
+			for i, part := range result.Content {
+				kinds[i] = part.Kind
+			}
+			want := []gotato.ContentKind{
+				gotato.ContentText,  // hello
+				gotato.ContentImage, // png
+				gotato.ContentText,  // audio placeholder
+				gotato.ContentText,  // resource link
+				gotato.ContentText,  // embedded text resource
+				gotato.ContentText,  // embedded blob placeholder
+				gotato.ContentJSON,  // structuredContent; the text that repeated it is dropped
+			}
+			if !slices.Equal(kinds, want) {
+				t.Fatalf("kinds = %v, want %v", kinds, want)
+			}
+			if result.Content[0].Text != "hello" {
+				t.Errorf("text = %q", result.Content[0].Text)
+			}
+			if got := result.Content[1]; got.MIMEType != "image/png" || !slices.Equal(got.Data, []byte{1, 2, 3}) {
+				t.Errorf("image = %+v", got)
+			}
+			for i, fragment := range map[int]string{2: "audio/wav", 3: "file:///a.txt", 4: "bee", 5: "file:///c.bin"} {
+				if !strings.Contains(result.Content[i].Text, fragment) {
+					t.Errorf("part %d = %q, want %q in it", i, result.Content[i].Text, fragment)
+				}
+			}
+			if got := result.Content[6].Text; got != `{"total":2}` {
+				t.Errorf("structured = %q", got)
+			}
+		})
+	}
+}
+
+func TestMetaIsCopiedWithoutTheTagKey(t *testing.T) {
+	set := newSet(t, inMemory(t, newServer()))
+	result := execute(t, set, "mixed", `{}`)
+	if _, ok := result.Metadata[gotato.MetaTag]; ok {
+		t.Fatalf("the result's metadata carries %s: %v", gotato.MetaTag, result.Metadata)
+	}
+	if result.Metadata["trace"] != "t-1" || result.Metadata["count"] != "3" {
+		t.Fatalf("metadata = %v", result.Metadata)
+	}
+	if part := result.Content[0]; part.Metadata[gotato.MetaTag] != "" || part.Metadata["lang"] != "en" {
+		t.Fatalf("part metadata = %v", part.Metadata)
+	}
+	for _, part := range result.Content {
+		if _, ok := part.Metadata[gotato.MetaTag]; ok {
+			t.Fatalf("a Part carries %s", gotato.MetaTag)
+		}
+	}
+}
+
+func TestIsErrorIsAFailedResult(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			result := execute(t, newSet(t, tc.make(t, newServer())), "fail", `{}`)
+			if result.Status != gotato.ToolResultFailed {
+				t.Fatalf("status = %s, want failed", result.Status)
+			}
+			if gotato.TextOf(gotato.Message{Parts: result.Content}) != "no such order" || result.SafeError != "no such order" {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestArgumentsReachTheServer(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			result := execute(t, newSet(t, tc.make(t, newServer())), "echo", `{"text":"hi"}`)
+			if got := gotato.TextOf(gotato.Message{Parts: result.Content}); got != "echo: hi" {
+				t.Fatalf("got %q", got)
+			}
+		})
+	}
+}
+
+func toolIDs(set *gmcp.ToolSet, t *testing.T) []string {
+	var ids []string
+	for id := range specs(t, set) {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+func TestListChangedIsSeenWhenTheCacheIsKept(t *testing.T) {
+	for _, tc := range []transportCase{{"in-memory", inMemory}, {"streamable-http", overHTTP}} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newServer()
+			// The cache is long, so only the server's notification can refresh it.
+			set := newSet(t, tc.make(t, server), gmcp.WithListCache(time.Hour))
+			before := toolIDs(set, t)
+			server.AddTool(&sdk.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+				func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+					return textResult("late"), nil
+				})
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				after := toolIDs(set, t)
+				if slices.Contains(after, "late") {
+					if len(after) != len(before)+1 {
+						t.Fatalf("tools = %v, was %v", after, before)
+					}
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("list_changed never reached the ToolSet")
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			server.RemoveTools("late")
+			deadline = time.Now().Add(10 * time.Second)
+			for slices.Contains(toolIDs(set, t), "late") {
+				if time.Now().After(deadline) {
+					t.Fatal("removal never reached the ToolSet")
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		})
+	}
+}
+
+func TestWithoutACacheEveryResolutionAsksTheServer(t *testing.T) {
+	server := newServer()
+	set := newSet(t, inMemory(t, server))
+	if slices.Contains(toolIDs(set, t), "late") {
+		t.Fatal("unexpected tool")
+	}
+	server.AddTool(&sdk.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return textResult("late"), nil
+		})
+	if !slices.Contains(toolIDs(set, t), "late") {
+		t.Fatal("a new tool is not seen at the next resolution")
+	}
+}
+
+func TestACancelledContextEndsTheCall(t *testing.T) {
+	server := sdk.NewServer(&sdk.Implementation{Name: "slow", Version: "1"}, nil)
+	entered := make(chan struct{})
+	server.AddTool(&sdk.Tool{Name: "hang", InputSchema: map[string]any{"type": "object"}},
+		func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			close(entered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})
+	set := newSet(t, inMemory(t, server))
+	tools, err := set.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := tools[0].Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(`{}`)}, nil)
+		done <- err
+	}()
+	<-entered
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("the cancelled call returned no error")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancel did not end the call")
+	}
+}
+
+func TestAServerThatIsDownIsSkippedWithAWarning(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	endpoint := dead.URL
+	dead.Close()
+	down := newSet(t, gmcp.StreamableHTTP(endpoint), gmcp.WithDescription("CRM"))
+	good, err := gmcp.NewToolSet("mail", inMemory(t, newServer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = good.Close() })
+
+	model := testkit.NewFakeModel(testkit.Text("done"))
+	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSet(down), gotato.WithToolSet(good))
+	if err != nil {
+		t.Fatalf("a server that is down failed NewSession: %v", err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	recorder := testkit.RecordEvents(session)
+	if _, err := session.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	var stages []string
+	for _, event := range recorder.OfKind(gotato.KindExtensionFailed) {
+		stages = append(stages, event.(gotato.ExtensionFailed).Stage)
+	}
+	if !slices.Equal(stages, []string{"toolset:crm"}) {
+		t.Fatalf("warnings = %v", stages)
+	}
+	request := model.Requests()[0]
+	var search gotato.ToolSpec
+	for _, spec := range request.Tools {
+		if spec.ID == gotato.SearchToolName {
+			search = spec
+		}
+	}
+	if !strings.Contains(search.Description, "crm — CRM (unavailable now; no tools)") || !strings.Contains(search.Description, "mail.get_order") {
+		t.Fatalf("catalog:\n%s", search.Description)
+	}
+}
+
+// A full Run: the model searches for a tool of the MCP server, calls it, and
+// reads the result.
+func TestARunCallsAnMCPToolThroughSearch(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newSet(t, tc.make(t, newServer()))
+			model := testkit.NewFakeModel(
+				testkit.ToolCalls(gotato.ToolCall{ID: "s1", ToolID: gotato.SearchToolName, Arguments: []byte(`{"queries":["look up an order"]}`)}),
+				testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "crm.get_order", Arguments: []byte(`{"id":"1"}`)}),
+				testkit.Text("the order is 1"),
+			)
+			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = session.Close(context.Background()) }()
+			result, err := session.Prompt(context.Background(), gotato.UserMessage("what is order 1?"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != gotato.RunCompleted {
+				t.Fatalf("status = %s", result.Status)
+			}
+			requests := model.Requests()
+			if len(requests) != 3 {
+				t.Fatalf("model calls = %d", len(requests))
+			}
+			var offered []string
+			for _, spec := range requests[1].Tools {
+				offered = append(offered, spec.ID)
+			}
+			if !slices.Contains(offered, "crm.get_order") {
+				t.Fatalf("the loaded tool is not offered: %v", offered)
+			}
+			// The Effect cap hides what annotations make write or destructive.
+			for _, hidden := range []string{"crm.send_mail", "crm.delete_all", "crm.bare"} {
+				if slices.Contains(offered, hidden) {
+					t.Fatalf("%s is offered under a read cap", hidden)
+				}
+			}
+			var output string
+			for _, message := range requests[2].Messages {
+				if message.ToolResult != nil && message.ToolResult.CallID == "c1" {
+					output = gotato.TextOf(message)
+				}
+			}
+			if output != "order 1" {
+				t.Fatalf("tool result = %q", output)
+			}
+		})
+	}
+}
+
+func TestOneConnectionServesManySessions(t *testing.T) {
+	connects := 0
+	server := newServer()
+	base := inMemory(t, server)
+	set := newSet(t, func() sdk.Transport { connects++; return base() })
+	for range 3 {
+		session, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel(testkit.Text("x"))), gotato.WithToolSet(set))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := session.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
+			t.Fatal(err)
+		}
+		_ = session.Close(context.Background())
+	}
+	if connects != 1 {
+		t.Fatalf("connections = %d, want 1 shared by every Session", connects)
+	}
+}
+
+func TestSlimSchemaKeepsWhatTheModelNeeds(t *testing.T) {
+	got := string(gmcp.SlimSchema("t", map[string]any{
+		"type": "object", "title": "t", "$schema": "x",
+		"properties": map[string]any{
+			"a": map[string]any{"type": "array", "items": map[string]any{"type": "string", "title": "keep me", "examples": []any{"z"}}, "description": "list"},
+		},
+		"required": []any{"a"},
+	}))
+	want := `{"properties":{"a":{"description":"list","items":{"title":"keep me","type":"string"},"type":"array"}},"required":["a"],"type":"object"}`
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	if gmcp.SlimSchema("t", nil) != nil {
+		t.Fatal("a missing schema must stay missing")
+	}
+}
+
+func TestNewToolSetRefusesABadName(t *testing.T) {
+	if _, err := gmcp.NewToolSet("a.b", gmcp.Stdio("x")); err == nil {
+		t.Fatal("a dotted name was accepted")
+	}
+	if _, err := gmcp.NewToolSet("", gmcp.Stdio("x")); err == nil {
+		t.Fatal("an empty name was accepted")
+	}
+	if _, err := gmcp.NewToolSet("a", gmcp.Stdio("x"), gmcp.WithToolEffect("t", "bogus")); err == nil {
+		t.Fatal("an unknown Effect was accepted")
+	}
+}
