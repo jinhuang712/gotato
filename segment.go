@@ -35,6 +35,35 @@ type Segment struct {
 	// ToolSets are the names of the ToolSets whose Tools the Segment's
 	// stretch called.
 	ToolSets []string `json:"tool_sets,omitempty"`
+	// Merged lists the Segments this one stands for, oldest first, when it
+	// is the merged Segment that opens the Context (see MergedSegment). It
+	// is empty for a Segment a compaction closed. The Messages that render
+	// a merged Segment hold its Recap alone; the originals stay readable by
+	// number, from what Merged records of each.
+	Merged []MergedSegment `json:"merged,omitempty"`
+}
+
+// MergedSegment is what a merged Segment keeps of one Segment it replaced:
+// enough to find its Messages in the log again, so a Segment that is no
+// longer in the Context stays readable by its own number.
+type MergedSegment struct {
+	Number int           `json:"number"`
+	From   time.Time     `json:"from,omitzero"`
+	To     time.Time     `json:"to,omitzero"`
+	Source SegmentSource `json:"source"`
+}
+
+// Numbers returns the numbers the Segment stands for: the Segments it merged,
+// or its own number when it merged none.
+func (s Segment) Numbers() []int {
+	if len(s.Merged) == 0 {
+		return []int{s.Number}
+	}
+	out := make([]int, len(s.Merged))
+	for i, merged := range s.Merged {
+		out[i] = merged.Number
+	}
+	return out
 }
 
 // SegmentSource says which part of which Record a Segment covers.
@@ -77,5 +106,6 @@ func (s Segment) Clone() Segment {
 	}
 	out.ToolCalls = slices.Clone(s.ToolCalls)
 	out.ToolSets = slices.Clone(s.ToolSets)
+	out.Merged = slices.Clone(s.Merged)
 	return out
 }

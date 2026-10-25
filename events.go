@@ -205,6 +205,9 @@ const (
 	CompactionBeforeCacheExpires CompactionWhy = "before_cache_expires"
 	// CompactionOverflow: the provider refused a request as too long.
 	CompactionOverflow CompactionWhy = "overflow"
+	// CompactionPastBudget: the Segments together passed their budget, and
+	// the oldest were merged with no Segment closed.
+	CompactionPastBudget CompactionWhy = "past_budget"
 )
 
 // MessageSource says where a user Message came from.
@@ -235,8 +238,13 @@ type Compaction struct {
 	BytesBefore int    `json:"bytes_before"`
 	BytesAfter  int    `json:"bytes_after"`
 	// Segment is the number of the Segment the compaction closed, or 0 for
-	// a compaction that closed none.
+	// a compaction that closed none. For a merge it is the merged Segment's
+	// number.
 	Segment int `json:"segment,omitempty"`
+	// Merged lists the numbers of the Segments a merge replaced with one
+	// merged Segment, oldest first. It is empty for a compaction that closed
+	// a Segment.
+	Merged []int `json:"merged,omitempty"`
 	// TokensBefore and TokensAfter are estimates of the Context before and
 	// after, and Ceiling the ceiling in force, or 0 for none.
 	TokensBefore int `json:"tokens_before,omitempty"`
