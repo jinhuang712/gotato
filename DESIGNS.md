@@ -47,6 +47,20 @@ A Session behaves like a live unit while it is in use, and like a record while i
 
 An earlier version of Gotato kept agents in memory for their whole life, and a later one replaced them with a stored record. This decision brings a long-lived unit back. It is safe this time, because a Session's identity is its record, not the memory that holds it.
 
+### A warm copy is a cache, not a lock — 2026-10-25
+
+After a Run, the live Session can stay in memory, so the next message finds its queue, its tools and its Transcript ready, and an idle timer can compact it before its provider's cache expires. The question is what the copy is allowed to claim while it waits ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
+
+| Option | For | Against |
+|---|---|---|
+| **A cache with a head check before each Run** (chosen) | The copy holds no Claim while idle, so any instance can take the Session over, as it does today, and nothing is pinned. A stale copy costs one read of the head and a reload. Memory stays reclaimable: the longest-idle copy can be evicted at once. | A read of the head before each Run on a warm copy. |
+| The warm copy holds the Claim | No head check: the copy is always current. | An idle Session is bound to one instance for its whole TTL. A takeover must wait for it or fence it, a deploy must release every idle Session, and an instance holding many idle Sessions cannot give memory back without a write. It brings back the pin that [No Session is bound to an instance](#no-session-is-bound-to-an-instance) rules out. |
+| No warm copy: load and save around every Run (today's code) | The fewest moving parts. | A load for every Run. A message that arrives between Runs has no Session to meet, and an idle compaction needs a service timer of its own. |
+
+- **The head check.** Before a Run on a warm copy, the instance compares the Record's head in the store with the copy's. Unchanged, the copy runs. Changed, because another instance wrote the Session, the instance reloads from the last Checkpoint. The Claim's conditional write still fences any race between the check and the Run, as for every append.
+- **The idle compaction is the same compaction.** The Session's own timer calls what a service's timer calls before the warm Session (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)). A message that arrives cancels it and is served first.
+- **The memory limit evicts before it refuses.** Warm Sessions count toward the activation limit. At the limit, the longest-idle warm Session goes first, which loses nothing because the store is the truth, and a Run is refused only when every live Session is running.
+
 ### A Session's identity is its Record
 
 - **Instead of:** a live object with an identity of its own.
@@ -127,7 +141,7 @@ Every Event carries its time and the Session it concerns, if any; a stored Event
 ### An idle Session leaves memory at its TTL
 
 - **Instead of:** staying in memory until someone destroys it.
-- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL. It is compacted shortly before then, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 6](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
+- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL, or sooner when the instance needs the room: at its memory limit it evicts the longest-idle Session first ([A warm copy is a cache, not a lock](#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). It is compacted shortly before the TTL, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
 
 ### A Fork writes the store and activates nothing
 
@@ -170,7 +184,7 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 
 ### What is not the user's words goes to the model as a notice — 2026-10-18
 
-Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, or something happened outside the conversation. A notice is how.
+Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, the user has been away for hours, or something happened outside the conversation. A notice is how.
 
 | Option | For | Against |
 |---|---|---|
@@ -181,8 +195,9 @@ Gotato and the service sometimes have to tell the model something the user did n
 - **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
 - **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
-- **Each wire API in its own form.** A system message where the model accepts one mid-conversation, a developer message on OpenAI's Responses API, and otherwise tagged text in the adjacent user Message ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
+- **Each wire API in its own form.** Each wire API has a default form: a system message mid-conversation on Anthropic Messages for the models the gateway lists, a developer message on OpenAI's Responses API, and tagged text in the adjacent user Message on Chat Completions. The gateway configuration can override it, and tagged text is the fallback for every model, so no model list is a rule ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
 - **Facts, not orders.** A notice says what is true; what the model should do about it belongs in the instruction.
+- **The time away is one of them.** A message that starts a Run after the Session was idle longer than a threshold (30 minutes by default, set per Agent) is followed by a notice with how long it has been and what time it is now. The model has no clock of its own, and a Segment's times are not the present. The idle time is read from the Record, so it does not depend on a warm copy.
 
 ### Cache markers are neutral in the core
 
@@ -403,13 +418,13 @@ Gotato is a library inside your service. Routing, authentication, databases, tel
 
 ### Gotato builds no infrastructure, and stays within its boundary — 2026-10-16
 
-Running a Session on many instances raises two kinds of problem: getting a request to the right instance, and keeping the Session correct once it is there. The first is infrastructure that every team already runs. Gotato takes only the second: it keeps a Session correct on whichever instance a request reaches, taking over an idle Session and waiting for a busy one, and messages for a running Session reach its writer through the same routing as any request.
+Running a Session on many instances raises two kinds of problem: getting a request to the right instance, and keeping the Session correct once it is there. The first is infrastructure that every team already runs. Gotato takes only the second: it keeps a Session correct on whichever instance a request reaches, taking over an idle Session and waiting for a busy one, and messages for a running Session reach its writer through the same routing as any request. A caller that cannot route by Session is told where the writer is, and Gotato builds no network between instances to carry the message there.
 
 | Option | For | Against |
 |---|---|---|
-| **Stay within the boundary: correctness is Gotato's, routing is the infrastructure's** (chosen) | Nothing new to deploy or operate. Works with a plain consistent hash. No Session is ever unreachable. | How seamless it feels depends on the team's routing; while a hash changes, a message may wait for a running Run. |
-| Forward requests to the writer between instances | Every message reaches the writer at once. | Gotato becomes a router, with an internal API and its authentication. |
-| Redirect the caller to the writer | No forwarding. | Pushes routing onto every caller, and a load balancer cannot follow a redirect to one instance. |
+| **Stay within the boundary: correctness is Gotato's, routing is the infrastructure's** (chosen) | Nothing new to deploy or operate. Works with a plain consistent hash. No Session is ever unreachable. A message that misses the writer is answered `not_writer`, with the writer's advertised address, so the caller or your own client sends it on. | How seamless it feels depends on the team's routing; while a hash changes, a message may need a second request. |
+| Forward requests to the writer between instances, always | Every message reaches the writer at once. | Gotato becomes a router, with an internal API and its authentication. What stays is smaller: an opt-in forward by the HTTP and gRPC endpoints, to an address the writer advertised, as the same public request sent once. |
+| Redirect the caller to the writer, as the only routing | No forwarding. | Pushes routing onto every caller, and a load balancer cannot follow a redirect to one instance. The hash stays first; the address is only the answer when it missed. |
 | Queue every message in the store for the writer | Survives the writer's death. | Gotato becomes a message broker: a write per message, and a writer that polls the store. |
 | A placement or membership service of Gotato's own | Central control of where Sessions run. | A separate system to run, which [PROPOSAL.md](PROPOSAL.md) rules out. |
 
