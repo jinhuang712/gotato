@@ -106,6 +106,12 @@ type Agent struct {
 	// Run, and whether they are compacted while they idle. The zero value is
 	// the default: 60 minutes, and an idle compaction.
 	Warm WarmPolicy
+	// TimeAwayAfter is how long a Session must have been idle before a
+	// message that starts a Run is followed by a time_away notice with how
+	// long it has been and the time now (G-F29). Zero means DefaultTimeAway
+	// (30 minutes); a negative value turns the notice off. The time is shown
+	// in the zone of Compact.Location, UTC when it is nil.
+	TimeAwayAfter time.Duration
 	// Options are appended verbatim for anything the fields above do not
 	// cover.
 	Options []gotato.Option
@@ -242,6 +248,10 @@ type Runner struct {
 	instanceFeed *gotato.Feed
 	feedsMu      sync.Mutex
 	feeds        map[feedKey]*sessionFeed
+
+	// held are the notices kept between Runs, by Session (see notices.go).
+	noticeMu sync.Mutex
+	held     map[string][]gotato.Queued
 
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
@@ -918,6 +928,17 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		if err != nil {
 			return abandon(err)
 		}
+		if follow == nil && !request.Continue {
+			// A message that starts a Run after a long absence is followed by
+			// a notice with the time.
+			r.queueTimeAway(ctx, spec, s, live)
+		}
+		if kept := r.takeNotices(sessionID); len(kept) > 0 {
+			// Notices that found no Run go in after this Run's prompt.
+			if rest := live.Requeue(kept); len(rest) > 0 {
+				live.DropQueued(rest, "queue_full")
+			}
+		}
 		if follow != nil {
 			// The messages that waited behind the first one wait in this Run's
 			// queues, in order, before anything new can reach them.
@@ -966,7 +987,10 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		if r.beforeDetach != nil {
 			r.beforeDetach()
 		}
-		handle.detachLive(func(left []gotato.Queued) bool {
+		// A notice the Run left is kept for the next Run, even when the Run was
+		// stopped: it asks for no work. Only a Run whose Session is not kept
+		// drops it.
+		kept := handle.detachLive(func(left []gotato.Queued) bool {
 			why := ""
 			switch {
 			case writer == nil:
@@ -984,6 +1008,11 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 			return true
 		})
+		if writer != nil && writer.Failed() == nil && !r.Draining() {
+			r.holdNotices(sessionID, kept...)
+		} else {
+			live.DropQueued(kept, "run_ended")
+		}
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
 			stream.sub.End()
@@ -1589,6 +1618,7 @@ func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
 		r.dropWarm(sessionID, "deleted")
+		r.takeNotices(sessionID)
 		if err := r.store.Delete(ctx, sessionID); err != nil {
 			return err
 		}

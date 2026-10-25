@@ -178,19 +178,23 @@ func (h *runHandle) readyChan() <-chan struct{} {
 // another (follow), the handle waits for that Run's live Session, so a
 // message that arrives meanwhile queues behind the leftovers instead of
 // jumping ahead of them.
-func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) {
+//
+// The notices the Run left are returned and not followed: a notice asks for
+// no work, so it waits for the next Run instead of starting one.
+func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) (notices []gotato.Queued) {
 	h.liveMu.Lock()
 	defer h.liveMu.Unlock()
 	live := h.live
 	h.live = nil
 	if live == nil {
-		return
+		return nil
 	}
-	left := live.TakeQueued()
+	notices, left := splitNotices(live.TakeQueued())
 	if len(left) > 0 && follow(left) {
 		h.next = left
 		h.ready, h.readyClosed = make(chan struct{}), false
 	}
+	return notices
 }
 
 // takeNext returns the leftovers the settled Run handed over, once.

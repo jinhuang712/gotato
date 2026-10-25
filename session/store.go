@@ -56,6 +56,10 @@ type Summary struct {
 	// Busy says the writer opened the Session and has not released it: a
 	// Run or a change is under way, also before its Run has started.
 	Busy bool `json:"busy,omitempty"`
+	// LastRunEnd is when the last Run that ended did, empty when none has
+	// (Record.LastRunEnd). The summary keeps it so that a Record loaded from
+	// its facts, whose Run records stay in the log, still knows it.
+	LastRunEnd string `json:"last_run_end,omitempty"`
 }
 
 // Epoch returns the Record's epoch: its own, or for a Record written before
@@ -231,6 +235,9 @@ func (s *Record) summaryLocked() Summary {
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy
+	if !s.lastRunEnd.IsZero() {
+		summary.LastRunEnd = s.lastRunEnd.Format(summaryTime)
+	}
 	return summary
 }
 

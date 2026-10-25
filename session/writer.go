@@ -325,6 +325,9 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	r.usage = loaded.Summary.Usage
 	r.running = loaded.Summary.Running
 	r.busy = loaded.Summary.Busy
+	if at, err := time.Parse(summaryTime, loaded.Summary.LastRunEnd); err == nil {
+		r.lastRunEnd = at.UTC()
+	}
 	r.logging = false
 	r.retainRead = true
 	return r, nil

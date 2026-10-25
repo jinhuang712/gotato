@@ -1481,6 +1481,17 @@ type Queued struct {
 	number  uint64
 }
 
+// QueuedNotice returns the queue entry of a notice that was reported queued
+// already, as number, the notice_queued Event that said so. A host that keeps a
+// notice between Runs gives it to the next Session with Requeue.
+func QueuedNotice(message Message, number uint64) Queued {
+	return Queued{Message: message, Source: SourceNotice, number: number}
+}
+
+// Number is the notice_queued Event of a queued notice, 0 for any other
+// message.
+func (q Queued) Number() uint64 { return q.number }
+
 // TakeQueued removes and returns the messages that wait in the Steer and
 // FollowUp queues, in the order they were accepted. It is for a host that set
 // WithQueueHandoff, between Runs: it takes them without a drop Event, and the

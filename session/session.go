@@ -176,9 +176,12 @@ type Record struct {
 	// running is the Run that started and has not ended. baseRuns counts
 	// the Runs of a Record loaded from its facts alone, whose Run records
 	// are in the log and were not read.
-	running  gotato.RunID
-	busy     bool
-	baseRuns int
+	running gotato.RunID
+	busy    bool
+	// lastRunEnd is when the last Run that ended did; it is kept in the
+	// Summary, so a Record loaded from its facts knows it too.
+	lastRunEnd time.Time
+	baseRuns   int
 	// started and openParts hold, while a log is read, the Tool calls that
 	// started and the replies that were streaming, for repair.
 	started   map[gotato.ToolCallID]bool
@@ -323,6 +326,11 @@ func Load(doc Document) (*Record, error) {
 		positions:   map[gotato.MessageID]gotato.MessagePosition{},
 		now:         time.Now,
 		retainRead:  true,
+	}
+	for _, run := range s.runs {
+		if run.EndedAt.After(s.lastRunEnd) {
+			s.lastRunEnd = run.EndedAt
+		}
 	}
 	if s.eventLimit == 0 {
 		s.eventLimit = DefaultEventLimit
@@ -550,6 +558,15 @@ func runEnded(e gotato.RunEnded) Run {
 	}
 }
 
+// LastRunEnd returns when the last Run that ended did: the Session's last busy
+// time. It is the zero time when no Run has ended. A Record loaded from its
+// facts reads it from the Summary, so it does not need the log.
+func (s *Record) LastRunEnd() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastRunEnd
+}
+
 // Runs returns the Run records.
 func (s *Record) Runs() []Run {
 	s.mu.RLock()
@@ -576,6 +593,9 @@ func (s *Record) endRun(run Run) Run {
 	}
 	if s.running == run.RunID {
 		s.running = ""
+	}
+	if run.EndedAt.After(s.lastRunEnd) {
+		s.lastRunEnd = run.EndedAt
 	}
 	s.usage.InputTokens += run.Usage.InputTokens
 	s.usage.OutputTokens += run.Usage.OutputTokens
