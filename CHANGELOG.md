@@ -75,6 +75,31 @@ Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md
 
 - **gRPC.** The service gains `SendMessage`, and the messages `SendMessageRequest` and `SendMessageResponse`; `grpcadapter.New` takes options.
 
+### Runtime notices
+
+Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+
+- **A notice is a Message of its own kind.** `gotato.RoleNotice` and `Message.Notice` (`NoticeInfo{Kind, Source, CausedBy}`) tell the model a fact the user did not say. It waits in the queue beside the Steer queue, goes in right before the next model call, and starts no Round and no Run. The request carries it as `<notice kind="…">…</notice>`, with the text escaped, and a request that holds one ends its system part with the fixed sentence about the four tags.
+- **A service sends its own.**
+
+  | Where | Call |
+  |---|---|
+  | Go | `Session.Notice(ctx, kind, text)`; `Runner.Notice(ctx, service.NoticeRequest{SessionID, Kind, Text})` → `NoticeResult{SessionID, Queued, Number, MessageID}` |
+  | HTTP | `POST /v1/sessions/{id}/notices` `{"kind", "text"}`: 202 `{"session_id","queued":true,"number","message_id"}` |
+  | gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}`; the Events gain `notice_queued = 56` and `notice_committed = 57` |
+  | CLI | `gotato session notice <id> --kind K "text"` → `{"session_id","queued":true,"number","message_id"}` |
+
+  A Run going on another live instance answers `not_writer`, and is forwarded when forwarding is on, as a message is. Gotato's six own kinds (`continue`, `last_turn`, `stream_cut`, `settings_changed`, `run_interrupted`, `time_away`) are reserved. `CoreLimits.MaxNotices` (16) bounds the queue.
+- **A notice outlives its instance.** The Record keeps the notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`, and `Summary.Notices` in the store's summary); a Run on any instance queues them again when it starts. A notice sent with no Run going takes the Session over for the one write of its `notice_queued`. `Summary.LastRunEnd` and `session.Record.LastRunEnd()` keep the Session's last busy time the same way. A `session.Store` adapter that copies the `Summary` field by field must copy both new fields.
+- **`time_away`.** A message that starts a Run after the Session was idle longer than `service.Agent.TimeAwayAfter` (30 minutes by default; a negative value turns it off) is followed by a notice with how long it has been and the time now, in the zone of `Compact.Location` (UTC by default). The CLI sets it with `--time-away 2h|off` or `GOTATO_TIME_AWAY`.
+- **Gateway.** All three wire APIs take a notice as tagged text in a user turn (Anthropic Messages joins it to the adjacent user turn, after the Tool Results), so it starts no Round and the reasoning in flight stays. The native forms wait for G-F32.
+- **Compaction.** A Segment keeps a notice from a service word for word, as `<notice kind="…">` with its text escaped, and leaves Gotato's own out.
+
+  | Before | After |
+  |---|---|
+  | the output-limit continuation (`MaxTruncatedContinuations`) was a user Message with `TruncatedContinuationText`, so it started a new Round and Claude and OpenAI lost the cut reply's reasoning | a `continue` notice with the same text (`gotato.TruncatedContinuationText`); `notice_committed` names the `reply_ended` that caused it in `message.notice.caused_by`; the Round stays |
+  | `gotato.SourceContinuation`, the `source` of that `message_committed` | removed; the continuation is a `notice_committed`. `gotato.SourceNotice` is the `source` of a `message_dropped` or `message_rejected` for a notice |
+
 ### Limits
 
 - **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.

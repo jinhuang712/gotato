@@ -18,6 +18,12 @@
 //	defer s.Close(ctx)
 //	result, err := s.Prompt(ctx, gotato.UserMessage("hello"))
 //
+// Steer and FollowUp add the user's words to a Run in flight. What is not the
+// user's words goes in as a notice, a Message of its own kind (RoleNotice):
+// Session.Notice queues one, it is committed right before the next model call,
+// and it starts no Round and no Run. The model reads it as
+// <notice kind="…">…</notice>.
+//
 // Session Records and stores, context strategies, Tool registries, providers,
 // and the service layer live in sibling packages that build on these
 // contracts.

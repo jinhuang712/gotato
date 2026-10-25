@@ -4,7 +4,6 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Defects
 
-- [ ] **An output-limit continuation starts a new Round.** With `MaxTruncatedContinuations` above 0 (it is 0 by default), a reply cut off at the output limit is followed by `UserMessage(TruncatedContinuationText)` (`loop.go`, `limits.go`). The gateway's `roundStart` (`gateway/provider.go`) takes any user Message as the start of a Round, so Claude and OpenAI are no longer sent the cut reply's reasoning, which the model needs to go on. Read from the code, not run. Fixed by FEATURES.md → G-F29, where the continuation becomes a `continue` notice.
 - [ ] **Each provider's refusal as too long is not yet played on a fake gateway.** The six phrases in `gateway/overflow.go` are unchecked against live providers; the gateway reads `message`, `code` and `type`, and a team adds its own phrases with `overflow_phrases`. The four wordings by which `Error.ContextLimit()` reads the limit a refusal names (`limitPatterns`) are unchecked in the same way, and a refusal in other words names none, so a merge on an overflow is then sized to the Segments' budget. What is left is to test each provider's form of the refusal on a fake gateway (ROADMAP.md Phase 11).
 
 ## Decisions

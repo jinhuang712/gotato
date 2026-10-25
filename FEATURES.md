@@ -18,12 +18,12 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
 | Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
 | Limits | messages, message bytes, parallel tools and the deadline of a model call and of a tool call, each with a default; no count of Turns or tool calls in the core | G-F01 | ✅ |
-| Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
+| Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`), in a `continue` notice that starts no Round | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | ✅ |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | ✅ |
 | Interrupt | stop the model call in flight and go on with a new message, in the same Run | G-F26 | ✅ |
-| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API, HTTP, gRPC and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them with G-F29 | G-F26 | ✅ |
-| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension; one tells it how long the user was away and what time it is now | G-F29 | ⬜ |
+| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API, HTTP, gRPC and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29) | G-F26 | ✅ |
+| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API, HTTP, gRPC and the CLI; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are sent; the other four of Gotato's own wait for their features, and the native wire forms for G-F32 | G-F29 | 🚧 |
 | A last Turn that answers | when the Run's deadline is near, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
@@ -148,6 +148,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Subscriptions | a Run's stream, a Session's from any number, and an Instance's, in the Go API; a Session never waits for any of them | G-F13 | ✅ |
 | Claim Events | a Session claimed, released or fenced, and a Liveness row that lapsed | G-F13 | ✅ |
 | Message Events | a message queued, committed, dropped, withdrawn or rejected, and an Abort requested; a live Session sends them, and the Runner and the endpoints with messages from any endpoint | G-F13 | 🚧 |
+| Notice Events | a notice queued and committed (`notice_queued`, `notice_committed`) | G-F13 | ✅ |
 | Streamed reasoning | the model's reasoning as it arrives, as `reasoning_delta` | G-F13 | ✅ |
 | Extensions | six stages around the Loop, from `TurnPreparer` to `TurnStopper` | G-F15 | ✅ |
 | Advisory extensions | may fail without failing the Run, and say so in an `extension_failed` Event | G-F15 | ✅ |
@@ -330,7 +331,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns are Turns of the same Run, so a `TurnStopper` counts them too. Up to 4 can wait (`MaxFollowUpMessages`).
 - `Interrupt` cancels the model call in flight and starts the next Turn of the same Run with the message. The text the call had sent is kept in the Transcript as a Cut-off reply, which the model does not read again. It shares the Steer queue and its limit.
 - `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed. The Runner's Stop is the same.
-- A message still waiting when a Run of a `gotato.Session` ends is dropped, not kept for the next Run, and a `message_dropped` Event says so. A host that sets `WithQueueHandoff` keeps them after a Run that completed or failed and takes them (`TakeQueued`, `Requeue`, `DropQueued`); the Runner does, so its messages are not dropped (below). One that reaches the Runner between Runs is not a waiting message: it starts a Run.
+- A message still waiting when a Run of a `gotato.Session` ends is dropped, not kept for the next Run, and a `message_dropped` Event says so. A notice is the exception: it asks for no work, so it is not dropped, and waits for the next Run ([G-F29](#g-f29--runtime-notices-)). A host that sets `WithQueueHandoff` keeps them after a Run that completed or failed and takes them (`TakeQueued`, `Requeue`, `DropQueued`); the Runner does, so its messages are not dropped (below). One that reaches the Runner between Runs is not a waiting message: it starts a Run.
 
 **Where messages enter.** Each reaches the Run in the writer's own process, and the surface that takes it only translates:
 
@@ -356,7 +357,7 @@ Each kind takes effect at its own point:
 | Kind | When it takes effect |
 |---|---|
 | Steer | at the next Turn boundary |
-| Notice (G-F29) | right before the next model call, from the same queue as a Steer; it never starts a Run, and never keeps one going |
+| Notice ([G-F29](#g-f29--runtime-notices-)) | right before the next model call, from the same queue as a Steer; it never starts a Run, and never keeps one going |
 | FollowUp | where the Run would otherwise settle |
 | Interrupt | at once: a model call in flight is cancelled, a tool in flight finishes (the message follows its result), and the message starts the next Turn of the same Run |
 | Stop | at once: everything in flight is cancelled through its `ctx`, and the Run settles as cancelled |
@@ -370,7 +371,7 @@ Each kind takes effect at its own point:
 |---|---|
 | in a Run on another instance's live writer | answers `not_writer`: not run, retryable, with the writer's advertised address |
 | in a Run here | hands the message to the Run, which takes it at its own point (above) |
-| not in a Run | takes the Session over, as it takes over any idle one, and starts a new Run with the message; a notice waits for the next Run; a Stop finds nothing to stop |
+| not in a Run | takes the Session over, as it takes over any idle one, and starts a new Run with the message; a notice is stored with the Session and waits for the next Run; a Stop finds nothing to stop |
 
 - **How it knows.** The instance reads the Record: the last Claim names the writer, and the Record is busy while the writer has a Run or a change under way. The writer's Liveness row must be alive. A holder whose row is gone is not a writer, so the message takes the Session over. The check is one read of the Record, and a warm copy that is current skips it.
 - **The address is the writer's own.** Each instance can advertise an address in its Liveness row, a setting that is optional (`service.Config.Address`, `--advertise`; [G-F27](#g-f27--service-many-instances-)). An instance with none still answers `not_writer`, and says so without an address. The address in the answer is read from the row the Claim names, so it is the address of the instance that holds the Claim now. The refusal is a `run_rejected` Instance Event with the reason `not_writer`.
@@ -400,23 +401,25 @@ The decision above relies on the load balancer's hash. A caller that cannot rout
 | Queue the message in the store | Survives the writer's death. Any instance can accept it. | The option the first decision rejected: a write per message, and a writer that polls the store. |
 | Instances forward among themselves, always | Every caller reaches the writer without knowing. | Gotato becomes a router, with an internal API, discovery and authentication between instances ([DESIGNS.md → Gotato builds no infrastructure](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16)). |
 
-### G-F29 — Runtime notices ⬜
+### G-F29 — Runtime notices 🚧
 
-Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. Today the only place for it is a user message: the output-limit continuation is a user message, and so is the compaction summary, so the model takes them as the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and a compacted stretch of history becomes a Segment, with tags of its own ([G-F06](#g-f06--compaction-)). Designed on 2026-10-18, and the `time_away` notice on 2026-10-25; built in Phase 8 ([ROADMAP.md](ROADMAP.md#phase-8--warm-session)), after the warm Session and messages from any endpoint.
+Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A user message is the wrong place for it: the model takes it for the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and a compacted stretch of history becomes a Segment, with tags of its own ([G-F06](#g-f06--compaction-)). Designed on 2026-10-18, and the `time_away` notice on 2026-10-25; built in Phase 8 ([ROADMAP.md](ROADMAP.md#phase-8--warm-session)), after the warm Session and messages from any endpoint. A row marked ⬜ below waits for the feature that sends it, or for the native forms.
 
 **The notices.** Gotato sends six kinds itself, each after the Event that causes it; a service or an extension sends its own:
 
-| Kind | What it tells the model | Caused by |
-|---|---|---|
-| `continue` | the last reply did not finish, because it hit the output limit or came back empty, so go on | `reply_ended` |
-| `last_turn` | this is the last Turn, so answer without tools: when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's reading of the `ctx` deadline |
-| `stream_cut` | the reply was cut off mid-stream, so go on from where it stopped without repeating it ([G-F31](#g-f31--recovering-a-cut-stream-)) | `reply_cut_off` |
-| `settings_changed` | the instruction changed, or a tool came or went, told here instead of rewritten into the prefix ([G-F32](#g-f32--changes-that-keep-the-cache-)) | `metadata_changed` |
-| `run_interrupted` | the last Run was stopped before it finished, so a tool may have done only part of its work | `run_ended` by a drain, or a Run found unfinished when the Session is loaded |
-| `time_away` | the user was away: how long it has been since the Session was last busy, and what time it is now | the prompt's `message_committed`, when the Session was idle longer than the threshold |
-| your own | something that happened outside the conversation, such as an order that was delivered | your service or extension |
+| Kind | What it tells the model | Caused by | Status |
+|---|---|---|---|
+| `continue` | the last reply did not finish, because it hit the output limit (`MaxTruncatedContinuations`), so go on | `reply_ended` | ✅ |
+| `last_turn` | this is the last Turn, so answer without tools: when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's reading of the `ctx` deadline | ⬜ |
+| `stream_cut` | the reply was cut off mid-stream, so go on from where it stopped without repeating it ([G-F31](#g-f31--recovering-a-cut-stream-)) | `reply_cut_off` | ⬜ |
+| `settings_changed` | the instruction changed, or a tool came or went, told here instead of rewritten into the prefix ([G-F32](#g-f32--changes-that-keep-the-cache-)) | `metadata_changed` | ⬜ |
+| `run_interrupted` | the last Run was stopped before it finished, so a tool may have done only part of its work | `run_ended` by a drain, or a Run found unfinished when the Session is loaded | ⬜ |
+| `time_away` | the user was away: how long it has been since the Session was last busy, and what time it is now | the message that starts a Run, when the Session was idle longer than the threshold | ✅ |
+| your own | something that happened outside the conversation, such as an order that was delivered | your service or extension | ✅ |
 
-**How a notice is kept.** It is a Message with the role `notice`, a `kind` and a `source` (`gotato` or `service`), and, for Gotato's own, the number of the Event that caused it:
+The names are constants (`gotato.NoticeContinue`, `NoticeLastTurn`, `NoticeStreamCut`, `NoticeSettingsChanged`, `NoticeRunInterrupted`, `NoticeTimeAway`), and `gotato.ReservedNoticeKind` says whether a kind is one of them.
+
+**How a notice is kept.** It is a Message with the role `notice` (`gotato.RoleNotice`), a `kind` and a `source` (`gotato` or `service`), and, for Gotato's own, `caused_by`, the number of the Event that caused it:
 
 ```json
 { "id": "m_60", "role": "notice",
@@ -427,12 +430,15 @@ Gotato, your service or an extension sometimes has to tell the model something t
 - It is not the user's words: it never starts a Round, and it is not counted as a user message.
 - It is appended once and never changed or removed, so the cached prefix holds, and so does Claude's check of the thinking blocks after it.
 - Its words state a fact. What the model should do about it belongs in the instruction.
+- The text is kept as it was sent. The request carries it as `<notice kind="…">text</notice>`, with the kind and the text escaped (below).
 
 **When it goes in.** A notice waits in the queue that holds a Steer ([G-F26](#g-f26--steering-a-run-)), in the order they arrived. The queue is emptied right before every model call, so a notice follows a user message or a Turn's Tool Results and never sits between a tool call and its result.
 
-- A notice never starts a Run and never keeps one going. With no Run, it waits for the next one and goes in after its prompt; a notice still waiting when a Run settles waits for the next Run. A service that wants the model to react at once calls `Continue` after it.
-- `notice_queued` and `notice_committed` report both steps ([G-F13](#g-f13--events-)); `notice_committed` carries the number of the `notice_queued` it came from.
-- **A queued notice outlives its writer.** The service was answered with the number of a stored `notice_queued`, so it takes the notice as accepted. An instance that loads the Session after its writer died rebuilds the queue from every `notice_queued` with no `notice_committed`, in order. A Steer is not rebuilt: it is lost with its writer, and the caller sends it again ([G-F26](#g-f26--steering-a-run-)).
+- A notice that waits when a Run starts goes in after the Run's prompt, before the first model call. One that arrives during a Run goes in after the Tool Results of the Turn in flight, before the next call, together with a Steer that arrived with it, in their order.
+- A notice never starts a Run and never keeps one going. A Run that settles with a notice still waiting does not commit it: the notice waits for the next Run, also after a Stop. A service that wants the model to react at once calls `Continue` after it.
+- `notice_queued` and `notice_committed` report both steps ([G-F13](#g-f13--events-)); `notice_committed` carries `queued`, the number of the `notice_queued` it came from. A notice that is refused because the queue is full (`MaxNotices`, 16 by default; 0 refuses them) is a `message_rejected` with the source `notice`, and a call that gets the error `limit_exceeded`.
+- **A queued notice outlives its writer.** The service was answered with the number of a stored `notice_queued`, so it takes the notice as accepted. The Record keeps the notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`), in the Summary the store holds with every write, so a Session loaded from its facts knows them. A Run on any instance queues them again when it starts, in order. A Steer is not rebuilt: it is lost with its writer, and the caller sends it again ([G-F26](#g-f26--steering-a-run-)).
+- Gotato's own notices that a Run left behind, such as a `time_away` it did not reach, are dropped with the Run (`message_dropped`, source `notice`), since they mattered only at the time.
 
 **How long the user was away.** A Segment carries its times, but the model is not told the time a new message arrives, so after days away it could answer as if no time had passed. When a message that starts a Run arrives after the Session was idle longer than a threshold, Gotato adds a `time_away` notice after it:
 
@@ -440,43 +446,44 @@ Gotato, your service or an extension sometimes has to tell the model something t
 <notice kind="time_away">It has been 3 days since the last message. It is now 2026-10-28T09:14:00+08:00.</notice>
 ```
 
-- **The threshold is 30 minutes by default,** and an Agent can set another.
-- **Idle is read from the Record,** from the Session's last busy time (the last `run_ended`) to the new message's arrival. It does not need a warm Session, so a Session that was evicted, or loaded by another instance, gets the notice the same.
-- **It states two facts and tells the model nothing to do.** The times are RFC 3339 with their zone, in the zone an Agent sets for its Segments' times (UTC by default, [G-F06](#g-f06--compaction-)). What the model should do about a long absence belongs in the instruction.
-- **One per Run at most,** and only for the message that starts it. A message that reaches a Run already going finds the Session busy, not idle, so it gets none.
-- **It is appended once, at the end of the request,** so the cached prefix holds like it does for any notice.
+- **The threshold is 30 minutes by default,** and an Agent can set another (`service.Agent.TimeAwayAfter`; a negative value turns the notice off). The CLI sets it with `--time-away 2h` or `off`, or `GOTATO_TIME_AWAY`.
+- **Idle is read from the Record,** from the Session's last busy time (the last `run_ended`, which the Summary keeps as `last_run_end`) to the new message's arrival, by the Runner's clock. It does not need a warm Session, so a Session that was evicted, or loaded by another instance, gets the notice the same. A Session that has never finished a Run gets none.
+- **It states two facts and tells the model nothing to do.** The length is whole minutes, hours or days, in the largest unit that fits (`45 minutes`, `1 hour`, `3 days`). The time is RFC 3339 with its zone, in the zone an Agent sets for its Segments' times (`Compact.Location`; UTC by default, [G-F06](#g-f06--compaction-)). What the model should do about a long absence belongs in the instruction.
+- **One per Run at most,** and only for the message that starts it: a prompt, not a `Continue` and not a Run that follows another. A message that reaches a Run already going finds the Session busy, not idle, so it gets none.
+- **It is appended once, at the end of the request,** so the cached prefix holds like it does for any notice. It is queued with a `notice_queued` of the source `gotato`, and committed like any other.
 
-**How each wire API receives it.** Each wire API has a default form, the gateway configuration can override it, and tagged text is the fallback for every model:
+**How each wire API receives it.** A notice reaches every wire API as tagged text, `<notice kind="…">…</notice>`, in a user turn. Each wire API can have a native form later, which the gateway configuration can override, with tagged text as the fallback for every model:
 
-| Wire API | Default form | Fallback |
+| Wire API | Today | Native form |
 |---|---|---|
-| Anthropic Messages | for the Claude models the gateway currently lists, a `system` message after the user turn, which may hold only Tool Results; it does not break the cache. Right after Tool Results on the models it lists for that, text after the Tool Results in the same user turn, because these models may ignore a system message there | tagged text in the adjacent user turn, for any other model and for a notice at the start of the Transcript |
-| OpenAI Responses | a `developer` message | tagged text in the adjacent user message |
-| Chat Completions | tagged text in the adjacent user message | none needed |
+| Anthropic Messages | a text block in the adjacent user turn, after the Tool Results it follows; a notice after an assistant reply is a user turn of its own ✅ | for the Claude models the gateway currently lists, a `system` message after the user turn, which may hold only Tool Results; it does not break the cache. Right after Tool Results on the models it lists for that, text after the Tool Results in the same user turn, because these models may ignore a system message there; tagged text for any other model and for a notice at the start of the Transcript ⬜ |
+| OpenAI Responses | a user item with the tagged text ✅ | a `developer` message ⬜ |
+| Chat Completions | a user message of its own on the wire, with the tagged text ✅ | none needed |
 
-- **The model lists are the gateway's current defaults, not rules.** For the system message mid-conversation, the gateway's default list today is Fable 5.1, Mythos 5.1, Fable 5, Mythos 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5 and Haiku 5.5; for the text after Tool Results, Sonnet 5.5 and Haiku 5.5. A team changes either list, or the form of one model or provider, in the gateway configuration, and a model no list names gets tagged text.
-
-- Tagged text is `<notice kind="…">…</notice>`. A Segment has three tags of its own, `<segment>`, `<tool_calls>` and `<recap>` ([G-F06](#g-f06--compaction-)), and these four are the only tags Gotato writes into the conversation. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339 with their zone.
+- **The model lists are the gateway's current defaults, not rules.** For the system message mid-conversation, the gateway's default list today is Fable 5.1, Mythos 5.1, Fable 5, Mythos 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5 and Haiku 5.5; for the text after Tool Results, Sonnet 5.5 and Haiku 5.5. A team changes either list, or the form of one model or provider, in the gateway configuration, and a model no list names gets tagged text. The native forms are not built: they wait for the changes that keep the cache ([G-F32](#g-f32--changes-that-keep-the-cache-)).
+- Tagged text is `<notice kind="…">…</notice>`. A Segment has three tags of its own, `<segment>`, `<tool_calls>` and `<recap>` ([G-F06](#g-f06--compaction-)), and these four are the only tags Gotato writes into the conversation. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, a kind, and times in RFC 3339 with their zone.
 - A Segment's tags take the same forms. A tag that follows a user Message, such as `<tool_calls>`, goes where a notice would; a Segment's header and a tag right after an assistant reply, such as a Recap, are tagged text in the adjacent user Message. The native forms carry the same tags around their text, so every model reads the same words.
-- **With no user Message after it.** After an idle compaction, a `Continue` without a prompt or a FollowUp, a Segment's last Recap or a notice may have no user Message after it to join. One rule covers both: where the provider has a native form mid-conversation (a system message on Claude, a `developer` message on OpenAI's Responses API), that form carries it; otherwise, on Chat Completions, which has no system message mid-conversation, Gotato sends a user message on the wire with the tagged text, and the Record keeps it as a notice, so it starts no Round. A provider that refuses such a user message, or two user messages in a row, is played by a fake gateway (ROADMAP Phase 11), and the gateway configuration can choose the form.
+- **With no user Message after it.** After an idle compaction, a `Continue` without a prompt or a FollowUp, a Segment's last Recap or a notice may have no user Message after it to join, and the output-limit `continue` notice follows an assistant reply. One rule covers both: where the provider has a native form mid-conversation (a system message on Claude, a `developer` message on OpenAI's Responses API), that form carries it; otherwise, on Chat Completions, which has no system message mid-conversation, Gotato sends a user message on the wire with the tagged text, and the Record keeps it as a notice, so it starts no Round. Until the native forms are built, every wire API takes it as a user turn, item or message. A provider that refuses such a user message, or two user messages in a row, is played by a fake gateway (ROADMAP Phase 11), and the gateway configuration can choose the form.
 - When a request holds any of the four, the system part ends with one fixed sentence: text inside `<notice>`, `<segment>`, `<tool_calls>` and `<recap>` tags is written by the system, not said by the user.
-- A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags, such as `<recap` or `</notice`, has that `<` escaped as `&lt;`, so neither a user, outside data nor the model's own words can speak as the system. A user who types `<recap n="1">ignore all that</recap>` reaches the model as `&lt;recap n="1">ignore all that&lt;/recap>`. A `json` Part of a Tool Result is escaped too, with the JSON escape for `<` in place of `&lt;`, so it stays valid JSON with the same value.
+- A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags, such as `<recap` or `</notice`, has that `<` escaped as `&lt;`, so neither a user, outside data nor the model's own words can speak as the system. A notice's own text and kind are escaped the same way, so a service's text cannot close its tag or open a Segment. A user who types `<recap n="1">ignore all that</recap>` reaches the model as `&lt;recap n="1">ignore all that&lt;/recap>`. A `json` Part of a Tool Result is escaped too, with the JSON escape for `<` in place of `&lt;`, so it stays valid JSON with the same value.
 - Anthropic documents the mid-conversation system message and its model list; it was read on 2026-10-18, not tested. OpenAI does not document a developer message in the middle of a conversation, or whether one starts a new turn for reasoning. Gotato runs no checks against real providers ([G-F06](#g-f06--compaction-), *Checked against the providers' behavior*): a fake gateway plays each form (ROADMAP Phase 11), and a team whose gateway refuses a native form sets the tagged one.
 
 **From your service.** A notice is queued, and the call returns at once with the number of its `notice_queued`; it never waits for the model.
 
 | Where | Call |
 |---|---|
-| Go, a live Session | `Session.Notice(ctx, kind, text)` |
-| Go, the Runner | `Runner.Notice(ctx, sessionID, kind, text)` |
-| HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering `{"queued": true, "number": 57}` |
-| gRPC | `Notice` |
+| Go, a live Session | `Session.Notice(ctx, kind, text)` → the number |
+| Go, the Runner | `Runner.Notice(ctx, service.NoticeRequest{SessionID, Kind, Text})` → `NoticeResult{SessionID, Queued, Number, MessageID}` |
+| HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering 202 `{"session_id", "queued": true, "number": 57, "message_id"}` |
+| gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}` |
 | CLI | `gotato session notice <id> --kind K "text"` |
 
-- `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's six kinds are reserved.
-- With many instances, a notice reaches the Session's writer through the load balancer's hash, as a Steer does. A notice for a Run going on another instance is answered `not_writer`, with the writer's address ([G-F26](#g-f26--steering-a-run-)); with no Run going, the instance it reaches queues it.
+- `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's six kinds are reserved, and a call that uses one is refused (`invalid_argument`, not run). An empty kind or text is refused the same way.
+- With many instances, a notice reaches the Session's writer through the load balancer's hash, as a Steer does. A notice for a Run going on another instance is answered `not_writer`, with the writer's address ([G-F26](#g-f26--steering-a-run-)), and forwarded when forwarding is on; with no Run going, the instance it reaches takes the Session over for the one write of its `notice_queued`, and the Session's next Run takes the notice, on any instance.
+- A CLI process runs nothing in the background, so `session notice` stores the notice with the Session, and the next Run, from the CLI or any process, puts it in after its prompt.
+- A host that embeds a `gotato.Session` and speaks for Gotato queues a notice of any source with `Session.QueueNotice(ctx, message)`; the Runner sends `time_away` this way.
 
-**In a compaction.** Gotato's own notices (`continue`, `last_turn`, `stream_cut`, `run_interrupted` and `time_away`) mattered only at the time, so a compaction leaves them out of its Segment, and the Recap covers them; the change a `settings_changed` notice told is folded back into the prefix. A notice from your service stays in the Segment word for word, because Gotato cannot tell whether it still applies ([G-F06](#g-f06--compaction-)).
+**In a compaction.** Gotato's own notices (`continue`, `last_turn`, `stream_cut`, `run_interrupted` and `time_away`) mattered only at the time, so a compaction leaves them out of its Segment, and the Recap covers them; the change a `settings_changed` notice told is folded back into the prefix. A notice from your service stays in the Segment word for word, as `<notice kind="…">` with its text escaped, because Gotato cannot tell whether it still applies ([G-F06](#g-f06--compaction-)).
 
 ### G-F30 — A last Turn that answers ⬜
 
@@ -568,7 +575,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 
 **Built for the design.** The parts a compaction stands on:
 
-- **Tags and escaping.** A Part marked `gotato.MetaTag` is tagged text the system wrote; every other Part has the start or end of the four tags escaped in the request ([G-F29](#g-f29--runtime-notices-)). A tool source that bridges foreign metadata, such as the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)), must drop that key when it copies foreign metadata into a Tool Result.
+- **Tags and escaping.** A Part marked `gotato.MetaTag` is tagged text the system wrote, and so is a notice Message, which `ForModel` writes as `<notice kind="…">` with its kind and text escaped; every other Part has the start or end of the four tags escaped in the request ([G-F29](#g-f29--runtime-notices-)). A tool source that bridges foreign metadata, such as the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)), must drop that key when it copies foreign metadata into a Tool Result.
 - **The gateway** reads `context_window`, reports the cache retention in effect (`Client.CacheRetention()`), and reports a request refused as too long as `context_overflow` ([G-F07](#g-f07--models-and-providers-)).
 - **Loaded tools** are facts of the Record (`tool_loaded`, `tool_unloaded`), restored for every Run and kept in a Checkpoint and a Fork ([G-F34](#g-f34--tool-search-)).
 - **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetLoadedTools`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
@@ -1413,12 +1420,14 @@ GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
 POST   /v1/sessions/{id}/compact
 POST   /v1/sessions/{id}/runs    POST /v1/sessions/{id}/runs/stream
 POST   /v1/sessions/{id}/messages
+POST   /v1/sessions/{id}/notices
 POST   /v1/sessions/{id}/cancel  POST /v1/runs/{run_id}/cancel
 POST   /v1/runs                  POST /v1/runs/stream
 ```
 
 - A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
 - A message request carries `kind` (`steer`, the default, `follow_up` or `interrupt`) and `text`. A Run in flight on the instance takes it: 202 with `{"session_id", "message_id", "queued": true}`. With no Run going it starts one and answers 200 when it settles, with `{"session_id", "queued": false, "run": {…}}`. A Run another live instance writes answers 409 `not_writer`, or is forwarded when `httpapi.WithForwarding` is on. `…/cancel` answers 202, and 409 `invalid_state` when no Run is going, and is forwarded the same way ([G-F26](#g-f26--steering-a-run-)).
+- A notice request carries `kind` and `text`, and answers 202 with `{"session_id", "queued": true, "number", "message_id"}` at once: it starts no Run, and a Run going on another live instance answers 409 `not_writer`, or is forwarded as a message is ([G-F29](#g-f29--runtime-notices-)).
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
 - `GET /readyz` answers 200 with `active_runs` and `active_sessions`, and 503 with `"draining": true` while the instance drains.
@@ -1458,7 +1467,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 **gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
-- Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `StreamSession`, `CancelRun`, `SendMessage`, `Events`, `Context`, `Compact`. `SendMessage(session_id, kind, text)` answers `queued` with a `message_id`, or `run` with the result of the Run it started; `CancelRun` by `session_id` is the Stop of a Session. Both are forwarded to the writer when `grpcadapter.WithForwarding` is on, with the metadata `gotato-forwarded`.
+- Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `StreamSession`, `CancelRun`, `SendMessage`, `Notice`, `Events`, `Context`, `Compact`. `Notice(session_id, kind, text)` queues a notice and answers `queued` with its `number` and `message_id`, and is forwarded like `SendMessage`. `SendMessage(session_id, kind, text)` answers `queued` with a `message_id`, or `run` with the result of the Run it started; `CancelRun` by `session_id` is the Stop of a Session. Both are forwarded to the writer when `grpcadapter.WithForwarding` is on, with the metadata `gotato-forwarded`.
 - `StreamSession(session_id, after, record_epoch)` is the same stream as the HTTP route, as a server stream of `SessionUpdate`: a `start` message with the epoch, then the Events. The epoch is also in the header metadata `record-epoch`. A position that cannot be resumed fails with `FAILED_PRECONDITION` and the current epoch in a `record-epoch` trailer; an unknown Session with `NOT_FOUND`. The drain ends the stream with `UNAVAILABLE` and a `retry-after-ms` trailer, like `StreamRun`.
 - The `session-id` metadata is checked and answered as the HTTP header is.
 - Each code has its gRPC code in one table (`codeOf`): `draining`, `overloaded` and `store_failure` are `UNAVAILABLE`, `not_found` is `NOT_FOUND`, `busy` and `invalid_state` are `FAILED_PRECONDITION`; `not_writer` is `FAILED_PRECONDITION` with a `gotato-writer` trailer (the writer's address, when it has one), not `UNAVAILABLE`, because a client library would retry `UNAVAILABLE` on the same connection. A failed call, unary or stream, carries the trailer `gotato-not-run: true` when the runtime says it did not run, and `gotato-retryable: true` when a retry may succeed. The `RuntimeError` in a `RunResult` has `retryable` and `not_run` fields.
@@ -1531,9 +1540,9 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 |---|---|---|
 | `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused, with why: busy, at capacity, draining, past the activation limit (`activation_limit`), or, for a message to a Run that another Instance writes, `not_writer` | Instance |
 | `message_queued` | a Steer, FollowUp or Interrupt waits for its point in the Run | Record |
-| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp, an Interrupt, or the Loop's own continuation, which becomes a notice with G-F29 | Record |
-| `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message is dropped, with why (the Run was stopped: `run_ended`; the instance drains: `draining`; the writer failed: `writer_failed`; the next Run's queue is full: `queue_full`; the Session closed: `session_closed`), withdrawn by its caller, or refused because the queue is full | Record |
-| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue, and goes into the Transcript right before a model call; planned with G-F29 | Record |
+| `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp or an Interrupt | Record |
+| `message_dropped`, `message_withdrawn`, `message_rejected` | a waiting message (with the source `notice`, a notice) is dropped, with why (the Run was stopped: `run_ended`; the instance drains: `draining`; the writer failed: `writer_failed`; the next Run's queue is full: `queue_full`; the Session closed: `session_closed`), withdrawn by its caller, or refused because the queue is full | Record |
+| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue (`notice_kind`, `source`, `text`), and goes into the Transcript right before a model call (`message`, and `queued`, the number of its `notice_queued`; absent for a notice of Gotato's own, which is committed at once) | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
 *Claims*
@@ -1629,6 +1638,7 @@ gotato run --session "$id" --model demo --json "use-tool"
 | `run [--session ID] [--model M] "prompt"` | runs a prompt, in a new or an existing Session. `--continue` resumes without a prompt, `--no-save` leaves the store untouched, `--events jsonl` streams the Events, and `--compact-ceiling` sets this Session's ceiling. |
 | `session create \| list \| show \| fork \| events \| resume \| delete` | manages Sessions |
 | `session message <id> [--kind steer\|follow_up\|interrupt] "text"`, `session cancel <id>` | send a message to a Session, or stop its Run. A Run going in another process fails with exit 1 and `not_writer` ([G-F26](#g-f26--steering-a-run-)); with none going, a message starts a Run |
+| `session notice <id> --kind K "text"` | tells the model something that is not the user's words ([G-F29](#g-f29--runtime-notices-)). It starts no Run: the notice is stored with the Session and the next Run puts it in after its prompt; a Run in another process fails with exit 1 and `not_writer` |
 | `context inspect \| build \| compact <id>` | shows or compacts what the model sees |
 | `tools list \| describe \| active \| activate \| deactivate` | shows and switches tools |
 | `events --session ID [--kind K]` | prints a Session's Events |
