@@ -221,6 +221,25 @@ func (r *toolRegistry) restore(ctx context.Context, names []string) error {
 	return nil
 }
 
+// narrow switches off every ToolSet the Session switched on that names does
+// not list. A ToolSet installed active stays on.
+func (r *toolRegistry) narrow(names []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	changed := false
+	for _, state := range r.sets {
+		if state.active && !state.configured && !slices.Contains(names, state.spec.Name) {
+			state.active = false
+			state.resolved = nil
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return r.rebuild()
+}
+
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
 // RuntimeError so a broken ToolSet fails NewSession instead of crashing the process.
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {

@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"slices"
@@ -111,7 +112,7 @@ func WithExtension(extension any) Option {
 			c.extensions.stoppers = append(c.extensions.stoppers, typed)
 			installed = true
 		}
-		if typed, ok := extension.(RunPreparer); ok {
+		if typed, ok := extension.(TurnPreparer); ok {
 			c.extensions.preparers = append(c.extensions.preparers, typed)
 			installed = true
 		}
@@ -140,7 +141,7 @@ type extensionSet struct {
 	pre          []PreToolUse
 	post         []PostToolUse
 	stoppers     []TurnStopper
-	preparers    []RunPreparer
+	preparers    []TurnPreparer
 	// report tells the Session that an advisory extension failed, so it
 	// stores an ExtensionFailed Event. It is set by NewSession.
 	report func(stage string, err *RuntimeError)
@@ -151,19 +152,33 @@ func (s extensionSet) empty() bool {
 		len(s.post) == 0 && len(s.stoppers) == 0 && len(s.preparers) == 0
 }
 
-// prepareRun runs every RunPreparer in installation order before the prompt
-// is committed. It is the sanctioned point for rewriting the Transcript.
-func (s extensionSet) prepareRun(ctx context.Context, transcript Transcript) *RuntimeError {
+// prepareTurn runs every TurnPreparer in installation order before a model
+// call, and reports whether any of them rewrote the Transcript. A failure that
+// is already a RuntimeError keeps its code, so a preparer can end the Run with
+// ErrLimitExceeded or ErrContextOverflow.
+func (s extensionSet) prepareTurn(ctx context.Context, pending PendingTurn) (bool, *RuntimeError) {
+	changed := false
 	for _, preparer := range s.preparers {
 		current := preparer
-		if err := guard("RunPreparer", func() error { return current.PrepareRun(ctx, transcript) }); err != nil {
+		var prepared TurnPrepared
+		err := guard("TurnPreparer", func() error {
+			var failure error
+			prepared, failure = current.PrepareTurn(ctx, pending)
+			return failure
+		})
+		if err != nil {
 			if s.advisory(current, err) {
 				continue
 			}
-			return err
+			var own *RuntimeError
+			if errors.As(err.Cause, &own) && own != nil {
+				return changed, own
+			}
+			return changed, err
 		}
+		changed = changed || prepared.Changed
 	}
-	return nil
+	return changed, nil
 }
 
 // advisory reports whether a failure from this Extension is advisory, and

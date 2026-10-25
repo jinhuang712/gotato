@@ -126,13 +126,13 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 
 func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *testing.T) {
 	model := recapModel()
-	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{Ceiling: 60, Recap: modelctx.ModelRecap{}}}
+	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{Ceiling: 20000, Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	var last service.RunResult
-	for range 6 {
+	for i := 0; i < 8 && !last.Compacted; i++ {
 		var err error
-		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 20)})
+		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 4000)})
 		if err != nil {
 			t.Fatal(err)
 		}

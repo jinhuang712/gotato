@@ -218,9 +218,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 
 	a.stage(RunStarted{Header: hd(0)})
-	if err := a.extensions.prepareRun(runCtx, a.transcript); err != nil {
-		return fail(err)
-	}
+	runStart := a.transcript.Len()
 	if err := a.measureTranscript(); err != nil {
 		return fail(asRuntimeError(err))
 	}
@@ -255,46 +253,97 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return fail(asRuntimeError(err))
 		}
 
-		snapshot := ContextSnapshot{
-			SessionID:          a.id,
-			RunID:              runID,
-			Turn:               turn,
-			SystemInstructions: a.instruction,
-			Messages:           cloneMessages(a.transcript.Messages()),
+		// build makes the request of this Turn from the Transcript as it
+		// stands. A TurnPreparer that rewrote the Transcript has it built again.
+		build := func() (turnBuild, *RuntimeError) {
+			snapshot := ContextSnapshot{
+				SessionID:          a.id,
+				RunID:              runID,
+				Turn:               turn,
+				SystemInstructions: a.instruction,
+				Messages:           cloneMessages(a.transcript.Messages()),
+			}
+			built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
+			return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
 		}
-		built, request, prefix, assembleErr := a.assembleTurn(runCtx, snapshot)
+		current, assembleErr := build()
 		if assembleErr != nil {
 			return fail(assembleErr)
 		}
-		contextBuilt := ContextBuilt{
-			Header:           hd(turn),
-			Strategy:         built.Metadata["strategy"],
-			Messages:         len(request.Messages),
-			SourceMessages:   len(snapshot.Messages),
-			SelectedMessages: len(built.Messages),
-			PrefixHash:       prefix,
-			PrefixMessages:   max(len(request.Messages)-1, 0),
-			SystemBytes:      len(request.SystemInstructions),
-			Tools:            len(request.Tools),
-		}
-		// The builder's Metadata keeps its own key, so it can never replace
-		// a count above with its string form.
-		if len(built.Metadata) > 0 {
-			contextBuilt.Metadata = make(map[string]string, len(built.Metadata))
-			for key, value := range built.Metadata {
-				contextBuilt.Metadata[key] = value
+
+		// The Model is called here, once, and once more when it refuses the
+		// request as too long before any output and a TurnPreparer shortened it.
+		var (
+			assistantID MessageID
+			assistant   Message
+			usage       Usage
+			modelErr    *RuntimeError
+			refused     *RuntimeError
+		)
+		for {
+			changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refused != nil)
+			if prepareErr != nil {
+				return fail(prepareErr)
 			}
+			if refused != nil && !changed {
+				// Nothing shortened the request: the refusal stands.
+				assistant, usage, modelErr = Message{}, Usage{}, refused
+				break
+			}
+			if changed {
+				if err := a.measureTranscript(); err != nil {
+					return fail(asRuntimeError(err))
+				}
+				if err := a.syncToolSets(); err != nil {
+					return fail(asRuntimeError(err))
+				}
+				if err := a.refreshTools(); err != nil {
+					return fail(asRuntimeError(err))
+				}
+				if current, assembleErr = build(); assembleErr != nil {
+					return fail(assembleErr)
+				}
+			}
+			contextBuilt := ContextBuilt{
+				Header:           hd(turn),
+				Strategy:         current.built.Metadata["strategy"],
+				Messages:         len(current.request.Messages),
+				SourceMessages:   len(current.snapshot.Messages),
+				SelectedMessages: len(current.built.Messages),
+				PrefixHash:       current.prefix,
+				PrefixMessages:   max(len(current.request.Messages)-1, 0),
+				SystemBytes:      len(current.request.SystemInstructions),
+				Tools:            len(current.request.Tools),
+			}
+			// The builder's Metadata keeps its own key, so it can never replace
+			// a count above with its string form.
+			if len(current.built.Metadata) > 0 {
+				contextBuilt.Metadata = make(map[string]string, len(current.built.Metadata))
+				for key, value := range current.built.Metadata {
+					contextBuilt.Metadata[key] = value
+				}
+			}
+			// The model call is written before the Model is called, so a writer
+			// that can no longer write stops here, and the store's time stays out
+			// of the model's.
+			assistantID = MessageID(nextID("message"))
+			a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
+			if err := a.flush(runCtx); err != nil {
+				return fail(err)
+			}
+			var callUsage Usage
+			assistant, callUsage, modelErr = a.readAssistant(runCtx, runID, turn, assistantID, current.request)
+			usage = callUsage
+			totalUsage = addUsage(totalUsage, callUsage)
+			// A refusal before any output is the one failure a shorter request
+			// can mend, once per Turn.
+			if modelErr != nil && modelErr.Code == ErrContextOverflow && refused == nil &&
+				len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
+				refused = modelErr
+				continue
+			}
+			break
 		}
-		// The model call is written before the Model is called, so a writer
-		// that can no longer write stops here, and the store's time stays out
-		// of the model's.
-		assistantID := MessageID(nextID("message"))
-		a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
-		if err := a.flush(runCtx); err != nil {
-			return fail(err)
-		}
-		assistant, usage, modelErr := a.readAssistant(runCtx, runID, turn, assistantID, request)
-		totalUsage = addUsage(totalUsage, usage)
 		turnText, turnReasoning := replyBytes(assistant)
 		textBytes += turnText
 		reasoningBytes += turnReasoning
@@ -503,6 +552,37 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return fail(controlErr)
 		}
 	}
+}
+
+// turnBuild is the request of a Turn with what it was built from.
+type turnBuild struct {
+	snapshot ContextSnapshot
+	built    ModelContext
+	request  ModelRequest
+	prefix   string
+}
+
+// prepareTurn gives the TurnPreparers their chance before a model call. It
+// reports whether one rewrote the Transcript.
+func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, overflow bool) (bool, *RuntimeError) {
+	if len(a.extensions.preparers) == 0 {
+		return false, nil
+	}
+	return a.extensions.prepareTurn(ctx, PendingTurn{
+		SessionID:  a.id,
+		RunID:      runID,
+		Turn:       turn,
+		Transcript: a.transcript,
+		RunStart:   runStart,
+		Request:    request,
+		Overflow:   overflow,
+		Flush: func(ctx context.Context) error {
+			if err := a.flush(ctx); err != nil {
+				return err
+			}
+			return nil
+		},
+	})
 }
 
 // consumeControl commits the control Messages that apply at this boundary. It

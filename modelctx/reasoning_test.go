@@ -99,8 +99,11 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 	s := reasoningSession(t)
 	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 1, DropReasoning: true})
-	if err := auto.PrepareRun(context.Background(), s); err != nil {
-		t.Fatal(err)
+	// A ceiling of one token is never met again, so the Run would end; the
+	// compaction itself is what this checks.
+	prepared, err := auto.PrepareTurn(context.Background(), gotato.PendingTurn{RunID: "r", Turn: 2})
+	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || !prepared.Changed {
+		t.Fatalf("prepared = %+v, err = %v", prepared, err)
 	}
 	if _, runs := auto.Last(); runs != 1 {
 		t.Fatalf("auto compactions = %d, want 1", runs)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -47,8 +48,19 @@ type CompactOptions struct {
 	DropReasoning bool
 	// Now overrides the clock (tests).
 	Now func() time.Time
+	// KeepLastTurn keeps at least the latest Turn in the tail, whatever the
+	// budget: the last assistant Message with the results of its tool calls,
+	// or the last Message when it is not a result. A compaction in the middle
+	// of a Run needs it, since the model call that follows continues from
+	// that Turn.
+	KeepLastTurn bool
+	// CurrentRun is the Run that is starting. Its Messages are not "the latest
+	// Run" when the default tail is chosen, so the Run before it stays as it
+	// was, and the new Run's Messages follow in the tail.
+	CurrentRun gotato.RunID
 	// Why says why the compaction runs, for its Events: on demand (the
-	// default), past the ceiling, or before the Session leaves memory.
+	// default), past the ceiling, on an overflow, or before the Session
+	// leaves memory.
 	Why gotato.CompactionWhy
 	// SegmentSettings are the limits and the time zone of the Segment.
 	SegmentSettings
@@ -203,6 +215,9 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		if opts.DropReasoning {
 			message = withoutReasoning(message)
 		}
+		// The usage a reply reported was for the request that Context no
+		// longer is, so it no longer counts toward the ceiling.
+		message.Usage = gotato.Usage{}
 		tail = append(tail, message)
 	}
 	active := s.ActiveToolSets()
@@ -258,31 +273,76 @@ func keptToolSets(active, used []string, tail []gotato.Message) []string {
 	return out
 }
 
-// CompactPolicy is a token budget: when the Session's history is estimated
-// above Ceiling at the start of a Run, it is compacted. A zero Ceiling
-// disables the policy. Floor, when above 0, is the most tokens the kept tail
-// holds; with none, the tail is the latest Run's Turns (CompactOptions).
-// Window is the Model's context window, 0 when unknown. DropReasoning is
-// CompactOptions.DropReasoning for every compaction the policy makes.
+// DefaultReserveTokens is the least room the default ceiling leaves in the
+// window, for a reply and a Recap.
+const DefaultReserveTokens = 16000
+
+// DefaultCeiling is the ceiling a model's window gives: the window less the
+// larger of a tenth of it and DefaultReserveTokens, 180K for a 200K window. It
+// is 0, no ceiling, when the window is unknown or too small to leave any.
+func DefaultCeiling(window int) int {
+	if window <= 0 {
+		return 0
+	}
+	return max(window-max(window/10, DefaultReserveTokens), 0)
+}
+
+// CompactPolicy says when a Session compacts by itself. Past Ceiling, estimated
+// in tokens, the Session is compacted before the model call that would send
+// more; a request the provider refuses as too long is compacted once and sent
+// again (AutoCompactor).
+//
+// Ceiling above 0 is the ceiling in force. At 0 it is DefaultCeiling(Window),
+// so a model whose window is known is compacted past it by default, and with no
+// window there is no ceiling. A negative Ceiling turns the ceiling off.
+// Window is the Model's context window, 0 when unknown. Floor, when above 0, is
+// the most tokens the kept tail holds; with none, the tail is the latest Run's
+// Turns (CompactOptions). DropReasoning is CompactOptions.DropReasoning for
+// every compaction the policy makes.
 type CompactPolicy struct {
-	Ceiling int
-	Floor   int
-	Window  int
-	Recap   RecapWriter
-	// Context is CompactOptions.Context for every compaction the policy makes.
-	Context       func(context.Context) (gotato.ModelRequest, error)
+	Ceiling       int
+	Floor         int
+	Window        int
+	Recap         RecapWriter
 	DropReasoning bool
 	Now           func() time.Time
 	SegmentSettings
 }
 
-// AutoCompactor is a gotato.RunPreparer that applies a CompactPolicy to one
+// EffectiveCeiling is the ceiling in force: Ceiling when set, else the one the
+// window gives, else 0 for none.
+func (p CompactPolicy) EffectiveCeiling() int {
+	switch {
+	case p.Ceiling > 0:
+		return p.Ceiling
+	case p.Ceiling < 0:
+		return 0
+	}
+	return DefaultCeiling(p.Window)
+}
+
+// AutoCompactor is a gotato.TurnPreparer that applies a CompactPolicy to one
 // Session. Install it with gotato.WithExtension next to WithTranscript(s).
+//
+// Before every model call it compacts the Session when its size is past the
+// ceiling (why: past_ceiling), and when the provider refused the request as too
+// long (why: overflow). A Turn compacts at most once, whatever the trigger. A
+// Turn that is still past the ceiling after it ends the Run with
+// ErrLimitExceeded; a Turn whose request is still refused ends it with
+// ErrContextOverflow.
 type AutoCompactor struct {
 	session *session.Record
 	policy  CompactPolicy
 	last    Result
 	runs    int
+	// turn is the Turn that has compacted, if any.
+	turn      turnKey
+	compacted bool
+}
+
+type turnKey struct {
+	run  gotato.RunID
+	turn gotato.TurnNumber
 }
 
 // AutoCompact creates an AutoCompactor.
@@ -290,48 +350,121 @@ func AutoCompact(s *session.Record, policy CompactPolicy) *AutoCompactor {
 	return &AutoCompactor{session: s, policy: policy}
 }
 
-// PrepareRun implements gotato.RunPreparer. A compaction helps a Run but is
+// PrepareTurn implements gotato.TurnPreparer. A compaction helps a Run but is
 // not a step it needs, so one that cannot be written is dropped (its Events
-// say so) and the Run goes on. A Record the compaction refuses, or a Run
-// stopped during the compaction, ends the Run.
-func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) error {
-	if a.session == nil || !a.due(a.session.Messages()) {
-		return nil
+// say so) and the Run goes on, unless the Context is still past the ceiling.
+// A Record the compaction refuses, or a Run stopped during the compaction,
+// ends the Run.
+func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingTurn) (gotato.TurnPrepared, error) {
+	if a.session == nil {
+		return gotato.TurnPrepared{}, nil
 	}
-	result, err := Compact(ctx, a.session, CompactOptions{
-		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.policy.Ceiling,
-		Recap: a.policy.Recap, Context: a.policy.Context, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
-		Why: gotato.CompactionPastCeiling, SegmentSettings: a.policy.SegmentSettings,
-	})
+	if key := (turnKey{pending.RunID, pending.Turn}); key != a.turn {
+		a.turn, a.compacted = key, false
+	}
+	if pending.Overflow {
+		if a.compacted {
+			// The Turn compacted already: the refusal stands.
+			return gotato.TurnPrepared{}, nil
+		}
+		prepared, _, err := a.compact(ctx, pending, gotato.CompactionOverflow)
+		return prepared, err
+	}
+	ceiling := a.Ceiling()
+	overhead := requestOverhead(pending.Request)
+	if ceiling <= 0 || a.size(a.session.Messages(), overhead) <= ceiling {
+		return gotato.TurnPrepared{}, nil
+	}
+	prepared, dropped, err := a.compact(ctx, pending, gotato.CompactionPastCeiling)
+	if err != nil {
+		return prepared, err
+	}
+	// After a compaction the old usage no longer counts: the size is
+	// estimated afresh from what the Context is now.
+	if fresh := EstimateTokens(a.session.Messages()) + overhead; fresh > ceiling {
+		why := "the Context is still past the ceiling after its compaction"
+		switch {
+		case dropped:
+			why = "the Context is past the ceiling and its compaction failed"
+		case !prepared.Changed:
+			why = "the Context is past the ceiling and there is nothing to compact"
+		}
+		return prepared, gotato.ErrorOf(gotato.ErrLimitExceeded, fmt.Sprintf("%s (about %d tokens, ceiling %d)", why, fresh, ceiling))
+	}
+	return prepared, nil
+}
+
+// compact closes a Segment before the model call, once per Turn. dropped says
+// the compaction was attempted and could not be written.
+func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn, why gotato.CompactionWhy) (prepared gotato.TurnPrepared, dropped bool, err error) {
+	// What the Run has staged is written first, so the compaction's Events
+	// follow it.
+	if pending.Flush != nil {
+		if err := pending.Flush(ctx); err != nil {
+			return prepared, false, err
+		}
+	}
+	a.compacted = true
+	options := CompactOptions{
+		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.Ceiling(),
+		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
+		Why: why, SegmentSettings: a.policy.SegmentSettings, KeepLastTurn: true,
+		// A Recap read from the request the Run is about to send is read from
+		// the provider's cache.
+		Context: func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil },
+	}
+	if pending.Turn == 1 {
+		options.CurrentRun = pending.RunID
+	}
+	result, err := Compact(ctx, a.session, options)
 	if err != nil {
 		if errors.Is(err, ErrOldSummary) || ctx.Err() != nil {
-			return err
+			return prepared, false, err
 		}
-		return nil
+		return prepared, true, nil
 	}
 	if result.Replaced {
 		a.last = result
 		a.runs++
 	}
-	return nil
+	prepared.Changed = result.Replaced
+	return prepared, false, nil
 }
 
 // Last returns the most recent automatic compaction and how many happened.
 func (a *AutoCompactor) Last() (Result, int) { return a.last, a.runs }
 
-// Pending reports whether the next Run compacts the Session before its first
-// Turn, because the Session's estimated tokens are past the ceiling.
+// Pending reports whether the next Run compacts the Session before it sends
+// its first request, because the Session's size is past the ceiling.
 func (a *AutoCompactor) Pending() bool {
-	return a.session != nil && a.due(a.session.Messages())
+	ceiling := a.Ceiling()
+	return a.session != nil && ceiling > 0 && a.size(a.session.Messages(), 0) > ceiling
 }
 
-// Ceiling returns the estimated-token budget past which a Run compacts first;
-// 0 means automatic compaction is off.
-func (a *AutoCompactor) Ceiling() int { return max(a.policy.Ceiling, 0) }
+// Ceiling returns the estimated-token size past which a Session compacts first
+// (CompactPolicy.EffectiveCeiling); 0 means this trigger is off.
+func (a *AutoCompactor) Ceiling() int { return a.policy.EffectiveCeiling() }
 
-// due is the one test PrepareRun and Pending share.
-func (a *AutoCompactor) due(messages []gotato.Message) bool {
-	return a.policy.Ceiling > 0 && EstimateTokens(messages) > a.policy.Ceiling
+// size is the Context's size in tokens: the input and output tokens the last
+// model call reported, plus an estimate of what came after it. With no reported
+// usage it is an estimate of everything, and overhead, the instruction and the
+// tools, which a reported input count already holds. A compaction clears the
+// usage of the Messages it keeps, so after it the size is estimated afresh.
+func (a *AutoCompactor) size(messages []gotato.Message, overhead int) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		usage := messages[i].Usage
+		if messages[i].Role == gotato.RoleAssistant && usage.InputTokens+usage.OutputTokens > 0 {
+			return int(usage.InputTokens+usage.OutputTokens) + EstimateTokens(messages[i+1:])
+		}
+	}
+	return EstimateTokens(messages) + overhead
+}
+
+// requestOverhead estimates the tokens of the request that are not Messages:
+// the instruction and the tool definitions.
+func requestOverhead(request gotato.ModelRequest) int {
+	tools, _ := json.Marshal(request.Tools)
+	return (len(request.SystemInstructions) + len(tools) + 3) / 4
 }
 
 // tailStart returns the index in stretch where the kept tail starts; the
@@ -343,21 +476,37 @@ func (a *AutoCompactor) due(messages []gotato.Message) bool {
 // the window, or of the ceiling when no window is known. Every cut moves
 // forward to a Turn boundary.
 func tailStart(stretch []gotato.Message, opts CompactOptions) int {
+	cut := 0
 	switch {
 	case opts.Keep > 0:
-		return turnCut(stretch, len(stretch)-opts.Keep)
+		cut = turnCut(stretch, len(stretch)-opts.Keep)
 	case opts.Floor > 0:
-		return turnCut(stretch, withinBudget(stretch, opts.Floor, 0))
+		cut = turnCut(stretch, withinBudget(stretch, opts.Floor, 0))
+	default:
+		budget := orDefault(opts.TailTokens, DefaultTailTokens)
+		base := opts.Window
+		if base <= 0 {
+			base = opts.Ceiling
+		}
+		if base > 0 {
+			budget = min(budget, base/4)
+		}
+		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, opts.CurrentRun)))
 	}
-	budget := orDefault(opts.TailTokens, DefaultTailTokens)
-	base := opts.Window
-	if base <= 0 {
-		base = opts.Ceiling
+	if opts.KeepLastTurn {
+		cut = min(cut, lastTurnStart(stretch))
 	}
-	if base > 0 {
-		budget = min(budget, base/4)
+	return cut
+}
+
+// lastTurnStart returns the index where the latest Turn begins: the last
+// Message that is not a tool result, so a tool call keeps its results.
+func lastTurnStart(messages []gotato.Message) int {
+	i := len(messages) - 1
+	for i > 0 && messages[i].Role == gotato.RoleToolResult {
+		i--
 	}
-	return turnCut(stretch, withinBudget(stretch, budget, runStart(stretch)))
+	return max(i, 0)
 }
 
 // withinBudget returns the lowest index, not below floor, from which the
@@ -376,13 +525,14 @@ func withinBudget(messages []gotato.Message, budget, floor int) int {
 	return start
 }
 
-// runStart returns the index of the first Message of the latest Run. Without
-// Run IDs it is the last user Message.
-func runStart(messages []gotato.Message) int {
+// runStart returns the index of the first Message of the latest Run, not
+// counting the Run skip, the one that is starting. Without Run IDs it is the
+// last user Message.
+func runStart(messages []gotato.Message, skip gotato.RunID) int {
 	var latest gotato.RunID
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].RunID != "" {
-			latest = messages[i].RunID
+		if id := messages[i].RunID; id != "" && id != skip {
+			latest = id
 			break
 		}
 	}

@@ -78,8 +78,11 @@ type Agent struct {
 	ContextBuilder gotato.ContextBuilder
 	Extensions     []any
 	Limits         *gotato.CoreLimits
-	// Compact is the default auto-compaction budget; a Session may override
-	// the ceiling through MetaCompactCeiling. Zero disables.
+	// Compact says when the Agent's Sessions compact by themselves: past the
+	// ceiling, which is the Model's window less a reserve unless Ceiling sets
+	// one (a negative Ceiling turns it off), and once when the provider refuses
+	// a request as too long. A Session may override the ceiling through
+	// MetaCompactCeiling.
 	Compact modelctx.CompactPolicy
 	// Options are appended verbatim for anything the fields above do not
 	// cover.
@@ -1040,17 +1043,10 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if builder == nil {
 		builder = modelctx.FullHistory()
 	}
-	policy := compactPolicyFor(spec, s)
-	if policy.Recap != nil && policy.Context == nil {
-		policy.Context = r.recapContext(spec, s)
-	}
-	var auto *modelctx.AutoCompactor
-	var extensions []any
-	if policy.Ceiling > 0 {
-		auto = modelctx.AutoCompact(s, policy)
-		extensions = append(extensions, auto)
-	}
-	extensions = append(extensions, spec.Extensions...)
+	// Every Run has its Session compacted when the provider refuses a request
+	// as too long, and past the ceiling when there is one.
+	auto := modelctx.AutoCompact(s, compactPolicyFor(spec, s))
+	extensions := append([]any{auto}, spec.Extensions...)
 
 	options := []gotato.Option{
 		gotato.WithModel(spec.Model),
@@ -1295,9 +1291,6 @@ func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.Compact
 		opts.Recap = policy.Recap
 	}
 	opts.Recap = withAgentModel(opts.Recap, spec.Model)
-	if opts.Context == nil {
-		opts.Context = policy.Context
-	}
 	if opts.Keep <= 0 && opts.Floor <= 0 {
 		opts.Floor = policy.Floor
 	}
@@ -1305,7 +1298,7 @@ func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.Compact
 		opts.Window = policy.Window
 	}
 	if opts.Ceiling <= 0 {
-		opts.Ceiling = policy.Ceiling
+		opts.Ceiling = policy.EffectiveCeiling()
 	}
 	if opts.Location == nil {
 		opts.Location = policy.Location

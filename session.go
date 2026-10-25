@@ -789,6 +789,19 @@ func (a *Session) measureTranscript() error {
 	return nil
 }
 
+// syncToolSets switches off the ToolSets a rewritten Transcript no longer lists
+// as active, so the Session offers the ones a load would. A ToolSet the Agent
+// installed active stays on.
+func (a *Session) syncToolSets() error {
+	source, ok := a.transcript.(ActiveToolSetSource)
+	if !ok {
+		return nil
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	return a.registry.narrow(source.ActiveToolSets())
+}
+
 func addUsage(total, current Usage) Usage {
 	total.InputTokens += current.InputTokens
 	total.OutputTokens += current.OutputTokens
@@ -1003,7 +1016,7 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 // Turn runs: the Tool sources are read again, the ContextBuilder builds the
 // Context, the ContextTransformer and MessageConverter Extensions shape it,
 // and the request carries the visible Tools and the model options. It runs no
-// RunPreparer and emits no Event. It fails with ErrBusy while a Run is in
+// TurnPreparer and emits no Event. It fails with ErrBusy while a Run is in
 // flight.
 //
 // The snapshot it builds from has no RunID and is Turn 1, as at the start of

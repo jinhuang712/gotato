@@ -257,12 +257,13 @@ func TestContextInspectBuildCompact(t *testing.T) {
 func TestAutoCompactViaCLI(t *testing.T) {
 	h := newHarness(t)
 	var created map[string]any
-	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "60"), &created)
+	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "20000"), &created)
 	id := created["id"].(string)
 	var outcome runOutcome
 	compacted := false
 	for i := 0; i < 8 && !compacted; i++ {
-		h.mustJSON(h.ok("run", "--session", id, "--json", strings.Repeat("word ", 20)), &outcome)
+		// A prompt past 2K tokens is cut in a Segment, so a compaction shrinks it.
+		h.mustJSON(h.ok("run", "--session", id, "--json", strings.Repeat("word ", 4000)), &outcome)
 		compacted = outcome.Compacted
 	}
 	if !compacted {

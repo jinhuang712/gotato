@@ -40,7 +40,7 @@ func TestCompactRefusesARecordWithOneOldSummary(t *testing.T) {
 func TestAutoCompactorSurfacesTheRefusal(t *testing.T) {
 	record := oldSummaryRecord(t)
 	auto := modelctx.AutoCompact(record, modelctx.CompactPolicy{Ceiling: 1})
-	if err := auto.PrepareRun(context.Background(), nil); !errors.Is(err, modelctx.ErrOldSummary) {
-		t.Fatalf("PrepareRun error = %v, want ErrOldSummary", err)
+	if _, err := auto.PrepareTurn(context.Background(), gotato.PendingTurn{RunID: "r", Turn: 1}); !errors.Is(err, modelctx.ErrOldSummary) {
+		t.Fatalf("PrepareTurn error = %v, want ErrOldSummary", err)
 	}
 }

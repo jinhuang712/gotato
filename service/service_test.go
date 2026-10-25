@@ -268,12 +268,13 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 20000}})
 	ctx := context.Background()
 	var last service.RunResult
-	for range 6 {
+	for i := 0; i < 8 && !last.Compacted; i++ {
 		var err error
-		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 20)})
+		// A prompt past 2K tokens is cut in a Segment, so a compaction shrinks it.
+		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 4000)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1012,7 +1013,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 60}})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 20000}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {
@@ -1022,11 +1023,11 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.CompactionPending || report.CompactCeiling != 60 {
+	if report.CompactionPending || report.CompactCeiling != 20000 {
 		t.Fatalf("a short Session is under the ceiling: %+v", report)
 	}
-	for range 4 {
-		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: strings.Repeat("long prompt ", 20)}); err != nil {
+	for range 2 {
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: strings.Repeat("word ", 4000)}); err != nil {
 			t.Fatal(err)
 		}
 	}

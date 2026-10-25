@@ -87,14 +87,15 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		}
 		third, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u3",
 			Update: map[string]string{service.MetaCompactCeiling: "1"}})
-		if err != nil || !third.Compacted {
+		// A ceiling of one token can never be met, so the Run ends after its
+		// compaction; the compaction is what this checks.
+		if !gotato.IsCode(err, gotato.ErrLimitExceeded) || !third.Compacted {
 			t.Fatalf("round=%v: the third Run did not compact first: %+v, %v", round, third, err)
 		}
-		// The kept tail is u2 and its reply; the third Run's reply comes
-		// after the compaction and keeps its reasoning.
-		want = 2
+		// The kept tail is u2 and its reply.
+		want = 1
 		if round {
-			want = 1
+			want = 0
 		}
 		if got := storedReasoning(t, store, first.SessionID); got != want {
 			t.Errorf("round=%v: AutoCompact kept %d reasoning Parts, want %d", round, got, want)
