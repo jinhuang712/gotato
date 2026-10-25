@@ -11,10 +11,11 @@ import (
 // body says the request was longer than the model's context window. They are
 // the only place the gateway reads that out of prose: providers publish no
 // stable code for it on every wire API. They are matched against an error's
-// message, code and type. The list is short on purpose and has not been
-// checked against live providers yet (see TODO.md); a provider that words it
-// differently is reported as an ordinary failure, unless the team adds its
-// wording in Config.OverflowPhrases.
+// message, code and type. The list is short on purpose. test/fakegateway plays
+// each provider's wording, which is the providers' documentation and wording
+// reports, not a live provider; a provider that words it differently is
+// reported as an ordinary failure, unless the team adds its wording in
+// Config.OverflowPhrases.
 var overflowPhrases = []string{
 	"prompt is too long",         // Anthropic Messages
 	"exceed context limit",       // Anthropic Messages, input plus max_tokens
