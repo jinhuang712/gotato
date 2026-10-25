@@ -607,6 +607,20 @@ func TestServeHonorsTimeout(t *testing.T) {
 	}
 }
 
+// TestServeTakesTheWarmSessionFlags verifies the flags of the warm Session
+// parse: a TTL (a negative one keeps no Session in memory) and the switch that
+// turns the idle compaction off. A bad duration is a usage error.
+func TestServeTakesTheWarmSessionFlags(t *testing.T) {
+	h := newHarness(t)
+	code, _, errOut := h.run("serve", "--addr", "127.0.0.1:0", "--timeout", "30ms", "--drain-timeout", "1ms", "--warm-ttl", "-1s", "--no-idle-compaction", "--jsonl")
+	if code != ExitOK {
+		t.Fatalf("serve exit = %d: %s", code, errOut)
+	}
+	if code, _, _ := h.run("serve", "--warm-ttl", "soon"); code != ExitUsage {
+		t.Fatalf("serve --warm-ttl soon exit = %d, want %d", code, ExitUsage)
+	}
+}
+
 // TestBinaryScenario builds the real binary and drives it through a shell-like
 // sequence, so the process boundary (stdout/stderr split, exit code) is
 // exercised too.

@@ -9,6 +9,12 @@
 // Continuity lives in the Store, so any process holding the Store can serve
 // any Session.
 //
+// After a Run the Session stays in memory as a warm copy (Agent.Warm,
+// WarmPolicy): a cache, never a lock. It holds no Claim while it idles, the
+// next Run uses it only while the Store's head is still the copy's, and it
+// is compacted by its own timer before its prompt cache expires, then leaves
+// at its TTL.
+//
 //	runner, _ := service.New(service.Config{
 //	    Store:  store,
 //	    Agents: []service.Agent{{Name: "default", Model: model, Tools: tools}},
