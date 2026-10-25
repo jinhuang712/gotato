@@ -17,16 +17,24 @@
 //	POST   /v1/sessions/{id}/compact        {keep?}                        → compaction result
 //	POST   /v1/sessions/{id}/runs           {prompt | continue}            → run result
 //	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
-//	POST   /v1/sessions/{id}/cancel         cancel the run in flight
+//	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the run in flight, or 200 the run it started
+//	POST   /v1/sessions/{id}/cancel         stop the run in flight (202)
 //	POST   /v1/runs                         {prompt, agent?, metadata?}    → create session + run
 //	POST   /v1/runs/stream                  same, streaming
 //	POST   /v1/runs/{run_id}/cancel
+//
+// A message (steer, follow_up or interrupt) and a cancel reach the Run in
+// flight on this instance. For a Run another live instance writes, they answer
+// 409 not_writer, marked not run, with the writer's advertised address in the
+// Gotato-Writer header and the body's "writer". WithForwarding sends such a
+// request to that address instead, once.
 //
 // Authentication, rate limiting, and logging belong to the embedding
 // application: wrap the Handler with your own middleware.
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,6 +43,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +74,9 @@ type Handler struct {
 	runner    *service.Runner
 	mux       *http.ServeMux
 	keepAlive time.Duration
+	// forward sends a message that reached an instance that is not the Run's
+	// writer to the writer's address. Nil leaves it at not_writer.
+	forward *http.Client
 }
 
 // Option configures New.
@@ -77,6 +89,22 @@ func WithKeepAlive(d time.Duration) Option {
 		if d > 0 {
 			h.keepAlive = d
 		}
+	}
+}
+
+// WithForwarding turns on forwarding. A message or a cancel that reaches this
+// instance while another live instance writes the Run is sent, as it came, to
+// the address that instance advertises, with the header Gotato-Forwarded, and
+// that answer is returned. A request that carries the header is never forwarded
+// again: it is answered not_writer. A nil client uses one with a 30 second
+// timeout. The forwarded request carries the caller's headers, so your own
+// authentication applies at the writer. Gotato connects to nothing else.
+func WithForwarding(client *http.Client) Option {
+	return func(h *Handler) {
+		if client == nil {
+			client = &http.Client{Timeout: 30 * time.Second}
+		}
+		h.forward = client
 	}
 }
 
@@ -104,6 +132,7 @@ func New(runner *service.Runner, options ...Option) *Handler {
 	h.mux.HandleFunc("POST /v1/sessions/{id}/compact", h.scoped(h.compact))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs", h.scoped(h.run))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.scoped(h.runStream))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/messages", h.scoped(h.message))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.scoped(h.cancelSession))
 	h.mux.HandleFunc("POST /v1/runs", h.run)
 	h.mux.HandleFunc("POST /v1/runs/stream", h.runStream)
@@ -127,6 +156,16 @@ const SessionIDHeader = "session-id"
 // (gotato.NotRun). Its value is "true", and the body says the same in
 // "not_run".
 const NotRunHeader = "Gotato-Not-Run"
+
+// WriterHeader carries, on a not_writer answer, the address the writer of the
+// Run advertises. The body says the same in "writer". It is absent when the
+// writer advertises none.
+const WriterHeader = "Gotato-Writer"
+
+// ForwardedHeader marks a request that another instance forwarded here (see
+// WithForwarding). Its value is "true". Such a request is never forwarded
+// again.
+const ForwardedHeader = "Gotato-Forwarded"
 
 // scoped wraps a handler of a route with a {id}: the session-id header, when
 // the request carries one, must name that Session.
@@ -190,6 +229,15 @@ type errorResponse struct {
 	// RecordEpoch is the Record's current epoch, on a refusal to resume a
 	// stream, for the client to start over with.
 	RecordEpoch string `json:"record_epoch,omitempty"`
+	// Writer is, on not_writer, the address the Run's writer advertises.
+	Writer string `json:"writer,omitempty"`
+}
+
+// messageRequest is the body of POST /v1/sessions/{id}/messages.
+type messageRequest struct {
+	// Kind is steer (the default), follow_up or interrupt.
+	Kind string `json:"kind,omitempty"`
+	Text string `json:"text"`
 }
 
 // ---- handlers ---------------------------------------------------------------
@@ -552,8 +600,106 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// message delivers a message to the Run in flight on this instance (202), or,
+// when no Run is going, starts a new Run with it and answers when that Run
+// settles (200, as the run routes do). A Run another live instance writes is
+// answered 409 not_writer, or forwarded when forwarding is on.
+func (h *Handler) message(w http.ResponseWriter, r *http.Request) {
+	body, err := readBody(w, r)
+	if err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	var in messageRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		writeDecodeError(w, fmt.Errorf("invalid JSON body: %w", err))
+		return
+	}
+	result, err := h.runner.Send(r.Context(), service.MessageRequest{
+		SessionID: r.PathValue("id"),
+		Kind:      service.MessageKind(in.Kind),
+		Text:      in.Text,
+	})
+	switch {
+	case err == nil && result.Queued:
+		writeJSON(w, http.StatusAccepted, result)
+	case err == nil:
+		writeJSON(w, http.StatusOK, result)
+	case result.Run == nil || result.Run.SessionID == "":
+		if h.forwarded(w, r, err, body) {
+			return
+		}
+		writeFailure(w, err)
+	case errors.Is(err, service.ErrNotPersisted):
+		writeJSON(w, notSavedStatus(err), notSaved(err))
+	default:
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// readBody reads a request body, at most maxBodyBytes of it.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+	if r.ContentLength > maxBodyBytes {
+		return nil, errBodyTooLarge
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, errBodyTooLarge
+		}
+		return nil, err
+	}
+	return body, nil
+}
+
+// forwarded sends the request to the writer of the Run when err says another
+// instance writes it and forwarding is on, and relays the answer. It reports
+// whether it answered. A request that was forwarded already, a writer that
+// advertises no address, and an address that is not an http(s) URL are left to
+// the caller, which answers not_writer.
+func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, body []byte) bool {
+	address, ok := service.WriterOf(err)
+	if !ok || h.forward == nil || address == "" || r.Header.Get(ForwardedHeader) != "" {
+		return false
+	}
+	base, parseErr := url.Parse(address)
+	if parseErr != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
+		return false
+	}
+	target := strings.TrimRight(address, "/") + r.URL.RequestURI()
+	request, reqErr := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
+	if reqErr != nil {
+		return false
+	}
+	request.Header = r.Header.Clone()
+	request.Header.Del("Content-Length")
+	request.Header.Set(ForwardedHeader, "true")
+	response, doErr := h.forward.Do(request)
+	if doErr != nil {
+		// The request may have reached the writer, so it is not marked not run.
+		writeError(w, http.StatusBadGateway, fmt.Errorf("forwarding to the writer: %w", doErr))
+		return true
+	}
+	defer func() { _ = response.Body.Close() }()
+	for key, values := range response.Header {
+		w.Header()[key] = values
+	}
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, response.Body)
+	return true
+}
+
 func (h *Handler) cancelSession(w http.ResponseWriter, r *http.Request) {
 	if err := h.runner.CancelSession(r.Context(), r.PathValue("id")); err != nil {
+		if h.forwarded(w, r, err, nil) {
+			return
+		}
 		writeFailure(w, err)
 		return
 	}
@@ -661,6 +807,7 @@ func failureOf(err error) errorResponse {
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
 		out.RecordEpoch = runtimeErr.Details["record_epoch"]
+		out.Writer = runtimeErr.Details["writer"]
 	}
 	if status >= http.StatusInternalServerError && !out.NotRun {
 		// Keep store and filesystem internals in the server log; the client
@@ -702,6 +849,9 @@ func writeFailure(w http.ResponseWriter, err error) {
 	// A Session busy on another instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
+		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == gotato.ErrNotWriter {
+			w.Header().Set(WriterHeader, writer)
+		}
 		if ms, convErr := strconv.ParseInt(runtimeErr.Details["retry_after_ms"], 10, 64); convErr == nil {
 			w.Header().Set("Retry-After", strconv.FormatInt((ms+999)/1000, 10))
 		}
