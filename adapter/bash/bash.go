@@ -68,12 +68,21 @@ type Option func(*config)
 
 type config struct {
 	maxOutput int
+	maxLine   int
 }
 
 // WithMaxOutput bounds stdout, and stderr, to n bytes. When stdout goes over,
 // the pipeline stops and Result.Truncated is set. n <= 0 means
 // DefaultMaxOutput.
 func WithMaxOutput(n int) Option { return func(c *config) { c.maxOutput = n } }
+
+// WithMaxLine cuts each line of the final stdout to n bytes (at a character
+// boundary) and ends the line with a marker such as [line cut: 1.0 MiB], which
+// gives the size of the whole line, so a long line is never cut without a
+// sign. Only the stdout Run returns is cut: the stages of a pipeline read
+// whole lines (up to MaxLineBytes), so what grep or jq sees does not change.
+// n == 0 means DefaultMaxLine, and n < 0 turns the cut off.
+func WithMaxLine(n int) Option { return func(c *config) { c.maxLine = n } }
 
 // Run parses and checks command, and runs it with fsys as the only file system
 // it can see. The root of fsys is "/" and the working directory is "/".
@@ -83,12 +92,15 @@ func WithMaxOutput(n int) Option { return func(c *config) { c.maxOutput = n } }
 // was refused (Result.Refused). It is ctx's error when ctx ended the run; the
 // Result then holds the output so far.
 func Run(ctx context.Context, command string, fsys fs.FS, opts ...Option) (Result, error) {
-	cfg := config{maxOutput: DefaultMaxOutput}
+	cfg := config{maxOutput: DefaultMaxOutput, maxLine: DefaultMaxLine}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	if cfg.maxOutput <= 0 {
 		cfg.maxOutput = DefaultMaxOutput
+	}
+	if cfg.maxLine == 0 {
+		cfg.maxLine = DefaultMaxLine
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -100,10 +112,11 @@ func Run(ctx context.Context, command string, fsys fs.FS, opts ...Option) (Resul
 
 	var stdout, stderr limitBuffer
 	stdout.limit, stderr.limit = cfg.maxOutput, cfg.maxOutput
+	cutter := newLineCutter(&stdout, max(cfg.maxLine, 0))
 	runner, err := interp.New(
 		interp.Env(expand.ListEnviron(fixedEnv()...)),
 		withDir("/"),
-		interp.StdIO(nil, &stdout, &stderr),
+		interp.StdIO(nil, cutter, &stderr),
 		interp.CallHandler(callHandler),
 		interp.ExecHandlers(execMiddleware(fsys)),
 		interp.OpenHandler(openHandler(fsys)),
@@ -115,6 +128,7 @@ func Run(ctx context.Context, command string, fsys fs.FS, opts ...Option) (Resul
 		return Result{}, fmt.Errorf("bash: %w", err)
 	}
 	runErr := runner.Run(ctx, file)
+	_ = cutter.Close()
 
 	result := Result{Stdout: stdout.String(), Stderr: stderr.String(), Truncated: stdout.over}
 	if ctxErr := ctx.Err(); ctxErr != nil {
