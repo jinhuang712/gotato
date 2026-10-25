@@ -231,6 +231,12 @@ func (responsesWire) stream(s *sseWriter, p *parsed, pl *plan, q *quirks) {
 		id := "rs_" + pl.id
 		item := map[string]any{"id": id, "type": "reasoning", "summary": []any{}}
 		ev("response.output_item.added", map[string]any{"output_index": index, "item": item})
+		ev("response.reasoning_summary_part.added", map[string]any{"item_id": id, "output_index": index, "summary_index": 0, "part": map[string]any{"type": "summary_text", "text": ""}})
+		for _, c := range chunks(pl.reasoning, 12) {
+			ev("response.reasoning_summary_text.delta", map[string]any{"item_id": id, "output_index": index, "summary_index": 0, "delta": c})
+		}
+		ev("response.reasoning_summary_text.done", map[string]any{"item_id": id, "output_index": index, "summary_index": 0, "text": pl.reasoning})
+		ev("response.reasoning_summary_part.done", map[string]any{"item_id": id, "output_index": index, "summary_index": 0, "part": map[string]any{"type": "summary_text", "text": pl.reasoning}})
 		done := map[string]any{"id": id, "type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": pl.reasoning}}}
 		if p.store == nil || *p.store || slices.Contains(p.include, "reasoning.encrypted_content") {
 			done["encrypted_content"] = encrypted(id)

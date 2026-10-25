@@ -375,6 +375,8 @@ Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md
 
 ### Providers
 
+- **A Chat Completions stream that carries `{"error": {...}}` in place of a chunk fails with that error.** Before, the decoder ignored the object, saw the stream end with no finish, took it for a cut stream, and sent the request again. Now the Run fails with the provider's message, once, and an error that names a context overflow answers `ContextOverflow()` as the Responses API's `error` event does. Found by playing it on the fake gateway (`test/fakegateway`).
+
 - **A stream cut after some output is sent again, as one cut before any output is** ([FEATURES.md → G-F31](FEATURES.md#g-f31--recovering-a-cut-stream-)). The same request goes out again within `max_retries`, with a `model_retried` Event; the text received is kept as a Cut-off reply that no model sees, and the new reply is a reply of its own. A stream reader that sees `model_retried` discards what it received of that reply. A Run fails with `model_failure` only when the attempts run out.
 
   | Before | After |

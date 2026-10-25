@@ -654,7 +654,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if event.Response != nil && event.Response.Error != nil {
 			code = event.Response.Error.Code
 		}
-		s.finishWithError(s.overflow.responsesStreamError("Responses response failed", message, code))
+		s.finishWithError(s.overflow.streamError("Responses response failed", message, code))
 	case "error":
 		message := event.Message
 		if message == "" {
@@ -663,14 +663,14 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses stream error"
 		}
-		s.finishWithError(s.overflow.responsesStreamError("Responses stream error", message, event.Code))
+		s.finishWithError(s.overflow.streamError("Responses stream error", message, event.Code))
 	}
 }
 
-// responsesStreamError is the error of a failed Responses stream. One that
+// streamError is the error of a stream that failed in its middle. One that
 // names a context overflow is an *Error with Overflow set.
-func (m overflowMatcher) responsesStreamError(what, message, code string) error {
-	if m.mentions(message, code) {
+func (m overflowMatcher) streamError(what, message, code string, more ...string) error {
+	if m.mentions(append([]string{message, code}, more...)...) {
 		return &Error{Message: what + ": " + message, Overflow: true}
 	}
 	return fmt.Errorf("gateway: %s: %s", what, message)

@@ -360,6 +360,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 		nameMap:  names,
 		byIndex:  make(map[int]*callBuffer),
 		restart:  restarter{client: c, body: body, open: open},
+		overflow: c.overflow,
 	}, nil
 }
 
@@ -729,6 +730,7 @@ type stream struct {
 	model     string
 	finished  bool
 	restart   restarter
+	overflow  overflowMatcher
 	closeOnce sync.Once
 }
 
@@ -741,7 +743,14 @@ type callBuffer struct {
 type wireChunk struct {
 	// Model is the model that answered, which a gateway with fallbacks may
 	// have chosen over the requested one.
-	Model   string `json:"model"`
+	Model string `json:"model"`
+	// Error is an error the provider sent in the middle of the stream, as
+	// {"error": {...}} in place of a chunk.
+	Error *struct {
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"`
+		Type    string          `json:"type"`
+	} `json:"error"`
 	Choices []struct {
 		Delta struct {
 			Content          string `json:"content"`
@@ -803,6 +812,16 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		var chunk wireChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid SSE chunk: %w", err)
+		}
+		if chunk.Error != nil {
+			// An error is not an interruption: it is not sent again as a
+			// cut stream is, and an overflow is reported as one.
+			s.finished = true
+			message := chunk.Error.Message
+			if message == "" {
+				message = chunk.Error.Type
+			}
+			return gotato.ModelEvent{}, s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
 		}
 		s.processChunk(chunk)
 	}
