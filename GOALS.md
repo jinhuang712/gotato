@@ -287,5 +287,5 @@ Each evaluation needs a person or a real model, so it runs on demand.
 
 - **Serves:** [Stay inside the boundary](DESIGNS.md#6-stay-inside-the-boundary)
 - **Measure:** 100% of breaking changes have a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), and a contract version bump when they touch HTTP or gRPC
-- **Method:** review at each release, and an API-compatibility check in CI *(to build, ROADMAP Phase 9)*
+- **Method:** review at each release, and an API-compatibility check in CI *(to build, ROADMAP Phase 11)*
 - **Status:** ⬜ Not audited.
