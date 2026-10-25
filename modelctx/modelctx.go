@@ -17,8 +17,9 @@
 // (the user's words and each Run's final reply word for word, a line per tool
 // call, and a Recap if a RecapWriter is set) and keeps a tail as it was. The
 // Messages it closes stay in the store. Compaction can be invoked directly
-// (Compact) or triggered by a token budget at the start of a Run
-// (AutoCompact).
+// (Compact) or triggered by AutoCompact, a gotato.TurnPreparer, before any model
+// call: past a ceiling in tokens, which the model's window gives by default,
+// and once when the provider refuses a request as too long.
 //
 //	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
 //	live, _ := gotato.NewSession(

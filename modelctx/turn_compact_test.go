@@ -317,3 +317,17 @@ func TestPendingFollowsTheReportedUsage(t *testing.T) {
 		t.Fatal("a Session whose last call reported 10000 tokens is not pending")
 	}
 }
+
+// The instruction and the tools count toward the size before a model call, so
+// a request whose Messages fit the ceiling can still be past it.
+func TestPendingForCountsTheInstructionAndTheTools(t *testing.T) {
+	l := newLive(t, modelctx.CompactPolicy{Ceiling: 500})
+	l.must(testkit.NewFakeModel(testkit.Text("short")), "hi")
+	if l.auto.PendingFor(gotato.ModelRequest{}) {
+		t.Fatal("a short Session is pending")
+	}
+	request := gotato.ModelRequest{SystemInstructions: strings.Repeat("be careful ", 400)}
+	if !l.auto.PendingFor(request) {
+		t.Fatal("a long instruction does not make the Session pending")
+	}
+}

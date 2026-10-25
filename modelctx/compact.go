@@ -435,10 +435,17 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 func (a *AutoCompactor) Last() (Result, int) { return a.last, a.runs }
 
 // Pending reports whether the next Run compacts the Session before it sends
-// its first request, because the Session's size is past the ceiling.
+// its first request, because the Session's size is past the ceiling. It counts
+// the Messages alone; PendingFor counts the request as the Loop does.
 func (a *AutoCompactor) Pending() bool {
+	return a.PendingFor(gotato.ModelRequest{})
+}
+
+// PendingFor is Pending for the request the next model call would send, whose
+// instruction and tools count toward the size as they do before a model call.
+func (a *AutoCompactor) PendingFor(request gotato.ModelRequest) bool {
 	ceiling := a.Ceiling()
-	return a.session != nil && ceiling > 0 && a.size(a.session.Messages(), 0) > ceiling
+	return a.session != nil && ceiling > 0 && a.size(a.session.Messages(), requestOverhead(request)) > ceiling
 }
 
 // Ceiling returns the estimated-token size past which a Session compacts first

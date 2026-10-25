@@ -1133,7 +1133,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	report.SessionID = s.ID()
 	report.Compactions = s.Compactions()
 	if auto != nil {
-		report.CompactionPending = auto.Pending()
+		report.CompactionPending = auto.PendingFor(inspection.Request)
 		report.CompactCeiling = auto.Ceiling()
 	}
 	return report, nil

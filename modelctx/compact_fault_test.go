@@ -133,3 +133,75 @@ func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t 
 		t.Fatalf("the Model was called %d times for a Context past the ceiling", model.Calls())
 	}
 }
+
+// midRun is a Record with an earlier exchange, then a Run that calls a tool at
+// its first Turn and reports more tokens than the ceiling.
+func midRun(t *testing.T, auto func(*session.Record) *AutoCompactor, model *testkit.FakeModel) (gotato.RunResult, *session.Record, error) {
+	t.Helper()
+	record := conversation(t)
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
+		gotato.WithTool(testkit.NewFakeTool("demo.read", "ok")), gotato.WithExtension(auto(record)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(context.Background(), gotato.UserMessage("investigate"))
+	return result, record, err
+}
+
+func reportingCall() testkit.Script {
+	script := testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "demo.read", Arguments: []byte(`{}`)})
+	script[len(script)-1].Usage = gotato.Usage{InputTokens: 900, OutputTokens: 100}
+	return script
+}
+
+// Mid-Run, a compaction whose write fails is dropped and the Run goes on with
+// the Context it had, when the estimate of that Context fits the ceiling.
+func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
+	failWrites(t)
+	model := testkit.NewFakeModel(reportingCall(), testkit.Text("all done"))
+	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{Ceiling: 500}) }, model)
+	if err != nil || result.Status != gotato.RunCompleted || model.Calls() != 2 {
+		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.Calls())
+	}
+	if len(record.Segments()) != 0 {
+		t.Fatalf("the dropped compaction left %d Segments", len(record.Segments()))
+	}
+	failed := false
+	for _, event := range record.Events() {
+		_, ok := event.(gotato.CompactionFailed)
+		failed = failed || ok
+	}
+	if !failed {
+		t.Error("no compaction_failed Event says the compaction was dropped")
+	}
+}
+
+// stopper cancels the Run while its Recap is written.
+type stopper struct{ cancel context.CancelFunc }
+
+func (stopper) Name() string { return "stopper" }
+func (s stopper) WriteRecap(ctx context.Context, _ RecapRequest) (gotato.Message, error) {
+	s.cancel()
+	return gotato.Message{}, ctx.Err()
+}
+
+// A Run stopped during its mid-Run compaction ends cancelled, and no Segment
+// is left.
+func TestARunStoppedDuringItsMidRunCompactionEndsCancelled(t *testing.T) {
+	record := conversation(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
+		gotato.WithTool(testkit.NewFakeTool("demo.read", "ok")),
+		gotato.WithExtension(AutoCompact(record, CompactPolicy{Ceiling: 500, Recap: stopper{cancel}})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(ctx, gotato.UserMessage("investigate"))
+	if !gotato.IsCode(err, gotato.ErrCancelled) || model.Calls() != 1 || len(record.Segments()) != 0 {
+		t.Fatalf("result = %+v, err = %v, %d calls, %d Segments", result, err, model.Calls(), len(record.Segments()))
+	}
+}
