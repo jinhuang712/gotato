@@ -1619,6 +1619,31 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live. `Session.SubscribeFrom`, `Runner.SubscribeSession` |
 | An Instance's stream | the service's own telemetry | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents (`service.ForAgents`). `Runner.SubscribeInstance` |
 
+**Following one Session.** A chat bot, or any code that answers a person in a Session, follows that Session's stream and reads the reply from it. The shortest correct way is `Runner.SubscribeSession` from the Session's head as it is now, which reads the Record first and then the live Events, on any instance:
+
+```go
+record, _ := runner.Session(ctx, id)
+sub, _ := runner.SubscribeSession(ctx, id, record.Head()) // only Events after now
+defer sub.Close()
+var reply string
+for {
+    event, err := sub.Next(ctx)
+    if err != nil { return err } // io.EOF at a drain: reconnect with the last number seen
+    switch e := event.(type) {
+    case gotato.ReplyEnded:
+        if e.ToolCalls == 0 { reply = gotato.TextOf(e.Message) } // a reply that asks for no tool is an answer
+    case gotato.RunEnded:
+        return deliver(reply, e.Status) // the Run settled; reply is its last answer
+    }
+}
+```
+
+- **Read the head before the message or the Run is sent.** An Event written after the head is never missed, even if the Run starts before the subscription does. From number 0 the stream replays the whole history, which is for a client that shows a conversation, not for one that waits for the next answer.
+- **Why `ToolCalls == 0`.** A Turn that calls tools also ends with a `reply_ended`, whose text is the model's words on the way. The Turn that answers has no tool calls, and the Run ends after it. A FollowUp can add Turns before `run_ended`, so the last one wins. When the Run does not complete, `e.Status` says so and `reply` may be empty.
+- **A caller of `Run` does not need this.** `RunResult.FinalText` is the same text. A stream is for a caller that did not start the Run: it sent a message that was queued (`Queued`), or must not wait for a Run that holds its call ([G-F26](#g-f26--steering-a-run-)).
+- **A message left over by a Run that was settling is answered by a following Run**, which has its own `run_ended`; a bot that waits for one message reads on to the Run that committed it (`message_committed` names the message's ID).
+- **The other ways.** `Runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(e gotato.Event) bool { return e.Head().SessionID == gotato.SessionID(id) }))` follows every Run this instance serves for the Session, with deltas, and has no replay and no view of a Run on another instance; `service.ForAgents("name")` keeps the Sessions of some Agents in the same way. A filter runs on the publisher's goroutine, so it must be fast. Over HTTP the same stream is `GET /v1/sessions/{id}/stream`.
+
 - Each subscriber has one goroutine that forwards its Events in order, so a slow subscriber slows only itself.
 - A subscriber that falls too far behind is no longer buffered in memory. It catches up from the Record by number and then rejoins the live Events, so it never misses a stored Event; only deltas can be skipped.
 - An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in an `events_skipped` Instance Event; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
