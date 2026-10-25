@@ -261,6 +261,7 @@ message Event {
     EventsSkipped events_skipped = 51;
     UnknownEvent unknown = 52;
     SegmentClosed segment_closed = 53;
+    ToolResultSpilled tool_result_spilled = 54;
   }
 }
 
@@ -473,6 +474,15 @@ message ToolResultCommitted {
   bytes message_json = 1;
   string call_id = 2;
   string status = 3;
+}
+
+// ToolResultSpilled: see the Event type of the same name in the Go API. The
+// body is empty on a stream: its size is in bytes.
+message ToolResultSpilled {
+  string call_id = 1;
+  string tool_id = 2;
+  int64 bytes = 3;
+  string body = 4;
 }
 
 // ToolSetActivated: see the Event type of the same name in the Go API.

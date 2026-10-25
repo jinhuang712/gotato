@@ -250,6 +250,13 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			CallId:      string(e.CallID),
 			Status:      string(e.Status),
 		}}
+	case gotato.ToolResultSpilled:
+		wire.Event = &gotatov2.Event_ToolResultSpilled{ToolResultSpilled: &gotatov2.ToolResultSpilled{
+			CallId: string(e.CallID),
+			ToolId: e.ToolID,
+			Bytes:  int64(e.Bytes),
+			Body:   e.Body,
+		}}
 	case gotato.ToolSetActivated:
 		wire.Event = &gotatov2.Event_ToolsetActivated{ToolsetActivated: &gotatov2.ToolSetActivated{
 			Toolset: e.ToolSet,
