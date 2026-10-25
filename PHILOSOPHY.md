@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-17 -->
+<!-- what-we-build: approved 2026-10-26 -->
 # Gotato — Philosophy
 
 Agents are moving off developers' machines and into the systems they serve. The work they do there is not new: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. What is new is how little it takes. A loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.
