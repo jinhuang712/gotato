@@ -30,6 +30,14 @@ var tagNames = [...]string{TagNotice, TagSegment, TagToolCalls, TagRecap}
 // "</NOTICE" are escaped, "<recapture>" is not. Text without such a "<" is
 // returned as it is, and escaping twice changes nothing more.
 func EscapeTags(s string) string {
+	return escapeTags(s, "&lt;")
+}
+
+// jsonLessThan is the JSON escape for "<": backslash, u, 0, 0, 3, c.
+const jsonLessThan = "\x5cu003c"
+
+// escapeTags is EscapeTags with the replacement for "<" given.
+func escapeTags(s, lt string) string {
 	if !strings.Contains(s, "<") {
 		return s
 	}
@@ -40,7 +48,7 @@ func EscapeTags(s string) string {
 			continue
 		}
 		b.WriteString(s[last:i])
-		b.WriteString("&lt;")
+		b.WriteString(lt)
 		last = i + 1
 	}
 	if last == 0 {

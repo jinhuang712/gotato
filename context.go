@@ -330,7 +330,8 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 // the Model sees what it saw before that reply started.
 //
 // Text that imitates one of Gotato's four tags (see EscapeTags) is escaped in
-// user and assistant text, Tool Result content and SafeError, so neither a
+// user and assistant text, json Parts (with the JSON escape for "<", so the
+// value stays), Tool Result content and SafeError, so neither a
 // user, outside data nor the model's own words can speak as the system. A Part
 // marked MetaTag is Gotato's own tagged text and is left as it is.
 func ForModel(messages []Message) []Message {
@@ -342,8 +343,8 @@ func ForModel(messages []Message) []Message {
 		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
 		m.Parts = make([]ContentPart, 0, len(message.Parts))
 		for _, part := range message.Parts {
-			if _, tagged := part.Metadata[MetaTag]; !tagged && part.Kind == ContentText {
-				part.Text = EscapeTags(part.Text)
+			if _, tagged := part.Metadata[MetaTag]; !tagged {
+				part.Text = escapePartText(part)
 			}
 			part.Metadata = nil
 			part.Data = slices.Clone(part.Data)
@@ -354,8 +355,8 @@ func ForModel(messages []Message) []Message {
 			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: EscapeTags(message.ToolResult.SafeError)}
 			result.Content = cloneContent(message.ToolResult.Content)
 			for j := range result.Content {
-				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged && result.Content[j].Kind == ContentText {
-					result.Content[j].Text = EscapeTags(result.Content[j].Text)
+				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
+					result.Content[j].Text = escapePartText(result.Content[j])
 				}
 				result.Content[j].Metadata = nil
 			}
@@ -364,6 +365,19 @@ func ForModel(messages []Message) []Message {
 		out = append(out, m)
 	}
 	return out
+}
+
+// escapePartText escapes the text of a text or json Part. A json Part is sent
+// to the model as text, so it is escaped too, with the JSON escape for "<"
+// (backslash, u, 0, 0, 3, c) in place of "&lt;" so the JSON keeps its value.
+func escapePartText(part ContentPart) string {
+	switch part.Kind {
+	case ContentText:
+		return EscapeTags(part.Text)
+	case ContentJSON:
+		return escapeTags(part.Text, jsonLessThan)
+	}
+	return part.Text
 }
 
 func cloneToolCalls(calls []ToolCall) []ToolCall {
