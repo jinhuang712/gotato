@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -145,7 +145,7 @@ Exit:
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ✅ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 
-## Phase 6 — Compaction
+## Phase 6 — Compaction ✅
 
 A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
 
@@ -163,7 +163,7 @@ Exit:
 - ✅ A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - ✅ G-G07 and G-G09 pass across Runs, reloads, instances and compactions (the `long_session` play, with and without the model's Recap, merges included), and G-G11 passes for every fault it lists.
 - ✅ G-G10 passes on the `long_session` task.
-- ⬜ G-B14, G-B15 and G-B16 have a number. G-B14's sizes and G-B16's tokens have one, from the fake model; the costs and times need a live run, and G-B15 needs a provider's cache: the idle compaction it measures is built with the warm Session (Phase 8, step 1).
+- ✅ G-B14's sizes and G-B16's tokens have a number, from the fake model. Their costs and times, and G-B15, need a provider's cache and prices, so they come from a live run on a team's own gateway, which Gotato does not run; the live run measures them whenever a team runs it ([Every release](#every-release-from-the-first-on)).
 - ✅ The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
 
 ## Phase 7 — MCP and tool search ✅
@@ -185,7 +185,7 @@ Exit:
 - ✅ The MCP adapter's tests run against an in-process MCP server over both transports, and check the Effect from annotations, the slimmed schemas, the content mapping and a server's `list_changed` at the next Run. Its module passes its own `go test`, `go vet` and `golangci-lint`.
 - ✅ G-G07, G-G09 and G-G10 keep passing.
 
-## Phase 8 — Warm Session
+## Phase 8 — Warm Session ✅
 
 A Session stays in memory while it is in use, so a Run in progress can be steered from any endpoint, and the runtime can tell the model facts that are not the user's words. The store stays the truth, and a warm copy is a cache, never a lock. Designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-) and [G-F26](FEATURES.md#g-f26--steering-a-run-)). The steps build on one another, in this order:
 

@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Goals
 
 What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a promise that can fail. Every item serves one principle; ⭐ marks the core ones, which serve the four guarantees. An item keeps its number wherever it is listed.
@@ -161,7 +161,7 @@ Its cached input tokens and its cost, when the user comes back after the cache r
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Compared with:** the same Session without idle compaction
 - **Method:** live run with a pause longer than the cache retention *(to build)*
-- **Last measured:** Not measured. It needs a provider's cache, which a fake model has none of, and the idle compaction, which waits for the warm Session ([ROADMAP.md](ROADMAP.md) Phase 8); until then a service calls the compact endpoint from its own timer. No number comes from a fake.
+- **Last measured:** Not measured. It needs a provider's cache, which a fake model has none of, so it comes from a live run on a team's own gateway; the idle compaction it measures is built (the warm Session's own timer, [ROADMAP.md](ROADMAP.md) Phase 8). No number comes from a fake.
 
 ### G-B16 — Cost of a compaction
 
