@@ -1058,7 +1058,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if len(extensions) > 0 {
 		options = append(options, gotato.WithExtensions(extensions...))
 	}
-	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s}))
+	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s)}))
 	if spec.MaxEffect != gotato.EffectUnspecified {
 		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
 	}
@@ -1146,6 +1146,20 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 type sessionTools struct {
 	spec    Agent
 	session *session.Record
+	// segments gives the built-in read_segment tool once the Session has a
+	// Segment; nil for a surface that is not a Session's.
+	segments gotato.ToolSource
+}
+
+// segmentTools is the ToolSource that offers read_segment for a Session of the
+// Agent spec: the Messages are read back from the Runner's store, in pages
+// that fit the Agent's MaxToolResultBytes, in the zone of its Segments' times.
+func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
+	options := modelctx.ReadSegmentOptions{Location: spec.Compact.Location}
+	if spec.Limits != nil && spec.Limits.MaxToolResultBytes > 0 {
+		options.PageBytes = int(min(spec.Limits.MaxToolResultBytes/2, uint64(modelctx.DefaultReadSegmentPageBytes)))
+	}
+	return modelctx.SegmentTools(record, r.store, options)
 }
 
 func (t *sessionTools) Tools() []gotato.Tool {
@@ -1157,6 +1171,13 @@ func (t *sessionTools) Tools() []gotato.Tool {
 	}
 	for _, source := range t.spec.ToolSources {
 		for _, tool := range source.Tools() {
+			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
+				tools = append(tools, tool)
+			}
+		}
+	}
+	if t.segments != nil {
+		for _, tool := range t.segments.Tools() {
 			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 				tools = append(tools, tool)
 			}
@@ -1200,6 +1221,10 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	}
 	all := &sessionTools{spec: spec}
 	filter := &sessionTools{spec: spec, session: s}
+	if s != nil {
+		// A Session that has a Segment offers read_segment too.
+		all.segments = r.segmentTools(spec, s)
+	}
 	entries := make([]ToolEntry, 0)
 	for _, tool := range all.Tools() {
 		entries = append(entries, ToolEntry{Spec: tool.Spec(), Active: filter.active(tool.Spec().ID)})
