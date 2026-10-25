@@ -23,8 +23,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | ✅ |
 | Interrupt | stop the model call in flight and go on with a new message, in the same Run | G-F26 | ✅ |
 | Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API, HTTP, gRPC and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29) | G-F26 | ✅ |
-| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API, HTTP, gRPC and the CLI; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are sent; the other four of Gotato's own wait for their features, and the native wire forms for G-F32 | G-F29 | 🚧 |
-| A last Turn that answers | when the Run's deadline is near, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
+| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API, HTTP, gRPC and the CLI; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are sent; the other two of Gotato's own (`settings_changed`, `run_interrupted`) wait for their features, and the native wire forms for G-F32 | G-F29 | 🚧 |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's Record; it writes the store and activates nothing | G-F02 | ✅ |
@@ -95,7 +94,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Readable tool names | `demo.echo` goes out as `demo_echo` | G-F07 | ✅ |
 | Per-request headers | `gateway.WithRequestHeaders`, for one Run | G-F07 | ✅ |
 | Configuration | a provider is a few lines of YAML, or environment variables | G-F07 | ✅ |
-| Recovering a cut stream | a stream cut after some output goes on from where it stopped | G-F31 | ⬜ |
+| Recovering a cut stream | a stream cut after some output is sent again, as one cut before any output is, and stream readers drop what they received | G-F31 | ✅ |
 
 **Storage**
 
@@ -212,8 +211,9 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Ready-made clients | bots, schedulers and front ends are the callers' own code | G-N18 | not planned |
 | Structured output | a value in a fixed shape comes from a tool of the Agent's own | G-N19 | not planned |
 | MCP features beyond tools | code mode, resources, prompts, sampling, elicitation, Gotato as an MCP server, OAuth and a CLI `--mcp` flag | G-N20 | not planned |
+| A last Turn that answers | the Run's deadline is the caller's, so the caller sends a notice before it | G-N21 | not planned |
 
-Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25 and G-F28 retired.
+Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25, G-F28 and G-F30 retired (G-F30 became [G-N21](#g-n21--a-last-turn-that-answers-is-the-callers-notice)).
 
 ## Defining and running agents
 
@@ -405,19 +405,17 @@ The decision above relies on the load balancer's hash. A caller that cannot rout
 
 Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A user message is the wrong place for it: the model takes it for the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and a compacted stretch of history becomes a Segment, with tags of its own ([G-F06](#g-f06--compaction-)). Designed on 2026-10-18, and the `time_away` notice on 2026-10-25; built in Phase 8 ([ROADMAP.md](ROADMAP.md#phase-8--warm-session)), after the warm Session and messages from any endpoint. A row marked ⬜ below waits for the feature that sends it, or for the native forms.
 
-**The notices.** Gotato sends six kinds itself, each after the Event that causes it; a service or an extension sends its own:
+**The notices.** Gotato sends four kinds itself, each after the Event that causes it; a service or an extension sends its own:
 
 | Kind | What it tells the model | Caused by | Status |
 |---|---|---|---|
 | `continue` | the last reply did not finish, because it hit the output limit (`MaxTruncatedContinuations`), so go on | `reply_ended` | ✅ |
-| `last_turn` | this is the last Turn, so answer without tools: when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's reading of the `ctx` deadline | ⬜ |
-| `stream_cut` | the reply was cut off mid-stream, so go on from where it stopped without repeating it ([G-F31](#g-f31--recovering-a-cut-stream-)) | `reply_cut_off` | ⬜ |
 | `settings_changed` | the instruction changed, or a tool came or went, told here instead of rewritten into the prefix ([G-F32](#g-f32--changes-that-keep-the-cache-)) | `metadata_changed` | ⬜ |
 | `run_interrupted` | the last Run was stopped before it finished, so a tool may have done only part of its work | `run_ended` by a drain, or a Run found unfinished when the Session is loaded | ⬜ |
 | `time_away` | the user was away: how long it has been since the Session was last busy, and what time it is now | the message that starts a Run, when the Session was idle longer than the threshold | ✅ |
 | your own | something that happened outside the conversation, such as an order that was delivered | your service or extension | ✅ |
 
-The names are constants (`gotato.NoticeContinue`, `NoticeLastTurn`, `NoticeStreamCut`, `NoticeSettingsChanged`, `NoticeRunInterrupted`, `NoticeTimeAway`), and `gotato.ReservedNoticeKind` says whether a kind is one of them.
+The names are constants (`gotato.NoticeContinue`, `NoticeSettingsChanged`, `NoticeRunInterrupted`, `NoticeTimeAway`), and `gotato.ReservedNoticeKind` says whether a kind is one of them.
 
 **How a notice is kept.** It is a Message with the role `notice` (`gotato.RoleNotice`), a `kind` and a `source` (`gotato` or `service`), and, for Gotato's own, `caused_by`, the number of the Event that caused it:
 
@@ -478,23 +476,12 @@ The names are constants (`gotato.NoticeContinue`, `NoticeLastTurn`, `NoticeStrea
 | gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}` |
 | CLI | `gotato session notice <id> --kind K "text"` |
 
-- `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's six kinds are reserved, and a call that uses one is refused (`invalid_argument`, not run). An empty kind or text is refused the same way.
+- `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's four kinds are reserved, and a call that uses one is refused (`invalid_argument`, not run). An empty kind or text is refused the same way.
 - With many instances, a notice reaches the Session's writer through the load balancer's hash, as a Steer does. A notice for a Run going on another instance is answered `not_writer`, with the writer's address ([G-F26](#g-f26--steering-a-run-)), and forwarded when forwarding is on; with no Run going, the instance it reaches takes the Session over for the one write of its `notice_queued`, and the Session's next Run takes the notice, on any instance.
 - A CLI process runs nothing in the background, so `session notice` stores the notice with the Session, and the next Run, from the CLI or any process, puts it in after its prompt.
 - A host that embeds a `gotato.Session` and speaks for Gotato queues a notice of any source with `Session.QueueNotice(ctx, message)`; the Runner sends `time_away` this way.
 
-**In a compaction.** Gotato's own notices (`continue`, `last_turn`, `stream_cut`, `run_interrupted` and `time_away`) mattered only at the time, so a compaction leaves them out of its Segment, and the Recap covers them; the change a `settings_changed` notice told is folded back into the prefix. A notice from your service stays in the Segment word for word, as `<notice kind="…">` with its text escaped, because Gotato cannot tell whether it still applies ([G-F06](#g-f06--compaction-)).
-
-### G-F30 — A last Turn that answers ⬜
-
-A Run whose deadline passes settles as `deadline_exceeded`, and the caller gets no answer. Instead, the Loop gives the model one last Turn to answer with what it has, shortly before the deadline.
-
-- The code enforces it, not the model: the last Turn goes with tool calls switched off (`tool_choice: none`), so the provider cannot return one, and a tool call that comes back anyway is not run.
-- The tool definitions stay in the request, so the cached prefix holds.
-- A runtime notice (G-F29, `last_turn`) tells the model it is the last Turn.
-- The Loop reads the deadline from the Run's `ctx`. The core counts no Turns, so there is no cap on Turns to trigger it. A team whose `TurnStopper` wants an answer instead of a stop is a question for the design.
-
-**Design first:** next, now that G-F29 is designed ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+**In a compaction.** Gotato's own notices (`continue`, `run_interrupted` and `time_away`) mattered only at the time, so a compaction leaves them out of its Segment, and the Recap covers them; the change a `settings_changed` notice told is folded back into the prefix. A notice from your service stays in the Segment word for word, as `<notice kind="…">` with its text escaped, because Gotato cannot tell whether it still applies ([G-F06](#g-f06--compaction-)).
 
 ### G-F02 — Sessions ✅
 
@@ -776,7 +763,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 
 - **The instruction and the tool definitions** are built from the current Agent on every request, outside the Transcript, so a compaction carries neither. A change that [G-F32](#g-f32--changes-that-keep-the-cache-) appends as a `settings_changed` notice is folded back into the prefix, as the current version, and the notice is no longer carried.
 - **The loaded tools** used in the Segment just closed stay loaded, and so do those a kept tail still calls; the others are unloaded, and the model can load them again ([G-F34](#g-f34--tool-search-)).
-- **Notices.** Gotato's own (`continue`, `last_turn`, `stream_cut`, `run_interrupted`, `time_away`) mattered only at the time, so they are left out, and the Recap covers them. A notice from your service stays in the Segment word for word, because Gotato cannot tell whether it still applies ([G-F29](#g-f29--runtime-notices-)).
+- **Notices.** Gotato's own (`continue`, `run_interrupted`, `time_away`) mattered only at the time, so they are left out, and the Recap covers them. A notice from your service stays in the Segment word for word, because Gotato cannot tell whether it still applies ([G-F29](#g-f29--runtime-notices-)).
 - **The tags** reach each wire API in a notice's forms, and a user Message or Tool Result that imitates one is escaped ([G-F29](#g-f29--runtime-notices-)).
 - The model is not told how much of its window is left.
 
@@ -1116,7 +1103,7 @@ model: your-model
 **Retries and broken streams**
 
 - Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff.
-- On every wire API, a stream that breaks before any output reached the caller is sent again, within the retries. A break after output fails as a retryable error, because sending again would repeat that output.
+- On every wire API, a stream that breaks is sent again, within the retries ([G-F31](#g-f31--recovering-a-cut-stream-)). One that broke after output tells the Session, which drops the output it received; a caller with no Session gets a retryable error instead, because sending again would repeat that output.
 
 **What comes back from the wire**
 
@@ -1182,14 +1169,18 @@ All the settings in the YAML file:
 
 Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY`, `GOTATO_GATEWAY_MODEL` and `GOTATO_GATEWAY_PROVIDER`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
 
-### G-F31 — Recovering a cut stream ⬜
+### G-F31 — Recovering a cut stream ✅
 
-A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. Today a stream cut before any output is sent again, and a stream cut after some output fails the Run with `model_failure`. The text received before the cut is kept in the Transcript as a cut-off reply (`StopCutOff`), and it is never sent to a model again, so a later Run or `Continue` asks the model afresh.
+A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. A stream cut after some output is sent again, the way one cut before any output is:
 
-- The Run goes on instead, one of two ways, chosen when this is designed: keep the output so far and ask the model, in a runtime notice (G-F29), to continue without repeating it; or send the request again and tell stream readers, with an Event, to drop what they received.
-- The retries stay bounded, so a provider that keeps cutting off still fails the Run.
+- The identical request is sent again, within `max_retries`, the limit a cut before any output has. Each time, a `model_retried` Event says so, with the attempt, the wait and why.
+- The reply cut off stays in the Record only as a log of what happened. The text received is a Cut-off reply (`StopCutOff`, `reply_cut_off`), which no model is ever sent, and the new reply is a reply of its own, with its own `reply_started`. This holds for text, a tool call's arguments and reasoning alike.
+- **A stream reader who sees `model_retried` discards what it received of that reply**: the `text_delta` and `reasoning_delta` Events since the last `reply_started`. The Events come in this order: `model_retried`, `reply_cut_off` when text was kept, and `reply_started` for the new reply.
+- When the attempts run out, the Run fails with `model_failure` as before, and the Record keeps the last Cut-off reply.
+- A refusal of the request (including `context_overflow`), an Interrupt, a cancelled `ctx` and a deadline are not cuts and are not sent again. The gateway restarts only on a transport interruption: a connection reset, or a close before the stream's end. An invalid chunk is never one.
+- The gateway sends again after output only when a Session is listening (`gotato.ReportModelRetry` returns true). A caller that reads `Client.Stream` with no Session would see the reply twice, so for it a cut after output still fails with a retryable error.
 
-**Design first:** next, now that G-F29 is designed ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+A Model of your own that retries inside its stream calls `gotato.ReportModelRetry` before it sends the request again, and starts the reply over.
 
 ## Storage
 
@@ -1522,7 +1513,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `text_delta`, `reasoning_delta` | a piece of the reply's text or reasoning | sent only |
 | `reply_part_kept` | the text and reasoning streamed since the last part, kept every second or few KiB so that a crash loses at most the last part | Record |
 | `reply_cut_off` | the reply's stream broke, and the text so far is kept as a Cut-off reply | Record |
-| `model_retried` | the gateway calls the model again, with the attempt, the wait and why | Record |
+| `model_retried` | the gateway calls the model again, with the attempt, the wait and why; after output began, a reader drops what it received of the reply ([G-F31](#g-f31--recovering-a-cut-stream-)) | Record |
 
 *Tools*
 
@@ -1875,3 +1866,22 @@ The MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)) maps an MCP server's tools o
 | Gotato as an MCP server | callers reach Sessions through the HTTP handler, the gRPC service and the Go API |
 | OAuth | every service already authenticates its callers and holds its own credentials ([DESIGNS.md → No authentication](DESIGNS.md#no-authentication)); a server's headers come from the application |
 | A CLI `--mcp` flag | the CLI is a thin client of the packages, and the service that embeds Gotato configures its servers in Go |
+
+### G-N21 — A Last Turn That Answers Is the Caller's Notice
+
+A Run whose deadline passes settles as `deadline_exceeded`, with no answer. Gotato does not add a last Turn for it, because the deadline is the caller's: it is the `ctx` the caller passed, so the caller knows when it nears.
+
+- A service that wants an answer before the deadline sends a notice shortly before it, with `Runner.Notice` (or a Steer), asking the model to answer with what it has.
+- Gotato does not guess how much lead the deadline needs, and does not force `tool_choice: none`. The deadline still ends the Run.
+
+This sends the notice ten seconds before a Run's deadline:
+
+```go
+time.AfterFunc(time.Until(deadline)-10*time.Second, func() {
+	_, _ = runner.Notice(ctx, service.NoticeRequest{
+		SessionID: id,
+		Kind:      "deadline_near",
+		Text:      "The time for this task is almost over. Answer now with what you have.",
+	})
+})
+```

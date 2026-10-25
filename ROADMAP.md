@@ -24,7 +24,7 @@ Phase 8  Warm Session        a Session stays in memory while in use, is told run
 Phase 9  Large results       the model queries its Session's Record with a read-only bash subset, with no machine
 Phase 10 Access hooks        the caller's identity reaches extensions and stores, and a refusal answers 403
 Phase 11 Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
-         ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
+         ── waiting for design: changes that keep the cache ──
 ```
 
 Why this order:
@@ -202,8 +202,9 @@ A Session stays in memory while it is in use, so a Run in progress can be steere
   - the Session's last busy time kept in the Summary (`Summary.LastRunEnd`), so a Session loaded from its facts knows how long it was idle;
   - tagged text on all three wire APIs: a text block in the adjacent user turn on Anthropic Messages, a user item on the Responses API, a user message on Chat Completions; a Segment keeps a notice from a service word for word and leaves Gotato's own out.
 
-  The other four of Gotato's own kinds (`last_turn`, `stream_cut`, `settings_changed`, `run_interrupted`) are sent by G-F30, G-F31 and G-F32.
+  The other two of Gotato's own kinds (`settings_changed`, `run_interrupted`) are sent by G-F32.
 - ⬜ The tags reach each wire API in its default native form, which the gateway configuration can override, with tagged text as the fallback for every model; a notice from the service stays inside a Segment word for word. This waits for runtime notices, and for changes that keep the cache (G-F32).
+- ✅ Step 5, a stream cut after some output (G-F31): the gateway sends the same request again within `max_retries`, with a `model_retried` Event, and the reply cut off stays in the Record as a log.
 - `gotato.Session`, which Phase 3 named, keeps its name. The warm copy, its TTL and its timers belong to the Runner, because they need the store's head and a clock; the live Session grows what step 3 needs, its queue held between Runs.
 
 Exit:
@@ -274,8 +275,6 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 
 | Feature | Depends on | Discussed |
 |---|---|---|
-| G-F30 — A last Turn that answers | runtime notices (G-F29, built), and `tool_choice` in every gateway | next: G-F29 is built |
-| G-F31 — Recovering a cut stream | runtime notices (G-F29, built) | next: G-F29 is built |
 | G-F32 — Changes that keep the cache | a reference task that changes a Session's instruction or switches a tool on for one Session, to measure what a change costs. The tools the model loads itself are Phase 7 | after that measurement |
 
 ## Every release, from the first on

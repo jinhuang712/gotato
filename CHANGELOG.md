@@ -89,7 +89,7 @@ Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md
   | gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}`; the Events gain `notice_queued = 56` and `notice_committed = 57` |
   | CLI | `gotato session notice <id> --kind K "text"` → `{"session_id","queued":true,"number","message_id"}` |
 
-  A Run going on another live instance answers `not_writer`, and is forwarded when forwarding is on, as a message is. Gotato's six own kinds (`continue`, `last_turn`, `stream_cut`, `settings_changed`, `run_interrupted`, `time_away`) are reserved. `CoreLimits.MaxNotices` (16) bounds the queue.
+  A Run going on another live instance answers `not_writer`, and is forwarded when forwarding is on, as a message is. Gotato's four own kinds (`continue`, `settings_changed`, `run_interrupted`, `time_away`) are reserved. `CoreLimits.MaxNotices` (16) bounds the queue.
 - **A notice outlives its instance.** The Record keeps the notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`, and `Summary.Notices` in the store's summary); a Run on any instance queues them again when it starts. A notice sent with no Run going takes the Session over for the one write of its `notice_queued`. `Summary.LastRunEnd` and `session.Record.LastRunEnd()` keep the Session's last busy time the same way. Only a service's notice is kept there; Gotato's own (`time_away`) is worked out afresh at each Run. **For store-adapter authors:** a `session.Store` adapter that copies the `Summary` field by field must copy `Notices` and `LastRunEnd`; the `storetest` suite now fails an adapter that loses either one across Create, Append, Load and List.
 - **`time_away`.** A message that starts a Run after the Session was idle longer than `service.Agent.TimeAwayAfter` (30 minutes by default; a negative value turns it off) is followed by a notice with how long it has been and the time now, in the zone of `Compact.Location` (UTC by default). The CLI sets it with `--time-away 2h|off` or `GOTATO_TIME_AWAY`.
 - **Gateway.** All three wire APIs take a notice as tagged text in a user turn (Anthropic Messages joins it to the adjacent user turn, after the Tool Results), so it starts no Round and the reasoning in flight stays. The native forms wait for G-F32.
@@ -353,6 +353,16 @@ Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md
 - **A `Document` carries a Segment's Messages twice, for now.** Once a Segment exists, `messages` holds its rendered Messages and `segments` holds them again, so a Document with Segments is larger. Compaction closes Segments now, so a compacted Session's Document is larger than before; we revisit it if the size matters.
 
 ### Providers
+
+- **A stream cut after some output is sent again, as one cut before any output is** ([FEATURES.md → G-F31](FEATURES.md#g-f31--recovering-a-cut-stream-)). The same request goes out again within `max_retries`, with a `model_retried` Event; the text received is kept as a Cut-off reply that no model sees, and the new reply is a reply of its own. A stream reader that sees `model_retried` discards what it received of that reply. A Run fails with `model_failure` only when the attempts run out.
+
+  | Before | After |
+  |---|---|
+  | a stream cut after some output failed the Run with `model_failure` at once, and the Run's reply was the Cut-off reply | the request is sent again, up to `max_retries`; the Run completes with the full second reply, and fails with `model_failure` only when every attempt was cut |
+  | `model_retried` was stored only for a request the provider refused or could not receive | `model_retried` is also stored for each restart of a cut stream, before or after output |
+  | no Event told a reader to drop text it had received | `model_retried` after `text_delta` Events: drop them; `reply_cut_off` and a new `reply_started` follow |
+  | `gotato.ReportModelRetry(ctx, retry)` returned nothing | it returns whether a Session heard it; the gateway restarts after output only when it did, so a caller with no Session still gets a retryable error rather than a reply twice |
+  | the notice kinds `last_turn` and `stream_cut`, `gotato.NoticeLastTurn` and `gotato.NoticeStreamCut`, were reserved and planned | removed: nothing sends them, and the kinds are free for a service. The last Turn before a deadline is the caller's notice ([G-N21](FEATURES.md#g-n21--a-last-turn-that-answers-is-the-callers-notice)) |
 
 - **The gateway reads an error's `code` and `type` too, and a team can add its own overflow phrases.** Before, `readErrorBody` kept only `error.message`, so a request refused as too long that said so only in `error.code` or `error.type` (an OpenAI `context_length_exceeded` under a vague message) ended as an ordinary `model_failure`. Now a 400 or 413 is a `context_overflow` when any of the three matches a phrase, and the new `overflow_phrases` key (`Config.OverflowPhrases`) adds the team's own phrases or codes to the defaults.
 

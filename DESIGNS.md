@@ -184,7 +184,7 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 
 ### What is not the user's words goes to the model as a notice — 2026-10-18
 
-Gotato and the service sometimes have to tell the model something the user did not say: this is the last Turn, a reply was cut off, a setting changed, the last Run was interrupted, the user has been away for hours, or something happened outside the conversation. A notice is how.
+Gotato and the service sometimes have to tell the model something the user did not say: a setting changed, the last Run was interrupted, the user has been away for hours, or something happened outside the conversation. A notice is how.
 
 | Option | For | Against |
 |---|---|---|
@@ -192,7 +192,7 @@ Gotato and the service sometimes have to tell the model something the user did n
 | A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
 | Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
 
-- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_cut_off` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
+- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `run_ended` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
 - **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
 - **Each wire API in its own form.** Each wire API has a default form: a system message mid-conversation on Anthropic Messages for the models the gateway lists, a developer message on OpenAI's Responses API, and tagged text in the adjacent user Message on Chat Completions. The gateway configuration can override it, and tagged text is the fallback for every model, so no model list is a rule ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
