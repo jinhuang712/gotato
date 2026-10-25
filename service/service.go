@@ -32,6 +32,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1320,6 +1321,22 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	entries := make([]ToolEntry, 0)
 	for _, tool := range all.Tools() {
 		entries = append(entries, ToolEntry{Spec: tool.Spec(), Active: filter.active(tool.Spec().ID)})
+	}
+	if s != nil {
+		// A Session's ToolSets live in the Agent's Options, so the live Session
+		// says what it offers now: search_tools, whose description is the
+		// catalog, and the catalog tools the Session has loaded.
+		live, _, err := r.buildSession(ctx, spec, s, nil, InspectOptions{})
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = live.Close(context.Background()) }()
+		for _, offered := range live.Tools() {
+			if !slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == offered.ID }) {
+				entries = append(entries, ToolEntry{Spec: offered, Active: true})
+			}
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Spec.ID < entries[j].Spec.ID })
 	}
 	return entries, nil
 }
