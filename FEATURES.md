@@ -93,7 +93,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
 | Memory store | for tests and short-lived programs | G-F03 | ✅ |
-| File store | a directory per Session, one file per write, linked into place | G-F03 | ✅ |
+| File store | a directory per Record and epoch, one file per write, linked into place; a Record of an earlier layout is refused | G-F03 | ✅ |
 | Your own store | an adapter with eight calls onto the database you run, each an ordinary conditional write | G-F03 | ✅ |
 | Versioned shape | an Entry of an unknown kind, or a document from a newer `schema_version`, is refused, never misread | G-F03 | ✅ |
 | Append-only Record | every step is appended as it happens, as facts and a log; compaction appends a Checkpoint; a load reads the facts from the last Checkpoint | G-F03 | ✅ |
@@ -950,7 +950,7 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 | Store | For |
 |---|---|
 | In memory | tests and short-lived programs |
-| A directory per Session, with one file per write | the CLI, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`) |
+| A directory per Record, with one file per write | the CLI, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`) |
 | Your own adapter | the database you run, through the store contract below ([G-N08](#g-n08--storage-engines-belong-to-applications)) |
 
 The Record is an append-only log ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)):
@@ -959,10 +959,10 @@ The Record is an append-only log ([DESIGNS.md → The Record is an append-only l
 - Each Entry is a fact, which a rebuild reads, or a log entry, which records what happened and is never read to rebuild. A metadata change, such as a new instruction or a switched-off tool, is a fact.
 - A compaction appends a Checkpoint, and a load reads the facts from the last one.
 - A Claim is a fact at the position after the head its instance read, so a writer that lost its Claim can never write (G-F27).
-- An Entry of an unknown kind is refused, never misread. A session file of the earlier format (`schema_version` 1) is read as a Checkpoint, and moved into the new layout by its first write.
+- An Entry of an unknown kind is refused, never misread. The file store does not read a directory of an earlier layout, nor a session document `<id>.json`: it refuses them with `session.ErrOldLayout`, which names the path, and does not migrate them.
 - The Record grows with every step. A team that wants to bound its storage deletes the entries before a Checkpoint itself.
 
-The file store writes each batch of Entries to a file of its own, named by its first position, and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write. One window is left: a writer compares its epoch with the Record's before it writes its file and links it, so a Record that another process, or another goroutine, deletes and creates again under the same ID in those few milliseconds still takes the old writer's batch. The memory store checks and writes under one lock and has no such window.
+The file store writes each batch of Entries to a file of its own, named by its first position, in a directory named by the Record's epoch (`<id>/<epoch>/<position>.json`), and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write. The epoch is in the path, so a Record that another process, or another goroutine, deletes and creates again under the same ID has another directory, and an old writer finds none to write into, however late: it gets `ErrNotFound`, with no window between its check and its write. The memory store checks and writes under one lock.
 
 **The store contract** is eight calls, each one ordinary conditional write or read, so a plain SQL or document database can do it:
 

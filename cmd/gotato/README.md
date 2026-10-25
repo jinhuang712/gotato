@@ -17,7 +17,7 @@ go build -o bin/gotato ./cmd/gotato
 | `--quiet` | suppress human status lines that are not errors |
 | `--no-color` | accepted; output never contains ANSI color |
 | `--timeout D` | for `run`: the run's deadline (`30s`, `2m`); it settles as `deadline_exceeded` and exits 4. For `serve`: a lifetime bound (`30s`): the server drains and shuts down when it elapses. For other commands: the command deadline |
-| `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`. Each session is a directory with one file per write, `<id>/<position>.json`; a session file of the earlier format, `<id>.json`, is read as it is and moved into its directory by its first write, so an older `gotato` no longer finds it |
+| `--store DIR` | session store directory; default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`. Each session is a directory with one file per write, `<id>/<epoch>/<position>.json`. A store directory of an earlier layout (`<id>/<position>.json`, or a document `<id>.json`) is refused with an error that names the path, and is not migrated: move it away, or remove its files |
 | failures in machine mode | stderr gets the message **and** stdout gets `{"error": "...", "exit_code": N, "code": "...", "not_run": false, "retryable": false}`; this includes usage errors. `code` is the runtime's error code and is absent when the failure has none. `not_run: true` means nothing with side effects happened, so the same command may run again elsewhere; `retryable: true` means the same command, run again later, may succeed. The runtime decides both; the CLI only prints them |
 | flags | accepted before or after positional arguments |
 | `--help` | any command or subcommand prints usage on stdout and exits 0 |

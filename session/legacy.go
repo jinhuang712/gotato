@@ -288,15 +288,3 @@ func legacyEventOf(entry Entry, sessionID gotato.SessionID) (gotato.Event, bool,
 	}
 	return nil, false, nil
 }
-
-// legacySnapshotEntry holds a document's Runs and usage, which it kept
-// beside its Messages.
-func legacySnapshotEntry(seq uint64, record *Record) (Entry, error) {
-	record.mu.RLock()
-	defer record.mu.RUnlock()
-	data, err := json.Marshal(legacySnapshot{Runs: record.runs, Usage: record.usage})
-	if err != nil {
-		return Entry{}, err
-	}
-	return Entry{Seq: seq, Kind: legacyKindSnapshot, Layer: LayerLog, At: record.updatedAt, Data: data}, nil
-}

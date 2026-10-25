@@ -2,13 +2,11 @@ package session_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -443,49 +441,6 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 	list, err := store.List(ctx)
 	if err != nil || len(list) != 1 || list[0].Runs != 1 || list[0].Running != "" {
 		t.Fatalf("summary = %+v, %v; want one Run, none running", list, err)
-	}
-}
-
-func TestFileStoreReadsVersion1Documents(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	doc := session.Document{
-		SchemaVersion: 1, ID: "old", CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
-		Messages: []gotato.Message{gotato.UserMessage("hi"), gotato.AssistantMessage("hello")},
-		Runs:     []session.Run{{RunID: "run-1", Status: gotato.RunCompleted}},
-		Usage:    gotato.Usage{TotalTokens: 7},
-		Metadata: map[string]string{"agent": "support"},
-	}
-	data, _ := json.Marshal(doc)
-	if err := os.WriteFile(filepath.Join(dir, "old.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store, err := session.NewFileStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	list, err := store.List(ctx)
-	if err != nil || len(list) != 1 || list[0].ID != "old" || list[0].Messages != 2 || list[0].Runs != 1 {
-		t.Fatalf("List = %+v, %v", list, err)
-	}
-	view, err := session.View(ctx, store, "old")
-	if err != nil || view.Len() != 2 || len(view.Runs()) != 1 || view.Usage().TotalTokens != 7 {
-		t.Fatalf("View = %+v, %v", view, err)
-	}
-	writer, err := session.OpenWriter(ctx, store, "old", "instance-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	commit(t, writer, gotato.UserMessage("again"))
-	if _, err := os.Stat(filepath.Join(dir, "old.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the version 1 document stayed after the first write: %v", err)
-	}
-	reopened, err := session.Open(ctx, store, "old")
-	if err != nil || reopened.Len() != 3 {
-		t.Fatalf("reopened = %v, %v", reopened, err)
-	}
-	if value, _ := reopened.Get("agent"); value != "support" {
-		t.Fatalf("metadata = %v", reopened.Metadata())
 	}
 }
 

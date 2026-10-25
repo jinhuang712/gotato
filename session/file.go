@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,38 +16,46 @@ import (
 	"time"
 )
 
-// FileStore keeps each Record in its own directory, <dir>/<id>/, with one
-// file per write, named by the write's first position:
+// FileStore keeps each Record in a directory of its own epoch, one file per
+// write, named by the write's first position:
 //
-//	<dir>/<id>/00000000000000000001.json   {"entries":[…],"summary":{…}}
-//	<dir>/<id>/00000000000000000003.json
-//	<dir>/.instances/<instance>.json       one Liveness row per Instance
+//	<dir>/<id>/<epoch>/00000000000000000001.json   {"entries":[…],"summary":{…}}
+//	<dir>/<id>/<epoch>/00000000000000000003.json
+//	<dir>/.instances/<instance>.json               one Liveness row per Instance
 //
-// A write goes to a temporary file first, is synced, and is then linked to
-// its name. Linking fails when the name exists, so two writers can never both
-// write a position, also from two processes on one directory, and a crash
-// never leaves a torn write behind. Liveness rows are timed by this machine's
-// clock. A Record of the earlier format, one document at <dir>/<id>.json, is
-// read as a session_created Event and moved into its directory by its first
-// write.
+// <epoch> is a hash of the Record's epoch. A write goes to a temporary file
+// first, is synced, and is then linked to its name. Linking fails when the
+// name exists, so two writers can never both write a position, also from two
+// processes on one directory, and a crash never leaves a torn write behind.
+// The epoch is in the path, so a writer of a Record that was deleted and
+// created again under the same ID finds no directory to write into, however
+// late it checks. Create builds the Record's directory under a temporary name
+// and renames it to <id>, which fails when the ID is taken. Liveness rows are
+// timed by this machine's clock.
+//
+// A directory of an earlier layout, <id>/<position>.json, or a document
+// <id>.json, is refused with ErrOldLayout, never read.
 type FileStore struct {
 	dir string
 	now func() time.Time
 
 	mu    sync.Mutex
 	heads map[string]fileHead
+
+	// beforeWrite, when set, runs at the start of writeBatch, after Append has
+	// checked the writer: a test seam that holds a write in that window.
+	beforeWrite func()
 }
 
 // fileHead is what this process last saw of a Record's last write: its last
-// position and the Record's epoch, and the file of that write, so the cache is
-// trusted only while that file is still the one in the directory. A Record
-// that another process deleted and created again has a new file there, even
-// when it reuses the old file's inode number (sameBatchFile).
+// position, the file of that write and the epoch directory it is in. The cache
+// is trusted only while that file is still in the directory. A Record deleted
+// and created again has another epoch, so another directory, and never shares
+// a cache entry with the old one.
 type fileHead struct {
 	head  uint64
 	first uint64
-	epoch string
-	info  os.FileInfo
+	dir   string
 }
 
 // fileBatch is one file of a Record: the Entries of one write, and the
@@ -85,6 +95,44 @@ func (f *FileStore) recordDir(id string) string { return filepath.Join(f.dir, id
 
 func (f *FileStore) legacyPath(id string) string { return filepath.Join(f.dir, id+".json") }
 
+// epochDir is the directory of the Record created under id with this epoch.
+func (f *FileStore) epochDir(id, epoch string) string {
+	sum := sha256.Sum256([]byte(epoch))
+	return filepath.Join(f.recordDir(id), hex.EncodeToString(sum[:8]))
+}
+
+// currentDir finds the epoch directory of the Record under id: ErrNotFound
+// when there is none, ErrOldLayout when the ID holds a Record of the earlier
+// layout.
+func (f *FileStore) currentDir(id string) (string, error) {
+	names, err := os.ReadDir(f.recordDir(id))
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Stat(f.legacyPath(id)); statErr == nil {
+			return "", fmt.Errorf("%w: %s", ErrOldLayout, f.legacyPath(id))
+		}
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	var current string
+	for _, name := range names {
+		switch {
+		case strings.HasPrefix(name.Name(), "."):
+		case !name.IsDir():
+			return "", fmt.Errorf("%w: %s", ErrOldLayout, f.recordDir(id))
+		case current != "":
+			return "", fmt.Errorf("session: %s holds more than one Record", f.recordDir(id))
+		default:
+			current = filepath.Join(f.recordDir(id), name.Name())
+		}
+	}
+	if current == "" {
+		return "", ErrNotFound
+	}
+	return current, nil
+}
+
 func batchName(first uint64) string {
 	return fmt.Sprintf("%0*d.json", batchNameDigits, first)
 }
@@ -92,6 +140,9 @@ func batchName(first uint64) string {
 // batchFirsts returns the first positions of a Record's writes, in order.
 func batchFirsts(dir string) ([]uint64, error) {
 	names, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -125,48 +176,45 @@ func readBatch(path string) (fileBatch, error) {
 
 // writeBatch writes one batch at its first position, failing with ErrConflict
 // when that position's file exists and with ErrNotFound when the Record's
-// directory is gone. It returns the written file's info, which a link shares
-// with the file it was made from.
-func (f *FileStore) writeBatch(dir string, batch fileBatch) (os.FileInfo, error) {
+// directory is gone.
+func (f *FileStore) writeBatch(dir string, batch fileBatch) error {
 	data, err := json.Marshal(batch)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	if f.beforeWrite != nil {
+		f.beforeWrite()
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+			return ErrNotFound
 		}
-		return nil, err
+		return err
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return nil, err
+		return err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return nil, err
-	}
-	info, err := tmp.Stat()
-	if err != nil {
-		_ = tmp.Close()
-		return nil, err
+		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return nil, err
+		return err
 	}
 	if err := os.Link(tmpName, filepath.Join(dir, batchName(batch.Entries[0].Seq))); err != nil {
 		switch {
 		case errors.Is(err, os.ErrExist):
-			return nil, ErrConflict
+			return ErrConflict
 		case errors.Is(err, os.ErrNotExist):
-			return nil, ErrNotFound
+			return ErrNotFound
 		}
-		return nil, err
+		return err
 	}
-	return info, syncDir(dir)
+	return syncDir(dir)
 }
 
 // syncDir fsyncs a directory so a completed link or rename is durable.
@@ -187,72 +235,34 @@ func syncDir(path string) error {
 	return nil
 }
 
-// readLegacy reads a Record of the earlier format as its first write: a
-// session_created Event and a log snapshot.
-func (f *FileStore) readLegacy(id string) (fileBatch, error) {
-	data, err := os.ReadFile(f.legacyPath(id))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fileBatch{}, ErrNotFound
-		}
-		return fileBatch{}, err
-	}
-	var doc Document
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return fileBatch{}, err
-	}
-	record, err := Load(doc)
-	if err != nil {
-		return fileBatch{}, err
-	}
-	record.now = func() time.Time { return doc.UpdatedAt }
-	// A document has no epoch of its own, and is read again on every call
-	// until its first write: the epoch is made of its creation time, the
-	// value Summary.Epoch falls back to, so it never changes.
-	record.epoch = "created-" + record.Summary().CreatedAt
-	record.startLog()
-	entries, _, summary, err := record.takePending()
-	if err != nil {
-		return fileBatch{}, err
-	}
-	// The document kept its Runs and usage beside its Messages: they go in a
-	// log Entry of the earlier format, which a rebuild still reads.
-	snapshot, err := legacySnapshotEntry(entries[len(entries)-1].Seq+1, record)
-	if err != nil {
-		return fileBatch{}, err
-	}
-	entries = append(entries, snapshot)
-	summary.Seq = snapshot.Seq
-	return fileBatch{Entries: entries, Summary: summary}, nil
-}
-
-// readAll reads every write of a Record. A legacy document is read as the
-// first write, and reported, since it has no directory yet.
-func (f *FileStore) readAll(id string) ([]fileBatch, bool, error) {
+// readAll reads every write of a Record.
+func (f *FileStore) readAll(id string) ([]fileBatch, error) {
 	if !validID(id) {
-		return nil, false, ErrNotFound
+		return nil, ErrNotFound
 	}
-	dir := f.recordDir(id)
-	firsts, err := batchFirsts(dir)
-	if errors.Is(err, os.ErrNotExist) || (err == nil && len(firsts) == 0) {
-		legacy, legacyErr := f.readLegacy(id)
-		if legacyErr != nil {
-			return nil, false, legacyErr
-		}
-		return []fileBatch{legacy}, true, nil
-	}
+	dir, err := f.currentDir(id)
 	if err != nil {
-		return nil, false, err
+		return nil, err
+	}
+	firsts, err := batchFirsts(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(firsts) == 0 {
+		return nil, ErrNotFound
 	}
 	batches := make([]fileBatch, 0, len(firsts))
 	for _, first := range firsts {
 		batch, err := readBatch(filepath.Join(dir, batchName(first)))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotFound
+		}
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		batches = append(batches, batch)
 	}
-	return batches, false, nil
+	return batches, nil
 }
 
 func lastSeq(batches []fileBatch) uint64 {
@@ -274,16 +284,30 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := checkBatch(0, entries); err != nil {
 		return err
 	}
-	if _, err := os.Stat(f.legacyPath(id)); err == nil {
-		return ErrExists
-	}
-	dir := f.recordDir(id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if _, err := f.currentDir(id); !errors.Is(err, ErrNotFound) {
+		if err == nil {
+			return ErrExists
+		}
 		return err
 	}
-	info, err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary})
+	// The Record is built under a temporary name and renamed to its ID in one
+	// step. A rename onto a directory that holds a Record fails, so of two
+	// creators of one ID only one wins, and the other's epoch never gets a
+	// directory beside the winner's.
+	building, err := os.MkdirTemp(f.dir, ".creating-")
 	if err != nil {
-		if errors.Is(err, ErrConflict) {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(building) }()
+	epochName := filepath.Base(f.epochDir(id, summary.Epoch()))
+	if err := os.Mkdir(filepath.Join(building, epochName), 0o755); err != nil {
+		return err
+	}
+	if err := f.writeBatch(filepath.Join(building, epochName), fileBatch{Entries: entries, Summary: summary}); err != nil {
+		return err
+	}
+	if err := os.Rename(building, f.recordDir(id)); err != nil {
+		if errors.Is(err, os.ErrExist) {
 			return ErrExists
 		}
 		return err
@@ -291,7 +315,8 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := syncDir(f.dir); err != nil {
 		return err
 	}
-	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, epoch: summary.Epoch(), info: info})
+	dir := f.epochDir(id, summary.Epoch())
+	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
 	return nil
 }
 
@@ -306,88 +331,56 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if err := checkBatch(after, entries); err != nil {
 		return err
 	}
-	dir := f.recordDir(id)
-	last, err := f.head(id, after)
+	// The batch goes into the directory of the writer's own epoch. A Record
+	// deleted, or deleted and created again under this ID, has no such
+	// directory, and the write fails with ErrNotFound, however late: the
+	// directory is the check, and nothing is left between it and the write.
+	dir := f.epochDir(id, summary.Epoch())
+	last, err := f.head(id, dir, after)
 	if err != nil {
 		return err
-	}
-	// A writer of another Record under this ID, one deleted and created again,
-	// is refused before its position is looked at: its position may be free
-	// or taken in the new Record, and neither says anything. A Record deleted
-	// and created again between this check and the link still takes the batch;
-	// TODO.md keeps that window.
-	if last.epoch != summary.Epoch() {
-		return ErrNotFound
 	}
 	if last.head != after {
 		return ErrConflict
 	}
-	info, err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary})
-	if err != nil {
+	if err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary}); err != nil {
 		return err
 	}
-	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, epoch: summary.Epoch(), info: info})
+	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
 	return nil
 }
 
-// head returns what a Record's last write says: its last position and the
-// Record's epoch. It comes from this process's cache when the cache agrees
-// with want and its file is still the one in the directory, and from the
-// directory otherwise. A legacy Record is moved into its directory first.
-func (f *FileStore) head(id string, want uint64) (fileHead, error) {
-	dir := f.recordDir(id)
+// head returns what the last write in dir says: its last position. It comes
+// from this process's cache when the cache agrees with want and its file is
+// still the one in the directory, and from the directory otherwise. A
+// directory that is gone is ErrNotFound.
+func (f *FileStore) head(id, dir string, want uint64) (fileHead, error) {
 	f.mu.Lock()
 	cached, ok := f.heads[id]
 	f.mu.Unlock()
-	if ok && cached.head == want {
-		if info, err := os.Stat(filepath.Join(dir, batchName(cached.first))); err == nil && sameBatchFile(info, cached.info) {
+	if ok && cached.dir == dir && cached.head == want {
+		if _, err := os.Stat(filepath.Join(dir, batchName(cached.first))); err == nil {
 			return cached, nil
 		}
 	}
 	firsts, err := batchFirsts(dir)
-	if errors.Is(err, os.ErrNotExist) || (err == nil && len(firsts) == 0) {
-		legacy, legacyErr := f.readLegacy(id)
-		if legacyErr != nil {
-			return fileHead{}, legacyErr
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fileHead{}, err
-		}
-		// Another process may have moved it already; its write is the same.
-		if _, err := f.writeBatch(dir, legacy); err != nil && !errors.Is(err, ErrConflict) {
-			return fileHead{}, err
-		}
-		if err := os.Remove(f.legacyPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fileHead{}, err
-		}
-		return f.head(id, want)
-	}
 	if err != nil {
 		return fileHead{}, err
+	}
+	if len(firsts) == 0 {
+		return fileHead{}, ErrNotFound
 	}
 	path := filepath.Join(dir, batchName(firsts[len(firsts)-1]))
-	// The file is looked at before it is read: if another process replaces it
-	// in between, the info is the old file's and no longer matches, so the
-	// next write reads again instead of trusting what this read saw.
-	info, err := os.Stat(path)
-	if err != nil {
-		return fileHead{}, err
-	}
 	last, err := readBatch(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileHead{}, ErrNotFound
+	}
 	if err != nil {
 		return fileHead{}, err
 	}
-	head := fileHead{head: lastSeq([]fileBatch{last}), first: firsts[len(firsts)-1], epoch: last.Summary.Epoch(), info: info}
+	head := fileHead{head: lastSeq([]fileBatch{last}), first: firsts[len(firsts)-1], dir: dir}
 	f.setHead(id, head)
 	return head, nil
-}
-
-// sameBatchFile says whether info is still the batch file a head cache
-// remembers. A batch file is never written again, so one with the same inode
-// number but another modification time or size is a new file: a file system
-// may give a deleted file's number to a new one, as ext4 does.
-func sameBatchFile(info, cached os.FileInfo) bool {
-	return os.SameFile(info, cached) && info.ModTime().Equal(cached.ModTime()) && info.Size() == cached.Size()
 }
 
 func (f *FileStore) setHead(id string, head fileHead) {
@@ -401,7 +394,7 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
-	batches, _, err := f.readAll(id)
+	batches, err := f.readAll(id)
 	if err != nil {
 		return Loaded{}, err
 	}
@@ -419,7 +412,7 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64) ([]Entry, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	batches, _, err := f.readAll(id)
+	batches, err := f.readAll(id)
 	if err != nil {
 		return nil, err
 	}
@@ -481,23 +474,11 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 
 // summary reads a Record's Summary from its last write.
 func (f *FileStore) summary(id string) (Summary, error) {
-	dir := f.recordDir(id)
-	firsts, err := batchFirsts(dir)
-	if errors.Is(err, os.ErrNotExist) || (err == nil && len(firsts) == 0) {
-		legacy, legacyErr := f.readLegacy(id)
-		if legacyErr != nil {
-			return Summary{}, legacyErr
-		}
-		return legacy.Summary, nil
-	}
+	batches, err := f.readAll(id)
 	if err != nil {
 		return Summary{}, err
 	}
-	last, err := readBatch(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
-	if err != nil {
-		return Summary{}, err
-	}
-	return last.Summary, nil
+	return batches[len(batches)-1].Summary, nil
 }
 
 // Delete implements Store. The Record's directory is renamed away first, so

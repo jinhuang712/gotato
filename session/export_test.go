@@ -14,3 +14,7 @@ func TakePending(r *Record) []Entry {
 	}
 	return entries
 }
+
+// SetBeforeWrite makes f call fn at the start of every write of a batch, after
+// Append has checked its writer.
+func SetBeforeWrite(f *FileStore, fn func()) { f.beforeWrite = fn }

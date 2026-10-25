@@ -3,8 +3,10 @@ package session_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,60 +404,46 @@ func TestLegacyReplyPartsAndToolsStartedRebuild(t *testing.T) {
 	}
 }
 
-// A schema version 1 document, <dir>/<id>.json, holds a whole Session in one
-// file. It loads as the first writes of a Record, and the first new write moves
-// it into the Record's directory.
-func TestFileStoreLoadsASchemaV1DocumentAsALegacyRecord(t *testing.T) {
+// A Record of an earlier layout of the file store, a document <id>.json or a
+// directory <id>/ that holds batch files, is refused with ErrOldLayout by
+// every call that would read or write it, and is never misread, nor made to
+// look like a Record that does not exist.
+func TestFileStoreRefusesARecordOfAnEarlierLayout(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	doc := session.Document{
-		SchemaVersion: 1, ID: "doc-1", ParentID: "parent-1",
-		CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
-		Messages:    []gotato.Message{gotato.UserMessage("hi"), gotato.AssistantMessage("hello")},
-		Runs:        []session.Run{{RunID: "run-1", Status: gotato.RunCompleted, Turns: 1}},
-		Usage:       gotato.Usage{TotalTokens: 7},
-		Metadata:    map[string]string{"agent": "support"},
-		Compactions: []session.Compaction{{ReplacedMessages: 3, Recap: "truncate"}},
+	if err := os.WriteFile(filepath.Join(dir, "doc.json"), mustJSON(t, session.Document{SchemaVersion: 1, ID: "doc"}), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "doc-1.json"), mustJSON(t, doc), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "dirid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dirid", "00000000000000000001.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := session.NewFileStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := store.Load(ctx, "doc-1")
-	if err != nil {
-		t.Fatal(err)
+	entry := session.Entry{Seq: 1, Kind: gotato.KindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)}
+	summary := session.Summary{RecordEpoch: "e", Seq: 1}
+	for _, id := range []string{"doc", "dirid"} {
+		if _, err := store.Load(ctx, id); !errors.Is(err, session.ErrOldLayout) {
+			t.Errorf("Load(%s) = %v, want ErrOldLayout", id, err)
+		}
+		if _, err := store.Log(ctx, id, 0); !errors.Is(err, session.ErrOldLayout) {
+			t.Errorf("Log(%s) = %v, want ErrOldLayout", id, err)
+		}
+		if err := store.Create(ctx, id, []session.Entry{entry}, summary); !errors.Is(err, session.ErrOldLayout) {
+			t.Errorf("Create(%s) = %v, want ErrOldLayout", id, err)
+		}
+		if _, err := store.List(ctx); err == nil || !strings.Contains(err.Error(), id) {
+			t.Errorf("List = %v, want an error that names %s", err, id)
+		}
 	}
-	if loaded.Facts[0].Kind != gotato.KindSessionCreated || loaded.Summary.Messages != 2 || loaded.Summary.Runs != 1 || loaded.Summary.ParentID != "parent-1" {
-		t.Fatalf("Load = %+v", loaded)
+	if err := store.Delete(ctx, "doc"); err != nil {
+		t.Fatalf("Delete of a document of the earlier layout = %v, want nil", err)
 	}
-	view, err := session.View(ctx, store, "doc-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.Len() != 2 || len(view.Runs()) != 1 || view.Usage().TotalTokens != 7 || view.ParentID() != "parent-1" || len(view.Compactions()) != 1 || view.Metadata()["agent"] != "support" {
-		t.Fatalf("View = %d Messages, %d Runs, usage %+v, parent %q, %d compactions, %v", view.Len(), len(view.Runs()), view.Usage(), view.ParentID(), len(view.Compactions()), view.Metadata())
-	}
-	events, err := session.StoredEvents(ctx, store, "doc-1", 0)
-	if err != nil || len(events) != 1 || events[0].Kind() != gotato.KindSessionCreated {
-		t.Fatalf("StoredEvents = %v, %v; want session_created, with the snapshot of Runs and usage skipped", kindsOf(events), err)
-	}
-	writer, err := session.OpenWriter(ctx, store, "doc-1", "instance-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	commit(t, writer, gotato.UserMessage("again"))
-	if _, err := os.Stat(filepath.Join(dir, "doc-1.json")); !os.IsNotExist(err) {
-		t.Fatalf("the document stayed after the first write: %v", err)
-	}
-	reopened, err := session.Open(ctx, store, "doc-1")
-	if err != nil || reopened.Len() != 3 || reopened.Claim().Instance != "instance-a" {
-		t.Fatalf("reopened = %v, %v", reopened, err)
-	}
-	after, err := session.View(ctx, store, "doc-1")
-	if err != nil || len(after.Runs()) != 1 || after.Usage().TotalTokens != 7 {
-		t.Fatalf("after the write: %+v, %v", after, err)
+	if err := store.Delete(ctx, "dirid"); err != nil {
+		t.Fatalf("Delete of a directory of the earlier layout = %v, want nil", err)
 	}
 }
