@@ -25,6 +25,12 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
   `gotato.WithToolSearcher(searcher)` plugs in a team's own search: `ToolSearcher.Search(ctx, query, tools []ToolSpec) ([]string, error)` returns IDs best first. The `toolregistry` package is unchanged: it is a `ToolSource` for tools switched on and off by the application, and never served `activate_toolset`. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`), since the break ships with the changes above that already raised them.
 
+- **The gateway sends deferred tools natively: the tool list stays the same while tools load.** The new key `deferred_tools` (`Config.DeferredTools`) is `native` or `list`. The default is `native` on `anthropic-messages` (every catalog tool has `defer_loading: true`, and a load is a `tool_reference` block in the `search_tools` result) and on `openai-responses` (`search_tools` is a client-executed `tool_search`, a catalog tool is a function with `defer_loading: true`, and a load is a `tool_search_output` item); `openai-chat-completions` always uses `list`. A request carries `ModelRequest.LoadedTools` and `ModelRequest.UnloadedTools`, and a Tool Result carries `ToolResult.Loaded`; all three are additions. **Breaking** for a team on those two wire APIs whose gateway refuses the native form:
+
+  | Before | After |
+  |---|---|
+  | a load added the tool to the tool list on every wire API | the tool list is fixed while tools load on `anthropic-messages` and `openai-responses`; set `deferred_tools: list` for the old behavior |
+
 ### Limits
 
 - **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.

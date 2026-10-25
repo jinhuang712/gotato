@@ -73,7 +73,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Tool search | `search_tools` holds the catalog in its description, loads tools by name or by a BM25 search, and lists more candidates | G-F34 | ✅ |
 | Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
-| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ⬜ |
+| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ✅ |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ⬜ |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 | Reading large results | how a model greps and filters a spilled result in a pod with no machine; design open | G-F36 | ⬜ |
@@ -800,7 +800,7 @@ Building does not wait for them. Where a provider's answer would change what Got
 
 ### G-F32 — Changes that keep the cache ⬜
 
-The instruction and the tools come before the Transcript, so changing them mid-Session makes the provider read the whole Transcript again at full price. Two things do that: a Session's own instruction (`gotato.instruction`), and a tool switched on or off for one Session. The tools the model loads itself are [G-F34](#g-f34--tool-search-), which keeps the tool list the same bytes with native deferred loading.
+The instruction and the tools come before the Transcript, so changing them mid-Session makes the provider read the whole Transcript again at full price. Two things do that: a Session's own instruction (`gotato.instruction`), and a tool switched on or off for one Session. The tools the model loads itself are [G-F34](#g-f34--tool-search-), whose native form (built) keeps the tool list the same bytes; the rest of this feature is not built.
 
 - Such a change is appended instead: a runtime notice (G-F29) for a new instruction, and the new tool's definition added after the Transcript, while the tool list sent at the start stays as it was. G-F34's native form does the same for the tools a model loads.
 - A compaction folds such changes back into the prefix, where the request changes anyway ([G-F06](#g-f06--compaction-)).
@@ -873,11 +873,16 @@ The tools a Session offers can change while it runs.
 
 **Gap:** `Runner.SetToolActive` and `gotato tools activate` name the Agent's own tools, because a ToolSet lives in the Agent's Options and the Runner cannot list it before a Session exists. A tool of a ToolSet is switched off by setting `gotato.tool.<id>` to `inactive` in the Session's metadata (`RunRequest.Update`, or `Metadata` on a new Session), which the Runner reads for the whole surface. Listing a Session's tools shows `search_tools` and the tools loaded, not the unloaded tools of a catalog ToolSet; those are in the catalog, the description of `search_tools`.
 
-### G-F34 — Tool search 🚧
+### G-F34 — Tool search ✅
 
-A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4. Step 3 is built: the catalog, the search, the facts and the list form. Step 4, the native form, is not.
+A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4: the catalog, the search, the facts, the list form and the native form.
 
-**Gap:** a loaded tool is added to the tool list, which stays sorted by ID (the `list` form), so a load costs a cache read after the tools. The `deferred_tools` key and the native forms of Anthropic Messages and OpenAI's Responses API come in step 4 ([ROADMAP.md](ROADMAP.md#phase-7--mcp-and-tool-search)).
+**Gap:** the native form is tested on request bytes only, as Gotato runs no check against a real provider (a fake gateway comes in Phase 11).
+
+- OpenAI's Responses API: the stream handling of a `tool_search_call` item (read from `response.output_item.added` and `.done`, as a `function_call` is) is not confirmed by the documentation, which does not describe streaming for it.
+- OpenAI's Responses API: a `tool_search_output` item carries only the tools it loads, so the text of the `search_tools` result (`Already available`, `Not found`) is not replayed in this form.
+- Anthropic Messages: a load caused by a call to an unloaded tool is a failed Tool Result, and it carries the `tool_reference` too. The documentation shows references only in a successful result.
+- The prefix hash of `context_built` covers the loaded and unloaded tools, so it changes at a load in the native form too, where the provider's cache does not.
 
 **The catalog.** It lives in the description of one discovery tool, `search_tools`. It lists each ToolSet by what its install mode shows ([G-F10](#g-f10--tool-sets-and-the-registry-)):
 
@@ -931,9 +936,14 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 
 | Value | What happens | Where |
 |---|---|---|
-| `native` | every tool is in the request from the start, marked deferred, and a load only tells the provider which one is in use, so the tool list is the same bytes on every request. On Anthropic Messages it is `defer_loading` with `tool_reference` blocks in the result of `search_tools`; on OpenAI's Responses API it is `tool_search` | the default where the wire API has it |
-| `list` | a loaded tool is added to the tool list, which stays sorted by ID | the fallback, and the only form on Chat Completions |
+| `native` | every tool is in the request from the start, marked deferred, and a load only tells the provider which one is in use, so the tool list is the same bytes on every request. On Anthropic Messages it is `defer_loading` with `tool_reference` blocks in the result of `search_tools`; on OpenAI's Responses API it is `tool_search` | the default on `anthropic-messages` and `openai-responses` |
+| `list` | a loaded tool is added to the tool list, which stays sorted by ID | the default on `openai-chat-completions`, which has no native form and uses `list` whatever is set |
 
+- **How the core and the gateway share it.** The core stays wire-agnostic. Every request of a Session with a catalog carries the visible tools, the IDs of the loaded ones (`ModelRequest.LoadedTools`) and the specs of the catalog tools still to load (`ModelRequest.UnloadedTools`), and a Tool Result lists the tools it loaded (`ToolResult.Loaded`), which the Record keeps. The same Record gives the same request on every instance. A gateway in the `list` form sends the visible tools and ignores the rest; in the `native` form it lays the tools out itself:
+  - the tools that are not in the catalog first, then every catalog tool, loaded or not, deferred, each group in ID order, so a load moves nothing;
+  - **Anthropic Messages** ([tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)): a catalog tool has `defer_loading: true`, `search_tools` stays a plain function of ours, and a load is a `tool_reference` block (`tool_name`) after the text of the `search_tools` result, which the API expands into the tool's definition. The `cache_control` marker for the tools sits on the last tool that is not deferred, as the API requires;
+  - **OpenAI Responses** ([tool search](https://developers.openai.com/api/docs/guides/tools-tool-search), client-executed): `search_tools` becomes a `tool_search` entry with `execution: "client"` and the schema of `search_tools`, a catalog tool is a function with `defer_loading: true`, a call to the search is a `tool_search_call` item (its arguments an object) and its result a `tool_search_output` item (same `call_id`) whose `tools` are the functions it loads;
+  - a loaded tool that no Tool Result in the history references any more, because a compaction folded the result away while the tool stayed loaded, is sent as a plain tool, so the model still sees it. That changes the tool list once, at a compaction.
 - **The `list` form costs a cache read** after the tools, once per load. A compaction is when that costs least ([DESIGNS.md → Compaction closes a Segment](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)), and it is why tools unload there and nowhere else.
 - **Gotato runs no checks against real providers.** A fake gateway plays each form (ROADMAP Phase 11), and a team whose gateway refuses `native` sets `list`.
 - This is the part of [G-F32](#g-f32--changes-that-keep-the-cache-) that concerns the tools the model loads. A change the service makes is still G-F32's.
@@ -1102,6 +1112,7 @@ All the settings in the YAML file:
 | `headers` | none | headers some providers or proxies require |
 | `cache_key_field` | `prompt_cache_key` on `openai-responses`, none on chat; `none` turns it off | the body field that carries the prompt cache key |
 | `cache_key_header` | none | the header that carries the prompt cache key, such as `session-id`, for a provider that keys its cache by a session header |
+| `deferred_tools` | `native` on `anthropic-messages` and `openai-responses`, `list` on `openai-chat-completions` | `native` or `list`: how the tools the model loads from a catalog reach the provider ([G-F34](#g-f34--tool-search-)). `native` on Chat Completions falls back to `list`. `Client.DeferredTools()` reports the form in use. |
 | `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
 | `provider` | recognized from the provider's own address, else none | `anthropic`, `openai`, `deepseek` or `other`: whose rules for reasoning and the cache apply |
