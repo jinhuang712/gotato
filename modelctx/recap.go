@@ -182,17 +182,74 @@ to it; your reasoning, your intermediate steps and all tool results are not.
 Write in the conversation's language, as short bullet points, under these
 headings. Leave out a heading that has nothing under it.
 
-## What happened     what the user asked for, and what was done
+%s
+
+Leave out the instructions, the tool list and the environment; they are
+sent separately. Do not call tools. Do not address the user. Start with the
+first heading.`, span, number, recapHeadingBlock)
+}
+
+// recapHeadingBlock is the list of the five headings that every ask for a
+// Recap carries.
+const recapHeadingBlock = `## What happened     what the user asked for, and what was done
 ## Key facts         what the tools returned that still matters; copy IDs,
                      numbers, names, times and error codes exactly
 ## Decisions         what the user or you decided, and why
 ## Open items        what was promised, asked for, or left unfinished
 ## Where it stands   only while a task is still running: the step it is on
-                     and the next one
+                     and the next one`
 
-Leave out the instructions, the tool list and the environment; they are
-sent separately. Do not call tools. Do not address the user. Start with the
-first heading.`, span, number)
+// MergeRecapAsk is the message that asks for the Recap of a merge: one Recap of
+// the Recaps of the oldest Segments, under the same rules, and which numbers
+// read_segment still reads (FEATURES.md → G-F06, Many Segments). The Recaps
+// follow it, each with the times it covers. A Segment that has no Recap
+// contributes the digest of its conversation and tool calls instead. When the
+// first is a merged Segment, its Recap comes first and is the far past. Like
+// RecapAsk it is a request for work, so it carries no tag, and it is never
+// stored.
+func MergeRecapAsk(request MergeRequest) string {
+	loc := request.Location
+	if loc == nil {
+		loc = time.UTC
+	}
+	label := rangeLabel(request.Numbers())
+	var b strings.Builder
+	fmt.Fprintf(&b, `Write one recap of the recaps below. They close the oldest stretch of the
+conversation, segments %[1]s, and your recap takes their place. The user's
+messages, your final replies and the tool results of those segments stay in
+the record, and read_segment(n) returns segment n in full, for n in %[1]s.
+Only your recap is kept in this conversation, so it must carry what a later
+question needs.
+
+Write in the conversation's language, as short bullet points, under these
+headings. Leave out a heading that has nothing under it.
+
+%[2]s
+
+Merge what repeats, copy IDs, numbers, names, times and error codes exactly
+as the recaps give them, and drop what a later recap says is done or
+replaced. Keep what is still open. Do not call tools. Do not address the user.
+Start with the first heading.
+`, label, recapHeadingBlock)
+	for _, segment := range request.Segments {
+		name := "segment " + rangeLabel(segment.Numbers())
+		if len(segment.Merged) > 0 {
+			name += ", merged earlier, the far past"
+		}
+		if !segment.From.IsZero() {
+			name += ", " + segment.From.In(loc).Format("2006-01-02 15:04")
+			if !segment.To.IsZero() {
+				name += " to " + segment.To.In(loc).Format("2006-01-02 15:04")
+			}
+		}
+		recap := strings.TrimSpace(segment.Recap)
+		if recap == "" {
+			name += ", no recap: its conversation and tool calls"
+			recap = MergeDigest([]gotato.Segment{segment}, loc)
+		}
+		fmt.Fprintf(&b, "\n--- recap of %s ---\n%s\n--- end ---\n", name, recap)
+	}
+	return b.String()
 }
 
 // ErrBadRecap is what ValidateRecap and ModelRecap return for a reply that is
@@ -241,6 +298,35 @@ func (m ModelRecap) WriteRecap(ctx context.Context, recap RecapRequest) (gotato.
 	if err != nil {
 		return gotato.Message{}, err
 	}
+	return m.complete(ctx, request)
+}
+
+// MergeRecapModelRequest returns the request that asks for the Recap of a
+// merge: one user message, the ask with the Recaps of the Segments merged
+// below it. It holds no instruction, tools or earlier Messages, so it stays
+// small and cannot be refused as too long when the Context was.
+func MergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.ModelRequest {
+	if maxTokens == 0 {
+		maxTokens = DefaultRecapMaxTokens
+	}
+	return gotato.ModelRequest{
+		Messages: []gotato.Message{gotato.UserMessage(MergeRecapAsk(request))},
+		Options:  gotato.ModelOptions{MaxTokens: maxTokens},
+	}
+}
+
+// WriteMergeRecap implements MergeRecapWriter: the Agent's model writes one
+// Recap from the Recaps of the oldest Segments alone, under the rules of
+// ValidateRecap.
+func (m ModelRecap) WriteMergeRecap(ctx context.Context, request MergeRequest) (gotato.Message, error) {
+	if m.Model == nil {
+		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
+	}
+	return m.complete(ctx, MergeRecapModelRequest(request, m.MaxTokens))
+}
+
+// complete sends request and reads the Recap from the reply.
+func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (gotato.Message, error) {
 	stream, err := m.Model.Stream(ctx, request)
 	if err != nil {
 		return gotato.Message{}, err

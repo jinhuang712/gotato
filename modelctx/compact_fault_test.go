@@ -2,6 +2,7 @@ package modelctx
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -174,6 +175,73 @@ func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
 	}
 	if !failed {
 		t.Error("no compaction_failed Event says the compaction was dropped")
+	}
+}
+
+// failMerges makes the write that merges Segments fail, for the test.
+func failMerges(t *testing.T) {
+	t.Helper()
+	original := mergeSegments
+	mergeSegments = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *session.Compaction) (gotato.Segment, error) {
+		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrStoreFailure, "disk gone")
+	}
+	t.Cleanup(func() { mergeSegments = original })
+}
+
+// threeSegments is a Record with three Segments closed and a Message after them.
+func threeSegments(t *testing.T) *session.Record {
+	t.Helper()
+	record := conversation(t)
+	for i := 1; i <= 3; i++ {
+		if i > 1 {
+			for _, m := range []gotato.Message{gotato.UserMessage("question"), gotato.AssistantMessage("answer")} {
+				m.ID = gotato.MessageID(fmt.Sprintf("extra-%d-%s", i, m.Role))
+				if err := record.Append(m); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if _, err := Compact(context.Background(), record, CompactOptions{Floor: 1, SegmentBudget: 1 << 30}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return record
+}
+
+// A merge whose write fails is dropped like any compaction: the Segments stay
+// as they were, an Event says why, and the Segment a compaction closed before
+// it stays closed.
+func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
+	failMerges(t)
+	record := threeSegments(t)
+	before := len(record.Events())
+	result, err := MergeSegments(context.Background(), record, MergeOptions{Budget: 1})
+	if err != nil || result.Merged || result.Reason != MergeWriteFailed || !strings.Contains(result.Error, "disk gone") {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if len(record.Segments()) != 3 || record.Segments()[0].Number != 1 {
+		t.Fatalf("the failed merge changed the Segments: %d", len(record.Segments()))
+	}
+	var kinds []gotato.EventKind
+	var failed gotato.CompactionFailed
+	for _, event := range record.Events()[before:] {
+		kinds = append(kinds, event.Kind())
+		if e, ok := event.(gotato.CompactionFailed); ok {
+			failed = e
+		}
+	}
+	if len(kinds) != 2 || kinds[0] != gotato.KindCompactionStarted || kinds[1] != gotato.KindCompactionFailed || failed.Cause != gotato.ErrStoreFailure || failed.Why != gotato.CompactionPastBudget {
+		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
+	}
+
+	more := gotato.UserMessage("more")
+	more.ID = "more-1"
+	if err := record.Append(more); err != nil {
+		t.Fatal(err)
+	}
+	compacted, err := Compact(context.Background(), record, CompactOptions{Floor: 1, SegmentBudget: 1})
+	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeWriteFailed || len(record.Segments()) != 4 {
+		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
 	}
 }
 

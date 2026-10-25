@@ -62,6 +62,11 @@ type CompactOptions struct {
 	// default), past the ceiling, on an overflow, or before the Session
 	// leaves memory.
 	Why gotato.CompactionWhy
+	// SegmentBudget is the most the Segments together may hold, in
+	// estimated tokens, before the oldest are merged right after the
+	// Segment closes (MergeSegments). 0 means SegmentsBudget(Ceiling): half
+	// the ceiling, or DefaultSegmentsBudget with none.
+	SegmentBudget int
 	// SegmentSettings are the limits and the time zone of the Segment.
 	SegmentSettings
 }
@@ -103,6 +108,11 @@ type Result struct {
 	TokensBefore   int                 `json:"tokens_before"`
 	TokensAfter    int                 `json:"tokens_after"`
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
+	// Merge reports the merge of the oldest Segments that followed the
+	// Segment's closing, when the Segments passed their budget: merged, or
+	// why not (MergeRecapFailed, MergeWriteFailed). It is absent when the
+	// Segments fit their budget.
+	Merge *MergeResult `json:"merge,omitempty"`
 }
 
 // ErrOldSummary is what Compact returns for a Record whose last Checkpoint
@@ -253,11 +263,26 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(err)})
 		return Result{}, err
 	}
-	return Result{
+	result := Result{
 		SessionID: s.ID(), Replaced: true, Compaction: &record,
 		MessagesBefore: len(all), MessagesAfter: len(after),
 		TokensBefore: record.TokensBefore, TokensAfter: record.TokensAfter,
-	}, nil
+	}
+	// The Segments may now pass their budget: the oldest merge, in a
+	// Checkpoint of their own. A merge that fails leaves the Segment just
+	// closed in place, and the Segments unmerged.
+	merge, err := MergeSegments(ctx, s, MergeOptions{
+		Budget: opts.SegmentBudget, Ceiling: opts.Ceiling, Recap: opts.Recap, Why: why, Location: opts.Location, Now: opts.Now,
+	})
+	if err != nil {
+		return result, err
+	}
+	if merge.Merged || merge.Error != "" {
+		result.Merge = &merge
+		merged := s.Messages()
+		result.MessagesAfter, result.TokensAfter = len(merged), EstimateTokens(merged)
+	}
+	return result, nil
 }
 
 // keptToolSets returns the active ToolSets the closed Segment used or the kept
@@ -306,7 +331,20 @@ type CompactPolicy struct {
 	Recap         RecapWriter
 	DropReasoning bool
 	Now           func() time.Time
+	// SegmentBudget is the most the Segments together may hold, in
+	// estimated tokens, before the oldest are merged. 0 means half the
+	// ceiling in force, or DefaultSegmentsBudget with none (EffectiveBudget).
+	SegmentBudget int
 	SegmentSettings
+}
+
+// EffectiveBudget is the Segments' budget in force: SegmentBudget when set,
+// else half the ceiling in force, else DefaultSegmentsBudget.
+func (p CompactPolicy) EffectiveBudget() int {
+	if p.SegmentBudget > 0 {
+		return p.SegmentBudget
+	}
+	return SegmentsBudget(p.EffectiveCeiling())
 }
 
 // EffectiveCeiling is the ceiling in force: Ceiling when set, else the one the
@@ -373,6 +411,11 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 	ceiling := a.Ceiling()
 	overhead := requestOverhead(pending.Request)
 	if ceiling <= 0 || a.size(a.session.Messages(), overhead) <= ceiling {
+		if pending.Turn == 1 {
+			// Not past the ceiling, but the Segments may be past their
+			// budget: a merge that failed before is tried again here.
+			return a.mergeOnly(ctx, pending, gotato.CompactionPastBudget, a.policy.EffectiveBudget())
+		}
 		return gotato.TurnPrepared{}, nil
 	}
 	prepared, dropped, err := a.compact(ctx, pending, gotato.CompactionPastCeiling)
@@ -416,6 +459,13 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	if pending.Turn == 1 {
 		options.CurrentRun = pending.RunID
 	}
+	// The budget of the Segments is half the ceiling, or the default. On an
+	// overflow the limit the refusal names, if any, sizes it too.
+	budget := a.policy.EffectiveBudget()
+	if limit := refusalLimit(pending.Refusal); why == gotato.CompactionOverflow && limit > 0 {
+		budget = min(budget, limit)
+	}
+	options.SegmentBudget = budget
 	result, err := Compact(ctx, a.session, options)
 	if err != nil {
 		if errors.Is(err, ErrOldSummary) || ctx.Err() != nil {
@@ -428,7 +478,59 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		a.runs++
 	}
 	prepared.Changed = result.Replaced
+	merge := result.Merge
+	if !result.Replaced {
+		// Nothing to close, but the Segments may still pass their budget.
+		merged, err := MergeSegments(ctx, a.session, MergeOptions{
+			Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
+		})
+		if err != nil {
+			return prepared, false, err
+		}
+		merge = &merged
+		prepared.Changed = merged.Merged
+	}
+	if why == gotato.CompactionOverflow && merge != nil && merge.Error != "" {
+		// A merge that could not be written leaves the far past as it was:
+		// the caller is told, not left with a request that is refused again.
+		return prepared, false, gotato.ErrorOf(gotato.ErrContextOverflow,
+			fmt.Sprintf("the provider refused the request as too long, the Segments alone pass their limit (about %d tokens, limit %d), and merging the oldest failed, so nothing was merged: %s",
+				merge.SegmentTokens, merge.Budget, merge.Error))
+	}
 	return prepared, false, nil
+}
+
+// mergeOnly merges the oldest Segments when they pass budget, with no Segment
+// to close. A merge that fails leaves them as they are and the Run goes on.
+func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTurn, why gotato.CompactionWhy, budget int) (gotato.TurnPrepared, error) {
+	var tokens int
+	for _, segment := range a.session.Segments() {
+		tokens += EstimateTokens(segment.Messages)
+	}
+	if tokens <= budget {
+		return gotato.TurnPrepared{}, nil
+	}
+	if pending.Flush != nil {
+		if err := pending.Flush(ctx); err != nil {
+			return gotato.TurnPrepared{}, err
+		}
+	}
+	a.compacted = true
+	merge, err := MergeSegments(ctx, a.session, MergeOptions{
+		Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
+	})
+	return gotato.TurnPrepared{Changed: merge.Merged}, err
+}
+
+// refusalLimit returns the limit in tokens that the error refusing a request
+// names, or 0 when it names none. The gateway's Error reads it from the
+// provider's wording (ContextLimit).
+func refusalLimit(refusal error) int {
+	var named interface{ ContextLimit() int }
+	if refusal != nil && errors.As(refusal, &named) {
+		return max(named.ContextLimit(), 0)
+	}
+	return 0
 }
 
 // Last returns the most recent automatic compaction and how many happened.
