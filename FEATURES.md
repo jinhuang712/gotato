@@ -325,6 +325,7 @@ Gotato, your service or an extension sometimes has to tell the model something t
 
 - A notice never starts a Run and never keeps one going. With no Run, it waits for the next one and goes in after its prompt; a notice still waiting when a Run settles waits for the next Run. A service that wants the model to react at once calls `Continue` after it.
 - `notice_queued` and `notice_committed` report both steps ([G-F13](#g-f13--events-)); `notice_committed` carries the number of the `notice_queued` it came from.
+- **A queued notice outlives its writer.** The service was answered with the number of a stored `notice_queued`, so it takes the notice as accepted. An instance that loads the Session after its writer died rebuilds the queue from every `notice_queued` with no `notice_committed`, in order. A Steer is not rebuilt: it is lost with its writer, and the caller sends it again ([G-F26](#g-f26--steering-a-run-)).
 
 **How each wire API receives it.**
 
