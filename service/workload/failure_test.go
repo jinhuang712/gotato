@@ -403,16 +403,18 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			id, before := r.seed()
 			store.reset(n)
 			res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
-			if err == nil && res.Result.Status == gotato.RunCompleted {
-				t.Fatalf("write %d failed, and the Run reported success", n)
+			// The last write only releases the Session: every fact of the Run is
+			// stored, so that Run completes. A failure of any earlier write does not.
+			if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunCompleted) {
+				t.Fatalf("write %d failed: the Run settled as %q with %v", n, res.Result.Status, err)
 			}
-			// completed never carries an error: a Run whose last writes failed
-			// settles as not_saved, and says why.
+			// completed never carries an error: a Run whose reply or end was
+			// not written settles as failed, and says why.
 			if err != nil && res.Result.Status == gotato.RunCompleted {
 				t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
 			}
-			if res.Result.Status == gotato.RunNotSaved && !errors.Is(err, service.ErrNotPersisted) {
-				t.Fatalf("write %d failed: not_saved with err = %v, want ErrNotPersisted", n, err)
+			if res.Result.Status == gotato.RunFailed && !errors.Is(err, service.ErrNotPersisted) {
+				t.Fatalf("write %d failed: failed with err = %v, want ErrNotPersisted", n, err)
 			}
 			if res.Result.Status == "" {
 				// A Run refused before it started has no result, and says why.

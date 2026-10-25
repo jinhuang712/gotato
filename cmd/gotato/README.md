@@ -27,7 +27,7 @@ go build -o bin/gotato ./cmd/gotato
 | Code | Meaning |
 |---|---|
 | `0` | success; for `run`, the run completed |
-| `1` | runtime error (store, provider, encoding), also a run that settled as `not_saved`: the reply was made but the writes that end the run failed, so the session does not hold it (the JSON outcome is still printed, with `status: "not_saved"` and the store error) |
+| `1` | runtime error (store, provider, encoding), also a run that failed because its reply or its end could not be written, so the session does not hold it (the JSON outcome is still printed, with `status: "failed"` and the `store_failure` error) |
 | `2` | usage error (unknown command, missing argument, invalid flag value, invalid model or strategy) |
 | `3` | not found (session id, tool id): the error code `not_found` |
 | `4` | the run did not complete: `failed`, `cancelled`, or `deadline_exceeded` (the JSON outcome is still printed) |

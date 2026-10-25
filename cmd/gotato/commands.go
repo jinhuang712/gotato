@@ -93,8 +93,8 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	outcome := outcomeOf(result)
 	code := ExitOK
 	switch {
-	case outcome.Status == gotato.RunNotSaved || errors.Is(err, service.ErrNotPersisted):
-		// The reply was made but the Record does not hold it: exit 1, not 4.
+	case errors.Is(err, service.ErrNotPersisted):
+		// A write of the Run failed, so the Record does not hold it: exit 1, not 4.
 		code = ExitError
 	case outcome.Status != gotato.RunCompleted:
 		code = ExitRunIncomplete

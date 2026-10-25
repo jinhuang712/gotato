@@ -162,8 +162,11 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 				backing := session.NewMemoryStore()
 				dying := &faultStore{Store: backing, crashAfter: n}
 				id, err := play(ctx, taskRunner(t, dying, task, "dying"), task)
-				if err == nil || id == "" {
-					t.Fatalf("crash after write %d: the play went on (%v)", n, err)
+				// The last write only releases the Session. A crash after the
+				// one before it loses nothing of the Run, so the Run completes.
+				releaseOnly := n == clean.writes-1
+				if id == "" || (err == nil && !releaseOnly) || (err != nil && releaseOnly) {
+					t.Fatalf("crash after write %d: the play ended with %v", n, err)
 				}
 
 				// Another instance opens the Session: it holds what the

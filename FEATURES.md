@@ -15,7 +15,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Run, continue and abort | `Prompt` returns when the Run settles; `Continue` resumes it; `Abort` stops it | G-F01 | ✅ |
 | The Loop | calls the model and the tools it asks for, until it answers or a limit stops it | G-F01 | ✅ |
 | Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
-| Settled results | every Run ends `completed`, `failed`, `cancelled`, `deadline_exceeded` or `not_saved`, with its usage | G-F01 | ✅ |
+| Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
 | Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
 | Limits | Turns, tool calls, messages, bytes and deadlines, each with a default | G-F01 | ✅ |
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
@@ -223,7 +223,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
-- Every Run that starts settles as `completed`, `failed`, `cancelled`, `deadline_exceeded` or `not_saved`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. `not_saved` is the service's status for a Run whose reply was made but whose last writes failed, so the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success.
+- Every Run that starts settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. A Run whose reply or end could not be written settles as `failed` with `store_failure`, because the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success. A Run whose only failed write is the release of the Session stays `completed`: all its Events are stored, `session_saved` with `failed: true` and `store_write_failed` warn the operator, and the Claim lapses with the Liveness row ([G-F27](#g-f27--service-many-instances-)).
 - A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 
@@ -269,8 +269,8 @@ result, err := runner.Run(ctx, req)
 switch {
 case gotato.NotRun(err):
 	// nothing happened: send it to another instance, or tell the user to try again
-case result.Result.Status == gotato.RunNotSaved:
-	// the reply was made (result.FinalText) but the Record does not hold it
+case errors.Is(err, service.ErrNotPersisted):
+	// the Run failed (store_failure): a reply was made (result.FinalText) but the Record does not hold it
 case err != nil && gotato.Retryable(err):
 	// it ran; sending the same request again later may succeed
 }
@@ -1383,7 +1383,7 @@ gotato run --session "$id" --model demo --json "use-tool"
 | `version` | prints the version |
 
 - `--json` and `--jsonl` print data on stdout, and diagnostics go to stderr. `--timeout` sets a command's deadline.
-- Exit codes: `0` success, `1` runtime error (also a Run that settled as `not_saved`), `2` usage error, `3` not found, `4` the Run did not complete. One table maps each error code to its exit code. A failed command in `--json` mode writes `{"error", "exit_code", "code", "not_run", "retryable"}`. Planned with messages from any endpoint: `not_writer` exits 1 and adds `writer`, the address to send the message to ([G-F26](#g-f26--steering-a-run-)).
+- Exit codes: `0` success, `1` runtime error (also a Run that failed because its writes failed), `2` usage error, `3` not found, `4` the Run did not complete. One table maps each error code to its exit code. A failed command in `--json` mode writes `{"error", "exit_code", "code", "not_run", "retryable"}`. Planned with messages from any endpoint: `not_writer` exits 1 and adds `writer`, the address to send the message to ([G-F26](#g-f26--steering-a-run-)).
 - Built-in models need no credentials: `echo` (the default) and `demo`. `gateway` uses the YAML provider.
 - Environment: `GOTATO_HOME`, `GOTATO_MODEL`, `GOTATO_GATEWAY_CONFIG`.
 
@@ -1466,7 +1466,8 @@ Each feature above says what happens when its part fails. This table collects th
 | A limit is reached | the Run settles with a status that names the limit | G-F01 |
 | A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | G-F27 |
 | A write fails | the Run stops at that step with `store_failure` or `conflict`, and a failed model-call write stops it before the model is called; the caller retries or reports it | G-F03 |
-| The writes that end a Run fail | the reply was made, but the Record does not hold it: the Run settles as `not_saved` with `store_failure` and `ErrNotPersisted`, never as `completed`; the next Run starts without that reply | G-F01 |
+| The write of the reply or of the end of a Run fails | the Record does not hold the Run: it settles as `failed` with `store_failure` and `ErrNotPersisted`, never as `completed`; no `run_ended` is stored; the next Run starts without that reply | G-F01 |
+| Only the release of the Session fails | every Event of the Run is stored, so the Run stays `completed` with no error; `session_saved` with `failed: true` and `store_write_failed` warn the operator, and the Claim lapses with the Liveness row | G-F27 |
 | A Run is refused before it started (draining, past a limit, busy, no such Session) | an empty result with no status and an error that says it did not run; the caller may send it to another instance | G-F01 |
 | An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects; a Run still going at the drain timeout is stopped, saved and released, and its stream says to reconnect; a new Run is refused as `draining`, not run | G-F27 |
 | An instance dies mid-Run | at most the step in flight is lost, and a tool that was running is answered with an unknown outcome; another instance takes the Session over once the dead instance's row expires | G-F27 |

@@ -47,8 +47,9 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 	})
 }
 
-func TestEmbeddedCallerSeesALostFinalWriteAsNotSaved(t *testing.T) {
-	// A clean play counts the Run's writes; the last one ends the Run.
+func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
+	// A clean play counts the Run's writes. The last releases the Session; the
+	// one before it ends the Run.
 	clean, cleanStore := newRig(t)
 	cleanID, _ := clean.seed()
 	cleanStore.reset(0)
@@ -57,20 +58,35 @@ func TestEmbeddedCallerSeesALostFinalWriteAsNotSaved(t *testing.T) {
 	}
 	last := cleanStore.writes
 
-	r, store := newRig(t)
-	id, _ := r.seed()
-	store.reset(last)
-	res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
-	if res.Result.Status != gotato.RunNotSaved {
-		t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunNotSaved)
-	}
-	if !errors.Is(err, service.ErrNotPersisted) || res.Result.Error == nil {
-		t.Fatalf("err = %v, result error = %v, want both to say the Run was not saved", err, res.Result.Error)
-	}
-	if !gotato.Retryable(err) || gotato.NotRun(err) {
-		t.Fatalf("a failed final write: retryable %v, not run %v, want retryable and not known to be not run", gotato.Retryable(err), gotato.NotRun(err))
-	}
-	if res.FinalText == "" {
-		t.Fatal("the reply that was made is lost")
-	}
+	t.Run("the write that ends the Run fails", func(t *testing.T) {
+		r, store := newRig(t)
+		id, _ := r.seed()
+		store.reset(last - 1)
+		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
+		if res.Result.Status != gotato.RunFailed {
+			t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunFailed)
+		}
+		if res.Result.Error == nil || !gotato.IsCode(res.Result.Error, gotato.ErrStoreFailure) {
+			t.Fatalf("result error = %v, want store_failure", res.Result.Error)
+		}
+		if !errors.Is(err, service.ErrNotPersisted) {
+			t.Fatalf("err = %v, want ErrNotPersisted", err)
+		}
+		if !gotato.Retryable(err) || gotato.NotRun(err) {
+			t.Fatalf("a failed final write: retryable %v, not run %v, want retryable and not known to be not run", gotato.Retryable(err), gotato.NotRun(err))
+		}
+	})
+
+	t.Run("only the release of the Session fails", func(t *testing.T) {
+		r, store := newRig(t)
+		id, _ := r.seed()
+		store.reset(last)
+		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
+		if err != nil || res.Result.Status != gotato.RunCompleted || res.Result.Error != nil {
+			t.Fatalf("a Run whose Events are all stored = %q, %v, %v, want completed without an error", res.Result.Status, res.Result.Error, err)
+		}
+		if res.FinalText == "" {
+			t.Fatal("the reply is lost")
+		}
+	})
 }

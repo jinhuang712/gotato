@@ -84,8 +84,9 @@ switch {
 case gotato.NotRun(err):
     // refused before it started (draining, full, busy, no such Session): nothing
     // happened, so send it to another instance or ask the user to try again
-case out.Result.Status == gotato.RunNotSaved:
-    // the reply was made (out.FinalText) but the Record does not hold it
+case errors.Is(err, service.ErrNotPersisted):
+    // the Run failed (store_failure): the Record does not hold it, though a reply
+    // was made (out.FinalText)
 case gotato.Retryable(err):
     // it ran; sending the same request again later may succeed
 }

@@ -444,6 +444,15 @@ func (w *Writer) Release(ctx context.Context) error {
 	return w.Flush(ctx)
 }
 
+// Failed returns the failure that stopped the Writer, or nil while every write
+// has succeeded. A Writer stops at its first failed write and refuses the
+// rest, the release of the Session among them.
+func (w *Writer) Failed() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.failed
+}
+
 // Since returns the writes counted after before, a WriteStats taken earlier
 // from the same Writer. The load is not counted again.
 func (s WriteStats) Since(before WriteStats) WriteStats {

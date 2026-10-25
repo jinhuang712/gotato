@@ -167,9 +167,11 @@ var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session 
 // Instance, once the Runner drains.
 var ErrDraining = gotato.ErrorOf(gotato.ErrDraining, "service: draining")
 
-// ErrNotPersisted reports that a settled Run could not be saved. The Run
-// outcome is still returned, and a Run that would have completed settles as
-// gotato.RunNotSaved; callers must treat the Session state as lost.
+// ErrNotPersisted reports that a write of a Run failed, so the Record does not
+// hold the Run. The Run outcome is still returned, settled as gotato.RunFailed
+// with store_failure; callers must treat the Session state as lost. A Run whose
+// only failed write is the release of the Session keeps its status and
+// returns no error: its Events are all stored.
 var ErrNotPersisted = errors.New("service: session was not persisted")
 
 // Runner serves Runs against Sessions.
@@ -856,25 +858,31 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			// Persist the settled Session even when the Run was cancelled, but
 			// bound the write so a stalled Store cannot pin the Run (and Drain)
 			// forever.
+			wroteAll := writer.Failed() == nil
 			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
 			saveErr := writer.Release(saveCtx)
 			cancelSave()
 			r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(saved), saveErr), spec.Name)
 			r.noteFailure(saveErr, s.ID(), spec.Name)
-			if saveErr != nil {
-				// The Session state is lost whether or not the Run failed: keep
-				// the Run error and add the persistence failure so callers can
-				// observe both (errors.Is still matches each).
+			// Only the release failed: every fact of the Run is stored, so the
+			// Run keeps its status. The warning Events above tell the operator,
+			// and the Claim lapses with the Liveness row.
+			if saveErr != nil && !wroteAll {
+				// An earlier write of the Run failed, and the Writer refuses
+				// the release too: keep the Run error and add the persistence
+				// failure so callers can observe both (errors.Is still matches
+				// each).
 				var saveFailure *gotato.RuntimeError
 				if !errors.As(saveErr, &saveFailure) {
 					saveFailure = gotato.ErrorOf(gotato.ErrStoreFailure, saveErr.Error())
 					saveFailure.Cause = saveErr
 					saveErr = saveFailure
 				}
-				// A Run that completed did not end well: the reply was made, but
-				// the Record does not hold it. completed never carries an error.
+				// completed never carries an error. The Run's own writes
+				// settle it as failed, so this only guards the rule.
 				if result.Status == gotato.RunCompleted {
-					result.Status = gotato.RunNotSaved
+					result.Status = gotato.RunFailed
+					result.Error = saveFailure
 				}
 				persistErr := fmt.Errorf("%w: %w", ErrNotPersisted, saveErr)
 				if runErr == nil {

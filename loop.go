@@ -164,7 +164,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	// end without exactly one RunEnded, so it is staged even when the Run
 	// failed on a write: a Journal that has stopped refuses it too, and then
 	// nothing was stored, and nothing is sent.
-	end := func(turn TurnNumber, result RunResult, extra func(*RunEnded)) {
+	end := func(turn TurnNumber, result RunResult, extra func(*RunEnded)) *RuntimeError {
 		a.discardControl(runID, turn)
 		// No Abort can start a write from here on, and the ones that did
 		// have finished: an abort_requested never follows run_ended.
@@ -193,7 +193,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			extra(&ended)
 		}
 		a.stage(ended)
-		_ = a.flush(ctx)
+		return a.flush(ctx)
 	}
 	currentTurn := func() TurnNumber {
 		a.runMu.Lock()
@@ -213,7 +213,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		turn := currentTurn()
 		a.closeOpenCalls(runID, &batch, err, result.Status)
-		end(turn, result, nil)
+		_ = end(turn, result, nil)
 		return result, err
 	}
 
@@ -329,12 +329,19 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			finalCopy := assistant.Clone()
 			final = &finalCopy
 			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
-			end(turn, result, func(e *RunEnded) {
+			writeErr := end(turn, result, func(e *RunEnded) {
 				if stopped {
 					e.StoppedByExtension = true
 					e.StopReason = reason
 				}
 			})
+			if writeErr != nil {
+				// The write that ends the Run failed, so the Record does not
+				// say the Run ended: the Run failed, whatever the reply was.
+				result.Status = RunFailed
+				result.Error = writeErr
+				return result, writeErr
+			}
 			return result, nil
 		}
 

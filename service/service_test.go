@@ -413,6 +413,8 @@ type failingSaveStore struct {
 	saves int
 	// failFinal fails the write that ends a Run: the one holding run_ended.
 	failFinal bool
+	// failRelease fails the write that releases the Session, and only that one.
+	failRelease bool
 }
 
 func (s *failingSaveStore) fail(entries []session.Entry) bool {
@@ -421,6 +423,9 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	s.saves++
 	for _, entry := range entries {
 		if s.failFinal && entry.Kind == gotato.KindRunEnded {
+			return true
+		}
+		if s.failRelease && entry.Kind == gotato.KindSessionReleased {
 			return true
 		}
 	}
@@ -454,8 +459,28 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	if !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
-	if result.Result.Status != gotato.RunNotSaved || result.Result.Error == nil || result.FinalText != "echo: hi" {
+	if result.Result.Status != gotato.RunFailed || !gotato.IsCode(result.Result.Error, gotato.ErrStoreFailure) || result.FinalText != "echo: hi" {
 		t.Fatalf("run outcome lost: %+v", result)
+	}
+}
+
+func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
+	store := &failingSaveStore{Store: session.NewMemoryStore(), failRelease: true}
+	runner, err := service.New(service.Config{
+		Store:  store,
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := instanceRecorder(t, runner)
+	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
+	if err != nil || result.Result.Status != gotato.RunCompleted || result.Result.Error != nil || result.FinalText != "echo: hi" {
+		t.Fatalf("a Run whose Events are all stored = %+v, %v, want completed without an error", result, err)
+	}
+	instance.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == gotato.KindStoreWriteFailed })
+	if len(instance.OfKind(gotato.KindStoreWriteFailed)) == 0 {
+		t.Fatalf("no store_write_failed warning among %v", instance.Kinds())
 	}
 }
 
