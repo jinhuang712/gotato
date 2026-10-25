@@ -17,10 +17,10 @@ Phase 3  Names               the Agent, the live Session and its Record take the
 Phase 4  Durable steps       every step is appended as it happens, and every append is fenced
 Phase 5  One writer          any instance answers like the only one, with one writer at a time, and resumes any stream
 Phase 6  Compaction          the Context stays within the model's window, and a Session that comes back after a pause starts small
-Phase 7  Warm Session        a Session stays in memory while in use, is told runtime facts,
-                             and takes Steer, Interrupt and Stop from any endpoint
-Phase 8  MCP, tool search    tools load one by one from a catalog, MCP servers supply tools, a large Tool Result
+Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers supply tools, a large Tool Result
                              is spilled into the Record, and the counting caps leave the core
+Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
+                             and takes Steer, Interrupt and Stop from any endpoint
 Phase 9  Large results       how a model reads a spilled result inside a pod with no machine (design open)
 Phase 10 Access hooks        the caller's identity reaches extensions and stores, and a refusal answers 403
 Phase 11 Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
@@ -31,14 +31,14 @@ Why this order:
 
 - **Measurement comes first,** so each later phase is measured against a baseline. Saving every step adds a write per step, and the benchmarks show what that costs.
 - **The Effect cap and the rename depend on nothing else.** The cap adds a setting to the Agent, not a type, so it does not wait for the rename.
-- **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 7 grows the Session without renaming it.
+- **The rename comes before the store and writer work,** so that code is written with the final names. The live Session and its Record both take their names in Phase 3, so Phase 8 grows the Session without renaming it.
 - **The design discussion comes before the store changes.** The store contract that Phase 4 ships already carries the Claims, the Epoch and the Liveness rows that Phase 5 uses, so store adapters change once.
 - **Durable steps, one writer and the warm Session each build on the one before.** One writer needs Turns that are appended and fenced, and a warm Session needs a writer to hold it.
 - **Compaction comes before the warm Session,** because it does not need it. A cloud Session is compacted often, before its cache goes cold, so that a user who comes back later finds a small Context and the conversation they left. Until the warm Session has an idle timer, the service compacts an idle Session itself: its own timer calls the compact endpoint before the provider's cache expires, and `min_tokens` skips a stretch too short to be worth a model call. The warm Session's timer later calls the same compaction.
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
-- **Tools at scale come after the warm Session.** Tool search, the MCP adapter and the spilled results change what a Session loads, keeps and saves, and a warm Session is what holds a spilled body in memory. They also take the counting caps out of the core, which the compaction ceiling and the Run's `ctx` replace, so Compaction has to be built first.
-- **The reader of large results waits until real MCP results show what a model needs.** Phase 8 spills a large Tool Result and lets the model page through it. Whether paging is enough, or the model needs to grep and filter, is answered with the results MCP servers return, so the design stays open until then.
+- **Tools at scale come before the warm Session.** Tool search, the MCP adapter and the spilled results do not need it: while a Run is live the Session already holds a spilled body in memory, a later Run reads it from the Record, and the warm Session (next phase) keeps it across Runs. They also take the counting caps out of the core, which the compaction ceiling and the Run's `ctx` replace, so Compaction has to be built first.
+- **The reader of large results waits until real MCP results show what a model needs.** Phase 7 spills a large Tool Result and lets the model page through it. Whether paging is enough, or the model needs to grep and filter, is answered with the results MCP servers return, so the design stays open until then.
 - **Access hooks depend on nothing above,** so the maintainer can move them earlier. They give enterprise teams the places to enforce their own rules, and they come after the store work because the many-instance goals carry the pitch.
 - **The tests a team's own setup would run come last:** fake gateways, a local cluster with a chat bot on it, and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
 
@@ -101,7 +101,7 @@ The three store questions are answered as decisions dated 2026-10-16: the first 
 - ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
 - ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
 
-Runtime notices (FEATURES.md G-F29), which follow from the third answer, were designed on 2026-10-18 ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and are built in [Phase 7](#phase-7--warm-session). The warm Session, and the answer for a message that reaches an instance that is not the writer, were designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F26](FEATURES.md#when-the-hash-missed-the-answer-names-the-writer--2026-10-25)), and are built in the same phase. The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
+Runtime notices (FEATURES.md G-F29), which follow from the third answer, were designed on 2026-10-18 ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and are built in [Phase 8](#phase-8--warm-session). The warm Session, and the answer for a message that reaches an instance that is not the writer, were designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F26](FEATURES.md#when-the-hash-missed-the-answer-names-the-writer--2026-10-25)), and are built in the same phase. The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 
 Exit: the maintainer approves the three Decisions.
 
@@ -130,7 +130,7 @@ Built. The part that keeps two instances from running one Session is built, and 
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
 - ✅ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header as a check and answer with it when they create a Session, an instance past its hard limit (`MaxActiveSessions`, `--max-sessions`) refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain and the active Sessions ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
 - ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
-- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the contract version change that Phase 3 made. The message Events have their types, and a live Session sends them; the Runner and the endpoints get them in Phase 7.
+- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the contract version change that Phase 3 made. The message Events have their types, and a live Session sends them; the Runner and the endpoints get them in Phase 8.
 - ✅ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch: `GET /v1/sessions/{id}/stream` (`Last-Event-ID`, `after`) and gRPC `StreamSession`. A Run's stream carries each Event's number, and a stream that ends says whether to reconnect and after how long, spread at random ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
 - ✅ Claim Events: `session_claimed`, with why and from which instance, `session_released`, `session_fenced` and `liveness_lapsed`.
 - ✅ The multi-instance harness: several instances over one shared store behind a hashing proxy, with requests sent through it and straight to random instances, concurrent messages and an instance killed.
@@ -165,10 +165,29 @@ Exit:
 - ✅ A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - ✅ G-G07 and G-G09 pass across Runs, reloads, instances and compactions (the `long_session` play, with and without the model's Recap, merges included), and G-G11 passes for every fault it lists.
 - ✅ G-G10 passes on the `long_session` task.
-- ⬜ G-B14, G-B15 and G-B16 have a number. G-B14's sizes and G-B16's tokens have one, from the fake model; the costs and times need a live run, and G-B15 needs the idle compaction, which waits for the warm Session (Phase 7), and a provider's cache.
+- ⬜ G-B14, G-B15 and G-B16 have a number. G-B14's sizes and G-B16's tokens have one, from the fake model; the costs and times need a live run, and G-B15 needs the idle compaction, which waits for the warm Session (Phase 8), and a provider's cache.
 - ✅ The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
 
-## Phase 7 — Warm Session
+## Phase 7 — MCP and tool search
+
+A Session's tools come from many places, and a service that connects MCP servers can offer hundreds of them. The model should see the few it needs, and a Tool Result should never fill the Context on its own. This phase loads tools one by one from a catalog, adds the MCP adapter that supplies them, spills a large Tool Result into the Record, and takes the counting caps out of the core. Designed on 2026-10-25 ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25), [FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-), [G-F12](FEATURES.md#g-f12--the-mcp-adapter-) and [G-F35](FEATURES.md#g-f35--large-tool-results-)). Each step is marked ⬜ to build; they build on one another, in this order:
+
+- ⬜ Step 1, limits that guard a real failure: `MaxTurns`, `MaxToolCalls`, `MaxToolResultBytes` and `RunDeadline` leave the core. A team that wants a Turn or call cap writes a `TurnStopper`, and a Run's deadline is its `ctx`. `service.Agent` keeps one Run deadline (30 minutes by default) that the request's own timeout overrides. `MaxMessageBytes` stays, and `ModelCallDeadline` and `ToolCallDeadline` stay, marked for review. The DESIGNS section about every Run ending is the final form of this step.
+- ⬜ Step 2, large Tool Results: a Tool Result over one page (about 8K tokens) is spilled into the Record as an Entry of its own, the Context holds a preview and a ref, and the model reads the rest page by page with `read_result`, which pages as `read_segment` does. A load does not read a spilled body until it is asked for. This replaces what `MaxToolResultBytes` did.
+- ⬜ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search.
+- ⬜ Step 4, native deferred loading: the part of G-F32 that concerns tools. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
+- ⬜ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK. One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect.
+
+Exit:
+
+- A test on a fake model plays a Run that no `TurnStopper` stops and that settles by its model's reply, by its `ctx`, by a `TurnStopper` and by the compaction ceiling, and finds no counting cap in the core.
+- A test spills a Tool Result of 1 MB, checks that the Context holds only the preview and the ref, that a load reads no spilled body, that `read_result` pages through the whole body, and that every instance builds the same request from the same Record (G-G09).
+- A test loads tools by name and by query on a fake model, checks that a call to an unloaded catalog tool fails with a Tool Result that says it is loaded now, that a compaction keeps the tools called in the closed Segment or the kept tail and unloads the rest, that every instance offers the same tools after a load, that the Effect cap keeps a tool out of the index, and that a tool switched off for a Session is never loaded.
+- A test of each wire API's form of deferred loading checks the request bytes of two consecutive Turns that load a tool: the same tool list in the native form, a changed one in the list form (G-G07).
+- The MCP adapter's tests run against an in-process MCP server over both transports, and check the Effect from annotations, the slimmed schemas, the content mapping and a server's `list_changed` at the next Run. Its module passes its own `go test`, `go vet` and `golangci-lint`.
+- G-G07, G-G09 and G-G10 keep passing.
+
+## Phase 8 — Warm Session
 
 A Session stays in memory while it is in use, so a Run in progress can be steered from any endpoint, and the runtime can tell the model facts that are not the user's words. The store stays the truth, and a warm copy is a cache, never a lock. Designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-) and [G-F26](FEATURES.md#g-f26--steering-a-run-)). The steps build on one another, in this order:
 
@@ -194,30 +213,11 @@ Exit:
 - A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
-## Phase 8 — MCP and tool search
-
-A Session's tools come from many places, and a service that connects MCP servers can offer hundreds of them. The model should see the few it needs, and a Tool Result should never fill the Context on its own. This phase loads tools one by one from a catalog, adds the MCP adapter that supplies them, spills a large Tool Result into the Record, and takes the counting caps out of the core. Designed on 2026-10-25 ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25), [FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-), [G-F12](FEATURES.md#g-f12--the-mcp-adapter-) and [G-F35](FEATURES.md#g-f35--large-tool-results-)). Each step is marked ⬜ to build; they build on one another, in this order:
-
-- ⬜ Step 1, limits that guard a real failure: `MaxTurns`, `MaxToolCalls`, `MaxToolResultBytes` and `RunDeadline` leave the core. A team that wants a Turn or call cap writes a `TurnStopper`, and a Run's deadline is its `ctx`. `service.Agent` keeps one Run deadline (30 minutes by default) that the request's own timeout overrides. `MaxMessageBytes` stays, and `ModelCallDeadline` and `ToolCallDeadline` stay, marked for review. The DESIGNS section about every Run ending is the final form of this step.
-- ⬜ Step 2, large Tool Results: a Tool Result over one page (about 8K tokens) is spilled into the Record as an Entry of its own, the Context holds a preview and a ref, and the model reads the rest page by page with `read_result`, which pages as `read_segment` does. A load does not read a spilled body until it is asked for. This replaces what `MaxToolResultBytes` did.
-- ⬜ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search.
-- ⬜ Step 4, native deferred loading: the part of G-F32 that concerns tools. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
-- ⬜ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK. One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect.
-
-Exit:
-
-- A test on a fake model plays a Run that no `TurnStopper` stops and that settles by its model's reply, by its `ctx`, by a `TurnStopper` and by the compaction ceiling, and finds no counting cap in the core.
-- A test spills a Tool Result of 1 MB, checks that the Context holds only the preview and the ref, that a load reads no spilled body, that `read_result` pages through the whole body, and that every instance builds the same request from the same Record (G-G09).
-- A test loads tools by name and by query on a fake model, checks that a call to an unloaded catalog tool fails with a Tool Result that says it is loaded now, that a compaction keeps the tools called in the closed Segment or the kept tail and unloads the rest, that every instance offers the same tools after a load, that the Effect cap keeps a tool out of the index, and that a tool switched off for a Session is never loaded.
-- A test of each wire API's form of deferred loading checks the request bytes of two consecutive Turns that load a tool: the same tool list in the native form, a changed one in the list form (G-G07).
-- The MCP adapter's tests run against an in-process MCP server over both transports, and check the Effect from annotations, the slimmed schemas, the content mapping and a server's `list_changed` at the next Run. Its module passes its own `go test`, `go vet` and `golangci-lint`.
-- G-G07, G-G09 and G-G10 keep passing.
-
 ## Phase 9 — Reading large results
 
 Design open. A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. The question is what the model is given instead. [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) rules out eight ways and leaves two candidates, and [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-) describes them. The choice waits until real MCP results show what a model needs; it is also in [TODO.md](TODO.md#decisions).
 
-- ⬜ Step 1, the decision: the maintainer chooses between typed reader parameters (`lines`, `grep`, a `json` path) and a terminating pipeline language, on a measurement of what models do with the spilled results of Phase 8.
+- ⬜ Step 1, the decision: the maintainer chooses between typed reader parameters (`lines`, `grep`, a `json` path) and a terminating pipeline language, on a measurement of what models do with the spilled results of Phase 7.
 - ⬜ Step 2, the chosen reader, built on `read_result`, with paging kept in both.
 
 Exit:
@@ -266,7 +266,7 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 |---|---|---|
 | G-F30 — A last Turn that answers | runtime notices (G-F29), and `tool_choice` in every gateway | next: G-F29 is designed |
 | G-F31 — Recovering a cut stream | runtime notices (G-F29) | next: G-F29 is designed |
-| G-F32 — Changes that keep the cache | a reference task that changes a Session's instruction or switches a tool on for one Session, to measure what a change costs. The tools the model loads itself are Phase 8 | after that measurement |
+| G-F32 — Changes that keep the cache | a reference task that changes a Session's instruction or switches a tool on for one Session, to measure what a change costs. The tools the model loads itself are Phase 7 | after that measurement |
 
 ## Every release, from the first on
 

@@ -161,7 +161,7 @@ Its cached input tokens and its cost, when the user comes back after the cache r
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Compared with:** the same Session without idle compaction
 - **Method:** live run with a pause longer than the cache retention *(to build)*
-- **Last measured:** Not measured. It needs a provider's cache, which a fake model has none of, and the idle compaction, which waits for the warm Session ([ROADMAP.md](ROADMAP.md) Phase 7); until then a service calls the compact endpoint from its own timer. No number comes from a fake.
+- **Last measured:** Not measured. It needs a provider's cache, which a fake model has none of, and the idle compaction, which waits for the warm Session ([ROADMAP.md](ROADMAP.md) Phase 8); until then a service calls the compact endpoint from its own timer. No number comes from a fake.
 
 ### G-B16 — Cost of a compaction
 
@@ -231,7 +231,7 @@ Peak heap per Run, and heap per Session in memory.
 - **Serves:** [Keep subtracting](DESIGNS.md#5-keep-subtracting)
 - **Compared with:** the previous release, and a coding-agent session's 1 GiB starting point ([Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting))
 - **Method:** `BenchmarkSessionFootprint`, and the reference service's resident memory
-- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. A Runner keeps no Session in memory between Runs, so heap per Session in memory waits for the warm Session (ROADMAP Phase 7). 2026-10-16.
+- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. A Runner keeps no Session in memory between Runs, so heap per Session in memory waits for the warm Session (ROADMAP Phase 8). 2026-10-16.
 
 ### G-B09 — CPU per Turn, at 10, 100 and 1,000 messages
 
