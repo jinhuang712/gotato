@@ -42,6 +42,13 @@ jobs:
       - name: go test
         run: go test -race ./...
 
+      - name: GNU conformance
+        if: matrix.module == 'adapter/bash'
+        env:
+          GOTATO_GNU: "1"
+          GOTATO_GNU_PREFIX: ""
+        run: go test -run TestAgainstGNU -v ./...
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9.2.0
         with:
