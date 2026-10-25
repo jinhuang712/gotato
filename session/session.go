@@ -266,6 +266,16 @@ func (s *Record) RecordEpoch() string {
 	return s.epochLocked()
 }
 
+// Holder reports who holds the Record: the Claim it was last written under,
+// and whether that holder is using it, with a Run or a change under way (the
+// Record is busy until its writer releases it). A Record that was never
+// claimed returns an empty Claim.
+func (s *Record) Holder() (claim Claim, busy bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claim, s.busy || s.running != ""
+}
+
 // epochLocked is the epoch every surface reports: the Record's own, or for a
 // Record written before epochs the one Summary.Epoch names, made of its
 // creation time.

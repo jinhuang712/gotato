@@ -599,5 +599,5 @@ func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, err
 	if err != nil {
 		return InstanceState{}, err
 	}
-	return InstanceState{ID: id, Alive: f.now().Before(current.Expires), Draining: current.Row.Draining}, nil
+	return InstanceState{ID: id, Alive: f.now().Before(current.Expires), Draining: current.Row.Draining, Address: current.Row.Address}, nil
 }

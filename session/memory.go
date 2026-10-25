@@ -165,7 +165,7 @@ func (m *MemoryStore) Instance(ctx context.Context, id string) (InstanceState, e
 	if !ok {
 		return InstanceState{ID: id}, nil
 	}
-	return InstanceState{ID: id, Alive: m.now().Before(current.expires), Draining: current.row.Draining}, nil
+	return InstanceState{ID: id, Alive: m.now().Before(current.expires), Draining: current.row.Draining, Address: current.row.Address}, nil
 }
 
 func cloneSummary(summary Summary) Summary {

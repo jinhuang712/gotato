@@ -85,14 +85,20 @@ type Loaded struct {
 type InstanceRow struct {
 	ID       string `json:"id"`
 	Draining bool   `json:"draining,omitempty"`
+	// Address is where a caller can reach this Instance's own endpoint, if its
+	// operator set one. Gotato only carries it: a message that reaches another
+	// Instance is answered with the writer's Address (not_writer).
+	Address string `json:"address,omitempty"`
 }
 
 // InstanceState is what a store knows of an Instance: whether its Liveness
-// row is alive by the store's clock, and whether it is draining.
+// row is alive by the store's clock, whether it is draining, and the Address
+// it advertises.
 type InstanceState struct {
 	ID       string `json:"id"`
 	Alive    bool   `json:"alive"`
 	Draining bool   `json:"draining,omitempty"`
+	Address  string `json:"address,omitempty"`
 }
 
 // Store keeps Records as append-only logs of Entries, and one Liveness row

@@ -360,6 +360,7 @@ var exitOfCode = map[gotato.ErrorCode]int{
 	gotato.ErrOverloaded:            ExitError,
 	gotato.ErrDraining:              ExitError,
 	gotato.ErrCannotResume:          ExitError,
+	gotato.ErrNotWriter:             ExitError,
 }
 
 // failErr reports an error and returns the exit code of its code.

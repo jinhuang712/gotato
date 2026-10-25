@@ -479,6 +479,7 @@ var codeOf = map[gotato.ErrorCode]codes.Code{
 	gotato.ErrInvalidState:          codes.FailedPrecondition,
 	gotato.ErrSessionClosing:        codes.FailedPrecondition,
 	gotato.ErrCannotResume:          codes.FailedPrecondition,
+	gotato.ErrNotWriter:             codes.FailedPrecondition,
 	gotato.ErrCancelled:             codes.Canceled,
 	gotato.ErrDeadlineExceeded:      codes.DeadlineExceeded,
 	gotato.ErrLimitExceeded:         codes.ResourceExhausted,

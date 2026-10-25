@@ -52,6 +52,11 @@ const (
 	// holds: the Record is not the one it saw, or the number is past its last
 	// Event. The client starts over from the first Event.
 	ErrCannotResume ErrorCode = "cannot_resume"
+	// ErrNotWriter means a message for a Run reached an Instance that is not
+	// the Run's writer. The message did not run, and sent again to the
+	// writer, whose advertised address is in Details["writer"] when it has
+	// one, it may succeed.
+	ErrNotWriter ErrorCode = "not_writer"
 )
 
 // ErrorCodes lists every ErrorCode, so a layer that maps codes (a transport, a
@@ -64,7 +69,7 @@ func ErrorCodes() []ErrorCode {
 		ErrToolResolutionFailure, ErrToolArgumentFailure, ErrToolExecutionFailure,
 		ErrExtensionFailure, ErrLimitExceeded, ErrCancelled, ErrDeadlineExceeded,
 		ErrInternalInvariant, ErrNotSupported, ErrConflict, ErrStoreFailure,
-		ErrOverloaded, ErrDraining, ErrNotFound, ErrCannotResume,
+		ErrOverloaded, ErrDraining, ErrNotFound, ErrCannotResume, ErrNotWriter,
 	}
 }
 
@@ -136,6 +141,7 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 //	draining         yes      yes (on another Instance)
 //	overloaded       yes      yes (on another Instance)
 //	busy             yes      yes (after the Run in flight)
+//	not_writer       yes      yes (at the writer)
 //	not_found        yes      no
 //	session_closing  yes      no
 //	session_closed   yes      no
@@ -145,7 +151,7 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 // as a model failure the provider calls retryable.
 func (e *RuntimeError) applyDefaults() {
 	switch e.Code {
-	case ErrDraining, ErrOverloaded, ErrBusy:
+	case ErrDraining, ErrOverloaded, ErrBusy, ErrNotWriter:
 		e.NotRun, e.Retryable = true, true
 	case ErrNotFound, ErrSessionClosing, ErrSessionClosed:
 		e.NotRun = true

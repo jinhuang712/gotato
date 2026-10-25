@@ -619,6 +619,7 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.ErrBusy:                  http.StatusConflict,
 	gotato.ErrConflict:              http.StatusConflict,
 	gotato.ErrCannotResume:          http.StatusConflict,
+	gotato.ErrNotWriter:             http.StatusConflict,
 	gotato.ErrStoreFailure:          http.StatusServiceUnavailable,
 	gotato.ErrOverloaded:            http.StatusServiceUnavailable,
 	gotato.ErrDraining:              http.StatusServiceUnavailable,

@@ -610,12 +610,15 @@ func checkCancelled(ctx context.Context, open Open) error {
 
 func checkLiveness(ctx context.Context, open Open) error {
 	store := open()
-	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a", Draining: true}, time.Hour); err != nil {
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a", Draining: true, Address: "http://a.example:8080"}, time.Hour); err != nil {
 		return fmt.Errorf("beat: %w", err)
 	}
 	state, err := open().Instance(ctx, "instance-a")
 	if err != nil || !state.Alive || !state.Draining {
 		return fmt.Errorf("instance = %+v, %v; want alive and draining", state, err)
+	}
+	if state.Address != "http://a.example:8080" {
+		return fmt.Errorf("instance address = %q, want the one its row advertised", state.Address)
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a"}, 0); err != nil {
 		return fmt.Errorf("beat with ttl 0: %w", err)

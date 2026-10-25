@@ -54,6 +54,7 @@ func TestErrorsSayWhetherTheyRanAndWhetherARetryMaySucceed(t *testing.T) {
 		{ErrDraining, true, true},
 		{ErrOverloaded, true, true},
 		{ErrBusy, true, true},
+		{ErrNotWriter, true, true},
 		{ErrNotFound, true, false},
 		{ErrSessionClosing, true, false},
 		{ErrSessionClosed, true, false},
