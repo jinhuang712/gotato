@@ -22,6 +22,7 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // shutdownTimeout bounds both the Runner drain and the gRPC graceful stop so
@@ -53,6 +54,8 @@ func main() {
 	maxSessions := flag.Int("max-sessions", 0, "hard limit on active sessions; past it a new session is refused with UNAVAILABLE marked not run; 0 disables the limit")
 	warmTTL := flag.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
 	noIdleCompaction := flag.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
+	advertise := flag.String("advertise", "", "address other callers reach this instance at, as host:port; a message for a run this instance writes, sent to another instance, is answered not_writer with it")
+	forward := flag.Bool("forward", false, "send a message for a run another instance writes to that instance's advertised address, over plaintext gRPC, instead of answering not_writer")
 	flag.Parse()
 
 	if *maxRuns < 0 || *maxSessions < 0 {
@@ -118,7 +121,7 @@ func main() {
 	for i := range specs {
 		specs[i].Warm = warm
 	}
-	runner, err := service.New(service.Config{Store: store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions}})
+	runner, err := service.New(service.Config{Store: store, Agents: specs, Address: *advertise, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -128,7 +131,13 @@ func main() {
 		log.Fatal(err)
 	}
 	server := grpc.NewServer()
-	grpcadapter.New(runner).Register(server)
+	var adapterOptions []grpcadapter.Option
+	if *forward {
+		adapterOptions = append(adapterOptions, grpcadapter.WithForwarding(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	}
+	adapter := grpcadapter.New(runner, adapterOptions...)
+	defer func() { _ = adapter.Close() }()
+	adapter.Register(server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

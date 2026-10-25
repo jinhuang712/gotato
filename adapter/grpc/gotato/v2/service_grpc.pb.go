@@ -30,6 +30,7 @@ const (
 	SessionService_StreamRun_FullMethodName     = "/gotato.v2.SessionService/StreamRun"
 	SessionService_StreamSession_FullMethodName = "/gotato.v2.SessionService/StreamSession"
 	SessionService_CancelRun_FullMethodName     = "/gotato.v2.SessionService/CancelRun"
+	SessionService_SendMessage_FullMethodName   = "/gotato.v2.SessionService/SendMessage"
 	SessionService_Events_FullMethodName        = "/gotato.v2.SessionService/Events"
 	SessionService_Context_FullMethodName       = "/gotato.v2.SessionService/Context"
 	SessionService_Compact_FullMethodName       = "/gotato.v2.SessionService/Compact"
@@ -86,8 +87,21 @@ type SessionServiceClient interface {
 	// trailer: reconnect on any instance after that many milliseconds.
 	StreamSession(ctx context.Context, in *StreamSessionRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SessionUpdate], error)
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
-	// Run is not active rather than pretending to cancel.
+	// Run is not active rather than pretending to cancel. By session_id it is
+	// the Stop of a Session's Run, and a Run that another live instance writes
+	// fails with FAILED_PRECONDITION and the trailers gotato-not-run,
+	// gotato-retryable and, when the writer advertises an address,
+	// gotato-writer (the code is not_writer). With forwarding on, the adapter
+	// sends the call to that address instead.
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
+	// SendMessage delivers a message to a Session: a steer, a follow_up or an
+	// interrupt. A Run going on this instance takes it at its own point, and
+	// the response says queued. With no Run going, the message starts a new Run,
+	// and the response holds its result once it settles. A Run that another
+	// live instance writes fails as CancelRun's does (not_writer), or is
+	// forwarded when forwarding is on; a forwarded call carries the metadata
+	// gotato-forwarded and is never forwarded again.
+	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
 	// Events returns every stored Event of a Session, read from its Record. It
 	// is not paged: it streams every one matching kind, so it is bounded by the
 	// Session's length and by the stream deadline.
@@ -234,6 +248,16 @@ func (c *sessionServiceClient) CancelRun(ctx context.Context, in *CancelRunReque
 	return out, nil
 }
 
+func (c *sessionServiceClient) SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendMessageResponse)
+	err := c.cc.Invoke(ctx, SessionService_SendMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sessionServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &SessionService_ServiceDesc.Streams[2], SessionService_Events_FullMethodName, cOpts...)
@@ -324,8 +348,21 @@ type SessionServiceServer interface {
 	// trailer: reconnect on any instance after that many milliseconds.
 	StreamSession(*StreamSessionRequest, grpc.ServerStreamingServer[SessionUpdate]) error
 	// CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
-	// Run is not active rather than pretending to cancel.
+	// Run is not active rather than pretending to cancel. By session_id it is
+	// the Stop of a Session's Run, and a Run that another live instance writes
+	// fails with FAILED_PRECONDITION and the trailers gotato-not-run,
+	// gotato-retryable and, when the writer advertises an address,
+	// gotato-writer (the code is not_writer). With forwarding on, the adapter
+	// sends the call to that address instead.
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
+	// SendMessage delivers a message to a Session: a steer, a follow_up or an
+	// interrupt. A Run going on this instance takes it at its own point, and
+	// the response says queued. With no Run going, the message starts a new Run,
+	// and the response holds its result once it settles. A Run that another
+	// live instance writes fails as CancelRun's does (not_writer), or is
+	// forwarded when forwarding is on; a forwarded call carries the metadata
+	// gotato-forwarded and is never forwarded again.
+	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
 	// Events returns every stored Event of a Session, read from its Record. It
 	// is not paged: it streams every one matching kind, so it is bounded by the
 	// Session's length and by the stream deadline.
@@ -376,6 +413,9 @@ func (UnimplementedSessionServiceServer) StreamSession(*StreamSessionRequest, gr
 }
 func (UnimplementedSessionServiceServer) CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelRun not implemented")
+}
+func (UnimplementedSessionServiceServer) SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendMessage not implemented")
 }
 func (UnimplementedSessionServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -591,6 +631,24 @@ func _SessionService_CancelRun_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SessionService_SendMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServiceServer).SendMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionService_SendMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServiceServer).SendMessage(ctx, req.(*SendMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SessionService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -680,6 +738,10 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelRun",
 			Handler:    _SessionService_CancelRun_Handler,
+		},
+		{
+			MethodName: "SendMessage",
+			Handler:    _SessionService_SendMessage_Handler,
 		},
 		{
 			MethodName: "Context",

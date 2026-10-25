@@ -85,6 +85,9 @@ func trailerOf(err error) metadata.MD {
 	if gotato.Retryable(err) {
 		md.Set(RetryableKey, "true")
 	}
+	if writer, ok := service.WriterOf(err); ok && writer != "" {
+		md.Set(WriterKey, writer)
+	}
 	return md
 }
 
@@ -107,11 +110,20 @@ func streamFailed(stream grpc.ServerStream, err error) error {
 // Server implements gotatov2.SessionServiceServer.
 type Server struct {
 	gotatov2.UnimplementedSessionServiceServer
-	runner *service.Runner
+	runner  *service.Runner
+	forward *forwarder
 }
 
 // New creates a Server over runner.
-func New(runner *service.Runner) *Server { return &Server{runner: runner} }
+func New(runner *service.Runner, options ...Option) *Server {
+	s := &Server{runner: runner}
+	for _, option := range options {
+		if option != nil {
+			option(s)
+		}
+	}
+	return s
+}
 
 // Register registers the service on a gRPC server.
 func (s *Server) Register(registrar grpc.ServiceRegistrar) {
@@ -314,13 +326,13 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
-	var err error
 	if id := request.GetSessionId(); id != "" {
-		err = s.runner.CancelSession(ctx, id)
-	} else {
-		err = s.runner.CancelRun(ctx, gotato.RunID(request.GetRunId()))
+		if err := s.cancelSession(ctx, request, id); err != nil {
+			return nil, err
+		}
+		return &gotatov2.CancelRunResponse{}, nil
 	}
-	if err != nil {
+	if err := s.runner.CancelRun(ctx, gotato.RunID(request.GetRunId())); err != nil {
 		return nil, failed(ctx, err)
 	}
 	return &gotatov2.CancelRunResponse{}, nil

@@ -54,8 +54,21 @@ service SessionService {
   // trailer: reconnect on any instance after that many milliseconds.
   rpc StreamSession(StreamSessionRequest) returns (stream SessionUpdate);
   // CancelRun aborts an active Run; it reports FAILED_PRECONDITION when the
-  // Run is not active rather than pretending to cancel.
+  // Run is not active rather than pretending to cancel. By session_id it is
+  // the Stop of a Session's Run, and a Run that another live instance writes
+  // fails with FAILED_PRECONDITION and the trailers gotato-not-run,
+  // gotato-retryable and, when the writer advertises an address,
+  // gotato-writer (the code is not_writer). With forwarding on, the adapter
+  // sends the call to that address instead.
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  // SendMessage delivers a message to a Session: a steer, a follow_up or an
+  // interrupt. A Run going on this instance takes it at its own point, and
+  // the response says queued. With no Run going, the message starts a new Run,
+  // and the response holds its result once it settles. A Run that another
+  // live instance writes fails as CancelRun's does (not_writer), or is
+  // forwarded when forwarding is on; a forwarded call carries the metadata
+  // gotato-forwarded and is never forwarded again.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
 
   // Events returns every stored Event of a Session, read from its Record. It
   // is not paged: it streams every one matching kind, so it is bounded by the
@@ -674,6 +687,24 @@ message CancelRunRequest {
   }
 }
 message CancelRunResponse {}
+
+message SendMessageRequest {
+  string session_id = 1;
+  // kind is steer (the default), follow_up or interrupt.
+  string kind = 2;
+  string text = 3;
+}
+
+message SendMessageResponse {
+  string session_id = 1;
+  // message_id names the message in the Events that follow it, when a Run in
+  // flight took it.
+  string message_id = 2;
+  // queued says a Run in flight on this instance took the message. When it is
+  // false, run holds the result of the Run the message started.
+  bool queued = 3;
+  RunResult run = 4;
+}
 
 message EventsRequest {
   string session_id = 1;
