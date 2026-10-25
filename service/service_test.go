@@ -454,7 +454,7 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	if !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
-	if result.Result.Status != gotato.RunCompleted || result.FinalText != "echo: hi" {
+	if result.Result.Status != gotato.RunNotSaved || result.Result.Error == nil || result.FinalText != "echo: hi" {
 		t.Fatalf("run outcome lost: %+v", result)
 	}
 }

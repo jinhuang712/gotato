@@ -265,6 +265,9 @@ func wantSettled(t *testing.T, res service.RunResult, want gotato.RunStatus) {
 	if got != gotato.RunCompleted && (res.Result.Error == nil || res.Result.Error.Code == "") {
 		t.Fatalf("the Run settled as %s with no cause", got)
 	}
+	if got == gotato.RunCompleted && res.Result.Error != nil {
+		t.Fatalf("the Run completed and carries an error: %v", res.Result.Error)
+	}
 }
 
 // wantUsable checks the other promises of G-G11 after a fault: the Record
@@ -402,6 +405,14 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
 			if err == nil && res.Result.Status == gotato.RunCompleted {
 				t.Fatalf("write %d failed, and the Run reported success", n)
+			}
+			// completed never carries an error: a Run whose last writes failed
+			// settles as not_saved, and says why.
+			if err != nil && res.Result.Status == gotato.RunCompleted {
+				t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
+			}
+			if res.Result.Status == gotato.RunNotSaved && !errors.Is(err, service.ErrNotPersisted) {
+				t.Fatalf("write %d failed: not_saved with err = %v, want ErrNotPersisted", n, err)
 			}
 			if res.Result.Status == "" {
 				// A Run refused before it started has no result, and says why.

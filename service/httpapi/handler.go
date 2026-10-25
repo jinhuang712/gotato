@@ -120,9 +120,12 @@ func New(runner *service.Runner, options ...Option) *Handler {
 // same name, for the client to send next time.
 const SessionIDHeader = "session-id"
 
-// NotRunHeader marks a 503 whose request did not run, so a load balancer may
-// send it again to another instance without running it twice. Its value is
-// "true", and the body says the same in "not_run".
+// NotRunHeader marks a refusal whose request did not run, whatever its
+// status (503 for a draining or overloaded instance, 409 for a busy Session,
+// 404 for a Session that does not exist), so a load balancer may send it again
+// to another instance without running it twice. The runtime decides it
+// (gotato.NotRun). Its value is "true", and the body says the same in
+// "not_run".
 const NotRunHeader = "Gotato-Not-Run"
 
 // scoped wraps a handler of a route with a {id}: the session-id header, when
@@ -182,6 +185,8 @@ type errorResponse struct {
 	// NotRun says the request did not run, so it can be sent again, also to
 	// another instance.
 	NotRun bool `json:"not_run,omitempty"`
+	// Retryable says the same request, sent again later, may succeed.
+	Retryable bool `json:"retryable,omitempty"`
 	// RecordEpoch is the Record's current epoch, on a refusal to resume a
 	// stream, for the client to start over with.
 	RecordEpoch string `json:"record_epoch,omitempty"`
@@ -358,11 +363,7 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, service.ErrNotPersisted) {
 		// Another writer took the Session during the Run: its result was
 		// not kept, and the caller can tell that from a store failure.
-		status := http.StatusInternalServerError
-		if errors.Is(err, session.ErrConflict) {
-			status = http.StatusConflict
-		}
-		writeError(w, status, err)
+		writeJSON(w, notSavedStatus(err), notSaved(err))
 		return
 	}
 	if request.SessionID == "" {
@@ -407,7 +408,7 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 		data, _ := json.Marshal(failureOf(runErr))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 	case errors.Is(runErr, service.ErrNotPersisted):
-		data, _ := json.Marshal(internalError(runErr))
+		data, _ := json.Marshal(notSaved(runErr))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 	default:
 		data, _ := json.Marshal(result)
@@ -605,46 +606,56 @@ func writeDecodeError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadRequest, err)
 }
 
-// StatusFor maps a runtime error to an HTTP status.
+// statusOfCode is the HTTP status of each ErrorCode. Every code is listed, so
+// a new one cannot be left to a default by accident; the test over
+// gotato.ErrorCodes fails when one is missing.
+var statusOfCode = map[gotato.ErrorCode]int{
+	gotato.ErrInvalidArgument:       http.StatusBadRequest,
+	gotato.ErrNotSupported:          http.StatusBadRequest,
+	gotato.ErrNotFound:              http.StatusNotFound,
+	gotato.ErrSessionClosed:         http.StatusConflict,
+	gotato.ErrSessionClosing:        http.StatusConflict,
+	gotato.ErrInvalidState:          http.StatusConflict,
+	gotato.ErrBusy:                  http.StatusConflict,
+	gotato.ErrConflict:              http.StatusConflict,
+	gotato.ErrCannotResume:          http.StatusConflict,
+	gotato.ErrStoreFailure:          http.StatusServiceUnavailable,
+	gotato.ErrOverloaded:            http.StatusServiceUnavailable,
+	gotato.ErrDraining:              http.StatusServiceUnavailable,
+	gotato.ErrLimitExceeded:         http.StatusTooManyRequests,
+	gotato.ErrContextOverflow:       http.StatusUnprocessableEntity,
+	gotato.ErrDeadlineExceeded:      http.StatusGatewayTimeout,
+	gotato.ErrCancelled:             http.StatusRequestTimeout,
+	gotato.ErrModelFailure:          http.StatusInternalServerError,
+	gotato.ErrModelProtocolFailure:  http.StatusInternalServerError,
+	gotato.ErrToolResolutionFailure: http.StatusInternalServerError,
+	gotato.ErrToolArgumentFailure:   http.StatusInternalServerError,
+	gotato.ErrToolExecutionFailure:  http.StatusInternalServerError,
+	gotato.ErrExtensionFailure:      http.StatusInternalServerError,
+	gotato.ErrInternalInvariant:     http.StatusInternalServerError,
+}
+
+// StatusFor maps a runtime error to an HTTP status. It translates the error's
+// code; it decides nothing about whether the request ran or may be retried,
+// which the error says itself.
 func StatusFor(err error) int {
 	var runtimeErr *gotato.RuntimeError
 	switch {
-	case errors.Is(err, session.ErrNotFound):
-		return http.StatusNotFound
+	case errors.As(err, &runtimeErr):
+		if status, ok := statusOfCode[runtimeErr.Code]; ok {
+			return status
+		}
 	case errors.Is(err, context.DeadlineExceeded):
 		return http.StatusGatewayTimeout
 	case errors.Is(err, context.Canceled):
 		return http.StatusRequestTimeout
-	case errors.As(err, &runtimeErr):
-		switch runtimeErr.Code {
-		case gotato.ErrInvalidArgument, gotato.ErrNotSupported:
-			return http.StatusBadRequest
-		case gotato.ErrBusy, gotato.ErrConflict, gotato.ErrCannotResume:
-			return http.StatusConflict
-		case gotato.ErrStoreFailure, gotato.ErrOverloaded:
-			return http.StatusServiceUnavailable
-		case gotato.ErrLimitExceeded:
-			return http.StatusTooManyRequests
-		case gotato.ErrContextOverflow:
-			// The request is well-formed, and the Model cannot take it as it is.
-			return http.StatusUnprocessableEntity
-		case gotato.ErrInvalidState:
-			return http.StatusConflict
-		case gotato.ErrDeadlineExceeded:
-			return http.StatusGatewayTimeout
-		case gotato.ErrCancelled:
-			return http.StatusRequestTimeout
-		}
 	}
 	return http.StatusInternalServerError
 }
 
-// notRun reports whether err refused a request before it ran anything.
-func notRun(err error) bool { return gotato.IsCode(err, gotato.ErrOverloaded) }
-
 func failureOf(err error) errorResponse {
 	status := StatusFor(err)
-	out := errorResponse{Error: http.StatusText(status), NotRun: notRun(err)}
+	out := errorResponse{Error: http.StatusText(status), NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
@@ -661,8 +672,30 @@ func failureOf(err error) errorResponse {
 	return out
 }
 
+// notSavedStatus is the status of a Run whose result was not kept: 409 when
+// another writer took the Session during the Run, 500 otherwise.
+func notSavedStatus(err error) int {
+	if errors.Is(err, session.ErrConflict) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
+}
+
+// notSaved is the body of a Run whose result was not kept. It names the code
+// and whether a retry may succeed, and keeps the store's own message in the
+// log.
+func notSaved(err error) errorResponse {
+	out := internalError(err)
+	out.Retryable = gotato.Retryable(err)
+	var runtimeErr *gotato.RuntimeError
+	if errors.As(err, &runtimeErr) {
+		out.Code = string(runtimeErr.Code)
+	}
+	return out
+}
+
 func writeFailure(w http.ResponseWriter, err error) {
-	if notRun(err) {
+	if gotato.NotRun(err) {
 		w.Header().Set(NotRunHeader, "true")
 	}
 	// A Session busy on another instance says when to retry.

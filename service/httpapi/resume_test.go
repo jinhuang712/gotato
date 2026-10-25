@@ -223,7 +223,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 		{"another epoch", id, "?after=2&record_epoch=other", nil, http.StatusConflict, "cannot_resume"},
 		{"another epoch in a header", id, "?after=2", map[string]string{"Record-Epoch": "other"}, http.StatusConflict, "cannot_resume"},
 		{"past the head", id, "?after=" + strconv.FormatUint(record.Head()+1, 10), nil, http.StatusConflict, "cannot_resume"},
-		{"unknown Session", "missing", "", nil, http.StatusNotFound, ""},
+		{"unknown Session", "missing", "", nil, http.StatusNotFound, "not_found"},
 		{"not a number", id, "?after=x", nil, http.StatusBadRequest, ""},
 		{"not a number in the header", id, "", map[string]string{"Last-Event-ID": "-1"}, http.StatusBadRequest, ""},
 		{"header for another Session", id, "", map[string]string{"session-id": "other"}, http.StatusBadRequest, ""},

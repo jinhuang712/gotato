@@ -134,7 +134,16 @@ type Config struct {
 var ErrBusy = gotato.ErrorOf(gotato.ErrBusy, "service: session has a run in flight")
 
 // ErrCapacity is returned when MaxActiveRuns is reached.
-var ErrCapacity = gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum active runs reached")
+// It is refused at admission, so the Run is not run, and another Instance, or
+// this one later, may take it.
+var ErrCapacity = refusedAtAdmission(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum active runs reached"))
+
+// refusedAtAdmission marks a refusal made before a Run started: nothing ran,
+// and the same request may succeed elsewhere or later.
+func refusedAtAdmission(e *gotato.RuntimeError) *gotato.RuntimeError {
+	e.NotRun, e.Retryable = true, true
+	return e
+}
 
 // ErrOverloaded is returned when the Instance is at its MaxActiveSessions and
 // the Run would activate another Session. The Run did not start and nothing
@@ -142,17 +151,25 @@ var ErrCapacity = gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum acti
 var ErrOverloaded = gotato.ErrorOf(gotato.ErrOverloaded, "service: this instance is at its limit of active sessions")
 
 // ErrUnknownAgent is returned for an unregistered Agent name.
-var ErrUnknownAgent = gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent")
+// The Run is refused before it starts, so it is not run.
+var ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent"))
+
+// notRunError marks a refusal made before a Run started.
+func notRunError(e *gotato.RuntimeError) *gotato.RuntimeError {
+	e.NotRun = true
+	return e
+}
 
 // ErrSessionExists is returned when an explicit Session ID is already taken.
 var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session already exists")
 
 // ErrDraining refuses a new Run, and taking a Session over from another
 // Instance, once the Runner drains.
-var ErrDraining = gotato.ErrorOf(gotato.ErrInvalidState, "service: draining")
+var ErrDraining = gotato.ErrorOf(gotato.ErrDraining, "service: draining")
 
 // ErrNotPersisted reports that a settled Run could not be saved. The Run
-// outcome is still returned; callers must treat the Session state as lost.
+// outcome is still returned, and a Run that would have completed settles as
+// gotato.RunNotSaved; callers must treat the Session state as lost.
 var ErrNotPersisted = errors.New("service: session was not persisted")
 
 // Runner serves Runs against Sessions.
@@ -593,7 +610,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 		ctx = context.Background()
 	}
 	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
-		return RunResult{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required")
+		return RunResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and CancelSession reach it even while it is still
@@ -848,6 +865,17 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				// The Session state is lost whether or not the Run failed: keep
 				// the Run error and add the persistence failure so callers can
 				// observe both (errors.Is still matches each).
+				var saveFailure *gotato.RuntimeError
+				if !errors.As(saveErr, &saveFailure) {
+					saveFailure = gotato.ErrorOf(gotato.ErrStoreFailure, saveErr.Error())
+					saveFailure.Cause = saveErr
+					saveErr = saveFailure
+				}
+				// A Run that completed did not end well: the reply was made, but
+				// the Record does not hold it. completed never carries an error.
+				if result.Status == gotato.RunCompleted {
+					result.Status = gotato.RunNotSaved
+				}
 				persistErr := fmt.Errorf("%w: %w", ErrNotPersisted, saveErr)
 				if runErr == nil {
 					runErr = persistErr

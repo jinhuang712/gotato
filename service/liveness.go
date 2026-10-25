@@ -274,11 +274,9 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 // busyElsewhere refuses a Run on a Session that is running on another
 // Instance. It matches ErrBusy, and says when to retry.
 func busyElsewhere(retryAfter time.Duration) error {
-	return &gotato.RuntimeError{
-		Code:    gotato.ErrBusy,
-		Message: "service: the session is running on another instance",
-		Details: map[string]string{"retry_after_ms": strconv.FormatInt(retryAfter.Milliseconds(), 10)},
-	}
+	busy := gotato.ErrorOf(gotato.ErrBusy, "service: the session is running on another instance")
+	busy.Details = map[string]string{"retry_after_ms": strconv.FormatInt(retryAfter.Milliseconds(), 10)}
+	return busy
 }
 
 // Close removes this Runner's Liveness row, so other Instances take its

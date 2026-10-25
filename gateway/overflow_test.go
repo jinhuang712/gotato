@@ -76,6 +76,27 @@ func TestOverflowErrorFlowsThroughAWrappedError(t *testing.T) {
 	}
 }
 
+// A rate limit that is still refused after the gateway's own retries reaches
+// the Run as a retryable model_failure.
+func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
+	var calls atomic.Int32
+	server := refusingServer(http.StatusTooManyRequests, `{"error":{"message":"slow down"}}`, &calls)
+	defer server.Close()
+	client, err := New(Config{API: APIChatCompletions, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := gotato.NewSession(gotato.WithModel(client))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	_, err = session.Prompt(context.Background(), gotato.UserMessage("hi"))
+	if !gotato.IsCode(err, gotato.ErrModelFailure) || !gotato.Retryable(err) || gotato.NotRun(err) {
+		t.Fatalf("err = %v, want a retryable model_failure that ran", err)
+	}
+}
+
 func TestResponsesStreamErrorNamesOverflow(t *testing.T) {
 	for _, event := range []string{
 		`{"type":"error","code":"context_length_exceeded","message":"Input is too large"}`,

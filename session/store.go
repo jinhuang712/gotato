@@ -15,7 +15,7 @@ import (
 const summaryTime = "2006-01-02T15:04:05.000Z07:00"
 
 // ErrNotFound is returned by stores for an unknown Session ID.
-var ErrNotFound = errors.New("session: not found")
+var ErrNotFound = gotato.ErrorOf(gotato.ErrNotFound, "session: not found")
 
 // ErrExists is returned by Store.Create for an ID the store already holds.
 var ErrExists = errors.New("session: already exists")

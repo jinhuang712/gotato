@@ -192,6 +192,10 @@ const (
 	RunCanceled         RunStatus = "cancelled"
 	RunDeadlineExceeded RunStatus = "deadline_exceeded"
 	RunFailed           RunStatus = "failed"
+	// RunNotSaved means the Run ended and its reply was made, but the writes
+	// that end it failed, so the Record does not hold it. The service layer
+	// settles a Run so; a Session without a store never does.
+	RunNotSaved RunStatus = "not_saved"
 )
 
 type RunMetrics struct {

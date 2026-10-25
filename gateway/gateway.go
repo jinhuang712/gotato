@@ -317,6 +317,11 @@ type Error struct {
 // ends the Run with the code context_overflow instead of model_failure.
 func (e *Error) ContextOverflow() bool { return e != nil && e.Overflow }
 
+// IsRetryable reports whether the same request may succeed when sent again
+// (a rate limit, an overload, a broken stream). The runtime reads it by this
+// method, and sets Retryable on the Run's model_failure.
+func (e *Error) IsRetryable() bool { return e != nil && e.Retryable }
+
 func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"

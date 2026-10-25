@@ -472,5 +472,7 @@ func (w *Writer) count(entries []Entry, elapsed time.Duration, err error) {
 // storeFailure reports a write that failed for another reason than a
 // conflict, keeping the store's error as its cause.
 func storeFailure(err error) error {
-	return &gotato.RuntimeError{Code: gotato.ErrStoreFailure, Operation: "session.Writer", Message: "the store could not write the Session's Record", Cause: err}
+	failure := gotato.ErrorOf(gotato.ErrStoreFailure, "the store could not write the Session's Record")
+	failure.Operation, failure.Cause = "session.Writer", err
+	return failure
 }

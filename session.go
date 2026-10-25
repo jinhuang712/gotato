@@ -893,7 +893,15 @@ func classifyModelError(err error) *RuntimeError {
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
 		return runtimeError(ErrContextOverflow, "Model", err.Error(), err)
 	}
-	return runtimeError(ErrModelFailure, "Model", err.Error(), err)
+	failure := runtimeError(ErrModelFailure, "Model", err.Error(), err)
+	// A Model that knows the failure is transient (a rate limit, an overload,
+	// a broken stream) says so with `Retryable() bool`, as the gateway's
+	// Error does. The Model was called, so the request is not "not run".
+	var transient interface{ IsRetryable() bool }
+	if errors.As(err, &transient) && transient.IsRetryable() {
+		failure.Retryable = true
+	}
+	return failure
 }
 
 func validateLimits(limits CoreLimits) error {
