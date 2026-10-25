@@ -59,3 +59,35 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 		t.Fatalf("tail = %+v, want the latest Run", tail)
 	}
 }
+
+// A model that says its window is compacted past the default ceiling, the
+// window less its reserve, with no ceiling set; the Session's own ceiling
+// wins.
+func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: windowedEcho{window: 200_000}})
+	ctx := context.Background()
+	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := runner.Inspect(ctx, first.SessionID)
+	if err != nil || report.CompactCeiling != 180_000 {
+		t.Fatalf("ceiling = %d, %v; want 180000 from the window", report.CompactCeiling, err)
+	}
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again",
+		Update: map[string]string{service.MetaCompactCeiling: "9000"}}); err != nil {
+		t.Fatal(err)
+	}
+	if report, err = runner.Inspect(ctx, first.SessionID); err != nil || report.CompactCeiling != 9000 {
+		t.Fatalf("ceiling = %d, %v; want the Session's 9000", report.CompactCeiling, err)
+	}
+	// Without a window there is no ceiling.
+	plain, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
+	one, err := plain.Run(ctx, service.RunRequest{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report, err = plain.Inspect(ctx, one.SessionID); err != nil || report.CompactCeiling != 0 {
+		t.Fatalf("ceiling = %d, %v; want none", report.CompactCeiling, err)
+	}
+}
