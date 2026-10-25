@@ -1014,10 +1014,15 @@ func (x *RunMetrics) GetReasoningBytes() uint64 {
 }
 
 type RuntimeError struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Code      string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Operation string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	Message   string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// retryable: the same request, sent again later, may succeed.
+	Retryable bool `protobuf:"varint,4,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	// not_run: nothing with side effects happened, so the same request may be
+	// sent to another instance.
+	NotRun        bool `protobuf:"varint,5,opt,name=not_run,json=notRun,proto3" json:"not_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1071,6 +1076,20 @@ func (x *RuntimeError) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *RuntimeError) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+func (x *RuntimeError) GetNotRun() bool {
+	if x != nil {
+		return x.NotRun
+	}
+	return false
 }
 
 type RunUpdate struct {
@@ -5887,11 +5906,13 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"tool_calls\x18\x03 \x01(\rR\ttoolCalls\x12\x1d\n" +
 	"\n" +
 	"text_bytes\x18\x04 \x01(\x04R\ttextBytes\x12'\n" +
-	"\x0freasoning_bytes\x18\x05 \x01(\x04R\x0ereasoningBytes\"Z\n" +
+	"\x0freasoning_bytes\x18\x05 \x01(\x04R\x0ereasoningBytes\"\x91\x01\n" +
 	"\fRuntimeError\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"o\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1c\n" +
+	"\tretryable\x18\x04 \x01(\bR\tretryable\x12\x17\n" +
+	"\anot_run\x18\x05 \x01(\bR\x06notRun\"o\n" +
 	"\tRunUpdate\x12(\n" +
 	"\x05event\x18\x01 \x01(\v2\x10.gotato.v2.EventH\x00R\x05event\x12.\n" +
 	"\x06result\x18\x02 \x01(\v2\x14.gotato.v2.RunResultH\x00R\x06resultB\b\n" +

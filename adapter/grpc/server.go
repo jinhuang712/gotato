@@ -42,10 +42,14 @@ const ContractVersion = "4"
 // the Session exists, and its first Event names it.
 const SessionIDKey = "session-id"
 
-// NotRunKey is the trailer metadata that marks an UNAVAILABLE whose call did
-// not run, so a load balancer may send it again to another instance without
+// NotRunKey is the trailer metadata that marks a failed call that did
+// not run, whatever its status, so a load balancer may send it again to another instance without
 // running it twice. Its value is "true".
 const NotRunKey = "gotato-not-run"
+
+// RetryableKey is the trailer metadata that marks a failed call that may
+// succeed when sent again later. Its value is "true".
+const RetryableKey = "gotato-retryable"
 
 // checkSessionID fails when the call's session-id metadata names another
 // Session than id. Absent or blank metadata agrees with all.
@@ -67,8 +71,38 @@ func announceSession(ctx context.Context, id string) {
 	_ = grpc.SetHeader(ctx, metadata.Pairs(SessionIDKey, id))
 }
 
-// notRun reports whether err refused a call before it ran anything.
-func notRun(err error) bool { return gotato.IsCode(err, gotato.ErrOverloaded) }
+// trailerOf is the trailer metadata of a failed call: what the runtime says
+// about the error, translated and decided nowhere else. NotRunKey is "true"
+// when the call did not run, so a load balancer may send it again to another
+// instance without running it twice; RetryableKey is "true" when the same
+// call, sent again later, may succeed. An error that says neither adds no
+// metadata.
+func trailerOf(err error) metadata.MD {
+	md := metadata.MD{}
+	if gotato.NotRun(err) {
+		md.Set(NotRunKey, "true")
+	}
+	if gotato.Retryable(err) {
+		md.Set(RetryableKey, "true")
+	}
+	return md
+}
+
+// failed ends a unary call with err: its status, and its trailer.
+func failed(ctx context.Context, err error) error {
+	if md := trailerOf(err); md.Len() > 0 {
+		_ = grpc.SetTrailer(ctx, md)
+	}
+	return statusOf(err)
+}
+
+// streamFailed ends a stream with err: its status, and its trailer.
+func streamFailed(stream grpc.ServerStream, err error) error {
+	if md := trailerOf(err); md.Len() > 0 {
+		stream.SetTrailer(md)
+	}
+	return statusOf(err)
+}
 
 // Server implements gotatov2.SessionServiceServer.
 type Server struct {
@@ -109,14 +143,14 @@ func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSess
 			return nil, status.Error(codes.AlreadyExists, "session already exists")
 		}
 		if err != nil {
-			return nil, statusOf(err)
+			return nil, failed(ctx, err)
 		}
 		announceSession(ctx, created.ID())
 		return summaryOf(session.SummaryOf(created)), nil
 	}
 	created, err := s.runner.CreateSession(ctx, request.GetAgent(), request.GetMetadata())
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	announceSession(ctx, created.ID())
 	return summaryOf(session.SummaryOf(created)), nil
@@ -128,7 +162,7 @@ func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionReques
 	}
 	found, err := s.runner.Session(ctx, request.GetSessionId())
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	data, err := json.Marshal(found.Snapshot())
 	if err != nil {
@@ -140,7 +174,7 @@ func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionReques
 func (s *Server) ListSessions(ctx context.Context, _ *gotatov2.ListSessionsRequest) (*gotatov2.ListSessionsResponse, error) {
 	list, err := s.runner.Sessions(ctx)
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	out := &gotatov2.ListSessionsResponse{}
 	for _, summary := range list {
@@ -154,7 +188,7 @@ func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionReq
 		return nil, err
 	}
 	if err := s.runner.DeleteSession(ctx, request.GetSessionId()); err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	return &gotatov2.DeleteSessionResponse{Deleted: true}, nil
 }
@@ -165,7 +199,7 @@ func (s *Server) ForkSession(ctx context.Context, request *gotatov2.SessionReque
 	}
 	child, err := s.runner.Fork(ctx, request.GetSessionId(), "")
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	announceSession(ctx, child.ID())
 	return summaryOf(session.SummaryOf(child)), nil
@@ -177,12 +211,10 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 	}
 	result, err := s.runner.Run(ctx, runRequestOf(request))
 	if err != nil && result.SessionID == "" {
-		if notRun(err) {
-			_ = grpc.SetTrailer(ctx, metadata.Pairs(NotRunKey, "true"))
-		}
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	if errors.Is(err, service.ErrNotPersisted) {
+		_ = grpc.SetTrailer(ctx, trailerOf(err))
 		return nil, notPersisted(err)
 	}
 	if request.GetSessionId() == "" {
@@ -208,11 +240,9 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 	var end error
 	switch {
 	case err != nil && result.SessionID == "":
-		if notRun(err) {
-			stream.SetTrailer(metadata.Pairs(NotRunKey, "true"))
-		}
-		end = statusOf(err)
+		end = streamFailed(stream, err)
 	case errors.Is(err, service.ErrNotPersisted):
+		stream.SetTrailer(trailerOf(err))
 		end = notPersisted(err)
 	default:
 		end = stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
@@ -244,7 +274,7 @@ func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream go
 		if errors.As(err, &runtimeErr) && runtimeErr.Details["record_epoch"] != "" {
 			stream.SetTrailer(metadata.Pairs(RecordEpochKey, runtimeErr.Details["record_epoch"]))
 		}
-		return statusOf(err)
+		return streamFailed(stream, err)
 	}
 	defer func() { _ = opened.Close() }()
 	if err := stream.SendHeader(metadata.Pairs(RecordEpochKey, opened.RecordEpoch)); err != nil {
@@ -275,7 +305,7 @@ func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream go
 			stream.SetTrailer(metadata.Pairs("retry-after-ms", strconv.FormatInt(hint.RetryAfterMS, 10)))
 			return status.Error(codes.Unavailable, "gotato: this instance is draining; reconnect to continue the stream")
 		default:
-			return statusOf(err)
+			return streamFailed(stream, err)
 		}
 	}
 }
@@ -291,7 +321,7 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 		err = s.runner.CancelRun(ctx, gotato.RunID(request.GetRunId()))
 	}
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	return &gotatov2.CancelRunResponse{}, nil
 }
@@ -302,7 +332,7 @@ func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.Session
 	}
 	events, err := s.runner.Events(stream.Context(), request.GetSessionId())
 	if err != nil {
-		return statusOf(err)
+		return streamFailed(stream, err)
 	}
 	for _, event := range events {
 		if request.GetKind() != "" && string(event.Kind()) != request.GetKind() {
@@ -325,7 +355,7 @@ func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) 
 	}
 	report, err := s.runner.Inspect(ctx, request.GetSessionId())
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	data, err := json.Marshal(report)
 	if err != nil {
@@ -349,7 +379,7 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 	}
 	result, err := s.runner.Compact(ctx, request.GetSessionId(), modelctx.CompactOptions{Keep: int(request.GetKeep()), MinTokens: int(request.GetMinTokens())})
 	if err != nil {
-		return nil, statusOf(err)
+		return nil, failed(ctx, err)
 	}
 	var compaction []byte
 	if result.Compaction != nil {
@@ -408,6 +438,8 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 			Code:      string(result.Result.Error.Code),
 			Operation: result.Result.Error.Operation,
 			Message:   result.Result.Error.Message,
+			Retryable: result.Result.Error.Retryable,
+			NotRun:    result.Result.Error.NotRun,
 		}
 	}
 	return wire
@@ -428,49 +460,57 @@ func summaryOf(summary session.Summary) *gotatov2.SessionSummary {
 	}
 }
 
+// codeOf is the gRPC code of each ErrorCode. Every code is listed, so a new
+// one cannot be left to a default by accident; the test over
+// gotato.ErrorCodes fails when one is missing.
+var codeOf = map[gotato.ErrorCode]codes.Code{
+	gotato.ErrInvalidArgument:       codes.InvalidArgument,
+	gotato.ErrToolArgumentFailure:   codes.InvalidArgument,
+	gotato.ErrNotFound:              codes.NotFound,
+	gotato.ErrSessionClosed:         codes.NotFound,
+	gotato.ErrBusy:                  codes.FailedPrecondition,
+	gotato.ErrInvalidState:          codes.FailedPrecondition,
+	gotato.ErrSessionClosing:        codes.FailedPrecondition,
+	gotato.ErrCannotResume:          codes.FailedPrecondition,
+	gotato.ErrCancelled:             codes.Canceled,
+	gotato.ErrDeadlineExceeded:      codes.DeadlineExceeded,
+	gotato.ErrLimitExceeded:         codes.ResourceExhausted,
+	gotato.ErrContextOverflow:       codes.ResourceExhausted,
+	gotato.ErrNotSupported:          codes.Unimplemented,
+	gotato.ErrConflict:              codes.Aborted,
+	gotato.ErrStoreFailure:          codes.Unavailable,
+	gotato.ErrOverloaded:            codes.Unavailable,
+	gotato.ErrDraining:              codes.Unavailable,
+	gotato.ErrModelFailure:          codes.Internal,
+	gotato.ErrModelProtocolFailure:  codes.Internal,
+	gotato.ErrToolResolutionFailure: codes.Internal,
+	gotato.ErrToolExecutionFailure:  codes.Internal,
+	gotato.ErrExtensionFailure:      codes.Internal,
+	gotato.ErrInternalInvariant:     codes.Internal,
+}
+
 // statusOf maps a runtime error onto a gRPC status without inventing new
-// failure meanings.
+// failure meanings. It translates the error's code; whether the call ran and
+// whether a retry may succeed travel in the trailer (trailerOf).
 func statusOf(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, session.ErrNotFound) {
-		return status.Error(codes.NotFound, err.Error())
-	}
-	// A caller that cancelled or exceeded its deadline gets CANCELED /
-	// DEADLINE_EXCEEDED, not INTERNAL.
-	if errors.Is(err, context.DeadlineExceeded) {
+	var runtimeErr *gotato.RuntimeError
+	switch {
+	case errors.As(err, &runtimeErr):
+		if code, ok := codeOf[runtimeErr.Code]; ok {
+			return status.Error(code, runtimeErr.Error())
+		}
+		return status.Error(codes.Internal, runtimeErr.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		// A caller that cancelled or exceeded its deadline gets CANCELED /
+		// DEADLINE_EXCEEDED, not INTERNAL.
 		return status.Error(codes.DeadlineExceeded, err.Error())
-	}
-	if errors.Is(err, context.Canceled) {
+	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, err.Error())
 	}
-	var runtimeErr *gotato.RuntimeError
-	code := codes.Internal
-	if errors.As(err, &runtimeErr) {
-		switch runtimeErr.Code {
-		case gotato.ErrInvalidArgument, gotato.ErrToolArgumentFailure:
-			code = codes.InvalidArgument
-		case gotato.ErrBusy, gotato.ErrInvalidState, gotato.ErrSessionClosing, gotato.ErrCannotResume:
-			code = codes.FailedPrecondition
-		case gotato.ErrSessionClosed:
-			code = codes.NotFound
-		case gotato.ErrCancelled:
-			code = codes.Canceled
-		case gotato.ErrDeadlineExceeded:
-			code = codes.DeadlineExceeded
-		case gotato.ErrLimitExceeded, gotato.ErrContextOverflow:
-			code = codes.ResourceExhausted
-		case gotato.ErrNotSupported:
-			code = codes.Unimplemented
-		case gotato.ErrConflict:
-			code = codes.Aborted
-		case gotato.ErrStoreFailure, gotato.ErrOverloaded:
-			code = codes.Unavailable
-		}
-		return status.Error(code, runtimeErr.Error())
-	}
-	return status.Error(code, err.Error())
+	return status.Error(codes.Internal, err.Error())
 }
 
 // notPersisted reports a Run whose result was not kept: Aborted when another

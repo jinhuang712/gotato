@@ -159,6 +159,11 @@ message RuntimeError {
   string code = 1;
   string operation = 2;
   string message = 3;
+  // retryable: the same request, sent again later, may succeed.
+  bool retryable = 4;
+  // not_run: nothing with side effects happened, so the same request may be
+  // sent to another instance.
+  bool not_run = 5;
 }
 
 message RunUpdate {
