@@ -94,7 +94,24 @@ type Config struct {
 	// that is only a code, such as "request_too_big", works too. A 400 or
 	// 413 that matches any of them is reported as a context overflow.
 	OverflowPhrases []string
+	// DeferredTools is how the wire API shows the tools a Session loads
+	// one by one from its catalog: DeferredNative or DeferredList. Empty
+	// uses the wire API's default: native on openai-responses and
+	// anthropic-messages, list on openai-chat-completions. Native keeps the
+	// tool list of the request the same while tools load (every catalog
+	// tool is sent deferred, and a load shows as a reference to it in the
+	// history), so the prompt cache survives a load. List sends the tools
+	// loaded so far, so the tool list grows when one loads. A wire API
+	// without a native form (openai-chat-completions) always uses list,
+	// whatever is set here; Client.DeferredTools reports what is used.
+	DeferredTools string
 }
+
+// The forms of Config.DeferredTools.
+const (
+	DeferredNative = "native"
+	DeferredList   = "list"
+)
 
 type Client struct {
 	overflow       overflowMatcher
@@ -173,6 +190,10 @@ func New(config Config) (*Client, error) {
 	case maxRetries == 0:
 		maxRetries = defaultMaxRetries
 	}
+	deferred, err := resolveDeferredTools(config.DeferredTools, api)
+	if err != nil {
+		return nil, err
+	}
 	cacheKeyHeader := strings.TrimSpace(config.CacheKeyHeader)
 	if strings.ContainsAny(cacheKeyHeader, " \t:") {
 		return nil, fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
@@ -209,6 +230,8 @@ func New(config Config) (*Client, error) {
 			},
 		}
 	}
+	rules := newProviderRules(provider, api, config.Model, retention, config.NoDropBlock)
+	rules.deferredNative = deferred == DeferredNative
 	return &Client{
 		api:            api,
 		endpoint:       endpoint,
@@ -221,10 +244,38 @@ func New(config Config) (*Client, error) {
 		maxRetries:     maxRetries,
 		retryBackoff:   backoff,
 		provider:       provider,
-		rules:          newProviderRules(provider, api, config.Model, retention, config.NoDropBlock),
+		rules:          rules,
 		contextWindow:  config.ContextWindow,
 		overflow:       newOverflowMatcher(config.OverflowPhrases),
 	}, nil
+}
+
+// resolveDeferredTools returns the form a wire API uses for deferred tools:
+// the configured one when the wire API has it, its default when none is
+// configured, and list for a wire API without a native form.
+func resolveDeferredTools(configured, api string) (string, error) {
+	form := strings.ToLower(strings.TrimSpace(configured))
+	switch form {
+	case "", DeferredNative, DeferredList:
+	default:
+		return "", fmt.Errorf("gateway: unsupported DeferredTools %q (use %s or %s)", configured, DeferredNative, DeferredList)
+	}
+	if api == APIChatCompletions {
+		return DeferredList, nil
+	}
+	if form == "" {
+		return DeferredNative, nil
+	}
+	return form, nil
+}
+
+// DeferredTools reports the form this Client sends deferred tools in:
+// DeferredNative or DeferredList.
+func (c *Client) DeferredTools() string {
+	if c.rules.deferredNative {
+		return DeferredNative
+	}
+	return DeferredList
 }
 
 // ContextWindow returns the model's context window in tokens as configured,

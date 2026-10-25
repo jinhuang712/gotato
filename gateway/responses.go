@@ -105,7 +105,7 @@ type responsesRequest struct {
 	Include           []string            `json:"include"`
 	ToolChoice        string              `json:"tool_choice"`
 	ParallelToolCalls bool                `json:"parallel_tool_calls"`
-	Tools             []responsesTool     `json:"tools,omitempty"`
+	Tools             []any               `json:"tools,omitempty"`
 	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
 	Temperature       *float64            `json:"temperature,omitempty"`
 	MaxOutputTokens   uint32              `json:"max_output_tokens,omitempty"`
@@ -132,6 +132,58 @@ type responsesTool struct {
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters"`
 	Strict      bool            `json:"strict"`
+	// DeferLoading keeps the function out of the Model's context until a
+	// tool_search_output returns it (the native form of deferred tools).
+	DeferLoading bool `json:"defer_loading,omitempty"`
+}
+
+// responsesToolSearch is the client-executed tool search the native form
+// replaces the search function with.
+type responsesToolSearch struct {
+	Type        string          `json:"type"`
+	Execution   string          `json:"execution"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// responsesToolSearchCall and responsesToolSearchOutput replay a call to the
+// search tool and its result in the native form.
+type responsesToolSearchCall struct {
+	Type      string          `json:"type"`
+	Execution string          `json:"execution"`
+	CallID    string          `json:"call_id"`
+	Status    string          `json:"status"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type responsesToolSearchOutput struct {
+	Type      string          `json:"type"`
+	Execution string          `json:"execution"`
+	CallID    string          `json:"call_id"`
+	Status    string          `json:"status"`
+	Tools     []responsesTool `json:"tools"`
+}
+
+// responsesArguments is the arguments of an output item: a JSON string for a
+// function_call, a JSON object for a tool_search_call. Either way it holds the
+// arguments as JSON text.
+type responsesArguments string
+
+func (a *responsesArguments) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return err
+		}
+		*a = responsesArguments(text)
+		return nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	*a = responsesArguments(trimmed)
+	return nil
 }
 
 type responsesMessage struct {
@@ -165,18 +217,35 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	if err != nil {
 		return nil, nil, err
 	}
+	layout := newDeferredLayout(request, rules)
 	input := make([]any, 0, len(request.Messages)*2)
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
-		items, err := convertResponsesMessage(message, names, rules.keepsReasoning(i, start))
+		items, err := convertResponsesMessage(message, names, rules.keepsReasoning(i, start), layout)
 		if err != nil {
 			return nil, nil, err
 		}
 		input = append(input, items...)
 	}
 
-	tools := make([]responsesTool, 0, len(request.Tools))
-	for _, spec := range request.Tools {
+	// Deferred tools, per https://developers.openai.com/api/docs/guides/tools-tool-search
+	// (client-executed tool search): a tool_search entry with execution
+	// "client" stands for our search function, the other tools are functions,
+	// and the catalog's go in with defer_loading true. The Model's search shows
+	// as a tool_search_call item, and our answer as a tool_search_output item
+	// that lists the functions it loads; a loaded function is injected at the
+	// end of the context, so the tool list stays the same.
+	ordered := make([]layoutTool, 0, len(request.Tools))
+	if layout != nil {
+		ordered = layout.tools
+	} else {
+		for _, spec := range request.Tools {
+			ordered = append(ordered, layoutTool{spec: spec})
+		}
+	}
+	tools := make([]any, 0, len(ordered))
+	for _, entry := range ordered {
+		spec := entry.spec
 		name, err := assignFunctionName(names, spec.ID)
 		if err != nil {
 			return nil, nil, err
@@ -188,7 +257,11 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 		if !json.Valid(parameters) {
 			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
 		}
-		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)})
+		if layout != nil && isSearchToolID(spec.ID) {
+			tools = append(tools, responsesToolSearch{Type: "tool_search", Execution: "client", Description: spec.Description, Parameters: json.RawMessage(parameters)})
+			continue
+		}
+		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters), DeferLoading: entry.deferred})
 	}
 
 	instructions := request.SystemInstructions
@@ -230,7 +303,11 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	return body, names, nil
 }
 
-func convertResponsesMessage(message gotato.Message, names map[string]string, keepReasoning bool) ([]any, error) {
+func convertResponsesMessage(message gotato.Message, names map[string]string, keepReasoning bool, native ...*deferredLayout) ([]any, error) {
+	var layout *deferredLayout
+	if len(native) > 0 {
+		layout = native[0]
+	}
 	role := string(message.Role)
 	switch message.Role {
 	case gotato.RoleUser:
@@ -285,6 +362,10 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 			}
 			arguments := string(replayArguments(call.Arguments))
 			callID, itemID := splitResponsesCallID(string(call.ID))
+			if layout != nil && layout.searchCalls[string(call.ID)] {
+				items = append(items, responsesToolSearchCall{Type: "tool_search_call", Execution: "client", CallID: callID, Status: "completed", Arguments: json.RawMessage(arguments)})
+				continue
+			}
 			// A JSON object is the chat API's extra_content, not an item ID.
 			if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
 				itemID = string(call.Signature)
@@ -305,6 +386,26 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 		}
 		if callID == "" {
 			return nil, fmt.Errorf("gateway: Tool result has no Call ID")
+		}
+		if layout != nil && layout.searchCalls[string(message.ToolResult.CallID)] {
+			loaded := []responsesTool{}
+			for _, id := range layout.references(message.ToolResult) {
+				for _, entry := range layout.tools {
+					if entry.spec.ID != id {
+						continue
+					}
+					name, err := assignFunctionName(names, id)
+					if err != nil {
+						return nil, err
+					}
+					parameters := entry.spec.InputSchema
+					if len(parameters) == 0 || !json.Valid(parameters) {
+						parameters = []byte(`{"type":"object"}`)
+					}
+					loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: json.RawMessage(parameters), DeferLoading: true})
+				}
+			}
+			return []any{responsesToolSearchOutput{Type: "tool_search_output", Execution: "client", CallID: callID, Status: "completed", Tools: loaded}}, nil
 		}
 		output := toolResultText(message)
 		if output == "" && message.ToolResult != nil {
@@ -386,12 +487,12 @@ type responsesCall struct {
 }
 
 type responsesOutputItem struct {
-	Type             string `json:"type"`
-	ID               string `json:"id"`
-	CallID           string `json:"call_id"`
-	Name             string `json:"name"`
-	Arguments        string `json:"arguments"`
-	EncryptedContent string `json:"encrypted_content,omitempty"`
+	Type             string             `json:"type"`
+	ID               string             `json:"id"`
+	CallID           string             `json:"call_id"`
+	Name             string             `json:"name"`
+	Arguments        responsesArguments `json:"arguments"`
+	EncryptedContent string             `json:"encrypted_content,omitempty"`
 	Summary          []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -585,7 +686,7 @@ func responsesItemRaw(event []byte) []byte {
 }
 
 func (s *responsesStream) ensureResponsesCall(index int, item *responsesOutputItem) {
-	if item.Type != "function_call" {
+	if item.Type != "function_call" && item.Type != "tool_search_call" {
 		return
 	}
 	call := s.calls[index]
@@ -602,8 +703,12 @@ func (s *responsesStream) ensureResponsesCall(index int, item *responsesOutputIt
 	if item.Name != "" {
 		call.name = item.Name
 	}
+	if item.Type == "tool_search_call" {
+		// The Model's search is a call to our search tool.
+		call.name = s.searchToolName()
+	}
 	if item.Arguments != "" {
-		call.arguments = item.Arguments
+		call.arguments = string(item.Arguments)
 	}
 }
 
@@ -624,7 +729,7 @@ func (s *responsesStream) finishResponsesItem(index int, item responsesOutputIte
 		}
 		return
 	}
-	if item.Type != "function_call" {
+	if item.Type != "function_call" && item.Type != "tool_search_call" {
 		return
 	}
 	s.ensureResponsesCall(index, &item)
@@ -632,6 +737,16 @@ func (s *responsesStream) finishResponsesItem(index int, item responsesOutputIte
 		call.argumentsDone = true
 	}
 	s.emitResponsesCall(index)
+}
+
+// searchToolName is the provider name the search tool was sent under.
+func (s *responsesStream) searchToolName() string {
+	for name, id := range s.nameMap {
+		if isSearchToolID(id) {
+			return name
+		}
+	}
+	return gotato.SearchToolName
 }
 
 func (s *responsesStream) emitResponsesCall(index int) {

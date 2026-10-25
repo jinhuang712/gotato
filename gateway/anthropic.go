@@ -84,6 +84,9 @@ type anthropicTool struct {
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"input_schema"`
 	CacheControl anthropicBlock  `json:"cache_control,omitempty"`
+	// DeferLoading keeps the tool out of the Model's context until a
+	// tool_reference block names it (the native form of deferred tools).
+	DeferLoading bool `json:"defer_loading,omitempty"`
 }
 
 // blockRef locates the last content block a gotato Message produced.
@@ -110,7 +113,25 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	if request.SystemInstructions != "" {
 		payload.System = []anthropicBlock{{"type": "text", "text": request.SystemInstructions}}
 	}
-	for _, spec := range request.Tools {
+	// Deferred tools, per
+	// https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool :
+	// every tool goes in the tools array on every request, and the ones with
+	// defer_loading true reach the Model's context only when a tool_reference
+	// block names them. Search is our own client-side tool, which answers with
+	// tool_reference blocks ("Custom tool search implementation"). The deferred
+	// tools come last, so the cache_control marker sits on a tool that is not
+	// deferred, as the API requires.
+	layout := newDeferredLayout(request, rules)
+	ordered := make([]layoutTool, 0, len(request.Tools))
+	if layout != nil {
+		ordered = layout.tools
+	} else {
+		for _, spec := range request.Tools {
+			ordered = append(ordered, layoutTool{spec: spec})
+		}
+	}
+	for _, entry := range ordered {
+		spec := entry.spec
 		name, err := assignFunctionName(names, spec.ID)
 		if err != nil {
 			return nil, nil, err
@@ -122,7 +143,7 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 		if !json.Valid(schema) {
 			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
 		}
-		payload.Tools = append(payload.Tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: json.RawMessage(schema)})
+		payload.Tools = append(payload.Tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: json.RawMessage(schema), DeferLoading: entry.deferred})
 	}
 
 	ends := make([]blockRef, len(request.Messages))
@@ -131,6 +152,17 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 		role, blocks, err := anthropicBlocks(message, names, rules.keepsReasoning(i, start))
 		if err != nil {
 			return nil, nil, err
+		}
+		if refs := layout.references(message.ToolResult); len(refs) > 0 && len(blocks) == 1 {
+			content := []anthropicBlock{{"type": "text", "text": blocks[0]["content"]}}
+			for _, id := range refs {
+				name, err := assignFunctionName(names, id)
+				if err != nil {
+					return nil, nil, err
+				}
+				content = append(content, anthropicBlock{"type": "tool_reference", "tool_name": name})
+			}
+			blocks[0]["content"] = content
 		}
 		if len(blocks) == 0 {
 			ends[i] = blockRef{message: -1}
@@ -322,7 +354,11 @@ func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []got
 		case gotato.CacheAfterSystem:
 			payload.System[len(payload.System)-1]["cache_control"] = marker()
 		case gotato.CacheAfterTools:
-			payload.Tools[len(payload.Tools)-1].CacheControl = marker()
+			end := len(payload.Tools) - 1
+			for end > 0 && payload.Tools[end].DeferLoading {
+				end--
+			}
+			payload.Tools[end].CacheControl = marker()
 		case gotato.CacheAfterMessage:
 			payload.Messages[t.ref.message].Content[t.ref.block]["cache_control"] = marker()
 		}

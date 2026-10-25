@@ -49,6 +49,8 @@ type YAMLConfig struct {
 	// OverflowPhrases adds the team's own wording for "the request was too
 	// long" to the defaults (Config's field of the same name).
 	OverflowPhrases []string `yaml:"overflow_phrases"`
+	// DeferredTools is "native" or "list" (Config's field of the same name).
+	DeferredTools string `yaml:"deferred_tools"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -93,6 +95,7 @@ func ParseYAML(data []byte) (Config, error) {
 		ContextWindow:  fileConfig.ContextWindow,
 
 		OverflowPhrases: fileConfig.OverflowPhrases,
+		DeferredTools:   fileConfig.DeferredTools,
 	}
 	if fileConfig.CacheRetention != "" {
 		retention, err := time.ParseDuration(strings.TrimSpace(fileConfig.CacheRetention))

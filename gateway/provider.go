@@ -75,6 +75,9 @@ type providerRules struct {
 	// responsesCacheTTL is prompt_cache_options.ttl on the Responses API,
 	// or empty to send no such field.
 	responsesCacheTTL string
+	// deferredNative sends the catalog's tools deferred (see
+	// Config.DeferredTools).
+	deferredNative bool
 }
 
 // resolveProvider returns the provider configured, or the one whose own

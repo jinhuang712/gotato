@@ -1009,9 +1009,9 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 		}
 		built.Messages = transformed
 	}
-	request, prefix := AssembleRequest(built, a.registry.visibleSpecs())
+	request, _ := AssembleRequest(built, a.registry.visibleSpecs())
 	request.LoadedTools, request.UnloadedTools = a.registry.catalogView()
-	prefix = prefixHash(request)
+	prefix := prefixHash(request)
 	request.Options = a.modelOptions
 	request.CacheKey = a.cacheKey
 	return built, request, prefix, nil

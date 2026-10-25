@@ -80,6 +80,9 @@ func functionNames(request gotato.ModelRequest) (map[string]string, error) {
 	for _, spec := range request.Tools {
 		ids = append(ids, spec.ID)
 	}
+	for _, spec := range request.UnloadedTools {
+		ids = append(ids, spec.ID)
+	}
 	for _, message := range request.Messages {
 		for _, call := range message.ToolCalls {
 			ids = append(ids, call.ToolID)
