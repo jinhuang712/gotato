@@ -11,7 +11,7 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Decisions
 
-- [ ] **The model does not know how long the user was away.** A Segment carries its times, but the model is not told the time a new message arrives, so after days away it may answer as if no time had passed. A runtime notice could say it (FEATURES.md → G-F29), and so could the service in its own message. To settle with runtime notices (ROADMAP.md Phase 7).
+None open.
 
 ## Open checks
 
