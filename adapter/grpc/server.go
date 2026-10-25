@@ -388,6 +388,12 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	}
+	var merge []byte
+	if result.Merge != nil {
+		if merge, err = json.Marshal(result.Merge); err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	}
 	return &gotatov2.CompactResult{
 		SessionId:      result.SessionID,
 		Replaced:       result.Replaced,
@@ -397,6 +403,7 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 		TokensAfter:    int32(result.TokensAfter),
 		CompactionJson: compaction,
 		Reason:         result.Reason,
+		MergeJson:      merge,
 	}, nil
 }
 

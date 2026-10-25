@@ -299,6 +299,10 @@ message Compaction {
   // recap_usage is what the call that wrote the Recap used; unset for none.
   Usage recap_usage = 13;
   repeated string tool_sets = 14;
+  // merged lists the numbers of the Segments a merge replaced with one merged
+  // Segment, oldest first; segment is then the merged Segment's number. Empty
+  // for a compaction that closed a Segment.
+  repeated int32 merged = 15;
 }
 
 // Segment is one stretch of history a compaction closed, written once. See the
@@ -314,6 +318,17 @@ message Segment {
   repeated ToolCallLine tool_calls = 7;
   string recap = 8;
   repeated string tool_sets = 9;
+  // merged lists the Segments a merged Segment stands for, oldest first, and
+  // where each can be read. Empty for a Segment a compaction closed.
+  repeated MergedSegment merged = 10;
+}
+
+// MergedSegment is what a merged Segment keeps of one Segment it replaced.
+message MergedSegment {
+  int32 number = 1;
+  string from = 2;
+  string to = 3;
+  SegmentSource source = 4;
 }
 
 // SegmentSource says which Entries of which Record a Segment covers.
@@ -676,4 +691,8 @@ message CompactResult {
   // reason says why nothing was compacted: below_min_tokens or
   // nothing_to_close. Empty when a Segment was closed.
   string reason = 8;
+  // merge_json is the merge of the oldest Segments that followed the
+  // compaction, as JSON (modelctx.MergeResult); empty when the Segments fit
+  // their budget.
+  bytes merge_json = 9;
 }

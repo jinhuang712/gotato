@@ -1274,9 +1274,10 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 }
 
 // Compact compacts a Session explicitly, under the Session lock, and closes a
-// Segment (modelctx.Compact). What opts leaves unset comes from the Session's
+// Segment (modelctx.Compact), and merges the oldest Segments when they then pass
+// their budget. What opts leaves unset comes from the Session's
 // Agent: its Recap writer, its time zone and limits, the Model's window, the
-// ceiling in force, and, with neither Keep nor Floor, its Floor. When the
+// ceiling in force, the Segments' budget, and, with neither Keep nor Floor, its Floor. When the
 // Agent's Model is sent only the current Round's reasoning
 // (modelctx.DropsReasoning), the kept Messages lose their reasoning.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
@@ -1327,6 +1328,9 @@ func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.Compact
 	}
 	if opts.Location == nil {
 		opts.Location = policy.Location
+	}
+	if opts.SegmentBudget <= 0 {
+		opts.SegmentBudget = policy.SegmentBudget
 	}
 	opts.MessageTokens = cmpPositive(opts.MessageTokens, policy.MessageTokens)
 	opts.ToolLines = cmpPositive(opts.ToolLines, policy.ToolLines)

@@ -64,7 +64,7 @@ func compactionOf(c *gotato.Compaction) *gotatov2.Compaction {
 		At: wireTime(c.At), ReplacedMessages: int32(c.ReplacedMessages), FromMessageId: string(c.FromMessageID), ToMessageId: string(c.ToMessageID),
 		SummaryMessageId: string(c.SummaryMessageID), Recap: c.Recap, BytesBefore: int32(c.BytesBefore), BytesAfter: int32(c.BytesAfter),
 		Segment: int32(c.Segment), TokensBefore: int32(c.TokensBefore), TokensAfter: int32(c.TokensAfter), Ceiling: int32(c.Ceiling),
-		RecapUsage: recapUsageOf(c.RecapUsage), ToolSets: c.ToolSets,
+		RecapUsage: recapUsageOf(c.RecapUsage), ToolSets: c.ToolSets, Merged: segmentNumbers(c.Merged),
 	}
 }
 
@@ -91,6 +91,10 @@ func positionsOf(positions []gotato.MessagePosition) []*gotatov2.MessagePosition
 	return out
 }
 
+func sourceOf(s gotato.SegmentSource) *gotatov2.SegmentSource {
+	return &gotatov2.SegmentSource{SessionId: string(s.SessionID), FromNumber: s.FromNumber, ToNumber: s.ToNumber}
+}
+
 // segmentOf is the wire form of a Segment, with its rendered Messages as JSON.
 func segmentOf(s gotato.Segment) (*gotatov2.Segment, error) {
 	messages, err := messagesJSON(s.Messages)
@@ -101,10 +105,14 @@ func segmentOf(s gotato.Segment) (*gotatov2.Segment, error) {
 	for i, line := range s.ToolCalls {
 		lines[i] = &gotatov2.ToolCallLine{At: wireTime(line.At), ToolId: line.ToolID, Args: line.Args, Status: string(line.Status), Code: line.Code, Count: int32(line.Count)}
 	}
+	var merged []*gotatov2.MergedSegment
+	for _, m := range s.Merged {
+		merged = append(merged, &gotatov2.MergedSegment{Number: int32(m.Number), From: wireTime(m.From), To: wireTime(m.To), Source: sourceOf(m.Source)})
+	}
 	return &gotatov2.Segment{
 		Number: int32(s.Number), From: wireTime(s.From), To: wireTime(s.To),
-		Source:       &gotatov2.SegmentSource{SessionId: string(s.Source.SessionID), FromNumber: s.Source.FromNumber, ToNumber: s.Source.ToNumber},
-		MessagesJson: messages, Rendered: int32(s.Rendered), ToolCalls: lines, Recap: s.Recap, ToolSets: s.ToolSets,
+		Source:       sourceOf(s.Source),
+		MessagesJson: messages, Rendered: int32(s.Rendered), ToolCalls: lines, Recap: s.Recap, ToolSets: s.ToolSets, Merged: merged,
 	}, nil
 }
 
