@@ -22,13 +22,10 @@ func bulkAgent(name string, calls int) service.Agent {
 	for i := range uses {
 		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
 	}
-	limits := gotato.DefaultLimits()
-	limits.MaxToolCalls = uint32(calls + 1)
 	return service.Agent{
-		Name:    name,
-		Model:   testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
-		Tools:   []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-		Options: []gotato.Option{gotato.WithLimits(limits)},
+		Name:  name,
+		Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
+		Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
 	}
 }
 

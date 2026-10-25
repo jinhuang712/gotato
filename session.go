@@ -148,7 +148,7 @@ func WithTools(tools ...Tool) Option {
 
 func WithLimits(limits CoreLimits) Option {
 	return func(c *sessionConfig) error {
-		if limits.RunDeadline < 0 || limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
+		if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
 			return runtimeError(ErrInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
 		}
 		c.limits = limits
@@ -157,15 +157,14 @@ func WithLimits(limits CoreLimits) Option {
 	}
 }
 
-// WithDeadlines overrides only the Run, Model, and Tool deadlines. A zero
+// WithDeadlines overrides only the Model call and Tool call deadlines. A zero
 // duration disables that deadline. Other local limits retain their defaults
-// and are not made explicit by this option.
-func WithDeadlines(run, model, tool time.Duration) Option {
+// and are not made explicit by this option. A Run's own deadline is its ctx.
+func WithDeadlines(model, tool time.Duration) Option {
 	return func(c *sessionConfig) error {
-		if run < 0 || model < 0 || tool < 0 {
+		if model < 0 || tool < 0 {
 			return runtimeError(ErrInvalidArgument, "WithDeadlines", "deadlines cannot be negative", nil)
 		}
-		c.limits.RunDeadline = run
 		c.limits.ModelCallDeadline = model
 		c.limits.ToolCallDeadline = tool
 		return nil
@@ -918,7 +917,7 @@ func classifyModelError(err error) *RuntimeError {
 }
 
 func validateLimits(limits CoreLimits) error {
-	if limits.RunDeadline < 0 || limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
+	if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
 		return runtimeError(ErrInvalidArgument, "CoreLimits", "deadlines cannot be negative", nil)
 	}
 	return nil
@@ -1262,17 +1261,6 @@ func schemaTypeMatches(typ string, value any) bool {
 	default:
 		return true
 	}
-}
-
-func validateToolResultSize(limits CoreLimits, explicit bool, result ToolResult) *RuntimeError {
-	bytes, err := json.Marshal(result)
-	if err != nil {
-		return runtimeError(ErrInternalInvariant, "ToolResult", "cannot encode Tool Result", err)
-	}
-	if limitExceededUint64(explicit, limits.MaxToolResultBytes, uint64(len(bytes))) {
-		return runtimeError(ErrLimitExceeded, "ToolResult", "maximum Tool Result bytes exceeded", nil)
-	}
-	return nil
 }
 
 func limitExceededUint32(explicit bool, limit, value uint32) bool {

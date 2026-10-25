@@ -296,9 +296,6 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 	plans := make([]toolPlan, 0, len(calls))
 	for sourceIndex, call := range calls {
 		*toolCalls++
-		if limitExceededUint32(a.limitsSet, a.limits.MaxToolCalls, *toolCalls) {
-			return nil, runtimeError(ErrLimitExceeded, "Tool", "maximum Tool Calls exceeded", nil)
-		}
 		// A call the Model got wrong (an unknown Tool, malformed or
 		// schema-invalid arguments) settles as a failed Tool Result the Model
 		// can read and correct; it never ends the Run (GOALS.md G-G04: every

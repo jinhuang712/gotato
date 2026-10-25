@@ -3,12 +3,9 @@ package gotato
 import "time"
 
 type CoreLimits struct {
-	MaxTurns               uint32
 	MaxMessages            uint32
 	MaxMessageBytes        uint64
 	MaxTranscriptBytes     uint64
-	MaxToolCalls           uint32
-	MaxToolResultBytes     uint64
 	MaxToolProgressBytes   uint64
 	MaxToolProgressUpdates uint32
 	MaxSteerMessages       uint32
@@ -22,7 +19,6 @@ type CoreLimits struct {
 	// one keeps a batch sequential.
 	MaxParallelTools  uint32
 	MaxActiveToolSets uint32
-	RunDeadline       time.Duration
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
 }
@@ -36,13 +32,17 @@ const TruncatedContinuationText = "Your last reply was cut off at the output lim
 // used. Adjust a copy and pass it to WithLimits to override some fields.
 //
 // A zero field is interpreted per field, not uniformly. Once WithLimits makes
-// the limits explicit, a zero MaxTurns, MaxMessages, MaxMessageBytes,
-// MaxTranscriptBytes, MaxToolCalls, or MaxToolResultBytes admits no work of
-// that kind, and a zero MaxToolProgressBytes or MaxToolProgressUpdates
+// the limits explicit, a zero MaxMessages, MaxMessageBytes or
+// MaxTranscriptBytes admits no work of that kind, and a zero MaxToolProgressBytes or MaxToolProgressUpdates
 // suppresses Tool progress reports. MaxActiveToolSets zero admits no ToolSet
 // activation. MaxParallelTools zero or one keeps a batch sequential, and
 // MaxSteerMessages or MaxFollowUpMessages zero leaves that control channel
 // unbuffered. A zero deadline disables that deadline.
+//
+// The core counts no Turns or Tool calls and sets no deadline on a Run: a Run
+// ends by the Model's final reply, by its ctx, by a TurnStopper or by the
+// compaction ceiling. A team that wants a Turn or call cap writes a
+// TurnStopper; a Run's deadline is the ctx the caller passes.
 //
 // The closing results a failed Run commits for the Tool calls it left without
 // a result are exempt from MaxMessages, MaxMessageBytes and
@@ -52,19 +52,15 @@ func DefaultLimits() CoreLimits { return defaultLimits() }
 
 func defaultLimits() CoreLimits {
 	return CoreLimits{
-		MaxTurns:               32,
 		MaxMessages:            10000,
 		MaxMessageBytes:        4 << 20,
 		MaxTranscriptBytes:     32 << 20,
-		MaxToolCalls:           128,
-		MaxToolResultBytes:     4 << 20,
 		MaxToolProgressBytes:   1 << 20,
 		MaxToolProgressUpdates: 1000,
 		MaxSteerMessages:       8,
 		MaxFollowUpMessages:    4,
 		MaxParallelTools:       1,
 		MaxActiveToolSets:      16,
-		RunDeadline:            5 * time.Minute,
 		ModelCallDeadline:      2 * time.Minute,
 		ToolCallDeadline:       2 * time.Minute,
 	}

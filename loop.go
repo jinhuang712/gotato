@@ -103,11 +103,6 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if a.limits.RunDeadline > 0 {
-		var deadlineCancel context.CancelFunc
-		runCtx, deadlineCancel = context.WithTimeout(runCtx, a.limits.RunDeadline)
-		defer deadlineCancel()
-	}
 
 	runID := RunID(nextID("run"))
 	a.runMu.Lock()
@@ -236,9 +231,6 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 
 	for turn := TurnNumber(1); ; turn++ {
-		if limitExceededUint32(a.limitsSet, a.limits.MaxTurns, uint32(turn)) {
-			return fail(runtimeError(ErrLimitExceeded, "Run", "maximum Turns exceeded", nil))
-		}
 		if err := contextFailure(runCtx, "turn"); err != nil {
 			return fail(err)
 		}
@@ -475,9 +467,6 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 					return postErr
 				}
 				toolResult = finalized
-				if err := validateToolResultSize(a.limits, a.limitsSet, toolResult); err != nil {
-					return err
-				}
 				content := cloneContent(toolResult.Content)
 				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
 				if err := a.commitMessage(resultMessage); err != nil {

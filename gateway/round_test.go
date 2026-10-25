@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -227,6 +228,17 @@ func thinkingToolCall(signature string) []string {
 	}
 }
 
+// failAfterOneTurn is a TurnPreparer that fails every Turn but the first, so a
+// Run stops after one Turn with the Steer of that Turn already committed.
+type failAfterOneTurn struct{}
+
+func (failAfterOneTurn) PrepareTurn(_ context.Context, pending gotato.PendingTurn) (gotato.TurnPrepared, error) {
+	if pending.Turn > 1 {
+		return gotato.TurnPrepared{}, errors.New("stop after one Turn")
+	}
+	return gotato.TurnPrepared{}, nil
+}
+
 // A Steer is the user speaking, so it starts a new Round: the request after
 // it no longer carries the reasoning before it. A Continue without a new
 // prompt stays in the Round it resumes, so the tool loop it picks up keeps its
@@ -265,9 +277,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		limits := gotato.DefaultLimits()
-		limits.MaxTurns = 1
-		created, err := gotato.NewSession(gotato.WithModel(client), gotato.WithLimits(limits), gotato.WithTool(testkit.NewFakeTool("echo", "echoed")))
+		created, err := gotato.NewSession(gotato.WithModel(client), gotato.WithExtension(failAfterOneTurn{}), gotato.WithTool(testkit.NewFakeTool("echo", "echoed")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -277,7 +287,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 		ctx := context.Background()
 		first, _ := created.Prompt(ctx, gotato.UserMessage("check a"))
 		if first.Status != gotato.RunFailed {
-			t.Fatalf("steer=%v: the first Run settled %q, want failed at MaxTurns", steer, first.Status)
+			t.Fatalf("steer=%v: the first Run settled %q, want failed at its second Turn", steer, first.Status)
 		}
 		if _, err := created.Continue(ctx); err != nil {
 			t.Fatal(err)

@@ -294,6 +294,16 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 	}
 }
 
+// failingPre is a PreToolUse Extension that fails on one call.
+type failingPre struct{ failOn ToolCallID }
+
+func (p *failingPre) Before(_ context.Context, use ToolUse) (PreToolDecision, error) {
+	if use.CallID == p.failOn {
+		return PreToolDecision{}, errors.New("pre hook failed")
+	}
+	return PreToolDecision{}, nil
+}
+
 // failingPost is a PostToolUse Extension that fails.
 type failingPost struct{}
 
@@ -306,25 +316,23 @@ func (failingPost) After(context.Context, ToolResult) (ToolResult, error) {
 // Tool call has no result, so before the fix every later Run of the Session
 // failed.
 func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
-	t.Run("limit in preflight", func(t *testing.T) {
-		limits := DefaultLimits()
-		limits.MaxToolCalls = 1
+	t.Run("extension in preflight", func(t *testing.T) {
 		model := &testModel{scripts: [][]ModelEvent{
 			callsScript("echo", "echo"),
 			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 		}}
-		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithLimits(limits))
+		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = agent.Close(context.Background()) }()
-		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrLimitExceeded) {
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrExtensionFailure) {
 			t.Fatalf("first Run error = %v", err)
 		}
 		results := resultsByCall(agent.Transcript().Messages())
 		for _, id := range []ToolCallID{"c1", "c2"} {
 			result, ok := results[id]
-			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(ErrLimitExceeded)) {
+			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(ErrExtensionFailure)) {
 				t.Fatalf("closing result of %s = %+v (found %v)", id, result, ok)
 			}
 		}

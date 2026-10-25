@@ -59,15 +59,12 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	for i := range uses {
 		uses[i] = gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprintf("call-%d", i)), ToolID: "lookup", Arguments: []byte(`{}`)}
 	}
-	limits := gotato.DefaultLimits()
-	limits.MaxToolCalls = calls + 1
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
 		Agents: []service.Agent{{
-			Name:    "bulk",
-			Model:   testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
-			Tools:   []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-			Options: []gotato.Option{gotato.WithLimits(limits)},
+			Name:  "bulk",
+			Model: testkit.NewFakeModel(testkit.ToolCalls(uses...), testkit.Text("done")),
+			Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
 		}},
 	})
 	if err != nil {

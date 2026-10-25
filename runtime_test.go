@@ -290,7 +290,7 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 
 func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
 	limits := DefaultLimits()
-	limits.MaxTurns = 3
+	limits.MaxSteerMessages = 3
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
 	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {

@@ -17,15 +17,14 @@ import (
 const ReadSegmentID = "read_segment"
 
 // DefaultReadSegmentPageBytes is the most one page of a read_segment result
-// holds, in bytes of text: about 8K tokens, far below MaxToolResultBytes, so a
+// holds, in bytes of text: about 8K tokens, so a
 // long Segment is read page by page and one call never fills the Context.
 const DefaultReadSegmentPageBytes = 32 << 10
 
 // ReadSegmentOptions controls ReadSegmentTool.
 type ReadSegmentOptions struct {
 	// PageBytes is the most one page holds, in bytes. 0 means
-	// DefaultReadSegmentPageBytes. A Runner sets it lower when the Agent's
-	// MaxToolResultBytes leaves less room.
+	// DefaultReadSegmentPageBytes.
 	PageBytes int
 	// Location is the time zone of the times in the result; nil means UTC.
 	Location *time.Location

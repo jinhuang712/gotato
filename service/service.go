@@ -40,6 +40,10 @@ import (
 // stalled Store cannot pin a settled Run.
 const persistTimeout = 10 * time.Second
 
+// DefaultRunTimeout is how long a Run of an Agent may last when neither the
+// Agent's RunTimeout nor the request's Timeout says otherwise.
+const DefaultRunTimeout = 30 * time.Minute
+
 // Session metadata keys the service reads. They are ordinary application
 // metadata from the runtime's point of view and may be set by any client.
 const (
@@ -78,6 +82,12 @@ type Agent struct {
 	ContextBuilder gotato.ContextBuilder
 	Extensions     []any
 	Limits         *gotato.CoreLimits
+	// RunTimeout bounds one Run of this Agent; the Run settles as
+	// deadline_exceeded. Zero means DefaultRunTimeout, negative means no
+	// deadline. A RunRequest's Timeout replaces it, and a deadline on the
+	// caller's context that comes sooner ends the Run sooner. The core sets
+	// no Run deadline of its own: there a Run's deadline is its ctx.
+	RunTimeout time.Duration
 	// Compact says when the Agent's Sessions compact by themselves: past the
 	// ceiling, which is the Model's window less a reserve unless Ceiling sets
 	// one (a negative Ceiling turns it off), and once when the provider refuses
@@ -491,7 +501,7 @@ type RunRequest struct {
 	// as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
-	// keeps the Agent's RunDeadline.
+	// keeps the Agent's RunTimeout.
 	Timeout time.Duration
 }
 
@@ -822,14 +832,6 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			s.Set(MetaModel, spec.ModelName)
 		}
 
-		if request.Timeout > 0 {
-			limits := gotato.DefaultLimits()
-			if spec.Limits != nil {
-				limits = *spec.Limits
-			}
-			limits.RunDeadline = request.Timeout
-			spec.Limits = &limits
-		}
 		onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
 			track.set(runID)
 			r.attachRunID(handle, runID)
@@ -846,12 +848,30 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		// Session was loading reaches the Run through abortIfStopped instead.
 		handle.attachAbort(live.Abort)
 
-		var result gotato.RunResult
-		if request.Continue {
-			result, runErr = live.Continue(ctx)
-		} else {
-			result, runErr = live.Prompt(ctx, gotato.UserMessage(request.Prompt))
+		// The Run's deadline: the request's Timeout, else the Agent's
+		// RunTimeout. The caller's own deadline on ctx overrides it when
+		// it is shorter, as any child context's does.
+		runDeadline := request.Timeout
+		if runDeadline == 0 {
+			runDeadline = spec.RunTimeout
 		}
+		if runDeadline == 0 {
+			runDeadline = DefaultRunTimeout
+		}
+		var result gotato.RunResult
+		func() {
+			runCtx := ctx
+			if runDeadline > 0 {
+				var cancelDeadline context.CancelFunc
+				runCtx, cancelDeadline = context.WithTimeout(ctx, runDeadline)
+				defer cancelDeadline()
+			}
+			if request.Continue {
+				result, runErr = live.Continue(runCtx)
+			} else {
+				result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
+			}
+		}()
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
 			stream.sub.End()
@@ -1153,12 +1173,9 @@ type sessionTools struct {
 
 // segmentTools is the ToolSource that offers read_segment for a Session of the
 // Agent spec: the Messages are read back from the Runner's store, in pages
-// that fit the Agent's MaxToolResultBytes, in the zone of its Segments' times.
+// that fit one page, in the zone of its Segments' times.
 func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
 	options := modelctx.ReadSegmentOptions{Location: spec.Compact.Location}
-	if spec.Limits != nil && spec.Limits.MaxToolResultBytes > 0 {
-		options.PageBytes = int(min(spec.Limits.MaxToolResultBytes/2, uint64(modelctx.DefaultReadSegmentPageBytes)))
-	}
 	return modelctx.SegmentTools(record, r.store, options)
 }
 
