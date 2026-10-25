@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-25 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -21,7 +21,7 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
                              is spilled into the Record, and the counting caps leave the core
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
-Phase 9  Large results       how a model reads a spilled result inside a pod with no machine (design open)
+Phase 9  Large results       the model queries its Session's Record with a read-only bash subset, with no machine
 Phase 10 Access hooks        the caller's identity reaches extensions and stores, and a refusal answers 403
 Phase 11 Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
          ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
@@ -38,7 +38,7 @@ Why this order:
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Tools at scale come before the warm Session.** Tool search, the MCP adapter and the spilled results do not need it: while a Run is live the Session already holds a spilled body in memory, a later Run reads it from the Record, and the warm Session (next phase) keeps it across Runs. They also take the counting caps out of the core, which the compaction ceiling and the Run's `ctx` replace, so Compaction has to be built first.
-- **The reader of large results waits until real MCP results show what a model needs.** Phase 7 spills a large Tool Result and lets the model page through it. Whether paging is enough, or the model needs to grep and filter, is answered with the results MCP servers return, so the design stays open until then.
+- **The reader of large results comes after the warm Session and before the release.** Phase 7 spills a large Tool Result and lets the model page through it. The `bash` tool needs only the Record, so it waits for no other phase; it is placed here so that the chat bot of Phase 11 can show what models do with it, and its command list is reviewed there.
 - **Access hooks depend on nothing above,** so the maintainer can move them earlier. They give enterprise teams the places to enforce their own rules, and they come after the store work because the many-instance goals carry the pitch.
 - **The tests a team's own setup would run come last:** fake gateways, a local cluster with a chat bot on it, and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
 
@@ -215,16 +215,21 @@ Exit:
 
 ## Phase 9 — Reading large results
 
-Design open. A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. The question is what the model is given instead. [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) rules out eight ways and leaves two candidates, and [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-) describes them. The choice waits until real MCP results show what a model needs; it is also in [TODO.md](TODO.md#decisions).
+A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. This phase gives the model a `bash` tool: a read-only subset of bash that queries its own Session's Record, with behavior that matches GNU and bash and a clear error for anything not supported. The design and what was ruled out are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26), and the feature is [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-). It is a module of its own, `adapter/bash`, whose engine does not import Gotato.
 
-- ⬜ Step 1, the decision: the maintainer chooses between typed reader parameters (`lines`, `grep`, a `json` path) and a terminating pipeline language, on a measurement of what models do with the spilled results of Phase 7.
-- ⬜ Step 2, the chosen reader, built on `read_result`, with paging kept in both.
+- ⬜ Step 1, the core exposes a Session's Record as a read-only `fs.FS`, with the standard library alone.
+- ⬜ Step 2, the engine: the interpreter's handlers taken over (commands, file opens, environment) and the syntax check that refuses loops, functions, `$( )` and writing redirects, with `cat`, `head` and `grep` running.
+- ⬜ Step 3, the remaining commands, each with GNU conformance tests.
+- ⬜ Step 4, jq through gojq, and the protections: the cut for a very long line, the spill of long output, `--help`, `ctx` and bounded memory.
+- ⬜ Step 5, the Gotato layer that wraps the engine as the `bash` tool and hands it the Record as `/results`, and a reference task.
 
 Exit:
 
-- The decision is written in DESIGNS.md and FEATURES.md, and its TODO entry is removed.
-- A test on a fake model reads a spilled result of 1 MB with the chosen reader, finds one line and one field, and checks that the answer is short and the same on every instance.
-- A test checks that the reader cannot write, loop or reach anything but the spilled results of its own Session.
+- A test on a fake model reads a spilled result of 1 MB with the `bash` tool, finds one line and one field, and checks that the answer is short and the same on every instance.
+- A test checks that the tool cannot write, loop, run a program or reach anything but the data of its own Session.
+- Every supported flag passes the GNU conformance tests in CI, and every unsupported flag and every unsupported syntax fails with a clear error.
+- `adapter/bash` passes its own vet, test and lint, and the root module still imports only the standard library.
+- The decision is in DESIGNS.md and FEATURES.md, and its entry is gone from [TODO.md](TODO.md).
 
 ## Phase 10 — Access hooks
 

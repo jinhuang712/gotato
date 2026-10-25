@@ -9,7 +9,7 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Decisions
 
-- [ ] **How does a model read part of a spilled result inside a pod with no machine?** Typed reader parameters (`lines`, `grep`, a `json` path), or a terminating pipeline language: a subset of bash syntax with a parser of Gotato's own. Eight other ways are ruled out ([DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25)). Decided in [ROADMAP.md → Phase 9](ROADMAP.md#phase-9--reading-large-results), after real MCP results show what a model needs; the features are in [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-).
+None open.
 
 ## Open checks
 
