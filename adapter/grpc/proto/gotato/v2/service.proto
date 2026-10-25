@@ -69,6 +69,14 @@ service SessionService {
   // forwarded when forwarding is on; a forwarded call carries the metadata
   // gotato-forwarded and is never forwarded again.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  // Notice tells the model something that is not the user's words: a notice
+  // from your service. It is queued, and the response returns at once with the
+  // number of its notice_queued Event. It starts no Run and keeps none going:
+  // it goes in right before the model call of the Run going now, or of the
+  // Session's next Run, after its prompt. A Run that another live instance
+  // writes fails as SendMessage's does (not_writer), or is forwarded when
+  // forwarding is on.
+  rpc Notice(NoticeRequest) returns (NoticeResponse);
 
   // Events returns every stored Event of a Session, read from its Record. It
   // is not paged: it streams every one matching kind, so it is bounded by the
@@ -276,6 +284,8 @@ message Event {
     SegmentClosed segment_closed = 53;
     ToolResultSpilled tool_result_spilled = 54;
     ToolUnloaded tool_unloaded = 55;
+    NoticeQueued notice_queued = 56;
+    NoticeCommitted notice_committed = 57;
   }
 }
 
@@ -547,6 +557,22 @@ message MessageDropped {
   string why = 3;
 }
 
+// NoticeQueued: see the Event type of the same name in the Go API.
+message NoticeQueued {
+  string message_id = 1;
+  string notice_kind = 2;
+  string source = 3;
+  string text = 4;
+}
+
+// NoticeCommitted: see the Event type of the same name in the Go API.
+message NoticeCommitted {
+  bytes message_json = 1;
+  // queued is the number of the notice_queued it came from, 0 for a notice of
+  // Gotato's own.
+  uint64 queued = 2;
+}
+
 // MessageWithdrawn: see the Event type of the same name in the Go API.
 message MessageWithdrawn {
   string message_id = 1;
@@ -704,6 +730,23 @@ message SendMessageResponse {
   // false, run holds the result of the Run the message started.
   bool queued = 3;
   RunResult run = 4;
+}
+
+message NoticeRequest {
+  string session_id = 1;
+  // kind is your own short label; Gotato's own kinds are reserved.
+  string kind = 2;
+  string text = 3;
+}
+
+message NoticeResponse {
+  string session_id = 1;
+  // queued is always true on success.
+  bool queued = 2;
+  // number is the number of the notice's notice_queued Event.
+  uint64 number = 3;
+  // message_id names the notice in the Events that follow it.
+  string message_id = 4;
 }
 
 message EventsRequest {

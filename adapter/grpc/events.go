@@ -299,6 +299,22 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			Source:    string(e.Source),
 			Why:       e.Why,
 		}}
+	case gotato.NoticeQueued:
+		wire.Event = &gotatov2.Event_NoticeQueued{NoticeQueued: &gotatov2.NoticeQueued{
+			MessageId:  string(e.MessageID),
+			NoticeKind: e.NoticeKind,
+			Source:     string(e.Source),
+			Text:       e.Text,
+		}}
+	case gotato.NoticeCommitted:
+		message, err := messageJSON(e.Message)
+		if err != nil {
+			return fail(err)
+		}
+		wire.Event = &gotatov2.Event_NoticeCommitted{NoticeCommitted: &gotatov2.NoticeCommitted{
+			MessageJson: message,
+			Queued:      e.Queued,
+		}}
 	case gotato.MessageWithdrawn:
 		wire.Event = &gotatov2.Event_MessageWithdrawn{MessageWithdrawn: &gotatov2.MessageWithdrawn{
 			MessageId: string(e.MessageID),

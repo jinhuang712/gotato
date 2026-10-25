@@ -31,6 +31,7 @@ const (
 	SessionService_StreamSession_FullMethodName = "/gotato.v2.SessionService/StreamSession"
 	SessionService_CancelRun_FullMethodName     = "/gotato.v2.SessionService/CancelRun"
 	SessionService_SendMessage_FullMethodName   = "/gotato.v2.SessionService/SendMessage"
+	SessionService_Notice_FullMethodName        = "/gotato.v2.SessionService/Notice"
 	SessionService_Events_FullMethodName        = "/gotato.v2.SessionService/Events"
 	SessionService_Context_FullMethodName       = "/gotato.v2.SessionService/Context"
 	SessionService_Compact_FullMethodName       = "/gotato.v2.SessionService/Compact"
@@ -102,6 +103,14 @@ type SessionServiceClient interface {
 	// forwarded when forwarding is on; a forwarded call carries the metadata
 	// gotato-forwarded and is never forwarded again.
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
+	// Notice tells the model something that is not the user's words: a notice
+	// from your service. It is queued, and the response returns at once with the
+	// number of its notice_queued Event. It starts no Run and keeps none going:
+	// it goes in right before the model call of the Run going now, or of the
+	// Session's next Run, after its prompt. A Run that another live instance
+	// writes fails as SendMessage's does (not_writer), or is forwarded when
+	// forwarding is on.
+	Notice(ctx context.Context, in *NoticeRequest, opts ...grpc.CallOption) (*NoticeResponse, error)
 	// Events returns every stored Event of a Session, read from its Record. It
 	// is not paged: it streams every one matching kind, so it is bounded by the
 	// Session's length and by the stream deadline.
@@ -258,6 +267,16 @@ func (c *sessionServiceClient) SendMessage(ctx context.Context, in *SendMessageR
 	return out, nil
 }
 
+func (c *sessionServiceClient) Notice(ctx context.Context, in *NoticeRequest, opts ...grpc.CallOption) (*NoticeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NoticeResponse)
+	err := c.cc.Invoke(ctx, SessionService_Notice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sessionServiceClient) Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &SessionService_ServiceDesc.Streams[2], SessionService_Events_FullMethodName, cOpts...)
@@ -363,6 +382,14 @@ type SessionServiceServer interface {
 	// forwarded when forwarding is on; a forwarded call carries the metadata
 	// gotato-forwarded and is never forwarded again.
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
+	// Notice tells the model something that is not the user's words: a notice
+	// from your service. It is queued, and the response returns at once with the
+	// number of its notice_queued Event. It starts no Run and keeps none going:
+	// it goes in right before the model call of the Run going now, or of the
+	// Session's next Run, after its prompt. A Run that another live instance
+	// writes fails as SendMessage's does (not_writer), or is forwarded when
+	// forwarding is on.
+	Notice(context.Context, *NoticeRequest) (*NoticeResponse, error)
 	// Events returns every stored Event of a Session, read from its Record. It
 	// is not paged: it streams every one matching kind, so it is bounded by the
 	// Session's length and by the stream deadline.
@@ -416,6 +443,9 @@ func (UnimplementedSessionServiceServer) CancelRun(context.Context, *CancelRunRe
 }
 func (UnimplementedSessionServiceServer) SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendMessage not implemented")
+}
+func (UnimplementedSessionServiceServer) Notice(context.Context, *NoticeRequest) (*NoticeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Notice not implemented")
 }
 func (UnimplementedSessionServiceServer) Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Error(codes.Unimplemented, "method Events not implemented")
@@ -649,6 +679,24 @@ func _SessionService_SendMessage_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SessionService_Notice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NoticeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServiceServer).Notice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionService_Notice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServiceServer).Notice(ctx, req.(*NoticeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SessionService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(EventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -742,6 +790,10 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendMessage",
 			Handler:    _SessionService_SendMessage_Handler,
+		},
+		{
+			MethodName: "Notice",
+			Handler:    _SessionService_Notice_Handler,
 		},
 		{
 			MethodName: "Context",

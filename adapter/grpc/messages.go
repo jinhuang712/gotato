@@ -166,6 +166,31 @@ func (s *Server) SendMessage(ctx context.Context, request *gotatov2.SendMessageR
 	return response, nil
 }
 
+// Notice implements gotatov2.SessionServiceServer.
+func (s *Server) Notice(ctx context.Context, request *gotatov2.NoticeRequest) (*gotatov2.NoticeResponse, error) {
+	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
+		return nil, err
+	}
+	result, err := s.runner.Notice(ctx, service.NoticeRequest{
+		SessionID: request.GetSessionId(),
+		Kind:      request.GetKind(),
+		Text:      request.GetText(),
+	})
+	if err != nil {
+		if address, ok := s.forwardable(ctx, err); ok {
+			var response *gotatov2.NoticeResponse
+			forwardErr := s.forwardCall(ctx, address, func(ctx context.Context, client gotatov2.SessionServiceClient, options ...grpc.CallOption) error {
+				var callErr error
+				response, callErr = client.Notice(ctx, request, options...)
+				return callErr
+			})
+			return response, forwardErr
+		}
+		return nil, failed(ctx, err)
+	}
+	return &gotatov2.NoticeResponse{SessionId: result.SessionID, Queued: result.Queued, Number: result.Number, MessageId: result.MessageID}, nil
+}
+
 // cancelSession stops the Run of a Session, forwarding the call to the writer
 // when forwarding is on and another instance writes it.
 func (s *Server) cancelSession(ctx context.Context, request *gotatov2.CancelRunRequest, id string) error {
