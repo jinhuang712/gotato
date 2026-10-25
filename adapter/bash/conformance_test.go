@@ -45,7 +45,7 @@ func conformanceFiles() map[string]string {
 // allCases is every conformance case: the table of cat, head and grep above,
 // and the tables of the other commands.
 func allCases() []conformanceCase {
-	return slices.Concat(conformanceCases, tailSedWcCases, sortUniqCutTrCases, base64EchoLsCases)
+	return slices.Concat(conformanceCases, tailSedWcCases, sortUniqCutTrCases, base64EchoLsCases, grepMoreCases)
 }
 
 // conformanceCase is one command with the output GNU coreutils 9 and GNU grep

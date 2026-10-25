@@ -22,9 +22,9 @@ const (
 	syntaxFixed                      // grep -F
 )
 
-// compilePatterns compiles the patterns, any of which may match, into one
-// regexp with POSIX leftmost-longest matching.
-func compilePatterns(patterns []string, syn patternSyntax, ignoreCase, wholeLine bool) (*regexp.Regexp, error) {
+// patternExpr translates the patterns, any of which may match, into one RE2
+// expression (not yet compiled, and without the case flag).
+func patternExpr(patterns []string, syn patternSyntax, wholeLine bool) (string, error) {
 	parts := make([]string, 0, len(patterns))
 	for _, p := range patterns {
 		var re string
@@ -34,7 +34,7 @@ func compilePatterns(patterns []string, syn patternSyntax, ignoreCase, wholeLine
 		default:
 			var err error
 			if re, err = translate(p, syn == syntaxERE); err != nil {
-				return nil, err
+				return "", err
 			}
 		}
 		parts = append(parts, "(?:"+re+")")
@@ -43,6 +43,11 @@ func compilePatterns(patterns []string, syn patternSyntax, ignoreCase, wholeLine
 	if wholeLine {
 		expr = "^(?:" + expr + ")$"
 	}
+	return expr, nil
+}
+
+// compileExpr compiles an expression with POSIX leftmost-longest matching.
+func compileExpr(expr string, ignoreCase bool) (*regexp.Regexp, error) {
 	if ignoreCase {
 		expr = "(?i)" + expr
 	}
@@ -52,6 +57,26 @@ func compilePatterns(patterns []string, syn patternSyntax, ignoreCase, wholeLine
 	}
 	re.Longest()
 	return re, nil
+}
+
+// hasAnchor reports whether an RE2 expression holds a ^ or $ anchor outside a
+// bracket expression.
+func hasAnchor(expr string) bool {
+	for i := 0; i < len(expr); i++ {
+		switch expr[i] {
+		case '\\':
+			i++
+		case '[':
+			for i++; i < len(expr) && expr[i] != ']'; i++ {
+				if expr[i] == '\\' {
+					i++
+				}
+			}
+		case '^', '$':
+			return true
+		}
+	}
+	return false
 }
 
 // translate converts one GNU pattern, basic (BRE) or extended (ERE), to RE2.

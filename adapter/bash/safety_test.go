@@ -345,7 +345,7 @@ func TestHelpAndUnsupportedOptions(t *testing.T) {
 			t.Errorf("%s --frobnicate: %+v", name, got)
 		}
 	}
-	for cmd, flag := range map[string]string{"cat -A /results/a": "'-A'", "head -z /results/a": "'-z'", "grep -o x /results/a": "'-o'", "grep -r x /results": "'-r'", "grep -P x /results/a": "'-P'", "grep -A 1 x /results/a": "'-A'"} {
+	for cmd, flag := range map[string]string{"cat -A /results/a": "'-A'", "head -z /results/a": "'-z'", "grep -m 1 x /results/a": "'-m'", "grep -s x /results": "'-s'", "grep -P x /results/a": "'-P'", "grep -L 1 x /results/a": "'-L'"} {
 		got := run(t, cmd, safetyFiles)
 		if got.ExitCode == 0 || !strings.Contains(got.Stderr, "option "+flag+" is not supported") {
 			t.Errorf("%s: %+v", cmd, got)
