@@ -137,6 +137,15 @@ Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md
 
   The `storetest` suite gains a check that a log Entry of a megabyte is kept whole, read at its position, and not loaded; every `session.Store` adapter must pass it. The contract versions stay as they are, since every change here is an addition.
 
+### Access control
+
+- **Every request-driven call reads through the store, so a store wrapper can refuse a caller** ([FEATURES.md → G-N22](FEATURES.md#g-n22--access-control-belongs-to-applications)). `Runner.CancelSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on the Instance.
+
+  | Before | After |
+  |---|---|
+  | cancelling, steering or sending a notice to a Run live on this Instance touched no store, so a wrapper could not refuse the caller | the call reads the Record first, and a wrapper's `not_found` is returned as it is |
+  | `CancelSession` (HTTP `POST /v1/sessions/{id}/cancel`) for a Session the store does not know: `ErrNoRun`, HTTP 409 `invalid_state` | `not_found`: HTTP 404, gRPC `NOT_FOUND`, CLI exit 3 |
+
 ### Errors
 
 - **Every error says whether it ran and whether a retry may succeed, and the runtime decides.** `RuntimeError` gains `NotRun` (JSON `not_run`), and `gotato.NotRun(err)` and `gotato.Retryable(err)` read both through wrapped errors. `gotato.ErrorCodes()` lists every code. HTTP, gRPC and the CLI keep one table from each code to their status, and a test fails when a code has none. A model failure the provider calls transient (a rate limit, an overload, a broken stream) is a `model_failure` with `retryable: true`; the gateway's `Error` says so through `IsRetryable()`. **Breaking:**

@@ -1892,8 +1892,7 @@ time.AfterFunc(time.Until(deadline)-10*time.Second, func() {
 Who the caller is, and who may touch which Session, are the application's. Gotato builds no identity type, no "not allowed" error and no hook for it. It passes the request's `context.Context`, with all its values, to every store and extension call it makes for that request, so the application's own code sees the caller wherever it needs to ([DESIGNS.md → No authentication](DESIGNS.md#no-authentication)).
 
 - **A refusal is `not_found`.** A store wrapper returns `session.ErrNotFound` for a Session the caller does not own. That answers 404 on HTTP, `NOT_FOUND` on gRPC and exit 3 on the CLI, and it does not reveal that the Session exists.
-- **A read goes through the store.** `Runner.Session` and the read routes reach the store by `Log`, a Run by `Load` and `Append`, so a wrapper guards `Load`, `Log` and `Append`, and filters `List` and guards `Delete`.
-- **A cancel of a Run live on this Instance does not touch the store.** `Runner.CancelSession` finds the Run in memory. Check the owner first, for example with `Runner.Session(ctx, id)`, which answers `not_found` to a caller who does not own the Session.
+- **Every request-driven call reads through the store.** A read of a Session reaches the store by `Log`, a Run by `Load` and `Append`, and `Runner.CancelSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on this Instance. So a wrapper guards `Load`, `Log`, `Append` and `Delete`, and filters `List`, and that is all it needs: another caller's cancel, steer, follow-up, interrupt and notice answer `not_found` too.
 - **Work Gotato starts on its own has no caller.** The `ctx` of an idle compaction and of a Liveness renewal carries no caller, because no request started it. A Warm Session leaving memory writes nothing. A follow-on Run, which takes the messages left over when a Run ends, keeps the values of the request that started the Run before it, without its cancellation. What an empty caller means is the team's rule: the wrapper below lets it through.
 
 This store wrapper reads the owner from the Session's metadata and refuses another caller, and the handler puts the caller into `ctx` under a key of its own type:
@@ -1916,4 +1915,4 @@ r = r.WithContext(context.WithValue(r.Context(), callerKey{}, user))
 runner.CreateSession(ctx, "support", map[string]string{"owner": user})
 ```
 
-[service/httpapi/caller_ctx_test.go](service/httpapi/caller_ctx_test.go) keeps this behavior: the caller reaches `Create`, `Load`, `Log` and `Append`, and another caller's read and Run answer 404.
+[service/httpapi/caller_ctx_test.go](service/httpapi/caller_ctx_test.go) and [caller_live_test.go](service/httpapi/caller_live_test.go) keep this behavior: the caller reaches `Create`, `Load`, `Log` and `Append`, and another caller's read, Run, cancel, steer and notice answer 404, also while the owner's Run is live.

@@ -1684,7 +1684,8 @@ func (r *Runner) CancelRun(ctx context.Context, runID gotato.RunID) error {
 //
 // A Run going on another live Instance is not stopped from here: the call
 // returns not_writer (NotRun, Retryable) with the writer's advertised address,
-// as Send does. With no Run going anywhere it returns ErrNoRun.
+// as Send does. With no Run going anywhere it returns ErrNoRun, and for a
+// Session the store does not know (or refuses the caller), not_found.
 func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1692,10 +1693,20 @@ func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	r.mu.Lock()
+	handles := append([]*runHandle(nil), r.handles[sessionID]...)
+	r.mu.Unlock()
+	// A Run that has a live Session has read the Record; one still loading it
+	// has not, and the Record may not exist yet.
+	if slices.ContainsFunc(handles, (*runHandle).hasLive) {
+		if err := r.reachStore(ctx, sessionID); err != nil {
+			return err
+		}
+	}
 	if r.cancelSession(sessionID) {
 		return nil
 	}
-	if err := r.checkWriter(ctx, sessionID); err != nil && !errors.Is(err, session.ErrNotFound) {
+	if err := r.checkWriter(ctx, sessionID); err != nil {
 		return err
 	}
 	return ErrNoRun

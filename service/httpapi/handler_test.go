@@ -198,7 +198,7 @@ func TestOneShotRunAndErrors(t *testing.T) {
 		{http.MethodPost, "/v1/runs", map[string]any{"prompt": "x", "agent": "nope"}, http.StatusBadRequest, "invalid_argument"},
 		{http.MethodPost, "/v1/runs", map[string]any{"prompt": "x", "bogus": 1}, http.StatusBadRequest, ""},
 		{http.MethodPost, "/v1/sessions/missing/runs", map[string]any{"prompt": "x"}, http.StatusNotFound, ""},
-		{http.MethodPost, "/v1/sessions/missing/cancel", nil, http.StatusConflict, "invalid_state"},
+		{http.MethodPost, "/v1/sessions/missing/cancel", nil, http.StatusNotFound, "not_found"},
 		{http.MethodPost, "/v1/runs/nope/cancel", nil, http.StatusConflict, "invalid_state"},
 		{http.MethodGet, "/v1/sessions/missing/context", nil, http.StatusNotFound, ""},
 	}

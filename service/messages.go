@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"strings"
 
 	gotato "github.com/jinhuang712/gotato"
@@ -254,7 +255,21 @@ func newMessageID() gotato.MessageID {
 // liveRun returns the Run going on this Instance for a Session that has a live
 // Session to take a message, waiting for a Run that is still loading its
 // Session to have one. It returns nil when no Run is going here.
+//
+// Before it returns a Run, it reads the Session's Record with the request's
+// ctx (reachStore).
 func (r *Runner) liveRun(ctx context.Context, sessionID string) (*runHandle, error) {
+	handle, err := r.findLiveRun(ctx, sessionID)
+	if err != nil || handle == nil {
+		return nil, err
+	}
+	if err := r.reachStore(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	return handle, nil
+}
+
+func (r *Runner) findLiveRun(ctx context.Context, sessionID string) (*runHandle, error) {
 	r.mu.Lock()
 	handles := append([]*runHandle(nil), r.handles[sessionID]...)
 	r.mu.Unlock()
@@ -278,6 +293,16 @@ func (r *Runner) liveRun(ctx context.Context, sessionID string) (*runHandle, err
 		return nil, ctx.Err()
 	}
 	return nil, nil
+}
+
+// reachStore makes one cheap read of the Session's Record with the request's
+// ctx, so that a call which acts on a Run in memory goes through the store
+// like every other request. A store wrapper that refuses the caller answers
+// here, and the error is returned as it is.
+func (r *Runner) reachStore(ctx context.Context, sessionID string) error {
+	// An after position past any Record's end reads no Entries.
+	_, err := r.store.Log(ctx, sessionID, math.MaxInt64)
+	return err
 }
 
 // checkWriter answers not_writer when another live Instance has a Run going on

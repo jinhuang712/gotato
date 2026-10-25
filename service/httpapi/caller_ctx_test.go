@@ -159,11 +159,9 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 			}
 		}
 	}
-	// A cancel with no Run going on answers the same whether the Session
-	// exists or not, so it reveals nothing, and it cancels nothing.
-	unknown, _ := callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/nope/cancel", nil)
-	if status, body = callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/"+id+"/cancel", nil); status != unknown || status == http.StatusAccepted {
-		t.Errorf("cancel by another caller = %d %s, want the answer for an unknown Session (%d)", status, body, unknown)
+	// A cancel by another caller answers 404 here too, with no Run going on.
+	if status, body = callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/"+id+"/cancel", nil); status != http.StatusNotFound {
+		t.Errorf("cancel by another caller = %d %s, want 404", status, body)
 	}
 	// The owner still reads it.
 	if status, body = callAs(t, third, "alice", http.MethodGet, "/v1/sessions/"+id, nil); status != http.StatusOK {
