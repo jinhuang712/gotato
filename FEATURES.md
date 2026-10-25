@@ -575,7 +575,7 @@ first heading.
 
 - It says that the conversation and the tool call lines are kept, so the model spends its words on what the tools found, not on repeating the conversation.
 - It asks for IDs, numbers and error codes exactly, because the tool results that held them are gone.
-- When the oldest Segments merge, another message asks for one Recap of their Recaps, under the same rules, and says which numbers `read_segment` still reads.
+- When the oldest Segments merge, another message asks for one Recap of their Recaps, and of the merged Segment's Recap before them when there is one, under the same rules, and says which numbers `read_segment` still reads. The request holds those Recaps alone, not the Context, so it stays small and is not refused as too long on an overflow.
 
 **When it runs.** Four triggers, each recorded as why the compaction ran:
 
@@ -622,8 +622,10 @@ tail          Turns 27–30 as they were, tool calls and results included
 
 - **Reading one back.** Once a Session has a Segment, the model has a built-in tool, `read_segment`, that reads a Segment's Messages from the Record by its number, tool results included. Its result is cut at `MaxToolResultBytes` and read page by page. It declares `read`, so every Effect cap keeps it. Its result is a tool result, so it carries none of the four tags: a prefix on each line says whose it is, such as `[user]`, `[assistant]` or `[tool payments.get_batch]`, and a line of the text that itself starts with such a prefix is escaped, so a user cannot pass their words off as the assistant's. When the team has pruned the entries a Segment covers, `read_segment` says that the Segment's Messages were removed.
 - **Merging the oldest.** Gotato is safe by default, so Segments have a token budget and a long Session cannot outgrow its window on Segments alone. When the Segments together pass the budget, the oldest are merged into one Segment, with one Recap the model writes for them, and the merge is appended as a new Checkpoint. A merged Segment keeps its header and that Recap, and the Segments it merged stay readable with `read_segment` by their own numbers. It is named by the range it covers, `<segment n="1-3">` and `<recap n="1-3">`. A merge rewrites the prefix once, so it is done at the idle trigger when it can be. A merge whose Recap fails leaves the Segments unmerged.
+- **One merged Segment, first.** The Context holds at most one merged Segment, and always first: the far past as one Recap, the recent Segments word for word after it. The next merge takes it with the oldest Segments after it and writes one Recap for them all, `<segment n="1-7">`. Only that far end is a summary of a summary, so drift stays where the conversation is oldest, and `read_segment` still reads every original.
+- **Merged down to half.** A merge takes the oldest Segments until the Segments left fit in half the budget, so a Session that passes its budget merges once and not at every compaction after it.
 - **The Segments' budget.** It is half the ceiling when there is one. With no ceiling, which is the case without a `context_window` and without a ceiling from the Agent or the Session, a default budget applies, so Segments are merged even then. The default's number is not chosen yet; it is set when this is built, from the measurements of the Recap.
-- **Merging on an overflow.** When the provider refuses a request as too long and the Segments alone take more than the limit it names, the oldest Segments are merged on that overflow too, sized from the limit in the refusal, or to the budget when the refusal names none. What each provider's refusal says is to verify against the providers before it is built. Without this, a Segment closed on an overflow would not help, since it closes only what came since the last Checkpoint.
+- **Merging on an overflow.** When the provider refuses a request as too long and the Segments alone take more than the limit it names, the oldest Segments are merged on that overflow too, sized from the limit in the refusal, or to the budget when the refusal names none. When that merge's Recap fails, nothing is merged and the Run ends with `context_overflow`, so a caller is told rather than left with a merge that kept nothing of the far past. What each provider's refusal says is to verify against the providers before it is built. Without this, a Segment closed on an overflow would not help, since it closes only what came since the last Checkpoint.
 
 **After a compaction.**
 
@@ -657,6 +659,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 | kept tail | the latest Run's Turns, up to 20K tokens and at most a quarter of the window, or of the ceiling when no window is known; `keep` and `Floor` override it | a Run goes on, and a user comes back, to its latest Turns as they were |
 | Recap output limit | 8K tokens | a Recap cut off fails, and output not used costs nothing |
 | Segments' budget | half the ceiling; with no ceiling, a default budget whose number is not chosen yet | the oldest Segments are merged when the Segments pass it, and on an overflow, so a long Session is safe by default and leaves room for the conversation that follows |
+| merged down to | half the Segments' budget | a Session past its budget merges once, not at every compaction |
 | tool call lines | 100 per Segment, arguments cut at 200 characters | one busy Run does not fill its Segment |
 | a user Message or final reply in a Segment | 2K tokens each, the rest read with `read_segment` | one long paste does not fill the Segments' budget |
 | time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
