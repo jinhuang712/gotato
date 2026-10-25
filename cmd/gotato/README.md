@@ -97,11 +97,11 @@ Human mode prints the final text on stdout and a one-line status on stderr.
 |---|---|
 | `context inspect <id> [--instruction S]` | report: `session_id, strategy, source_messages, selected_messages, approx_tokens, system_bytes, prefix_hash, compaction_pending, compact_ceiling?, metadata, compactions[], context{…}, request{system_instructions, messages[], tools[], options?, cache_breakpoints[], cache_key?}`; `compaction_pending` is true when the next run compacts the session first, past `compact_ceiling`; `--instruction` overrides the session's stored instruction for this inspection only and is not persisted |
 | `context build <id> [--instruction S]` | the exact `ModelRequest` the agent would send now (same overrides, not persisted) |
-| `context compact <id> [--keep N] [--recap truncate\|model] [--model M]` | `{session_id, replaced, messages_before, messages_after, tokens_before, tokens_after, compaction?}`; `compaction` is present only when `replaced` is true |
+| `context compact <id> [--keep N] [--min-tokens N] [--recap none\|truncate\|model] [--model M]` | `{session_id, replaced, reason?, messages_before, messages_after, tokens_before, tokens_after, compaction?}`; `compaction` (`at, replaced_messages, from_message_id, to_message_id, recap, bytes_before, bytes_after, segment, tokens_before, tokens_after, ceiling?, tool_sets?`) is present only when `replaced` is true, and `reason` (`below_min_tokens` or `nothing_to_close`) only when it is false |
 
 The agent builds the report with the code its turns run, so the request includes its extensions, its tools and its model options, and `prefix_hash` equals the one the next turn's `context_built` event reports. The request is laid out for prompt caching: system prompt, sorted tools, then the append-only history. `prefix_hash` covers everything but the last message; two inspections (or two consecutive turns) with the same hash present an identical cacheable prefix to the provider. `cache_breakpoints` are provider-neutral hints (`after: system | tools | message`).
 
-Compaction replaces the messages before the last `--keep` (the cut prefers a user-message boundary and always keeps tool calls with their results) by one summary message tagged `metadata.compaction = "summary"`, records the compaction in the session, and stores `compaction_started` and `compaction_ended` events. It appends a checkpoint: the replaced messages stay in the store, and a load starts after them. `truncate` needs no model.
+Compaction closes everything since the last checkpoint, less a kept tail, into a segment that code builds: the user's messages and each run's final reply word for word (a message past 2K tokens is cut, and a line says where), one line per tool call (`10:02 payments.get_batch {…} → ok`), and a recap when `--recap` asks for one. Tool results, reasoning and a run's other text are left out. Without `--keep`, the tail is the latest run's turns, up to 20K tokens; `--keep N` keeps the last N messages instead, and the cut always keeps a tool call with its result. `--min-tokens N` skips a stretch since the last checkpoint estimated below N tokens (`replaced: false`, `reason: below_min_tokens`), so a timer can call it for every idle session. `--recap` defaults to `none`; `truncate` needs no model. The command stores `compaction_started`, `segment_closed` and `compaction_ended` events: the closed messages stay in the store, and a load starts after them. A session whose last checkpoint holds one summary from before segments exits `1` with `invalid_state`.
 
 ### `gotato tools`
 
@@ -146,7 +146,7 @@ GET    /healthz  /readyz  /v1/agents
 POST   /v1/sessions            GET /v1/sessions            GET|DELETE /v1/sessions/{id}
 POST   /v1/sessions/{id}/fork  GET /v1/sessions/{id}/events?kind=   GET /v1/sessions/{id}/context
 GET    /v1/sessions/{id}/stream?after=N&record_epoch=E   → SSE: event: stream, one event per stored Event (id: its number), event: reconnect at a drain
-POST   /v1/sessions/{id}/compact {"keep":N}
+POST   /v1/sessions/{id}/compact {"keep":N?,"min_tokens":N?}
 POST   /v1/sessions/{id}/runs {"prompt"|"continue":true,"timeout_ms"?}     → run result
 POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result[, event: reconnect]
 POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
@@ -185,7 +185,7 @@ id=$(gotato session create --json | jq -r .id)
 gotato run --session "$id" --model demo --json "use-tool" | jq .status      # "completed"
 gotato run --session "$id" --json "and again" | jq .messages                # 6
 gotato context inspect "$id" --json | jq '{approx_tokens, prefix_hash}'
-gotato context compact "$id" --keep 2 --json | jq .messages_after           # 3
+gotato context compact "$id" --keep 2 --json | jq .messages_after           # 4
 gotato events --session "$id" | jq -r .kind | sort | uniq -c
 gotato tools deactivate time.now --session "$id" --json | jq .tool.active   # false
 gotato session fork "$id" --json | jq .parent_id

@@ -104,7 +104,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Live Session and its Loop, Abort, limits, extensions | done |
 | Steer and FollowUp | in the Go API on a Session you build yourself; through the Runner and the endpoints planned |
 | Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
-| Context: full history, static blocks, compaction, inspection | done; Segments and compaction before the cache goes cold are planned (G-F06) |
+| Context: full history, static blocks, compaction, inspection | done, with Segments built by code; the Recap the model writes and compaction before the cache goes cold are planned (G-F06) |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
 | Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. The Session's stream is served on HTTP and gRPC, and resumes on any instance from the last number seen, with the Record's epoch |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
