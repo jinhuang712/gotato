@@ -105,7 +105,7 @@ func TestNoCommandStartsAProgram(t *testing.T) {
 		if got.ExitCode != 127 || !got.Refused || got.Stdout != "" {
 			t.Errorf("%s: exit %d refused %v stdout %q", cmd, got.ExitCode, got.Refused, got.Stdout)
 		}
-		if !strings.Contains(got.Stderr, name+":") || !strings.Contains(got.Stderr, "The commands are: cat, grep, head, sed, tail, wc.") {
+		if !strings.Contains(got.Stderr, name+":") || !strings.Contains(got.Stderr, "The commands are: base64, cat, cut, echo, grep, head, ls, sed, sort, tail, tr, uniq, wc.") {
 			t.Errorf("%s: stderr %q does not name the command and list the commands", cmd, got.Stderr)
 		}
 	}
@@ -116,7 +116,7 @@ func TestNoCommandStartsAProgram(t *testing.T) {
 func TestACommandNameBuiltByExpansionIsChecked(t *testing.T) {
 	for _, cmd := range []string{"c=awk; $c /", "c=eval; $c cat", "c=/bin/sh; $c -c id", "c=exec; $c cat", "c=''; x=awk; \"$x\" /"} {
 		got := run(t, cmd, safetyFiles)
-		if got.ExitCode != 127 || got.Refused || !strings.Contains(got.Stderr, "The commands are: cat, grep, head, sed, tail, wc.") {
+		if got.ExitCode != 127 || got.Refused || !strings.Contains(got.Stderr, "The commands are: base64, cat, cut, echo, grep, head, ls, sed, sort, tail, tr, uniq, wc.") {
 			t.Errorf("%s: exit %d refused %v stderr %q", cmd, got.ExitCode, got.Refused, got.Stderr)
 		}
 	}
@@ -197,7 +197,7 @@ func TestUnsupportedSyntaxIsRefused(t *testing.T) {
 // commands, so a model can correct itself in one call.
 func TestARefusalSuggestsAPipeline(t *testing.T) {
 	got := run(t, "for f in /results/*; do grep beta $f; done", safetyFiles)
-	for _, want := range []string{"line 1, column 1", "for loop is not supported", "use a pipeline", "cat, grep, head, sed, tail, wc", "grep x /results/*"} {
+	for _, want := range []string{"line 1, column 1", "for loop is not supported", "use a pipeline", "base64, cat, cut, echo, grep, head, ls, sed, sort, tail, tr, uniq, wc", "grep x /results/*"} {
 		if !strings.Contains(got.Stderr, want) {
 			t.Errorf("stderr %q lacks %q", got.Stderr, want)
 		}

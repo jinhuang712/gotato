@@ -32,12 +32,19 @@ var commands map[string]command
 
 func init() {
 	commands = map[string]command{
-		"cat":  {run: runCat},
-		"head": {run: runHead},
-		"grep": {run: runGrep},
-		"tail": {run: runTail},
-		"sed":  {run: runSed},
-		"wc":   {run: runWc},
+		"cat":    {run: runCat},
+		"head":   {run: runHead},
+		"grep":   {run: runGrep},
+		"tail":   {run: runTail},
+		"sed":    {run: runSed},
+		"wc":     {run: runWc},
+		"sort":   {run: runSort},
+		"uniq":   {run: runUniq},
+		"cut":    {run: runCut},
+		"tr":     {run: runTr},
+		"base64": {run: runBase64},
+		"echo":   {run: runEcho},
+		"ls":     {run: runLs},
 	}
 }
 

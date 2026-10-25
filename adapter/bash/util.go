@@ -59,6 +59,11 @@ func parseUint(digits string) uint64 {
 	return n
 }
 
+// tryHelp writes the line GNU tools end a usage error with.
+func (c *Call) tryHelp(name string) {
+	_, _ = fmt.Fprintf(c.Stderr, "Try '%s --help' for more information.\n", name)
+}
+
 // stdinOrFiles returns the operands, or "-" when there are none.
 func stdinOrFiles(files []string) []string {
 	if len(files) == 0 {
