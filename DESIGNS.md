@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-25 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -546,9 +546,24 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 - **Instead of:** built-in tools that run commands, code or a browser.
 - **Why:** Gotato is not a cloud coding agent, and a tool that runs anything is a bound nobody can read.
 
-### Reading a large result needs no machine — 2026-10-25
+### Reading a large result needs no machine — 2026-10-26
 
-A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)), the question is what the model is given in its place. It is decided in Phase 9, after real MCP results show what a model needs ([FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-)).
+A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)), the question is what the model is given in its place ([FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-)).
+
+The answer is that the model queries its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It has three goals:
+
+- **Cheap.** Only what the model needs enters the Context.
+- **Fast.** A common lookup takes one call.
+- **Familiar.** The model learns nothing new, so it is right the first time.
+
+#### The constraints
+
+- No machine, no `exec`, no sandbox. The tool is read-only and sees only its own Session.
+- The same Record gives the same output on every instance.
+- A command always ends and honours `ctx` cancellation. Memory is bounded.
+- **Supported means identical.** Every supported command and flag behaves exactly as GNU's, and every supported piece of syntax exactly as bash. Anything else fails with a clear error that lists what is supported. A silent difference gives the model a wrong answer it cannot notice, while a clear error costs one call.
+
+#### What was weighed
 
 | Option | For | Against |
 |---|---|---|
@@ -556,14 +571,48 @@ A Tool Result over one page is spilled into the Record, and the model reads it b
 | OS isolation inside the pod (namespaces, gVisor) | Real commands, with a wall around them. | They need `exec` or privileges that a pod of a service does not have, and a platform team would have to allow them. |
 | An in-process WebAssembly sandbox | No privileges needed. | A shrunken machine with its own footprint and cold start in every instance, to do what a few functions do. |
 | Code mode, where the model writes code that reads the result | One call can do much. | The model's program, not Gotato, decides the steps, so a Run cannot be replayed step by step. |
-| A full bash interpreter | The syntax models know best. | It lets the model express far more than we want to limit, with loops that may not end, and it brings a large dependency. |
+| A bash interpreter run as it is | The syntax models know best. | It lets the model express far more than we want to allow: loops that may not end, `exec`, writes. |
 | A query language of our own | Exactly what we need. | Models have not seen it, so they use it badly. |
 | A virtual bash library with few users | Bash without writing it. | A dependency that few people keep up, in every service that embeds Gotato. |
-| Paging only | The simplest. | The model reads all of a result to find one line. Both candidates below include it. |
-| **(a) Typed reader parameters:** `lines`, `grep`, a `json` path (open) | The standard library only. Every model reads a schema well, and each parameter is checked before it runs. | A fixed set: what the parameters do not say, the model cannot ask. |
-| **(b) A terminating pipeline language:** a subset of bash syntax with a parser of Gotato's own (open) | Models know it. Pipes, `&&`, `||`, `;`, quotes and harmless redirects cover what they ask for. Each command is a Go function that streams, joined with `io.Pipe` over an `fs.FS` view of the Session's results, so there is no dependency, and every pipeline ends. | A parser and a set of commands to keep. It comes close to [No tool runs commands or code](#no-tool-runs-commands-or-code), and the decision would have to say why a reader that cannot write, loop or leave one Session's results is not that. It leaves out loops, functions, `$( )` and redirects that write. |
+| Typed reader parameters (`lines`, `grep`, a `json` path) | The standard library only, and each parameter is checked. | The model must learn our parameters, and cannot compose them: what they do not say, it cannot ask. |
+| A pipeline language with a parser of our own | Models know the look of it. | Word expansion (quotes, `$var`, globs) is where a re-implementation drifts from bash, and the model cannot see the drift. |
+| A filter parameter on every tool call | One call, and the large result never spills. | The model must write the filter before it sees the result, which may be JSON of a shape it does not know. Every tool schema grows a parameter, and MCP schemas would be changed. The full result must be spilled anyway, because a tool with side effects cannot be called again. |
+| An own subset of jq | No dependency. | It drifts from jq, which models know best. |
+| gron-style flattening of JSON | Plain `grep` finds a field. | Models know jq better, and the flat form is a new shape to learn. |
+| Paging only | The simplest. | The model reads all of a result to find one line. Paging stays, as the fallback. |
+| **A read-only bash subset over the Session's Record** (chosen) | The model knows it. A common lookup is one pipeline. Nothing runs outside the process. | A set of commands to write and keep, and conformance tests to run. |
 
-Phase 9 chooses between (a) and (b). Until it does, a model reads a spilled result in pages.
+#### The decisions
+
+- **Spill first, query after.** The model queries a result it has already seen the start of, and the cost is one more model round trip, only for a result over one page.
+- **It sees the Session's own Record as a read-only directory** (an `fs.FS`). `/results/<call_id>` comes first. `/segments/<n>` and `/files/<name>` (the user's files, once files live in the Record) join later under the same rule.
+- **Structured data goes through full jq,** by `github.com/itchyny/gojq` (MIT). jq is the JSON tool models know best, and a library that matches it cannot drift. jq can loop, so `ctx` and a bound on the output end it.
+- **The syntax is run by `mvdan.cc/sh` (BSD-3), parser and interpreter.** Before a command runs, Gotato walks the syntax tree and refuses loops, functions, command substitution and writing redirects, with an error that suggests a pipeline. Every handler of the interpreter is taken over: command execution goes to Gotato's own Go commands (no `exec`), file opens go to the read-only `fs.FS`, and the environment is empty. Word expansion is where a re-implementation drifts from bash, and the interpreter matches bash there.
+- **The commands are written by Gotato.** No Go coreutils is both widely used, GNU-faithful and licensed to embed: u-root aims at small embedded systems and opens OS files, and the Go ports of coreutils are GPL-3.0 and little used. A command earns its place by being what a model reaches for when it reads and looks for data.
+- **Protections.** A very long single line, such as minified JSON, is cut with an explicit marker like `[line cut: 1.0 MiB]`, never silently. Output over one page is spilled like any Tool Result, with a preview and a ref, so there is no new concept. Every command answers `--help` with the flags it supports.
+- **GNU conformance tests run only in development and CI,** never at runtime.
+
+#### The first commands
+
+| Command | Supported |
+|---|---|
+| `ls`, `echo`, `base64`, `wc` | |
+| `cat` | `-n` |
+| `head`, `tail`, `cut`, `tr`, `sort`, `uniq` | |
+| `sed` | `-n` with line-number ranges only |
+| `grep` | `-i -v -c -n -o -E -F -w -l -r -A -B -C` |
+| `jq` | full jq, through gojq |
+
+Later, when a need shows: `awk` (through goawk, MIT), `sed` substitution, `nl`, `column`, `diff` and `comm`, CSV with quoted fields, URL and HTML decoding, here-strings. Never: `date`, `$RANDOM`, environment variables (they break same-Record-same-output), the network, writing files, `xargs`, `tee`, `find -exec`, compiling, git, processes.
+
+#### Where it lives
+
+- **A module of its own** inside the repository, as `adapter/mcp` is: `adapter/bash`. Its engine does not import Gotato (it takes a command string, an `fs.FS` and `ctx`, and returns stdout, stderr and an exit code; it depends on `mvdan.cc/sh`, gojq and the standard library), so it can move to a repository of its own once it is stable.
+- **A thin Gotato layer** in the same module wraps the engine as a Tool named `bash`, hands it the Record as `/results`, and spills large output. The tool is described as a read-only bash subset that queries this Session's data, so a model that tries full bash gets a clear error and corrects in one call.
+- **The core adds one thing:** it exposes a Session's Record as a read-only `fs.FS`, from the standard library alone. The root module still imports only the standard library. `read_result` stays as the fallback for a service that does not install the module.
+- **Review.** When the chat bot of Phase 11 runs, the command list is reviewed against real use. Gotato runs no checks against real providers, so the choice is made on reasoning and reviewed there.
+
+This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process, the syntax is checked before it runs, and the tool can read one Session's data and nothing else.
 
 ### Tools are Go functions or MCP tools
 

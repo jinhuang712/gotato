@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-25 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -76,7 +76,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | 🚧 |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | 🚧 |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
-| Reading large results | how a model greps and filters a spilled result in a pod with no machine; design open | G-F36 | ⬜ |
+| Reading large results | the `bash` tool: a read-only bash subset that queries a Session's own Record, with no machine | G-F36 | ⬜ |
 
 **Models**
 
@@ -1044,7 +1044,7 @@ O-88501,paid,41.20,…
 
 - **The preview is the start of the body,** 2K tokens (8,000 bytes, `gotato.SpillPreviewBytes`), the same cut as a long Message in a Segment ([G-F06](#g-f06--compaction-)), on a rune boundary. The page count in the last line is the one `read_result` pages by.
 - **`read_result(ref, page?)` reads it back.** It is a sibling of `read_segment`, not one tool for both, and the two share their paging code: the same page size, `Page 2 of 13` on the first line, a last line that says which call reads the next page, a page past the end that says how many pages there are, and the start and end of the four tags escaped, as in any tool result. It declares `read`, so every Effect cap keeps it. It is offered whenever the Agent has a tool, so the tool list does not change on the Turn a result is first spilled. It reads only the spilled results of its own Session: a ref that names none of them, also one of another Session or one that is not a ref, fails as a failed Tool Result that lists the refs the Context holds, and the Run goes on. A ref whose Message a Segment has closed over is still found, by a scan of the log. An Agent with no tool is not offered it.
-- **Why a sibling.** `read_segment` is named in the bytes of every Segment already written, which never change, so its name and its arguments stay. The two read different things, and Phase 9 adds ways to filter a spilled result that a Segment does not need.
+- **Why a sibling.** `read_segment` is named in the bytes of every Segment already written, which never change, so its name and its arguments stay. The two read different things, and Phase 9 adds the `bash` tool to filter a spilled result that a Segment does not need.
 - **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it wrote or read in memory, and drops them with the Session. Bodies the store holds are dropped oldest first past 16 MiB (`session.DefaultSpillCacheBytes`); a body the store does not hold yet, or a Record with no store, is never dropped. Any instance reads the same body from the Record. A live Session counts its cache apart from the warm-Session limit of Phase 8.
 - **Pruned.** When the team has pruned the Entry, `read_result` says the body was removed, as `read_segment` does.
 - **The spill depends on size alone.** It is made when the result is committed, so every instance builds the same Message from the same Record.
@@ -1053,31 +1053,37 @@ O-88501,paid,41.20,…
 
 ### G-F36 — Reading large results ⬜
 
-Design open, and decided in Phase 9 ([ROADMAP.md](ROADMAP.md#phase-9--reading-large-results)). Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). What it gets instead is the question, and [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) lists what is ruled out and why. Two candidates remain; both include paging.
-
-**(a) Typed reader parameters.** `read_result` gains parameters, each a plain field of its schema:
+Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). The `bash` tool lets it query its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It is built in Phase 9 ([ROADMAP.md](ROADMAP.md#phase-9--reading-large-results)); the reasons, and what was ruled out, are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
 
 ```text
-read_result(ref="result:call_9a2", grep="timeout", context=2)
-read_result(ref="result:call_9a2", lines="120-180")
-read_result(ref="result:call_9a2", json=".items[3].charges")
+bash(command="grep -i timeout /results/call_9a2 | head -20")
+bash(command="jq '.items[3].charges' /results/call_9a2")
 ```
 
-- The standard library only. The model sees a schema, which every model reads well, and each parameter is checked before it runs.
-- A fixed set: what the parameters do not say, the model cannot ask.
+- **Cheap, fast, familiar.** Only what the model needs enters the Context, a common lookup takes one call, and the model learns nothing new.
+- **Spill first, query after.** There is no filter parameter on tool calls. The model asks after it has seen the start of the result, at the cost of one more model round trip, only for a result over one page.
+- **It sees its own Session's Record as a read-only directory.** `/results/<call_id>` first; `/segments/<n>` and `/files/<name>` join later under the same rule.
+- **Supported means identical.** Each supported command and flag behaves exactly as GNU's, and supported syntax exactly as bash. An unsupported flag, command or syntax (loops, functions, `$( )`, a redirect that writes) fails with a clear error that lists what is supported or suggests a pipeline, so the model corrects in one call and never gets a silently different answer.
+- **No machine, no `exec`, no sandbox.** The syntax is parsed and run in process by `mvdan.cc/sh`, after Gotato has refused what it does not allow. Every handler is taken over: commands are Gotato's own Go functions, file opens go to the read-only directory, and the environment is empty.
+- **The same Record gives the same output on every instance.** There is no `date`, no `$RANDOM` and no environment variable. A command always ends and honours `ctx`, and its memory is bounded.
 
-**(b) A terminating pipeline language.** A subset of bash syntax with a parser of Gotato's own:
+The first version has 14 commands:
 
-```text
-read_result(command="grep -i timeout result:call_9a2 | head -20")
-```
+| Command | Supported |
+|---|---|
+| `ls`, `echo`, `base64`, `wc`, `head`, `tail`, `cut`, `tr`, `sort`, `uniq` | the common use of each |
+| `cat` | `-n` |
+| `sed` | `-n` with line-number ranges only |
+| `grep` | `-i -v -c -n -o -E -F -w -l -r -A -B -C` |
+| `jq` | full jq, through `github.com/itchyny/gojq` |
 
-- Pipes, `&&`, `||`, `;`, quotes and harmless redirects. No loops, functions, `$( )` or redirects that write.
-- Each command is a Go function that streams, and commands are joined with `io.Pipe` over an `fs.FS` view of the Session's spilled results. No dependency is added.
-- Every command ends, so every pipeline does; it can read the spilled results of its own Session and nothing else.
-- Models know the syntax from training. It reopens the question [No tool runs commands or code](DESIGNS.md#no-tool-runs-commands-or-code) answers, and the decision would say why a bounded reader of one Session's results is not that.
-
-The choice is written down in Phase 9, and this feature takes the chosen form.
+- **Later, when a need shows:** `awk` (goawk), `sed` substitution, `nl`, `column`, `diff` and `comm`, CSV with quoted fields, URL and HTML decoding, here-strings.
+- **Never:** `date`, `$RANDOM`, environment variables, the network, writing files, `xargs`, `tee`, `find -exec`, compiling, git, processes.
+- **Protections.** A very long single line, such as minified JSON, is cut with a marker like `[line cut: 1.0 MiB]`, never silently. Output over one page is spilled like any Tool Result. Every command answers `--help` with the flags it supports.
+- **GNU conformance tests** run in development and CI only, never at runtime.
+- **A module of its own, `adapter/bash`.** Its engine does not import Gotato (a command string, an `fs.FS` and `ctx` in; stdout, stderr and an exit code out), so it can move to a repository of its own. A thin layer wraps it as the `bash` tool and spills large output. A service that does not install the module keeps `read_result` ([G-F35](#g-f35--large-tool-results-)).
+- **The core exposes a Session's Record as a read-only `fs.FS`,** with the standard library alone; the root module imports nothing new.
+- **Review.** When the chat bot of Phase 11 runs, the command list is reviewed against real use.
 
 ## Models
 
@@ -1803,7 +1809,7 @@ Gotato leaves coding to developers' machines and to coding products. Sessions in
 
 ### G-N14 — No Remote Dev Environment, Shell or Sandbox on the Instances
 
-A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product. Reading a large Tool Result needs no machine either: [G-F36](#g-f36--reading-large-results-) is how a model filters one, and [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-25) lists what was ruled out.
+A developer's environment does not move into the cluster. A Session acts only through the tools its Agent allows, and work that needs a machine runs on a laptop, in CI, or in a coding product. Reading a large Tool Result needs no machine either: [G-F36](#g-f36--reading-large-results-) is how a model filters one, and [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26) lists what was ruled out.
 
 ### G-N15 — No General-Purpose Assistant
 
