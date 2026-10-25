@@ -39,13 +39,17 @@ func conformanceFiles() map[string]string {
 		"results/sub/mid":   "12345",
 		"results/sub/small": "x",
 		"results/sub/.hid":  "h\n",
+		"jqdata/one.json":   `{"name":"x","id":3,"tags":["a","b"],"nested":{"z":1,"a":[1,2,{"q":null}]}}` + "\n",
+		"jqdata/nd.json":    `{"id":2,"name":"bob","price":10.5,"ok":true}` + "\n" + `{"id":1,"name":"al","price":3,"ok":false}` + "\n" + `{"id":3,"name":"cy","price":7.25,"ok":true}` + "\n",
+		"jqdata/arr.json":   `[{"k":"a","v":1},{"k":"b","v":2},{"k":"a","v":3}]`,
+		"jqdata/text.txt":   "line one\nline two\nlast",
 	}
 }
 
 // allCases is every conformance case: the table of cat, head and grep above,
 // and the tables of the other commands.
 func allCases() []conformanceCase {
-	return slices.Concat(conformanceCases, tailSedWcCases, sortUniqCutTrCases, base64EchoLsCases, grepMoreCases)
+	return slices.Concat(conformanceCases, tailSedWcCases, sortUniqCutTrCases, base64EchoLsCases, grepMoreCases, jqCases, jqDifferCases)
 }
 
 // conformanceCase is one command with the output GNU coreutils 9 and GNU grep

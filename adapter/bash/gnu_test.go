@@ -31,8 +31,11 @@ func TestAgainstGNU(t *testing.T) {
 		prefix = "g"
 	}
 	bin := t.TempDir()
-	for _, tool := range []string{"cat", "head", "grep", "tail", "sed", "wc", "sort", "uniq", "cut", "tr", "base64", "ls"} {
+	for _, tool := range []string{"cat", "head", "grep", "tail", "sed", "wc", "sort", "uniq", "cut", "tr", "base64", "ls", "jq"} {
 		path, err := exec.LookPath(prefix + tool)
+		if tool == "jq" {
+			path, err = exec.LookPath(envOr("GOTATO_JQ", "jq"))
+		}
 		if err != nil {
 			t.Fatalf("GNU %s not found as %s%s: %v", tool, prefix, tool, err)
 		}
@@ -68,12 +71,19 @@ func TestAgainstGNU(t *testing.T) {
 		"ls -lh":                onDisk,
 		"ls -lS":                onDisk,
 	}
+	// The jq cases where gojq answers differently on purpose: the key order of
+	// an object the filter built, the words of its errors and of its compile
+	// errors, numbers, and the functions that are refused. The usage text of
+	// jq lists them.
+	for _, c := range jqDifferCases {
+		differs[c.name] = "a known difference from jq (see the usage text of jq)"
+	}
 	for _, c := range allCases() {
 		t.Run(c.name, func(t *testing.T) {
 			if why, skip := differs[c.name]; skip {
 				t.Skip(why)
 			}
-			cmd := exec.Command("/bin/bash", "-c", strings.ReplaceAll(c.cmd, "/results", root+"/results"))
+			cmd := exec.Command("/bin/bash", "-c", strings.ReplaceAll(strings.ReplaceAll(c.cmd, "/results", root+"/results"), "/jqdata", root+"/jqdata"))
 			cmd.Dir = root
 			cmd.Env = []string{"PATH=" + bin, "LC_ALL=" + envOr("LC_ALL", "C.UTF-8"), "HOME=/"}
 			var stdout, stderr bytes.Buffer
