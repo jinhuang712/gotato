@@ -736,6 +736,7 @@ func (a *Session) loop() {
 }
 
 func (a *Session) finishClose() {
+	a.dropLeftoverControl()
 	a.setStatus(SessionStatusClosed)
 	if a.ownFeed {
 		// A Session that owns its Feed says it left, and ends its streams.
@@ -744,6 +745,27 @@ func (a *Session) finishClose() {
 		a.feed.Close()
 	}
 	a.doneOnce.Do(func() { close(a.done) })
+}
+
+// dropLeftoverControl reports a message that waited in a queue when the Session
+// closed, which no Run will take: one that arrived after its Run had written
+// its last boundary. Each is a MessageDropped, so a caller that was told it
+// was queued also learns that it was not taken.
+func (a *Session) dropLeftoverControl() {
+	for _, queue := range []chan control{a.steer, a.followUp} {
+		for {
+			select {
+			case queued := <-queue:
+				if queued.source == SourceInterrupt {
+					a.interruptTaken()
+				}
+				_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: queued.source, Why: "session_closed"})
+				continue
+			default:
+			}
+			break
+		}
+	}
 }
 
 func (a *Session) setStatus(status SessionStatus) {

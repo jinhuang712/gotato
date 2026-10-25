@@ -150,6 +150,12 @@ type Config struct {
 	// Liveness sets this Runner's Liveness row, and how long a Run waits
 	// for a Session that runs on another Instance.
 	Liveness Liveness
+	// Address is where a caller can reach this Instance's own endpoint, such
+	// as "http://10.0.0.7:8080". It is optional. The Instance advertises it in
+	// its Liveness row, so a message for a Run that this Instance writes, sent
+	// to another one, is answered not_writer with this address (see Send). The
+	// Runner only carries it; it never connects to one.
+	Address string
 	// StreamPoll is how often an idle Session stream looks in the store for
 	// Events that another Instance wrote. Zero means one second; a negative
 	// value turns the look off, so a stream carries only what this Instance
@@ -210,6 +216,7 @@ type Runner struct {
 	store     session.Store
 	instance  string
 	liveness  Liveness
+	address   string
 	beat      heartbeat
 	agents    map[string]Agent
 	order     []string
@@ -265,6 +272,13 @@ type runHandle struct {
 	stopped bool
 	// drained says the drain stopped this Run at its deadline.
 	drained bool
+	// liveMu guards live, the Run's live Session while it runs, where a
+	// message for the Run goes (see messages.go). ready is closed once there
+	// is one, or the Run is over.
+	liveMu    sync.Mutex
+	live      *gotato.Session
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 // attachAbort installs the started-Run cancellation path. Until it is
@@ -347,6 +361,7 @@ func New(cfg Config) (*Runner, error) {
 		store:      cfg.Store,
 		instance:   strings.TrimSpace(cfg.Instance),
 		liveness:   cfg.Liveness.withDefaults(),
+		address:    strings.TrimSpace(cfg.Address),
 		streamPoll: cfg.StreamPoll,
 		agents:     map[string]Agent{},
 		admission:  cfg.Admission,
@@ -664,7 +679,7 @@ func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream)
 	// loading its Session.
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun}
+	handle := &runHandle{sessionID: request.SessionID, cancel: cancelRun, ready: make(chan struct{})}
 	if err := r.admit(handle); err != nil {
 		why := "at_capacity"
 		switch {
@@ -889,6 +904,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		// caller's context, not runCtx: a stop that cancelled runCtx while the
 		// Session was loading reaches the Run through abortIfStopped instead.
 		handle.attachAbort(live.Abort)
+		handle.attachLive(live)
 
 		// The Run's deadline: the request's Timeout, else the Agent's
 		// RunTimeout. The caller's own deadline on ctx overrides it when
@@ -914,6 +930,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
 			}
 		}()
+		handle.detachLive()
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
 			stream.sub.End()
@@ -1567,17 +1584,27 @@ func (r *Runner) CancelRun(ctx context.Context, runID gotato.RunID) error {
 	return nil
 }
 
-// CancelSession cancels the Run in flight on a Session, if any.
+// CancelSession stops the Run in flight on a Session: everything in flight is
+// cancelled through its context, and the Run settles as cancelled with every
+// Turn it committed. It is the Stop of the messages a Run takes (Send).
+//
+// A Run going on another live Instance is not stopped from here: the call
+// returns not_writer (NotRun, Retryable) with the writer's advertised address,
+// as Send does. With no Run going anywhere it returns ErrNoRun.
 func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
-	if ctx != nil {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if !r.cancelSession(sessionID) {
-		return gotato.ErrorOf(gotato.ErrInvalidState, "service: session has no active run")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	if r.cancelSession(sessionID) {
+		return nil
+	}
+	if err := r.checkWriter(ctx, sessionID); err != nil && !errors.Is(err, session.ErrNotFound) {
+		return err
+	}
+	return ErrNoRun
 }
 
 // cancelSession cancels the started Run for a Session, or the oldest Run still
@@ -1647,6 +1674,7 @@ func (r *Runner) retargetHandle(handle *runHandle, sessionID string) {
 
 // unregisterHandle drops an admitted Run and its RunID mapping.
 func (r *Runner) unregisterHandle(handle *runHandle) {
+	handle.finish()
 	r.mu.Lock()
 	list := r.handles[handle.sessionID]
 	for i, candidate := range list {

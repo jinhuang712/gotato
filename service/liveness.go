@@ -112,7 +112,7 @@ func (r *Runner) live(ctx context.Context) error {
 // guard counts from, since the store may have timed it as early as that.
 func (r *Runner) renew(ctx context.Context) error {
 	r.beat.mu.Lock()
-	row := session.InstanceRow{ID: r.instance, Draining: r.beat.draining}
+	row := session.InstanceRow{ID: r.instance, Draining: r.beat.draining, Address: r.address}
 	r.beat.mu.Unlock()
 	sent := time.Now()
 	err := r.store.Beat(ctx, row, r.liveness.TTL)
