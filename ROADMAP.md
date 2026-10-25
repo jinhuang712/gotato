@@ -22,8 +22,7 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
 Phase 9  Large results       the model queries its Session's Record with a read-only bash subset, with no machine
-Phase 10 Access hooks        the caller's identity reaches extensions and stores, and a refusal answers 403
-Phase 11 Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
+Phase 10 Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
          ── waiting for design: changes that keep the cache ──
 ```
 
@@ -38,8 +37,7 @@ Why this order:
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Tools at scale come before the warm Session.** Tool search, the MCP adapter and the spilled results do not need it: while a Run is live the Session already holds a spilled body in memory, a later Run reads it from the Record, and the warm Session (next phase) keeps it across Runs. They also take the counting caps out of the core, which the compaction ceiling and the Run's `ctx` replace, so Compaction has to be built first.
-- **The reader of large results comes after the warm Session and before the release.** Phase 7 spills a large Tool Result and lets the model page through it. The `bash` tool needs only the Record, so it waits for no other phase; it is placed here so that the chat bot of Phase 11 can show what models do with it, and its command list is reviewed there.
-- **Access hooks depend on nothing above,** so the maintainer can move them earlier. They give enterprise teams the places to enforce their own rules, and they come after the store work because the many-instance goals carry the pitch.
+- **The reader of large results comes after the warm Session and before the release.** Phase 7 spills a large Tool Result and lets the model page through it. The `bash` tool needs only the Record, so it waits for no other phase; it is placed here so that the chat bot of Phase 10 can show what models do with it, and its command list is reviewed there.
 - **The tests a team's own setup would run come last:** fake gateways, a local cluster with a chat bot on it, and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
@@ -152,7 +150,7 @@ Exit:
 A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
 
 - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, the Run on every Message, and the Recap names.
-- Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 11.
+- Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 10.
 - ✅ Step 1, Segments built by code: a compaction on demand or at the start of a Run closes a Segment, and keeps the ToolSets the Segment used and those the kept tail calls. A user Message or final reply past 2K tokens is cut, and the line that says so names `read_segment`, which reads the rest from step 4. The compact endpoints take `min_tokens`, so a service's idle timer skips a stretch too short to be worth a model call, and a compaction that names no `keep` keeps the latest Run's Turns as its tail, as mid-Run. A Record compacted into one summary before Segments is refused, not migrated. A compaction that fails is dropped, and the Run goes on.
 - ✅ Step 2, the model writes the Recap, on the cached prefix: the request is the Context the next call would send plus one plain ask, validated by the five-heading rules, and a reply that fails leaves the Segment without a Recap. It is off by default in the library, the service and the CLI. The payments check of G-E01 ships as `gotato-workload -recap-check`. With it, a service can compact its idle Sessions before their cache goes cold.
 - ✅ Step 3, past the ceiling and on overflow: compaction before any model call, mid-Run included, through `TurnPreparer`, and once after the provider refuses a request as too long. The ceiling is the window less max(10%, 16K tokens) when the gateway knows the window; the Agent's and the Session's override it. A Turn compacts at most once: still past the ceiling after it ends the Run with `limit_exceeded`, and a second refusal with `context_overflow`. `AutoCompactor` is the first `TurnPreparer`, and `RunPreparer` is gone.
@@ -237,18 +235,7 @@ Exit:
 - `adapter/bash` passes its own vet, test and lint, and the root module still imports only the standard library.
 - The decision is in DESIGNS.md and FEATURES.md, and its entry is gone from [TODO.md](TODO.md).
 
-## Phase 10 — Access hooks
-
-- The caller's identity travels in `context.Context` from the handler to every extension and every store call, and a test keeps it so.
-- A new "not allowed" error: a store adapter or an extension returns it, and HTTP answers 403 and gRPC the matching code ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
-- Authentication and the rule for who may touch which Session stay the application's. Gotato documents one example: a Session's owner kept in its metadata and checked by a store wrapper.
-
-Exit:
-
-- A store wrapper that refuses a caller by the identity in `ctx` makes reading, running and cancelling a Session answer 403, tested on HTTP and gRPC.
-- The new code is recorded in [CHANGELOG.md](CHANGELOG.md) as an addition to both contracts.
-
-## Phase 11 — Before the release
+## Phase 10 — Before the release
 
 The last phase tests Gotato the way a team would run it: against gateways that behave like the providers, on several instances in a local cluster, and against the exported API it promises.
 
