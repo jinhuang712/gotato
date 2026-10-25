@@ -126,7 +126,7 @@ func (c *cli) cmdSession(args []string) int {
 		return code
 	}
 	if len(args) == 0 {
-		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, delete")
+		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, message, cancel, delete")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -142,11 +142,95 @@ func (c *cli) cmdSession(args []string) int {
 		return c.cmdEvents(append([]string{"--session-positional"}, rest...))
 	case "resume":
 		return c.cmdRunArgs(rest, true)
+	case "message":
+		return c.sessionMessage(rest)
+	case "cancel", "stop":
+		return c.sessionCancel(rest)
 	case "delete", "rm":
 		return c.sessionDelete(rest)
 	default:
 		return c.usageError("unknown session subcommand " + sub)
 	}
+}
+
+// sessionMessage sends a message to a Session (Runner.Send). This process runs
+// nothing in the background, so no Run of its own can take the message: it
+// either starts a new Run, as `session resume` does, or fails with not_writer
+// when a Run is going in another process, naming the writer's address when it
+// advertises one.
+func (c *cli) sessionMessage(args []string) int {
+	fs := c.newFlagSet("session message")
+	var flags modelFlags
+	bindModel(fs, &flags)
+	kind := fs.String("kind", string(service.MessageSteer), "steer, follow_up or interrupt")
+	positionals, err := parseInterspersed(fs, args)
+	if err != nil {
+		return c.parseError(err)
+	}
+	if len(positionals) == 0 {
+		return c.usageError("session message needs a session id")
+	}
+	text, err := c.readPrompt(positionals[1:])
+	if err != nil {
+		return c.usageError(err.Error())
+	}
+	if !service.MessageKind(*kind).Valid() {
+		return c.usageError("--kind accepts steer, follow_up or interrupt")
+	}
+	rt, err := c.newRuntime(flags)
+	if err != nil {
+		return c.failErr(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result, err := rt.runner.Send(ctx, service.MessageRequest{SessionID: positionals[0], Kind: service.MessageKind(*kind), Text: text})
+	if result.Run == nil || result.Run.SessionID == "" {
+		if err != nil {
+			return c.failErr(err)
+		}
+		return c.emit(map[string]any{"session_id": result.SessionID, "message_id": result.MessageID, "queued": result.Queued}, "queued "+result.MessageID)
+	}
+	outcome := outcomeOf(*result.Run)
+	code := ExitOK
+	switch {
+	case errors.Is(err, service.ErrNotPersisted):
+		code = ExitError
+	case outcome.Status != gotato.RunCompleted:
+		code = ExitRunIncomplete
+	}
+	if c.machine() {
+		c.writeJSON(outcome)
+	} else {
+		if outcome.FinalText != "" {
+			fmt.Fprintln(c.stdout, outcome.FinalText)
+		}
+		c.info("session %s · run %s · %s", outcome.SessionID, outcome.RunID, outcome.Status)
+	}
+	return code
+}
+
+// sessionCancel stops the Run of a Session (Runner.CancelSession). A Run in
+// another process is not stopped from here: the failure is not_writer, with the
+// writer's address when it advertises one.
+func (c *cli) sessionCancel(args []string) int {
+	fs := c.newFlagSet("session cancel")
+	var flags modelFlags
+	bindModel(fs, &flags)
+	positionals, err := parseInterspersed(fs, args)
+	if err != nil {
+		return c.parseError(err)
+	}
+	if len(positionals) != 1 {
+		return c.usageError("session cancel needs a session id")
+	}
+	rt, err := c.newRuntime(flags)
+	if err != nil {
+		return c.failErr(err)
+	}
+	if err := rt.runner.CancelSession(context.Background(), positionals[0]); err != nil {
+		return c.failErr(err)
+	}
+	return c.emit(map[string]any{"session_id": positionals[0], "status": "cancel_requested"}, "cancel requested")
 }
 
 func (c *cli) sessionCreate(args []string) int {
@@ -649,6 +733,8 @@ func (c *cli) cmdServe(args []string) int {
 	warmTTL := fs.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
 	noIdleCompaction := fs.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
 	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before cancelling them")
+	advertise := fs.String("advertise", "", "URL other callers reach this instance at, such as http://10.0.0.7:8787; a message for a run this instance writes, sent to another instance, is answered not_writer with it")
+	forward := fs.Bool("forward", false, "send a message or cancel for a run another instance writes to that instance's advertised address, instead of answering not_writer")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
 	}
@@ -674,14 +760,18 @@ func (c *cli) cmdServe(args []string) int {
 		spec.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
 		specs = append(specs, spec)
 	}
-	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
+	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
 	if err != nil {
 		return c.failErr(err)
 	}
 	// closeRunners removes its Liveness row when serve returns, also after a
 	// failed listen.
 	c.runners = append(c.runners, runner)
-	server := &http.Server{Addr: *addr, Handler: httpapi.New(runner), ReadHeaderTimeout: 5 * time.Second}
+	var handlerOptions []httpapi.Option
+	if *forward {
+		handlerOptions = append(handlerOptions, httpapi.WithForwarding(nil))
+	}
+	server := &http.Server{Addr: *addr, Handler: httpapi.New(runner, handlerOptions...), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// --timeout bounds the process lifetime: when it elapses the server drains

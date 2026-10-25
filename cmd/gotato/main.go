@@ -2,7 +2,7 @@
 // packages for humans, shell automation, and coding agents.
 //
 //	gotato run [--session ID] [--model echo|demo|gateway] [--json|--events jsonl] "prompt"
-//	gotato session create|list|show|fork|events|resume
+//	gotato session create|list|show|fork|events|resume|message|cancel
 //	gotato context inspect|build|compact <session>
 //	gotato tools list|describe|active|activate|deactivate
 //	gotato events --session <id> [--jsonl|--json]
@@ -298,6 +298,9 @@ func (c *cli) writeErrorObject(code int, message string, err error) {
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		object.Code = runtimeErr.Code
+		if runtimeErr.Code == gotato.ErrNotWriter {
+			object.Writer = runtimeErr.Details["writer"]
+		}
 	}
 	_ = enc.Encode(object)
 }
@@ -309,6 +312,8 @@ type errorObject struct {
 	Code      gotato.ErrorCode `json:"code,omitempty"`
 	NotRun    bool             `json:"not_run"`
 	Retryable bool             `json:"retryable"`
+	// Writer is, for not_writer, the address the Run's writer advertises.
+	Writer string `json:"writer,omitempty"`
 }
 
 // usageError reports a usage mistake. In machine mode it also writes the
@@ -415,11 +420,11 @@ Usage:
 
 Commands:
   run        [--session ID] [--model echo|demo|gateway] [--compact-ceiling N] [--json|--events jsonl] "prompt"
-  session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | delete <id>
+  session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | message <id> [--kind steer|follow_up|interrupt] "text" | cancel <id> | delete <id>
   context    inspect <id> | build <id> | compact <id> [--keep N] [--recap truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
-  serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction]   HTTP session service
+  serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction] [--advertise URL] [--forward]   HTTP session service
   doctor     [--json]
   version
 
