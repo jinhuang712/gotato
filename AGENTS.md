@@ -26,7 +26,7 @@ These root documents are the single source of truth for Gotato's design.
 - **Keep Session generic.** Task graphs, project state, worktrees, and product workflow live in `Metadata`.
 - **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
-- **Keep the service on top.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. `adapter/grpc` and `adapter/mcp` are Go modules of their own, with a `replace` to the root. Core and standard runtime packages must never import any of them.
+- **Keep the service on top.** `service`, `service/httpapi`, and `adapter/grpc` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. `adapter/bash` is the third: the engine of the `bash` tool (a read-only bash subset over an `fs.FS`), which does not import Gotato at all and so has no `replace`. `adapter/grpc` and `adapter/mcp` are Go modules of their own, with a `replace` to the root. Core and standard runtime packages must never import any of them.
 - **UI lives in applications.** Gotato's human-facing surface is CLI output; widgets, TUIs, and desktop state belong above it.
 - **CLI and library share runtime semantics.** `cmd/gotato` is a thin client of the packages. If you need a behavior in the CLI, add it to a package first.
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
@@ -45,6 +45,7 @@ These root documents are the single source of truth for Gotato's design.
    golangci-lint run ./...               # 0 issues; config in .golangci.yml
    (cd adapter/grpc && go test ./... && golangci-lint run ./...)  # when you touched service or root types it maps
    (cd adapter/mcp && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched ToolSet, Tool or ToolResult
+   (cd adapter/bash && gofmt -l . && go vet ./... && go test -race ./... && golangci-lint run ./...)  # when you touched adapter/bash
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
