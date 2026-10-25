@@ -62,6 +62,7 @@ func answerText(body string) string {
 	var out strings.Builder
 	for _, e := range events(body) {
 		var ev struct {
+			Type    string          `json:"type"`
 			Delta   json.RawMessage `json:"delta"`
 			Choices []struct {
 				Delta struct {
@@ -69,7 +70,7 @@ func answerText(body string) string {
 				} `json:"delta"`
 			} `json:"choices"`
 		}
-		if json.Unmarshal([]byte(e), &ev) != nil {
+		if json.Unmarshal([]byte(e), &ev) != nil || strings.Contains(ev.Type, "reasoning") {
 			continue
 		}
 		var s string
