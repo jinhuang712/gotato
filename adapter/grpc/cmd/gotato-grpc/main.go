@@ -51,6 +51,8 @@ func main() {
 	gatewayConfig := flag.String("gateway-config", "", "YAML config for the gateway agent (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
 	maxRuns := flag.Int("max-runs", 0, "maximum concurrent runs; 0 disables the bound")
 	maxSessions := flag.Int("max-sessions", 0, "hard limit on active sessions; past it a new session is refused with UNAVAILABLE marked not run; 0 disables the limit")
+	warmTTL := flag.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
+	noIdleCompaction := flag.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
 	flag.Parse()
 
 	if *maxRuns < 0 || *maxSessions < 0 {
@@ -111,6 +113,10 @@ func main() {
 		}
 		client = created
 		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Tools: tools})
+	}
+	warm := service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
+	for i := range specs {
+		specs[i].Warm = warm
 	}
 	runner, err := service.New(service.Config{Store: store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions}})
 	if err != nil {

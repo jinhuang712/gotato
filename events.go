@@ -610,8 +610,14 @@ type CompactionFailed struct {
 	Cause ErrorCode     `json:"cause,omitempty"`
 }
 
-// SessionUnloaded: the Session leaves this Instance's memory, with why: its
-// TTL, a drain or a close. An Instance Event.
+// SessionUnloaded: the Session leaves this Instance's memory, with why. A live
+// Session that closes says "close". The Runner's warm copy of an idle Session
+// says "ttl" when its time in memory ended, "taken_over" when another Instance
+// wrote the Record (or deleted it) so the copy was out of date, "deleted" when
+// this Instance deleted the Session, "drain" or "closed" when the Runner let
+// every copy go, "failed" when a write of the copy failed and it is dropped, and
+// "liveness_lapsed" when this Instance could not show its Liveness row. An
+// Instance Event.
 type SessionUnloaded struct {
 	Header
 	Why string `json:"why"`

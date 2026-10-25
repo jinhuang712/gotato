@@ -418,7 +418,7 @@ Commands:
   context    inspect <id> | build <id> | compact <id> [--keep N] [--recap truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
-  serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait]   HTTP session service
+  serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction]   HTTP session service
   doctor     [--json]
   version
 

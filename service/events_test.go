@@ -283,8 +283,8 @@ func TestSubscribeSessionCatchesUpThenGoesLive(t *testing.T) {
 // timings, are there and are not in a Run's stream.
 func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 	runner, _ := newRunner(t,
-		service.Agent{Name: "alpha", Model: testkit.EchoModel{}},
-		service.Agent{Name: "beta", Model: testkit.EchoModel{}},
+		service.Agent{Name: "alpha", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
+		service.Agent{Name: "beta", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
 	)
 	ctx := context.Background()
 	all := instanceRecorder(t, runner)

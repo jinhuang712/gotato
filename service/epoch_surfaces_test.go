@@ -41,7 +41,7 @@ func (s preEpochStore) Append(ctx context.Context, id string, after uint64, entr
 func TestPreEpochRecordHasOneEpochOnEverySurface(t *testing.T) {
 	runner, err := service.New(service.Config{
 		Store:  preEpochStore{session.NewMemoryStore()},
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -287,6 +287,11 @@ func (r *Runner) Close(ctx context.Context) error {
 	// The Instance's stream ends: its subscribers read what is queued, and
 	// then io.EOF.
 	defer r.instanceFeed.Close()
+	// Warm Sessions hold no Claim, so letting them go writes nothing.
+	r.warmMu.Lock()
+	r.warmClosed = true
+	r.warmMu.Unlock()
+	r.dropAllWarm("closed")
 	r.beat.mu.Lock()
 	started := r.beat.started
 	stop, done := r.beat.stop, r.beat.done

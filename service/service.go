@@ -94,6 +94,10 @@ type Agent struct {
 	// a request as too long. A Session may override the ceiling through
 	// MetaCompactCeiling.
 	Compact modelctx.CompactPolicy
+	// Warm says how long the Agent's idle Sessions stay in memory after a
+	// Run, and whether they are compacted while they idle. The zero value is
+	// the default: 60 minutes, and an idle compaction.
+	Warm WarmPolicy
 	// Options are appended verbatim for anything the fields above do not
 	// cover.
 	Options []gotato.Option
@@ -140,6 +144,9 @@ type Config struct {
 	// value turns the look off, so a stream carries only what this Instance
 	// writes.
 	StreamPoll time.Duration
+	// Clock times the warm Sessions: their TTL and their idle compaction.
+	// Nil means the system clock; a test supplies one it advances itself.
+	Clock Clock
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -198,6 +205,14 @@ type Runner struct {
 	admission Admission
 
 	locks *sessionLocks
+
+	// clock times the warm Sessions. warm holds the idle ones, each a cache
+	// of a Record and never a lock; warmClosed says the Runner has let them
+	// all go and keeps none (see warm.go).
+	clock      Clock
+	warmMu     sync.Mutex
+	warm       map[string]*warmEntry
+	warmClosed bool
 
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
 	// Records in use, one per Session ID and epoch, each mirrored to it (see
@@ -324,12 +339,17 @@ func New(cfg Config) (*Runner, error) {
 		agents:     map[string]Agent{},
 		admission:  cfg.Admission,
 		locks:      newSessionLocks(),
+		clock:      cfg.Clock,
+		warm:       map[string]*warmEntry{},
 		feeds:      map[feedKey]*sessionFeed{},
 		handles:    map[string][]*runHandle{},
 		byRun:      map[gotato.RunID]*runHandle{},
 	}
 	if r.instance == "" {
 		r.instance = session.NewID()
+	}
+	if r.clock == nil {
+		r.clock = systemClock{}
 	}
 	if r.admission.MaxActiveSessions < 0 {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
@@ -751,6 +771,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		// the Run knows its Record and its Agent, so they go to that Record's
 		// Feed and carry the Agent's name.
 		var early []gotato.Event
+		// reused says a warm copy served the Run: the Session was not loaded.
+		reused := false
 		if request.SessionID != "" {
 			// A Run writes as this Instance: opening the Session claims it
 			// when another Instance held it, and a stale writer is fenced.
@@ -765,7 +787,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				s, err = session.Open(runCtx, r.store, sessionID)
 				loadTime = time.Since(began)
 			} else {
-				writer, early, err = r.open(runCtx, sessionID)
+				writer, early, reused, err = r.acquire(runCtx, sessionID)
 				if writer != nil {
 					loadTime = writer.Stats().Load
 					s = writer.Record()
@@ -813,7 +835,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			for _, event := range early {
 				feed.Publish(event)
 			}
-			r.notice(loadedEvent(sessionID, s.Len(), loadTime, nil), label)
+			if !reused {
+				r.notice(loadedEvent(sessionID, s.Len(), loadTime, nil), label)
+			}
 		}
 		// A Run that cannot start still releases the Session it opened.
 		abandon := func(err error) error {
@@ -887,6 +911,11 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			cancelSave()
 			r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(saved), saveErr), spec.Name)
 			r.noteFailure(saveErr, s.ID(), spec.Name)
+			if saveErr == nil && wroteAll {
+				// The Session stays in memory, as a cache the store can always
+				// replace; the next Run checks its head.
+				r.keepWarm(writer, spec)
+			}
 			// Only the release failed: every fact of the Run is stored, so the
 			// Run keeps its status. The warning Events above tell the operator,
 			// and the Claim lapses with the Liveness row.
@@ -1006,6 +1035,13 @@ func cancelledRunResult(sessionID, agent string, err error) RunResult {
 // caller waits. Every Session mutation goes through it: Runs, compaction,
 // tool activation, and deletion.
 func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func() error) error {
+	// A message that arrives while the Session compacts while idle cancels
+	// that compaction and is served first, so it never finds the Session busy.
+	unhold, err := r.holdWarm(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	defer unhold()
 	onWait := func() {
 		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 	}
@@ -1254,7 +1290,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, early, err := r.open(ctx, sessionID)
+		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
 			return err
 		}
@@ -1282,7 +1318,11 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		} else {
 			s.Set(MetaToolPrefix+toolID, "inactive")
 		}
-		return writer.Release(ctx)
+		err = writer.Release(ctx)
+		if err == nil {
+			r.keepWarm(writer, spec)
+		}
+		return err
 	})
 	if err != nil {
 		return ToolEntry{}, err
@@ -1300,24 +1340,28 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
-		writer, early, err := r.open(ctx, sessionID)
+		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
 			return err
 		}
 		agentName, _ := writer.Record().Get(MetaAgent)
 		r.publishOpened(writer, early, agentName)
-		if spec, ok := r.Agent(agentName); ok {
+		spec, known := r.Agent(agentName)
+		if known {
 			opts = compactOptionsFor(spec, writer.Record(), opts)
 			if opts.Recap != nil && opts.Context == nil {
 				opts.Context = r.recapContext(spec, writer.Record())
 			}
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts)
+		releaseErr := writer.Release(ctx)
+		if known && releaseErr == nil {
+			r.keepWarm(writer, spec)
+		}
 		if err != nil {
-			_ = writer.Release(ctx)
 			return err
 		}
-		return writer.Release(ctx)
+		return releaseErr
 	})
 	if err != nil {
 		return modelctx.Result{}, err
@@ -1412,6 +1456,7 @@ func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy
 // is never resurrected by a delete or vice versa.
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
+		r.dropWarm(sessionID, "deleted")
 		if err := r.store.Delete(ctx, sessionID); err != nil {
 			return err
 		}
@@ -1617,11 +1662,13 @@ func (r *Runner) Drain(ctx context.Context) error {
 	}
 	select {
 	case <-drained:
+		r.dropAllWarm("drain")
 		r.endStreams()
 		return markErr
 	case <-ctx.Done():
 		r.stopAll()
 		<-drained
+		r.dropAllWarm("drain")
 		r.endStreams()
 		return errors.Join(markErr, ctx.Err())
 	}

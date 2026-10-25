@@ -280,8 +280,9 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 // and SubscribeFrom stream its Events; Status and Done report its life; Tools
 // and InspectContext show what its next Turn would send.
 //
-// Until the Runner keeps Sessions warm, it builds one from a session.Record
-// for each Run and closes it afterwards; the Record stays the truth.
+// The Runner builds one from a session.Record for each Run and closes it
+// afterwards; between Runs it keeps the Record and its Writer warm in memory
+// (service.WarmPolicy). The Record stays the truth.
 type Session struct {
 	id          SessionID
 	model       Model

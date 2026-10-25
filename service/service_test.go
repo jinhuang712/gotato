@@ -608,7 +608,8 @@ func kindsOf(events []gotato.Event) []gotato.EventKind {
 // Instance's subscribers, and they are neither in a Run's stream nor in the
 // Session's Record.
 func TestStoreEventsAreInstanceEvents(t *testing.T) {
-	runner, store := newRunner(t)
+	// No warm copy, so the second Run loads the Session and times the load.
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Warm: service.WarmPolicy{TTL: -1}})
 	instance := instanceRecorder(t, runner)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})

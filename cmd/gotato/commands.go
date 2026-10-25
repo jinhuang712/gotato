@@ -646,6 +646,8 @@ func (c *cli) cmdServe(args []string) int {
 	maxRuns := fs.Int("max-runs", 0, "maximum concurrent runs; 0 disables the bound")
 	maxSessions := fs.Int("max-sessions", 0, "hard limit on active sessions; past it a new session is refused with a 503 marked not run; 0 disables the limit")
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
+	warmTTL := fs.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
+	noIdleCompaction := fs.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
 	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before cancelling them")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
@@ -669,6 +671,7 @@ func (c *cli) cmdServe(args []string) int {
 	specs := make([]service.Agent, 0)
 	for _, name := range rt.runner.Agents() {
 		spec, _ := rt.runner.Agent(name)
+		spec.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
 		specs = append(specs, spec)
 	}
 	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
