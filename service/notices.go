@@ -205,7 +205,7 @@ func (r *Runner) queueTimeAway(ctx context.Context, spec Agent, record *session.
 }
 
 // away says how long the user was away in whole minutes, hours or days: the
-// largest unit that fits at least once.
+// largest unit that fits at least once, and "less than a minute" below that.
 func away(d time.Duration) string {
 	unit := func(n int64, name string) string {
 		if n == 1 {
@@ -218,7 +218,9 @@ func away(d time.Duration) string {
 		return unit(int64(d/(24*time.Hour)), "day")
 	case d >= time.Hour:
 		return unit(int64(d/time.Hour), "hour")
+	case d >= time.Minute:
+		return unit(int64(d/time.Minute), "minute")
 	default:
-		return unit(max(int64(d/time.Minute), 1), "minute")
+		return "less than a minute"
 	}
 }
