@@ -66,7 +66,7 @@ err = writer.Release(ctx)
 ## Embedding in a service
 
 ```go
-store, err := session.NewFileStore("/var/lib/myservice/sessions") // or your own session.Store
+store, err := session.NewFileStore("/var/lib/myservice/sessions") // creates the directory if it is missing; or your own session.Store
 if err != nil {
     return err
 }

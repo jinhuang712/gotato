@@ -1211,7 +1211,7 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 | Store | For |
 |---|---|
 | In memory | tests and short-lived programs |
-| A directory per Record, with one file per write | the CLI, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`) |
+| A directory per Record, with one file per write (`session.NewFileStore(dir)`, which creates `dir` and its missing parents) | the CLI, in `--store DIR` (default `$GOTATO_HOME/sessions`, else `~/.gotato/sessions`) |
 | Your own adapter | the database you run, through the store contract below ([G-N08](#g-n08--storage-engines-belong-to-applications)) |
 
 The Record is an append-only log ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)):

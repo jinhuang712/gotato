@@ -72,7 +72,10 @@ type fileInstance struct {
 
 const batchNameDigits = 20
 
-// NewFileStore creates the directory if needed.
+// NewFileStore returns a store that keeps its Records under dir. It creates
+// dir, with any missing parents (mode 0755), when it does not exist, so a
+// service needs no setup step; an empty dir, or one that cannot be created, is
+// an error.
 func NewFileStore(dir string, options ...StoreOption) (*FileStore, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("session: store directory is empty")
