@@ -135,6 +135,9 @@ type catalogTool struct {
 type pendingLoad struct {
 	id  string
 	why ToolLoadedWhy
+	// announced is set once the load's ToolLoaded Event is staged, with the
+	// Tool Result that lists it.
+	announced bool
 }
 
 // toolRegistry owns Tool identity and visibility for one Session. The Session
@@ -662,6 +665,23 @@ func (r *toolRegistry) stageLoad(id string, why ToolLoadedWhy) loadStatus {
 // and reports true when the Tool is a catalog Tool the Session may load.
 func (r *toolRegistry) stageCall(id string) bool {
 	return r.stageLoad(id, ToolLoadedCall) != loadNotFound
+}
+
+// announce marks the staged loads among ids as announced, and returns them: the
+// Loop stages their ToolLoaded Events with the Tool Result that lists them, so
+// one write holds both and a crash cannot leave a result that says "Loaded"
+// for a Tool the Record does not hold as loaded.
+func (r *toolRegistry) announce(ids []string) []pendingLoad {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []pendingLoad
+	for i := range r.pending {
+		if !r.pending[i].announced && slices.Contains(ids, r.pending[i].id) {
+			r.pending[i].announced = true
+			out = append(out, r.pending[i])
+		}
+	}
+	return out
 }
 
 // candidates lists, in ID order, the specs of the catalog Tools the Model may

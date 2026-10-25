@@ -488,6 +488,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				}
 				batch.next = committed + 1
 				a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
+				for _, load := range a.registry.announce(toolResult.Loaded) {
+					a.stage(ToolLoaded{Header: hd(turn), Tool: load.id, Why: load.why})
+				}
 				if err := a.flush(runCtx); err != nil {
 					return err
 				}
@@ -533,6 +536,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return fail(asRuntimeError(loadErr))
 		}
 		for _, load := range loads {
+			if load.announced {
+				continue
+			}
 			a.stage(ToolLoaded{Header: hd(turn), Tool: load.id, Why: load.why})
 		}
 
