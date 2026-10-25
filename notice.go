@@ -22,11 +22,6 @@ const (
 	// NoticeContinue: the last reply did not finish, because it hit the
 	// output limit, so go on.
 	NoticeContinue = "continue"
-	// NoticeLastTurn: this is the last Turn, so answer without tools.
-	NoticeLastTurn = "last_turn"
-	// NoticeStreamCut: the reply was cut off mid-stream, so go on from where
-	// it stopped.
-	NoticeStreamCut = "stream_cut"
 	// NoticeSettingsChanged: the instruction changed, or a tool came or went.
 	NoticeSettingsChanged = "settings_changed"
 	// NoticeRunInterrupted: the last Run was stopped before it finished.
@@ -38,7 +33,7 @@ const (
 // ReservedNoticeKind reports whether kind is one of Gotato's own.
 func ReservedNoticeKind(kind string) bool {
 	switch kind {
-	case NoticeContinue, NoticeLastTurn, NoticeStreamCut, NoticeSettingsChanged, NoticeRunInterrupted, NoticeTimeAway:
+	case NoticeContinue, NoticeSettingsChanged, NoticeRunInterrupted, NoticeTimeAway:
 		return true
 	}
 	return false

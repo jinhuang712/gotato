@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"syscall"
 	"time"
+
+	gotato "github.com/jinhuang712/gotato"
 )
 
 // A streaming response can fail after its headers arrived: a provider or a
@@ -18,8 +20,13 @@ import (
 //   - before any event has been handed to the caller, the stream re-issues
 //     the same request (within MaxRetries) and continues transparently: the
 //     caller cannot observe a difference, so nothing is duplicated;
-//   - after an event was delivered, replaying would duplicate output, so the
-//     stream fails with a Retryable *Error the caller may act on.
+//   - after an event was delivered, the stream re-issues the same request
+//     too, within the same MaxRetries, when a Session is listening: it tells
+//     the Session with gotato.ReportModelRetry, which drops what it received
+//     of the reply (a stream reader does on model_retried), and the new reply
+//     is the whole reply. With no Session to drop the output, or when the
+//     restarts run out, the stream fails with a Retryable *Error the caller
+//     may act on.
 //
 // Framing and protocol errors (an oversized line, invalid JSON) are not
 // interruptions and are never retried.
@@ -41,7 +48,8 @@ type restarter struct {
 	body     []byte
 	open     func(context.Context, []byte) (*http.Response, error)
 	restarts int
-	// delivered is set once an event reached the caller.
+	// delivered is set once an event reached the caller. It does not stop a
+	// restart: the caller is told, and drops what it received.
 	delivered bool
 }
 
@@ -54,11 +62,18 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 	if !interrupted(cause) {
 		return nil, cause
 	}
-	if r.delivered || r.restarts >= r.client.maxRetries {
+	if r.restarts >= r.client.maxRetries {
+		return nil, &Error{Retryable: true, Message: "stream interrupted: " + cause.Error()}
+	}
+	delay := withJitter(r.client.retryBackoff * time.Duration(r.restarts+1))
+	reported := gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: r.restarts + 1, Wait: delay, Error: "the stream was cut off"})
+	if r.delivered && !reported {
+		// Nobody drops the output already delivered, so a restart would
+		// repeat it.
 		return nil, &Error{Retryable: true, Message: "stream interrupted: " + cause.Error()}
 	}
 	r.restarts++
-	if err := wait(ctx, withJitter(r.client.retryBackoff*time.Duration(r.restarts))); err != nil {
+	if err := wait(ctx, delay); err != nil {
 		return nil, err
 	}
 	return r.open(ctx, r.body)

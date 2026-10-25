@@ -751,9 +751,37 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		a.callCancel = nil
 		a.intrMu.Unlock()
 	}()
+	assistant := Message{ID: assistantID, RunID: runID, Role: RoleAssistant}
+	var usage Usage
+	var complete bool
+	// A streaming reply is stored in parts, every second or every few KiB, so
+	// a crash loses at most the last part of it. Without a store there is
+	// nothing to lose.
+	var partText, partReasoning strings.Builder
+	partStarted := time.Now()
 	modelCtx = withRetryReporter(modelCtx, func(retry ModelRetry) {
-		// A retry falls between steps: it gets a write of its own.
-		_ = a.writeNow(ctx, ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: retry.Wait.Milliseconds(), Error: retry.Error})
+		retried := ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: retry.Wait.Milliseconds(), Error: retry.Error}
+		if len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
+			// A retry before any output falls between steps: it gets a write
+			// of its own.
+			_ = a.writeNow(ctx, retried)
+			return
+		}
+		// The stream was cut after some output and the same request is sent
+		// again. What was received is void: the text is kept as a log, as a
+		// Cut-off reply the model never sees, and the new reply is a reply of
+		// its own, so a reader that saw model_retried drops the old one.
+		a.stage(retried)
+		if partial := cutOffReply(assistant); partial.ID != "" && a.commitMessage(partial) == nil {
+			a.stage(ReplyCutOff{Header: NewHeader(a.id, runID, turn), Message: partial.Clone(), Cause: ErrModelFailure})
+		}
+		assistant = Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleAssistant, Model: assistant.Model}
+		usage = Usage{}
+		partText.Reset()
+		partReasoning.Reset()
+		partStarted = time.Now()
+		a.stage(ReplyStarted{Header: NewHeader(a.id, runID, turn), MessageID: assistant.ID})
+		_ = a.flush(ctx)
 	})
 	stream, err := a.model.Stream(modelCtx, request)
 	if err != nil {
@@ -764,9 +792,6 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	}
 	defer func() { _ = stream.Close() }()
 
-	assistant := Message{ID: assistantID, RunID: runID, Role: RoleAssistant}
-	var usage Usage
-	var complete bool
 	// Once the stream has started, a failure keeps the text received so far
 	// as a cut-off reply, so what the Model said is not lost.
 	broken := func(err *RuntimeError) (Message, Usage, *RuntimeError) {
@@ -774,11 +799,6 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		partial.Usage = usage
 		return partial, usage, err
 	}
-	// A streaming reply is stored in parts, every second or every few KiB, so
-	// a crash loses at most the last part of it. Without a store there is
-	// nothing to lose.
-	var partText, partReasoning strings.Builder
-	partStarted := time.Now()
 	writePart := func() *RuntimeError {
 		if !a.isDurable() {
 			return nil
