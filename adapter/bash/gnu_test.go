@@ -16,10 +16,12 @@ import (
 // development and CI of this module only: it runs only when GOTATO_GNU=1, and
 // the engine never starts a program.
 //
-// The tools are found as <prefix>cat, <prefix>head and <prefix>grep, where the
-// prefix is GOTATO_GNU_PREFIX ("g" on macOS, where Homebrew installs GNU
-// coreutils and grep under that name, and empty elsewhere). Set LC_ALL for the
-// locale you want to check; the table assumes UTF-8.
+// The tools are found as <prefix>cat, <prefix>head, <prefix>grep and so on,
+// where the prefix is GOTATO_GNU_PREFIX ("g" on macOS, where Homebrew installs
+// GNU coreutils, sed and grep under that name, and empty elsewhere). echo is
+// not looked for: the script runs in bash, whose builtin is what the engine's
+// echo follows. LC_ALL is C.UTF-8 unless you set it: the table assumes UTF-8,
+// and sort orders by code point there (see the usage text of sort).
 func TestAgainstGNU(t *testing.T) {
 	if os.Getenv("GOTATO_GNU") != "1" {
 		t.Skip("set GOTATO_GNU=1 to compare with installed GNU tools")
@@ -29,7 +31,7 @@ func TestAgainstGNU(t *testing.T) {
 		prefix = "g"
 	}
 	bin := t.TempDir()
-	for _, tool := range []string{"cat", "head", "grep"} {
+	for _, tool := range []string{"cat", "head", "grep", "tail", "sed", "wc", "sort", "uniq", "cut", "tr", "base64", "ls"} {
 		path, err := exec.LookPath(prefix + tool)
 		if err != nil {
 			t.Fatalf("GNU %s not found as %s%s: %v", tool, prefix, tool, err)
@@ -51,17 +53,29 @@ func TestAgainstGNU(t *testing.T) {
 	}
 	// Cases whose text GNU words differently, on purpose: ours uses ASCII
 	// quotes where GNU uses the locale's, and RE2 words its own errors.
+	const quotes = "GNU quotes with the locale's quotation marks"
+	const onDisk = "the modification time and the owner of a file on disk are not the fixed ones"
 	differs := map[string]string{
-		"head bad number": "GNU quotes with the locale's quotation marks",
+		"head bad number":       quotes,
+		"tail bad number":       quotes,
+		"base64 bad wrap":       quotes,
+		"base64 extra operand":  quotes,
+		"tr missing second set": quotes,
+		"tr -d with two sets":   quotes,
+		"tr three operands":     quotes,
+		"ls -l":                 onDisk,
+		"ls -l files":           onDisk,
+		"ls -lh":                onDisk,
+		"ls -lS":                onDisk,
 	}
-	for _, c := range conformanceCases {
+	for _, c := range allCases() {
 		t.Run(c.name, func(t *testing.T) {
 			if why, skip := differs[c.name]; skip {
 				t.Skip(why)
 			}
 			cmd := exec.Command("/bin/bash", "-c", strings.ReplaceAll(c.cmd, "/results", root+"/results"))
 			cmd.Dir = root
-			cmd.Env = []string{"PATH=" + bin, "LC_ALL=" + envOr("LC_ALL", "en_US.UTF-8"), "HOME=/"}
+			cmd.Env = []string{"PATH=" + bin, "LC_ALL=" + envOr("LC_ALL", "C.UTF-8"), "HOME=/"}
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &stdout, &stderr
 			code := 0

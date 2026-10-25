@@ -35,6 +35,9 @@ func init() {
 		"cat":  {run: runCat},
 		"head": {run: runHead},
 		"grep": {run: runGrep},
+		"tail": {run: runTail},
+		"sed":  {run: runSed},
+		"wc":   {run: runWc},
 	}
 }
 

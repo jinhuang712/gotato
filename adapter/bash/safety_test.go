@@ -71,9 +71,9 @@ EOF`, safetyFiles)
 // Nothing starts a program or reaches a builtin of the interpreter.
 func TestNoCommandStartsAProgram(t *testing.T) {
 	cases := map[string]string{
-		"ls /":                           "ls",
-		"/bin/ls":                        "/bin/ls",
-		"./ls":                           "./ls",
+		"awk 1":                          "awk",
+		"/bin/awk":                       "/bin/awk",
+		"./awk":                          "./awk",
 		"exec cat /results/a":            "exec",
 		"eval cat /results/a":            "eval",
 		"source /etc/profile":            "source",
@@ -81,7 +81,6 @@ func TestNoCommandStartsAProgram(t *testing.T) {
 		"trap 'cat' EXIT":                "trap",
 		"command ls":                     "command",
 		"builtin echo hi":                "builtin",
-		"echo hi":                        "echo",
 		"printf hi":                      "printf",
 		"cd /results":                    "cd",
 		"set -x":                         "set",
@@ -106,7 +105,7 @@ func TestNoCommandStartsAProgram(t *testing.T) {
 		if got.ExitCode != 127 || !got.Refused || got.Stdout != "" {
 			t.Errorf("%s: exit %d refused %v stdout %q", cmd, got.ExitCode, got.Refused, got.Stdout)
 		}
-		if !strings.Contains(got.Stderr, name+":") || !strings.Contains(got.Stderr, "The commands are: cat, grep, head.") {
+		if !strings.Contains(got.Stderr, name+":") || !strings.Contains(got.Stderr, "The commands are: cat, grep, head, sed, tail, wc.") {
 			t.Errorf("%s: stderr %q does not name the command and list the commands", cmd, got.Stderr)
 		}
 	}
@@ -115,9 +114,9 @@ func TestNoCommandStartsAProgram(t *testing.T) {
 // A command name that is not a literal is decided when it runs, after
 // expansion, and a name that is not a command still reaches no program.
 func TestACommandNameBuiltByExpansionIsChecked(t *testing.T) {
-	for _, cmd := range []string{"c=ls; $c /", "c=eval; $c cat", "c=/bin/sh; $c -c id", "c=exec; $c cat", "c=''; x=ls; \"$x\" /"} {
+	for _, cmd := range []string{"c=awk; $c /", "c=eval; $c cat", "c=/bin/sh; $c -c id", "c=exec; $c cat", "c=''; x=awk; \"$x\" /"} {
 		got := run(t, cmd, safetyFiles)
-		if got.ExitCode != 127 || got.Refused || !strings.Contains(got.Stderr, "The commands are: cat, grep, head.") {
+		if got.ExitCode != 127 || got.Refused || !strings.Contains(got.Stderr, "The commands are: cat, grep, head, sed, tail, wc.") {
 			t.Errorf("%s: exit %d refused %v stderr %q", cmd, got.ExitCode, got.Refused, got.Stderr)
 		}
 	}
@@ -198,7 +197,7 @@ func TestUnsupportedSyntaxIsRefused(t *testing.T) {
 // commands, so a model can correct itself in one call.
 func TestARefusalSuggestsAPipeline(t *testing.T) {
 	got := run(t, "for f in /results/*; do grep beta $f; done", safetyFiles)
-	for _, want := range []string{"line 1, column 1", "for loop is not supported", "use a pipeline", "cat, grep, head", "grep x /results/*"} {
+	for _, want := range []string{"line 1, column 1", "for loop is not supported", "use a pipeline", "cat, grep, head, sed, tail, wc", "grep x /results/*"} {
 		if !strings.Contains(got.Stderr, want) {
 			t.Errorf("stderr %q lacks %q", got.Stderr, want)
 		}
@@ -334,6 +333,9 @@ func TestGrepRefusesBinaryInput(t *testing.T) {
 // does not support is an error that lists the ones it does.
 func TestHelpAndUnsupportedOptions(t *testing.T) {
 	for _, name := range bash.Commands() {
+		if name == "echo" {
+			continue // bash's echo takes no --help and no other option than -n -e -E
+		}
 		got := run(t, name+" --help", safetyFiles)
 		if got.ExitCode != 0 || !strings.HasPrefix(got.Stdout, "Usage: "+name) || !strings.Contains(got.Stdout, "Supported options") {
 			t.Errorf("%s --help: %+v", name, got)

@@ -2,6 +2,7 @@ package bash_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -13,15 +14,38 @@ func conformanceFiles() map[string]string {
 		fmt.Fprintf(&twelve, "line %d\n", i)
 	}
 	return map[string]string{
-		"results/a":      "alpha\nbeta\ngamma\ndelta\n",
-		"results/b":      "Beta two\nzeta\n",
-		"results/nonl":   "one\ntwo",
-		"results/empty":  "",
-		"results/twelve": twelve.String(),
-		"results/star":   "x*a\nxa\n",
-		"results/mixed":  "apple pie\nApple tart\nbanana\n\ncherry (red)\na.b\naxb\nfoo|bar\n",
-		"results/bin":    "text\x00binary\n",
+		"results/a":         "alpha\nbeta\ngamma\ndelta\n",
+		"results/b":         "Beta two\nzeta\n",
+		"results/nonl":      "one\ntwo",
+		"results/empty":     "",
+		"results/twelve":    twelve.String(),
+		"results/star":      "x*a\nxa\n",
+		"results/mixed":     "apple pie\nApple tart\nbanana\n\ncherry (red)\na.b\naxb\nfoo|bar\n",
+		"results/bin":       "text\x00binary\n",
+		"results/crlf":      "a\r\nb\r\n",
+		"results/nums":      "10\n9\n2\n-1\n1.5\n01\nabc\n",
+		"results/nums2":     "1\n01\n1.0\n2\n",
+		"results/csv":       "b,2,x\na,10,y\nc,1,z\na,10,y\n",
+		"results/dups":      "a\na\nb\nA\nc\nc\nc\n",
+		"results/dups2":     "a\nA\nb\nB\nB\n",
+		"results/blank":     "\n\n\nx\n",
+		"results/words":     "one two  three\nfour\n\n  five six\n",
+		"results/ws":        " b\na\n\tc\n",
+		"results/cols":      "x  b 3\ny a 1\nz c 2\n",
+		"results/tsv":       "a\tb\tc\n",
+		"results/b64":       "aGVsbG8gd29ybGQ=\n",
+		"results/long":      strings.Repeat("x", 1<<20) + "\n",
+		"results/sub/deep":  "beta deep\n",
+		"results/sub/mid":   "12345",
+		"results/sub/small": "x",
+		"results/sub/.hid":  "h\n",
 	}
+}
+
+// allCases is every conformance case: the table of cat, head and grep above,
+// and the tables of the other commands.
+func allCases() []conformanceCase {
+	return slices.Concat(conformanceCases, tailSedWcCases)
 }
 
 // conformanceCase is one command with the output GNU coreutils 9 and GNU grep
@@ -207,7 +231,7 @@ var conformanceCases = []conformanceCase{
 func TestGNUConformance(t *testing.T) {
 	files := conformanceFiles()
 	files["results/uni"] = "é\nab\n"
-	for _, c := range conformanceCases {
+	for _, c := range allCases() {
 		t.Run(c.name, func(t *testing.T) {
 			got := run(t, c.cmd, files)
 			if got.Stdout != c.stdout || got.Stderr != c.stderr || got.ExitCode != c.code || got.Refused {

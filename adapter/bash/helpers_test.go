@@ -18,7 +18,7 @@ import (
 func mapFS(files map[string]string) fs.FS {
 	m := fstest.MapFS{}
 	for name, content := range files {
-		m[name] = &fstest.MapFile{Data: []byte(content), Mode: 0o444}
+		m[name] = &fstest.MapFile{Data: []byte(content), Mode: 0o444, ModTime: time.Unix(0, 0)}
 	}
 	return m
 }
