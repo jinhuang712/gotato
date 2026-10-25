@@ -124,7 +124,7 @@ func runCut(ctx context.Context, c *Call) int {
 		switch opt.id {
 		case "bytes", "characters", "fields":
 			if mode != "" && mode != opt.id {
-				c.errf("cut", "only one type of list may be specified")
+				c.errf("cut", "only one list may be specified")
 				c.tryHelp("cut")
 				return 1
 			}

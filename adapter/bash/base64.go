@@ -210,6 +210,15 @@ func base64Decode(ctx context.Context, in io.Reader, out *output, ignoreGarbage 
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
+				// GNU writes what a last group cut short still holds, then
+				// reports the input invalid.
+				if n >= 2 && quad[0] != '=' && quad[1] != '=' && (n == 2 || quad[2] != '=') {
+					v0, v1 := base64Value(quad[0]), base64Value(quad[1])
+					_ = out.WriteByte(byte(v0<<2 | v1>>4))
+					if n == 3 {
+						_ = out.WriteByte(byte(v1<<4 | base64Value(quad[2])>>2))
+					}
+				}
 				return n == 0, nil
 			}
 			return true, rerr

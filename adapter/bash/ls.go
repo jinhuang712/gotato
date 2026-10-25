@@ -63,10 +63,10 @@ func runLs(ctx context.Context, c *Call) int {
 	var all, almost, dirsAsFiles bool
 	for _, opt := range opts {
 		switch opt.id {
-		case "all":
-			all = true
+		case "all": // the last of -a and -A wins, as in GNU ls
+			all, almost = true, false
 		case "almost-all":
-			almost = true
+			all, almost = false, true
 		case "directory":
 			dirsAsFiles = true
 		case "human-readable":

@@ -114,6 +114,6 @@ var tailSedWcCases = []conformanceCase{
 	{name: "wc - names the dash", cmd: "wc -l - < /results/a", stdout: "4 -\n"},
 	{name: "wc -l a file and a pipe", cmd: "cat /results/a | wc -l /results/b -", stdout: "      2 /results/b\n      4 -\n      6 total\n"}, // unsure
 	{name: "wc missing file", cmd: "wc -l /results/zzz", stderr: "wc: /results/zzz: No such file or directory\n", code: 1},
-	{name: "wc goes on after a missing file", cmd: "wc -l /results/zzz /results/b", stdout: "2 /results/b\n2 total\n", stderr: "wc: /results/zzz: No such file or directory\n", code: 1}, // unsure
-	{name: "wc of a directory", cmd: "wc /results", stdout: "      0       0       0 /results\n", stderr: "wc: /results: Is a directory\n", code: 1},                                     // unsure
+	{name: "wc goes on after a missing file", cmd: "wc -l /results/zzz /results/b", stdout: " 2 /results/b\n 2 total\n", stderr: "wc: /results/zzz: No such file or directory\n", code: 1},
+	{name: "wc of a directory", cmd: "wc /results", stdout: "      0       0       0 /results\n", stderr: "wc: /results: Is a directory\n", code: 1}, // unsure
 }

@@ -115,7 +115,7 @@ var sortUniqCutTrCases = []conformanceCase{
 	{name: "cut -d with -c", cmd: "cut -d, -c1 /results/a", stderr: "cut: an input delimiter may be specified only when operating on fields\nTry 'cut --help' for more information.\n", code: 1},
 	{name: "cut -s with -c", cmd: "cut -s -c1 /results/a", stderr: "cut: suppressing non-delimited lines makes sense\n\tonly when operating on fields\nTry 'cut --help' for more information.\n", code: 1},
 	{name: "cut a delimiter of two characters", cmd: "cut -d ab -f1 /results/a", stderr: "cut: the delimiter must be a single character\nTry 'cut --help' for more information.\n", code: 1},
-	{name: "cut -b with -f", cmd: "cut -b1 -f1 /results/a", stderr: "cut: only one type of list may be specified\nTry 'cut --help' for more information.\n", code: 1},
+	{name: "cut -b with -f", cmd: "cut -b1 -f1 /results/a", stderr: "cut: only one list may be specified\nTry 'cut --help' for more information.\n", code: 1},
 	{name: "cut missing file", cmd: "cut -c1 /results/zzz", stderr: "cut: /results/zzz: No such file or directory\n", code: 1},
 	{name: "cut goes on after a missing file", cmd: "cut -c1 /results/zzz /results/b", stdout: "B\nz\n", stderr: "cut: /results/zzz: No such file or directory\n", code: 1},
 	{name: "cut of a directory", cmd: "cut -c1 /results", stderr: "cut: /results: Is a directory\n", code: 1}, // unsure

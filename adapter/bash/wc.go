@@ -239,7 +239,7 @@ func runWc(ctx context.Context, c *Call) int {
 
 // wcWidth is the width of every number, as GNU wc computes it: 1 for a single
 // count of a single input; else the digits of the total size of the regular
-// files, or at least 7 when an input is not a regular file (standard input,
+// files that exist (a missing one is left out), or at least 7 when an input is not a regular file (standard input,
 // a directory). Standard input is always taken for a pipe: GNU wc pads a
 // redirect from a file (wc < file) to the digits of its size, which the
 // interpreter does not let a command see.
@@ -253,9 +253,6 @@ func wcWidth(c *Call, files []string, shown int) int {
 		}
 		info, err := fs.Stat(c.FS, fsName(c.Dir, name))
 		return info, err == nil
-	}
-	if _, ok := stat(files[0]); !ok && files[0] != "-" {
-		return 1
 	}
 	minimum := 1
 	var total uint64

@@ -79,12 +79,10 @@ func echoEscapes(s string) (string, bool) {
 			b.WriteByte(11)
 		case '\\':
 			b.WriteByte('\\')
-		case '0', '1', '2', '3', '4', '5', '6', '7':
-			// \0nnn takes up to three digits after the 0; \nnn takes up to three.
-			start, limit := i, 3
-			if ch == '0' {
-				start, limit = i+1, 3
-			}
+		case '0':
+			// \0nnn takes up to three octal digits after the 0. Bash's echo
+			// reads no other octal form: \101 stays as it is written.
+			start, limit := i+1, 3
 			j, v := start, 0
 			for j < len(s) && j-start < limit && s[j] >= '0' && s[j] <= '7' {
 				v = v*8 + int(s[j]-'0')
