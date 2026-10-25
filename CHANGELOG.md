@@ -19,7 +19,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   | Event `toolset_activated` (`{toolset}`), `gotato.ToolSetActivated`, gRPC `toolset_activated = 26` | `tool_loaded` (`{tool, why}`, why is `names`, `query` or `call`; `gotato.ToolLoaded`, gRPC `tool_loaded = 26`) and `tool_unloaded` (`{tool, why}`, why is `compaction`; `gotato.ToolUnloaded`, gRPC `tool_unloaded = 55`), both facts of the Record |
   | `session.Record.ActiveToolSets()`, `SetActiveToolSets`, `gotato.ActiveToolSetSource` | `LoadedTools()`, `SetLoadedTools`, `gotato.LoadedToolSource`; the names are qualified tool IDs (`orders.lookup`), not ToolSet names |
   | `tool_sets` (names of ToolSets) in `session_created`, `compaction_ended`, `Compaction` and `Segment` JSON, gRPC `tool_sets`, CLI `context compact --json` `compaction.tool_sets` | `tools` (qualified tool IDs); `Segment.Tools` holds the loaded tools its stretch called |
-  | every ToolSet resolved on its first activation, and a failure reached the model as a failed result | every ToolSet is resolved when the Session is built, because the catalog needs its tool names; one that does not resolve fails `NewSession` with `tool_resolution_failure`, and a cancelled context fails it with `cancelled` |
+  | every ToolSet resolved on its first activation, and a failure reached the model as a failed result | every ToolSet is resolved when the Session is built and again at the start of every Run, because the catalog needs its tool names; one that does not resolve is skipped (see below), and a cancelled context fails with `cancelled` |
   | a tool of a ToolSet could not be switched off for a Session | `gotato.WithToolFilter(keep)`; the Runner sets it from `gotato.tool.<id>` for every tool of every ToolSet |
   | `Runner.Tools` with a Session listed the Agent's tools, `read_segment` and `read_result` | adds `search_tools` (its description is the catalog) and the tools the Session has loaded, in `Runner.Tools` and `gotato tools list --session` |
 
@@ -30,6 +30,14 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   | Before | After |
   |---|---|
   | a load added the tool to the tool list on every wire API | the tool list is fixed while tools load on `anthropic-messages` and `openai-responses`; set `deferred_tools: list` for the old behavior |
+
+- **A ToolSet that fails to resolve is skipped, and the catalog is read again at every Run.** An MCP server's `list_changed` takes effect at the next Run, also on a warm Session. A loaded tool that its ToolSet no longer carries is unloaded with `tool_unloaded` (`why: gone`); the Event's `why` gains the value `gone`. A skipped ToolSet is warned with a stored `extension_failed` Event (`stage: "toolset:<name>"`, `code: tool_resolution_failure`). No new Event kind, field or code, so HTTP, gRPC and the CLI report it as they report `extension_failed`. Step 5 of Phase 7. **Breaking** for code that relied on the failure:
+
+  | Before | After |
+  |---|---|
+  | a ToolSet that did not resolve failed `NewSession` with `tool_resolution_failure` | `NewSession` succeeds; the ToolSet is listed as `(unavailable now; no tools)` and an `extension_failed` Event (`toolset:<name>`) warns at each Run it stays down |
+  | a ToolSet that returned an invalid or duplicate Tool failed `NewSession` with `invalid_argument` | the same ToolSet is unavailable; a bad name, a dotted name or a duplicate ToolSet name still fail `NewSession` |
+  | the catalog was fixed for the life of the Session | the catalog is fixed within a Run and read again at the start of the next |
 
 ### Limits
 

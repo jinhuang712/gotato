@@ -109,13 +109,17 @@ type toolSetConfig struct {
 	mode installMode
 }
 
-// toolSetState tracks one installed ToolSet. Its Tools are resolved once, at
-// NewSession, so the catalog is the same on every request of the Session.
+// toolSetState tracks one installed ToolSet. Its Tools are resolved at
+// NewSession and again at the start of every Run, never inside a Run, so the
+// catalog is the same on every request of a Run.
 type toolSetState struct {
 	set      ToolSet
 	spec     ToolSetSpec
 	mode     installMode
 	resolved []Tool
+	// failure is why the last resolution failed; nil when the ToolSet is
+	// available. An unavailable ToolSet holds no Tools.
+	failure error
 }
 
 // catalogTool is one Tool of an installed ToolSet under its qualified ID.
@@ -148,6 +152,13 @@ type toolRegistry struct {
 	specs         []ToolSpec
 	// loaded are the qualified IDs of the loaded catalog Tools, in load order.
 	loaded []string
+	// parked are the loaded Tools of a ToolSet that is unavailable now. They
+	// are not offered, and they come back when the ToolSet does. Only a
+	// Transcript that is not a LoadedToolSource needs them; a Record remembers.
+	parked []string
+	// fresh is true until the first Run: NewSession just resolved every
+	// ToolSet, so that Run does not resolve them again.
+	fresh bool
 	// pending holds loads staged during the current batch. Visibility commits
 	// at the batch boundary, never inside it.
 	pending  []pendingLoad
@@ -201,37 +212,16 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, mode: entry.mode})
 	}
 	// Resolving every ToolSet during construction keeps the catalog and the
-	// first Model request deterministic, and surfaces a broken ToolSet before
-	// the Session accepts any command.
-	for _, state := range registry.sets {
-		tools, err := resolveToolSet(ctx, state)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			// A cancelled caller gets no half-resolved Session.
-			return nil, runtimeError(codeForContext(ctxErr), "NewSession", "context ended while resolving ToolSets", ctxErr)
-		}
-		if err != nil {
-			return nil, err
-		}
-		state.resolved = tools
-		for _, tool := range tools {
-			spec := tool.Spec()
-			id := registry.qualify(state.spec.Name, spec.ID)
-			visible := cloneToolSpec(spec)
-			visible.ID = id
-			if visible.Name == "" {
-				visible.Name = spec.ID
-			}
-			registry.catalog = append(registry.catalog, catalogTool{id: id, tool: tool, spec: visible, set: state})
-		}
+	// first Model request deterministic. A ToolSet that fails is unavailable,
+	// not fatal: the Session starts and its other Tools work.
+	results, err := registry.resolveAll(ctx)
+	if err != nil {
+		return nil, err
 	}
-	sort.SliceStable(registry.catalog, func(i, j int) bool { return registry.catalog[i].id < registry.catalog[j].id })
-	for i := range registry.catalog {
-		entry := &registry.catalog[i]
-		if _, dup := registry.byCatalog[entry.id]; dup {
-			return nil, runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
-		}
-		registry.byCatalog[entry.id] = entry
+	if err := registry.install(results); err != nil {
+		return nil, err
 	}
+	registry.fresh = true
 	if source, ok := cfg.transcript.(LoadedToolSource); ok {
 		registry.loaded = registry.known(source.LoadedTools())
 	}
@@ -239,6 +229,134 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		return nil, err
 	}
 	return registry, nil
+}
+
+// setResult is one ToolSet's answer to a resolution.
+type setResult struct {
+	state *toolSetState
+	tools []Tool
+	err   error
+}
+
+// resolveAll asks every installed ToolSet for its Tools. A ToolSet that fails
+// is reported in its result, never as an error; only a context that ended
+// fails the call, so a cancelled caller gets no half-resolved Session. After
+// NewSession's own resolution it returns nil for the first Run, which uses
+// that answer. It takes no lock: a ToolSet may be slow.
+func (r *toolRegistry) resolveAll(ctx context.Context) ([]setResult, error) {
+	if r.fresh {
+		r.fresh = false
+		return nil, nil
+	}
+	results := make([]setResult, 0, len(r.sets))
+	for _, state := range r.sets {
+		tools, err := resolveToolSet(ctx, state)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, runtimeError(codeForContext(ctxErr), "ToolSet", "context ended while resolving ToolSets", ctxErr)
+		}
+		results = append(results, setResult{state: state, tools: tools, err: err})
+	}
+	return results, nil
+}
+
+// install replaces the catalog with what results resolved. The caller holds
+// mu, or is constructing.
+func (r *toolRegistry) install(results []setResult) error {
+	for _, res := range results {
+		res.state.resolved, res.state.failure = res.tools, res.err
+	}
+	r.catalog = r.catalog[:0:0]
+	r.byCatalog = map[string]*catalogTool{}
+	for _, state := range r.sets {
+		for _, tool := range state.resolved {
+			spec := tool.Spec()
+			id := r.qualify(state.spec.Name, spec.ID)
+			visible := cloneToolSpec(spec)
+			visible.ID = id
+			if visible.Name == "" {
+				visible.Name = spec.ID
+			}
+			r.catalog = append(r.catalog, catalogTool{id: id, tool: tool, spec: visible, set: state})
+		}
+	}
+	sort.SliceStable(r.catalog, func(i, j int) bool { return r.catalog[i].id < r.catalog[j].id })
+	for i := range r.catalog {
+		entry := &r.catalog[i]
+		if _, dup := r.byCatalog[entry.id]; dup {
+			return runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
+		}
+		r.byCatalog[entry.id] = entry
+	}
+	return nil
+}
+
+// setReport is what a Run's start learned about the ToolSets.
+type setReport struct {
+	// unavailable are the names of the ToolSets that did not resolve.
+	unavailable []string
+	// gone are the loaded Tools their ToolSet no longer carries.
+	gone []string
+}
+
+// apply installs a resolution (nil results keep the catalog as it is), then
+// settles the loaded Tools against it. recorded is the loaded list the Session
+// remembers: the Transcript's when it is a LoadedToolSource, so every
+// instance decides from the Record. A loaded Tool whose ToolSet answered
+// without it is gone: it leaves the loaded Tools, and the caller stores a
+// tool_unloaded Event so the Record says so too. A loaded Tool of a ToolSet
+// that is unavailable is only hidden, since the ToolSet said nothing about it.
+func (r *toolRegistry) apply(results []setResult, source LoadedToolSource) (setReport, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if results != nil {
+		if err := r.install(results); err != nil {
+			return setReport{}, err
+		}
+	}
+	recorded := slices.Concat(r.loaded, r.parked)
+	if source != nil {
+		recorded = source.LoadedTools()
+	}
+	var report setReport
+	var parked []string
+	for _, id := range recorded {
+		name, _, _ := strings.Cut(id, ".")
+		state := r.setNamed(name)
+		if state == nil || state.mode == modeActive {
+			continue
+		}
+		switch {
+		case state.failure != nil:
+			if !slices.Contains(parked, id) {
+				parked = append(parked, id)
+			}
+		case r.byCatalog[id] == nil:
+			if !slices.Contains(report.gone, id) {
+				report.gone = append(report.gone, id)
+			}
+		}
+	}
+	for _, state := range r.sets {
+		if state.failure != nil {
+			report.unavailable = append(report.unavailable, state.spec.Name)
+		}
+	}
+	previousLoaded, previousParked := r.loaded, r.parked
+	r.loaded, r.parked = r.known(recorded), parked
+	if err := r.rebuild(); err != nil {
+		r.loaded, r.parked = previousLoaded, previousParked
+		return setReport{}, err
+	}
+	return report, nil
+}
+
+func (r *toolRegistry) setNamed(name string) *toolSetState {
+	for _, state := range r.sets {
+		if state.spec.Name == name {
+			return state
+		}
+	}
+	return nil
 }
 
 // known keeps the IDs that name a catalog Tool the Model can load: one that an
@@ -615,13 +733,18 @@ func (r *toolRegistry) catalogText() string {
 				ids = append(ids, entry.id)
 			}
 		}
-		if len(ids) == 0 {
+		unavailable := state.failure != nil
+		if len(ids) == 0 && !unavailable {
 			continue
 		}
 		description := strings.TrimSpace(state.spec.Description)
 		b.WriteString("\n" + state.spec.Name)
 		if description != "" {
 			b.WriteString(" — " + description)
+		}
+		if unavailable {
+			b.WriteString(" (unavailable now; no tools)\n")
+			continue
 		}
 		if state.mode == modeFolded {
 			fmt.Fprintf(&b, " (%d tools; pass toolset=%q to list them)\n", len(ids), state.spec.Name)

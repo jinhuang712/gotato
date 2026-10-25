@@ -474,6 +474,10 @@ type ToolUnloadedWhy string
 // Tool, and the kept tail does not call it either.
 const ToolUnloadedCompaction ToolUnloadedWhy = "compaction"
 
+// ToolUnloadedGone: the Tool's ToolSet answered at the start of a Run and no
+// longer carries the Tool.
+const ToolUnloadedGone ToolUnloadedWhy = "gone"
+
 // ToolUnloaded: a loaded Tool is no longer offered. It is a fact of the
 // Session, like ToolLoaded.
 type ToolUnloaded struct {
@@ -712,7 +716,9 @@ type StoreWriteFailed struct {
 	Code ErrorCode `json:"code,omitempty"`
 }
 
-// ExtensionFailed: an advisory extension failed, and the Run went on.
+// ExtensionFailed: an advisory extension failed, and the Run went on. It is
+// also the warning for a ToolSet that did not resolve at the start of a Run:
+// Stage is "toolset:<name>" and Code is tool_resolution_failure.
 type ExtensionFailed struct {
 	Header
 	Stage string    `json:"stage"`

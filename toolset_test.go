@@ -107,12 +107,14 @@ func (s *stubToolSet) Tools(ctx context.Context) ([]Tool, error) {
 	return s.tools, nil
 }
 
-func TestFailedToolSetResolutionFailsNewSession(t *testing.T) {
+func TestFailedToolSetResolutionDoesNotFailNewSession(t *testing.T) {
 	set := &stubToolSet{name: "files", err: errors.New("catalog is down")}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	if _, err := NewSession(WithModel(model), WithToolSet(set)); !IsCode(err, ErrToolResolutionFailure) {
-		t.Fatalf("a ToolSet that does not resolve = %v, want tool_resolution_failure", err)
+	agent, err := NewSession(WithModel(model), WithToolSet(set))
+	if err != nil {
+		t.Fatalf("a ToolSet that does not resolve failed NewSession: %v", err)
 	}
+	_ = agent.Close(context.Background())
 }
 
 func TestToolSetConstructionValidation(t *testing.T) {
@@ -128,10 +130,15 @@ func TestToolSetConstructionValidation(t *testing.T) {
 	); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("dotted ToolSet name = %v", err)
 	}
-	if _, err := NewSession(WithModel(model),
-		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "read"}}}),
-	); !IsCode(err, ErrInvalidArgument) {
+	// A ToolSet that returns a duplicate local Tool name is unavailable.
+	dup := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "read"}}}
+	if agent, err := NewSession(WithModel(model), WithActiveToolSet(dup)); err != nil {
 		t.Fatalf("duplicate local Tool name = %v", err)
+	} else {
+		if agent.registry.sets[0].failure == nil {
+			t.Fatal("a ToolSet with a duplicate local Tool name is not marked unavailable")
+		}
+		_ = agent.Close(context.Background())
 	}
 	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("nil ToolSet = %v", err)

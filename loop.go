@@ -220,6 +220,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 
 	a.stage(RunStarted{Header: hd(0)})
+	if err := a.refreshToolSets(runCtx, hd(0)); err != nil {
+		return fail(err)
+	}
 	runStart := a.transcript.Len()
 	if err := a.measureTranscript(); err != nil {
 		return fail(asRuntimeError(err))
