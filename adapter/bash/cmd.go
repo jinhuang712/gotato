@@ -45,6 +45,7 @@ func init() {
 		"base64": {run: runBase64},
 		"echo":   {run: runEcho},
 		"ls":     {run: runLs},
+		"jq":     {run: runJq},
 	}
 }
 
