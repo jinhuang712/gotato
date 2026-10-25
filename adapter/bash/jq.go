@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime/metrics"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/itchyny/gojq"
 )
@@ -19,19 +16,6 @@ const (
 	// value takes many times its text once it is parsed, so the bound is lower
 	// than MaxBufferBytes.
 	MaxJQInputBytes = 32 << 20
-	// MaxJQHeapGrowth is how much the heap of the process may grow while one
-	// jq program runs before the program is stopped. It is a safety net for a
-	// program that builds a value without end, such as [range(1e9)].
-	MaxJQHeapGrowth = 512 << 20
-	// MaxJQRuntime is how long one jq program may run when ctx has no earlier
-	// deadline. A program that does not end (`repeat(1)|empty`) stops here.
-	MaxJQRuntime = 30 * time.Second
-)
-
-// The limits of a program, as variables so that a test can lower them.
-var (
-	jqHeapLimit    uint64 = MaxJQHeapGrowth
-	jqRuntimeLimit        = MaxJQRuntime
 )
 
 const jqUsage = `Usage: jq [OPTIONS] FILTER [FILE...]
@@ -83,8 +67,10 @@ Known differences:
   - Error messages, and the messages of a filter that does not compile, are
     gojq's words; the exit statuses are jq's. A parse error of the input is
     worded as jq words it, but its position can differ.
-  - Input is held in memory, up to 32 MiB, and a filter is stopped after 30
-    seconds or when it has grown the heap by 512 MiB.
+  - Input is held in memory, up to 32 MiB. A filter ends by the deadline of
+    the run, and by the bound on its output. One that builds a huge value
+    without writing anything, such as [range(1e9)], is ended only by the
+    deadline of the run, and holds memory until then.
 `
 
 type jqOptions struct {
@@ -593,11 +579,8 @@ func runJq(ctx context.Context, c *Call) int {
 		return jqCompileError(c, err)
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, jqRuntimeLimit)
+	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var heapStopped atomic.Bool
-	stopWatch := watchHeap(jqHeapLimit, cancel, &heapStopped)
-	defer stopWatch()
 
 	out := newOutput(c.Stdout)
 	defer func() { _ = out.Flush() }()
@@ -684,14 +667,6 @@ func runJq(ctx context.Context, c *Call) int {
 	if out.failed() || ctx.Err() != nil {
 		return 1
 	}
-	if runCtx.Err() != nil {
-		if heapStopped.Load() {
-			fmt.Fprintf(c.Stderr, "jq: error: the program grew the heap by more than %d MiB and was stopped\n", jqHeapLimit>>20)
-		} else {
-			fmt.Fprintf(c.Stderr, "jq: error: the program ran for more than %s and was stopped\n", jqRuntimeLimit)
-		}
-		return 5
-	}
 	if in.failed && !halted {
 		ret = 2
 	}
@@ -744,32 +719,4 @@ func jqRuntimeError(c *Call, err error, pos string, orders keyOrders) {
 		return
 	}
 	_, _ = fmt.Fprintf(c.Stderr, "jq: error (at %s): %s\n", pos, err.Error())
-}
-
-// watchHeap stops a program that grows the heap too far, by calling cancel. It
-// samples the live heap of the process, which also counts what other work in
-// the process holds, so it is a safety net and not an exact limit.
-func watchHeap(limit uint64, cancel context.CancelFunc, stopped *atomic.Bool) (stop func()) {
-	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
-	metrics.Read(sample)
-	base := sample[0].Value.Uint64()
-	done := make(chan struct{})
-	go func() {
-		t := time.NewTicker(5 * time.Millisecond)
-		defer t.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-t.C:
-				metrics.Read(sample)
-				if sample[0].Value.Uint64() > base+limit {
-					stopped.Store(true)
-					cancel()
-					return
-				}
-			}
-		}
-	}()
-	return func() { close(done) }
 }

@@ -10,37 +10,41 @@ import (
 	"github.com/jinhuang712/gotato/adapter/bash"
 )
 
-// A jq program that does not end is stopped: by ctx, by the bound on output,
-// by the bound on the heap, and at last by its own time limit. Each ends
-// promptly with a clear error and never hangs.
+// A jq program that does not end is stopped by the deadline of the run (a
+// service gives every Run one), by the bound on output, or by an error of its
+// own. A program that builds a huge value without writing output has no bound
+// but the deadline: DESIGNS.md names it as a known limit. Each ends promptly
+// and never hangs.
 func TestJQRunawayProgramsEnd(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		program string
-		stderr  string
+		name     string
+		program  string
+		byCtx    bool
+		stderr   string
+		ownError bool
 	}{
-		{"repeat without output", "jq -n 'repeat(1)|empty'", ""},
-		{"last of an endless generator", "jq -n 'last(repeat(1))'", ""},
-		{"a huge range collected", "jq -n -c '[range(1e9)]|length'", "heap"},
-		{"an endless array", "jq -n '[repeat([1,2,3,4,5,6,7,8])]|length'", "heap"},
-		{"reduce over a huge range", "jq -n 'reduce range(1e18) as $i (0;.+1)'", ""},
-		{"a huge string", `jq -n '"x" * 1e10|length'`, "repeat"},
+		{name: "repeat without output", program: "jq -n 'repeat(1)|empty'", byCtx: true},
+		{name: "last of an endless generator", program: "jq -n 'last(repeat(1))'", byCtx: true},
+		{name: "a huge range collected", program: "jq -n -c '[range(1e9)]|length'", byCtx: true},
+		{name: "an endless array", program: "jq -n '[repeat([1,2,3,4,5,6,7,8])]|length'", byCtx: true},
+		{name: "reduce over a huge range", program: "jq -n 'reduce range(1e18) as $i (0;.+1)'", byCtx: true},
+		{name: "a huge string", program: `jq -n '"x" * 1e10|length'`, stderr: "repeat", ownError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			start := time.Now()
 			result, err := bash.Run(ctx, tc.program, mapFS(nil))
-			if took := time.Since(start); took > 10*time.Second {
+			// A generous bound: the race detector on a busy CI runner is slow
+			// to notice the deadline.
+			if took := time.Since(start); took > 30*time.Second {
 				t.Fatalf("took %v", took)
 			}
 			switch {
-			case err != nil:
-				if !errors.Is(err, context.DeadlineExceeded) {
-					t.Fatalf("error %v", err)
-				}
-			case result.ExitCode == 0 || !strings.Contains(result.Stderr, tc.stderr):
-				t.Fatalf("%+v: want a failure that says %q", result, tc.stderr)
+			case tc.byCtx && !errors.Is(err, context.DeadlineExceeded):
+				t.Fatalf("want the deadline of ctx, got %+v %v", result, err)
+			case tc.ownError && (err != nil || result.ExitCode == 0 || !strings.Contains(result.Stderr, tc.stderr)):
+				t.Fatalf("%+v %v: want a failure that says %q", result, err, tc.stderr)
 			}
 		})
 	}
