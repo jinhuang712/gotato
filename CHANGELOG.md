@@ -57,6 +57,12 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
 Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
 
+- **A message that arrives while a Run is ending is not answered `busy`.** `run_ended` comes a few milliseconds before the Run saves and releases its Session; a message sent in that window (a chat bot replying to `run_ended`, say) found the Session held and was refused. `Runner.Send`, and so `POST /v1/sessions/{id}/messages`, gRPC `SendMessage` and `gotato session message`, now waits for the release, bounded by the caller's context, and starts the next Run. A Run on another instance still answers `not_writer`; a plain `Runner.Run` on a busy Session is unchanged. A Stop in the window finds the ending Run and returns nil; a notice already waited for the Session.
+
+  | Before | After |
+  |---|---|
+  | a message in that window: `busy` (HTTP 409), and the message was lost | the message runs in a following Run (HTTP 200 with `run`) |
+
 - **Steer, FollowUp, Interrupt and Stop reach a Run through the Runner and every endpoint.** A Run going on the instance takes the message at its own point; with no Run going, the message starts one.
 
   | Surface | Message | Stop |

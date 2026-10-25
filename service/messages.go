@@ -91,6 +91,9 @@ func WriterOf(err error) (address string, ok bool) {
 //     Send returns not_writer (NotRun, Retryable) with the writer's
 //     advertised address, which WriterOf reads. Sending it there is the
 //     caller's job, or the endpoint's when you turn forwarding on.
+//   - When a Run has ended and not yet released the Session (run_ended is
+//     emitted first), Send waits for the release, bounded by ctx, and then
+//     acts as below: the message is not answered busy.
 //   - When no Run is going, the message starts a new Run on this Instance,
 //     which takes the Session over like any request, and Send returns when
 //     that Run settles, as Run does. The result holds the Run's.
