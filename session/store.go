@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -60,6 +61,10 @@ type Summary struct {
 	// (Record.LastRunEnd). The summary keeps it so that a Record loaded from
 	// its facts, whose Run records stay in the log, still knows it.
 	LastRunEnd string `json:"last_run_end,omitempty"`
+	// Notices are the notices queued and neither committed nor dropped
+	// (Record.PendingNotices), so that the next Run on any instance can queue
+	// them again.
+	Notices []gotato.PendingNotice `json:"notices,omitempty"`
 }
 
 // Epoch returns the Record's epoch: its own, or for a Record written before
@@ -235,6 +240,7 @@ func (s *Record) summaryLocked() Summary {
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy
+	summary.Notices = slices.Clone(s.notices)
 	if !s.lastRunEnd.IsZero() {
 		summary.LastRunEnd = s.lastRunEnd.Format(summaryTime)
 	}

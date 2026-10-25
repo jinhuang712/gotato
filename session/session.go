@@ -178,6 +178,9 @@ type Record struct {
 	// are in the log and were not read.
 	running gotato.RunID
 	busy    bool
+	// notices are the notices queued and neither committed nor dropped; the
+	// Summary keeps them, so a Record loaded from its facts knows them too.
+	notices []gotato.PendingNotice
 	// lastRunEnd is when the last Run that ended did; it is kept in the
 	// Summary, so a Record loaded from its facts knows it too.
 	lastRunEnd time.Time
@@ -513,6 +516,8 @@ func (s *Record) foldLive(event gotato.Event) {
 		s.load(e.Tool)
 	case gotato.ToolUnloaded:
 		s.unload(e.Tool)
+	case gotato.NoticeQueued, gotato.NoticeCommitted, gotato.MessageDropped:
+		s.foldNotice(e)
 	}
 }
 
@@ -555,6 +560,30 @@ func runEnded(e gotato.RunEnded) Run {
 	return Run{
 		RunID: e.RunID, Status: e.Status, Error: string(e.Cause), StopReason: e.StopReason,
 		EndedAt: e.Time.UTC(), Turns: e.Turns, ToolCalls: e.ToolCalls, Usage: e.Usage,
+	}
+}
+
+// PendingNotices returns the notices that were queued and neither committed
+// nor dropped, in the order they were queued. The next Run on any instance
+// queues them again (G-F29).
+func (s *Record) PendingNotices() []gotato.PendingNotice {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.notices)
+}
+
+// foldNotice applies what a notice Event says about the pending notices. The
+// caller holds the lock.
+func (s *Record) foldNotice(event gotato.Event) {
+	switch e := event.(type) {
+	case gotato.NoticeQueued:
+		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.NoticeKind, Source: e.Source, Text: e.Text, Number: e.Number})
+	case gotato.NoticeCommitted:
+		s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.Number == e.Queued && e.Queued != 0 })
+	case gotato.MessageDropped:
+		if e.Source == gotato.SourceNotice {
+			s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.MessageID == e.MessageID })
+		}
 	}
 }
 

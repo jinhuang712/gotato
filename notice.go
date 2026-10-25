@@ -54,6 +54,25 @@ type NoticeInfo struct {
 	CausedBy uint64 `json:"caused_by,omitempty"`
 }
 
+// PendingNotice is a notice that was queued and not yet committed or dropped:
+// what a Record keeps of it, so the next Run on any instance can queue it
+// again (session.Record.PendingNotices).
+type PendingNotice struct {
+	MessageID MessageID    `json:"message_id"`
+	Kind      string       `json:"kind"`
+	Source    NoticeSource `json:"source"`
+	Text      string       `json:"text"`
+	// Number is the number of its notice_queued Event.
+	Number uint64 `json:"number"`
+}
+
+// Queued returns the queue entry of the pending notice, for Requeue.
+func (p PendingNotice) Queued() Queued {
+	message := NewNotice(p.Source, p.Kind, p.Text)
+	message.ID = p.MessageID
+	return QueuedNotice(message, p.Number)
+}
+
 // NewNotice returns a notice Message holding text. The text is kept as it is;
 // ForModel writes it into the request as <notice kind="…">text</notice>.
 func NewNotice(source NoticeSource, kind, text string) Message {

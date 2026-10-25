@@ -291,3 +291,85 @@ func TestTimeAwayShowsTheTimeInTheAgentsZone(t *testing.T) {
 		t.Fatalf("got %v, want %q", got, want)
 	}
 }
+
+// A notice that found no Run is in the Record, not in the memory of the
+// instance that took it: after that instance is gone, the Session's next Run on
+// another one still gets it, after the prompt, and commits it once.
+func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
+	ctx := context.Background()
+	stores := map[string]func(t *testing.T) session.Store{
+		"memory": func(*testing.T) session.Store { return session.NewMemoryStore() },
+		"file": func(t *testing.T) session.Store {
+			store, err := session.NewFileStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			return store
+		},
+	}
+	for name, newStore := range stores {
+		t.Run(name, func(t *testing.T) {
+			store := newStore(t)
+			first, err := service.New(service.Config{Store: store, Instance: "first", Liveness: fastLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, _ := first.CreateSession(ctx, "echo", nil)
+			notice, err := first.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "order_update", Text: "Order 42 was delivered."})
+			if err != nil || notice.Number == 0 {
+				t.Fatalf("Notice = %+v, %v", notice, err)
+			}
+			if err := first.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
+			second, err := service.New(service.Config{Store: store, Instance: "second", Liveness: fastLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = second.Close(ctx) })
+			runOn(t, second, s.ID(), "hello")
+			request, _ := model.LastRequest()
+			if got := texts(request.Messages); !equal(got, []string{"user:hello", noticeText("order_update", "Order 42 was delivered.")}) {
+				t.Fatalf("request = %v", got)
+			}
+			// It was committed, so the Run after it does not carry it twice.
+			runOn(t, second, s.ID(), "again")
+			request, _ = model.LastRequest()
+			if got := texts(request.Messages); len(got) != 4 || got[3] != "user:again" {
+				t.Fatalf("second request = %v", got)
+			}
+		})
+	}
+}
+
+// A Stop ends the Run's work, not a notice: one the stopped Run did not take
+// waits for the next Run.
+func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
+	ctx := context.Background()
+	model := newStagedModel(true, "", "after the stop")
+	close(model.release[1])
+	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
+	s, _ := runner.CreateSession(ctx, "echo", nil)
+
+	done := make(chan service.RunResult, 1)
+	go func() {
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		done <- result
+	}()
+	waitCall(t, model, 0)
+	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "kept"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if result := settled(t, done); result.Result.Status != gotato.RunCanceled {
+		t.Fatalf("the Run = %+v, want cancelled", result.Result)
+	}
+	runOn(t, runner, s.ID(), "next")
+	if got := texts(model.request(1)); got[len(got)-2] != "user:next" || got[len(got)-1] != noticeText("k", "kept") {
+		t.Fatalf("request = %v, want the notice after the prompt", got)
+	}
+}

@@ -249,10 +249,6 @@ type Runner struct {
 	feedsMu      sync.Mutex
 	feeds        map[feedKey]*sessionFeed
 
-	// held are the notices kept between Runs, by Session (see notices.go).
-	noticeMu sync.Mutex
-	held     map[string][]gotato.Queued
-
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
 	byRun    map[gotato.RunID]*runHandle
@@ -928,14 +924,23 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		if err != nil {
 			return abandon(err)
 		}
+		// The notices that wait in the Record are read before this Run queues
+		// any of its own.
+		kept := s.PendingNotices()
 		if follow == nil && !request.Continue {
 			// A message that starts a Run after a long absence is followed by
 			// a notice with the time.
 			r.queueTimeAway(ctx, spec, s, live)
 		}
-		if kept := r.takeNotices(sessionID); len(kept) > 0 {
-			// Notices that found no Run go in after this Run's prompt.
-			if rest := live.Requeue(kept); len(rest) > 0 {
+		if len(kept) > 0 {
+			// Notices that were queued and not committed, by an earlier Run or
+			// by a call between Runs, on this instance or another, go in after
+			// this Run's prompt. The Record is where they wait.
+			queued := make([]gotato.Queued, len(kept))
+			for i, notice := range kept {
+				queued[i] = notice.Queued()
+			}
+			if rest := live.Requeue(queued); len(rest) > 0 {
 				live.DropQueued(rest, "queue_full")
 			}
 		}
@@ -987,10 +992,11 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		if r.beforeDetach != nil {
 			r.beforeDetach()
 		}
-		// A notice the Run left is kept for the next Run, even when the Run was
-		// stopped: it asks for no work. Only a Run whose Session is not kept
-		// drops it.
-		kept := handle.detachLive(func(left []gotato.Queued) bool {
+		// A notice from a service the Run left waits for the next Run, even
+		// when the Run was stopped, since it asks for no work: its
+		// notice_queued is in the Record, and the next Run queues it again.
+		// Gotato's own notices, such as time_away, mattered only at the time.
+		notices := handle.detachLive(func(left []gotato.Queued) bool {
 			why := ""
 			switch {
 			case writer == nil:
@@ -1008,10 +1014,10 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 			return true
 		})
-		if writer != nil && writer.Failed() == nil && !r.Draining() {
-			r.holdNotices(sessionID, kept...)
-		} else {
-			live.DropQueued(kept, "run_ended")
+		for _, notice := range notices {
+			if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeFromGotato {
+				live.DropQueued([]gotato.Queued{notice}, "run_ended")
+			}
 		}
 		_ = live.Close(context.Background())
 		if stream != nil && stream.sub != nil {
@@ -1618,7 +1624,6 @@ func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
 		r.dropWarm(sessionID, "deleted")
-		r.takeNotices(sessionID)
 		if err := r.store.Delete(ctx, sessionID); err != nil {
 			return err
 		}

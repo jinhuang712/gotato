@@ -48,14 +48,14 @@ type NoticeResult struct {
 //   - When a Run is going on another live Instance, Notice returns not_writer
 //     (NotRun, Retryable) with the writer's advertised address, as Send does.
 //   - When no Run is going, this Instance writes the notice_queued Event (it
-//     takes the Session over for that write, as Compact does) and keeps the
-//     notice until the Session's next Run on this Instance, where it goes in
-//     after the Run's prompt. A notice the Instance holds when it stops is
-//     lost: it is not yet rebuilt from the Record on another Instance
-//     (FEATURES.md, G-F29).
+//     takes the Session over for that write, as Compact does). The Event is in
+//     the Record, with the notice's text: the Session's next Run, on any
+//     Instance, queues the notices the Record holds as queued and not
+//     committed, in order, and they go in after its prompt.
 //
-// A notice a Run left in its queue when it settled is kept the same way. The
-// Session's queue is bounded by CoreLimits.MaxNotices of its Agent.
+// A notice a Run left in its queue when it settled, or when it was stopped,
+// waits the same way. The Session's queue is bounded by CoreLimits.MaxNotices
+// of its Agent.
 func (r *Runner) Notice(ctx context.Context, request NoticeRequest) (NoticeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -115,7 +115,7 @@ func (h *runHandle) notice(ctx context.Context, kind, text string) (uint64, gota
 }
 
 // noticeBetweenRuns writes the notice_queued Event of a notice that finds no
-// Run going, and keeps the notice for the Session's next Run.
+// Run going. The Record keeps it for the Session's next Run.
 func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (uint64, gotato.MessageID, error) {
 	var number uint64
 	message := gotato.NewNotice(gotato.NoticeFromService, request.Kind, request.Text)
@@ -136,7 +136,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		switch {
 		case limit == 0:
 			err = notRunError(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: notices are disabled by the Agent's limit"))
-		case r.pendingNotices(request.SessionID) >= limit:
+		case len(writer.Record().PendingNotices()) >= limit:
 			err = notRunError(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: the notice queue is full"))
 		default:
 			written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
@@ -158,44 +158,12 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		if err != nil {
 			return err
 		}
-		if releaseErr == nil {
-			r.holdNotices(request.SessionID, gotato.QueuedNotice(message, number))
-		}
 		return releaseErr
 	})
 	if err != nil {
 		return 0, "", err
 	}
 	return number, message.ID, nil
-}
-
-// holdNotices keeps notices for the Session's next Run on this Instance.
-func (r *Runner) holdNotices(sessionID string, notices ...gotato.Queued) {
-	if len(notices) == 0 {
-		return
-	}
-	r.noticeMu.Lock()
-	defer r.noticeMu.Unlock()
-	if r.held == nil {
-		r.held = map[string][]gotato.Queued{}
-	}
-	r.held[sessionID] = append(r.held[sessionID], notices...)
-}
-
-// takeNotices returns the notices kept for the Session, once.
-func (r *Runner) takeNotices(sessionID string) []gotato.Queued {
-	r.noticeMu.Lock()
-	defer r.noticeMu.Unlock()
-	out := r.held[sessionID]
-	delete(r.held, sessionID)
-	return out
-}
-
-// pendingNotices counts the notices kept for the Session.
-func (r *Runner) pendingNotices(sessionID string) int {
-	r.noticeMu.Lock()
-	defer r.noticeMu.Unlock()
-	return len(r.held[sessionID])
 }
 
 // splitNotices separates the notices from the other messages a Run left.

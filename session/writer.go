@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -325,6 +326,7 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	r.usage = loaded.Summary.Usage
 	r.running = loaded.Summary.Running
 	r.busy = loaded.Summary.Busy
+	r.notices = slices.Clone(loaded.Summary.Notices)
 	if at, err := time.Parse(summaryTime, loaded.Summary.LastRunEnd); err == nil {
 		r.lastRunEnd = at.UTC()
 	}

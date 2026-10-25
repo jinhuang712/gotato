@@ -213,6 +213,9 @@ func (s *Record) apply(entry Entry) error {
 		s.addMessage(e.Message)
 	case gotato.NoticeCommitted:
 		s.addMessage(e.Message)
+		s.foldNotice(e)
+	case gotato.NoticeQueued, gotato.MessageDropped:
+		s.foldNotice(e)
 	case gotato.ReplyEnded:
 		s.addMessage(e.Message)
 	case gotato.ReplyCutOff:
