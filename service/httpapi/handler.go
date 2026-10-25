@@ -18,13 +18,14 @@
 //	POST   /v1/sessions/{id}/runs           {prompt | continue}            → run result
 //	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
 //	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the run in flight, or 200 the run it started
+//	POST   /v1/sessions/{id}/notices        {kind, text}                   → 202 {queued, number, message_id}: a notice for the model's next call
 //	POST   /v1/sessions/{id}/cancel         stop the run in flight (202)
 //	POST   /v1/runs                         {prompt, agent?, metadata?}    → create session + run
 //	POST   /v1/runs/stream                  same, streaming
 //	POST   /v1/runs/{run_id}/cancel
 //
-// A message (steer, follow_up or interrupt) and a cancel reach the Run in
-// flight on this instance. For a Run another live instance writes, they answer
+// A message (steer, follow_up or interrupt), a notice and a cancel reach the
+// Run in flight on this instance. For a Run another live instance writes, they answer
 // 409 not_writer, marked not run, with the writer's advertised address in the
 // Gotato-Writer header and the body's "writer". WithForwarding sends such a
 // request to that address instead, once.
@@ -133,6 +134,7 @@ func New(runner *service.Runner, options ...Option) *Handler {
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs", h.scoped(h.run))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.scoped(h.runStream))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/messages", h.scoped(h.message))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/notices", h.scoped(h.notice))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.scoped(h.cancelSession))
 	h.mux.HandleFunc("POST /v1/runs", h.run)
 	h.mux.HandleFunc("POST /v1/runs/stream", h.runStream)
@@ -237,6 +239,13 @@ type errorResponse struct {
 type messageRequest struct {
 	// Kind is steer (the default), follow_up or interrupt.
 	Kind string `json:"kind,omitempty"`
+	Text string `json:"text"`
+}
+
+// noticeRequest is the body of POST /v1/sessions/{id}/notices.
+type noticeRequest struct {
+	// Kind is your own short label; Gotato's own kinds are reserved.
+	Kind string `json:"kind"`
 	Text string `json:"text"`
 }
 
@@ -637,6 +646,33 @@ func (h *Handler) message(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, result)
 	}
+}
+
+// notice queues a notice for the Session's next model call (202). It starts no
+// Run. For a Run another instance writes it answers 409 not_writer, or is
+// forwarded, as a message is.
+func (h *Handler) notice(w http.ResponseWriter, r *http.Request) {
+	body, err := readBody(w, r)
+	if err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	var in noticeRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		writeDecodeError(w, fmt.Errorf("invalid JSON body: %w", err))
+		return
+	}
+	result, err := h.runner.Notice(r.Context(), service.NoticeRequest{SessionID: r.PathValue("id"), Kind: in.Kind, Text: in.Text})
+	if err != nil {
+		if h.forwarded(w, r, err, body) {
+			return
+		}
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 // readBody reads a request body, at most maxBodyBytes of it.
