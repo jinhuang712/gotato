@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -222,8 +222,8 @@ Exit:
 A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. This phase gives the model a `bash` tool: a read-only subset of bash that queries its own Session's Record, with behavior that matches GNU and bash and a clear error for anything not supported. The design and what was ruled out are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26), and the feature is [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-). It is a module of its own, `adapter/bash`, whose engine does not import Gotato.
 
 - ✅ Step 1, the core exposes a Session's Record as a read-only `fs.FS`, with the standard library alone.
-- ✅ Step 2, the engine: the interpreter's handlers taken over (commands, file opens, environment) and the syntax check that refuses loops, functions, `$( )` and writing redirects, with `cat`, `head` and `grep` running. Built in `adapter/bash` (`bash.Run`, on `mvdan.cc/sh/v3`); `grep` has `-i -v -c -n -E -F -G -e -x -l -q -H -h`, and `-o -w -r -A -B -C` come in step 3.
-- ⬜ Step 3, the remaining commands, each with GNU conformance tests.
+- ✅ Step 2, the engine: the interpreter's handlers taken over (commands, file opens, environment) and the syntax check that refuses loops, functions, `$( )` and writing redirects, with `cat`, `head` and `grep` running. Built in `adapter/bash` (`bash.Run`, on `mvdan.cc/sh/v3`); `grep` had `-i -v -c -n -E -F -G -e -x -l -q -H -h`, and `-o -w -r -A -B -C` came in step 3.
+- ✅ Step 3, the remaining commands, each with GNU conformance tests: `tail`, `sed -n`, `wc`, `sort`, `uniq`, `cut`, `tr`, `base64`, `echo`, `ls`, and `grep -o -w -r -A -B -C`. The commands follow the `C.UTF-8` locale; the supported flags are in the table of [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
 - ⬜ Step 4, jq through gojq, and the protections: the cut for a very long line, the spill of long output, `--help`, `ctx` and bounded memory.
 - ⬜ Step 5, the Gotato layer that wraps the engine as the `bash` tool and hands it the Record as `/results`, and a reference task.
 

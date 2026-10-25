@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -596,12 +596,23 @@ The answer is that the model queries its own Session's Record with a read-only s
 
 | Command | Supported |
 |---|---|
-| `ls`, `echo`, `base64`, `wc` | |
+| `ls` | `-1 -a -A -d -l -h -r -S`; sorted by name, one per line |
+| `echo` | the builtin of bash: `-n -e -E` |
+| `base64` | `-d -i -w` |
+| `wc` | `-l -w -m -c` |
 | `cat` | `-n` |
-| `head`, `tail`, `cut`, `tr`, `sort`, `uniq` | |
-| `sed` | `-n` with line-number ranges only |
-| `grep` | `-i -v -c -n -o -E -F -w -l -r -A -B -C` |
+| `head`, `tail` | `-n -c -q -v`, `-NUM`, and `+NUM` for `tail`; `tail` has no `-f` |
+| `cut` | `-b -c -d -f -s --complement` |
+| `tr` | `-d -s -c`, ranges and classes |
+| `sort` | `-n -r -u -k -t -f -s -b`, in the order of the `C.UTF-8` locale |
+| `uniq` | `-c -d -u -i` |
+| `sed` | `-n` with line-number addresses and ranges (`N`, `$`, `N,M`, `N,$`) of `p` only |
+| `grep` | `-i -v -c -n -o -E -F -G -e -w -x -l -q -H -h -r -A -B -C` |
 | `jq` | full jq, through gojq |
+
+The commands follow a UTF-8 locale, `C.UTF-8`, and the conformance tests run under `LC_ALL=C.UTF-8`. `sort` orders by code point, so upper case letters come before lower case, which is what GNU `sort` does in that locale, and not the collation of a language. `tr` and `cut -c` work on bytes, as GNU's do; `wc -m` and `grep` count UTF-8 characters. `sort` holds its input, up to 64 MiB, and fails past it with an error that says so.
+
+Three things differ from GNU on purpose, and each is written in the command's `--help` or the table of the tests: an error that GNU words with the quotation marks of the locale is worded with plain quotes; `ls -l` writes the owner `root`, the time with its year, and the total in 4 KiB blocks, since a result has no owner and no block count; and `wc < file` pads as `wc` does for a pipe, because the interpreter hides the file behind a redirect.
 
 Later, when a need shows: `awk` (through goawk, MIT), `sed` substitution, `nl`, `column`, `diff` and `comm`, CSV with quoted fields, URL and HTML decoding, here-strings. Never: `date`, `$RANDOM`, environment variables (they break same-Record-same-output), the network, writing files, `xargs`, `tee`, `find -exec`, compiling, git, processes.
 
