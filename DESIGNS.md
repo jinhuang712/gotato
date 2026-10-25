@@ -298,12 +298,31 @@ A Session runs with nobody watching each step, so something will fail: a model c
 ### A mistake the model can fix becomes a tool result
 
 - **Instead of:** failing the Run.
-- **Why:** an unknown tool or bad arguments go back to the model as a failed tool result, and the Run goes on. The limits bound a model that keeps getting it wrong.
+- **Why:** an unknown tool or bad arguments go back to the model as a failed tool result, and the Run goes on. The Run's deadline, or a `TurnStopper` a team writes, bounds a model that keeps getting it wrong.
 
 ### Every Run ends
 
-- **Instead of:** no limits, left to the caller.
-- **Why:** Turns, tool calls, bytes and time each have a default cap, so a Run settles even when the model never answers or a call hangs.
+- **Instead of:** no end, left to the caller, or a count of Turns and tool calls kept by the core.
+- **Why:** a Run ends in one of five ways, and each one settles it with a status and a cause:
+  - **The model's final reply.** The model answers with no tool call, and the Run is `completed`.
+  - **Its `ctx`.** A cancel, or a deadline the caller or the service set, ends every model call, tool call and store call at once. The core has no clock of its own for a Run.
+  - **A `TurnStopper`.** An extension asks the Loop to stop after a Turn. A team that wants a cap on Turns, tool calls or tokens writes it there, with the number that fits its own jobs.
+  - **The compaction ceiling.** A Context still past the ceiling after the Turn's one compaction ends the Run with `limit_exceeded`, and a provider that still refuses a request as too long ends it with `context_overflow`.
+  - **A failure.** The model, the provider, a tool, the store or Gotato itself fails in a way the Run cannot go on from.
+- The core counts nothing, neither Turns nor tool calls. A call that hangs is ended by `ModelCallDeadline` or `ToolCallDeadline`, and a Run that never settles by its `ctx`. A service gives each Agent one Run deadline, 30 minutes unless the Agent sets another, which a request's own timeout overrides ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
+
+### A limit guards a real failure — 2026-10-25
+
+A limit is a promise that something bad cannot happen. A cap that fits no real failure either cuts off work that was going well, or never fires. Gotato had four of them to stop a Run that goes on without end: Turns, tool calls, the size of a Tool Result and a Run's time. Each has a better guard.
+
+| Option | For | Against |
+|---|---|---|
+| **A limit guards a real failure, and sizes follow the model's window** (chosen) | A cap is there because a named failure needs it: a hung call has its deadline, a Context past the window has its ceiling, a Run that must stop has its `ctx`. A number that depends on the job, such as how many Turns a support case may take, is the team's own `TurnStopper`. | A team that wants a cap on Turns writes a few lines. |
+| Default counting caps for Turns and tool calls | Every Run is bounded with no code. | One number cannot fit a lookup and a long investigation. A Run that was working is cut off at an arbitrary Turn, and a team that raises the number loses the guard. |
+| A cap on the bytes of a Tool Result | One result cannot fill memory. | It fails a Run for something the model could have read in pages, and it fails it at a size unrelated to the window. |
+
+- **A size follows the window.** A Tool Result over one page, about 8K tokens, is spilled into the Record and read back in pages ([FEATURES.md → G-F35](FEATURES.md#g-f35--large-tool-results-)). The compaction ceiling is the window less a reserve. Neither is a fixed byte count that someone chose.
+- **What stays, and why.** `MaxMessageBytes` guards memory against one reply that never ends. `ModelCallDeadline` and `ToolCallDeadline` guard a call that hangs; they are marked for review, because a fixed two minutes may not fit a slow model or a long tool. `MaxMessages` and `MaxTranscriptBytes` guard what one load reads.
 
 ### Every Run settles with a status and a cause
 

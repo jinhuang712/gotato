@@ -13,18 +13,18 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Define an Agent | from a model, an instruction, tools, a context builder, extensions and limits | G-F01 | ✅ |
 | Run, continue and abort | `Prompt` returns when the Run settles; `Continue` resumes it; `Abort` stops it | G-F01 | ✅ |
-| The Loop | calls the model and the tools it asks for, until it answers or a limit stops it | G-F01 | ✅ |
+| The Loop | calls the model and the tools it asks for, until it answers, its `ctx` ends or a `TurnStopper` stops it | G-F01 | ✅ |
 | Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
 | Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
 | Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
-| Limits | Turns, tool calls, messages, bytes and deadlines, each with a default | G-F01 | ✅ |
+| Limits | messages, message bytes, parallel tools and the deadline of a model call and of a tool call, each with a default; no count of Turns or tool calls in the core | G-F01 | 🚧 |
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
 | Interrupt | stop the step in flight and go on with a new message, in the same Run | G-F26 | ⬜ |
 | Messages from any endpoint | Steer, FollowUp, Interrupt, Stop and notices reach a Run through the Go API, HTTP, gRPC and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address | G-F26 | ⬜ |
 | Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension; one tells it how long the user was away and what time it is now | G-F29 | ⬜ |
-| A last Turn that answers | at `MaxTurns`, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
+| A last Turn that answers | when the Run's deadline is near, the last Turn goes without tools, so the Run ends with an answer | G-F30 | ⬜ |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's Record; it writes the store and activates nothing | G-F02 | ✅ |
@@ -174,7 +174,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Provider rate-limit information | limits and reset time, reported with usage | — | later |
 | Request IDs and idempotency keys | on the HTTP and gRPC endpoints | — | later |
 | Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
-| Token budget per Run | a cap on the tokens one Run may spend | — | later |
+| Token budget per Run | a cap on the tokens one Run may spend; a `TurnStopper` does it today | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
 | Loading only the recent Transcript | instead of the whole Record | — | later |
 | Prompt cache keepalive | refresh a warm Session's cache before it expires | G-F33 | later |
@@ -207,7 +207,7 @@ Feature IDs are stable. When features merge, the lower ID stays and the others r
 
 ## Defining and running agents
 
-### G-F01 — Agents and Runs ✅
+### G-F01 — Agents and Runs 🚧
 
 You define an Agent once, then run Sessions of it: a message goes in, the Loop works, and a settled result comes out.
 
@@ -222,24 +222,27 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - `gotato.NewSession(options…)` builds a live Session from an Agent's parts: a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.Agent` names the same parts, and the Runner builds the Session.
 - A `gotato.Session` is one concrete type. Its ID is the Session ID: it comes from its Transcript when that is a `session.Record`, and is generated otherwise. `Status` and `Done` report where it is in its life.
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
-- The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
+- The Loop calls the model, runs the tools it asked for, and repeats until the model answers, its `ctx` ends, or a `TurnStopper` stops it. The core counts no Turns and no tool calls.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
 - Every Run that starts settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. A Run whose reply or end could not be written settles as `failed` with `store_failure`, because the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success. A Run whose only failed write is the release of the Session stays `completed`: all its Events are stored, `session_saved` with `failed: true` and `store_write_failed` warn the operator, and the Claim lapses with the Liveness row ([G-F27](#g-f27--service-many-instances-)).
 - A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
+- **How a Run ends.** By its model's final reply, by its `ctx` (a cancel or a deadline), by a `TurnStopper`, by the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses the request), or by a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A team that wants a cap on Turns or tool calls writes a `TurnStopper` with the number its jobs need.
+- **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, 30 minutes unless it sets another, and a request's own timeout (`timeout_ms` on HTTP, `--timeout` on the CLI) overrides it. A Run past its deadline settles as `deadline_exceeded`.
 
-The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults:
+The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults. Each guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)):
 
 | Setting | Default | Why it exists |
 |---|---|---|
-| `MaxTurns` | 32 | stops a Loop that never reaches an answer |
-| `MaxToolCalls` | 128 | stops a Run that calls tools without end |
 | `MaxMessages`, `MaxTranscriptBytes` | 10,000 messages, 32 MiB | keeps what the model is sent from growing without bound. They count what a load reads, the last Checkpoint's Messages and what follows it, not every Message the Record holds ([G-F06](#g-f06--compaction-)). The Messages a Segment keeps word for word count too, since a load reads them, so the count is high enough that a Session of short messages reaches the ceiling in tokens first. |
-| `MaxMessageBytes`, `MaxToolResultBytes` | 4 MiB each | keeps one reply or one tool result from filling the context |
+| `MaxMessageBytes` | 4 MiB | keeps one reply from filling memory |
 | `MaxParallelTools` | 1 | tools run in order, unless the team knows they are safe to run together |
-| `RunDeadline` | 5 minutes | a Run always ends, even when a call hangs |
-| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run |
+| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run. Marked for review: a fixed two minutes may not fit a slow model or a long tool. |
 | `MaxTruncatedContinuations` | 0, off | a model can spend a Turn's whole output limit thinking and stop before it acts. Above 0, the Run asks it to go on, up to that many times, instead of settling on the cut-off reply. |
+
+A Tool Result over one page is not a limit: it is spilled into the Record and read back in pages ([G-F35](#g-f35--large-tool-results-)). A cap on Turns, on tool calls or on tokens is the team's own, written as a `TurnStopper` ([G-F15](#g-f15--extensions-)).
+
+**Gap:** `MaxTurns` (32), `MaxToolCalls` (128), `MaxToolResultBytes` (4 MiB) and `RunDeadline` (5 minutes) are still in `gotato.Limits`, and a Tool Result over `MaxToolResultBytes` still fails its Run. Phase 8 removes them with no old name kept ([ROADMAP.md → Phase 8](ROADMAP.md#phase-8--mcp-and-tool-search)), and the Agent's Run deadline moves to `service.Agent`.
 
 **Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError`, and it answers three questions, set where the error is made and never guessed by a caller or a transport:
 
@@ -251,7 +254,7 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 |---|---|---|---|
 | `draining` | yes | yes, on another instance | the instance is draining and takes no new Run |
 | `overloaded` | yes | yes, on another instance | the instance is past its limit of active Sessions |
-| `limit_exceeded` from the Runner's `MaxActiveRuns` | yes | yes | the instance is at capacity. The same code ends a Run that reached a limit of its own (Turns, bytes), which ran and is neither. |
+| `limit_exceeded` from the Runner's `MaxActiveRuns` | yes | yes | the instance is at capacity. The same code ends a Run that reached a limit of its own (the compaction ceiling, a message over `MaxMessageBytes`), which ran and is neither. |
 | `busy` | yes | yes, after the Run in flight | the Session has a Run, here or on another instance |
 | `not_writer` (planned, [G-F26](#g-f26--steering-a-run-)) | yes | yes, at the writer named in the error | a message for a Run that another instance writes. The error carries the writer's advertised address. |
 | `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` matches it. |
@@ -305,7 +308,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 ```
 
 - `Steer` adds a message to the running Loop, and the model reads it on its next call. Up to 8 can wait (`MaxSteerMessages`).
-- `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns count toward the same `MaxTurns`. Up to 4 can wait (`MaxFollowUpMessages`).
+- `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns are Turns of the same Run, so a `TurnStopper` counts them too. Up to 4 can wait (`MaxFollowUpMessages`).
 - `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed.
 - A message still waiting when the Run ends is dropped, not kept for the next Run.
 
@@ -372,7 +375,7 @@ Gotato, your service or an extension sometimes has to tell the model something t
 | Kind | What it tells the model | Caused by |
 |---|---|---|
 | `continue` | the last reply did not finish, because it hit the output limit or came back empty, so go on | `reply_ended` |
-| `last_turn` | this is the last Turn, so answer without tools: at `MaxTurns`, or when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's own count |
+| `last_turn` | this is the last Turn, so answer without tools: when the Run's deadline is near ([G-F30](#g-f30--a-last-turn-that-answers-)) | the Loop's reading of the `ctx` deadline |
 | `stream_cut` | the reply was cut off mid-stream, so go on from where it stopped without repeating it ([G-F31](#g-f31--recovering-a-cut-stream-)) | `reply_cut_off` |
 | `settings_changed` | the instruction changed, or a tool came or went, told here instead of rewritten into the prefix ([G-F32](#g-f32--changes-that-keep-the-cache-)) | `metadata_changed` |
 | `run_interrupted` | the last Run was stopped before it finished, so a tool may have done only part of its work | `run_ended` by a drain, or a Run found unfinished when the Session is loaded |
@@ -443,12 +446,12 @@ Gotato, your service or an extension sometimes has to tell the model something t
 
 ### G-F30 — A last Turn that answers ⬜
 
-A Run that reaches `MaxTurns` now fails with `limit_exceeded`, and the caller gets no answer. Instead, the Loop gives the model one last Turn to answer with what it has.
+A Run whose deadline passes settles as `deadline_exceeded`, and the caller gets no answer. Instead, the Loop gives the model one last Turn to answer with what it has, shortly before the deadline.
 
 - The code enforces it, not the model: the last Turn goes with tool calls switched off (`tool_choice: none`), so the provider cannot return one, and a tool call that comes back anyway is not run.
 - The tool definitions stay in the request, so the cached prefix holds.
 - A runtime notice (G-F29, `last_turn`) tells the model it is the last Turn.
-- The same last Turn comes when the Run's deadline is near, so a Run about to run out of time still answers.
+- The Loop reads the deadline from the Run's `ctx`. The core counts no Turns, so there is no cap on Turns to trigger it. A team whose `TurnStopper` wants an answer instead of a stop is a question for the design.
 
 **Design first:** next, now that G-F29 is designed ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
 
@@ -713,7 +716,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 - **Reading one back.** Once a Session has a Segment, the model has a built-in tool, `read_segment(segment, page?)`, that reads a Segment's Messages from the Record by its number, tool results included. It is offered from the Record's last Checkpoint, so every instance that loads the Session offers it, and it declares `read`, so every Effect cap keeps it. It appears in the Session's tool listing (`Runner.Tools` with a Session, `gotato tools list --session`). A Segment of a fork is read from its parent's log, and a merged Segment's originals are read by their own numbers (below).
   - **What it returns.** The Messages as they were, in order: the user's words, the assistant's text, each tool call with its arguments, and each tool result. Reasoning is left out. The first line of each Message has a prefix that says whose it is: `[user]`, `[assistant]`, `[call payments.get_batch]`, `[tool payments.get_batch]` (a failed result adds its status, `[tool logs.query failed]`) and `[notice]`.
   - **It carries none of the four tags.** Its result is a tool result, so the start and the end of each of the four tags are escaped, and a line of the text that itself starts with a prefix gets a backslash in front, `\[assistant] …`, so a user, or a tool, cannot pass its words off as the assistant's. A line that already starts with a backslash and a prefix gets one more.
-  - **Pages.** A page holds at most 32 KiB of text (`modelctx.DefaultReadSegmentPageBytes`, about 8K tokens), or half of the Agent's `MaxToolResultBytes` when that is lower, so one call never fills the Context. The first line says `Page 2 of 5`, and the last tells which call reads the next one, `read_segment(segment=1, page=3)`. A line longer than half a page is cut into lines of that length. A page past the end is an error that says how many pages there are, and so is a number that is not a Segment of this Session, which lists the numbers that are.
+  - **Pages.** A page holds at most 32 KiB of text (`modelctx.DefaultReadSegmentPageBytes`, about 8K tokens), so one call never fills the Context. The first line says `Page 2 of 5`, and the last tells which call reads the next one, `read_segment(segment=1, page=3)`. A line longer than half a page is cut into lines of that length. A page past the end is an error that says how many pages there are, and so is a number that is not a Segment of this Session, which lists the numbers that are.
   - **Where it reads.** The Segment records the range of Entries it covers, and the tool reads the Record's log from the first of them. The store contract has no range read, so the cost grows with what the Record wrote after the Segment.
   - **Pruned.** When the team has pruned the Entries a Segment covers, `read_segment` says that the Segment's Messages were removed, or, when only the start of the range is gone, that some were.
 - **Merging the oldest.** Gotato is safe by default, so Segments have a token budget and a long Session cannot outgrow its window on Segments alone. When the Segments together pass the budget, the oldest are merged into one Segment, with one Recap, and the merge is appended as a Checkpoint of its own: `compaction_started`, the merged Segment as a `segment_closed` Entry, and `compaction_ended`, which lists the Segments the Context uses, the kept tail unchanged, and the ToolSets as they were. The Segments left and the tail keep their bytes. A merged Segment keeps its header and that Recap, and the Segments it merged stay readable with `read_segment` by their own numbers. It is named by the range it covers, `<segment n="1-3">` and `<recap n="1-3">` (`1-3,5` when a number is missing). A merge rewrites the prefix once, and runs in three places:
@@ -763,7 +766,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 | merged down to | half the Segments' budget | a Session past its budget merges once, not at every compaction |
 | tool call lines | 100 per Segment, arguments cut at 200 characters | one busy Run does not fill its Segment |
 | a user Message or final reply in a Segment | 2K tokens each, the rest read with `read_segment` | one long paste does not fill the Segments' budget |
-| a page of `read_segment` | 32 KiB of text, or half of `MaxToolResultBytes` when that is lower | one call never fills the Context |
+| a page of `read_segment` and of `read_result` | 32 KiB of text, about 8K tokens | one call never fills the Context |
 | the digest of a merge with no model | 4,000 bytes | a merge keeps the far past small whoever writes it |
 | time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
 
@@ -1463,11 +1466,12 @@ Each feature above says what happens when its part fails. This table collects th
 
 | Case | What happens | Feature |
 |---|---|---|
-| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on; the Turn and tool-call limits bound a model that keeps getting it wrong | G-F09 |
+| A tool fails, or the model gets a tool call wrong | a failed tool result tells the model why, and the Run goes on; the Run's deadline, or a team's `TurnStopper`, bounds a model that keeps getting it wrong | G-F09 |
 | The model fails | the Run fails, and the Record keeps every step written before it, the text of a reply cut off mid-stream included | G-F01 |
 | The provider refuses a request as too long | the Session is compacted and the call sent again, once, unless the Turn has compacted already; a refusal after that ends the Run with `context_overflow`. The oldest Segments are merged too when they alone are past the limit; when that merge's Recap or write fails, nothing is merged and the Run ends with `context_overflow` | G-F06 |
 | A Recap fails: the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened` | the compaction goes on, and the Segment is kept without a Recap, with its conversation and tool call lines; the Event says `recap: none`. A merge whose Recap fails leaves the Segments unmerged, and `compaction_failed` says why; at the start of a Run or after a compaction the Run goes on, and on an overflow it ends with `context_overflow` | G-F06 |
-| A limit is reached | the Run settles with a status that names the limit | G-F01 |
+| The Run's `ctx` ends, or a `TurnStopper` stops it | a deadline settles it as `deadline_exceeded`, a cancel as `cancelled`, and a `TurnStopper` with the reason it gave in `run_ended`; the Record keeps every Turn committed | G-F01 |
+| The Context is still past the compaction ceiling after the Turn's one compaction | the Run ends with `limit_exceeded`, and its error says why | G-F06 |
 | A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | G-F27 |
 | A write fails | the Run stops at that step with `store_failure` or `conflict`, and a failed model-call write stops it before the model is called; the caller retries or reports it | G-F03 |
 | The write of the reply or of the end of a Run fails | the Record does not hold the Run: it settles as `failed` with `store_failure` and `ErrNotPersisted`, never as `completed`; no `run_ended` is stored; the next Run starts without that reply | G-F01 |
@@ -1494,7 +1498,7 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Provider rate-limit information | limits, remaining calls and reset time reported with usage, so a service can slow itself down |
 | Request IDs and idempotency keys | on the HTTP and gRPC endpoints |
 | G-F24 — Examples | one-shot use, a persistent Session, compaction, forks, dynamic tools, CLI automation |
-| Token budget per Run | the turn and byte limits already bound a runaway loop |
+| Token budget per Run | a `TurnStopper` can already cap the tokens one Run spends |
 | Paging and filtering the Session list | matters at population scale, after one writer per Session across instances |
 | Loading only the recent Transcript | once the Record is append-only, a load already starts from the last Checkpoint (G-F03); loading less than that waits until it is needed |
 | Prompt cache keepalive (G-F33) | refresh a warm Session's cache shortly before it expires. Each refresh pays a cache read of the whole prefix, and with idle compaction and Claude's one-hour retention it saves little. Worth a design only if measurements show users who return inside the retention often enough to pay for the refreshes. |
