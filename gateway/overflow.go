@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +22,32 @@ var overflowPhrases = []string{
 	"context_length_exceeded",    // OpenAI error code
 	"exceeds the context window", // OpenAI Responses and others
 	"input is too long",          // gateways in front of other providers
+}
+
+// limitPatterns are the wordings, lower case, by which a provider's refusal
+// names the limit of the request in tokens. The first group of each is the
+// number. A refusal in other words names none, and the compaction then sizes
+// its work to the Segments' budget instead.
+var limitPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`maximum context length is (\d[\d,]*)`), // OpenAI Chat Completions and compatible servers
+	regexp.MustCompile(`> (\d[\d,]*) maximum`),                 // Anthropic Messages: "prompt is too long: N tokens > M maximum"
+	regexp.MustCompile(`\+ [\d,]+ > (\d[\d,]*)`),               // Anthropic Messages, input plus max_tokens
+	regexp.MustCompile(`context window of (\d[\d,]*)`),
+}
+
+// limitIn returns the token limit a refusal's message names, or 0.
+func limitIn(message string) int {
+	lower := strings.ToLower(message)
+	for _, pattern := range limitPatterns {
+		match := pattern.FindStringSubmatch(lower)
+		if match == nil {
+			continue
+		}
+		if limit, err := strconv.Atoi(strings.ReplaceAll(match[1], ",", "")); err == nil && limit > 0 {
+			return limit
+		}
+	}
+	return 0
 }
 
 // overflowMatcher decides whether error text names a context overflow. Its

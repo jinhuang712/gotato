@@ -162,6 +162,30 @@ func TestARefusalAsTooLongIsRetriedOnceAfterAPreparerChangedTheTranscript(t *tes
 	}
 }
 
+// The preparer is given the error that refused the request, and only then, so
+// it can read what the refusal names.
+func TestAPreparerIsGivenTheErrorThatRefusedTheRequest(t *testing.T) {
+	refusal := overflowError{overflow: true}
+	model := &callModel{steps: []any{refusal, finalScript("fits")}}
+	transcript := &editableTranscript{messages: []Message{UserMessage("old"), AssistantMessage("older")}}
+	var refusals []error
+	preparer := preparerFunc(func(_ context.Context, p PendingTurn) (TurnPrepared, error) {
+		refusals = append(refusals, p.Refusal)
+		if p.Overflow {
+			transcript.messages = transcript.messages[2:]
+		}
+		return TurnPrepared{Changed: p.Overflow}, nil
+	})
+	session := newPreparedSession(t, model, transcript, preparer)
+	if _, err := session.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	var got overflowError
+	if len(refusals) != 2 || refusals[0] != nil || !errors.As(refusals[1], &got) || got != refusal {
+		t.Fatalf("refusals seen = %v, want [nil, the provider's error]", refusals)
+	}
+}
+
 // A second refusal ends the Run: the Turn is retried once, never again.
 func TestASecondRefusalAsTooLongEndsTheRunWithContextOverflow(t *testing.T) {
 	model := &callModel{steps: []any{overflowError{overflow: true}, overflowError{overflow: true}, finalScript("never")}}

@@ -281,7 +281,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			refused     *RuntimeError
 		)
 		for {
-			changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refused != nil)
+			var refusal error
+			if refused != nil {
+				refusal = refused
+			}
+			changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refusal)
 			if prepareErr != nil {
 				return fail(prepareErr)
 			}
@@ -564,7 +568,7 @@ type turnBuild struct {
 
 // prepareTurn gives the TurnPreparers their chance before a model call. It
 // reports whether one rewrote the Transcript.
-func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, overflow bool) (bool, *RuntimeError) {
+func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber, runStart int, request ModelRequest, refusal error) (bool, *RuntimeError) {
 	if len(a.extensions.preparers) == 0 {
 		return false, nil
 	}
@@ -575,7 +579,8 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 		Transcript: a.transcript,
 		RunStart:   runStart,
 		Request:    request,
-		Overflow:   overflow,
+		Overflow:   refusal != nil,
+		Refusal:    refusal,
 		Flush: func(ctx context.Context) error {
 			if err := a.flush(ctx); err != nil {
 				return err

@@ -259,6 +259,11 @@ type PendingTurn struct {
 	// preparer that cannot returns Changed false, and the Run ends with
 	// ErrContextOverflow.
 	Overflow bool
+	// Refusal is the error the Model refused Request with, when Overflow is
+	// true, so a preparer can read what the refusal names, such as the limit
+	// of the request (an error method `ContextLimit() int` says it in
+	// tokens, as the gateway's does when the provider's message names one).
+	Refusal error
 	// Flush writes the Events the Run has staged, so a preparer that appends
 	// to the Transcript's store writes after them and not before.
 	Flush func(context.Context) error

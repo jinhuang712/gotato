@@ -326,6 +326,17 @@ type Error struct {
 // ends the Run with the code context_overflow instead of model_failure.
 func (e *Error) ContextOverflow() bool { return e != nil && e.Overflow }
 
+// ContextLimit returns the limit, in tokens, that a refusal as too long names
+// in its message, such as the "200000" of "prompt is too long: 210000 tokens >
+// 200000 maximum", or 0 when it names none. Compaction reads it, by this
+// method, to size its merge of the oldest Segments.
+func (e *Error) ContextLimit() int {
+	if e == nil || !e.Overflow {
+		return 0
+	}
+	return limitIn(e.Message)
+}
+
 // IsRetryable reports whether the same request may succeed when sent again
 // (a rate limit, an overload, a broken stream). The runtime reads it by this
 // method, and sets Retryable on the Run's model_failure.
