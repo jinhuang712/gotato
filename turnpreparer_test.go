@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 // callModel answers each call from steps: an error is a refusal before any
@@ -258,16 +259,36 @@ func TestATurnPreparerEndsTheRunWithItsError(t *testing.T) {
 	}
 }
 
-// A preparer that fails because the Run was stopped ends the Run cancelled,
-// not with a failure of its own, whether or not the Run has seen the stop yet.
+// A preparer that fails while its Run is stopped ends the Run cancelled, not
+// with a failure of its own, whatever error it returns.
 func TestAPreparerStoppedWithTheRunEndsItCancelled(t *testing.T) {
 	model := &callModel{steps: []any{finalScript("never")}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	preparer := preparerFunc(func(context.Context, PendingTurn) (TurnPrepared, error) {
-		return TurnPrepared{}, context.Canceled
+		cancel()
+		return TurnPrepared{}, errors.New("recap failed: stream closed")
 	})
 	session := newPreparedSession(t, model, nil, preparer)
-	result, err := session.Prompt(context.Background(), UserMessage("go"))
-	if !IsCode(err, ErrCancelled) || result.Status != RunCanceled || model.calls() != 0 {
-		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
+	sub, err := session.Subscribe(context.Background(), SubscribeBuffer(64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Prompt(ctx, UserMessage("go")); !IsCode(err, ErrCancelled) {
+		t.Fatalf("Prompt: %v", err)
+	}
+	wait, done := context.WithTimeout(context.Background(), 5*time.Second)
+	defer done()
+	for {
+		event, err := sub.Next(wait)
+		if err != nil {
+			t.Fatalf("no RunEnded: %v", err)
+		}
+		if ended, ok := event.(RunEnded); ok {
+			if ended.Status != RunCanceled || ended.Cause != ErrCancelled || model.calls() != 0 {
+				t.Fatalf("RunEnded = %+v, %d calls; want cancelled by the stop", ended, model.calls())
+			}
+			return
+		}
 	}
 }

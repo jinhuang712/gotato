@@ -174,10 +174,10 @@ func (s extensionSet) prepareTurn(ctx context.Context, pending PendingTurn) (boo
 			if errors.As(err.Cause, &own) && own != nil {
 				return changed, own
 			}
-			// A preparer that failed because the Run was stopped reports the
-			// stop, not a failure of its own.
-			if errors.Is(err.Cause, context.Canceled) || errors.Is(err.Cause, context.DeadlineExceeded) {
-				return changed, runtimeError(codeForContext(err.Cause), "TurnPreparer", err.Cause.Error(), err.Cause)
+			// A preparer that failed while the Run was being stopped reports
+			// the stop, not a failure of its own.
+			if stopped := contextFailure(ctx, "TurnPreparer"); stopped != nil {
+				return changed, stopped
 			}
 			return changed, err
 		}
