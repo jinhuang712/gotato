@@ -219,6 +219,40 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	return w, nil
 }
 
+// Resume claims the Record again for another Run, on a Writer that released
+// it and kept the Record in memory (a warm copy). It writes the Claim again
+// with the same Epoch, as OpenWriter does for a Record this Instance holds,
+// and marks the Record busy until Release. The write takes the next position
+// only while the store's head is still the Record's, so it fails with
+// ErrConflict, or ErrNotFound for a Record deleted or created again, when the
+// copy is stale; the Writer has stopped then, and the Record must be opened
+// again. Call Stale first to learn that without a write.
+func (w *Writer) Resume(ctx context.Context) error {
+	if err := w.Failed(); err != nil {
+		return err
+	}
+	r := w.record
+	r.mu.Lock()
+	r.busy = true
+	instance := r.instance
+	r.mu.Unlock()
+	r.claimFor(instance, gotato.ClaimIdle)
+	return w.Flush(ctx)
+}
+
+// Stale reports whether the store holds Entries after the Record's head: some
+// other Instance wrote the Record since this Writer did, so a copy of it in
+// memory is out of date. A Record that was deleted returns ErrNotFound. It
+// reads only what follows the head, which is nothing for a copy that is
+// current.
+func (w *Writer) Stale(ctx context.Context) (bool, error) {
+	entries, err := w.store.Log(ctx, w.record.ID(), w.record.Head())
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
+}
+
 // Open loads a Record from its facts, for reading only: everything a Run
 // needs, without its Run records and Events.
 func Open(ctx context.Context, store Store, id string) (*Record, error) {
