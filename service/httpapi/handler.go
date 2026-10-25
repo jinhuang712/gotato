@@ -24,6 +24,11 @@
 //	POST   /v1/runs/stream                  same, streaming
 //	POST   /v1/runs/{run_id}/cancel
 //
+// A message (steer, follow_up or interrupt) with no Run going starts one, and
+// its response is held until that Run settles (200 with the Run's result); a
+// client that closes the connection first ends the Run. A caller that cannot
+// wait reads the reply from GET /v1/sessions/{id}/stream instead.
+//
 // A message (steer, follow_up or interrupt), a notice and a cancel reach the
 // Run in flight on this instance. For a Run another live instance writes, they answer
 // 409 not_writer, marked not run, with the writer's advertised address in the

@@ -154,7 +154,7 @@ GET    /v1/sessions/{id}/stream?after=N&record_epoch=E   → SSE: event: stream,
 POST   /v1/sessions/{id}/compact {"keep":N?,"min_tokens":N?}   → the compaction, and `merge` when the oldest segments were merged
 POST   /v1/sessions/{id}/runs {"prompt"|"continue":true,"timeout_ms"?}     → run result
 POST   /v1/sessions/{id}/runs/stream                                          → SSE: event: <kind> …, event: result[, event: reconnect]
-POST   /v1/sessions/{id}/messages {"kind"?:"steer|follow_up|interrupt","text"}  → 202 queued for the run in flight, or 200 the run it started
+POST   /v1/sessions/{id}/messages {"kind"?:"steer|follow_up|interrupt","text"}  → 202 queued for the run in flight, or 200 the run it started; with no run going it holds the response until that run settles, and a client that closes the connection first ends it (send it from a goroutine, or read the reply from `/stream`)
 POST   /v1/sessions/{id}/notices {"kind","text"}   → 202 {"queued":true,"number":N}: a notice for the model's next call, starting no run
 POST   /v1/sessions/{id}/cancel   POST /v1/runs/{run_id}/cancel
 POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        → create session and run
