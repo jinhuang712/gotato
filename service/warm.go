@@ -300,26 +300,29 @@ func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
 // the Session lock. A warm copy is used when the store's head is still the
 // copy's, claiming the Session again with a write; when another Instance
 // wrote the Record, the copy is dropped and the Session is loaded from the
-// store, as for a Session that was never warm. reused says the Session was not
-// loaded. The Events the claim wrote come back for the caller to publish, as
-// open returns them.
-func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session.Writer, early []gotato.Event, reused bool, err error) {
+// store, as for a Session that was never warm. before is set only when the
+// copy was used, so the Session was not loaded: it holds the Writer's counts of
+// its work with the store before the claim, which a copy that has written for
+// earlier Runs needs to count this Run's writes alone. The Events the claim
+// wrote come back for the caller to publish, as open returns them.
+func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session.Writer, early []gotato.Event, before *session.WriteStats, err error) {
 	if entry := r.takeWarm(sessionID); entry != nil {
 		w := entry.writer
 		stale, staleErr := w.Stale(ctx)
 		switch {
 		case ctx.Err() != nil:
-			return nil, nil, false, ctx.Err()
+			return nil, nil, nil, ctx.Err()
 		case staleErr == nil && !stale:
 			if err := r.live(ctx); err != nil {
 				r.unloaded(sessionID, entry.agent, "liveness_lapsed")
-				return nil, nil, false, err
+				return nil, nil, nil, err
 			}
+			base := w.Stats()
 			var claimed []gotato.Event
 			w.SetPublisher(func(event gotato.Event) { claimed = append(claimed, event) })
 			err := w.Resume(ctx)
 			if err == nil {
-				return w, claimed, true, nil
+				return w, claimed, &base, nil
 			}
 			// Only a write that lost the race to another Instance falls back
 			// to a load. Any other failure is the Run's, as it is for a Session
@@ -327,7 +330,7 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			if !lostRace(err) {
 				r.noteFailure(err, sessionID, entry.agent)
 				r.unloaded(sessionID, entry.agent, "failed")
-				return nil, nil, false, err
+				return nil, nil, nil, err
 			}
 		}
 		// Another Instance wrote the Record, or deleted it, or the copy
@@ -335,7 +338,7 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 		r.unloaded(sessionID, entry.agent, "taken_over")
 	}
 	writer, early, err = r.open(ctx, sessionID)
-	return writer, early, false, err
+	return writer, early, nil, err
 }
 
 // lostRace reports a write refused because another Instance wrote the Record,

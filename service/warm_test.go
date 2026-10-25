@@ -272,6 +272,35 @@ func TestWarmSessionIsReusedWhenTheHeadIsUnchanged(t *testing.T) {
 	}
 }
 
+// session_saved counts the writes of its own Run. A warm copy writes for many
+// Runs, and each Run's save is not the sum of the ones before.
+func TestWarmRunsReportOnlyTheirOwnWrites(t *testing.T) {
+	runner := warmInstance(t, session.NewMemoryStore(), "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
+	instance := instanceRecorder(t, runner)
+	first := runOn(t, runner, "", "one")
+	for _, prompt := range []string{"two", "three", "four"} {
+		runOn(t, runner, first.SessionID, prompt)
+	}
+	waitFor(t, func() bool {
+		saved := 0
+		for _, event := range instance.Events() {
+			if _, ok := event.(gotato.SessionSaved); ok {
+				saved++
+			}
+		}
+		return saved >= 5 // the Session's creation saves too
+	})
+	var writes []int
+	for _, event := range instance.Events() {
+		if saved, ok := event.(gotato.SessionSaved); ok {
+			writes = append(writes, saved.Writes)
+		}
+	}
+	if last := writes[len(writes)-3:]; last[0] != last[1] || last[1] != last[2] {
+		t.Fatalf("writes per Run = %v, want the warm Runs to report the same count", writes)
+	}
+}
+
 // A warm copy and a Session loaded for the same Run hold the same Messages, so
 // every Instance builds the same request.
 func TestWarmCopyHoldsWhatALoadWouldBuild(t *testing.T) {

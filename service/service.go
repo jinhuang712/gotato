@@ -787,7 +787,13 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				s, err = session.Open(runCtx, r.store, sessionID)
 				loadTime = time.Since(began)
 			} else {
-				writer, early, reused, err = r.acquire(runCtx, sessionID)
+				var before *session.WriteStats
+				writer, early, before, err = r.acquire(runCtx, sessionID)
+				if before != nil {
+					// A warm copy has written for earlier Runs: this Run's
+					// writes count from here, its claim included.
+					reused, saved = true, *before
+				}
 				if writer != nil {
 					loadTime = writer.Stats().Load
 					s = writer.Record()
