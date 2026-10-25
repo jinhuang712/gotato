@@ -27,6 +27,17 @@ For scale: one Claude Code session held 320–390 MB of private memory on the sa
 go test -run '^$' -bench SessionFootprint -benchtime 1x .
 ```
 
+## Depending on Gotato before the first release
+
+Gotato has no release tags yet, so a version is a commit. `go get` turns a branch or a commit into a pseudo-version (`v0.0.0-<time>-<commit>`) in your `go.mod`:
+
+```sh
+go get github.com/jinhuang712/gotato@main      # the branch's latest commit, as a pseudo-version
+go get github.com/jinhuang712/gotato@<commit>  # a commit you have tested: this one stays put
+```
+
+`@main` moves each time you run it again, and until the first release a field, an error code or a function may be renamed or removed, with the before and after in [CHANGELOG.md](CHANGELOG.md). We suggest you pin a commit, and read the *Unreleased* section of the changelog when you move it. The root module is all you need for the runtime, `service` and `service/httpapi`; the gRPC and MCP adapters are separate modules in this repository (`adapter/grpc`, `adapter/mcp`) that point at the root with a local `replace`, so build them from a checkout.
+
 ## Quick start (library)
 
 ```go
