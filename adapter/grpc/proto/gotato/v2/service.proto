@@ -233,7 +233,7 @@ message Event {
     ToolEnded tool_ended = 23;
     ToolProgress tool_progress = 24;
     ToolResultCommitted tool_result_committed = 25;
-    ToolSetActivated toolset_activated = 26;
+    ToolLoaded tool_loaded = 26;
     RunRequested run_requested = 27;
     RunWaiting run_waiting = 28;
     RunRejected run_rejected = 29;
@@ -262,6 +262,7 @@ message Event {
     UnknownEvent unknown = 52;
     SegmentClosed segment_closed = 53;
     ToolResultSpilled tool_result_spilled = 54;
+    ToolUnloaded tool_unloaded = 55;
   }
 }
 
@@ -299,7 +300,7 @@ message Compaction {
   int32 ceiling = 12;
   // recap_usage is what the call that wrote the Recap used; unset for none.
   Usage recap_usage = 13;
-  repeated string tool_sets = 14;
+  repeated string tools = 14;
   // merged lists the numbers of the Segments a merge replaced with one merged
   // Segment, oldest first; segment is then the merged Segment's number. Empty
   // for a compaction that closed a Segment.
@@ -318,7 +319,7 @@ message Segment {
   int32 rendered = 6;
   repeated ToolCallLine tool_calls = 7;
   string recap = 8;
-  repeated string tool_sets = 9;
+  repeated string tools = 9;
   // merged lists the Segments a merged Segment stands for, oldest first, and
   // where each can be read. Empty for a Segment a compaction closed.
   repeated MergedSegment merged = 10;
@@ -485,9 +486,18 @@ message ToolResultSpilled {
   string body = 4;
 }
 
-// ToolSetActivated: see the Event type of the same name in the Go API.
-message ToolSetActivated {
-  string toolset = 1;
+// ToolLoaded: see the Event type of the same name in the Go API. why is
+// names, query or call.
+message ToolLoaded {
+  string tool = 1;
+  string why = 2;
+}
+
+// ToolUnloaded: see the Event type of the same name in the Go API. why is
+// compaction.
+message ToolUnloaded {
+  string tool = 1;
+  string why = 2;
 }
 
 // RunRequested: see the Event type of the same name in the Go API.
@@ -574,7 +584,7 @@ message SessionCreated {
   repeated bytes messages_json = 3;
   map<string, string> metadata = 4;
   repeated Compaction compactions = 5;
-  repeated string tool_sets = 7;
+  repeated string tools = 7;
   // segments are the numbers of the Segments the Context starts with, before
   // messages_json.
   repeated int32 segments = 8;
@@ -599,7 +609,7 @@ message CompactionEnded {
   repeated Compaction history = 3;
   repeated bytes messages_json = 4;
   map<string, string> metadata = 5;
-  repeated string tool_sets = 6;
+  repeated string tools = 6;
   // segments are the numbers of the Segments the Context starts with, in
   // order; messages_json holds the Messages after them.
   repeated int32 segments = 7;

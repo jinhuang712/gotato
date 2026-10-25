@@ -64,7 +64,7 @@ func compactionOf(c *gotato.Compaction) *gotatov2.Compaction {
 		At: wireTime(c.At), ReplacedMessages: int32(c.ReplacedMessages), FromMessageId: string(c.FromMessageID), ToMessageId: string(c.ToMessageID),
 		SummaryMessageId: string(c.SummaryMessageID), Recap: c.Recap, BytesBefore: int32(c.BytesBefore), BytesAfter: int32(c.BytesAfter),
 		Segment: int32(c.Segment), TokensBefore: int32(c.TokensBefore), TokensAfter: int32(c.TokensAfter), Ceiling: int32(c.Ceiling),
-		RecapUsage: recapUsageOf(c.RecapUsage), ToolSets: c.ToolSets, Merged: segmentNumbers(c.Merged),
+		RecapUsage: recapUsageOf(c.RecapUsage), Tools: c.Tools, Merged: segmentNumbers(c.Merged),
 	}
 }
 
@@ -112,7 +112,7 @@ func segmentOf(s gotato.Segment) (*gotatov2.Segment, error) {
 	return &gotatov2.Segment{
 		Number: int32(s.Number), From: wireTime(s.From), To: wireTime(s.To),
 		Source:       sourceOf(s.Source),
-		MessagesJson: messages, Rendered: int32(s.Rendered), ToolCalls: lines, Recap: s.Recap, ToolSets: s.ToolSets, Merged: merged,
+		MessagesJson: messages, Rendered: int32(s.Rendered), ToolCalls: lines, Recap: s.Recap, Tools: s.Tools, Merged: merged,
 	}, nil
 }
 
@@ -257,9 +257,15 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			Bytes:  int64(e.Bytes),
 			Body:   e.Body,
 		}}
-	case gotato.ToolSetActivated:
-		wire.Event = &gotatov2.Event_ToolsetActivated{ToolsetActivated: &gotatov2.ToolSetActivated{
-			Toolset: e.ToolSet,
+	case gotato.ToolLoaded:
+		wire.Event = &gotatov2.Event_ToolLoaded{ToolLoaded: &gotatov2.ToolLoaded{
+			Tool: e.Tool,
+			Why:  string(e.Why),
+		}}
+	case gotato.ToolUnloaded:
+		wire.Event = &gotatov2.Event_ToolUnloaded{ToolUnloaded: &gotatov2.ToolUnloaded{
+			Tool: e.Tool,
+			Why:  string(e.Why),
 		}}
 	case gotato.RunRequested:
 		wire.Event = &gotatov2.Event_RunRequested{RunRequested: &gotatov2.RunRequested{
@@ -343,7 +349,7 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			MessagesJson: messages,
 			Metadata:     e.Metadata,
 			Compactions:  compactionsOf(e.Compactions),
-			ToolSets:     e.ToolSets,
+			Tools:        e.Tools,
 			Segments:     segmentNumbers(e.Segments),
 			Tail:         positionsOf(e.Tail),
 		}}
@@ -367,7 +373,7 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			History:      compactionsOf(e.History),
 			MessagesJson: messages,
 			Metadata:     e.Metadata,
-			ToolSets:     e.ToolSets,
+			Tools:        e.Tools,
 			Segments:     segmentNumbers(e.Segments),
 			Tail:         positionsOf(e.Tail),
 		}}

@@ -17,7 +17,7 @@ func TestSegmentClosedAndCheckpointOnTheWire(t *testing.T) {
 		Source:   gotato.SegmentSource{SessionID: "parent", FromNumber: 3, ToNumber: 40},
 		Messages: []gotato.Message{message}, Rendered: 1,
 		ToolCalls: []gotato.ToolCallLine{{At: at, ToolID: "logs.query", Args: "{}", Status: gotato.ToolResultFailed, Code: "timeout", Count: 2}},
-		Recap:     "## What happened\n- x", ToolSets: []string{"logs"},
+		Recap:     "## What happened\n- x", Tools: []string{"logs.tail"},
 	}
 	wire, err := eventOf(gotato.SegmentClosed{Header: gotato.Header{Time: at, SessionID: "s1", Number: 9}, Segment: segment})
 	if err != nil {
@@ -32,22 +32,22 @@ func TestSegmentClosedAndCheckpointOnTheWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.GetNumber() != 2 || got.GetSource().GetSessionId() != "parent" || got.GetSource().GetToNumber() != 40 || got.GetRendered() != 1 ||
-		decoded.ID != "m1" || decoded.RunID != "run-7" || got.GetToolCalls()[0].GetCode() != "timeout" || got.GetToolCalls()[0].GetCount() != 2 || got.GetRecap() == "" || got.GetToolSets()[0] != "logs" {
+		decoded.ID != "m1" || decoded.RunID != "run-7" || got.GetToolCalls()[0].GetCode() != "timeout" || got.GetToolCalls()[0].GetCount() != 2 || got.GetRecap() == "" || got.GetTools()[0] != "logs.tail" {
 		t.Fatalf("segment on the wire = %v", got)
 	}
 
 	usage := gotato.Usage{InputTokens: 7}
 	ended, err := eventOf(gotato.CompactionEnded{
 		Header: gotato.Header{Time: at}, Why: gotato.CompactionOverflow,
-		Compaction: &gotato.Compaction{Segment: 2, TokensBefore: 900, TokensAfter: 100, Ceiling: 800, RecapUsage: &usage, ToolSets: []string{"logs"}},
-		Segments:   []int{1, 2}, Tail: []gotato.MessagePosition{{ID: "m9", Number: 12, Time: at}}, ToolSets: []string{"logs"},
+		Compaction: &gotato.Compaction{Segment: 2, TokensBefore: 900, TokensAfter: 100, Ceiling: 800, RecapUsage: &usage, Tools: []string{"logs.tail"}},
+		Segments:   []int{1, 2}, Tail: []gotato.MessagePosition{{ID: "m9", Number: 12, Time: at}}, Tools: []string{"logs.tail"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := ended.GetCompactionEnded()
 	if c.GetWhy() != "overflow" || c.GetCompaction().GetSegment() != 2 || c.GetCompaction().GetTokensBefore() != 900 || c.GetCompaction().GetCeiling() != 800 ||
-		c.GetCompaction().GetRecapUsage().GetInputTokens() != 7 || len(c.GetSegments()) != 2 || c.GetTail()[0].GetNumber() != 12 || c.GetToolSets()[0] != "logs" {
+		c.GetCompaction().GetRecapUsage().GetInputTokens() != 7 || len(c.GetSegments()) != 2 || c.GetTail()[0].GetNumber() != 12 || c.GetTools()[0] != "logs.tail" {
 		t.Fatalf("compaction_ended on the wire = %v", c)
 	}
 	plain, err := eventOf(gotato.CompactionEnded{Header: gotato.Header{Time: at}, Compaction: &gotato.Compaction{}})
