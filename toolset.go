@@ -242,19 +242,29 @@ type setResult struct {
 // is reported in its result, never as an error; only a context that ended
 // fails the call, so a cancelled caller gets no half-resolved Session. After
 // NewSession's own resolution it returns nil for the first Run, which uses
-// that answer. It takes no lock: a ToolSet may be slow.
+// that answer. It resolves the ToolSets concurrently and takes no lock: a
+// ToolSet may be slow.
 func (r *toolRegistry) resolveAll(ctx context.Context) ([]setResult, error) {
 	if r.fresh {
 		r.fresh = false
 		return nil, nil
 	}
-	results := make([]setResult, 0, len(r.sets))
-	for _, state := range r.sets {
-		tools, err := resolveToolSet(ctx, state)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, runtimeError(codeForContext(ctxErr), "ToolSet", "context ended while resolving ToolSets", ctxErr)
-		}
-		results = append(results, setResult{state: state, tools: tools, err: err})
+	// Every ToolSet resolves at once, so a Run waits for the slowest ToolSet,
+	// not the sum. Each answer lands in its own slot, in install order, so the
+	// catalog bytes never depend on which ToolSet answered first.
+	results := make([]setResult, len(r.sets))
+	var wg sync.WaitGroup
+	for i, state := range r.sets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tools, err := resolveToolSet(ctx, state)
+			results[i] = setResult{state: state, tools: tools, err: err}
+		}()
+	}
+	wg.Wait()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, runtimeError(codeForContext(ctxErr), "ToolSet", "context ended while resolving ToolSets", ctxErr)
 	}
 	return results, nil
 }
