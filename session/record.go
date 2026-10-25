@@ -79,6 +79,7 @@ func (s *Record) stored(seq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.head = max(s.head, seq)
+	s.spilled.trim(s.head, DefaultSpillCacheBytes)
 }
 
 // Head returns the Seq of the last Entry the store holds for this Record, or
@@ -251,7 +252,7 @@ func (s *Record) apply(entry Entry) error {
 	}
 	s.indexMessage(event, at)
 	if s.retainRead {
-		s.retain(event)
+		s.retain(gotato.WithoutBody(event))
 	}
 	return nil
 }

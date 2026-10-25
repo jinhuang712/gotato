@@ -21,6 +21,7 @@ const (
 	KindToolEnded           EventKind = "tool_ended"
 	KindToolProgress        EventKind = "tool_progress"
 	KindToolResultCommitted EventKind = "tool_result_committed"
+	KindToolResultSpilled   EventKind = "tool_result_spilled"
 	KindToolSetActivated    EventKind = "toolset_activated"
 	KindRunRequested        EventKind = "run_requested"
 	KindRunWaiting          EventKind = "run_waiting"
@@ -67,6 +68,7 @@ var eventClasses = map[EventKind]EventClass{
 	KindToolEnded:           ClassStored,
 	KindToolProgress:        ClassDelta,
 	KindToolResultCommitted: ClassStored,
+	KindToolResultSpilled:   ClassStored,
 	KindToolSetActivated:    ClassStored,
 	KindRunRequested:        ClassInstance,
 	KindRunWaiting:          ClassInstance,
@@ -238,6 +240,15 @@ func (ToolResultCommitted) Kind() EventKind { return KindToolResultCommitted }
 func (e ToolResultCommitted) MarshalJSON() ([]byte, error) {
 	type plain ToolResultCommitted
 	return marshalKind(KindToolResultCommitted, plain(e))
+}
+
+// Kind implements Event.
+func (ToolResultSpilled) Kind() EventKind { return KindToolResultSpilled }
+
+// MarshalJSON writes the Event as one flat object whose kind names its type.
+func (e ToolResultSpilled) MarshalJSON() ([]byte, error) {
+	type plain ToolResultSpilled
+	return marshalKind(KindToolResultSpilled, plain(e))
 }
 
 // Kind implements Event.
@@ -501,6 +512,7 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	KindToolEnded:           decodeAs[ToolEnded],
 	KindToolProgress:        decodeAs[ToolProgress],
 	KindToolResultCommitted: decodeAs[ToolResultCommitted],
+	KindToolResultSpilled:   decodeAs[ToolResultSpilled],
 	KindToolSetActivated:    decodeAs[ToolSetActivated],
 	KindRunRequested:        decodeAs[RunRequested],
 	KindRunWaiting:          decodeAs[RunWaiting],

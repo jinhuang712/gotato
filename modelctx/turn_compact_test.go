@@ -246,14 +246,14 @@ func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *test
 }
 
 // Still past the ceiling after the Turn's compaction, the Run ends with
-// limit_exceeded and no further call is made. One tool result too large for the
-// ceiling is the usual cause.
+// limit_exceeded and no further call is made. One prompt too large for the
+// ceiling is the cause here: a large tool result is spilled, so it is not.
 func TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded(t *testing.T) {
 	l := newLive(t, modelctx.CompactPolicy{Ceiling: 5000})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), answering("never")}}
-	result, err := l.run(model, "investigate", strings.Repeat("a very large tool result ", 2000))
-	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || result.Status != gotato.RunFailed || model.calls() != 1 {
+	result, err := l.run(model, strings.Repeat("a very large prompt ", 2000), "ok")
+	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || result.Status != gotato.RunFailed || model.calls() != 0 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if !strings.Contains(err.Error(), "past the ceiling") {

@@ -341,6 +341,10 @@ func (w *Writer) SetPublisher(publish func(gotato.Event)) {
 // Durable implements an optional method of gotato.Journal: a Writer stores.
 func (w *Writer) Durable() bool { return true }
 
+// KeepsSpilledResults implements gotato.SpillKeeper: a Writer stores every
+// Entry, so the body of a spilled result can be read back.
+func (w *Writer) KeepsSpilledResults() bool { return true }
+
 // Record returns the Record the Writer writes.
 func (w *Writer) Record() *Record { return w.record }
 
@@ -374,7 +378,11 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 // after, read again from the store. A subscriber that fell behind catches up
 // from it.
 func (w *Writer) EventsAfter(ctx context.Context, after uint64, _ int) ([]gotato.Event, error) {
-	return StoredEvents(ctx, w.store, w.record.ID(), after)
+	events, err := StoredEvents(ctx, w.store, w.record.ID(), after)
+	for i := range events {
+		events[i] = gotato.WithoutBody(events[i])
+	}
+	return events, err
 }
 
 // StoredEvents reads a Record's stored Events after number after from store,
@@ -417,7 +425,7 @@ func (w *Writer) send(events []gotato.Event) {
 		return
 	}
 	for _, event := range events {
-		publish(event)
+		publish(gotato.WithoutBody(event))
 	}
 }
 
@@ -459,7 +467,7 @@ func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error
 	w.record.stored(entries[len(entries)-1].Seq)
 	if publish && w.publish != nil {
 		for _, event := range events {
-			w.publish(event)
+			w.publish(gotato.WithoutBody(event))
 		}
 	}
 	return events, nil

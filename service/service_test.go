@@ -100,7 +100,7 @@ func TestSpecsToolsAndSessionOverrides(t *testing.T) {
 	if request.SystemInstructions != "session instruction" {
 		t.Fatalf("instruction override lost: %q", request.SystemInstructions)
 	}
-	if len(request.Tools) != 1 || request.Tools[0].ID != testkit.DemoToolID {
+	if len(request.Tools) != 2 || request.Tools[0].ID != testkit.DemoToolID || request.Tools[1].ID != "read_result" {
 		t.Fatalf("tools = %+v", request.Tools)
 	}
 	for _, message := range request.Messages {

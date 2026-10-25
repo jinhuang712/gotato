@@ -97,10 +97,11 @@ func TestALongSessionWithTheModelsRecapCountsItsCost(t *testing.T) {
 	}
 }
 
-// The check can fail: a Tool Result larger than the window makes every later
-// request over it, and the report says so, with the Runs that failed for it.
+// The check can fail: a window smaller than the preview of one spilled Tool
+// Result makes every later request over it, and the report says so, with the
+// Runs that failed for it.
 func TestALongSessionPastItsWindowIsReported(t *testing.T) {
-	report := playLong(t, testkit.LongSession(20, 10, 80_000, 16_000, false))
+	report := playLong(t, testkit.LongSession(20, 10, 80_000, 1_500, false))
 	w := report.Window
 	if w.OverWindow == 0 || report.Passed != 0 || len(report.Failures) == 0 {
 		t.Fatalf("over %d, passed %d, failures %+v: a Session that cannot fit its window must fail the check", w.OverWindow, report.Passed, report.Failures)

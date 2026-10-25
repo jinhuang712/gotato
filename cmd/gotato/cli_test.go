@@ -194,7 +194,8 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	if first.Strategy != "full_history" || first.SourceMessages != 6 || first.SelectedMessages != 6 || first.ApproxTokens == 0 || len(first.PrefixHash) != 16 {
 		t.Fatalf("report = %+v", first)
 	}
-	if len(first.Request.Tools) != 2 || len(first.Request.CacheBreakpoints) != 3 {
+	// The two tools of the Agent, and read_result, which every Agent with a tool gets.
+	if len(first.Request.Tools) != 3 || len(first.Request.CacheBreakpoints) != 3 {
 		t.Fatalf("request = %+v", first.Request)
 	}
 	var second report
@@ -301,7 +302,7 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 	id := created["id"].(string)
 	h.ok("tools", "deactivate", "time.now", "--session", id, "--json")
 	h.mustJSON(h.ok("tools", "active", "--session", id, "--json"), &listing)
-	if len(listing.Tools) != 1 || listing.Tools[0].ID != "demo.echo" {
+	if len(listing.Tools) != 2 || listing.Tools[0].ID != "demo.echo" || listing.Tools[1].ID != "read_result" {
 		t.Fatalf("active = %+v", listing.Tools)
 	}
 	var view toolView
@@ -311,7 +312,7 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 	}
 	h.ok("tools", "activate", "time.now", "--session", id)
 	h.mustJSON(h.ok("tools", "active", "--session", id, "--json"), &listing)
-	if len(listing.Tools) != 2 {
+	if len(listing.Tools) != 3 {
 		t.Fatalf("after activate = %+v", listing.Tools)
 	}
 	if code, _, _ := h.run("tools", "activate", "time.now"); code != ExitUsage {

@@ -185,6 +185,9 @@ type Record struct {
 	openParts []replyPart
 	// retainRead says Events read from a log are kept in the window.
 	retainRead bool
+	// spilled caches the bodies of spilled results this live Record wrote or
+	// read, by the Entry's position; see spilled.go.
+	spilled spillCache
 	// cutOff holds the Cut-off replies that reading a log made out of the
 	// parts of replies whose Messages never arrived.
 	cutOff []gotato.Message
@@ -408,6 +411,7 @@ func (s *Record) Write(_ context.Context, events []gotato.Event) ([]gotato.Event
 	for i, event := range events {
 		event = gotato.WithSession(event, gotato.SessionID(s.id))
 		out[i] = s.number(event)
+		s.keepSpilled(out[i])
 		s.foldLive(out[i])
 		s.indexMessage(out[i], out[i].Head().Time)
 	}
@@ -439,7 +443,7 @@ func (s *Record) EventsAfter(_ context.Context, after uint64, _ int) ([]gotato.E
 func (s *Record) number(event gotato.Event) gotato.Event {
 	s.last++
 	event = gotato.WithNumber(event, s.last)
-	s.retain(event)
+	s.retain(gotato.WithoutBody(event))
 	if s.logging {
 		s.pending = append(s.pending, event)
 	}

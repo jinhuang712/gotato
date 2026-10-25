@@ -237,6 +237,13 @@ func syncDir(path string) error {
 
 // readAll reads every write of a Record.
 func (f *FileStore) readAll(id string) ([]fileBatch, error) {
+	return f.readAfter(id, 0)
+}
+
+// readAfter reads the writes of a Record that hold a position after after. A
+// write is named by its first position, so the files that end at or before
+// after are not opened: reading one spilled body does not read the Record.
+func (f *FileStore) readAfter(id string, after uint64) ([]fileBatch, error) {
 	if !validID(id) {
 		return nil, ErrNotFound
 	}
@@ -252,7 +259,10 @@ func (f *FileStore) readAll(id string) ([]fileBatch, error) {
 		return nil, ErrNotFound
 	}
 	batches := make([]fileBatch, 0, len(firsts))
-	for _, first := range firsts {
+	for i, first := range firsts {
+		if i+1 < len(firsts) && firsts[i+1] <= after+1 {
+			continue
+		}
 		batch, err := readBatch(filepath.Join(dir, batchName(first)))
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNotFound
@@ -412,7 +422,7 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64) ([]Entry, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	batches, err := f.readAll(id)
+	batches, err := f.readAfter(id, after)
 	if err != nil {
 		return nil, err
 	}

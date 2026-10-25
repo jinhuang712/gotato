@@ -139,6 +139,10 @@ type ToolResult struct {
 	// ended has Executed false. A Tool cancelled while it ran keeps it true,
 	// because it may have done its work.
 	Executed bool `json:"executed"`
+	// Spilled is set when the text of the result was longer than one page: the
+	// Content then holds a preview and a ref, and the full text is the Entry
+	// at Spilled.Seq of the Record (see SpilledResult).
+	Spilled *SpilledResult `json:"spilled,omitempty"`
 }
 
 func (r ToolResult) Clone() ToolResult {
@@ -151,6 +155,10 @@ func (r ToolResult) Clone() ToolResult {
 		out.Content[i].Metadata = maps.Clone(p.Metadata)
 	}
 	out.Metadata = maps.Clone(r.Metadata)
+	if r.Spilled != nil {
+		spilled := *r.Spilled
+		out.Spilled = &spilled
+	}
 	return out
 }
 

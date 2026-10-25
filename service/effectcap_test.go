@@ -60,8 +60,9 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 		t.Fatalf("calls: lookup %d, refund %d, purge %d; want 1, 0, 0", lookup.Calls(), refund.Calls(), purge.Calls())
 	}
 	for _, request := range model.Requests() {
-		if len(request.Tools) != 1 || request.Tools[0].ID != "lookup" {
-			t.Fatalf("request tools = %+v, want only lookup", request.Tools)
+		// read_result declares read, so the cap keeps it; the tools above the cap are gone.
+		if len(request.Tools) != 2 || request.Tools[0].ID != "lookup" || request.Tools[1].ID != "read_result" {
+			t.Fatalf("request tools = %+v, want only lookup and read_result", request.Tools)
 		}
 	}
 }

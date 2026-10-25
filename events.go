@@ -418,6 +418,32 @@ type ToolResultCommitted struct {
 	Status  ToolResultStatus `json:"status"`
 }
 
+// ToolResultSpilled: a Tool Result over one page is stored in full, as an
+// Entry of its own, before the Tool Result Message that holds its preview
+// and its ref is committed. It is a log entry: a load never reads it, and
+// read_result reads its Body when the model asks. Subscribers, and the Events
+// a Record retains, get it without the Body, whose size stays in Bytes.
+type ToolResultSpilled struct {
+	Header
+	CallID ToolCallID `json:"call_id"`
+	ToolID string     `json:"tool_id,omitempty"`
+	// Bytes is the size of the body, in bytes of text.
+	Bytes int `json:"bytes"`
+	// Body is the text of the Tool Result, whole. The text Parts of a result
+	// are joined with a line break.
+	Body string `json:"body,omitempty"`
+}
+
+// WithoutBody returns the Event as subscribers and the retained window see it:
+// a ToolResultSpilled without its Body. Any other Event is returned as it is.
+func WithoutBody(event Event) Event {
+	if spilled, ok := event.(ToolResultSpilled); ok {
+		spilled.Body = ""
+		return spilled
+	}
+	return event
+}
+
 // ToolSetActivated: the model switches on a ToolSet. It is a fact of the
 // Session: later Runs, forks and Checkpoints keep the ToolSet active.
 type ToolSetActivated struct {

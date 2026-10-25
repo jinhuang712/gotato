@@ -44,19 +44,26 @@ func (a *Session) writeNow(ctx context.Context, events ...Event) *RuntimeError {
 // write keeps events in the Journal and sends every Event it wrote, under one
 // lock, so that Events are sent in the order of their numbers.
 func (a *Session) write(ctx context.Context, events []Event) *RuntimeError {
+	_, err := a.writeEvents(ctx, events)
+	return err
+}
+
+// writeEvents is write that also returns the Events it wrote, numbered. What
+// it sends is without the body of a spilled result.
+func (a *Session) writeEvents(ctx context.Context, events []Event) ([]Event, *RuntimeError) {
 	a.emitMu.Lock()
 	defer a.emitMu.Unlock()
 	written, err := a.journal.Write(ctx, events)
 	if err != nil {
-		return journalError(err)
+		return nil, journalError(err)
 	}
 	for _, event := range written {
 		if number := event.Head().Number; number > a.lastNumber.Load() {
 			a.lastNumber.Store(number)
 		}
-		a.feed.Publish(event)
+		a.feed.Publish(WithoutBody(event))
 	}
-	return nil
+	return written, nil
 }
 
 // send sends a delta at once. It is marked with the number of the stored Event
@@ -467,6 +474,10 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 					return postErr
 				}
 				toolResult = finalized
+				toolResult, spillErr := a.spill(runCtx, runID, turn, call.ToolID, toolResult)
+				if spillErr != nil {
+					return spillErr
+				}
 				content := cloneContent(toolResult.Content)
 				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
 				if err := a.commitMessage(resultMessage); err != nil {

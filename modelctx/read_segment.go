@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -19,7 +18,7 @@ const ReadSegmentID = "read_segment"
 // DefaultReadSegmentPageBytes is the most one page of a read_segment result
 // holds, in bytes of text: about 8K tokens, so a
 // long Segment is read page by page and one call never fills the Context.
-const DefaultReadSegmentPageBytes = 32 << 10
+const DefaultReadSegmentPageBytes = gotato.SpillPageBytes
 
 // ReadSegmentOptions controls ReadSegmentTool.
 type ReadSegmentOptions struct {
@@ -180,24 +179,9 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	return b.String(), nil
 }
 
-// paginate groups lines into pages of at most limit bytes, each line whole.
-func paginate(lines []string, limit int) [][]string {
-	var pages [][]string
-	var current []string
-	size := 0
-	for _, line := range lines {
-		if len(current) > 0 && size+len(line)+1 > limit {
-			pages = append(pages, current)
-			current, size = nil, 0
-		}
-		current = append(current, line)
-		size += len(line) + 1
-	}
-	if len(current) > 0 || len(pages) == 0 {
-		pages = append(pages, current)
-	}
-	return pages
-}
+// paginate groups lines into pages of at most limit bytes, each line whole;
+// read_result pages with the same code.
+func paginate(lines []string, limit int) [][]string { return gotato.Paginate(lines, limit) }
 
 // rolePrefix matches the start of a line that looks like the prefix of a
 // Message: a bracketed role (or the kind of a call, a tool result, a notice or
@@ -313,23 +297,6 @@ func cutArgsFull(arguments []byte) string {
 	return cutArgs(arguments, 1<<30)
 }
 
-// splitLines splits text at its line breaks, and cuts a line longer than max
+// splitLines splits text at its line breaks, and cuts a line longer than limit
 // bytes into pieces of at most that many, on a rune boundary.
-func splitLines(text string, limit int) []string {
-	if text == "" {
-		return nil
-	}
-	var out []string
-	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
-		for len(line) > limit {
-			cut := limit
-			for cut > 0 && !utf8.RuneStart(line[cut]) {
-				cut--
-			}
-			out = append(out, line[:cut])
-			line = line[cut:]
-		}
-		out = append(out, line)
-	}
-	return out
-}
+func splitLines(text string, limit int) []string { return gotato.SplitLines(text, limit) }

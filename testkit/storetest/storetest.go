@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,6 +53,7 @@ var checks = []check{
 	{"load starts at the last checkpoint", checkLastCheckpoint},
 	{"a load returns the segments stored before the last checkpoint", checkSegments},
 	{"a checkpoint of the earlier format still starts a load", checkLegacyCheckpoint},
+	{"a large log entry is kept whole, read at its position, and not loaded", checkSpilledEntry},
 	{"a stale writer is refused", checkStaleWriter},
 	{"a write must continue the head", checkContinuesHead},
 	{"one writer wins a position", checkRace},
@@ -248,6 +250,39 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 		return fmt.Errorf("load head = %d, want 6", loaded.Head)
 	}
 	return sameEntries(loaded.Facts, []session.Entry{more[0], more[2]})
+}
+
+// checkSpilledEntry checks the Entry of a spilled Tool Result (G-F35): a log
+// Entry of a megabyte. A store keeps it whole, Log(after seq-1) returns it
+// first, and a load reads facts only, so it never reads the body.
+func checkSpilledEntry(ctx context.Context, open Open) error {
+	store := open()
+	entries, err := create(ctx, store, "r1")
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	body, _ := json.Marshal(map[string]any{"seq": 4, "writer": "a", "body": strings.Repeat("row,paid,41.20\n", 70000)})
+	spilled := session.Entry{Seq: 4, Kind: gotato.KindToolResultSpilled, Layer: session.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
+	after := fact(5, "a")
+	more := []session.Entry{spilled, after}
+	if err := store.Append(ctx, "r1", 3, more, summary("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	got, err := open().Log(ctx, "r1", 3)
+	if err != nil {
+		return fmt.Errorf("log after 3: %w", err)
+	}
+	if err := sameEntries(got, more); err != nil {
+		return fmt.Errorf("a megabyte Entry read back: %w", err)
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if err := sameEntries(loaded.Facts, []session.Entry{entries[0], entries[1], after}); err != nil {
+		return fmt.Errorf("a load reads the facts and not the spilled body: %w", err)
+	}
+	return nil
 }
 
 func segment(seq uint64, writer string) session.Entry {

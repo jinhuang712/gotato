@@ -1126,7 +1126,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if len(extensions) > 0 {
 		options = append(options, gotato.WithExtensions(extensions...))
 	}
-	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s)}))
+	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}))
 	if spec.MaxEffect != gotato.EffectUnspecified {
 		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
 	}
@@ -1217,6 +1217,9 @@ type sessionTools struct {
 	// segments gives the built-in read_segment tool once the Session has a
 	// Segment; nil for a surface that is not a Session's.
 	segments gotato.ToolSource
+	// results gives the built-in read_result tool to a Session whose Agent
+	// has any tool; nil for a surface that is not a Session's.
+	results gotato.ToolSource
 }
 
 // segmentTools is the ToolSource that offers read_segment for a Session of the
@@ -1225,6 +1228,12 @@ type sessionTools struct {
 func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
 	options := modelctx.ReadSegmentOptions{Location: spec.Compact.Location}
 	return modelctx.SegmentTools(record, r.store, options)
+}
+
+// resultTools is the ToolSource that offers read_result: a spilled result is
+// read back from the live Record or from the Runner's store.
+func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
+	return modelctx.ResultTools(record, r.store, modelctx.ReadResultOptions{})
 }
 
 func (t *sessionTools) Tools() []gotato.Tool {
@@ -1236,6 +1245,15 @@ func (t *sessionTools) Tools() []gotato.Tool {
 	}
 	for _, source := range t.spec.ToolSources {
 		for _, tool := range source.Tools() {
+			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
+				tools = append(tools, tool)
+			}
+		}
+	}
+	// read_result is offered whenever the Agent has a tool, so the tool list
+	// does not change on the Turn a result is first spilled.
+	if t.results != nil && len(tools) > 0 {
+		for _, tool := range t.results.Tools() {
 			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 				tools = append(tools, tool)
 			}
@@ -1289,6 +1307,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	if s != nil {
 		// A Session that has a Segment offers read_segment too.
 		all.segments = r.segmentTools(spec, s)
+		all.results = r.resultTools(s)
 	}
 	entries := make([]ToolEntry, 0)
 	for _, tool := range all.Tools() {
