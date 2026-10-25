@@ -17,7 +17,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
 | Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
 | Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
-| Limits | messages, message bytes, parallel tools and the deadline of a model call and of a tool call, each with a default; no count of Turns or tool calls in the core | G-F01 | 🚧 |
+| Limits | messages, message bytes, parallel tools and the deadline of a model call and of a tool call, each with a default; no count of Turns or tool calls in the core | G-F01 | ✅ |
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | 🚧 |
@@ -216,7 +216,7 @@ Feature IDs are stable. When features merge, the lower ID stays and the others r
 
 ## Defining and running agents
 
-### G-F01 — Agents and Runs 🚧
+### G-F01 — Agents and Runs ✅
 
 You define an Agent once, then run Sessions of it: a message goes in, the Loop works, and a settled result comes out.
 
@@ -237,7 +237,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 - **How a Run ends.** By its model's final reply, by its `ctx` (a cancel or a deadline), by a `TurnStopper`, by the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses the request), or by a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A team that wants a cap on Turns or tool calls writes a `TurnStopper` with the number its jobs need.
-- **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, 30 minutes unless it sets another, and a request's own timeout (`timeout_ms` on HTTP, `--timeout` on the CLI) overrides it. A Run past its deadline settles as `deadline_exceeded`.
+- **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, `service.Agent.RunTimeout` (`service.DefaultRunTimeout`, 30 minutes, unless it sets another; negative means none), and a request's own timeout (`timeout_ms` on HTTP, `--timeout` on the CLI) overrides it. A Run past its deadline settles as `deadline_exceeded`.
 
 The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults. Each guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)):
 
@@ -251,7 +251,19 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 
 A Tool Result over one page is not a limit: it is spilled into the Record and read back in pages ([G-F35](#g-f35--large-tool-results-)). A cap on Turns, on tool calls or on tokens is the team's own, written as a `TurnStopper` ([G-F15](#g-f15--extensions-)).
 
-**Gap:** `MaxTurns` (32), `MaxToolCalls` (128), `MaxToolResultBytes` (4 MiB) and `RunDeadline` (5 minutes) are still in `gotato.Limits`, and a Tool Result over `MaxToolResultBytes` still fails its Run. Phase 7 removes them with no old name kept ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--mcp-and-tool-search)), and the Agent's Run deadline moves to `service.Agent`.
+A team that wants a cap on Turns writes it as a `TurnStopper`, a few lines (`ExampleTurnStopper` in `runend_test.go` runs it):
+
+```go
+type maxTurns uint32
+
+func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDecision, error) {
+	return gotato.StopDecision{Stop: uint32(t.Turn) >= uint32(m), Reason: "turn cap"}, nil
+}
+
+// gotato.NewSession(..., gotato.WithExtension(maxTurns(32)))
+```
+
+**Until large results are spilled,** a Tool Result of any size goes into the Context as it is. Only `MaxMessageBytes` (4 MiB) refuses a Message too large to commit, and it fails the Run ([G-F35](#g-f35--large-tool-results-) replaces that with a preview and a ref).
 
 **Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError`, and it answers three questions, set where the error is made and never guessed by a caller or a transport:
 
@@ -958,7 +970,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 
 ### G-F35 — Large Tool Results ⬜
 
-A tool can return far more than a Context should hold, and MCP servers often do. A Tool Result over one page is spilled into the Record, and the model reads the rest in pages. Designed on 2026-10-25 ([DESIGNS.md → A large Tool Result is spilled, and read in pages](DESIGNS.md#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)); built in Phase 7, step 2. It replaces `MaxToolResultBytes`, which fails the Run.
+A tool can return far more than a Context should hold, and MCP servers often do. **Gap:** nothing is built; until step 2 of Phase 7 lands, a huge Tool Result goes into the Context as it is, since the core's `MaxToolResultBytes` is gone. A Tool Result over one page is spilled into the Record, and the model reads the rest in pages. Designed on 2026-10-25 ([DESIGNS.md → A large Tool Result is spilled, and read in pages](DESIGNS.md#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)); built in Phase 7, step 2. It replaces `MaxToolResultBytes`, which fails the Run.
 
 - **A page is 32 KiB of text, about 8K tokens.** A Tool Result whose text is longer is spilled.
 - **It is an Entry of its own.** The full body is appended as a `tool_result_spilled` Entry, and the Tool Result Message that goes in the Transcript holds a preview and a ref, so a rebuild reads the small Message. The Message records the Entry's position.

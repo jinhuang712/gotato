@@ -338,7 +338,7 @@ A Session runs with nobody watching each step, so something will fail: a model c
   - **A `TurnStopper`.** An extension asks the Loop to stop after a Turn. A team that wants a cap on Turns, tool calls or tokens writes it there, with the number that fits its own jobs.
   - **The compaction ceiling.** A Context still past the ceiling after the Turn's one compaction ends the Run with `limit_exceeded`, and a provider that still refuses a request as too long ends it with `context_overflow`.
   - **A failure.** The model, the provider, a tool, the store or Gotato itself fails in a way the Run cannot go on from.
-- The core counts nothing, neither Turns nor tool calls. A call that hangs is ended by `ModelCallDeadline` or `ToolCallDeadline`, and a Run that never settles by its `ctx`. A service gives each Agent one Run deadline, 30 minutes unless the Agent sets another, which a request's own timeout overrides ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
+- The core counts nothing, neither Turns nor tool calls. A call that hangs is ended by `ModelCallDeadline` or `ToolCallDeadline`, and a Run that never settles by its `ctx`. A service gives each Agent one Run deadline (`service.Agent.RunTimeout`), 30 minutes unless the Agent sets another, which a request's own timeout overrides ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
 
 ### A limit guards a real failure — 2026-10-25
 

@@ -6,6 +6,22 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Limits
+
+- **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.
+
+  | Before | After |
+  |---|---|
+  | `CoreLimits.MaxTurns` (32): the 33rd Turn failed the Run with `limit_exceeded` | removed; a team that wants a cap on Turns writes a `TurnStopper` (`ExampleTurnStopper`, [FEATURES.md → G-F01](FEATURES.md#g-f01--agents-and-runs-)) |
+  | `CoreLimits.MaxToolCalls` (128): the next call failed the Run with `limit_exceeded` | removed; the same `TurnStopper` counts calls from the `TurnSnapshot` |
+  | `CoreLimits.MaxToolResultBytes` (4 MiB): a larger Tool Result failed the Run with `limit_exceeded` | removed; the result goes into the Context as it is, until large results are spilled (Phase 7, step 2). `MaxMessageBytes` still refuses a Message too large to commit |
+  | `CoreLimits.RunDeadline` (5 minutes) | removed; a Run's deadline in the core is its `ctx` |
+  | `gotato.WithDeadlines(run, model, tool)` | `gotato.WithDeadlines(model, tool)` |
+  | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
+  | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
+
+  `MaxMessageBytes`, `ModelCallDeadline`, `ToolCallDeadline` and `MaxActiveToolSets` are unchanged. `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits, so the contract versions stay as they are.
+
 ### Errors
 
 - **Every error says whether it ran and whether a retry may succeed, and the runtime decides.** `RuntimeError` gains `NotRun` (JSON `not_run`), and `gotato.NotRun(err)` and `gotato.Retryable(err)` read both through wrapped errors. `gotato.ErrorCodes()` lists every code. HTTP, gRPC and the CLI keep one table from each code to their status, and a test fails when a code has none. A model failure the provider calls transient (a rate limit, an overload, a broken stream) is a `model_failure` with `retryable: true`; the gateway's `Error` says so through `IsRetryable()`. **Breaking:**
