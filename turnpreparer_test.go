@@ -257,3 +257,17 @@ func TestATurnPreparerEndsTheRunWithItsError(t *testing.T) {
 		})
 	}
 }
+
+// A preparer that fails because the Run was stopped ends the Run cancelled,
+// not with a failure of its own, whether or not the Run has seen the stop yet.
+func TestAPreparerStoppedWithTheRunEndsItCancelled(t *testing.T) {
+	model := &callModel{steps: []any{finalScript("never")}}
+	preparer := preparerFunc(func(context.Context, PendingTurn) (TurnPrepared, error) {
+		return TurnPrepared{}, context.Canceled
+	})
+	session := newPreparedSession(t, model, nil, preparer)
+	result, err := session.Prompt(context.Background(), UserMessage("go"))
+	if !IsCode(err, ErrCancelled) || result.Status != RunCanceled || model.calls() != 0 {
+		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
+	}
+}
