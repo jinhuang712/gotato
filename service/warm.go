@@ -31,7 +31,9 @@ const (
 // expires or the Session leaves memory.
 //
 // A warm Session is a cache, never a lock: it holds no Claim while it idles,
-// so another Instance can take the Session over, and the copy is dropped.
+// so another Instance can take the Session over, and the copy is dropped. It
+// also counts toward Admission.MaxActiveSessions and is the first thing evicted
+// at the limit, longest idle first, without a compaction.
 type WarmPolicy struct {
 	// TTL is how long an idle Session stays in memory; the clock starts when
 	// a Run ends and starts again with the next one. Zero means
@@ -122,6 +124,10 @@ type warmEntry struct {
 	spec   Agent
 	writer *session.Writer
 	timers []Timer
+	// since is when the Session went idle, and seq orders copies that went
+	// idle at the same time; eviction takes the least of them first.
+	since time.Time
+	seq   uint64
 
 	mu sync.Mutex
 	// holds counts the callers about to use the Session, so no idle
@@ -145,6 +151,38 @@ func (r *Runner) WarmSessions() int {
 	return len(r.warm)
 }
 
+// warmCountLocked tells whether id has a warm copy, and returns the copy to
+// evict: the longest-idle one whose Session has no admitted Run. The caller
+// holds r.mu.
+func (r *Runner) warmCountLocked(id string) (warm bool, victim *warmEntry) {
+	r.warmMu.Lock()
+	defer r.warmMu.Unlock()
+	_, warm = r.warm[id]
+	for _, entry := range r.warm {
+		if len(r.handles[entry.id]) > 0 {
+			continue
+		}
+		if victim == nil || entry.since.Before(victim.since) || (entry.since.Equal(victim.since) && entry.seq < victim.seq) {
+			victim = entry
+		}
+	}
+	return warm, victim
+}
+
+// liveSessionsLocked counts the Sessions this Instance keeps: those with an
+// admitted Run, and the warm ones without. The caller holds r.mu.
+func (r *Runner) liveSessionsLocked() int {
+	n := r.activeSessionsLocked()
+	r.warmMu.Lock()
+	defer r.warmMu.Unlock()
+	for id := range r.warm {
+		if len(r.handles[id]) == 0 {
+			n++
+		}
+	}
+	return n
+}
+
 // keepWarm keeps the Session writer wrote, released and healthy, in memory for
 // the Agent's TTL, and arms its timers. A Writer that failed, a draining or
 // closed Runner and a negative TTL keep nothing.
@@ -153,7 +191,7 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 	if ttl < 0 || writer == nil || writer.Failed() != nil {
 		return
 	}
-	entry := &warmEntry{id: writer.ID(), agent: spec.Name, spec: spec, writer: writer}
+	entry := &warmEntry{id: writer.ID(), agent: spec.Name, spec: spec, writer: writer, since: r.clock.Now()}
 	r.mu.Lock()
 	draining := r.draining
 	r.mu.Unlock()
@@ -162,6 +200,8 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 		r.warmMu.Unlock()
 		return
 	}
+	r.warmSeq++
+	entry.seq = r.warmSeq
 	if old := r.warm[entry.id]; old != nil {
 		old.stopTimers()
 	}

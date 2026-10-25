@@ -13,7 +13,8 @@
 // WarmPolicy): a cache, never a lock. It holds no Claim while it idles, the
 // next Run uses it only while the Store's head is still the copy's, and it
 // is compacted by its own timer before its prompt cache expires, then leaves
-// at its TTL.
+// at its TTL. Warm Sessions count toward Admission.MaxActiveSessions: at
+// the limit a new Run evicts the longest-idle one first.
 //
 //	runner, _ := service.New(service.Config{
 //	    Store:  store,
@@ -125,11 +126,14 @@ const (
 type Admission struct {
 	MaxActiveRuns int
 	// MaxActiveSessions is the hard limit on the Sessions this Instance
-	// activates: those a Run holds, counted once however many Runs wait on
-	// them. Past it, a Run that would activate another Session is refused with
-	// ErrOverloaded before anything is loaded, claimed or created, so the
-	// load balancer can send it to another Instance. A Run on a Session that
-	// is active already is not refused. Zero means no limit.
+	// keeps: those a Run holds, counted once however many Runs wait on them,
+	// and the warm ones idling in memory. At the limit, a Run that would
+	// activate another Session first evicts the longest-idle warm Session
+	// (session_unloaded, why evicted) and runs. Only when every Session is
+	// running a Run is it refused with ErrOverloaded, before anything is
+	// loaded, claimed or created, so the load balancer can send it to another
+	// Instance. A Run on a Session that is active or warm already is not
+	// refused. Zero means no limit.
 	MaxActiveSessions int
 	Queue             QueuePolicy
 }
@@ -219,6 +223,7 @@ type Runner struct {
 	warmMu     sync.Mutex
 	warm       map[string]*warmEntry
 	warmClosed bool
+	warmSeq    uint64
 
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
 	// Records in use, one per Session ID and epoch, each mirrored to it (see
@@ -1708,22 +1713,44 @@ func (r *Runner) Drain(ctx context.Context) error {
 // admit decides whether a Run may start, and registers its handle when it
 // may. A draining Instance refuses first; then a Run that would activate a
 // Session past MaxActiveSessions is refused, because another Instance can
-// still take it; then MaxActiveRuns applies to every Run.
+// still take it, unless a warm Session can be evicted to make room; then
+// MaxActiveRuns applies to every Run.
 func (r *Runner) admit(handle *runHandle) error {
+	for {
+		victim, err := r.tryAdmit(handle)
+		if victim == nil {
+			return err
+		}
+		// Evicting waits for an idle compaction to unwind, so it happens
+		// without the Runner's lock; the count is taken again after it.
+		r.dropEntry(victim, "evicted")
+	}
+}
+
+// tryAdmit is one pass of admit under the Runner's lock. When the Run needs
+// room and a warm Session can give it, it returns that Session to evict and
+// registers nothing.
+func (r *Runner) tryAdmit(handle *runHandle) (victim *warmEntry, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.draining {
-		return ErrDraining
+		return nil, ErrDraining
 	}
-	if limit := r.admission.MaxActiveSessions; limit > 0 && (handle.sessionID == "" || len(r.handles[handle.sessionID]) == 0) && r.activeSessionsLocked() >= limit {
-		return ErrOverloaded
+	if limit := r.admission.MaxActiveSessions; limit > 0 {
+		warm, evictable := r.warmCountLocked(handle.sessionID)
+		if (handle.sessionID == "" || (len(r.handles[handle.sessionID]) == 0 && !warm)) && r.liveSessionsLocked() >= limit {
+			if evictable == nil {
+				return nil, ErrOverloaded
+			}
+			return evictable, nil
+		}
 	}
 	if r.admission.MaxActiveRuns > 0 && r.inflight >= r.admission.MaxActiveRuns {
-		return ErrCapacity
+		return nil, ErrCapacity
 	}
 	r.inflight++
 	r.handles[handle.sessionID] = append(r.handles[handle.sessionID], handle)
-	return nil
+	return nil, nil
 }
 
 func (r *Runner) release() {
