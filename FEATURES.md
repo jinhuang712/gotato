@@ -167,7 +167,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Fake models | scripted (`FakeModel`), replayed (`ReplayModel`), or answering from the request (`FuncModel`) | G-F22 | ✅ |
 | Test helpers | a fake tool, an Event recorder and a ready-made Session | G-F22 | ✅ |
 | CLI scenarios | in-process and against the built binary, asserting on JSON | G-F22 | ✅ |
-| Reference workload | seven tasks with fake models, from a lookup to a multi-step support case, played through a Runner and measured | G-F22 | ✅ |
+| Reference workload | eight tasks with fake models, from a lookup to a multi-step support case and a Session whose tools load and unload, played through a Runner and measured | G-F22 | ✅ |
 | Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
 | Reference service | the smallest service that embeds Gotato, timed from start to ready and measured for size | G-F22 | ✅ |
 | Fault injection and a multi-instance harness | a crash after every write of the reference workload, client disconnects, a stream cut at every Event, and several instances over one store behind a hashing proxy, with one killed | G-F22 | ✅ |
@@ -1655,7 +1655,7 @@ The numbers about a Run come from its Events, the store's time included, as a te
 
 | Test | What it does |
 |---|---|
-| `TestCrashAtEveryWriteRebuildsTheLastStep` | plays each reference task with an instance that dies after its n-th write, for every n (126 crash points). Another instance must open exactly what that write left, with every tool call answered and a Context whose prefix hash matches a clean play's, and its next Run must complete. Each write holds at most one more stored Message than the one before. |
+| `TestCrashAtEveryWriteRebuildsTheLastStep` | plays each reference task with an instance that dies after its n-th write, for every n (244 crash points over the eight tasks). Another instance must open exactly what that write left, with every tool call answered and a Context whose prefix hash matches a clean play's, and its next Run must complete. Each write holds at most one more stored Message than the one before. |
 | `TestStreamDisconnectSettlesAndSavesTheRun` | over HTTP and over gRPC: a client that leaves mid-stream still gets its Run settled as cancelled and saved. |
 | `TestManyInstancesOneWriter` | three Runners over one memory store, and over one file store, take concurrent prompts sent to random instances, and one instance is killed partway. Every completed Run's prompt lands once, followed by its reply, and no instance calls the model for a Session it does not hold. |
 | `TestStreamCutAtEveryEventResumesEqualToAnUncutOne` | over HTTP and over gRPC: for each Event of each reference task, a Session's stream is cut after that Event and resumed after its number, by `Last-Event-ID` or `after` and with the Record's epoch. The two parts joined are the same stored Events, in the same order, numbered with no gap and no repeat, as a stream that was never cut read; no resumed delta follows an Event before the cut. |

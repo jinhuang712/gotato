@@ -82,7 +82,7 @@ When writing or rewriting a project document:
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
-| the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()`; `testkit.LongSession(turns, perRun, resultBytes, window, recap)` for a Session that compacts and merges (`LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named) |
+| the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()` (`testkit.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `testkit.WithLoadedToolsOf` to copy a history with its loads); `testkit.LongSession(turns, perRun, resultBytes, window, recap)` for a Session that compacts and merges (`LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named) |
 | play tasks through a Runner and measure them (GOALS.md) | `workload.Run` in `service/workload`; `go run ./cmd/gotato-workload` prints the report |
 
 ## CLI Scenario Loop

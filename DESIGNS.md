@@ -163,7 +163,7 @@ At scale, what the model reads costs more than what the service holds ([PHILOSOP
 
 The same Record giving the same bytes (*The store is the only truth*) is not enough on its own. A rule that sorted the tools again whenever a tool was loaded would give the same bytes for the same Record, and still make the provider read everything after the tools at full price.
 
-A few decisions change bytes already sent, on purpose and at a known moment: the last Round's reasoning is left out once a new Round starts, a compaction changes the tool list, and the oldest Segments are merged when they pass their budget. Each says so, and why the cost is worth it.
+A few decisions change bytes already sent, on purpose and at a known moment: the last Round's reasoning is left out once a new Round starts, a compaction changes the tool list, a load adds a tool to the list on a wire API that cannot defer tools natively, and the oldest Segments are merged when they pass their budget. Each says so, and why the cost is worth it.
 
 **Ask:** does this change any byte the provider has already been sent?
 
