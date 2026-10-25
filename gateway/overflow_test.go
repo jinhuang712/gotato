@@ -34,6 +34,12 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 		{"responses 400", APIResponses, 400, `{"error":{"message":"Your input exceeds the context window of this model."}}`, true},
 		{"anthropic 400", APIAnthropicMessages, 400, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}`, true},
 		{"anthropic input plus max_tokens", APIAnthropicMessages, 400, `{"type":"error","error":{"type":"invalid_request_error","message":"input length and max_tokens exceed context limit: 190000 + 21333 > 200000"}}`, true},
+		{"chat code only", APIChatCompletions, 400, `{"error":{"message":"Bad request","code":"context_length_exceeded"}}`, true},
+		{"responses code only", APIResponses, 400, `{"error":{"message":"Invalid request","type":"invalid_request_error","code":"context_length_exceeded"}}`, true},
+		{"type only", APIChatCompletions, 400, `{"error":{"message":"Bad request","type":"context_length_exceeded"}}`, true},
+		{"numeric and null codes", APIChatCompletions, 400, `{"error":{"message":"Bad request","code":null,"type":"invalid_request_error"}}`, false},
+		{"max_tokens alone is too large", APIAnthropicMessages, 400, `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 99999 > 8192, which is the maximum allowed number of output tokens for this model"}}`, false},
+		{"output cap, chat", APIChatCompletions, 400, `{"error":{"message":"max_tokens is too large: 99999. This model supports at most 8192 completion tokens.","code":"invalid_value","type":"invalid_request_error"}}`, false},
 		{"other 400", APIChatCompletions, 400, `{"error":{"message":"messages must not be empty"}}`, false},
 		{"phrase on another status", APIChatCompletions, 500, `{"error":{"message":"maximum context length"}}`, false},
 	}
@@ -61,6 +67,67 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 				t.Fatalf("HTTP attempts = %d, want 1", calls.Load())
 			}
 		})
+	}
+}
+
+func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
+	body := `{"error":{"message":"The request is bigger than we take","code":"Request_Too_Big","type":"invalid_request_error"}}`
+	for name, phrases := range map[string][]string{"none": nil, "message": {"bigger than we take"}, "code": {" REQUEST_too_big "}} {
+		var calls atomic.Int32
+		server := refusingServer(400, body, &calls)
+		client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true, OverflowPhrases: append(phrases, "")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+		server.Close()
+		var gatewayErr *Error
+		if !errors.As(err, &gatewayErr) {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+		if want := name != "none"; gatewayErr.Overflow != want {
+			t.Errorf("%s: Overflow = %v, want %v", name, gatewayErr.Overflow, want)
+		}
+	}
+	// The defaults still apply next to a team's own phrases.
+	var calls atomic.Int32
+	server := refusingServer(400, `{"error":{"message":"prompt is too long"}}`, &calls)
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true, OverflowPhrases: []string{"x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	var gatewayErr *Error
+	if !errors.As(err, &gatewayErr) || !gatewayErr.Overflow {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestOverflowPhrasesFromYAMLReachStreamErrors(t *testing.T) {
+	config, err := ParseYAML([]byte("api: openai-responses\nbase_url: https://gw.example.com\nmodel: m\noverflow_phrases:\n  - too_much_context\n"))
+	if err != nil || len(config.OverflowPhrases) != 1 {
+		t.Fatalf("config = %+v, err %v", config, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"code\":\"too_much_context\",\"message\":\"nope\"}\n\n"))
+	}))
+	defer server.Close()
+	config.BaseURL, config.APIKey, config.NoRetries = server.URL, "k", true
+	client, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	_, err = collectEvents(t, stream)
+	var gatewayErr *Error
+	if !errors.As(err, &gatewayErr) || !gatewayErr.ContextOverflow() {
+		t.Fatalf("err = %v", err)
 	}
 }
 

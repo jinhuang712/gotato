@@ -46,6 +46,9 @@ type YAMLConfig struct {
 	// ContextWindow is the model's context window in tokens (Config's field
 	// of the same name).
 	ContextWindow int `yaml:"context_window"`
+	// OverflowPhrases adds the team's own wording for "the request was too
+	// long" to the defaults (Config's field of the same name).
+	OverflowPhrases []string `yaml:"overflow_phrases"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -88,6 +91,8 @@ func ParseYAML(data []byte) (Config, error) {
 		Provider:       fileConfig.Provider,
 		NoDropBlock:    fileConfig.NoDropBlock,
 		ContextWindow:  fileConfig.ContextWindow,
+
+		OverflowPhrases: fileConfig.OverflowPhrases,
 	}
 	if fileConfig.CacheRetention != "" {
 		retention, err := time.ParseDuration(strings.TrimSpace(fileConfig.CacheRetention))

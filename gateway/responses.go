@@ -45,6 +45,7 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		calls:    make(map[int]*responsesCall),
 		texts:    make(map[int]bool),
 		restart:  restarter{client: c, body: body, open: open},
+		overflow: c.overflow,
 	}, nil
 }
 
@@ -80,7 +81,8 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			return response, nil
 		}
-		message := readErrorBody(response.Body)
+		body := readErrorBody(response.Body)
+		message := body.Message
 		_ = response.Body.Close()
 		retryable := retryableStatus(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
@@ -89,7 +91,7 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 			}
 			continue
 		}
-		return nil, httpError(response.StatusCode, retryable, message)
+		return nil, c.overflow.httpError(response.StatusCode, retryable, body)
 	}
 }
 
@@ -368,6 +370,7 @@ type responsesStream struct {
 	finished  bool
 	terminal  error
 	restart   restarter
+	overflow  overflowMatcher
 	closeOnce sync.Once
 }
 
@@ -549,7 +552,7 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if event.Response != nil && event.Response.Error != nil {
 			code = event.Response.Error.Code
 		}
-		s.finishWithError(responsesStreamError("Responses response failed", message, code))
+		s.finishWithError(s.overflow.responsesStreamError("Responses response failed", message, code))
 	case "error":
 		message := event.Message
 		if message == "" {
@@ -558,14 +561,14 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 		if message == "" {
 			message = "Responses stream error"
 		}
-		s.finishWithError(responsesStreamError("Responses stream error", message, event.Code))
+		s.finishWithError(s.overflow.responsesStreamError("Responses stream error", message, event.Code))
 	}
 }
 
 // responsesStreamError is the error of a failed Responses stream. One that
 // names a context overflow is an *Error with Overflow set.
-func responsesStreamError(what, message, code string) error {
-	if mentionsOverflow(message) || mentionsOverflow(code) {
+func (m overflowMatcher) responsesStreamError(what, message, code string) error {
+	if m.mentions(message, code) {
 		return &Error{Message: what + ": " + message, Overflow: true}
 	}
 	return fmt.Errorf("gateway: %s: %s", what, message)

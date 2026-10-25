@@ -200,6 +200,13 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
 ### Providers
 
+- **The gateway reads an error's `code` and `type` too, and a team can add its own overflow phrases.** Before, `readErrorBody` kept only `error.message`, so a request refused as too long that said so only in `error.code` or `error.type` (an OpenAI `context_length_exceeded` under a vague message) ended as an ordinary `model_failure`. Now a 400 or 413 is a `context_overflow` when any of the three matches a phrase, and the new `overflow_phrases` key (`Config.OverflowPhrases`) adds the team's own phrases or codes to the defaults.
+
+  ```yaml
+  overflow_phrases:
+    - request_too_big
+    - "bigger than we take"
+  ```
 - **A Tool Result's `json` Parts are escaped like text.** Before, `ForModel` escaped only `text` Parts, so a Tool Result built by hand with a `json` Part that held `</tool_calls>` reached the model as text with the tag intact (a Tool written as a Go function was safe, since `json.Marshal` already escapes `<`). Now the start or end of one of the four tags in a `json` Part is written with the JSON escape for `<`, so the JSON stays valid and parses to the same value.
 - **Claude and OpenAI are sent only the current Round's reasoning.** A Round is a user Message and every reply and Tool Result after it. Before, every reply's reasoning went back on every request, so a long Session carried all of it, and Claude's newer models kept and billed all of it. Now a recognized Claude or OpenAI provider gets back only the reasoning of the replies after the last user Message, which is what its tool loop needs. A Steer starts a new Round, and a Continue without a new prompt stays in its Round. On Responses, an earlier Round's function call also goes without its item ID. DeepSeek, on its chat API or its Anthropic one, and every provider the gateway does not recognize still get all of it, with no field or header added. The provider is the new `provider` key (`Config.Provider`: `anthropic`, `openai`, `deepseek` or `other`); without it, the gateway recognizes only `api.anthropic.com`, `api.openai.com` and `api.deepseek.com`, never a model name. `gateway.NewFromEnv` reads `GOTATO_GATEWAY_PROVIDER`, and `Client.RoundReasoningOnly` reports the rule. **Behavior change:** a gateway on Anthropic's or OpenAI's own address sends less reasoning, and once per Round the last Round's replies are cached again without it. `provider: other` keeps the old behavior:
 

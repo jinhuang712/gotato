@@ -43,6 +43,7 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 		nameMap:  names,
 		blocks:   make(map[int]*anthropicBlockState),
 		restart:  restarter{client: c, body: body, open: open},
+		overflow: c.overflow,
 	}, nil
 }
 
@@ -387,6 +388,7 @@ type anthropicStream struct {
 	model     string
 	finished  bool
 	restart   restarter
+	overflow  overflowMatcher
 	closeOnce sync.Once
 }
 
@@ -524,7 +526,7 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		return &Error{
 			Retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
 			Message:   message,
-			Overflow:  kind == "invalid_request_error" && mentionsOverflow(message),
+			Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
 		}
 	}
 	return nil

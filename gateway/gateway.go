@@ -87,9 +87,17 @@ type Config struct {
 	// unknown: the gateway keeps no table of windows, and compaction then
 	// has no default ceiling. Negative is refused.
 	ContextWindow int
+	// OverflowPhrases adds a team's own wording to the phrases by which an
+	// error says the request was longer than the model's context window.
+	// Each is a fragment of an error's message, code or type, matched
+	// without regard to case, as the defaults in overflow.go are; a phrase
+	// that is only a code, such as "request_too_big", works too. A 400 or
+	// 413 that matches any of them is reported as a context overflow.
+	OverflowPhrases []string
 }
 
 type Client struct {
+	overflow       overflowMatcher
 	api            string
 	endpoint       string
 	apiKey         string
@@ -215,6 +223,7 @@ func New(config Config) (*Client, error) {
 		provider:       provider,
 		rules:          newProviderRules(provider, api, config.Model, retention, config.NoDropBlock),
 		contextWindow:  config.ContextWindow,
+		overflow:       newOverflowMatcher(config.OverflowPhrases),
 	}, nil
 }
 
@@ -377,7 +386,8 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			return response, nil
 		}
-		message := readErrorBody(response.Body)
+		body := readErrorBody(response.Body)
+		message := body.Message
 		_ = response.Body.Close()
 		retryable := retryableStatus(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
@@ -388,7 +398,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			}
 			continue
 		}
-		return nil, httpError(response.StatusCode, retryable, message)
+		return nil, c.overflow.httpError(response.StatusCode, retryable, body)
 	}
 }
 
@@ -918,24 +928,49 @@ func mapStopReason(reason string) gotato.StopReason {
 	}
 }
 
-func readErrorBody(body io.Reader) string {
+// errorBody is what a refused request's body says: the message to show, and
+// the code and type the provider named, either of which may carry the reason
+// alone.
+type errorBody struct {
+	Message, Code, Type string
+}
+
+func readErrorBody(body io.Reader) errorBody {
 	data, _ := io.ReadAll(io.LimitReader(body, 64<<10))
 	if len(data) == 0 {
-		return "empty response"
+		return errorBody{Message: "empty response"}
 	}
 	var structured struct {
 		Error struct {
-			Message string `json:"message"`
+			Message string          `json:"message"`
+			Code    json.RawMessage `json:"code"`
+			Type    string          `json:"type"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(data, &structured) == nil && structured.Error.Message != "" {
-		return structured.Error.Message
+	out := errorBody{}
+	if json.Unmarshal(data, &structured) == nil {
+		out = errorBody{Message: structured.Error.Message, Code: errorCode(structured.Error.Code), Type: structured.Error.Type}
 	}
-	message := strings.TrimSpace(string(data))
-	if len(message) > 512 {
-		message = message[:512]
+	if out.Message == "" {
+		out.Message = strings.TrimSpace(string(data))
+		if len(out.Message) > 512 {
+			out.Message = out.Message[:512]
+		}
 	}
-	return message
+	return out
+}
+
+// errorCode reads an error's code, which providers write as a string, as a
+// number or as null.
+func errorCode(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	if string(raw) == "null" {
+		return ""
+	}
+	return string(raw)
 }
 
 func wait(ctx context.Context, duration time.Duration) error {
