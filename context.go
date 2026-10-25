@@ -398,7 +398,7 @@ func ForModel(messages []Message) []Message {
 			m.Parts = append(m.Parts, part)
 		}
 		if message.ToolResult != nil {
-			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: EscapeTags(message.ToolResult.SafeError)}
+			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: EscapeTags(message.ToolResult.SafeError), Loaded: slices.Clone(message.ToolResult.Loaded)}
 			result.Content = cloneContent(message.ToolResult.Content)
 			for j := range result.Content {
 				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
@@ -448,6 +448,12 @@ func prefixHash(request ModelRequest) string {
 		h.Write(encoded)
 	}
 	h.Write([]byte{0})
+	if len(request.LoadedTools) > 0 || len(request.UnloadedTools) > 0 {
+		if encoded, err := json.Marshal([]any{request.LoadedTools, request.UnloadedTools}); err == nil {
+			h.Write(encoded)
+		}
+		h.Write([]byte{0})
+	}
 	if len(request.Messages) > 1 {
 		if encoded, err := json.Marshal(request.Messages[:len(request.Messages)-1]); err == nil {
 			h.Write(encoded)

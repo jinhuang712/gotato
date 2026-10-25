@@ -555,6 +555,27 @@ func (r *toolRegistry) candidates() []ToolSpec {
 	return out
 }
 
+// catalogView reports the loaded catalog Tools (their IDs) and the specs of
+// the catalog Tools still to load, both in ID order, for an adapter that
+// defers tools natively. A Session without a catalog reports neither.
+func (r *toolRegistry) catalogView() (loaded []string, unloaded []ToolSpec) {
+	r.mu.Lock()
+	for i := range r.catalog {
+		entry := &r.catalog[i]
+		if entry.set.mode == modeActive || !r.indexable(entry) {
+			continue
+		}
+		if slices.Contains(r.loaded, entry.id) {
+			loaded = append(loaded, entry.id)
+		}
+	}
+	r.mu.Unlock()
+	unloaded = r.candidates()
+	sort.Strings(loaded)
+	sort.Slice(unloaded, func(i, j int) bool { return unloaded[i].ID < unloaded[j].ID })
+	return loaded, unloaded
+}
+
 // setTools lists the Tools of a catalog ToolSet the Model may load, with
 // whether each is loaded. ok is false when no catalog ToolSet has that name.
 func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, ok bool) {

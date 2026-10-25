@@ -74,7 +74,7 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 
 // rejectedPlan settles a call the Model got wrong as a failed, unexecuted
 // Tool Result carrying a message the Model can act on.
-func (a *Session) rejectedPlan(index int, call ToolCall, message string) toolPlan {
+func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded ...string) toolPlan {
 	return toolPlan{
 		index:   index,
 		call:    call,
@@ -85,6 +85,7 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string) toolPla
 			Content:   []ContentPart{{Kind: ContentText, Text: message}},
 			SafeError: message,
 			Executed:  false,
+			Loaded:    loaded,
 		},
 	}
 }
@@ -305,7 +306,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
 			if a.registry.stageCall(call.ToolID) {
-				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID)))
+				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}
 			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: unknown tool %q; available tools: %s", ErrToolResolutionFailure, call.ToolID, a.visibleToolIDs())))

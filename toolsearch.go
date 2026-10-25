@@ -159,6 +159,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	return ToolResult{
 		Status:  ToolResultOK,
 		Content: []ContentPart{{Kind: ContentText, Text: strings.Join(parts, " ")}},
+		Loaded:  loaded,
 	}, nil
 }
 

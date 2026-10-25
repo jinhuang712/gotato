@@ -12,6 +12,16 @@ type ModelRequest struct {
 	SystemInstructions string       `json:"system_instructions,omitempty"`
 	Messages           []Message    `json:"messages"`
 	Tools              []ToolSpec   `json:"tools,omitempty"`
+	// LoadedTools are the IDs of the catalog Tools in Tools that the Model
+	// loaded, and UnloadedTools are the specs of the catalog Tools it can
+	// still load, both in ID order. A Session with a catalog sets them on
+	// every request. An adapter that cannot defer tools natively ignores
+	// both and sends Tools, which grows when a Tool loads. One that can
+	// sends every catalog Tool as deferred in a fixed order, so the tool
+	// list stays the same while Tools load, and shows a load as a
+	// reference in the Tool Result that loaded it (ToolResult.Loaded).
+	LoadedTools   []string     `json:"loaded_tools,omitempty"`
+	UnloadedTools []ToolSpec   `json:"unloaded_tools,omitempty"`
 	Options            ModelOptions `json:"options,omitempty"`
 	// CacheBreakpoints are provider-neutral prompt-cache hints in prefix
 	// order. An adapter maps them to its provider's mechanism (for example

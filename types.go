@@ -143,6 +143,11 @@ type ToolResult struct {
 	// Content then holds a preview and a ref, and the full text is the Entry
 	// at Spilled.Seq of the Record (see SpilledResult).
 	Spilled *SpilledResult `json:"spilled,omitempty"`
+	// Loaded lists the qualified IDs of the catalog Tools this result loaded
+	// (search_tools, or a call to a Tool that was not loaded). A gateway that
+	// defers tools natively shows each to the Model as a reference at this
+	// place of the history, and a gateway that does not ignores the field.
+	Loaded []string `json:"loaded,omitempty"`
 }
 
 func (r ToolResult) Clone() ToolResult {
@@ -155,6 +160,7 @@ func (r ToolResult) Clone() ToolResult {
 		out.Content[i].Metadata = maps.Clone(p.Metadata)
 	}
 	out.Metadata = maps.Clone(r.Metadata)
+	out.Loaded = slices.Clone(r.Loaded)
 	if r.Spilled != nil {
 		spilled := *r.Spilled
 		out.Spilled = &spilled
