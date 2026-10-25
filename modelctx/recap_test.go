@@ -71,7 +71,7 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	if ask.Role != gotato.RoleUser || len(ask.Parts) != 1 || ask.Parts[0].Metadata[gotato.MetaTag] != "" {
 		t.Fatalf("ask = %+v", ask)
 	}
-	for _, want := range []string{"Write a recap of the conversation, from 2026-10-19 10:01", "as segment 1", "## What happened", "## Where it stands", "Do not call tools.", "copy IDs"} {
+	for _, want := range []string{"Write a recap of the messages after the last segment, from 2026-10-19 10:01", "as segment 1", "## What happened", "## Where it stands", "Do not call tools.", "copy IDs"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the ask lacks %q:\n%s", want, text)
 		}

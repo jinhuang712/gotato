@@ -151,7 +151,7 @@ A Session can live for weeks, and its user is rarely there: they come back after
 - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, the Run on every Message, and the Recap names.
 - Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 10.
 - ✅ Step 1, Segments built by code: a compaction on demand or at the start of a Run closes a Segment, and keeps the ToolSets the Segment used and those the kept tail calls. A user Message or final reply past 2K tokens is cut, and the line that says so names `read_segment`, which reads the rest from step 4. The compact endpoints take `min_tokens`, so a service's idle timer skips a stretch too short to be worth a model call, and a compaction that names no `keep` keeps the latest Run's Turns as its tail, as mid-Run. A Record compacted into one summary before Segments is refused, not migrated. A compaction that fails is dropped, and the Run goes on.
-- ⬜ Step 2, the model writes the Recap, on the cached prefix. With it, a service can compact its idle Sessions before their cache goes cold.
+- ✅ Step 2, the model writes the Recap, on the cached prefix: the request is the Context the next call would send plus one plain ask, validated by the five-heading rules, and a reply that fails leaves the Segment without a Recap. It is off by default in the library, the service and the CLI. The payments check of G-E01 ships as `gotato-workload -recap-check`. With it, a service can compact its idle Sessions before their cache goes cold.
 - ⬜ Step 3, past the ceiling and on overflow: compaction before any model call, mid-Run included, through `TurnPreparer`, and once after the provider refuses a request as too long.
 - ⬜ Step 4, many Segments: the model reads a Segment back with `read_segment`, and the oldest Segments merge when they pass their budget, on an overflow too, into the one merged Segment that opens the Context, down to half the budget, with a Recap written from their Recaps alone. The budget's default number is chosen here.
 
@@ -162,7 +162,7 @@ Exit:
 - A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - G-G07 and G-G09 pass across Runs, reloads, instances and compactions, and G-G11 passes for every fault it lists.
 - G-G10 passes on the `long_session` task, and G-B14, G-B15 and G-B16 have a number.
-- The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
+- ✅ The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
 
 ## Phase 7 — Warm Session
 

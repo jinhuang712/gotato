@@ -167,9 +167,6 @@ func RecapAsk(request RecapRequest) string {
 		loc = time.UTC
 	}
 	span := "the messages after the last segment"
-	if request.Segment <= 1 {
-		span = "the conversation"
-	}
 	if !request.From.IsZero() {
 		span += ", from " + request.From.In(loc).Format("2006-01-02 15:04")
 	}

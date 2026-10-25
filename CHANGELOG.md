@@ -54,11 +54,11 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 - **A live Session's ID is its Session ID, and every Event carries it.** `gotato.Session` takes its ID from its Transcript when the Transcript has an `ID() string` method, as a `session.Record` does, and generates one otherwise. The Runner's own Events carry it too. **Breaking:** the `session_id` payload key of `session_loaded`, `session_saved` and `session_compacted` is gone; read the Header's `SessionID` instead.
 - **A Run record no longer has `agent_id`.** It held a counter that meant nothing after a restart, and nothing read it. `Record.RecordRunStart` takes the Run's ID and time only. A Record saved before still loads; the old key is ignored, and its stored Events keep their old kinds and `agent_id`.
 - Error messages say "Session is closed" and "Session is already processing a Run" where they said "Agent".
-- **The compaction's summary writer is a Recap writer.** The name follows [GLOSSARY.md](GLOSSARY.md); behavior is unchanged, and no old name is kept. The shape of `WriteRecap` (a request type, `NoRecap`) is a later step. **Breaking:**
+- **The compaction's summary writer is a Recap writer.** The name follows [GLOSSARY.md](GLOSSARY.md); no old name is kept. **Breaking:**
 
   | Before | After |
   |---|---|
-  | `modelctx.Summarizer`, method `Summarize(ctx, []Message)` | `modelctx.RecapWriter`, method `WriteRecap(ctx, []Message)` |
+  | `modelctx.Summarizer`, method `Summarize(ctx, []Message)` | `modelctx.RecapWriter`, method `WriteRecap(ctx, RecapRequest)` (see the entry on the model's Recap below) |
   | `modelctx.TruncateSummarizer`, `modelctx.ModelSummarizer` | `modelctx.TruncateRecap`, `modelctx.ModelRecap` |
   | `CompactOptions.Summarizer`, `CompactPolicy.Summarizer` | `CompactOptions.Recap`, `CompactPolicy.Recap` |
   | `gotato.Compaction.Summarizer`, JSON `summarizer` (`compaction_ended`, the CLI's `compaction`) | `gotato.Compaction.Recap`, JSON `recap` |
@@ -179,6 +179,15 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   `session.Record` gains `SetActiveToolSets`, which a compaction uses to narrow the ToolSets before its Checkpoint. The fix for the Segment's tool call lines is part of this: the arguments pass through `EscapeTags`, so an argument that holds `</tool_calls>` cannot end the block early.
 
 - **The compact endpoints take `min_tokens`, and say why they closed nothing.** `CompactOptions.MinTokens`, `{"min_tokens":N}`, the gRPC `CompactRequest.min_tokens` and `gotato context compact --min-tokens N` skip a stretch since the last Checkpoint that is estimated below N tokens, so a service's idle timer does not pay for a stretch too short to be worth it. The result gains `reason` (`below_min_tokens`, or `nothing_to_close` when the kept tail covers the whole stretch; gRPC `CompactResult.reason`). All are additions; the default, 0, always compacts. A negative `keep` or `min_tokens` is `invalid_argument` (HTTP 400, gRPC `InvalidArgument`, CLI exit 2).
+
+- **The model writes the Recap, on the cached prefix, and it is off by default.** A `ModelRecap` sends the Context the next model call would send (the same instruction, tools, Messages, cache hints and key) and one plain user message after it that asks for the Recap with five headings. That message is never stored and carries no tag. The reply must start with one of the five `## ` headings, use no other `## ` heading, have `## What happened`, not call a tool, and not be cut off at the output limit (8K tokens, `ModelRecap.MaxTokens`, `gotato context compact --recap-max-tokens`). A reply that fails leaves the Segment without a Recap (`recap: none`), and the compaction's `recap_usage` still records the call. No default writes it: a team sets `Recap: modelctx.ModelRecap{}` on the Agent's `CompactPolicy` (the Runner gives it the Agent's model), `CompactOptions.Recap`, or `--recap model`. `RecapRequest`, `NoRecap`, `ModelRecap.MaxTokens`, `CompactOptions.Context`, `CompactPolicy.Context`, `ValidateRecap`, `RecapAsk` and `RecapModelRequest` are new. **Breaking** for a library user who wrote a `RecapWriter` or used `ModelRecap`:
+
+  | Before | After |
+  |---|---|
+  | `RecapWriter.WriteRecap(ctx, []gotato.Message) (Message, error)` | `WriteRecap(ctx, modelctx.RecapRequest) (Message, error)`; the closed Messages are `request.Closed` |
+  | `ModelRecap{Model, Instruction, Label}` sent the closed Messages as JSON in one user message, under an instruction of its own, and kept any reply with the prefix `Summary of earlier conversation:` | `ModelRecap{Model, MaxTokens, Label}` sends the next call's Context plus the ask, validates the reply, and keeps it as it is; `Instruction` is removed |
+  | `ModelRecap` worked on a bare `Model` | it needs `CompactOptions.Context` (the Runner sets it); without one it fails and the Segment keeps no Recap |
+  | `gotato context compact --recap model` | unchanged, plus `--recap-max-tokens N` |
 
 - **A Checkpoint lists its Segments once and in order; a Segment can be closed and listed in one step; a Document carries the largest Segment number.** `Record.CheckpointSegments` refuses a number listed twice, a number listed after a larger one, and a number never closed, with `invalid_argument`, and changes nothing. The new `Record.CloseSegmentAndCheckpoint` closes a Segment and writes the Checkpoint that lists it as neighbouring Entries of one batch; `CloseSegment` alone still stores a Segment that no Checkpoint lists, which a load leaves out of the Context. `session.Document` gains `max_segment`, which `Snapshot` fills and `Load` restores (also over gRPC, where the Document is JSON). All are additions except the refusals, which no code reaches yet, since nothing closes a Segment.
 
@@ -344,6 +353,10 @@ These are additions, within the version change that the changes above already ho
 - **A stream that ends says whether to reconnect, and when.** `service.NewReconnect` gives a wait of half a second to one and a half, spread at random, with the reason (`why`: `draining`); the drain uses it for a Run's stream and for a Session's stream, which it ends once every Run is saved and released. A Session's first frame also sets the SSE `retry:` wait, a different one for each client. An idle stream sends a keepalive comment every 15 seconds (`httpapi.WithKeepAlive`).
 - **The multi-instance harness has a hashing proxy.** `service/workload` runs several instances over one store behind a proxy that hashes on `session-id`, with requests sent through it and straight to random instances, concurrent messages and an instance killed. It expects the same Transcripts and Event order as one instance, and a stream cut at every Event, over HTTP and over gRPC, to resume equal to an uncut one.
 - **An open or a create no longer cuts the stream of a newer Record.** When the Record was deleted and created again on another instance just after this instance wrote its claim, and a client had already streamed the new Record here, the stream ended with `cannot_resume`. A stream is now cut only when it is shown to be of a replaced Record. No field or code changes.
+
+### Measurement
+
+- **The payments check of G-E01 ships.** `testkit.PaymentsRecapCheck` is a conversation whose facts only Tool Results held, with five questions about them and a fake model. `workload.RunRecapCheck` compacts the Session with the model's Recap and asks the questions before and after, unsaved and with the tools switched off. `gotato-workload -recap-check` prints the report (`-live` plays it on your gateway; `-min-share` makes the exit code 3 below a share), and never runs in CI against a provider. `testkit.DemoModel` answers a Recap's ask, so `gotato context compact --model demo --recap model` runs without a provider.
 
 ### Contracts
 

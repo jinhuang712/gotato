@@ -273,8 +273,8 @@ Each evaluation needs a person or a real model, so it runs on demand.
 
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Measure:** After a compaction, a real model answers questions whose answers appeared only in Tool Results before it, such as an ID, a number or an error code. The share it answers correctly, compared with the same questions before the compaction.
-- **Method:** a check on the payments example that Gotato ships and a team runs on demand against its own gateway ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)) *(to build)*. Gotato runs no checks against real providers itself.
-- **Status:** ⬜ Not measured. Waits for the Agent's model writing the Recap.
+- **Method:** a check on the payments example that Gotato ships and a team runs on demand against its own gateway ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)): `gotato-workload -recap-check -live -gateway-config gateway.yaml`, built on `workload.RunRecapCheck`. It plays three prompts on one Session, asks five questions before and after the compaction (unsaved, with the tools switched off), and prints the share answered. Its scoring is tested on a fake model. Gotato runs no checks against real providers itself.
+- **Status:** ⬜ Not measured. The check ships (2026-10-25); no gateway has run it yet, and the model's Recap stays off by default until a team has.
 
 ### G-B13 — Time to a first agent
 
