@@ -245,8 +245,8 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		done:           make(chan struct{}),
 		ready:          make(chan struct{}),
 		admission:      make(chan struct{}, 1),
-		steer:          make(chan Message, controlCapacity(cfg.limits.MaxSteerMessages)),
-		followUp:       make(chan Message, controlCapacity(cfg.limits.MaxFollowUpMessages)),
+		steer:          make(chan control, controlCapacity(cfg.limits.MaxSteerMessages)),
+		followUp:       make(chan control, controlCapacity(cfg.limits.MaxFollowUpMessages)),
 		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
 	}
@@ -333,8 +333,14 @@ type Session struct {
 	doneOnce    sync.Once
 	ready       chan struct{}
 	admission   chan struct{}
-	steer       chan Message
-	followUp    chan Message
+	steer       chan control
+	followUp    chan control
+
+	// intrMu guards the Interrupts that wait in steer (intrPending), and the
+	// cancellation of the model call in flight (callCancel).
+	intrMu      sync.Mutex
+	intrPending int
+	callCancel  context.CancelFunc
 
 	closeRequested atomic.Bool
 	inRun          atomic.Bool
@@ -492,6 +498,53 @@ func (a *Session) Steer(message Message) error {
 	return a.enqueueControl(a.steer, message, "Steer", SourceSteer)
 }
 
+// Interrupt delivers a Message that cuts the model call in flight short. The
+// call is cancelled, the text it had sent is kept as a Cut-off reply, and the
+// Message starts the next Turn of the same Run. A Tool in flight is not
+// cancelled: it finishes, and the Message follows its result at the Turn
+// boundary, as a Steer does. It shares the Steer queue and its limit
+// (MaxSteerMessages), and is reported by the same Events, with the source
+// SourceInterrupt. It fails with invalid_state when no Run is in flight.
+func (a *Session) Interrupt(message Message) error {
+	if !a.inRun.Load() {
+		return runtimeError(ErrInvalidState, "Interrupt", "no Run is in flight", nil)
+	}
+	if err := a.enqueueControl(a.steer, message, "Interrupt", SourceInterrupt); err != nil {
+		return err
+	}
+	a.intrMu.Lock()
+	a.intrPending++
+	cancel := a.callCancel
+	pending := a.intrPending
+	a.intrMu.Unlock()
+	// The Message may have been consumed already, at a boundary that fell
+	// between the queueing and this count.
+	if cancel != nil && pending > 0 {
+		cancel()
+	}
+	return nil
+}
+
+// control is a Message that waits in the Steer or FollowUp queue.
+type control struct {
+	message Message
+	source  MessageSource
+}
+
+// interruptTaken says an Interrupt left its queue, committed or dropped.
+func (a *Session) interruptTaken() {
+	a.intrMu.Lock()
+	a.intrPending--
+	a.intrMu.Unlock()
+}
+
+// interrupting reports whether an Interrupt waits in the queue.
+func (a *Session) interrupting() bool {
+	a.intrMu.Lock()
+	defer a.intrMu.Unlock()
+	return a.intrPending > 0
+}
+
 // FollowUp supplies the continuation to use where the Run would otherwise
 // settle. It is not a general external request queue: the buffer is bounded
 // and belongs to this Session.
@@ -499,7 +552,7 @@ func (a *Session) FollowUp(message Message) error {
 	return a.enqueueControl(a.followUp, message, "FollowUp", SourceFollowUp)
 }
 
-func (a *Session) enqueueControl(target chan Message, message Message, operation string, source MessageSource) error {
+func (a *Session) enqueueControl(target chan control, message Message, operation string, source MessageSource) error {
 	if err := validateControlMessage(message, operation); err != nil {
 		return err
 	}
@@ -528,7 +581,7 @@ func (a *Session) enqueueControl(target chan Message, message Message, operation
 		return err
 	}
 	select {
-	case target <- message:
+	case target <- control{message: message, source: source}:
 		return nil
 	default:
 		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))

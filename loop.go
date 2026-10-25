@@ -353,6 +353,21 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		turnText, turnReasoning := replyBytes(assistant)
 		textBytes += turnText
 		reasoningBytes += turnReasoning
+		if modelErr != nil && modelErr.Code == ErrCancelled && runCtx.Err() == nil && a.interrupting() {
+			// An Interrupt cut the call short: the text it had sent is kept as
+			// a Cut-off reply, and the Interrupt starts the next Turn.
+			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
+				a.stage(ReplyCutOff{Header: hd(turn), Message: assistant.Clone(), Cause: modelErr.Code})
+			}
+			a.stage(TurnEnded{
+				Header: hd(turn), StopReason: StopCutOff, Usage: usage,
+				ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
+			})
+			if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
+				return fail(controlErr)
+			}
+			continue
+		}
 		if modelErr != nil {
 			// The text the Model sent before its stream broke is committed,
 			// so the Transcript keeps it; the Run still fails as it did.
@@ -613,8 +628,11 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	}
 	for {
 		select {
-		case message := <-a.steer:
-			if err := commit(message, SourceSteer); err != nil {
+		case queued := <-a.steer:
+			if queued.source == SourceInterrupt {
+				a.interruptTaken()
+			}
+			if err := commit(queued.message, queued.source); err != nil {
 				return injected, err
 			}
 			continue
@@ -627,8 +645,8 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	}
 	for {
 		select {
-		case message := <-a.followUp:
-			if err := commit(message, SourceFollowUp); err != nil {
+		case queued := <-a.followUp:
+			if err := commit(queued.message, queued.source); err != nil {
 				return injected, err
 			}
 			continue
@@ -664,10 +682,13 @@ func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 	}
 	for {
 		select {
-		case message := <-a.steer:
-			drop(message, SourceSteer)
-		case message := <-a.followUp:
-			drop(message, SourceFollowUp)
+		case queued := <-a.steer:
+			if queued.source == SourceInterrupt {
+				a.interruptTaken()
+			}
+			drop(queued.message, queued.source)
+		case queued := <-a.followUp:
+			drop(queued.message, queued.source)
 		default:
 			return
 		}
@@ -677,6 +698,18 @@ func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumber, assistantID MessageID, request ModelRequest) (Message, Usage, *RuntimeError) {
 	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
 	defer cancel()
+	// An Interrupt cancels this call; one that is waiting already does, now.
+	a.intrMu.Lock()
+	a.callCancel = cancel
+	if a.intrPending > 0 {
+		cancel()
+	}
+	a.intrMu.Unlock()
+	defer func() {
+		a.intrMu.Lock()
+		a.callCancel = nil
+		a.intrMu.Unlock()
+	}()
 	modelCtx = withRetryReporter(modelCtx, func(retry ModelRetry) {
 		// A retry falls between steps: it gets a write of its own.
 		_ = a.writeNow(ctx, ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: retry.Wait.Milliseconds(), Error: retry.Error})

@@ -217,6 +217,9 @@ const (
 	SourcePrompt   MessageSource = "prompt"
 	SourceSteer    MessageSource = "steer"
 	SourceFollowUp MessageSource = "follow_up"
+	// SourceInterrupt is a Message that cut the model call in flight short
+	// and started the next Turn of the same Run.
+	SourceInterrupt MessageSource = "interrupt"
 	// SourceContinuation is a Message the Loop wrote itself to go on after a
 	// reply the output limit cut off.
 	SourceContinuation MessageSource = "continuation"
@@ -508,7 +511,7 @@ type RunRejected struct {
 	Why string `json:"why"`
 }
 
-// MessageQueued: a Steer or FollowUp waits for its point in the Run.
+// MessageQueued: a Steer, FollowUp or Interrupt waits for its point in the Run.
 type MessageQueued struct {
 	Header
 	MessageID MessageID     `json:"message_id"`
@@ -516,7 +519,7 @@ type MessageQueued struct {
 }
 
 // MessageCommitted: a user Message enters the Transcript, with where it came
-// from: the prompt, a Steer or a FollowUp.
+// from: the prompt, a Steer, a FollowUp or an Interrupt.
 type MessageCommitted struct {
 	Header
 	Message Message       `json:"message"`
