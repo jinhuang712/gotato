@@ -49,6 +49,7 @@ type check struct {
 var checks = []check{
 	{"create then load", checkCreateLoad},
 	{"create twice", checkCreateTwice},
+	{"the summary keeps pending notices and the last run end", checkSummaryNotices},
 	{"append continues the log", checkAppend},
 	{"load starts at the last checkpoint", checkLastCheckpoint},
 	{"a load returns the segments stored before the last checkpoint", checkSegments},
@@ -186,6 +187,59 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 		return fmt.Errorf("log: %w", err)
 	}
 	return sameEntries(all, entries)
+}
+
+// checkSummaryNotices proves a store keeps the whole Summary: the notices that
+// wait for the next Run and the end of the last Run survive Create, Append, Load
+// and List, so an adapter that copies Summary field by field fails here and not
+// by losing a notice in production.
+func checkSummaryNotices(ctx context.Context, open Open) error {
+	store := open()
+	pending := func(n uint64, text string) gotato.PendingNotice {
+		return gotato.PendingNotice{MessageID: gotato.MessageID(fmt.Sprintf("m%d", n)), Kind: "order_update", Source: gotato.NoticeFromService, Text: text, Number: n}
+	}
+	first := summary("r1", 3, "2026-10-17T00:00:03.000Z")
+	first.LastRunEnd = "2026-10-17T00:00:02.500Z"
+	first.Notices = []gotato.PendingNotice{pending(3, "one")}
+	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, first); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	same := func(got session.Summary, want session.Summary, step string) error {
+		if got.LastRunEnd != want.LastRunEnd || len(got.Notices) != len(want.Notices) {
+			return fmt.Errorf("%s: summary has last_run_end %q and notices %+v, want %q and %+v", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
+		}
+		for i := range want.Notices {
+			if got.Notices[i] != want.Notices[i] {
+				return fmt.Errorf("%s: notice %d = %+v, want %+v", step, i, got.Notices[i], want.Notices[i])
+			}
+		}
+		return nil
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if err := same(loaded.Summary, first, "after Create, Load"); err != nil {
+		return err
+	}
+	second := summary("r1", 4, "2026-10-17T00:00:04.000Z")
+	second.LastRunEnd = "2026-10-17T00:00:04.000Z"
+	second.Notices = []gotato.PendingNotice{pending(3, "one"), pending(5, "two")}
+	if err := store.Append(ctx, "r1", 3, []session.Entry{logEntry(4, "a")}, second); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	loaded, err = open().Load(ctx, "r1")
+	if err != nil {
+		return fmt.Errorf("load: %w", err)
+	}
+	if err := same(loaded.Summary, second, "after Append, Load"); err != nil {
+		return err
+	}
+	list, err := open().List(ctx)
+	if err != nil || len(list) != 1 {
+		return fmt.Errorf("list = %v, %v", list, err)
+	}
+	return same(list[0], second, "List")
 }
 
 func checkCreateTwice(ctx context.Context, open Open) error {

@@ -577,6 +577,12 @@ func (s *Record) PendingNotices() []gotato.PendingNotice {
 func (s *Record) foldNotice(event gotato.Event) {
 	switch e := event.(type) {
 	case gotato.NoticeQueued:
+		// Only a service's notice is durable. Gotato's own, such as time_away,
+		// is worked out afresh at each Run start, so keeping one would only
+		// risk a stale or a duplicate.
+		if e.Source != gotato.NoticeFromService {
+			return
+		}
 		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.NoticeKind, Source: e.Source, Text: e.Text, Number: e.Number})
 	case gotato.NoticeCommitted:
 		s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.Number == e.Queued && e.Queued != 0 })

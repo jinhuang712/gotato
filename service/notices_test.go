@@ -373,3 +373,63 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 		t.Fatalf("request = %v, want the notice after the prompt", got)
 	}
 }
+
+// Only a service's notice is durable. A Run that queued a time_away and died
+// before it ended leaves no pending notice behind: the next Run works out its
+// own, afresh, from the last Run that did end.
+func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	clock := &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
+	first, model := timeAwayRunner2(t, store, "first", clock)
+	s, _ := first.CreateSession(ctx, "echo", nil)
+	runOn(t, first, s.ID(), "hello")
+	if err := first.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// A writer that queued a time_away and died: no run_ended, no release.
+	dead, err := session.OpenWriter(ctx, store, s.ID(), "dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dead.Write(ctx, []gotato.Event{gotato.NoticeQueued{
+		Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), MessageID: "stale", NoticeKind: gotato.NoticeTimeAway,
+		Source: gotato.NoticeFromGotato, Text: "It has been 40 minutes since the last message. It is now stale.",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	clock.Advance(73 * time.Hour)
+	second, _ := timeAwayRunner2(t, store, "second", clock)
+	_ = model
+	runOn(t, second, s.ID(), "back")
+	record, _ := second.Session(ctx, s.ID())
+	count := 0
+	for _, m := range record.Messages() {
+		if m.Role == gotato.RoleNotice && m.Notice.Kind == gotato.NoticeTimeAway {
+			count++
+			if !strings.Contains(gotato.TextOf(m), "3 days") || strings.Contains(gotato.TextOf(m), "stale") {
+				t.Fatalf("the time_away = %q, want one worked out afresh", gotato.TextOf(m))
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%d time_away notices in the Record, want exactly 1", count)
+	}
+}
+
+func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fakeClock) (*service.Runner, *testkit.FakeModel) {
+	t.Helper()
+	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
+	runner, err := service.New(service.Config{
+		Store: store, Instance: name, Clock: clock, Liveness: fastLiveness,
+		Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	return runner, model
+}
