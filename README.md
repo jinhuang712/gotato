@@ -126,7 +126,8 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | One writer per Session across instances | done: the activation limit, the `session-id` header, stream resume on any instance, and a multi-instance harness behind a hashing proxy |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
-| MCP, provider rate-limit information | later |
+| Tool search, the MCP adapter (`adapter/mcp`), large Tool Results spilled into the Record | planned (Phase 8) |
+| Provider rate-limit information | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
 
