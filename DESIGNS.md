@@ -586,10 +586,12 @@ The answer is that the model queries its own Session's Record with a read-only s
 
 - **Spill first, query after.** The model queries a result it has already seen the start of, and the cost is one more model round trip, only for a result over one page.
 - **It sees the Session's own Record as a read-only directory** (an `fs.FS`). `/results/<call_id>` comes first. `/segments/<n>` and `/files/<name>` (the user's files, once files live in the Record) join later under the same rule.
-- **Structured data goes through full jq,** by `github.com/itchyny/gojq` (MIT). jq is the JSON tool models know best, and a library that matches it cannot drift. jq can loop, so `ctx` and a bound on the output end it.
+- **Structured data goes through jq,** by `github.com/itchyny/gojq` (MIT). jq is the JSON tool models know best, and gojq runs its language. gojq is not jq, so each difference is made to match, refused, or written down ([jq: where it differs from jq](#jq-where-it-differs-from-jq)). jq can loop, so `ctx`, a bound on the output, a bound on the heap and a time limit end it.
 - **The syntax is run by `mvdan.cc/sh` (BSD-3), parser and interpreter.** Before a command runs, Gotato walks the syntax tree and refuses loops, functions, command substitution and writing redirects, with an error that suggests a pipeline. Every handler of the interpreter is taken over: command execution goes to Gotato's own Go commands (no `exec`), file opens go to the read-only `fs.FS`, and the environment is empty. Word expansion is where a re-implementation drifts from bash, and the interpreter matches bash there.
 - **The commands are written by Gotato.** No Go coreutils is both widely used, GNU-faithful and licensed to embed: u-root aims at small embedded systems and opens OS files, and the Go ports of coreutils are GPL-3.0 and little used. A command earns its place by being what a model reaches for when it reads and looks for data.
 - **Protections.** A very long single line, such as minified JSON, is cut with an explicit marker like `[line cut: 1.0 MiB]`, never silently. Output over one page is spilled like any Tool Result, with a preview and a ref, so there is no new concept. Every command answers `--help` with the flags it supports.
+- **The cut is made on the final stdout only.** The writer of the command line's last output keeps the first 8 KiB of each line (`WithMaxLine`, a quarter of a page, ending at a character boundary) and writes the marker, which gives the size of the whole line. A cut between the stages of a pipeline would change what `grep` or `jq` reads, so the stages keep whole lines, up to 16 MiB. The writer holds one line's first 8 KiB, so its memory is bounded.
+- **The spill belongs to the layer above.** The engine hands back the output up to `WithMaxOutput` and `Result.Truncated`; the Gotato layer decides what one page is and spills the rest into the Record.
 - **GNU conformance tests run only in development and CI,** never at runtime.
 
 #### The first commands
@@ -608,13 +610,44 @@ The answer is that the model queries its own Session's Record with a read-only s
 | `uniq` | `-c -d -u -i` |
 | `sed` | `-n` with line-number addresses and ranges (`N`, `$`, `N,M`, `N,$`) of `p` only |
 | `grep` | `-i -v -c -n -o -E -F -G -e -w -x -l -q -H -h -r -A -B -C` |
-| `jq` | full jq, through gojq |
+| `jq` | the language of jq 1.7 through gojq: `-r -j -c -s -n -R -e -S -a -M --tab --indent --arg --argjson` |
 
 The commands follow a UTF-8 locale, `C.UTF-8`, and the conformance tests run under `LC_ALL=C.UTF-8`. `sort` orders by code point, so upper case letters come before lower case, which is what GNU `sort` does in that locale, and not the collation of a language. `tr` and `cut -c` work on bytes, as GNU's do; `wc -m` and `grep` count UTF-8 characters. `sort` holds its input, up to 64 MiB, and fails past it with an error that says so.
 
 Three things differ from GNU on purpose, and each is written in the command's `--help` or the table of the tests: an error that GNU words with the quotation marks of the locale is worded with plain quotes; `ls -l` writes the owner `root`, the time with its year, and the total in 4 KiB blocks, since a result has no owner and no block count; and `wc < file` pads as `wc` does for a pipe, because the interpreter hides the file behind a redirect.
 
 Later, when a need shows: `awk` (through goawk, MIT), `sed` substitution, `nl`, `column`, `diff` and `comm`, CSV with quoted fields, URL and HTML decoding, here-strings. Never: `date`, `$RANDOM`, environment variables (they break same-Record-same-output), the network, writing files, `xargs`, `tee`, `find -exec`, compiling, git, processes.
+
+#### jq: where it differs from jq
+
+gojq runs the language of jq, and it is a different program. Each difference is made to match, refused, or written down, so that the model never gets a silently different answer. CI compares the cases that match with jq 1.7.1, the version `ubuntu-latest` installs.
+
+| Difference | What we do |
+|---|---|
+| Output format: indent, string escapes (DEL as `\u007f`), number form (`1e+17`, `1.5e-07`), `-S`, `-a`, `--tab`, `--indent` | Made to match. The writer is ours, and the cases are compared with jq. |
+| Input: invalid UTF-8, BOM, duplicate keys, a number too large, how deep a value nests | Made to match. The parser is ours. |
+| Exit statuses (0, 2, 3, 5, and the `-e` ones), `$ARGS`, `input_filename`, `halt_error`, `debug`, `stderr` | Made to match. |
+| `now`, `localtime`, `strflocaltime`: the output would depend on the clock or the machine | Refused, with an error that says why. `gmtime`, `mktime` and `strftime` work. |
+| `import`, `include`: there are no files to load a module from | Refused. |
+| `$ENV` and `env` | Empty, so the output does not depend on the process. |
+| Input too large, a program that builds a value without end, a program that does not end | A bound of 32 MiB of input, 512 MiB of heap growth and 30 seconds, and `ctx`. Each ends with an error that says which. The heap bound reads the heap of the process, so it is a safety net and not an exact limit. |
+| Regular expressions are RE2's, with no back-references or look-around | Written down. A pattern RE2 cannot take is an error. |
+| `$__loc__`, `input_line_number`, `keys_unsorted` are not defined | A compile error that names the function. |
+| The words of an error, and of a filter that does not compile | Written down. The exit status is jq's. |
+| An integer is exact at any size, where jq 1.7 loses digits once it calculates | Written down. gojq's answer is the more exact, never the less. |
+| A number that is not an integer is written as its value (`1.10` is `1.1`, `3.0` is `3`), and inside `tojson`, `tostring`, `@text`, `@csv` and interpolation in gojq's form (`1.5e-7`) | Written down. The value is the same. |
+| **The order of the keys of an object** | Written down, and kept as far as it can be (below). |
+
+The order of keys is the one that can mislead. jq keeps the order of the input, and gojq keeps none: its objects are Go maps, so `jq .` would sort every object. What was weighed:
+
+| Option | For | Against |
+|---|---|---|
+| Sorted keys, as gojq does | Simple, and always the same. | Even `jq .` changes how the model sees a record, for no reason. |
+| A fork of gojq with an ordered object | Exact. | About 70 places of its value model change, and Gotato would carry a fork of a library. |
+| Refuse the programs whose output depends on order | Never wrong. | Most real programs, `to_entries`, `.[]` and `del` among them, would be refused on ordinary JSON. |
+| **Keep the input order of an object that reaches the output unchanged** (chosen) | `jq .`, `.items[0]` and `.[]` over records show the input order, which is what the model reads most. | An object the filter builds or changes has sorted keys, and what walks the keys (`.[]` on an object, `to_entries`, `paths`, `tojson`) sees them sorted. |
+
+The parser records the key order of each object whose keys are not already sorted, in a table keyed by the identity of the Go map, and the writer looks an object up in it when it writes. An object the filter changes is a new map, so it is not found and is written sorted. The one thing that can mislead is the model reading "the first key" from a listing and then asking `to_entries` for it. `jq --help` names the difference, so the model can read it, and it is the one known difference of its kind. If a real use shows it matters, the fork is the way to remove it.
 
 #### Where it lives
 
