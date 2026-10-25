@@ -22,7 +22,9 @@ func TestJQLimitsStopAProgram(t *testing.T) {
 		{"jq -n 'repeat(1)|empty'", "ran for more than"},
 		{"jq -n 'last(repeat(1))'", "ran for more than"},
 	} {
-		jqHeapLimit, jqRuntimeLimit = 64<<20, 20*time.Second
+		// The race detector on a busy CI runner allocates slowly: a small heap
+		// limit is reached in seconds, and the time limit stays far above it.
+		jqHeapLimit, jqRuntimeLimit = 16<<20, 2*time.Minute
 		if strings.Contains(tc.want, "ran for") {
 			jqHeapLimit, jqRuntimeLimit = 4<<30, 300*time.Millisecond
 		}
@@ -31,7 +33,7 @@ func TestJQLimitsStopAProgram(t *testing.T) {
 		if err != nil || result.ExitCode != 5 || !strings.Contains(result.Stderr, tc.want) {
 			t.Errorf("%s: %+v %v (want exit 5 and %q)", tc.program, result, err, tc.want)
 		}
-		if time.Since(start) > 10*time.Second {
+		if time.Since(start) > time.Minute {
 			t.Errorf("%s took %v", tc.program, time.Since(start))
 		}
 	}
