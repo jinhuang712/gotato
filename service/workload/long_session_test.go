@@ -23,14 +23,14 @@ func playLong(t *testing.T, task testkit.Task) TaskReport {
 // against a fake Model with a 128K-token window, sends 0 requests over the
 // window and fails 0 Runs for its size. The Context stays bounded: the size of
 // the request levels off instead of growing with the Session's age (G-B14).
-// Under the race detector the Session is 500 Turns, which takes seconds and not
+// Under the race detector the Session is 300 Turns, which takes seconds and not
 // a minute.
 func TestALongSessionStaysWithinItsWindow(t *testing.T) {
 	task := testkit.LongSessionTask()
 	turns := testkit.LongSessionTurns
 	if raceEnabled {
-		task = testkit.LongSession(500, testkit.LongSessionTurnsPerRun, testkit.LongSessionResultBytes, testkit.LongSessionWindow, false)
-		turns = 500
+		task = testkit.LongSession(300, testkit.LongSessionTurnsPerRun, testkit.LongSessionResultBytes, testkit.LongSessionWindow, false)
+		turns = 300
 	}
 	report := playLong(t, task)
 	w := report.Window

@@ -10,7 +10,7 @@ What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a pr
 | G-G01 | ⭐ Session reconstructable | The store is the only truth | ✅ |
 | G-G09 | ⭐ The same Record gives the same request | The store is the only truth | ✅ |
 | G-G07 | ⭐ No unplanned change to the prefix | A request only grows at its end | 🚧 |
-| G-G10 | ⭐ A long Session stays within its window | The Context is a bounded view | ⬜ |
+| G-G10 | ⭐ A long Session stays within its window | The Context is a bounded view | ✅ |
 | G-G11 | ⭐ A failure leaves the Session usable | A failure stays local | ✅ |
 | G-G08 | One owner across instances | No instance is special | ✅ |
 | G-G02 | No silent stream cutoffs | A failure stays local | ✅ |
@@ -23,9 +23,9 @@ What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a pr
 | # | Benchmark | Serves | Status |
 |---|---|---|---|
 | G-B01 | ⭐ Cache hit rate | A request only grows at its end | ✅ |
-| G-B14 | ⭐ Context size and cost per Turn by the Session's age | The Context is a bounded view | ⬜ |
+| G-B14 | ⭐ Context size and cost per Turn by the Session's age | The Context is a bounded view | 🚧 |
 | G-B15 | ⭐ The first request after an idle return | A request only grows at its end | ⬜ |
-| G-B16 | Cost of a compaction | The Context is a bounded view | ⬜ |
+| G-B16 | Cost of a compaction | The Context is a bounded view | 🚧 |
 | G-B02 | Token cost per task | A request only grows at its end | ✅ |
 | G-B03 | Tool-call success rate, split by cause | A failure stays local | ✅ |
 | G-B04 | Error rate, split by cause | A failure stays local | ✅ |
@@ -74,21 +74,21 @@ Each check is a test or a harness that passes or fails.
 - **Serves:** [The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **Measure:** Two instances, and one instance after a reload, build byte-identical requests from the same Record and Agent, in 100% of the reference workload's Turns.
 - **Method:** `TestSameRecordSameRequest` plays each reference task as several Runs on one Session, moving between instances and reloads. Then, for every request the model got, it writes the Record as it stood at that Turn to a new Session, and builds the request again on instance a, on instance b and on a new Runner of instance a. It compares the JSON of the whole `ModelRequest` (instruction, Messages, Tools, options, cache breakpoints and cache key), not the prefix hash. G-G01 also compares the prefix hash after a crash.
-- **Status:** ✅ 57 of 57 Turns over the seven tasks, each built identically by the three views, in CI. A check on the `ModelRequest`, not on a provider's wire bytes. 2026-10-25.
+- **Status:** ✅ 57 of 57 Turns over the seven tasks, each built identically by the three views, in CI. A check on the `ModelRequest`, not on a provider's wire bytes. 2026-10-25. Where the Session compacts, `TestSameRecordSameRequestAcrossCompactions` inspects `long_session` at the end of each of its 30 Runs on the instance that ran it, on the other instance and on a new Runner after a reload, with and without the model's Recap: at all 60 Run ends (30 in each play) the three views build the same request, the last Checkpoint being a compaction, a merge or neither, 2026-10-25.
 
 ### G-G07 — No unplanned change to the prefix ⭐
 
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Measure:** Every request starts with the bytes of the request before it in the same Session, across Turns, across Runs, after a reload and on another instance, in 100% of request pairs. The only exceptions are the moments [DESIGNS.md → A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end) names: a new Round leaving out the last Round's reasoning, a compaction, and a merge of the oldest Segments.
 - **Method:** `TestPrefixHashStableAcrossAppendOnlyTurns` for consecutive Turns of one Run; `TestRequestOnlyGrowsAtItsEnd` plays each reference task as several Runs on one Session, with a reload and a change of instance between Runs, and compares every request with the one before it: the same instruction, Tools, options, cache key and system and Tools breakpoints, and the earlier request's Messages first, byte for byte. It plays every task twice, the second time with reasoning in every reply.
-- **Status:** 🚧 Consecutive Turns of one Run keep the same prefix hash and the same cache breakpoints, 2026-10-15. 50 of 50 request pairs in each of the two plays, across Runs, reloads and instances, 2026-10-25. The play has no exception: no compaction, and the last Round's reasoning is left out in the gateway's encoder, after the request is built, so the `ModelRequest` keeps it (the encoder is not covered by this check). The check reads the `ModelRequest`; the bytes the gateway's encoder sends to the provider are not checked yet.
+- **Status:** 🚧 Consecutive Turns of one Run keep the same prefix hash and the same cache breakpoints, 2026-10-15. 50 of 50 request pairs in each of the two plays, across Runs, reloads and instances, 2026-10-25. The reference play has no exception: no compaction, and the last Round's reasoning is left out in the gateway's encoder, after the request is built, so the `ModelRequest` keeps it (the encoder is not covered by this check). Where the Session compacts, `TestRequestOnlyGrowsAtItsEndAcrossCompactions` plays `long_session` as 30 Runs across instances and reloads, with and without the model's Recap: of 299 request pairs, about 108 straddle a compaction and 3 to 5 a merge, and at each of them the Segments before keep their bytes and the merged Segment comes first, and the instruction, the options and the cache key keep theirs, apart from the instruction's closing sentence about the tags, 2026-10-25. The check reads the `ModelRequest`; the bytes the gateway's encoder sends to the provider are not checked yet.
 
 ### G-G10 — A long Session stays within its window ⭐
 
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Measure:** A Session played for 2,000 Turns, each with a 20 KB Tool Result, against a fake model with a 128K-token window, sends 0 requests over the window and fails 0 Runs for its size. These sizes are a starting point, to tune once the task exists.
-- **Method:** a reference task, `long_session` *(to build)*
-- **Status:** ⬜ Waits for compaction that closes Segments ([ROADMAP.md](ROADMAP.md) Phase 6, step 3).
+- **Method:** the reference task `long_session` (`testkit.LongSessionTask`), played by `gotato-workload -tasks long_session` and by `TestALongSessionStaysWithinItsWindow`. One Session, 100 Runs of 20 Turns each: a prompt, 19 Turns that read a 20 KB log, and an answer. The fake Model has a 128K-token window, which gives the Runner a ceiling of 112K; the driver counts every request against the window by the estimate the Model reports as its input (the bytes of the instruction, Messages and Tools ÷ 4), and refuses one over it as a provider would. The estimate counts a Tool Result twice, in its Message and in its result, so it overstates a Context full of tool results. Under the race detector the test plays 300 Turns, since 2,000 take over a minute.
+- **Status:** ✅ 2,000 Turns, 2,000 requests, 0 over the window (the largest, 112,010 tokens), 0 failed Runs, 100 of 100 answers right, with 260 compactions, one of them a merge, in 3.6 s, 2026-10-25. With the model's Recap on (`long_session_recap`) it passes too: 0 over the window, the largest Recap request 122,630 tokens (the Context plus the ask). The check can fail: a Tool Result larger than the window leaves every later request over it, and the report says so (`TestALongSessionPastItsWindowIsReported`). Merging the oldest Segments is not what keeps this size within the window: with the merge turned off, the same play passes. It is what keeps a smaller window: at 32K tokens, 300 Turns of 4 KB results fail 12 Runs with `limit_exceeded` without it, and pass with it (`TestALongSessionMergesTheOldestSegments`).
 
 ### G-G11 — A failure leaves the Session usable ⭐
 
@@ -151,8 +151,8 @@ Input tokens per request and cost per Turn at Turn 10, 100, 1,000 and 2,000.
 
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Compared with:** the same Session's numbers at Turn 10: they should level off, not grow with the Session's age
-- **Method:** the `long_session` task of G-G10 for size; the live run for cost *(to build)*
-- **Last measured:** Not measured. Waits for compaction that closes Segments.
+- **Method:** the `long_session` task of G-G10 for size (`gotato-workload -tasks long_session`, field `window.tokens_at_turn`); the live run for cost *(to build)*
+- **Last measured:** Size, from the fake Model's estimate, 2026-10-25: the request holds 159 tokens at Turn 1, 93,786 at Turn 10, 54,824 at Turn 100, 90,127 at Turn 1000 and 85,080 at Turn 2000. With the model's Recap on: 159, 93,786, 55,519, 99,521 and 95,990. The compactions hold it under the ceiling, 112K, and the Turns sampled hold 55K to 100K, depending on where each falls between two compactions; none grows with the Session's age. Turn 10 is high because the first Run has read its Tool Results and nothing is compacted yet. The cost per Turn is not measured: it needs a live run.
 
 ### G-B15 — The first request after an idle return ⭐
 
@@ -161,7 +161,7 @@ Its cached input tokens and its cost, when the user comes back after the cache r
 - **Serves:** [A request only grows at its end](DESIGNS.md#2-a-request-only-grows-at-its-end)
 - **Compared with:** the same Session without idle compaction
 - **Method:** live run with a pause longer than the cache retention *(to build)*
-- **Last measured:** Not measured. Waits for the Recap the model writes ([ROADMAP.md](ROADMAP.md) Phase 6, step 2), when a service can compact its idle Sessions.
+- **Last measured:** Not measured. It needs a provider's cache, which a fake model has none of, and the idle compaction, which waits for the warm Session ([ROADMAP.md](ROADMAP.md) Phase 7); until then a service calls the compact endpoint from its own timer. No number comes from a fake.
 
 ### G-B16 — Cost of a compaction
 
@@ -169,8 +169,8 @@ The tokens and the time of the call that writes the Recap.
 
 - **Serves:** [The Context is a bounded view](DESIGNS.md#3-the-context-is-a-bounded-view)
 - **Compared with:** the tokens the compaction takes out of each later request
-- **Method:** live run *(to build)*
-- **Last measured:** Not measured.
+- **Method:** the `long_session_recap` task for the tokens (`gotato-workload -tasks long_session_recap`, field `window.recap`); the live run for the time and the cost *(to build)*
+- **Last measured:** Tokens, from the fake Model's report, 2026-10-25: 272 Recap calls over 2,000 Turns, 271 of them for a Segment and 1 for a merge. A call reads 116,889 tokens on average (31.8M in all), which a provider reads from its cache, and writes 44. Each compaction takes 72,509 tokens out of the Context on average (19.7M in all), so a later request is that much smaller until the Context grows back, about every 7 Turns here. The time and the cost need a live run.
 
 ### G-B02 — Token cost per task
 

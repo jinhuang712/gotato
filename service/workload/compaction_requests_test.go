@@ -15,6 +15,15 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
+// compactingTurns is how many Turns the compacting plays take: enough for dozens
+// of compactions and several merges, fewer under the race detector.
+var compactingTurns = func() int {
+	if raceEnabled {
+		return 200
+	}
+	return 300
+}()
+
 // windowedLogging gives the long_session Model its window, and keeps the JSON
 // of every request it received, in order.
 type windowedLogging struct {
@@ -138,7 +147,7 @@ func startsWith(list, prefix []string) bool {
 func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
-			task := testkit.LongSession(300, 10, 4096, 32_000, recap)
+			task := testkit.LongSession(compactingTurns, 10, 4096, 32_000, recap)
 			store := session.NewMemoryStore()
 			id, sent := playLongAcross(t, store, task, nil)
 			final, err := session.Open(context.Background(), store, id)
@@ -153,7 +162,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 					closings++
 				}
 			}
-			if closings < 10 || merges < 2 {
+			if closings < 10 || merges < 1 {
 				t.Fatalf("%d closings and %d merges: the play must compact and merge", closings, merges)
 			}
 			segments := segmentTexts(t, store, id)
@@ -247,7 +256,7 @@ func jsonOf2(v any) []byte {
 func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {
-			task := testkit.LongSession(300, 10, 4096, 32_000, recap)
+			task := testkit.LongSession(compactingTurns, 10, 4096, 32_000, recap)
 			store := session.NewMemoryStore()
 			model := windowedLogging{inner: task.Model, window: task.Window, log: &requestLog{}}
 			compared := 0

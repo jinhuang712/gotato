@@ -17,6 +17,11 @@
 //
 //	gotato-workload -recap-check -live -gateway-config gateway.yaml -min-share 0.8
 //
+// -tasks long_session (or long_session_recap, with the model's Recap on) plays
+// 2,000 Turns of 20 KB Tool Results on one Session against a fake model with a
+// 128K-token window, and reports the size of its requests against the window
+// (G-G10, G-B14, G-B16). It plays only when named.
+//
 // -price is the model's price in US dollars per million tokens: input,
 // output, cache read and cache write. Keep the model and its price fixed from
 // one release to the next, so the numbers compare.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -84,5 +85,46 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 	}
 	if compaction, _ := done["compaction"].(map[string]any); compaction["segment"] != float64(1) || compaction["recap"] != "none" || compaction["replaced_messages"] != float64(4) {
 		t.Fatalf("compaction = %v", done["compaction"])
+	}
+}
+
+// The compact route says when it merged the oldest Segments.
+func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
+	ctx := context.Background()
+	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{
+		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudget: 1},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	run := func(prompts ...string) {
+		for _, prompt := range prompts {
+			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "echo", Prompt: prompt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id = result.SessionID
+		}
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	defer server.Close()
+	compact := func() map[string]any {
+		status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{})
+		var out map[string]any
+		if err := json.Unmarshal(body, &out); err != nil || status != http.StatusOK {
+			t.Fatalf("compact = %d %s (%v)", status, body, err)
+		}
+		return out
+	}
+	run("one", "two", "three")
+	if first := compact(); first["replaced"] != true || first["merge"] != nil {
+		t.Fatalf("the first compaction: %v", first)
+	}
+	run("four", "five")
+	second := compact()
+	merge, _ := second["merge"].(map[string]any)
+	if second["replaced"] != true || merge["merged"] != true || merge["recap"] != "digest" || len(merge["replaced"].([]any)) != 2 {
+		t.Fatalf("the second compaction: %v", second)
 	}
 }
