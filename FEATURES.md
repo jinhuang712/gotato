@@ -52,7 +52,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Compaction before the cache goes cold | an idle Session is compacted shortly before its prompt cache expires | G-F06 | ✅ |
 | Compaction at the window | before any model call past the ceiling, mid-Run included, and once when the provider refuses a request as too long; a Turn compacts at most once | G-F06 | ✅ |
 | Reading a Segment back | `read_segment`, a built-in tool the model gets once a Session has a Segment, returns a Segment's Messages from the Record, tool results included, page by page | G-F06 | ✅ |
-| Reading a spilled Tool Result back | `read_result` returns a spilled result page by page, with the paging of `read_segment` | G-F35 | ⬜ |
+| Reading a spilled Tool Result back | `read_result` returns a spilled result page by page, with the paging of `read_segment` | G-F35 | ✅ |
 | Merging the oldest Segments | when the Segments pass their budget (half the ceiling, or 32K tokens with none), and on an overflow, the oldest become one merged Segment that opens the Context; its Recap is written from their Recaps alone, or built by code | G-F06 | ✅ |
 | Changes that keep the cache | a changed instruction, or a tool switched on for one Session, is appended, not rewritten into the prefix | G-F32 | ⬜ |
 
@@ -75,7 +75,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ⬜ |
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ⬜ |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ⬜ |
-| Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ⬜ |
+| Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 | Reading large results | how a model greps and filters a spilled result in a pod with no machine; design open | G-F36 | ⬜ |
 
 **Models**
@@ -262,8 +262,6 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 
 // gotato.NewSession(..., gotato.WithExtension(maxTurns(32)))
 ```
-
-**Until large results are spilled,** a Tool Result of any size goes into the Context as it is. Only `MaxMessageBytes` (4 MiB) refuses a Message too large to commit, and it fails the Run ([G-F35](#g-f35--large-tool-results-) replaces that with a preview and a ref).
 
 **Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError`, and it answers three questions, set where the error is made and never guessed by a caller or a transport:
 
@@ -968,12 +966,12 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 - **A large result is spilled** like any other ([G-F35](#g-f35--large-tool-results-)).
 - What the adapter does not build is in [G-N20](#g-n20--mcp-features-gotato-does-not-build).
 
-### G-F35 — Large Tool Results ⬜
+### G-F35 — Large Tool Results ✅
 
-A tool can return far more than a Context should hold, and MCP servers often do. **Gap:** nothing is built; until step 2 of Phase 7 lands, a huge Tool Result goes into the Context as it is, since the core's `MaxToolResultBytes` is gone. A Tool Result over one page is spilled into the Record, and the model reads the rest in pages. Designed on 2026-10-25 ([DESIGNS.md → A large Tool Result is spilled, and read in pages](DESIGNS.md#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)); built in Phase 7, step 2. It replaces `MaxToolResultBytes`, which fails the Run.
+A tool can return far more than a Context should hold, and MCP servers often do. A Tool Result over one page is spilled into the Record, and the model reads the rest in pages. Designed on 2026-10-25 ([DESIGNS.md → A large Tool Result is spilled, and read in pages](DESIGNS.md#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)); built in Phase 7, step 2. It replaced `MaxToolResultBytes`, which failed the Run. `MaxMessageBytes` (4 MiB) still refuses a Message too large to commit, but a text result no longer reaches it, since the spill comes first.
 
-- **A page is 32 KiB of text, about 8K tokens.** A Tool Result whose text is longer is spilled.
-- **It is an Entry of its own.** The full body is appended as a `tool_result_spilled` Entry, and the Tool Result Message that goes in the Transcript holds a preview and a ref, so a rebuild reads the small Message. The Message records the Entry's position.
+- **A page is 32 KiB of text, about 8K tokens** (`gotato.SpillPageBytes`). A Tool Result whose text is longer is spilled; one of exactly a page is not. Only the text counts, and only the text is spilled: an image or a file in the result stays in the Message as it was, and still counts toward `MaxMessageBytes`.
+- **It is an Entry of its own.** The full body is appended as a `tool_result_spilled` Entry, and the Tool Result Message that goes in the Transcript holds a preview and a ref, so a rebuild reads the small Message. The Message records the Entry's position in `ToolResult.Spilled` (`seq`, and `bytes`, the size of the text). The Entry is written before the Message, so a crash in between leaves a log entry nobody points to, and nothing else.
 - **A load does not read a spilled body until it is asked for.** A Session with many large results loads as fast as one with none.
 - **The Context gets a preview and a ref,** `result:<call_id>`:
 
@@ -985,12 +983,14 @@ O-88501,paid,41.20,…
 [Result cut: 412 KiB, 13 pages. Read the rest with read_result(ref="result:call_9a2", page=2).]
 ```
 
-- **The preview is the start of the body,** 2K tokens, the same cut as a long Message in a Segment ([G-F06](#g-f06--compaction-)).
-- **`read_result(ref, page?)` reads it back.** It is a sibling of `read_segment`, not one tool for both, and the two share their paging code: the same page size, `Page 2 of 13` on the first line, a last line that says which call reads the next page, a page past the end that says how many pages there are, and the start and end of the four tags escaped, as in any tool result. It declares `read`, so every Effect cap keeps it. It is offered whenever the Agent has a tool, so the tool list does not change on the Turn a result is first spilled. A ref that names no result of this Session lists the refs that do.
+- **The preview is the start of the body,** 2K tokens (8,000 bytes, `gotato.SpillPreviewBytes`), the same cut as a long Message in a Segment ([G-F06](#g-f06--compaction-)), on a rune boundary. The page count in the last line is the one `read_result` pages by.
+- **`read_result(ref, page?)` reads it back.** It is a sibling of `read_segment`, not one tool for both, and the two share their paging code: the same page size, `Page 2 of 13` on the first line, a last line that says which call reads the next page, a page past the end that says how many pages there are, and the start and end of the four tags escaped, as in any tool result. It declares `read`, so every Effect cap keeps it. It is offered whenever the Agent has a tool, so the tool list does not change on the Turn a result is first spilled. It reads only the spilled results of its own Session: a ref that names none of them, also one of another Session or one that is not a ref, fails as a failed Tool Result that lists the refs the Context holds, and the Run goes on. A ref whose Message a Segment has closed over is still found, by a scan of the log. An Agent with no tool is not offered it.
 - **Why a sibling.** `read_segment` is named in the bytes of every Segment already written, which never change, so its name and its arguments stay. The two read different things, and Phase 9 adds ways to filter a spilled result that a Segment does not need.
-- **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it has read in memory, within its share of the instance's memory, and drops them with the Session. Any instance reads the same body from the Record.
+- **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it wrote or read in memory, and drops them with the Session. Bodies the store holds are dropped oldest first past 16 MiB (`session.DefaultSpillCacheBytes`); a body the store does not hold yet, or a Record with no store, is never dropped. Any instance reads the same body from the Record. A live Session counts its cache apart from the warm-Session limit of Phase 8.
 - **Pruned.** When the team has pruned the Entry, `read_result` says the body was removed, as `read_segment` does.
 - **The spill depends on size alone.** It is made when the result is committed, so every instance builds the same Message from the same Record.
+- **Subscribers and `events` get no body.** A subscriber, the retained window, `gotato events`, the HTTP events and gRPC see `tool_result_spilled` with `call_id`, `tool_id` and `bytes`; the body is only in the stored Entry and comes back with `read_result`.
+- **Only over a Record.** A Session spills when its Transcript keeps Entries (`gotato.SpillKeeper`: a `session.Record` or `session.Writer`). A Session over the plain in-memory Transcript has nowhere to read the body from, and commits the result whole.
 
 ### G-F36 — Reading large results ⬜
 
@@ -1453,7 +1453,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
 | `toolset_activated` | the model switches on a ToolSet; `tool_loaded` and `tool_unloaded` replace it in Phase 7 | Record |
 | `tool_loaded`, `tool_unloaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it; a compaction unloads a tool, with why ([G-F34](#g-f34--tool-search-)); planned with G-F34 | Record |
-| `tool_result_spilled` | a Tool Result over one page is stored in full as an Entry of its own; a load skips it ([G-F35](#g-f35--large-tool-results-)); planned with G-F35 | Record |
+| `tool_result_spilled` | a Tool Result over one page is stored in full as an Entry of its own; a load skips it ([G-F35](#g-f35--large-tool-results-)); subscribers get it without the body | Record |
 
 *Messages into a Session*
 

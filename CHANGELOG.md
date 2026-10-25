@@ -14,13 +14,28 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   |---|---|
   | `CoreLimits.MaxTurns` (32): the 33rd Turn failed the Run with `limit_exceeded` | removed; a team that wants a cap on Turns writes a `TurnStopper` (`ExampleTurnStopper`, [FEATURES.md → G-F01](FEATURES.md#g-f01--agents-and-runs-)) |
   | `CoreLimits.MaxToolCalls` (128): the next call failed the Run with `limit_exceeded` | removed; the same `TurnStopper` counts calls from the `TurnSnapshot` |
-  | `CoreLimits.MaxToolResultBytes` (4 MiB): a larger Tool Result failed the Run with `limit_exceeded` | removed; the result goes into the Context as it is, until large results are spilled (Phase 7, step 2). `MaxMessageBytes` still refuses a Message too large to commit |
+  | `CoreLimits.MaxToolResultBytes` (4 MiB): a larger Tool Result failed the Run with `limit_exceeded` | removed; a result over one page (32 KiB) is spilled into the Record and the Context holds a preview and a ref (*Large Tool Results*, below). `MaxMessageBytes` still refuses a Message too large to commit, but a text result no longer reaches it |
   | `CoreLimits.RunDeadline` (5 minutes) | removed; a Run's deadline in the core is its `ctx` |
   | `gotato.WithDeadlines(run, model, tool)` | `gotato.WithDeadlines(model, tool)` |
   | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
   | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
 
   `MaxMessageBytes`, `ModelCallDeadline`, `ToolCallDeadline` and `MaxActiveToolSets` are unchanged. `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits, so the contract versions stay as they are.
+
+### Large Tool Results
+
+- **A Tool Result over one page is spilled into the Record, and the model reads the rest with `read_result`.** The text of a result longer than 32 KiB (`gotato.SpillPageBytes`, about 8K tokens) is stored in full as a `tool_result_spilled` log Entry, written just before the Tool Result Message. The Message, and so every Context built from it, holds the first 8,000 bytes (about 2K tokens, cut on a rune boundary), the ref `result:<call_id>` and a line that says how to read the rest. `read_result(ref, page?)` is offered to every Agent that has a tool, declares `read`, and pages as `read_segment` does (the paging is now `gotato.Paginate`, shared). A live Record keeps the bodies it wrote or read (stored ones are dropped past 16 MiB, oldest first); a load reads no body. A result of several MiB no longer fails the Run on `MaxMessageBytes`. An image or a file in a result stays in the Message. A Session over a Transcript that is not a `session.Record` or `session.Writer` spills nothing (`gotato.SpillKeeper`).
+
+  | Before | After |
+  |---|---|
+  | a Tool Result over 4 MiB failed the Run (`limit_exceeded`, `MaxMessageBytes`); a smaller one stayed in every request | the text past 32 KiB is spilled; the Message holds a preview and `result:<call_id>` |
+  | `ToolResult` had no `spilled` field | `ToolResult.Spilled` (`{"seq","bytes"}`, omitted when empty) in every Message JSON: HTTP, gRPC `message_json`, `session show --json` |
+  | no `tool_result_spilled` Event | `tool_result_spilled` (`call_id`, `tool_id`, `bytes`, and `body` in the stored Entry only): `gotato events`, HTTP events and the Go feed carry it without `body`; gRPC `Event` gains `tool_result_spilled = 54` (`ToolResultSpilled`), an addition |
+  | an Agent's tool list was its tools (and `read_segment` once it had a Segment) | adds `read_result` whenever the Agent has a tool, in `tools list --session`, `context inspect` and every request; `service.Runner.Tools` lists it |
+  | `FileStore.Log(after)` opened every write of the Record | it skips the files that end at or before `after` |
+  | the demo model answered `use-tool` only | also `use-big-tool`, which returns a result over one page |
+
+  The `storetest` suite gains a check that a log Entry of a megabyte is kept whole, read at its position, and not loaded; every `session.Store` adapter must pass it. The contract versions stay as they are, since every change here is an addition.
 
 ### Errors
 

@@ -24,6 +24,9 @@
 // pass it, MergeSegments merges the oldest into the one merged Segment that
 // opens the Context, and ReadSegmentTool (SegmentTools, as a ToolSource) lets
 // the model read any Segment back, a merged one's originals included.
+// ReadResultTool (ResultTools) is its sibling for a Tool Result that was
+// spilled into the Record: the Context holds a preview and a ref, and the model
+// reads the rest page by page, with the paging of read_segment.
 //
 //	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
 //	live, _ := gotato.NewSession(

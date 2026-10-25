@@ -118,6 +118,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | Session Record as an append-only log, every step written as it happens, `session.Store` (memory, file) and its conformance suite (`testkit/storetest`), fork | done |
 | Context: full history, static blocks, compaction, inspection | done, with Segments built by code, a Recap the model writes (off by default), and compaction before any model call, past the ceiling and on an overflow, `read_segment` to read a Segment back, and the oldest Segments merged when they pass their budget; compaction before the cache goes cold is planned (G-F06) |
 | Tool contract, Tool Registry, staged `ToolSet` | done |
+| Large Tool Results | done: a result over one page (32 KiB) is spilled into the Record, the Context holds a preview and a ref, and `read_result` reads the rest page by page (G-F35) |
 | Events and streaming | done: a Go type for each kind of Event, the Record as the Event log, written before sent, Subscriptions a Session never waits for (a Run's, a Session's from any number, an Instance's), streamed reasoning, and Claim Events. With gaps: the message Events come from a live Session in the Go API, and through the Runner and the endpoints with the warm Session. The Session's stream is served on HTTP and gRPC, and resumes on any instance from the last number seen, with the Record's epoch |
 | Providers: OpenAI Chat Completions and Responses, Anthropic Messages | done |
 | Service: Runner, HTTP, gRPC, admission | done |
@@ -126,7 +127,7 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | One writer per Session across instances | done: the activation limit, the `session-id` header, stream resume on any instance, and a multi-instance harness behind a hashing proxy |
 | Tool effect classification (`ToolSpec.Effect`), and an Effect cap per Agent (`WithMaxEffect`) | done |
 | Measurement: the reference workload, the live run (`gotato-workload`), fault injection and a multi-instance harness | done |
-| Tool search, the MCP adapter (`adapter/mcp`), large Tool Results spilled into the Record | planned (Phase 7) |
+| Tool search, the MCP adapter (`adapter/mcp`) | planned (Phase 7) |
 | Provider rate-limit information | later |
 
 [FEATURES.md](FEATURES.md) is the authoritative inventory.
