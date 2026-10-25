@@ -165,7 +165,7 @@ Exit:
 - ✅ A user Message, a Tool Result, a Recap and a kept assistant reply that hold the start or the end of one of the four tags, `<notice>`, `<segment>`, `<tool_calls>` and `<recap>`, reach the model escaped.
 - ✅ G-G07 and G-G09 pass across Runs, reloads, instances and compactions (the `long_session` play, with and without the model's Recap, merges included), and G-G11 passes for every fault it lists.
 - ✅ G-G10 passes on the `long_session` task.
-- ⬜ G-B14, G-B15 and G-B16 have a number. G-B14's sizes and G-B16's tokens have one, from the fake model; the costs and times need a live run, and G-B15 needs the idle compaction, which waits for the warm Session (Phase 8), and a provider's cache.
+- ⬜ G-B14, G-B15 and G-B16 have a number. G-B14's sizes and G-B16's tokens have one, from the fake model; the costs and times need a live run, and G-B15 needs a provider's cache: the idle compaction it measures is built with the warm Session (Phase 8, step 1).
 - ✅ The payments check of G-E01 ships, for a team to run on its own gateway, and the Recap written by the model stays off by default.
 
 ## Phase 7 — MCP and tool search
@@ -191,7 +191,7 @@ Exit:
 
 A Session stays in memory while it is in use, so a Run in progress can be steered from any endpoint, and the runtime can tell the model facts that are not the user's words. The store stays the truth, and a warm copy is a cache, never a lock. Designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-) and [G-F26](FEATURES.md#g-f26--steering-a-run-)). The steps build on one another, in this order:
 
-- ⬜ Step 1, the lifecycle: after a Run the live Session stays in memory, and leaves after its TTL (60 idle minutes, per Agent). Before each Run on a warm copy the instance compares the Record's head in the store with the copy's: unchanged, it uses the copy; changed, it reloads. The copy holds no Claim while idle, so another instance can take the Session over, and the old copy is dropped. A warm Session that idles is compacted by default shortly before its prompt cache expires or it leaves memory, by its own timer, with the same compaction a service's timer calls in Phase 6; a message that arrives cancels it and is served first. A setting turns the idle compaction off.
+- ✅ Step 1, the lifecycle: after a Run the Session stays in memory, and leaves after its TTL (60 idle minutes, per Agent). Before each Run on a warm copy the instance compares the Record's head in the store with the copy's: unchanged, it uses the copy; changed, it reloads. The copy holds no Claim while idle, so another instance can take the Session over, and the old copy is dropped. A warm Session that idles is compacted by default shortly before its prompt cache expires or it leaves memory, by its own timer, with the same compaction a service's timer calls in Phase 6; a message that arrives cancels it and is served first. A setting turns the idle compaction off. What stays warm in this step is the Session's Record and its Writer, held by the Runner, which takes a clock as a setting so that tests wait for no TTL. The Runner still builds a live `gotato.Session` over the copy for each Run, since nothing reaches a Session between Runs before step 3.
 - ⬜ Step 2, the memory limit: warm Sessions count toward `MaxActiveSessions`. At the limit the instance evicts the longest-idle warm Session first, and refuses a Run as not run (`overloaded`) only when every live Session is running a Run.
 - ⬜ Step 3, messages from any endpoint: Steer, FollowUp, Interrupt, Stop and notices reach a running Session through the Go API (`Runner`), HTTP, gRPC and the CLI, each taking effect in the writer's own process, and a message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap. It comes with:
   - the load balancer's hash first, and, for a caller that cannot route by Session, an advertised address in each instance's Liveness row (a setting, optional) and a new error, `not_writer`, marked not run and retryable, that names the writer's address when a message reaches another instance during a Run;
@@ -199,19 +199,19 @@ A Session stays in memory while it is in use, so a Run in progress can be steere
   - the message Events (`message_queued`, `message_committed`, `message_dropped`, `message_withdrawn`, `message_rejected` and `abort_requested`) reaching the Runner and every endpoint with the queue that holds those messages. Phase 5 built their types, and emits them where the Go API already queues messages.
 - ⬜ Step 4, runtime notices (G-F29), designed on 2026-10-18: a notice is a Message of its own kind, waits in the queue that holds a Steer, and goes in right before the next model call. The output-limit continuation becomes a notice, and a service sends its own through `Runner.Notice`, HTTP, gRPC and the CLI. A `time_away` notice joins them: a message that starts a Run after the Session was idle longer than a threshold (30 minutes by default, per Agent) is followed by how long it has been and the current time.
 - ⬜ The tags reach each wire API in its default native form, which the gateway configuration can override, with tagged text as the fallback for every model; a notice from the service stays inside a Segment word for word. This waits for runtime notices, and for changes that keep the cache (G-F32).
-- `gotato.Session`, which Phase 3 named, grows its saving and its TTL. Its name does not change.
+- `gotato.Session`, which Phase 3 named, keeps its name. The warm copy, its TTL and its timers belong to the Runner, because they need the store's head and a clock; the live Session grows what step 3 needs, its queue held between Runs.
 
 Exit:
 
-- G-G08 passes with messages that arrive mid-Run.
-- A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript.
-- A test sends a message for a Run to an instance that is not its writer, and gets `not_writer`, marked not run and retryable, with the writer's advertised address; with forwarding on, the endpoint sends it to that address and the Run takes it. With no Run going, the same instance takes the Session over and starts a new Run.
-- A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API in its own form.
-- A test brings a message to a Session idle longer than the threshold, and checks that a `time_away` notice with the elapsed time and the current time follows it, and that a message inside the threshold gets none.
-- A test on a fake model lets a warm Session idle, and checks that it is compacted before its cache expires and leaves memory at its TTL.
-- A test writes a warm Session's Record from another instance, and checks that the first instance, at its next Run, finds the head changed, reloads, and runs on the new Record.
-- A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
-- G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
+- ⬜ G-G08 passes with messages that arrive mid-Run.
+- ⬜ A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript.
+- ⬜ A test sends a message for a Run to an instance that is not its writer, and gets `not_writer`, marked not run and retryable, with the writer's advertised address; with forwarding on, the endpoint sends it to that address and the Run takes it. With no Run going, the same instance takes the Session over and starts a new Run.
+- ⬜ A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API in its own form.
+- ⬜ A test brings a message to a Session idle longer than the threshold, and checks that a `time_away` notice with the elapsed time and the current time follows it, and that a message inside the threshold gets none.
+- ✅ A test on a fake model lets a warm Session idle, and checks that it is compacted before its cache expires and leaves memory at its TTL.
+- ✅ A test writes a warm Session's Record from another instance, and checks that the first instance, at its next Run, finds the head changed, reloads, and runs on the new Record.
+- ⬜ A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
+- ✅ G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
 ## Phase 9 — Reading large results
 

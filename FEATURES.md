@@ -49,7 +49,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Segments in the Record | a Segment is stored once, as an entry of its own; a Checkpoint lists the Segments it uses and the kept tail; every Message carries the Run that committed it | G-F06 | ✅ |
 | Closing Segments | each compaction closes the history since the last one into a Segment that is never rewritten: the conversation word for word and a line per tool call, built by code (built), and a Recap the Agent's model writes (step 2, built, off by default) | G-F06 | 🚧 |
 | Compaction before a model call | the `TurnPreparer` hook, called before every model call, gives compaction the chance to run | G-F06 | ✅ |
-| Compaction before the cache goes cold | an idle Session is compacted shortly before its prompt cache expires | G-F06 | ⬜ |
+| Compaction before the cache goes cold | an idle Session is compacted shortly before its prompt cache expires | G-F06 | ✅ |
 | Compaction at the window | before any model call past the ceiling, mid-Run included, and once when the provider refuses a request as too long; a Turn compacts at most once | G-F06 | ✅ |
 | Reading a Segment back | `read_segment`, a built-in tool the model gets once a Session has a Segment, returns a Segment's Messages from the Record, tool results included, page by page | G-F06 | ✅ |
 | Reading a spilled Tool Result back | `read_result` returns a spilled result page by page, with the paging of `read_segment` | G-F35 | ⬜ |
@@ -122,7 +122,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Any instance answers | an idle Session moves to whichever instance a request reaches; a busy one is waited for, then refused with 409 | G-F27 | ✅ |
 | Load balancer setup | the endpoints read `session-id` and answer with it; hash on it, retry a 503 marked "not run" once, follow `/readyz` | G-F27 | ✅ |
 | Activation limit | past a hard limit on its active Sessions, an instance refuses a new one with a 503 marked "not run" | G-F27 | ✅ |
-| Warm Session and TTL | after a Run the live Session stays in memory as a cache, never a lock, and leaves after 60 idle minutes unless its Agent sets another TTL; its own timer compacts it before its cache goes cold | G-F27 | ⬜ |
+| Warm Session and TTL | after a Run the Session stays in memory as a cache, never a lock, and leaves after 60 idle minutes unless its Agent sets another TTL; its own timer compacts it before its cache goes cold | G-F27 | ✅ |
 | Memory limit | warm Sessions count toward `MaxActiveSessions`; at the limit the longest-idle warm Session is evicted first, and a Run is refused only when every live Session is running | G-F27 | ⬜ |
 | A message for a Run on another instance | answered `not_writer`, not run and retryable, with the writer's advertised address; HTTP and gRPC can forward it when you opt in | G-F27 | ⬜ |
 | Prompt cache retention | the provider's longest cache retention, set per model or for all of them | G-F33 | ✅ |
@@ -303,7 +303,7 @@ case err != nil && gotato.Retryable(err):
 
 #### The live Session is `gotato.Session`, and its record is `session.Record` — 2026-10-16
 
-The object a caller builds and talks to already has what the glossary gives a Session: an ID, a Status and its state machine, a queue for Steer and FollowUp, a Transcript, a `ContextBuilder` and its tools. It lacks only saving itself and a TTL, which Phase 8 adds. So it takes the name Session, and the stored record takes the name Record.
+The object a caller builds and talks to already has what the glossary gives a Session: an ID, a Status and its state machine, a queue for Steer and FollowUp, a Transcript, a `ContextBuilder` and its tools. It lacks only a warm life between Runs, which Phase 8 gives its Record in the Runner. So it takes the name Session, and the stored record takes the name Record.
 
 | Option | For | Against |
 |---|---|---|
@@ -315,7 +315,7 @@ Three choices come with it:
 
 - **One concrete type, no interfaces.** `gotato.NewSession` returns a `*Session`. There is one implementation, and no caller implements the interfaces the old type was split into, so they go. A caller that wants a fake defines its own small interface, as Go code usually does.
 - **One ID.** A live Session's ID is its Session ID: it comes from its record, or is generated when there is none. Every Event carries it as `session_id`.
-- **Today a live Session lives for one Run.** The Runner builds one from the record, runs it and closes it, so it behaves like a Session whose TTL is zero, and the store stays the truth. Phase 8 keeps it warm, as a cache the store can always replace ([G-F27](#g-f27--service-many-instances-)).
+- **A live Session lives for one Run, for now.** The Runner builds one from the Record, runs it and closes it. What stays in memory between Runs is the Record and its Writer, a cache the store can always replace ([G-F27](#g-f27--service-many-instances-)); the live Session itself stays warm when messages reach it between Runs (Phase 8, step 3).
 
 ### G-F26 — Steering a Run 🚧
 
@@ -561,7 +561,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetActiveToolSets` while the unit is a ToolSet), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
 - **A Message carries the Run** that committed it (`Message.RunID`), so a Segment groups Messages by Run (*What a Segment keeps*, below).
 
-**Gap:** nothing compacts an idle Session. Everything below was designed on 2026-10-19, and it is built before the warm Session in four steps ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)); all four are built, and the idle trigger waits for the warm Session. Until it has an idle timer, a service compacts its idle Sessions itself (*Who compacts*, below).
+**Gap:** none for compaction itself. Everything below was designed on 2026-10-19, and it was built before the warm Session in four steps ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)); the idle trigger came with the warm Session ([Phase 8](ROADMAP.md#phase-8--warm-session), step 1). What is not measured is G-B15, which needs a provider's cache.
 
 **Segments.** Each compaction closes what came since the last Checkpoint into a Segment, a stretch of history that is never rewritten, and appends it after the Segments before it:
 
@@ -698,10 +698,10 @@ first heading.
 | Overflow | the provider refuses a request as too long, before any output | `overflow` |
 | On demand | `gotato context compact`, `POST /v1/sessions/{id}/compact`, gRPC `Compact` and `Runner.Compact` | `on_demand` |
 
-- **Idle.** The cache is still warm, so the Recap's request reads it, and a user who comes back later pays full price only for the smaller Context. The cache retention is the one the gateway configuration sets ([G-F33](#g-f33--prompt-cache-retention-)). When it is unknown, as for an unrecognized provider, which is sent none, or not well above the 5-minute lead, as with `cache_retention: 5m`, the trigger uses the TTL alone: a retention of 5 minutes less the lead is 0, and the Session would be compacted the moment a Run ends, so a user who answers a minute later would pay to write a new prefix instead of reading a warm one. The compaction then runs before the Session leaves memory (`before_unload`). How much above the lead counts as well above is set with the lead when it is built. Five minutes ahead, because a compaction can take a minute or more.
+- **Idle.** The cache is still warm, so the Recap's request reads it, and a user who comes back later pays full price only for the smaller Context. The cache retention is the one the gateway configuration sets ([G-F33](#g-f33--prompt-cache-retention-)). When it is unknown, as for an unrecognized provider, which is sent none, or not well above the 5-minute lead, as with `cache_retention: 5m`, the trigger uses the TTL alone: a retention of 5 minutes less the lead is 0, and the Session would be compacted the moment a Run ends, so a user who answers a minute later would pay to write a new prefix instead of reading a warm one. The compaction then runs before the Session leaves memory (`before_unload`). The retention counts as well above the lead when it is at least twice the lead, 10 minutes with the default lead. The lead is at most half the TTL, so a short TTL does not compact a Session right after its Run. Five minutes ahead, because a compaction can take a minute or more.
 - **The smallest stretch.** Below 20K tokens an idle Session is not compacted, which saves a model call: if a user comes back 30 to 50 percent of the time, a compaction pays for itself from 10K to 17K tokens. That return rate is an assumption, tuned once real numbers are in.
-- **Who compacts.** The instance that holds the warm Session, on the Session's own timer, which fires at the idle lead ([G-F27](#g-f27--service-many-instances-)). It is the same compaction a service's own timer calls before the warm Session (below). A message that arrives meanwhile cancels the compaction and is served first, while the cache is still warm. If that instance goes away first, as in a deploy, or evicts the Session at its memory limit, the stretch waits for the next idle time or the ceiling.
-- **Before the warm Session.** Until the warm Session has its timer ([ROADMAP.md → Phase 8](ROADMAP.md#phase-8--warm-session)), the service runs the idle trigger itself: its own timer calls the compact endpoint for a Session shortly before the provider's cache expires, and sets `min_tokens` to the smallest stretch worth compacting. Any instance can serve the call, because a compaction claims the Session first, and a Session in a Run answers that it is busy. Such a compaction is recorded as `on_demand`. The warm Session's own timer then calls the same compaction, and records it as `before_cache_expires` or `before_unload`.
+- **Who compacts.** The instance that holds the warm Session, on the Session's own timer, which fires at the idle lead ([G-F27](#g-f27--service-many-instances-)). It is the same compaction a service's own timer calls (below), with the same `min_tokens`: a stretch below it is skipped with no write at all, not even a Claim. The timer claims the Session only for a stretch worth compacting, after it finds the copy current. A message that arrives meanwhile cancels the compaction and is served first, while the cache is still warm, also when the queue policy rejects a Run on a busy Session. If that instance goes away first, as in a deploy, or evicts the Session at its memory limit, the stretch waits for the next idle time or the ceiling. A compaction runs once per idle stretch. One that cannot be written stays local: the copy is ahead of the store, so it is dropped (`session_unloaded` with `failed`), and the next Run loads the Session again.
+- **A service's own timer.** A service that keeps its own timer, or runs the idle trigger for Sessions that are not warm on any instance, calls the compact endpoint for a Session shortly before the provider's cache expires, and sets `min_tokens` to the smallest stretch worth compacting. Any instance can serve the call, because a compaction claims the Session first, and a Session in a Run answers that it is busy. Such a compaction is recorded as `on_demand`. The warm Session's own timer calls the same compaction, and records it as `before_cache_expires` or `before_unload`. A compaction that the endpoint makes on a warm copy uses the copy and leaves it warm.
 - **`min_tokens`.** The compact endpoints take `min_tokens` (`CompactOptions.MinTokens`, `{"min_tokens":N}`, `--min-tokens N`): a stretch since the last Checkpoint estimated below it is not compacted, and the answer says so. The default, 0, always compacts.
 - **Past the ceiling.** The size is the input and output tokens the last model call reported, plus an estimate of what came after it (bytes ÷ 4). After a compaction, the old usage no longer counts (the Messages it keeps carry none) and the size is estimated afresh, from the Messages and the instruction and tools of the request, so a compaction does not set off another at once. The ceiling is the window less max(10% of it, 16K tokens): 180K for a 200K window, and always at least 16K for a reply and a Recap. The window is the model's `context_window` in the gateway configuration ([G-F07](#g-f07--models-and-providers-)); without it there is no default ceiling, and this trigger is off unless the Agent or the Session sets one. Segments are still merged at their default budget. A ceiling set without a window is used as it is, since the room left for a reply and a Recap cannot be known. A window too small to leave a reserve gives no ceiling.
 - **Mid-Run.** The cut falls between two Turns, so a tool call never leaves its result. The Run's latest Turns stay in the kept tail, tool results included, with reasoning as [DESIGNS.md → Reasoning](DESIGNS.md#reasoning-goes-back-for-the-current-round-where-the-provider-allows-it--2026-10-18) says, checked against Claude and OpenAI (below), up to 20K tokens and no more than a quarter of the window, or of the ceiling when no window is known. The tail always holds at least the latest Turn, whatever it weighs, because the call that follows continues from it. Before the first call of a Run, the Run that is starting does not count as the latest: the Run before it stays in the tail as it was, and the new prompt follows it. The Run's prompt stays word for word in the Segment, which has no final reply yet, and the Recap says where the Run stands: the step it is on and the next one.
@@ -776,11 +776,11 @@ tail          Turns 27–30 as they were, tool calls and results included
 
 | Setting | Default | Why |
 |---|---|---|
-| idle compaction | on | a Session that comes back after a long pause starts cold anyway |
+| idle compaction (`WarmPolicy.NoIdleCompaction`, `--no-idle-compaction`) | on | a Session that comes back after a long pause starts cold anyway |
 | compaction past the ceiling | on when the window is known | a Run that outgrows the window cannot go on |
 | ceiling | the window less max(10% of it, 16K tokens); the Agent's ceiling and `gotato.compact_ceiling` override it | room for a reply and a Recap |
-| idle lead | 5 minutes before min(TTL, cache retention); before the TTL alone when the retention is unknown or not well above the lead | a compaction can take a minute or more, and its Recap should read a warm cache |
-| smallest stretch to compact when idle | 20K tokens | below it, the model call costs more than it saves |
+| idle lead (`WarmPolicy.IdleLead`) | 5 minutes before min(TTL, cache retention); before the TTL alone when the retention is unknown or not well above the lead; at most half the TTL | a compaction can take a minute or more, and its Recap should read a warm cache |
+| smallest stretch to compact when idle (`WarmPolicy.IdleMinTokens`) | 20K tokens | below it, the model call costs more than it saves |
 | kept tail | the latest Run's Turns, up to 20K tokens and at most a quarter of the window, or of the ceiling when no window is known; `keep` and `Floor` override it | a Run goes on, and a user comes back, to its latest Turns as they were |
 | Recap output limit | 8K tokens | a Recap cut off fails, and output not used costs nothing |
 | Segments' budget | half the ceiling; with no ceiling, 32K tokens (`modelctx.DefaultSegmentsBudget`); `CompactPolicy.SegmentBudget` overrides | the oldest Segments are merged when the Segments pass it, and on an overflow, so a long Session is safe by default and leaves room for the conversation that follows. 32K tokens is a quarter of a 128K window: the far past stays small, and a Session merges rarely (once in the 2,000 Turns of `long_session`) |
@@ -1193,7 +1193,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 | Any instance answers | ✅ | an instance that is not the writer takes over a Session that is idle, or whose writer is gone, and loads its facts from the last Checkpoint. For a Session its live writer is using, draining or not, it waits, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
 | Activation limit | ✅ | past `MaxActiveSessions`, an instance refuses a Run that would activate another Session with a 503 marked "not run" (gRPC: `UNAVAILABLE` with a trailer), emits `run_rejected` with the reason `activation_limit`, and loads, claims and creates nothing, so the load balancer can retry it elsewhere. Off by default. Spreading load stays the load balancer's and the autoscaler's job. |
 | Advertised address | ⬜ | an instance can advertise an address in its Liveness row, so `not_writer` can name where the writer is. Optional. |
-| Warm Session and TTL | ⬜ | after a Run the live Session stays in memory, and leaves it after 60 idle minutes unless its Agent sets another TTL. The warm copy is a cache, never a lock: it holds no Claim while idle, and the store stays the truth. While it idles, its own timer compacts it shortly before its prompt cache expires or it leaves, whichever comes first, unless a setting turns this off ([G-F06](#g-f06--compaction-)). |
+| Warm Session and TTL | ✅ | after a Run the Session stays in memory, and leaves it after 60 idle minutes unless its Agent sets another TTL (`service.Agent.Warm`, `--warm-ttl`). The warm copy is a cache, never a lock: it holds no Claim while idle, and the store stays the truth. While it idles, its own timer compacts it shortly before its prompt cache expires or it leaves, whichever comes first, unless a setting turns this off (`--no-idle-compaction`; [G-F06](#g-f06--compaction-)). |
 | Memory limit | ⬜ | warm Sessions count toward `MaxActiveSessions`. At the limit, the instance evicts the longest-idle warm Session first and refuses a Run (`overloaded`, not run) only when every live Session is running a Run. |
 | A message for a Run on another instance | ⬜ | an instance that is not the writer answers `not_writer`, not run and retryable, with the writer's advertised address ([G-F26](#g-f26--steering-a-run-)). HTTP and gRPC can forward it when you opt in. |
 
@@ -1216,7 +1216,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 - Planned: the row carries the instance's count of live Sessions, as a load signal.
 - **Planned: the row carries an address the instance advertises.** It is a setting, and optional. It is where a caller can reach this instance's own HTTP or gRPC endpoint, and the only thing about another instance that Gotato reads: `not_writer` takes the writer's address from the row its Claim names ([G-F26](#g-f26--steering-a-run-)). Gotato does not connect to it, discover it or check it. The row is timed by the store's clock like the rest, so a dead instance's address lapses with it.
 
-**The warm Session (planned).** Today the Runner builds a live Session for each Run and closes it. With the warm Session, the live `gotato.Session` stays in memory after its Run, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)):
+**The warm Session.** After a Run, the Session's Record and the Writer that wrote it stay in memory, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). The Runner still builds a live `gotato.Session` over the copy for each Run; the live Session's queue stays warm when messages reach it between Runs (step 3 of [Phase 8](ROADMAP.md#phase-8--warm-session)):
 
 ```text
 Run ends ──► warm and idle, holding no Claim ──► idle lead: compaction ──► TTL ends: leaves memory
@@ -1225,11 +1225,12 @@ Run ends ──► warm and idle, holding no Claim ──► idle lead: compacti
 ```
 
 - **A cache, never a lock.** An idle warm copy holds no Claim. Another instance can take the Session over as it does today, and the old copy is dropped.
-- **A head check before each Run.** On a warm copy, the instance compares the Record's head in the store with the copy's. Unchanged, it uses the copy. Changed, it reloads from the last Checkpoint. A race between the check and the Claim is settled by the Claim's write, which takes the next position only when the head is still the one the copy holds, and checks the Record's epoch as every append does.
-- **The TTL.** An idle Session leaves memory after 60 minutes by default, and an Agent can set another. The clock starts when a Run ends and starts again with the next one.
-- **Idle compaction.** The Session's own timer fires at the idle lead ([G-F06](#g-f06--compaction-)) and calls the same compaction that a service's own timer calls before the warm Session. A message that arrives cancels it, and is served first, while the cache is still warm.
-- **What stays warm is cheap.** The copy holds its Transcript, its queue and its tools; model clients and connections belong to the instance ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)). Dropping it loses nothing.
-- **Leaving memory is an Event.** `session_unloaded` says why: the TTL ended, the Session was evicted at the memory limit, or another instance took it over.
+- **A head check before each Run.** On a warm copy, the instance compares the Record's head in the store with the copy's: it reads the Entries after the copy's head (`Writer.Stale`), which is nothing for a copy that is current, so the check costs one small read and no load. Unchanged, it claims the Session again with the Epoch it held and runs on the copy: a Run on a warm copy sends no `session_loaded`. Changed, it drops the copy and loads from the last Checkpoint; a Record that was deleted, or created again, is changed too. A race between the check and the Claim is settled by the Claim's write (`Writer.Resume`), which takes the next position only when the head is still the one the copy holds, and checks the Record's epoch as every append does; a write that loses the race loads the Session. A claim that fails for another reason is the Run's failure, as for a Session that was never warm.
+- **The TTL.** An idle Session leaves memory after 60 minutes by default, and an Agent can set another (`WarmPolicy.TTL`; a negative TTL keeps no Session warm, so each Run loads it as before). The clock starts when a Run ends and starts again with the next one. It is the Runner's clock (`Config.Clock`), which a test replaces, so no test waits for a TTL.
+- **Idle compaction.** The Session's own timer fires at the idle lead ([G-F06](#g-f06--compaction-)) and calls the same compaction that a service's own timer calls. A message that arrives cancels it, and is served first, while the cache is still warm.
+- **What stays warm is cheap.** The copy holds the Record and its Writer; model clients and connections belong to the instance ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)). Dropping it loses nothing. The heap it holds is measured in G-B08.
+- **Other operations use the copy too.** The compact endpoint and a Tool's activation change take the Session lock, use the copy when it is current, and leave it warm. Deleting a Session drops its copy.
+- **Leaving memory is an Event.** `session_unloaded` says why: `ttl`, the TTL ended; `taken_over`, another instance wrote the Record or deleted it; `deleted`, this instance deleted the Session; `drain` or `closed`, the Runner let every copy go; `failed`, a write of the copy failed and it was dropped; `liveness_lapsed`, this instance could not show its Liveness row. The Session evicted at the memory limit says `evicted` when step 2 is built.
 
 **A request that reaches an instance that is not the writer.** The instance looks at the Claim:
 
@@ -1265,8 +1266,8 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 - A request the draining instance refuses gets `ErrDraining`, code `draining`, which says it did not run and may succeed elsewhere: 503 with `Gotato-Not-Run: true` over HTTP, `UNAVAILABLE` with the trailer `gotato-not-run: true` over gRPC. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
 - A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
 - A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
-- Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 8](ROADMAP.md#phase-8--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
-- A warm Session that idles holds no Claim, so a drain has nothing to release for it: it drops the copy, and the store keeps everything.
+- Today each Run has its own stream. When messages reach a live Session between Runs ([ROADMAP.md → Phase 8](ROADMAP.md#phase-8--warm-session), step 3), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
+- A warm Session that idles holds no Claim, so a drain has nothing to release for it: once the Runs have settled it drops every copy (`session_unloaded` with `drain`), and the store keeps everything. A Run that ends during a drain keeps no copy.
 
 **Activation limit.** An instance counts the Sessions it has activated: those that a Run holds or waits for, each once. `Admission.MaxActiveSessions` (`--max-sessions`) is the hard limit on that count; zero, the default, has none.
 
@@ -1312,12 +1313,13 @@ Settings, on `service.Config` or `gotato serve`:
 | Liveness TTL (`Config.Liveness.TTL`, service only) | 10 seconds | long enough to ride out a slow store; a dead instance's Sessions wait this long before another instance takes them over |
 | Liveness wait (`Config.Liveness.Wait`, service only) | 5 seconds | a request for a Session that runs elsewhere waits this long for it before a 409 |
 | activation limit (`Admission.MaxActiveSessions`, `--max-sessions`) | 0, no limit | the team sizes its own instances; past the limit a new Session goes to another instance |
-| TTL of a warm Session (per Agent) | 60 minutes | memory is a cache, so an idle Session gives it back; the store keeps the conversation |
+| TTL of a warm Session (`WarmPolicy.TTL` of an Agent, `--warm-ttl`) | 60 minutes | memory is a cache, so an idle Session gives it back; the store keeps the conversation |
+| clock of the warm Session (`Config.Clock`, service only) | the system clock | a test advances its own, so no test waits for a TTL |
 | advertised address (service only; name settled when built) | none | optional; without it `not_writer` says the writer is elsewhere and names no address |
 | forward a `not_writer` message (HTTP and gRPC only; name settled when built) | off | forwarding sends a request to another instance, so a team turns it on; an embedding service forwards with its own client |
 | stream look (`Config.StreamPoll`, service only) | 1 second | how often an idle Session stream looks in the store for Events that another instance wrote, at the cost of one `Log` read per stream per look; negative turns it off |
 
-`gotato-grpc` takes `--max-runs` and `--max-sessions` but not `--queue` or `--drain-timeout`, so its busy policy is always `reject`.
+`gotato-grpc` takes `--max-runs`, `--max-sessions`, `--warm-ttl` and `--no-idle-compaction` but not `--queue` or `--drain-timeout`, so its busy policy is always `reject`.
 
 ### G-F33 — Prompt cache retention ✅
 
@@ -1481,14 +1483,14 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `metadata_changed` | a setting in the Session's metadata changes, such as its instruction, its model or its Agent | Record |
 | `compaction_started`, `compaction_ended`, `compaction_failed` | a compaction starts, appends its Checkpoint, or fails, with why it ran: on demand or past the ceiling. With G-F06's Segments, also before the cache expires (`before_cache_expires`), before the Session leaves memory (`before_unload`), after the provider refused a request as too long (`overflow`), or because the Segments passed their budget at the start of a Run (`past_budget`). A merge of the oldest Segments is a compaction of its own, with the same `why` as the compaction it follows | Record |
 | `segment_closed` | a compaction closes a Segment: its data and rendered Messages, written once, before the Checkpoint that lists it ([G-F06](#g-f06--compaction-)) | Record |
-| `session_unloaded` | the Session leaves this Instance's memory, with why: its TTL ended, it was evicted at the memory limit, or another Instance took it over (planned with the warm Session, [G-F27](#g-f27--service-many-instances-)). A live Session in the Go API sends it when it closes | Instance |
+| `session_unloaded` | the Session leaves this Instance's memory, with why: `ttl`, its time in memory ended; `taken_over`, another Instance wrote the Record, so the copy was out of date; `deleted`; `drain` or `closed`; `failed`, a write of the copy failed; `liveness_lapsed`; and `evicted`, at the memory limit (planned, [G-F27](#g-f27--service-many-instances-)). A live Session in the Go API sends `close` when it closes | Instance |
 | `session_deleted` | the Session's Record is deleted | Instance |
 
 *The store and extensions*
 
 | Event | When | Kept |
 |---|---|---|
-| `session_loaded`, `session_saved` | how long the store took to load the Session, and to write a Run's steps | Instance |
+| `session_loaded`, `session_saved` | how long the store took to load the Session, and to write a Run's steps. A Run on a warm copy loads nothing and sends no `session_loaded`; its `session_saved` counts that Run's writes alone, its Claim included | Instance |
 | `store_write_failed` | a write failed, for another reason than a taken position | Instance |
 | `extension_failed` | an advisory extension failed, and the Run went on | Record |
 | `events_skipped` | an Instance's stream fell behind and skipped Events; it says how many | Instance |
@@ -1521,7 +1523,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
 - today's names, such as `run_start`, renamed `run_started`, `message_update`, renamed `text_delta`, and `tool_execution_end`, renamed `tool_ended`.
 
-**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until messages reach a Run from any endpoint (Phase 8). `message_withdrawn` has no way to happen before that, and `session_unloaded` comes only from a live Session that closes, until the warm Session leaves memory at its TTL or is evicted.
+**Gap:** the Runner and the endpoints do not take a Steer, a FollowUp or an Interrupt yet, so the message Events come only from a live Session in the Go API until messages reach a Run from any endpoint (Phase 8, step 3). `message_withdrawn` has no way to happen before that. `session_unloaded` comes from the Runner when a warm copy leaves memory, with every reason but `evicted`, which comes with the memory limit (step 2).
 
 ### G-F15 — Extensions ✅
 
@@ -1658,7 +1660,7 @@ Each feature above says what happens when its part fails. This table collects th
 | The writer loses its liveness | it writes nothing more, so it never calls the model; draining itself is planned | G-F27 |
 | A write's outcome is unknown | the writer stops, and the Session is opened again from the store, which shows whether the write landed | G-F27 |
 | A request reaches an instance that is not the writer | an idle Session is taken over; a busy one is waited for, then refused with 409; a message for a Run going on the writer is answered `not_writer`, not run, with the writer's address (planned) | G-F27, G-F26 |
-| A warm copy is stale because another instance wrote the Record | the head differs from the copy's, so the instance reloads from the store before the Run, and the old copy is dropped (planned) | G-F27 |
+| A warm copy is stale because another instance wrote the Record | the head differs from the copy's, so the instance reloads from the store before the Run, and the old copy is dropped | G-F27 |
 | An instance is full | it evicts its longest-idle warm Session first (planned); when every live Session is running, it refuses to activate a new one, with a 503 marked "not run" | G-F27 |
 | A stream is cut | the client reconnects through the load balancer with the number of the last Event it saw; the stream goes on from the Record. If the Record is not the one it saw, or the number is past its end, the answer is 409 `cannot_resume` and the client starts over | G-F14 |
 

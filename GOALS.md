@@ -222,7 +222,7 @@ Loading a Session from the store before its Turn.
 - **Serves:** [The store is the only truth](DESIGNS.md#1-the-store-is-the-only-truth)
 - **Compared with:** the model's own response time, as a share
 - **Method:** reference workload, with 10, 100 and 1,000 messages
-- **Last measured:** A load reads the facts from the last Checkpoint. From a file store: 0.18 ms with 10 messages, 0.25 ms with 100, 0.82 ms with 1,000, against 0.10, 0.39 and 1.36 ms for the whole document before, in the same measurement; under 0.1% of the model's 2–6 s per Turn in the live run. 2026-10-17.
+- **Last measured:** A load reads the facts from the last Checkpoint. From a file store: 0.18 ms with 10 messages, 0.25 ms with 100, 0.82 ms with 1,000, against 0.10, 0.39 and 1.36 ms for the whole document before, in the same measurement; under 0.1% of the model's 2–6 s per Turn in the live run. 2026-10-17. With the warm Session, a Run on a copy whose head is unchanged loads nothing: the 10-Run `conversation` task, played 20 times on a file store, loads 0.031 ms per Run, against 2.5 ms in the same measurement before the warm Session (one load per play instead of one per Run). A task of one Run still loads once. The check costs one read of the Entries after the head, which is none for a current copy, and the Claim written again is the write the load path made too. 2026-10-25.
 
 ### G-B08 — Memory per task
 
@@ -231,7 +231,7 @@ Peak heap per Run, and heap per Session in memory.
 - **Serves:** [Keep subtracting](DESIGNS.md#5-keep-subtracting)
 - **Compared with:** the previous release, and a coding-agent session's 1 GiB starting point ([Hosting the Agent SDK](https://code.claude.com/docs/en/agent-sdk/hosting))
 - **Method:** `BenchmarkSessionFootprint`, and the reference service's resident memory
-- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. A Runner keeps no Session in memory between Runs, so heap per Session in memory waits for the warm Session (ROADMAP Phase 8). 2026-10-16.
+- **Last measured:** Heap per live Session: 4.5–8 KB idle, 190–210 KB after 25 tool calls with 100 KB of history. The reference service holds 12 MB resident when idle, and 16 MB after 200 health checks and 200 new Sessions. 2026-10-16. A warm Session holds its Record and Writer between Runs (`BenchmarkWarmSessionFootprint`, 100 Sessions of about 200-byte Messages, the difference between a Runner that keeps them warm and one that keeps none): 3.7 KB with 10 Messages, 65 KB with 100 and 573 KB with 1,000, about 570 bytes a Message, nearly three times the Message's own size, so the Record holds more than its Messages; what it keeps beyond them is the first thing to look at if this number needs to come down. 2026-10-25.
 
 ### G-B09 — CPU per Turn, at 10, 100 and 1,000 messages
 

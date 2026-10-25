@@ -136,7 +136,7 @@ Default output is JSON Lines, one stored `Event` per line, in the order of the R
 ### `gotato serve`
 
 ```text
-gotato serve [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--drain-timeout D] [--model M] [--gateway-config PATH]
+gotato serve [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction] [--drain-timeout D] [--model M] [--gateway-config PATH]
 ```
 
 Serves the same runner over HTTP (`service/httpapi`, contract `4`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
@@ -154,6 +154,8 @@ POST   /v1/runs {"prompt","agent"?,"metadata"?}   POST /v1/runs/stream        â†
 ```
 
 `--max-sessions N` is the hard limit on the sessions this process has active (0, the default, has none). Past it, a run that would activate another session is refused before anything is loaded or created, with `503`, the header `Gotato-Not-Run: true` and `"not_run": true` in the body, and nothing is written, so a load balancer may send it to another instance once. It is off by default, because a single process has nowhere else to send the run. `--max-runs` bounds runs, with `429`, and counts runs on sessions already active too.
+
+A session stays in memory after its run, as a cache and never a lock: `--warm-ttl D` is how long an idle one stays (0, the default, is 60 minutes; a negative value keeps none). The next run on it loads nothing when no other instance has written the session meanwhile, and no `session_loaded` event is sent for it. While a session idles it is compacted about 5 minutes before its prompt cache expires or it leaves memory, by the same compaction as `gotato context compact --min-tokens 20000`; a run that arrives cancels it and is served first. `--no-idle-compaction` turns that off. `gotato-grpc` takes the same two flags.
 
 A load balancer hashes on the `session-id` header. The server checks it against the session ID in the path or the body (`400` when they differ), and answers `POST /v1/sessions`, `POST /v1/runs` and a fork with the new session's ID in a `session-id` header, to send next time. `GET /v1/sessions/{id}/stream` sends the session's stored events after `after` (or the `Last-Event-ID` header a browser's `EventSource` sends by itself), then the live ones; a `record_epoch` that is not the session's, or an `after` past its end, answers `409` with code `cannot_resume`. A stream follows the session's record it opened: if the session is deleted, or deleted and created again under the same ID, it sends none of the new record's events and ends with `event: error`: code `not_found` for a session that is gone, and code `cannot_resume` for one created again. Every stored event on that stream and on the run streams has its number as the SSE `id:`.
 
