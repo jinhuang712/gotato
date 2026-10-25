@@ -403,6 +403,50 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
+// A new ErrorCode must be given an exit code on purpose: this fails until
+// exitOfCode lists it.
+func TestEveryErrorCodeHasAnExplicitExitCode(t *testing.T) {
+	for _, code := range gotato.ErrorCodes() {
+		if _, ok := exitOfCode[code]; !ok {
+			t.Errorf("error code %q has no exit code", code)
+		}
+	}
+	if len(exitOfCode) != len(gotato.ErrorCodes()) {
+		t.Errorf("exitOfCode has %d entries, gotato.ErrorCodes lists %d", len(exitOfCode), len(gotato.ErrorCodes()))
+	}
+}
+
+// The error object of a failed command says what the runtime says: the code,
+// whether the command did not run, and whether running it again may succeed.
+func TestFailureJSONCarriesCodeNotRunAndRetryable(t *testing.T) {
+	h := newHarness(t)
+	for _, tc := range []struct {
+		args []string
+		exit int
+		code string
+	}{
+		{[]string{"session", "show", "missing", "--json"}, ExitNotFound, "not_found"},
+		{[]string{"run", "--session", "missing", "--json", "hi"}, ExitNotFound, "not_found"},
+		{[]string{"run", "--model", "nope", "--json", "hi"}, ExitUsage, "invalid_argument"},
+		{[]string{"bogus", "--json"}, ExitUsage, "invalid_argument"},
+	} {
+		code, out, _ := h.run(tc.args...)
+		var failure struct {
+			ExitCode  int    `json:"exit_code"`
+			Code      string `json:"code"`
+			NotRun    *bool  `json:"not_run"`
+			Retryable *bool  `json:"retryable"`
+		}
+		h.mustJSON(out, &failure)
+		if code != tc.exit || failure.ExitCode != tc.exit || failure.Code != tc.code || failure.NotRun == nil || failure.Retryable == nil {
+			t.Errorf("%v: exit %d, json %s; want exit %d, code %q, not_run and retryable set", tc.args, code, out, tc.exit, tc.code)
+		}
+		if tc.code == "not_found" && (!*failure.NotRun || *failure.Retryable) {
+			t.Errorf("%v: not_found must be not run and not retryable: %s", tc.args, out)
+		}
+	}
+}
+
 func TestVersionAndEmptyEventsJSON(t *testing.T) {
 	h := newHarness(t)
 	code, out, _ := h.run("version", "--json")

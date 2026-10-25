@@ -267,22 +267,48 @@ func (c *cli) writeJSONL(value any) error {
 // fail reports an error on stderr (and as JSON on stdout in machine mode so
 // scripts see one shape) and returns the code.
 func (c *cli) fail(code int, message string) int {
+	return c.failWith(code, message, nil)
+}
+
+// failWith is fail for an error: in machine mode the error object also names
+// the runtime's code and what it says about a retry.
+func (c *cli) failWith(code int, message string, err error) int {
 	fmt.Fprintln(c.stderr, "gotato: "+message)
 	if c.machine() {
-		c.writeErrorObject(code, message)
+		c.writeErrorObject(code, message, err)
 	}
 	return code
 }
 
 // writeErrorObject mirrors writeJSON: pretty in --json mode, compact in
 // --jsonl mode, so error and data shapes look the same.
-func (c *cli) writeErrorObject(code int, message string) {
+//
+// The object has "error" and "exit_code" always. "not_run" and "retryable"
+// are always there too, as the runtime's error says them: not_run means
+// nothing with side effects happened, so the same command may be run again
+// elsewhere; retryable means the same command, run again later, may succeed.
+// "code" names the runtime's ErrorCode, when the failure has one.
+func (c *cli) writeErrorObject(code int, message string, err error) {
 	enc := json.NewEncoder(c.stdout)
 	enc.SetEscapeHTML(false)
 	if !c.jsonl {
 		enc.SetIndent("", "  ")
 	}
-	_ = enc.Encode(map[string]any{"error": message, "exit_code": code})
+	object := errorObject{Error: message, ExitCode: code, NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
+	var runtimeErr *gotato.RuntimeError
+	if errors.As(err, &runtimeErr) {
+		object.Code = runtimeErr.Code
+	}
+	_ = enc.Encode(object)
+}
+
+// errorObject is the JSON a failed command writes to stdout in machine mode.
+type errorObject struct {
+	Error     string           `json:"error"`
+	ExitCode  int              `json:"exit_code"`
+	Code      gotato.ErrorCode `json:"code,omitempty"`
+	NotRun    bool             `json:"not_run"`
+	Retryable bool             `json:"retryable"`
 }
 
 // usageError reports a usage mistake. In machine mode it also writes the
@@ -291,7 +317,7 @@ func (c *cli) usageError(message string) int {
 	fmt.Fprintln(c.stderr, "gotato: "+message)
 	fmt.Fprintln(c.stderr, "run 'gotato help' for usage")
 	if c.machine() {
-		c.writeErrorObject(ExitUsage, message)
+		c.writeErrorObject(ExitUsage, message, gotato.ErrorOf(gotato.ErrInvalidArgument, message))
 	}
 	return ExitUsage
 }
@@ -306,16 +332,46 @@ func (c *cli) parseError(err error) int {
 	return c.usageError(err.Error())
 }
 
-// failErr classifies an error into an exit code.
+// exitOfCode is the exit code of each ErrorCode. Every code is listed, so a
+// new one cannot be left to a default by accident; the test over
+// gotato.ErrorCodes fails when one is missing. A failure that is not a
+// RuntimeError exits 1.
+var exitOfCode = map[gotato.ErrorCode]int{
+	gotato.ErrInvalidArgument:       ExitUsage,
+	gotato.ErrNotFound:              ExitNotFound,
+	gotato.ErrInvalidState:          ExitError,
+	gotato.ErrBusy:                  ExitError,
+	gotato.ErrSessionClosed:         ExitError,
+	gotato.ErrSessionClosing:        ExitError,
+	gotato.ErrModelFailure:          ExitError,
+	gotato.ErrContextOverflow:       ExitError,
+	gotato.ErrModelProtocolFailure:  ExitError,
+	gotato.ErrToolResolutionFailure: ExitError,
+	gotato.ErrToolArgumentFailure:   ExitError,
+	gotato.ErrToolExecutionFailure:  ExitError,
+	gotato.ErrExtensionFailure:      ExitError,
+	gotato.ErrLimitExceeded:         ExitError,
+	gotato.ErrCancelled:             ExitError,
+	gotato.ErrDeadlineExceeded:      ExitError,
+	gotato.ErrInternalInvariant:     ExitError,
+	gotato.ErrNotSupported:          ExitError,
+	gotato.ErrConflict:              ExitError,
+	gotato.ErrStoreFailure:          ExitError,
+	gotato.ErrOverloaded:            ExitError,
+	gotato.ErrDraining:              ExitError,
+	gotato.ErrCannotResume:          ExitError,
+}
+
+// failErr reports an error and returns the exit code of its code.
 func (c *cli) failErr(err error) int {
-	switch {
-	case errors.Is(err, session.ErrNotFound):
-		return c.fail(ExitNotFound, err.Error())
-	case gotato.IsCode(err, gotato.ErrInvalidArgument):
-		return c.fail(ExitUsage, err.Error())
-	default:
-		return c.fail(ExitError, err.Error())
+	code := ExitError
+	var runtimeErr *gotato.RuntimeError
+	if errors.As(err, &runtimeErr) {
+		if exit, ok := exitOfCode[runtimeErr.Code]; ok {
+			code = exit
+		}
 	}
+	return c.failWith(code, err.Error(), err)
 }
 
 func (c *cli) info(format string, args ...any) {
