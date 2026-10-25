@@ -23,12 +23,34 @@ type modelFlags struct {
 	model         string
 	gatewayConfig string
 	instruction   string
+	timeAway      string
 }
 
 func bindModel(fs *flag.FlagSet, flags *modelFlags) {
 	fs.StringVar(&flags.model, "model", "", "agent/model: echo (default), demo, or gateway")
 	fs.StringVar(&flags.gatewayConfig, "gateway-config", "", "YAML config for --model gateway (default $GOTATO_GATEWAY_CONFIG or gateway.yaml)")
 	fs.StringVar(&flags.instruction, "instruction", "", "system instruction stored in the session")
+	fs.StringVar(&flags.timeAway, "time-away", "", "idle time after which a message is followed by a time_away notice: a duration such as 2h, or off (default 30m, or $GOTATO_TIME_AWAY)")
+}
+
+// timeAwayAfter reads --time-away: 0 is the default (30 minutes), negative
+// turns the notice off.
+func (c *cli) timeAwayAfter(flags modelFlags) (time.Duration, error) {
+	value := flags.timeAway
+	if value == "" {
+		value = c.getenv("GOTATO_TIME_AWAY")
+	}
+	switch value {
+	case "":
+		return 0, nil
+	case "off":
+		return -1, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return 0, gotato.ErrorOf(gotato.ErrInvalidArgument, "--time-away takes a positive duration such as 2h, or off")
+	}
+	return d, nil
 }
 
 func (c *cli) gatewayConfigPath(flags modelFlags) string {
@@ -79,9 +101,13 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 		return nil, err
 	}
 	tools := builtinTools()
+	timeAway, err := c.timeAwayAfter(flags)
+	if err != nil {
+		return nil, err
+	}
 	specs := []service.Agent{
-		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools},
-		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools},
+		{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway},
+		{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway},
 	}
 	specs = append(specs, testAgents...)
 	rt := &cliRuntime{store: store, storeDir: dir, gatewayCfg: c.gatewayConfigPath(flags)}
@@ -90,7 +116,7 @@ func (c *cli) newRuntime(flags modelFlags) (*cliRuntime, error) {
 	} else if client, err := gateway.New(config); err != nil {
 		rt.gatewayErr = err
 	} else {
-		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools})
+		specs = append(specs, service.Agent{Name: "gateway", Model: client, ModelName: config.Model, Instruction: defaultInstruction, Tools: tools, TimeAwayAfter: timeAway})
 	}
 	runner, err := service.New(service.Config{Store: store, Agents: specs})
 	if err != nil {

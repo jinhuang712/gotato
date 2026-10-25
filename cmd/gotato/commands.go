@@ -126,7 +126,7 @@ func (c *cli) cmdSession(args []string) int {
 		return code
 	}
 	if len(args) == 0 {
-		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, message, cancel, delete")
+		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, message, notice, cancel, delete")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -144,6 +144,8 @@ func (c *cli) cmdSession(args []string) int {
 		return c.cmdRunArgs(rest, true)
 	case "message":
 		return c.sessionMessage(rest)
+	case "notice":
+		return c.sessionNotice(rest)
 	case "cancel", "stop":
 		return c.sessionCancel(rest)
 	case "delete", "rm":
@@ -207,6 +209,45 @@ func (c *cli) sessionMessage(args []string) int {
 		c.info("session %s · run %s · %s", outcome.SessionID, outcome.RunID, outcome.Status)
 	}
 	return code
+}
+
+// sessionNotice queues a notice for a Session's model (Runner.Notice). It
+// starts no Run: the notice_queued is stored with the Session, and the next
+// Run, from this CLI or any process, puts the notice in after its prompt. A
+// Run going in another process fails with not_writer, as a message does.
+func (c *cli) sessionNotice(args []string) int {
+	fs := c.newFlagSet("session notice")
+	var flags modelFlags
+	bindModel(fs, &flags)
+	kind := fs.String("kind", "", "your own short label for the notice (required)")
+	positionals, err := parseInterspersed(fs, args)
+	if err != nil {
+		return c.parseError(err)
+	}
+	if len(positionals) == 0 {
+		return c.usageError("session notice needs a session id")
+	}
+	if strings.TrimSpace(*kind) == "" {
+		return c.usageError("session notice needs --kind")
+	}
+	if gotato.ReservedNoticeKind(*kind) {
+		return c.usageError("--kind " + *kind + " is reserved for Gotato's own notices")
+	}
+	text, err := c.readPrompt(positionals[1:])
+	if err != nil {
+		return c.usageError(err.Error())
+	}
+	rt, err := c.newRuntime(flags)
+	if err != nil {
+		return c.failErr(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result, err := rt.runner.Notice(ctx, service.NoticeRequest{SessionID: positionals[0], Kind: *kind, Text: text})
+	if err != nil {
+		return c.failErr(err)
+	}
+	return c.emit(map[string]any{"session_id": result.SessionID, "queued": result.Queued, "number": result.Number, "message_id": result.MessageID}, fmt.Sprintf("queued notice %d", result.Number))
 }
 
 // sessionCancel stops the Run of a Session (Runner.CancelSession). A Run in
