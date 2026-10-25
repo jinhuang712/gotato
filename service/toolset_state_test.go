@@ -53,7 +53,8 @@ func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	model := testkit.NewFakeModel(activateFiles(), testkit.Text("opened"), testkit.Text("second"), testkit.Text("third"), testkit.Text("fourth"))
+	model := testkit.NewFakeModel(activateFiles(), testkit.Text("opened"), testkit.Text("second"),
+		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("third"), testkit.Text("fourth"))
 	runner := toolSetRunner(t, store, model)
 
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "open the files"})
@@ -88,7 +89,8 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 		t.Fatalf("Run 3 first request tools = %v", toolIDsOf(requests[3]))
 	}
 
-	// A compaction writes a Checkpoint that keeps the activation.
+	// A compaction writes a Checkpoint that keeps the activation of a ToolSet
+	// the closed Segment used (Run 3 called files.read).
 	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactOptions{Keep: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +106,8 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	requests = model.Requests()
-	if !slices.Contains(toolIDsOf(requests[4]), "files.read") {
-		t.Fatalf("the fork's first request tools = %v", toolIDsOf(requests[4]))
+	if !slices.Contains(toolIDsOf(requests[5]), "files.read") {
+		t.Fatalf("the fork's first request tools = %v", toolIDsOf(requests[5]))
 	}
 	reopened, err := session.Open(ctx, store, first.SessionID)
 	if err != nil {

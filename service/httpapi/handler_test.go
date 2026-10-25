@@ -152,14 +152,14 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/compact", map[string]any{"keep": 2})
 	var compact map[string]any
 	_ = json.Unmarshal(body, &compact)
-	if status != http.StatusOK || compact["replaced"] != true || compact["messages_after"] != float64(3) {
+	if status != http.StatusOK || compact["replaced"] != true || compact["messages_after"] != float64(6) {
 		t.Fatalf("compact = %d %v", status, compact)
 	}
 
 	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/fork", nil)
 	var fork session.Summary
 	_ = json.Unmarshal(body, &fork)
-	if status != http.StatusCreated || fork.ParentID != summary.ID || fork.Messages != 3 {
+	if status != http.StatusCreated || fork.ParentID != summary.ID || fork.Messages != 6 {
 		t.Fatalf("fork = %d %+v", status, fork)
 	}
 

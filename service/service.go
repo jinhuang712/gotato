@@ -1004,14 +1004,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if builder == nil {
 		builder = modelctx.FullHistory()
 	}
-	policy := spec.Compact
-	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
-	if raw, ok := s.Get(MetaCompactCeiling); ok {
-		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
-			policy.Ceiling = ceiling
-			policy.Floor = 0
-		}
-	}
+	policy := compactPolicyFor(spec, s)
 	var auto *modelctx.AutoCompactor
 	var extensions []any
 	if policy.Ceiling > 0 {
@@ -1220,9 +1213,12 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	return ToolEntry{Spec: *found, Active: active}, nil
 }
 
-// Compact compacts a Session explicitly, under the Session lock. When the
-// Session's Agent has a Model whose provider is sent only the current Round's
-// reasoning (modelctx.DropsReasoning), the kept Messages lose their reasoning.
+// Compact compacts a Session explicitly, under the Session lock, and closes a
+// Segment (modelctx.Compact). What opts leaves unset comes from the Session's
+// Agent: its Recap writer, its time zone and limits, the Model's window, the
+// ceiling in force, and, with neither Keep nor Floor, its Floor. When the
+// Agent's Model is sent only the current Round's reasoning
+// (modelctx.DropsReasoning), the kept Messages lose their reasoning.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
@@ -1232,8 +1228,8 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		}
 		agentName, _ := writer.Record().Get(MetaAgent)
 		r.publishOpened(writer, early, agentName)
-		if spec, ok := r.Agent(agentName); ok && modelctx.DropsReasoning(spec.Model) {
-			opts.DropReasoning = true
+		if spec, ok := r.Agent(agentName); ok {
+			opts = compactOptionsFor(spec, writer.Record(), opts)
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts)
 		if err != nil {
@@ -1246,6 +1242,56 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		return modelctx.Result{}, err
 	}
 	return result, nil
+}
+
+// compactOptionsFor fills what opts leaves unset from the Agent's compaction
+// settings and its Model.
+func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.CompactOptions) modelctx.CompactOptions {
+	policy := compactPolicyFor(spec, record)
+	opts.DropReasoning = opts.DropReasoning || policy.DropReasoning
+	if opts.Recap == nil {
+		opts.Recap = policy.Recap
+	}
+	if opts.Keep <= 0 && opts.Floor <= 0 {
+		opts.Floor = policy.Floor
+	}
+	if opts.Window <= 0 {
+		opts.Window = policy.Window
+	}
+	if opts.Ceiling <= 0 {
+		opts.Ceiling = policy.Ceiling
+	}
+	if opts.Location == nil {
+		opts.Location = policy.Location
+	}
+	opts.MessageTokens = cmpPositive(opts.MessageTokens, policy.MessageTokens)
+	opts.ToolLines = cmpPositive(opts.ToolLines, policy.ToolLines)
+	opts.ArgChars = cmpPositive(opts.ArgChars, policy.ArgChars)
+	opts.TailTokens = cmpPositive(opts.TailTokens, policy.TailTokens)
+	return opts
+}
+
+func cmpPositive(a, b int) int {
+	if a > 0 {
+		return a
+	}
+	return b
+}
+
+// compactPolicyFor is the Agent's CompactPolicy with the Model's window and
+// the Session's own ceiling (MetaCompactCeiling) applied.
+func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy {
+	policy := spec.Compact
+	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
+	if policy.Window <= 0 {
+		policy.Window = modelctx.WindowOf(spec.Model)
+	}
+	if raw, ok := record.Get(MetaCompactCeiling); ok {
+		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
+			policy.Ceiling = ceiling
+		}
+	}
+	return policy
 }
 
 // DeleteSession removes a Session under the Session lock, so a Run in flight

@@ -379,8 +379,9 @@ func (c *cli) contextCompact(args []string) int {
 	fs := c.newFlagSet("context compact")
 	var flags modelFlags
 	bindModel(fs, &flags)
-	keep := fs.Int("keep", 4, "number of recent messages to keep verbatim")
-	recapFlag := fs.String("recap", "truncate", "truncate (deterministic) or model (uses the session's agent, or --model)")
+	keep := fs.Int("keep", 0, "number of recent messages to keep as they are (default: the latest run's turns)")
+	minTokens := fs.Int("min-tokens", 0, "skip a stretch since the last checkpoint estimated below this many tokens (default 0: always compact)")
+	recapFlag := fs.String("recap", "none", "none (the segment has no recap), truncate (deterministic) or model (uses the session's agent, or --model)")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -394,9 +395,13 @@ func (c *cli) contextCompact(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
+	if *keep < 0 || *minTokens < 0 {
+		return c.usageError("--keep and --min-tokens cannot be negative")
+	}
 	var writer modelctx.RecapWriter
 	switch *recapFlag {
-	case "truncate", "":
+	case "none", "":
+	case "truncate":
 		writer = modelctx.TruncateRecap{}
 	case "model":
 		agent, err := rt.resolveAgent(flags.model, c.getenv)
@@ -418,13 +423,13 @@ func (c *cli) contextCompact(args []string) int {
 	default:
 		return c.usageError("unknown recap writer " + *recapFlag)
 	}
-	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactOptions{Keep: *keep, Recap: writer})
+	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactOptions{Keep: *keep, MinTokens: *minTokens, Recap: writer})
 	if err != nil {
 		return c.failErr(err)
 	}
 	human := fmt.Sprintf("session %s: %d → %d messages, ~%d → ~%d tokens", result.SessionID, result.MessagesBefore, result.MessagesAfter, result.TokensBefore, result.TokensAfter)
 	if !result.Replaced {
-		human = fmt.Sprintf("session %s: nothing to compact", result.SessionID)
+		human = fmt.Sprintf("session %s: nothing to compact (%s)", result.SessionID, result.Reason)
 	}
 	return c.emit(result, human)
 }

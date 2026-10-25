@@ -74,7 +74,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 		if !result.Replaced {
 			t.Fatalf("drop=%v: nothing was compacted", drop)
 		}
-		kept := s.Messages()
+		kept := s.Tail()
 		want := 2
 		if drop {
 			want = 0
@@ -83,7 +83,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 			t.Errorf("drop=%v: the kept Messages hold %d reasoning Parts, want %d", drop, got, want)
 		}
 		last := kept[len(kept)-1]
-		if gotato.TextOf(last) != "a2" || len(kept[2].ToolCalls) != 1 {
+		if gotato.TextOf(last) != "a2" || len(kept) != 4 || len(kept[1].ToolCalls) != 1 {
 			t.Errorf("drop=%v: compaction changed more than the reasoning: %+v", drop, kept)
 		}
 		reloaded, err := session.Open(ctx, store, s.ID())
@@ -98,14 +98,14 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 
 func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 	s := reasoningSession(t)
-	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 1, Floor: 1, DropReasoning: true})
+	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 1, DropReasoning: true})
 	if err := auto.PrepareRun(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	if _, runs := auto.Last(); runs != 1 {
 		t.Fatalf("auto compactions = %d, want 1", runs)
 	}
-	if got := reasoningParts(s.Messages()); got != 0 {
+	if got := reasoningParts(s.Tail()); got != 0 {
 		t.Fatalf("the kept Messages hold %d reasoning Parts, want 0", got)
 	}
 }

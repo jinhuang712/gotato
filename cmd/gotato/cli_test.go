@@ -228,9 +228,14 @@ func TestContextInspectBuildCompact(t *testing.T) {
 		MessagesAfter  int  `json:"messages_after"`
 		TokensBefore   int  `json:"tokens_before"`
 		TokensAfter    int  `json:"tokens_after"`
+		Compaction     struct {
+			Segment int    `json:"segment"`
+			Recap   string `json:"recap"`
+		} `json:"compaction"`
 	}
+	// Three Runs close into Segment 1 (six Messages), two stay.
 	h.mustJSON(h.ok("context", "compact", id, "--keep", "2", "--json"), &result)
-	if !result.Replaced || result.MessagesBefore != 8 || result.MessagesAfter != 3 || result.TokensAfter >= result.TokensBefore {
+	if !result.Replaced || result.MessagesBefore != 8 || result.MessagesAfter != 8 || result.Compaction.Segment != 1 || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v", result)
 	}
 	var doc struct {
@@ -238,13 +243,13 @@ func TestContextInspectBuildCompact(t *testing.T) {
 		Compactions []any            `json:"compactions"`
 	}
 	h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
-	if len(doc.Messages) != 3 || len(doc.Compactions) != 1 {
+	if len(doc.Messages) != 8 || len(doc.Compactions) != 1 {
 		t.Fatalf("doc after compact: %d messages, %d compactions", len(doc.Messages), len(doc.Compactions))
 	}
 	// The compacted session keeps running.
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", id, "--json", "five"), &outcome)
-	if outcome.Status != gotato.RunCompleted || outcome.Messages != 5 {
+	if outcome.Status != gotato.RunCompleted || outcome.Messages != 10 {
 		t.Fatalf("run after compact = %+v", outcome)
 	}
 }

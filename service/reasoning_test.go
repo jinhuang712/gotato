@@ -77,7 +77,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 			t.Errorf("round=%v: Compact kept %d reasoning Parts, want %d", round, got, want)
 		}
 
-		runner, store = newRunner(t, service.Agent{Name: "a", Model: model()})
+		runner, store = newRunner(t, service.Agent{Name: "a", Model: model(), Compact: modelctx.CompactPolicy{Floor: 70}})
 		first, err = runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
 		if err != nil {
 			t.Fatal(err)

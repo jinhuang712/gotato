@@ -5629,9 +5629,14 @@ func (x *ContextReport) GetReportJson() []byte {
 }
 
 type CompactRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Keep          int32                  `protobuf:"varint,2,opt,name=keep,proto3" json:"keep,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// keep is how many recent Messages stay as they are; 0 keeps the latest
+	// Run's Turns.
+	Keep int32 `protobuf:"varint,2,opt,name=keep,proto3" json:"keep,omitempty"`
+	// min_tokens skips a stretch since the last Checkpoint estimated below it;
+	// 0 always compacts.
+	MinTokens     int32 `protobuf:"varint,3,opt,name=min_tokens,json=minTokens,proto3" json:"min_tokens,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5680,6 +5685,13 @@ func (x *CompactRequest) GetKeep() int32 {
 	return 0
 }
 
+func (x *CompactRequest) GetMinTokens() int32 {
+	if x != nil {
+		return x.MinTokens
+	}
+	return 0
+}
+
 type CompactResult struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SessionId      string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -5689,8 +5701,11 @@ type CompactResult struct {
 	TokensBefore   int32                  `protobuf:"varint,5,opt,name=tokens_before,json=tokensBefore,proto3" json:"tokens_before,omitempty"`
 	TokensAfter    int32                  `protobuf:"varint,6,opt,name=tokens_after,json=tokensAfter,proto3" json:"tokens_after,omitempty"`
 	CompactionJson []byte                 `protobuf:"bytes,7,opt,name=compaction_json,json=compactionJson,proto3" json:"compaction_json,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// reason says why nothing was compacted: below_min_tokens or
+	// nothing_to_close. Empty when a Segment was closed.
+	Reason        string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CompactResult) Reset() {
@@ -5770,6 +5785,13 @@ func (x *CompactResult) GetCompactionJson() []byte {
 		return x.CompactionJson
 	}
 	return nil
+}
+
+func (x *CompactResult) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
 }
 
 var File_gotato_v2_service_proto protoreflect.FileDescriptor
@@ -6227,11 +6249,13 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\rapprox_tokens\x18\x03 \x01(\x05R\fapproxTokens\x12+\n" +
 	"\x11selected_messages\x18\x04 \x01(\x05R\x10selectedMessages\x12\x1f\n" +
 	"\vreport_json\x18\x05 \x01(\fR\n" +
-	"reportJson\"C\n" +
+	"reportJson\"b\n" +
 	"\x0eCompactRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
-	"\x04keep\x18\x02 \x01(\x05R\x04keep\"\x8b\x02\n" +
+	"\x04keep\x18\x02 \x01(\x05R\x04keep\x12\x1d\n" +
+	"\n" +
+	"min_tokens\x18\x03 \x01(\x05R\tminTokens\"\xa3\x02\n" +
 	"\rCompactResult\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
@@ -6240,7 +6264,8 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0emessages_after\x18\x04 \x01(\x05R\rmessagesAfter\x12#\n" +
 	"\rtokens_before\x18\x05 \x01(\x05R\ftokensBefore\x12!\n" +
 	"\ftokens_after\x18\x06 \x01(\x05R\vtokensAfter\x12'\n" +
-	"\x0fcompaction_json\x18\a \x01(\fR\x0ecompactionJson2\xc8\a\n" +
+	"\x0fcompaction_json\x18\a \x01(\fR\x0ecompactionJson\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason2\xc8\a\n" +
 	"\x0eSessionService\x12C\n" +
 	"\bContract\x12\x1a.gotato.v2.ContractRequest\x1a\x1b.gotato.v2.ContractResponse\x12=\n" +
 	"\x06Agents\x12\x18.gotato.v2.AgentsRequest\x1a\x19.gotato.v2.AgentsResponse\x12K\n" +

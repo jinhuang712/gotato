@@ -508,6 +508,16 @@ func (s *Record) ActiveToolSets() []string {
 	return slices.Clone(s.toolSets)
 }
 
+// SetActiveToolSets replaces the ToolSets the Record holds as switched on with
+// names, in that order, and records no Event: a compaction narrows them just
+// before the Checkpoint that keeps them. It must not run while a Run is using
+// the Record.
+func (s *Record) SetActiveToolSets(names []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.toolSets = slices.Clone(names)
+}
+
 func runStarted(e gotato.RunStarted) Run {
 	return Run{RunID: e.RunID, Status: gotato.RunRunning, StartedAt: e.Time.UTC()}
 }

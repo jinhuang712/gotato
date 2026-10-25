@@ -168,7 +168,11 @@ type runRequest struct {
 }
 
 type compactRequest struct {
+	// Keep is how many recent Messages stay as they are; without it the
+	// latest Run's Turns do.
 	Keep int `json:"keep,omitempty"`
+	// MinTokens skips a stretch since the last Checkpoint estimated below it.
+	MinTokens int `json:"min_tokens,omitempty"`
 }
 
 type errorResponse struct {
@@ -307,10 +311,11 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		writeDecodeError(w, err)
 		return
 	}
-	if in.Keep <= 0 {
-		in.Keep = 4
+	if in.Keep < 0 || in.MinTokens < 0 {
+		writeFailure(w, gotato.ErrorOf(gotato.ErrInvalidArgument, "keep and min_tokens cannot be negative"))
+		return
 	}
-	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactOptions{Keep: in.Keep})
+	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactOptions{Keep: in.Keep, MinTokens: in.MinTokens})
 	if err != nil {
 		writeFailure(w, err)
 		return

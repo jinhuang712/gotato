@@ -169,9 +169,9 @@ func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Messag
 	return gotato.Message{}, errors.New("recap writer down")
 }
 
-// modelctx.Compact writes compaction_started first and then compaction_ended,
-// or compaction_failed when its summarizer fails, which leaves the Messages as
-// they were.
+// modelctx.Compact writes compaction_started first, then the Segment it closes
+// and compaction_ended, or compaction_failed when the Run is stopped during it,
+// which leaves the Messages as they were.
 func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
@@ -184,8 +184,10 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		commit(t, writer, gotato.AssistantMessage("ok "+text))
 	}
 	before := storedKinds(t, store, "cmp-1", 0)
-	if _, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 2, Recap: failingRecap{}}); err == nil {
-		t.Fatal("Compact hid the recap writer's failure")
+	stopped, stop := context.WithCancel(ctx)
+	stop()
+	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactOptions{Keep: 2, Recap: failingRecap{}}); err == nil {
+		t.Fatal("Compact hid that its Run was stopped")
 	}
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
@@ -205,14 +207,14 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = storedKinds(t, store, "cmp-1", uint64(len(before)+2))
-	if len(got) != 2 || got[0] != gotato.KindCompactionStarted || got[1] != gotato.KindCompactionEnded {
+	if len(got) != 3 || got[0] != gotato.KindCompactionStarted || got[1] != gotato.KindSegmentClosed || got[2] != gotato.KindCompactionEnded {
 		t.Fatalf("after a compaction: %v", got)
 	}
 	events, err := session.StoredEvents(ctx, store, "cmp-1", uint64(len(before)+2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if events[0].(gotato.CompactionStarted).Why != gotato.CompactionPastCeiling || events[1].(gotato.CompactionEnded).Why != gotato.CompactionPastCeiling {
+	if events[0].(gotato.CompactionStarted).Why != gotato.CompactionPastCeiling || events[2].(gotato.CompactionEnded).Why != gotato.CompactionPastCeiling {
 		t.Fatalf("events = %+v", events)
 	}
 	loaded, err := store.Load(ctx, "cmp-1")

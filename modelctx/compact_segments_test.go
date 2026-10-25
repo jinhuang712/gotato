@@ -10,55 +10,37 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// segmentedRecord returns a Record whose Context starts with one Segment and
-// has four more Messages after it.
-func segmentedRecord(t *testing.T) *session.Record {
+// oldSummaryRecord returns a Record whose last Checkpoint holds one summary
+// written before Segments existed, with two Messages after it.
+func oldSummaryRecord(t *testing.T) *session.Record {
 	t.Helper()
-	record := session.New(session.WithID("segmented"))
-	for _, text := range []string{"u1", "a1"} {
-		m := gotato.UserMessage(text)
-		if text == "a1" {
-			m = gotato.AssistantMessage(text)
-		}
-		m.ID = gotato.MessageID("s-" + text)
-		if err := record.Append(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := record.CloseSegment(gotato.Segment{Messages: record.Messages(), Recap: "recap"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range toolConversation()[2:] {
-		m.ID += "-t"
-		if err := record.Append(m); err != nil {
-			t.Fatal(err)
-		}
-	}
+	record := session.New(session.WithID("old-summary"))
+	summary := gotato.UserMessage("Summary of earlier conversation:\nthey talked")
+	summary.ID = "summary-1"
+	summary.Parts[0].Metadata = map[string]string{modelctx.MetadataCompaction: "summary"}
+	record.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{summary, gotato.UserMessage("u2"), gotato.AssistantMessage("a2")}, &session.Compaction{ReplacedMessages: 4, Recap: "truncate"})
 	return record
 }
 
-// Compact would flatten the Segments into one summary: it refuses, and the
-// Record is left as it was.
-func TestCompactRefusesARecordWithSegments(t *testing.T) {
-	record := segmentedRecord(t)
+// A Record compacted into one summary before Segments is not migrated: Compact
+// refuses it with invalid_state, and the Record is left as it was.
+func TestCompactRefusesARecordWithOneOldSummary(t *testing.T) {
+	record := oldSummaryRecord(t)
 	before := len(record.Messages())
 	_, err := modelctx.Compact(context.Background(), record, modelctx.CompactOptions{Keep: 1})
-	if !errors.Is(err, modelctx.ErrHasSegments) || !gotato.IsCode(err, gotato.ErrInvalidState) {
-		t.Fatalf("Compact error = %v, want ErrHasSegments (invalid_state)", err)
+	if !errors.Is(err, modelctx.ErrOldSummary) || !gotato.IsCode(err, gotato.ErrInvalidState) {
+		t.Fatalf("Compact error = %v, want ErrOldSummary (invalid_state)", err)
 	}
-	if got := len(record.Messages()); got != before || len(record.Segments()) != 1 || len(record.Compactions()) != 0 {
+	if got := len(record.Messages()); got != before || len(record.Segments()) != 0 || len(record.Compactions()) != 1 {
 		t.Fatalf("the refused Compact changed the Record: %d Messages, %d Segments", got, len(record.Segments()))
 	}
 }
 
 // The automatic policy surfaces the same refusal to the Run that triggered it.
 func TestAutoCompactorSurfacesTheRefusal(t *testing.T) {
-	record := segmentedRecord(t)
+	record := oldSummaryRecord(t)
 	auto := modelctx.AutoCompact(record, modelctx.CompactPolicy{Ceiling: 1})
-	if err := auto.PrepareRun(context.Background(), nil); !errors.Is(err, modelctx.ErrHasSegments) {
-		t.Fatalf("PrepareRun error = %v, want ErrHasSegments", err)
+	if err := auto.PrepareRun(context.Background(), nil); !errors.Is(err, modelctx.ErrOldSummary) {
+		t.Fatalf("PrepareRun error = %v, want ErrOldSummary", err)
 	}
 }

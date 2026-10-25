@@ -192,7 +192,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	if after.PrefixHash != before.PrefixHash || after.SelectedMessages != before.SelectedMessages {
 		t.Fatalf("after the reload: prefix %s with %d messages, before %s with %d", after.PrefixHash, after.SelectedMessages, before.PrefixHash, before.SelectedMessages)
 	}
-	if before.SelectedMessages != 5 {
-		t.Fatalf("the compacted Session holds %d messages, want the summary, the kept two, and the last Run's two", before.SelectedMessages)
+	if before.SelectedMessages != 8 {
+		t.Fatalf("the compacted Session holds %d messages, want the Segment's four, the kept two, and the last Run's two", before.SelectedMessages)
 	}
 }

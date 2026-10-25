@@ -142,14 +142,28 @@ func (m ModelRecap) WriteRecap(ctx context.Context, messages []gotato.Message) (
 
 // CompactOptions controls Compact.
 type CompactOptions struct {
-	// Keep is the number of most recent Messages to retain verbatim. The cut
-	// moves forward to a user Message so tool calls stay with their results.
+	// Keep is the number of most recent Messages to keep in the tail. The cut
+	// moves forward to a Turn boundary so a tool call keeps its result. With
+	// Keep and Floor both 0, the tail is the latest Run's Turns, up to
+	// SegmentSettings.TailTokens (20K tokens) and at most a quarter of Window,
+	// or of Ceiling when there is no window.
 	Keep int
-	// Recap produces the replacement; nil means TruncateRecap.
+	// Floor is the most tokens the kept tail holds, as an alternative to Keep.
+	// Keep wins when both are set.
+	Floor int
+	// MinTokens skips the compaction when the stretch since the last
+	// Checkpoint is estimated below it. 0 always compacts.
+	MinTokens int
+	// Window is the Model's context window in tokens, 0 when unknown, and
+	// Ceiling the ceiling in force, 0 for none. They cap the default tail.
+	Window  int
+	Ceiling int
+	// Recap writes the Recap that ends the Segment; nil means the Segment has
+	// none. A Recap that fails leaves the Segment without one.
 	Recap RecapWriter
 	// DropReasoning leaves the reasoning out of the Messages Compact keeps,
 	// for a Model whose provider is sent only the current Round's reasoning
-	// (see DropsReasoning). The summary replaces the prefix that reasoning
+	// (see DropsReasoning). The Segment changes the prefix that reasoning
 	// was written under, and Claude checks that prefix: sent again, the
 	// reasoning could be refused. Leave it false for a provider that needs
 	// every reasoning artifact back, such as DeepSeek.
@@ -159,6 +173,8 @@ type CompactOptions struct {
 	// Why says why the compaction runs, for its Events: on demand (the
 	// default), past the ceiling, or before the Session leaves memory.
 	Why gotato.CompactionWhy
+	// SegmentSettings are the limits and the time zone of the Segment.
+	SegmentSettings
 }
 
 // RoundReasoner is implemented by a Model that sends its provider only the
@@ -178,11 +194,21 @@ func DropsReasoning(model gotato.Model) bool {
 	return ok && reasoner.RoundReasoningOnly()
 }
 
-// Result reports a Compact call. Compaction is present only when a
-// replacement actually happened (Replaced is true).
+// Why a compaction closed nothing, in Result.Reason.
+const (
+	// ReasonBelowMinTokens: the stretch since the last Checkpoint is below
+	// CompactOptions.MinTokens.
+	ReasonBelowMinTokens = "below_min_tokens"
+	// ReasonNothingToClose: the kept tail covers the whole stretch.
+	ReasonNothingToClose = "nothing_to_close"
+)
+
+// Result reports a Compact call. Compaction is present only when a Segment
+// was closed (Replaced is true); Reason says why not otherwise.
 type Result struct {
 	SessionID      string              `json:"session_id"`
 	Replaced       bool                `json:"replaced"`
+	Reason         string              `json:"reason,omitempty"`
 	MessagesBefore int                 `json:"messages_before"`
 	MessagesAfter  int                 `json:"messages_after"`
 	TokensBefore   int                 `json:"tokens_before"`
@@ -190,109 +216,167 @@ type Result struct {
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
 }
 
-// ErrHasSegments is what Compact returns for a Record whose Context starts
-// with Segments. Compact would flatten them into one summary and lose what
-// they keep; compaction that closes Segments is a later stage. It carries
-// gotato.ErrInvalidState, so a caller finds it with errors.Is(err,
-// ErrHasSegments) or gotato.IsCode.
-var ErrHasSegments = gotato.ErrorOf(gotato.ErrInvalidState, "modelctx: the Session's Context holds Segments, which Compact would flatten into one summary; it does not compact them yet")
+// ErrOldSummary is what Compact returns for a Record whose last Checkpoint
+// holds one summary written before Segments existed. Compact does not turn it
+// into a Segment, and nothing migrates it. It carries gotato.ErrInvalidState,
+// so a caller finds it with errors.Is(err, ErrOldSummary) or gotato.IsCode.
+var ErrOldSummary = gotato.ErrorOf(gotato.ErrInvalidState, "modelctx: the Session's last Checkpoint holds one summary written before Segments; Compact does not compact it")
 
-// Compact replaces the Messages before the last opts.Keep with one summary
-// Message and records a session.Compaction. It appends a Checkpoint
-// (session.Record.Checkpoint), the compaction_ended Event, between a
-// compaction_started and, when the summary fails, a compaction_failed: the
-// replaced Messages stay in the store, and a load starts after them. It must
+// closeSegment appends a Segment and its Checkpoint in one step. A test
+// replaces it to make the write fail.
+var closeSegment = (*session.Record).CloseSegmentAndCheckpoint
+
+// causeOf names the code of a failure for the Event that reports it.
+func causeOf(err error) gotato.ErrorCode {
+	var runtime *gotato.RuntimeError
+	switch {
+	case errors.As(err, &runtime) && runtime != nil:
+		return runtime.Code
+	case errors.Is(err, context.DeadlineExceeded):
+		return gotato.ErrDeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		return gotato.ErrCancelled
+	}
+	return gotato.ErrStoreFailure
+}
+
+// Compact closes everything since the last Checkpoint, less a kept tail, into
+// a Segment built by code: the user's Messages and each Run's final reply word
+// for word, one line per tool call, and the Recap opts.Recap writes, if any.
+// It appends the Segment (a segment_closed Entry) and the Checkpoint that
+// lists it (the compaction_ended Event) in one step, between a
+// compaction_started and, when the write fails, a compaction_failed. The
+// Messages it closes stay in the store, and a load starts after them. It must
 // not run while a Run is using the Session (AutoCompact runs it at the
 // sanctioned point).
 //
-// A cut is chosen at a user Message so a tool call is never separated from its
-// results; when no user Message can anchor the tail, the requested Keep
-// boundary is used instead as long as it keeps the sequence valid (see
-// safeCut). When even that boundary is unsafe, Compact makes no change and
-// returns a fully populated Result with Replaced==false and no Compaction, so
-// the caller can tell a no-op apart from a replacement.
+// The kept tail starts at a Turn boundary, so a tool call is never separated
+// from its result (see CompactOptions). The ToolSets the Segment used and the
+// kept tail calls stay active; the others are switched off.
 //
-// A Record whose Context holds Segments (session.Record.Segments) is refused
-// with ErrHasSegments and left as it was.
+// A Recap that fails leaves the Segment without one (Compaction.Recap is
+// "none"). A stretch below opts.MinTokens, or one the tail covers whole, is
+// left as it is and returns a Result with Replaced false and a Reason. A
+// Record whose last Checkpoint holds one summary written before Segments is
+// refused with ErrOldSummary.
 func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
 	}
-	if len(s.Segments()) > 0 {
-		return Result{}, ErrHasSegments
-	}
-	writer := opts.Recap
-	if writer == nil {
-		writer = TruncateRecap{}
+	all := s.Messages()
+	if len(s.Segments()) == 0 && len(all) > 0 && isSummary(all[0]) {
+		return Result{}, ErrOldSummary
 	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	messages := s.Messages()
-	cut := safeCut(messages, len(messages)-opts.Keep)
+	stretch := s.Tail()
+	skipped := func(reason string) Result {
+		tokens := EstimateTokens(all)
+		return Result{SessionID: s.ID(), Reason: reason, MessagesBefore: len(all), MessagesAfter: len(all), TokensBefore: tokens, TokensAfter: tokens}
+	}
+	if opts.MinTokens > 0 && EstimateTokens(stretch) < opts.MinTokens {
+		return skipped(ReasonBelowMinTokens), nil
+	}
+	cut := tailStart(stretch, opts)
 	if cut <= 0 {
-		tokens := EstimateTokens(messages)
-		return Result{
-			SessionID:      s.ID(),
-			MessagesBefore: len(messages),
-			MessagesAfter:  len(messages),
-			TokensBefore:   tokens,
-			TokensAfter:    tokens,
-		}, nil
+		return skipped(ReasonNothingToClose), nil
 	}
 	why := opts.Why
 	if why == "" {
 		why = gotato.CompactionOnDemand
 	}
-	before, _ := json.Marshal(messages)
-	s.Emit(gotato.CompactionStarted{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
-	summary, err := writer.WriteRecap(ctx, messages[:cut])
-	if err != nil {
-		s.Emit(gotato.CompactionFailed{Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), Why: why})
-		return Result{}, err
+	header := func() gotato.Header { return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0) }
+	s.Emit(gotato.CompactionStarted{Header: header(), Why: why})
+
+	closed := stretch[:cut]
+	recapName, recapText := "none", ""
+	if opts.Recap != nil {
+		message, err := opts.Recap.WriteRecap(ctx, closed)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(ctxErr)})
+			return Result{}, ctxErr
+		}
+		// A Recap that fails costs the Segment its Recap, not the compaction.
+		if text := strings.TrimSpace(gotato.TextOf(message)); err == nil && text != "" {
+			recapName, recapText = opts.Recap.Name(), text
+		}
 	}
-	summary = tagSummary(summary)
-	summary.ID = gotato.MessageID("summary-" + session.NewID()[:12])
-	replaced := make([]gotato.Message, 0, len(messages)-cut+1)
-	replaced = append(replaced, summary)
-	for _, message := range messages[cut:] {
+
+	tail := make([]gotato.Message, 0, len(stretch)-cut)
+	for _, message := range stretch[cut:] {
 		if opts.DropReasoning {
 			message = withoutReasoning(message)
 		}
-		replaced = append(replaced, message)
+		tail = append(tail, message)
 	}
-	after, _ := json.Marshal(replaced)
+	active := s.ActiveToolSets()
+	segment := buildSegment(s.NextSegment(), closed, recapText, opts.SegmentSettings, active, s.Position)
+	kept := keptToolSets(active, segment.ToolSets, tail)
 
+	before, _ := json.Marshal(all)
+	// What the Record holds after: the Segments before, the new one, the tail.
+	after := slices.Concat(all[:len(all)-len(stretch)], segment.Messages, tail)
+	encoded, _ := json.Marshal(after)
+	var earlier []int
+	for _, previous := range s.Segments() {
+		earlier = append(earlier, previous.Number)
+	}
 	record := session.Compaction{
 		At:               now().UTC(),
 		ReplacedMessages: cut,
-		FromMessageID:    messages[0].ID,
-		ToMessageID:      messages[cut-1].ID,
-		SummaryMessageID: summary.ID,
-		Recap:            writer.Name(),
+		FromMessageID:    closed[0].ID,
+		ToMessageID:      closed[cut-1].ID,
+		Recap:            recapName,
+		Segment:          segment.Number,
+		TokensBefore:     EstimateTokens(all),
+		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(before),
-		BytesAfter:       len(after),
+		BytesAfter:       len(encoded),
+		Ceiling:          opts.Ceiling,
+		ToolSets:         kept,
 	}
-	s.Checkpoint(why, replaced, &record)
+	s.SetActiveToolSets(kept)
+	if _, err := closeSegment(s, why, segment, earlier, tail, &record); err != nil {
+		s.SetActiveToolSets(active)
+		s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(err)})
+		return Result{}, err
+	}
 	return Result{
 		SessionID: s.ID(), Replaced: true, Compaction: &record,
-		MessagesBefore: len(messages), MessagesAfter: len(replaced),
-		TokensBefore: EstimateTokens(messages), TokensAfter: EstimateTokens(replaced),
+		MessagesBefore: len(all), MessagesAfter: len(after),
+		TokensBefore: record.TokensBefore, TokensAfter: record.TokensAfter,
 	}, nil
 }
 
+// keptToolSets returns the active ToolSets the closed Segment used or the kept
+// tail calls, in the order they were switched on. A ToolSet the Agent installed
+// active is not among the Record's, and stays on whatever this returns.
+func keptToolSets(active, used []string, tail []gotato.Message) []string {
+	out := []string{}
+	for _, name := range active {
+		if slices.Contains(used, name) || len(toolSetsCalled(tail, []string{name})) > 0 {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // CompactPolicy is a token budget: when the Session's history is estimated
-// above Ceiling at the start of a Run, it is compacted so that the retained
-// tail is at most Floor tokens (plus the summary). Floor defaults to half of
-// Ceiling. A zero Ceiling disables the policy. DropReasoning is
+// above Ceiling at the start of a Run, it is compacted. A zero Ceiling
+// disables the policy. Floor, when above 0, is the most tokens the kept tail
+// holds; with none, the tail is the latest Run's Turns (CompactOptions).
+// Window is the Model's context window, 0 when unknown. DropReasoning is
 // CompactOptions.DropReasoning for every compaction the policy makes.
 type CompactPolicy struct {
 	Ceiling       int
 	Floor         int
+	Window        int
 	Recap         RecapWriter
 	DropReasoning bool
 	Now           func() time.Time
+	SegmentSettings
 }
 
 // AutoCompactor is a gotato.RunPreparer that applies a CompactPolicy to one
@@ -306,25 +390,27 @@ type AutoCompactor struct {
 
 // AutoCompact creates an AutoCompactor.
 func AutoCompact(s *session.Record, policy CompactPolicy) *AutoCompactor {
-	if policy.Floor <= 0 || policy.Floor >= policy.Ceiling {
-		policy.Floor = policy.Ceiling / 2
-	}
 	return &AutoCompactor{session: s, policy: policy}
 }
 
-// PrepareRun implements gotato.RunPreparer.
+// PrepareRun implements gotato.RunPreparer. A compaction helps a Run but is
+// not a step it needs, so one that cannot be written is dropped (its Events
+// say so) and the Run goes on. A Record the compaction refuses, or a Run
+// stopped during the compaction, ends the Run.
 func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) error {
-	if a.session == nil {
+	if a.session == nil || !a.due(a.session.Messages()) {
 		return nil
 	}
-	messages := a.session.Messages()
-	if !a.due(messages) {
-		return nil
-	}
-	keep := tailWithinBudget(messages, a.policy.Floor)
-	result, err := Compact(ctx, a.session, CompactOptions{Keep: keep, Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now, Why: gotato.CompactionPastCeiling})
+	result, err := Compact(ctx, a.session, CompactOptions{
+		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.policy.Ceiling,
+		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
+		Why: gotato.CompactionPastCeiling, SegmentSettings: a.policy.SegmentSettings,
+	})
 	if err != nil {
-		return err
+		if errors.Is(err, ErrOldSummary) || ctx.Err() != nil {
+			return err
+		}
+		return nil
 	}
 	if result.Replaced {
 		a.last = result
@@ -351,64 +437,92 @@ func (a *AutoCompactor) due(messages []gotato.Message) bool {
 	return a.policy.Ceiling > 0 && EstimateTokens(messages) > a.policy.Ceiling
 }
 
-// tailWithinBudget returns how many trailing Messages fit in budget tokens,
-// at least one.
-func tailWithinBudget(messages []gotato.Message, budget int) int {
-	keep := 0
-	total := 0
-	for i := len(messages) - 1; i >= 0; i-- {
-		size := EstimateTokens(messages[i : i+1])
-		if keep > 0 && total+size > budget {
-			break
-		}
-		total += size
-		keep++
+// tailStart returns the index in stretch where the kept tail starts; the
+// Messages before it are closed into a Segment. 0 means nothing is closed.
+//
+// With Keep, the tail is the last Keep Messages. With Floor, it is the most
+// recent Messages within Floor tokens. With neither, it is the latest Run's
+// Turns within the default budget: 20K tokens, and no more than a quarter of
+// the window, or of the ceiling when no window is known. Every cut moves
+// forward to a Turn boundary.
+func tailStart(stretch []gotato.Message, opts CompactOptions) int {
+	switch {
+	case opts.Keep > 0:
+		return turnCut(stretch, len(stretch)-opts.Keep)
+	case opts.Floor > 0:
+		return turnCut(stretch, withinBudget(stretch, opts.Floor, 0))
 	}
-	if keep == 0 {
-		keep = 1
+	budget := orDefault(opts.TailTokens, DefaultTailTokens)
+	base := opts.Window
+	if base <= 0 {
+		base = opts.Ceiling
 	}
-	return keep
+	if base > 0 {
+		budget = min(budget, base/4)
+	}
+	return turnCut(stretch, withinBudget(stretch, budget, runStart(stretch)))
 }
 
-// safeCut returns the first index >= want that starts a user Message, or 0
-// when want <= 0. A cut at a user Message never separates a tool call from
-// its results. When no user Message follows want, the last user Message before
-// it is used so the retained tail is always a valid sequence.
-//
-// When no user Message can anchor the retained tail at all — for example a
-// Session that is one user prompt followed by a long assistant/tool tail — the
-// requested boundary is used instead, so the history still shrinks. The
-// boundary is rejected only when it would start the tail on a tool result (or
-// leave a tool call without its result), which would produce an invalid
-// sequence; in that case there is no safe cut and Compact reports a
-// non-replaced Result.
-func safeCut(messages []gotato.Message, want int) int {
+// withinBudget returns the lowest index, not below floor, from which the
+// Messages fit in budget tokens. It is len(messages) when even the last does
+// not fit.
+func withinBudget(messages []gotato.Message, budget, floor int) int {
+	total := 0
+	start := len(messages)
+	for i := len(messages) - 1; i >= floor; i-- {
+		total += EstimateTokens(messages[i : i+1])
+		if total > budget {
+			break
+		}
+		start = i
+	}
+	return start
+}
+
+// runStart returns the index of the first Message of the latest Run. Without
+// Run IDs it is the last user Message.
+func runStart(messages []gotato.Message) int {
+	var latest gotato.RunID
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].RunID != "" {
+			latest = messages[i].RunID
+			break
+		}
+	}
+	if latest == "" {
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == gotato.RoleUser {
+				return i
+			}
+		}
+		return 0
+	}
+	// Messages with no Run after the Run's last stay in the tail; one before
+	// its first is not part of it.
+	start := len(messages)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].RunID == latest {
+			start = i
+		} else if start < len(messages) {
+			break
+		}
+	}
+	return start
+}
+
+// turnCut returns the first index >= want that starts a Turn: a Message that
+// is not a tool result, so a tool call keeps its result. It is 0 when want is
+// 0 or less, and len(messages) when no Turn starts at or after want.
+func turnCut(messages []gotato.Message, want int) int {
 	if want <= 0 {
 		return 0
 	}
-	if want > len(messages) {
-		want = len(messages)
-	}
 	for i := want; i < len(messages); i++ {
-		if messages[i].Role == gotato.RoleUser && !isSummary(messages[i]) {
+		if messages[i].Role != gotato.RoleToolResult {
 			return i
 		}
 	}
-	for i := want - 1; i > 0; i-- {
-		if messages[i].Role == gotato.RoleUser && !isSummary(messages[i]) {
-			return i
-		}
-	}
-	if want >= len(messages) {
-		return want
-	}
-	if messages[want].Role == gotato.RoleToolResult {
-		return 0
-	}
-	if want > 0 && messages[want-1].Role == gotato.RoleAssistant && len(messages[want-1].ToolCalls) > 0 {
-		return 0
-	}
-	return want
+	return len(messages)
 }
 
 // withoutReasoning returns message without its reasoning Parts.
@@ -429,21 +543,4 @@ func isSummary(message gotato.Message) bool {
 		}
 	}
 	return false
-}
-
-func tagSummary(summary gotato.Message) gotato.Message {
-	summary = summary.Clone()
-	if summary.Role == "" {
-		summary.Role = gotato.RoleUser
-	}
-	if len(summary.Parts) == 0 {
-		summary.Parts = []gotato.ContentPart{{Kind: gotato.ContentText, Text: "(empty summary)"}}
-	}
-	for i := range summary.Parts {
-		if summary.Parts[i].Metadata == nil {
-			summary.Parts[i].Metadata = map[string]string{}
-		}
-		summary.Parts[i].Metadata[MetadataCompaction] = "summary"
-	}
-	return summary
 }

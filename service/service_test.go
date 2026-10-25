@@ -252,11 +252,11 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 		t.Fatalf("report = %+v", report)
 	}
 	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactOptions{Keep: 2})
-	if err != nil || !compact.Replaced || compact.MessagesAfter != 3 {
+	if err != nil || !compact.Replaced || compact.MessagesAfter != 8 || compact.Compaction.Segment != 1 {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
 	child, err := runner.Fork(ctx, result.SessionID, "")
-	if err != nil || child.ParentID() != result.SessionID || child.Len() != 3 {
+	if err != nil || child.ParentID() != result.SessionID || child.Len() != 8 || len(child.Segments()) != 1 {
 		t.Fatalf("fork = %v err=%v", child, err)
 	}
 	if _, err := session.View(ctx, store, child.ID()); err != nil {

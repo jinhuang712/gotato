@@ -652,7 +652,12 @@ message ContextReport {
 
 message CompactRequest {
   string session_id = 1;
+  // keep is how many recent Messages stay as they are; 0 keeps the latest
+  // Run's Turns.
   int32 keep = 2;
+  // min_tokens skips a stretch since the last Checkpoint estimated below it;
+  // 0 always compacts.
+  int32 min_tokens = 3;
 }
 
 message CompactResult {
@@ -663,4 +668,7 @@ message CompactResult {
   int32 tokens_before = 5;
   int32 tokens_after = 6;
   bytes compaction_json = 7;
+  // reason says why nothing was compacted: below_min_tokens or
+  // nothing_to_close. Empty when a Segment was closed.
+  string reason = 8;
 }

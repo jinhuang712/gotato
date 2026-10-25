@@ -12,17 +12,20 @@
 // so it costs its full price on every Turn. A fact the model needs now, such
 // as the current time, comes from a tool the model calls.
 //
-// History shrinks only through compaction, an explicit and recorded rewrite
-// of the Session that replaces a prefix by a summary. Compaction can be
-// invoked directly (Compact) or triggered by a token budget at the start of
-// a Run (AutoCompact).
+// History shrinks only through compaction, an explicit and recorded step that
+// closes everything since the last Checkpoint into a Segment built by code
+// (the user's words and each Run's final reply word for word, a line per tool
+// call, and a Recap if a RecapWriter is set) and keeps a tail as it was. The
+// Messages it closes stay in the store. Compaction can be invoked directly
+// (Compact) or triggered by a token budget at the start of a Run
+// (AutoCompact).
 //
 //	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
 //	live, _ := gotato.NewSession(
 //	    gotato.WithModel(m),
 //	    gotato.WithTranscript(s),
 //	    gotato.WithContextBuilder(builder),
-//	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000, Floor: 30000})),
+//	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})),
 //	)
 package modelctx
 
@@ -38,8 +41,9 @@ import (
 // StrategyFullHistory is the one selection strategy: everything, append-only.
 const StrategyFullHistory = "full_history"
 
-// MetadataCompaction marks a summary Message produced by Compact:
-// ContentPart.Metadata[MetadataCompaction] == "summary".
+// MetadataCompaction marks a summary Message that a compaction wrote before
+// Segments existed: ContentPart.Metadata[MetadataCompaction] == "summary".
+// Compact refuses a Record whose last Checkpoint holds one (ErrOldSummary).
 const MetadataCompaction = "compaction"
 
 // FullHistory returns the default builder: the Model sees the whole Session.

@@ -159,11 +159,11 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 		t.Fatalf("context_built events = %d, want 4 (2 turns + 1 + 1)", count)
 	}
 	compact, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, Keep: 2})
-	if err != nil || !compact.GetReplaced() || compact.GetMessagesAfter() != 3 {
+	if err != nil || !compact.GetReplaced() || compact.GetMessagesAfter() != 6 {
 		t.Fatalf("compact = %v err=%v", compact, err)
 	}
 	fork, err := client.ForkSession(ctx, &gotatov2.SessionRequest{SessionId: id})
-	if err != nil || fork.GetParentId() != id || fork.GetMessages() != 3 {
+	if err != nil || fork.GetParentId() != id || fork.GetMessages() != 6 {
 		t.Fatalf("fork = %v err=%v", fork, err)
 	}
 	if _, err := client.DeleteSession(ctx, &gotatov2.SessionRequest{SessionId: fork.GetId()}); err != nil {

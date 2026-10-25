@@ -2,7 +2,6 @@ package modelctx_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,7 +9,6 @@ import (
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
-	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
@@ -91,138 +89,6 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	}
 }
 
-func TestCompactRewritesSessionAndRecords(t *testing.T) {
-	s := session.New()
-	for _, message := range toolConversation() {
-		_ = s.Append(message)
-	}
-	// Store the Record, so that it keeps its Events as a stored Record does.
-	if _, err := session.Create(context.Background(), session.NewMemoryStore(), s, "instance-a"); err != nil {
-		t.Fatal(err)
-	}
-	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Replaced || result.MessagesBefore != 6 || result.MessagesAfter != 3 || result.TokensAfter >= result.TokensBefore {
-		t.Fatalf("result = %+v", result)
-	}
-	messages := s.Messages()
-	if messages[0].Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" || gotato.TextOf(messages[1]) != "u2" {
-		t.Fatalf("session after compact = %+v", messages)
-	}
-	if !strings.Contains(gotato.TextOf(messages[0]), "[called t]") {
-		t.Fatalf("summary = %q", gotato.TextOf(messages[0]))
-	}
-	compactions := s.Compactions()
-	if len(compactions) != 1 || compactions[0].ReplacedMessages != 4 || compactions[0].FromMessageID != "m1" || compactions[0].ToMessageID != "m4" || compactions[0].SummaryMessageID != messages[0].ID {
-		t.Fatalf("compactions = %+v", compactions)
-	}
-	var started, ended int
-	for _, event := range s.Events() {
-		switch e := event.(type) {
-		case gotato.CompactionStarted:
-			started++
-			if ended != 0 || e.Why != gotato.CompactionOnDemand {
-				t.Fatalf("compaction_started = %+v after %d ended", e, ended)
-			}
-		case gotato.CompactionEnded:
-			ended++
-			if e.Compaction == nil || e.Compaction.ReplacedMessages != 4 || len(e.Messages) != 3 || len(e.History) != 1 {
-				t.Fatalf("compaction_ended = %+v", e)
-			}
-		}
-	}
-	if started != 1 || ended != 1 {
-		t.Fatalf("compaction_started=%d compaction_ended=%d, want one each: %v", started, ended, s.Events())
-	}
-	again, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 10})
-	if err != nil || again.Replaced {
-		t.Fatalf("second compact = %+v err=%v", again, err)
-	}
-	// A live Session continues against the compacted Record and sees the summary,
-	// but without the runtime metadata tag.
-	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(s))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("u3")); err != nil {
-		t.Fatal(err)
-	}
-	request, _ := model.LastRequest()
-	if len(request.Messages) != 4 || !strings.HasPrefix(gotato.TextOf(request.Messages[0]), "Summary of earlier conversation") || request.Messages[0].Parts[0].Metadata != nil {
-		t.Fatalf("model saw %+v", request.Messages)
-	}
-}
-
-func TestCompactNeverSplitsToolCallFromResult(t *testing.T) {
-	s := session.New()
-	for _, message := range toolConversation() {
-		_ = s.Append(message)
-	}
-	// Keep 5 would cut at index 1 (the tool call); the cut must move to u2.
-	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Replaced || result.MessagesAfter != 3 {
-		t.Fatalf("result = %+v", result)
-	}
-}
-
-func TestCompactNoOpReportsFullState(t *testing.T) {
-	s := session.New()
-	for _, message := range toolConversation()[:4] {
-		_ = s.Append(message)
-	}
-	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Replaced || result.MessagesBefore != 4 || result.MessagesAfter != 4 || result.Compaction != nil {
-		t.Fatalf("no-op result = %+v", result)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), `"compaction"`) {
-		t.Fatalf("empty compaction record leaked into JSON: %s", encoded)
-	}
-}
-
-func TestCompactShrinksSinglePromptToolTail(t *testing.T) {
-	s := session.New()
-	_ = s.Append(gotato.UserMessage("u1"))
-	call := gotato.AssistantMessage("")
-	call.ToolCalls = []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}
-	call.StopReason = gotato.StopToolCalls
-	_ = s.Append(call)
-	_ = s.Append(gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK}, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "r"}}})
-	_ = s.Append(gotato.AssistantMessage("final1"))
-	_ = s.Append(gotato.AssistantMessage("final2"))
-	before := modelctx.EstimateTokens(s.Messages())
-
-	// The only user Message is at index 0 and want lands inside the tail: the
-	// fallback must still shrink instead of reporting a no-op.
-	result, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Replaced || result.MessagesBefore != 5 || result.MessagesAfter != 3 {
-		t.Fatalf("result = %+v", result)
-	}
-	if modelctx.EstimateTokens(s.Messages()) >= before {
-		t.Fatalf("tokens did not shrink: before %d after %d", before, modelctx.EstimateTokens(s.Messages()))
-	}
-	messages := s.Messages()
-	if messages[0].Parts[0].Metadata[modelctx.MetadataCompaction] != "summary" || gotato.TextOf(messages[1]) != "final1" {
-		t.Fatalf("session after compact = %+v", messages)
-	}
-}
-
 func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
 	messages := []gotato.Message{gotato.UserMessage(strings.Repeat("é", 100))}
 	for limit := 1; limit < 140; limit++ {
@@ -233,43 +99,6 @@ func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
 		if text := gotato.TextOf(summary); !utf8.ValidString(text) {
 			t.Fatalf("limit %d produced invalid UTF-8: %q", limit, text)
 		}
-	}
-}
-
-func TestAutoCompactAppliesBudgetAtRunStart(t *testing.T) {
-	s := session.New()
-	for range 20 {
-		_ = s.Append(gotato.UserMessage(strings.Repeat("question ", 30)))
-		_ = s.Append(gotato.AssistantMessage(strings.Repeat("answer ", 30)))
-	}
-	before := modelctx.EstimateTokens(s.Messages())
-	auto := modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: before / 2, Floor: before / 4})
-	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(s), gotato.WithExtension(auto))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("next")); err != nil {
-		t.Fatal(err)
-	}
-	last, runs := auto.Last()
-	if runs != 1 || !last.Replaced {
-		t.Fatalf("auto compaction did not run: %+v %d", last, runs)
-	}
-	if got := modelctx.EstimateTokens(s.Messages()); got >= before {
-		t.Fatalf("tokens after = %d, before = %d", got, before)
-	}
-	request, _ := model.LastRequest()
-	if !strings.HasPrefix(gotato.TextOf(request.Messages[0]), "Summary of earlier conversation") {
-		t.Fatalf("model did not see the summary first: %q", gotato.TextOf(request.Messages[0]))
-	}
-	// Below the ceiling nothing happens on the next Run.
-	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("again")); err != nil {
-		t.Fatal(err)
-	}
-	if _, runs := auto.Last(); runs != 1 {
-		t.Fatalf("compacted again below ceiling: %d", runs)
 	}
 }
 
@@ -314,56 +143,9 @@ func TestModelRecapRejectsNilStream(t *testing.T) {
 	}
 }
 
-func TestCompactKeepsHistoryWhenSummaryStreamIsIncomplete(t *testing.T) {
-	s := session.New()
-	_ = s.Append(gotato.UserMessage("u1"))
-	_ = s.Append(gotato.AssistantMessage("a1"))
-	_ = s.Append(gotato.UserMessage("u2"))
-	_ = s.Append(gotato.AssistantMessage("a2"))
-	before := len(s.Messages())
-	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
-	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 1, Recap: modelctx.ModelRecap{Model: model}}); err == nil {
-		t.Fatal("expected Compact to fail when the summary stream is incomplete")
-	}
-	if len(s.Messages()) != before {
-		t.Fatalf("history changed on failure: %d -> %d", before, len(s.Messages()))
-	}
-}
-
 type failingRecap struct{}
 
 func (failingRecap) Name() string { return "failing" }
 func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
-}
-
-// A failed summary leaves the Messages as they are, and the Record says so:
-// compaction_started, then compaction_failed, and no Checkpoint.
-func TestCompactFailureEmitsCompactionFailed(t *testing.T) {
-	s := session.New()
-	for _, message := range toolConversation() {
-		_ = s.Append(message)
-	}
-	if _, err := session.Create(context.Background(), session.NewMemoryStore(), s, "instance-a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := modelctx.Compact(context.Background(), s, modelctx.CompactOptions{Keep: 2, Recap: failingRecap{}}); err == nil {
-		t.Fatal("Compact hid the recap writer's failure")
-	}
-	if s.Len() != 6 || len(s.Compactions()) != 0 {
-		t.Fatalf("a failed compaction changed the Record: %d Messages, %+v", s.Len(), s.Compactions())
-	}
-	var kinds []gotato.EventKind
-	for _, event := range s.Events() {
-		kinds = append(kinds, event.Kind())
-	}
-	n := len(kinds)
-	if n < 2 || kinds[n-2] != gotato.KindCompactionStarted || kinds[n-1] != gotato.KindCompactionFailed {
-		t.Fatalf("kinds = %v, want compaction_started then compaction_failed last", kinds)
-	}
-	for _, kind := range kinds {
-		if kind == gotato.KindCompactionEnded {
-			t.Fatalf("a failed compaction wrote a Checkpoint: %v", kinds)
-		}
-	}
 }

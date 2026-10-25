@@ -344,11 +344,10 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
-	keep := int(request.GetKeep())
-	if keep <= 0 {
-		keep = 4
+	if request.GetKeep() < 0 || request.GetMinTokens() < 0 {
+		return nil, status.Error(codes.InvalidArgument, "keep and min_tokens cannot be negative")
 	}
-	result, err := s.runner.Compact(ctx, request.GetSessionId(), modelctx.CompactOptions{Keep: keep})
+	result, err := s.runner.Compact(ctx, request.GetSessionId(), modelctx.CompactOptions{Keep: int(request.GetKeep()), MinTokens: int(request.GetMinTokens())})
 	if err != nil {
 		return nil, statusOf(err)
 	}
@@ -367,6 +366,7 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 		TokensBefore:   int32(result.TokensBefore),
 		TokensAfter:    int32(result.TokensAfter),
 		CompactionJson: compaction,
+		Reason:         result.Reason,
 	}, nil
 }
 

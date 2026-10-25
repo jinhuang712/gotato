@@ -202,7 +202,7 @@ func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
 			t.Fatalf("compaction rewrote Messages one by one: %+v", entry)
 		}
 	}
-	if want := []gotato.EventKind{gotato.KindCompactionStarted, gotato.KindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
+	if want := []gotato.EventKind{gotato.KindCompactionStarted, gotato.KindSegmentClosed, gotato.KindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}
 }
