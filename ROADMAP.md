@@ -19,9 +19,8 @@ Phase 5  One writer      any instance answers like the only one, with one writer
 Phase 6  Compaction      the Context stays within the model's window, and a Session that comes back after a pause starts small
 Phase 7  Warm Session    a Session stays in memory while in use, is told runtime facts,
                          and takes Steer, Interrupt and Stop from any endpoint
-Phase 8  Structured      an Agent's final reply fits a JSON schema
-Phase 9  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
-Phase 10 Before release  fake gateways, a local cluster, and CI that flags a removed or changed exported identifier
+Phase 8  Access hooks    the caller's identity reaches extensions and stores, and a refusal answers 403
+Phase 9  Before release  fake gateways, a local cluster, and CI that flags a removed or changed exported identifier
          ── waiting for design: a last Turn that answers, recovering a cut stream, changes that keep the cache ──
 ```
 
@@ -35,8 +34,7 @@ Why this order:
 - **Compaction comes before the warm Session,** because it does not need it. A cloud Session is compacted often, before its cache goes cold, so that a user who comes back later finds a small Context and the conversation they left. Until the warm Session has an idle timer, the service compacts an idle Session itself: its own timer calls the compact endpoint before the provider's cache expires, and `min_tokens` skips a stretch too short to be worth a model call. The warm Session's timer later calls the same compaction.
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
-- **Structured output depends on nothing above,** so the maintainer can move it earlier. It sits after the store work because the many-instance goals carry the pitch.
-- **Access hooks depend on nothing above either.** They give enterprise teams the places to enforce their own rules, and they come after the store work for the same reason as structured output.
+- **Access hooks depend on nothing above,** so the maintainer can move them earlier. They give enterprise teams the places to enforce their own rules, and they come after the store work because the many-instance goals carry the pitch.
 - **The tests a team's own setup would run come last:** fake gateways, a local cluster and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
 
 ## Phase 1 — Measure ✅
@@ -149,7 +147,7 @@ Exit:
 A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
 
 - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, the Run on every Message, and the Recap names.
-- Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 10.
+- Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks come in Phase 9.
 - ✅ Step 1, Segments built by code: a compaction on demand or at the start of a Run closes a Segment, and keeps the ToolSets the Segment used and those the kept tail calls. A user Message or final reply past 2K tokens is cut, and the line that says so names `read_segment`, which reads the rest from step 4. The compact endpoints take `min_tokens`, so a service's idle timer skips a stretch too short to be worth a model call, and a compaction that names no `keep` keeps the latest Run's Turns as its tail, as mid-Run. A Record compacted into one summary before Segments is refused, not migrated. A compaction that fails is dropped, and the Run goes on.
 - ✅ Step 2, the model writes the Recap, on the cached prefix: the request is the Context the next call would send plus one plain ask, validated by the five-heading rules, and a reply that fails leaves the Segment without a Recap. It is off by default in the library, the service and the CLI. The payments check of G-E01 ships as `gotato-workload -recap-check`. With it, a service can compact its idle Sessions before their cache goes cold.
 - ⬜ Step 3, past the ceiling and on overflow: compaction before any model call, mid-Run included, through `TurnPreparer`, and once after the provider refuses a request as too long.
@@ -190,18 +188,7 @@ Exit:
 - A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
 - G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
-## Phase 8 — Structured output
-
-- An Agent can carry a JSON schema, and its final reply fits it, on all three wire APIs ([FEATURES.md → G-F28](FEATURES.md#g-f28--structured-output-)).
-- A reply that does not fit settles the Run as `failed`, with a reason that names the schema. The model is not asked to try again.
-- HTTP and gRPC change nothing: the schema is part of the Agent's definition.
-
-Exit:
-
-- A scripted model returns a reply that fits and one that does not, and the Run settles as `completed` and as `failed`, on each wire API's replayed replies.
-- An Agent without a schema behaves as before, and the contract version does not change.
-
-## Phase 9 — Access hooks
+## Phase 8 — Access hooks
 
 - The caller's identity travels in `context.Context` from the handler to every extension and every store call, and a test keeps it so.
 - A new "not allowed" error: a store adapter or an extension returns it, and HTTP answers 403 and gRPC the matching code ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
@@ -212,7 +199,7 @@ Exit:
 - A store wrapper that refuses a caller by the identity in `ctx` makes reading, running and cancelling a Session answer 403, tested on HTTP and gRPC.
 - The new code is recorded in [CHANGELOG.md](CHANGELOG.md) as an addition to both contracts.
 
-## Phase 10 — Before the release
+## Phase 9 — Before the release
 
 The last phase tests Gotato the way a team would run it: against gateways that behave like the providers, on several instances in a local cluster, and against the exported API it promises.
 
