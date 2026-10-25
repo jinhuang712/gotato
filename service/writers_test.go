@@ -389,7 +389,16 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 // TestTwoInstancesOpenOneIdleSessionAtOnce: when the instance that holds an
 // idle Session and another one open it at the same time, one of them runs
 // first and the other waits for it. Neither fails with a conflict.
+//
+// The Liveness TTL is long here. A Runner refuses a write once its last
+// renewal is older than 4/5 of the TTL (Runner.guard), which is right, and
+// with fastLiveness's 150 ms that is 120 ms: a renewal tick that a loaded
+// machine runs 40 to 80 ms late, with the file store's disk writes, passes
+// it, and a Run then fails with "liveness row may have expired". This test
+// is about two Instances opening a Session, not about liveness lapsing, which
+// the tests that use fastLiveness cover.
 func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
+	liveness := service.Liveness{TTL: 3 * time.Second, Wait: 5 * time.Second}
 	for _, kind := range []struct {
 		name   string
 		rounds int
@@ -397,8 +406,8 @@ func TestTwoInstancesOpenOneIdleSessionAtOnce(t *testing.T) {
 		t.Run(kind.name, func(t *testing.T) {
 			ctx := context.Background()
 			open := sharedStores(t, kind.name)
-			a := instanceRunner(t, open(), "instance-a", testkit.EchoModel{}, fastLiveness)
-			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, fastLiveness)
+			a := instanceRunner(t, open(), "instance-a", testkit.EchoModel{}, liveness)
+			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, liveness)
 			s, err := a.CreateSession(ctx, "echo", nil)
 			if err != nil {
 				t.Fatal(err)
