@@ -310,7 +310,8 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 	}
 	role := string(message.Role)
 	switch message.Role {
-	case gotato.RoleUser:
+	case gotato.RoleUser, gotato.RoleNotice:
+		// A notice (G-F29) is tagged text in a user item.
 		content, err := responsesInputContent(message.Parts)
 		if err != nil {
 			return nil, err

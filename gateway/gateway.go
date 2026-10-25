@@ -602,6 +602,12 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 		}
 		return wireMessage{Role: "tool", Content: content, ToolCallID: callID}, nil
 	}
+	if message.Role == gotato.RoleNotice {
+		// Chat Completions has no system message mid-conversation: a notice
+		// (G-F29) goes as a user message on the wire, tagged text, and the
+		// Record keeps it a notice.
+		role = string(gotato.RoleUser)
+	}
 	if role != string(gotato.RoleUser) && role != string(gotato.RoleAssistant) {
 		return wireMessage{}, fmt.Errorf("gateway: unsupported Message role %q", role)
 	}

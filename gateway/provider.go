@@ -181,9 +181,8 @@ func takesPromptCacheOptions(model string) bool {
 // Round starts, or -1 when there is none. A Round is a user Message and every
 // reply and Tool Result after it. A Steer is a user Message, so it starts a
 // new Round; a Continue without a new prompt stays in the Round it resumes;
-// Tool Results have a role of their own and never start one. A runtime notice
-// (G-F29), when it comes, is not the user speaking and must not start a
-// Round either.
+// Tool Results have a role of their own and never start one, and neither does
+// a runtime notice (G-F29): it is not the user speaking.
 //
 // With roundReasoning, an assistant reply before this index is sent without
 // its reasoning. Claude and OpenAI need reasoning back only inside the tool
