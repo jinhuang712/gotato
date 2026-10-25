@@ -75,7 +75,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | 🚧 |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | 🚧 |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
-| Reading large results | the `bash` tool: a read-only bash subset that queries a Session's own Record, with no machine | G-F36 | ⬜ |
+| Reading large results | the `bash` tool: a read-only bash subset that queries a Session's own Record, with no machine | G-F36 | 🚧 |
 
 **Models**
 
@@ -1045,7 +1045,7 @@ O-88501,paid,41.20,…
 - **Subscribers and `events` get no body.** A subscriber, the retained window, `gotato events`, the HTTP events and gRPC see `tool_result_spilled` with `call_id`, `tool_id` and `bytes`; the body is only in the stored Entry and comes back with `read_result`.
 - **Only over a Record.** A Session spills when its Transcript keeps Entries (`gotato.SpillKeeper`: a `session.Record` or `session.Writer`). A Session over the plain in-memory Transcript has nowhere to read the body from, and commits the result whole.
 
-### G-F36 — Reading large results ⬜
+### G-F36 — Reading large results 🚧
 
 Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). The `bash` tool lets it query its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It is built in Phase 9 ([ROADMAP.md](ROADMAP.md#phase-9--reading-large-results)); the reasons, and what was ruled out, are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
 
@@ -1076,7 +1076,8 @@ The first version has 14 commands:
 - **Protections.** A very long single line, such as minified JSON, is cut with a marker like `[line cut: 1.0 MiB]`, never silently. Output over one page is spilled like any Tool Result. Every command answers `--help` with the flags it supports.
 - **GNU conformance tests** run in development and CI only, never at runtime.
 - **A module of its own, `adapter/bash`.** Its engine does not import Gotato (a command string, an `fs.FS` and `ctx` in; stdout, stderr and an exit code out), so it can move to a repository of its own. A thin layer wraps it as the `bash` tool and spills large output. A service that does not install the module keeps `read_result` ([G-F35](#g-f35--large-tool-results-)).
-- **The core exposes a Session's Record as a read-only `fs.FS`,** with the standard library alone; the root module imports nothing new.
+- **The core exposes a Session's Record as a read-only `fs.FS`,** with the standard library alone; the root module imports nothing new. Built: `session.ResultsFS(ctx, record, log)` shows `results/<call_id>` for every Tool Result the Record's Context holds, spilled or not, reads a body only when its file is opened, and lists the same names, sizes and times (the Unix epoch) on every instance.
+- **Gap.** Built so far: the file system above. Still to build: the engine in `adapter/bash`, the remaining commands, jq, the protections, and the Gotato layer (Phase 9, steps 2 to 5).
 - **Review.** When the chat bot of Phase 11 runs, the command list is reviewed against real use.
 
 ## Models
