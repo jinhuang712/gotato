@@ -476,8 +476,8 @@ tail       the Messages since the last compaction, as they are
 
 | Part | In the Segment | By |
 |---|---|---|
-| the user's messages | word for word | code |
-| each Run's final reply | word for word | code |
+| the user's messages | word for word, up to 2K tokens each; an image or a file becomes a placeholder | code |
+| each Run's final reply | word for word, up to 2K tokens each | code |
 | the text of a Run's other Turns, and reasoning | left out | code |
 | each tool call | one line inside its Run: the time, the tool, its arguments cut at 200 characters, and `ok` or the error code | code |
 | tool results | left out | code |
@@ -486,6 +486,7 @@ tail       the Messages since the last compaction, as they are
 | the Recap | what happened, the key facts the tools returned, the decisions, what is still open, and where a Run stands | the Agent's model |
 
 - The tool results are left out, so the facts they held survive only in the Recap. That matters most for an investigation, whose Runs have little conversation.
+- **A long message is cut.** A user Message or a final reply past 2K tokens keeps its start, and a line says where it was cut and that `read_segment` returns the rest. An image or a file becomes a placeholder that names its kind, its name when it has one, and its size. Without the cut, one pasted log could take most of the Segments' budget and push the older Segments into a merge.
 - A call repeated with the same arguments is one line with its count, and a failed call keeps its error code. Past 100 lines, a Segment counts the rest of its calls by tool name.
 - Once the tool calls are lines, the assistant Messages next to each other become one, so user and assistant still take turns.
 - **Grouped by Run.** The Messages of a Segment are grouped by the Run that committed them (`Message.RunID`). A Run's final reply is its last assistant Message without tool calls. A Message with no Run ID, such as history a Record started with or the results Gotato writes for tool calls left unanswered, is not from a Run: it is kept or left out by its own rule, not grouped. An output-limit continuation carries its Run's ID, so the replies on either side of it belong to one Run.
@@ -657,6 +658,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 | Recap output limit | 8K tokens | a Recap cut off fails, and output not used costs nothing |
 | Segments' budget | half the ceiling; with no ceiling, a default budget whose number is not chosen yet | the oldest Segments are merged when the Segments pass it, and on an overflow, so a long Session is safe by default and leaves room for the conversation that follows |
 | tool call lines | 100 per Segment, arguments cut at 200 characters | one busy Run does not fill its Segment |
+| a user Message or final reply in a Segment | 2K tokens each, the rest read with `read_segment` | one long paste does not fill the Segments' budget |
 | time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
 
 **Checked with real provider requests before it is built:**
