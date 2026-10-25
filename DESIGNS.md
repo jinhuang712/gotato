@@ -295,6 +295,21 @@ A Session runs with nobody watching each step, so something will fail: a model c
 - **Instead of:** one generic error.
 - **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, a cancel or Gotato.
 
+### An error says whether it ran and whether a retry may succeed — 2026-10-25
+
+A caller that gets an error has two questions before it reads the code: did anything happen, and may I try again? The first decides whether the same request can go to another instance without running twice. The second decides whether to wait, or to tell the user. Both answers depend on where the error was made, so that is where we decide them.
+
+| Option | For | Against |
+|---|---|---|
+| **The runtime sets both answers on the error, and every surface translates** (chosen) | A service that embeds the Runner and never meets HTTP reads the same answers as a client behind a load balancer. A new code is classified once, where it is made. | The runtime names two facts that look like transport concerns. |
+| Each surface infers them from the code | Nothing in the runtime changes. | HTTP, gRPC and the CLI each keep a copy, and they drift: a draining instance's refusal was not marked "not run" because only HTTP knew one code that was. An embedding service gets no answer at all. |
+| The caller infers them from the code | Simple for the runtime. | Every caller learns which codes are safe, and a new code silently breaks the rule. |
+
+- **Three answers on every error.** The code says what happened. `gotato.NotRun(err)` is true when nothing with side effects happened, so the request is safe to send to another instance. `gotato.Retryable(err)` is true when the same request, sent again later, may succeed. Both look through wrapped errors.
+- **Not run is a promise, so the default is no.** A store failure may have run, and a Run that reached the model has run. Only a refusal made before a Run starts says yes: draining, past a limit, busy, no such Session.
+- **A Run that started never says `completed` and carries an error.** A Run whose reply was made but whose last writes failed settles as `not_saved`: the store is the truth ([DESIGNS.md → The store is the only truth](#1-the-store-is-the-only-truth)), so a Run the store does not hold is not a success. A caller that reads only the status is not misled. A Run refused before it started has no status at all.
+- **Surfaces keep one table from code to status.** HTTP, gRPC and the CLI each map every code on purpose, and a test fails when a code has no entry, so a new code cannot be forgotten.
+
 ### A Session never waits for a subscriber
 
 - **Instead of:** observers that the Session's goroutine calls and waits for.

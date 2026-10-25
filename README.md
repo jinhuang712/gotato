@@ -80,7 +80,18 @@ if err != nil {
 mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner))) // optional HTTP surface
 
 out, err := runner.Run(ctx, service.RunRequest{Prompt: "summarize the open tickets"})
+switch {
+case gotato.NotRun(err):
+    // refused before it started (draining, full, busy, no such Session): nothing
+    // happened, so send it to another instance or ask the user to try again
+case out.Result.Status == gotato.RunNotSaved:
+    // the reply was made (out.FinalText) but the Record does not hold it
+case gotato.Retryable(err):
+    // it ran; sending the same request again later may succeed
+}
 ```
+
+Every error says whether it ran (`gotato.NotRun`) and whether a retry may succeed (`gotato.Retryable`); HTTP, gRPC and the CLI only translate those answers.
 
 Each Run opens the Session's Record from its last Checkpoint, builds a live Session from the Agent, and writes every step of the Run as it happens, so a crash loses at most the step in flight. Instances that share a Store run a Session one at a time: another instance takes it over when it is idle or its instance is gone, and waits, then answers 409, while it runs elsewhere. When the service stops, `runner.Drain` lets every Run finish, save and release its Session, and `runner.Close` then removes the instance's Liveness row, so other instances take its Sessions over at once.
 

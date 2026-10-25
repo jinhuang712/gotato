@@ -17,7 +17,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Transcript** | A Session's stored history: every committed Message, in order. | history, log | `gotato.Transcript`, implemented by `session.Record` and `session.Writer` |
 | **Context** | What the model sees on one Turn, built from the Transcript. | prompt, model view | `gotato.ModelContext`, built by a `ContextBuilder` |
 | **Runner** | The part of a Go service that hosts Sessions: it starts them from Agents, routes messages to them, loads them from the Store and applies limits. | host, server | `service.Runner` |
-| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `RunResult.Status` for one Run. |
+| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `RunResult.Status` for one Run: `completed`, `failed`, `cancelled`, `deadline_exceeded` or `not_saved` (the reply was made but the writes that end the Run failed). |
 
 ## Execution
 
@@ -78,6 +78,8 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
 | **Instance** | One running copy of your service. On Kubernetes it is a pod, and the proposal says "pod" for that reason. | replica, node | |
+| **Not run** | What an error says when nothing with side effects happened, so the same request can go to another Instance without running twice. A refusal before a Run starts is not run; a store failure may have run, and is not marked. | | `gotato.NotRun(err)`, `RuntimeError.NotRun`, HTTP `Gotato-Not-Run` |
+| **Retryable** | What an error says when the same request, sent again later, may succeed. | | `gotato.Retryable(err)`, `RuntimeError.Retryable` |
 | **Admission** | The rule for how many Runs may run at once, and what happens when a Session is busy. | | `service.Admission` |
 | **Drain** | Finishing work before an Instance shuts down: it takes no new Sessions, lets every Run finish, saves, releases its Claims, and only then disconnects. | | `Runner.Drain`: it marks the Liveness row draining, admits no new Run and takes no Session over, waits for the Runs in flight, and at its deadline stops, saves and releases the rest; `Runner.Close` then removes the Liveness row. |
 | **Writer** | The one Instance allowed to append to a Session's Record at a time. It holds the Claim, and it is wherever the Load balancer sends the Session's requests. | owner, leader, master | `service.Runner` as its Instance, writing through a `session.Writer` |

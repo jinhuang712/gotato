@@ -15,7 +15,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Run, continue and abort | `Prompt` returns when the Run settles; `Continue` resumes it; `Abort` stops it | G-F01 | ✅ |
 | The Loop | calls the model and the tools it asks for, until it answers or a limit stops it | G-F01 | ✅ |
 | Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
-| Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
+| Settled results | every Run ends `completed`, `failed`, `cancelled`, `deadline_exceeded` or `not_saved`, with its usage | G-F01 | ✅ |
+| Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
 | Limits | Turns, tool calls, messages, bytes and deadlines, each with a default | G-F01 | ✅ |
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`) | G-F01 | ✅ |
 | Steer | add a message the model reads on its next call | G-F26 | 🚧 |
@@ -217,7 +218,8 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers or a limit stops it.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
-- Every Run settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped.
+- Every Run that starts settles as `completed`, `failed`, `cancelled`, `deadline_exceeded` or `not_saved`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. `not_saved` is the service's status for a Run whose reply was made but whose last writes failed, so the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success.
+- A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 
 The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults:
@@ -232,6 +234,40 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 | `RunDeadline` | 5 minutes | a Run always ends, even when a call hangs |
 | `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run |
 | `MaxTruncatedContinuations` | 0, off | a model can spend a Turn's whole output limit thinking and stop before it acts. Above 0, the Run asks it to go on, up to that many times, instead of settling on the cut-off reply. |
+
+**Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError`, and it answers three questions, set where the error is made and never guessed by a caller or a transport:
+
+- **`Code`** says what happened.
+- **`gotato.NotRun(err)`** is true when nothing with side effects happened, so sending the same request to another instance cannot run it twice.
+- **`gotato.Retryable(err)`** is true when the same request, sent again later, may succeed.
+
+| Code | Not run | Retryable | Meaning |
+|---|---|---|---|
+| `draining` | yes | yes, on another instance | the instance is draining and takes no new Run |
+| `overloaded` | yes | yes, on another instance | the instance is past its limit of active Sessions |
+| `limit_exceeded` from the Runner's `MaxActiveRuns` | yes | yes | the instance is at capacity. The same code ends a Run that reached a limit of its own (Turns, bytes), which ran and is neither. |
+| `busy` | yes | yes, after the Run in flight | the Session has a Run, here or on another instance |
+| `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` matches it. |
+| `session_closing`, `session_closed` | yes | no | the live Session takes no more calls |
+| `store_failure` | not known | yes | the store could not write or read |
+| `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `IsRetryable() bool` |
+| `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
+
+- `errors.Is` still matches by code, and both functions look through wrapped and joined errors.
+- `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
+- HTTP, gRPC and the CLI only translate ([G-F14](#g-f14--http-grpc-and-streaming-), [G-F16](#g-f16--the-gotato-cli-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:
+
+```go
+result, err := runner.Run(ctx, req)
+switch {
+case gotato.NotRun(err):
+	// nothing happened: send it to another instance, or tell the user to try again
+case result.Result.Status == gotato.RunNotSaved:
+	// the reply was made (result.FinalText) but the Record does not hold it
+case err != nil && gotato.Retryable(err):
+	// it ran; sending the same request again later may succeed
+}
+```
 
 #### The live Session is `gotato.Session`, and its record is `session.Record` — 2026-10-16
 
@@ -983,14 +1019,14 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 ```
 
 - The mark lets every instance see that this one is leaving. Another instance still waits for a Session the draining instance is using, because its Run is about to be saved; taking it over would fence that Run.
-- A request the draining instance refuses gets `ErrDraining`, 409 over HTTP. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
+- A request the draining instance refuses gets `ErrDraining`, code `draining`, which says it did not run and may succeed elsewhere: 503 with `Gotato-Not-Run: true` over HTTP, `UNAVAILABLE` with the trailer `gotato-not-run: true` over gRPC. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
 - A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
 - A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
 - Today each Run has its own stream. With the warm Session ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)), the signal reaches every live Session through one closed channel, and each Session handles it in its own turn, after the messages before it.
 
 **Activation limit.** An instance counts the Sessions it has activated: those that a Run holds or waits for, each once. `Admission.MaxActiveSessions` (`--max-sessions`) is the hard limit on that count; zero, the default, has none.
 
-- **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, gRPC `UNAVAILABLE` with the trailer `gotato-not-run: true`, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run.
+- **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, gRPC `UNAVAILABLE` with the trailer `gotato-not-run: true`, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run. The runtime sets it (`gotato.NotRun`); a draining instance's refusal carries it too.
 - **What is not refused.** A Run on a Session that is active here already, which reaches the busy policy instead; creating or forking a Session, which activates nothing; and the short changes that open a Session under its lock (compact, tool activation, delete).
 - **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 7](ROADMAP.md#phase-7--warm-session)) the same setting counts the Sessions held in memory.
 - **Why `/readyz` does not fail at the limit.** A full instance still serves the Sessions it holds, and a consistent hash sends their requests here. `/readyz` answers 503 for a drain only, and reports `active_sessions` beside `active_runs`, so an operator sees how close the instance is.
@@ -1010,7 +1046,7 @@ A request that creates a Session, such as `POST /v1/runs`, needs no header, and 
 
 - **What reading the header means.** The endpoints read `session-id` as a check. It must agree with the Session ID in the path or in the body (`POST /v1/sessions` with an `id`); otherwise the request is refused with 400 on HTTP, or `INVALID_ARGUMENT` on gRPC, because the load balancer would have routed it for another Session. A missing or blank header agrees with everything, and on a request that creates a Session without naming an ID the header is ignored. The key is `session-id` in HTTP headers and in gRPC metadata. Gotato does not pick the Session from the header: the path or the body says which Session a request is about.
 - **Where the new ID is set.** `POST /v1/sessions`, `POST /v1/runs`, a fork, and the gRPC `CreateSession`, `Run` and `ForkSession` answer with it. A streaming request that creates a Session cannot: its headers go out first, and its first Event, `session_created`, names the Session.
-- **The "not run" mark.** A 503 with `Gotato-Not-Run: true` (gRPC: `UNAVAILABLE` with `gotato-not-run: true` in the trailers) never ran, so the load balancer may send it once to another instance. A connection that broke after the request was sent is different: it may have run, and is not retried.
+- **The "not run" mark.** A refusal with `Gotato-Not-Run: true` (gRPC: `gotato-not-run: true` in the trailers), such as the 503 of a draining or full instance, never ran, so the load balancer may send it once to another instance. A connection that broke after the request was sent is different: it may have run, and is not retried.
 
 The test harness has such a load balancer: `TestProxyRetriesAFullInstancesRefusalElsewhere` and `TestRandomInstancesGiveWhatOneInstanceGives` in `service/workload` hash on `session-id` over several instances, retry a refusal marked "not run" once, and drop an instance whose connection is refused. Examples of these settings for common load balancers come later.
 
@@ -1065,19 +1101,21 @@ POST   /v1/runs                  POST /v1/runs/stream
 | Code | When |
 |---|---|
 | 400 | the request is invalid |
-| 404 | the Session does not exist |
+| 404 | the Session does not exist (`not_found`, marked not run) |
 | 408 | the caller cancelled the request |
-| 409 | the Session is busy, the Run is not active, the Runner is draining, or a stream cannot resume (`cannot_resume`, with the current `record_epoch`) |
+| 409 | the Session is busy, the Run is not active, or a stream cannot resume (`cannot_resume`, with the current `record_epoch`) |
 | 413 | the body is too large |
-| 429 | the Runner is at capacity |
+| 429 | the Runner is at capacity (marked not run) |
 | 500 | a settled Run could not be saved |
-| 503 | the instance is past its activation limit (`overloaded`, marked not run), or the store failed |
+| 503 | the instance is draining (`draining`) or past its activation limit (`overloaded`), both marked not run; or the store failed |
 | 504 | the request's deadline passed |
+
+- Every code has its status in one table (`statusOfCode`); `StatusFor` only looks it up. Whether the request ran is not decided here: `Gotato-Not-Run: true` is set whenever `gotato.NotRun(err)`, on any status, and the error body carries `code`, `not_run` and `retryable`. A request refused with a mark may be sent again to another instance.
 
 **Streaming.** The `/stream` routes send each Event of the Run's stream as server-sent events (`event: <kind>`, `data:` one flat JSON object), and end with `event: result`. The handler reads a Subscription, so a client that reads slowly never slows the Run.
 
 - The stream answers 200 once the Run is admitted.
-- So a bad or oversized body gets a status code, and so does a request refused at admission, which is known before any byte is written: draining answers 409, capacity 429, and past the activation limit 503 with `Gotato-Not-Run: true`, the same as `/v1/runs`. Every failure after admission (busy, not found, an unknown Agent, a store failure) arrives in-band as `event: error`.
+- So a bad or oversized body gets a status code, and so does a request refused at admission, which is known before any byte is written: draining and the activation limit answer 503, and capacity 429, each with `Gotato-Not-Run: true`, the same as `/v1/runs`. Every failure after admission (busy, not found, an unknown Agent, a store failure) arrives in-band as `event: error`.
 - A Run the drain stopped ends its stream with `event: result` and then `event: reconnect`. Its `retry:` field and `retry_after_ms` give how long to wait before the Session is continued on any instance; when the result has no `run_id`, nothing ran, and the request is sent again.
 - **Stream resume.** `GET /v1/sessions/{id}/stream` sends a Session's stored Events after a number, read from the Record, and then the live ones across Runs, as server-sent events, on any instance. A client that lost a stream reconnects through the load balancer, with the number of the last Event it saw, and the stream goes on without gaps or repeats ([DESIGNS.md → A stream resumes from a position](DESIGNS.md#a-stream-resumes-from-a-position)).
   - **The number.** Every stored Event on a Session's stream and on a Run's stream has its number as the SSE `id:`, which is its Entry's position in the Record ([G-F13](#g-f13--events-)). A browser's `EventSource` sends the last one back by itself as `Last-Event-ID`; the `after` parameter says the same, and wins. 0, or neither, starts at the first Event. A delta has no `id:`: it is not a position, the finished Message holds its text, and deltas sent before a reconnect are not sent again.
@@ -1085,7 +1123,7 @@ POST   /v1/runs                  POST /v1/runs/stream
   - **When the position cannot be resumed.** A client may send the epoch it saw, as `record_epoch` or the `Record-Epoch` header. If it is not the Record's, or `after` is past the Record's last Event, the request is refused before the stream starts: 409, code `cannot_resume`, and the current `record_epoch` in the body. The client starts over with `after` 0. A browser's `EventSource` cannot send the header, so it compares the epoch in the first frame with the one it kept. An unknown Session is 404.
   - **A Run's stream that is lost.** A Run's stream carries the same ids, and its first Event names the Session (`session_created` has the epoch). A client that loses it reconnects through the Session's stream after the last number it saw, and reads the rest of the Run from there. For an existing Session, the client learns the epoch from the response that created it, or from the first frame of the resumed stream.
   - **When a stream ends.** A drain ends a Session's stream, once every Run is saved and released, after the stored Events, with `event: reconnect`: `{"retry_after_ms", "why": "draining"}` and the SSE `retry:` field, the wait spread at random from half a second to one and a half. A Run's stream the drain stopped ends the same way. The first frame also sets `retry:`, a different wait for each client, which a browser uses after a connection that dropped without a word, so a lost instance does not make every client reconnect at the same instant. Any other end is an `event: error` and no reconnect. An idle stream sends a comment every 15 seconds (`httpapi.WithKeepAlive`).
-  - **A Session deleted, or created again, under the stream.** A stream follows the Record it opened, the one its epoch names, and never delivers an Event of another Record under the same ID. It ends instead, with `event: error`. Over HTTP, a Session that is gone gives `{"error":"Not Found","message":"session: not found"}`, with no `code`, and one created again gives `cannot_resume`; over gRPC, `StreamSession` returns `NOT_FOUND` or `FAILED_PRECONDITION`. What was queued for it is dropped.
+  - **A Session deleted, or created again, under the stream.** A stream follows the Record it opened, the one its epoch names, and never delivers an Event of another Record under the same ID. It ends instead, with `event: error`. Over HTTP, a Session that is gone gives 404 with `"code": "not_found"` and `"not_run": true`, and one created again gives `cannot_resume`; over gRPC, `StreamSession` returns `NOT_FOUND` or `FAILED_PRECONDITION`. What was queued for it is dropped.
     - **On the instance that deletes the Session, opens or creates the new Record** (a Run, a tool change, a compaction, a create), **or opens a stream on it**, the old stream ends at once. A stream that read the old epoch while that happened reads the epoch again before it starts, and is refused: with 404 if the Session is gone, with 409 `cannot_resume` if it was created again. The open or create cuts only the streams that started before it read the Record, or wrote it, and that are of another Record. A stream that started after may be of a newer Record, since another instance can delete and create the Session again after the claim was written; the open reads the Record once more, and cuts such a stream only if its epoch is not the Record's now.
     - **On any other instance**, it ends at the first look that finds the Session gone, or at the first read that returns Events of the new Record. Until then it stays open and delivers nothing: a new Record that is no longer than what the stream has seen is noticed only once it grows past that, because an idle look reads only the Events after the stream's number.
     - **What makes it so.** Each Record has a Feed of its own on an instance, named by its Session ID and epoch, so a stream is never handed the live Events of another Record, and the stream of a new Record never waits for the old Record's numbers. Every read of the Record that returns Events is checked against the stream's epoch before they are delivered. A stream is registered before it reads the Record, so what the instance does to the Record meanwhile reaches it. `Runner.SubscribeSession` is the same stream.
@@ -1095,7 +1133,8 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 - Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `StreamSession`, `CancelRun`, `Events`, `Context`, `Compact`.
 - `StreamSession(session_id, after, record_epoch)` is the same stream as the HTTP route, as a server stream of `SessionUpdate`: a `start` message with the epoch, then the Events. The epoch is also in the header metadata `record-epoch`. A position that cannot be resumed fails with `FAILED_PRECONDITION` and the current epoch in a `record-epoch` trailer; an unknown Session with `NOT_FOUND`. The drain ends the stream with `UNAVAILABLE` and a `retry-after-ms` trailer, like `StreamRun`.
-- The `session-id` metadata is checked and answered as the HTTP header is; a call refused as not run is `UNAVAILABLE` with the trailer `gotato-not-run: true`.
+- The `session-id` metadata is checked and answered as the HTTP header is.
+- Each code has its gRPC code in one table (`codeOf`): `draining`, `overloaded` and `store_failure` are `UNAVAILABLE`, `not_found` is `NOT_FOUND`, `busy` and `invalid_state` are `FAILED_PRECONDITION`. A failed call, unary or stream, carries the trailer `gotato-not-run: true` when the runtime says it did not run, and `gotato-retryable: true` when a retry may succeed. The `RuntimeError` in a `RunResult` has `retryable` and `not_run` fields.
 - An Event is a message with a header and a `oneof` that holds one message for each type of Event, so a client reads checked fields, not a JSON payload. A Message that an Event carries travels as JSON bytes.
 - The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`.
 - A Run the drain stopped sends its result, then ends `StreamRun` with `UNAVAILABLE` and a `retry-after-ms` trailer.
@@ -1269,7 +1308,7 @@ gotato run --session "$id" --model demo --json "use-tool"
 | `version` | prints the version |
 
 - `--json` and `--jsonl` print data on stdout, and diagnostics go to stderr. `--timeout` sets a command's deadline.
-- Exit codes: `0` success, `1` runtime error, `2` usage error, `3` not found, `4` the Run did not complete.
+- Exit codes: `0` success, `1` runtime error (also a Run that settled as `not_saved`), `2` usage error, `3` not found, `4` the Run did not complete. One table maps each error code to its exit code. A failed command in `--json` mode writes `{"error", "exit_code", "code", "not_run", "retryable"}`.
 - Built-in models need no credentials: `echo` (the default) and `demo`. `gateway` uses the YAML provider.
 - Environment: `GOTATO_HOME`, `GOTATO_MODEL`, `GOTATO_GATEWAY_CONFIG`.
 
@@ -1351,7 +1390,9 @@ Each feature above says what happens when its part fails. This table collects th
 | A limit is reached | the Run settles with a status that names the limit | G-F01 |
 | A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | G-F27 |
 | A write fails | the Run stops at that step with `store_failure` or `conflict`, and a failed model-call write stops it before the model is called; the caller retries or reports it | G-F03 |
-| An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects; a Run still going at the drain timeout is stopped, saved and released, and its stream says to reconnect | G-F27 |
+| The writes that end a Run fail | the reply was made, but the Record does not hold it: the Run settles as `not_saved` with `store_failure` and `ErrNotPersisted`, never as `completed`; the next Run starts without that reply | G-F01 |
+| A Run is refused before it started (draining, past a limit, busy, no such Session) | an empty result with no status and an error that says it did not run; the caller may send it to another instance | G-F01 |
+| An instance stops gently | it drains: every Run finishes, saves and releases before the instance disconnects; a Run still going at the drain timeout is stopped, saved and released, and its stream says to reconnect; a new Run is refused as `draining`, not run | G-F27 |
 | An instance dies mid-Run | at most the step in flight is lost, and a tool that was running is answered with an unknown outcome; another instance takes the Session over once the dead instance's row expires | G-F27 |
 | The writer loses its liveness | it writes nothing more, so it never calls the model; draining itself is planned | G-F27 |
 | A write's outcome is unknown | the writer stops, and the Session is opened again from the store, which shows whether the write landed | G-F27 |

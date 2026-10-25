@@ -6,6 +6,23 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Errors
+
+- **Every error says whether it ran and whether a retry may succeed, and the runtime decides.** `RuntimeError` gains `NotRun` (JSON `not_run`), and `gotato.NotRun(err)` and `gotato.Retryable(err)` read both through wrapped errors. `gotato.ErrorCodes()` lists every code. HTTP, gRPC and the CLI keep one table from each code to their status, and a test fails when a code has none. A model failure the provider calls transient (a rate limit, an overload, a broken stream) is a `model_failure` with `retryable: true`; the gateway's `Error` says so through `IsRetryable()`. **Breaking:**
+
+  | Before | After |
+  |---|---|
+  | a draining instance refused a Run with `ErrDraining`, code `invalid_state`: HTTP 409, gRPC `FAILED_PRECONDITION`, no mark | code `draining`: HTTP 503 with `Gotato-Not-Run: true`, gRPC `UNAVAILABLE` with the trailer `gotato-not-run`; `retryable: true` |
+  | `invalid_state` for a draining instance | `draining`; `invalid_state` stays for the other state conflicts |
+  | `session.ErrNotFound` was a bare sentinel, with no code: HTTP 404 and the CLI's exit 3 found it by `errors.Is`, an error body had no `code` | it carries the new code `not_found` (`errors.Is(err, session.ErrNotFound)` still works): 404 with `"code": "not_found"`, `NOT_FOUND`, exit 3 |
+  | only `overloaded` was marked not run, over HTTP and gRPC | the runtime marks every refusal before a Run starts: `draining`, `overloaded`, `busy`, `not_found`, the `MaxActiveRuns` capacity refusal (429), an empty prompt, an unknown Agent. The header is set on any status, 409 and 404 included. |
+  | a Run whose last writes failed: `status: "completed"` and the error `ErrNotPersisted` | `status: "not_saved"`, with `result.error` set (`store_failure`) and `ErrNotPersisted` still returned. `completed` never carries an error, and every other status always does. The CLI exits 1 for it, as before. |
+  | HTTP error body `{"error","code","message","not_run"}` | adds `retryable`; the 500 and 409 of a Run that was not saved carry `code` and `retryable` too |
+  | gRPC `RuntimeError` message: `code`, `operation`, `message`; only `Run` and `StreamRun` set the trailer `gotato-not-run` | adds `retryable` and `not_run`; every failed call sets the trailers `gotato-not-run` and the new `gotato-retryable` when they hold |
+  | CLI failure JSON `{"error","exit_code"}` | adds `code`, `not_run` and `retryable` |
+
+  The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`), since the break ships with the changes above that already raised them.
+
 ### Names
 
 - **The code now uses the names in [GLOSSARY.md](GLOSSARY.md).** The Agent is a definition, `service.Agent`. The object you build and talk to is the live Session, `gotato.Session`: one concrete type, with the interfaces the old `gotato.Agent` was split into removed, because nothing implemented them but the core. What the store keeps is the Session's Record, `session.Record`. The Loop stays a concept. No `// Deprecated:` aliases are kept. **Breaking:**
