@@ -508,6 +508,18 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | `gotato.model` | the model the Agent last asked for; written by Gotato, for information | shows which model the Session was run with; each reply also records the model that actually answered (`Message.Model`, G-F07) |
 | `gotato.cache_key` | the prompt cache key this Session's requests carry, in place of the hash of its ID; written by a fork, from its parent | a fork shares its parent's prefix, so it should share its cache |
 
+**Changing metadata after the Session exists.** A metadata change is a fact of the Record (`metadata_changed`, [G-F03](#g-f03--stores-)), and only the Session's writer may write it. Today a caller has these ways, and no other:
+
+| Surface | How | Note |
+|---|---|---|
+| Go API | `service.RunRequest.Update`, a map applied before the Run, under its Claim, as the Run's first write; an empty value deletes the key | it needs a Run: a `Prompt`, or `Continue`. With `SkipSave` the change applies to that Run only |
+| Go API | `Runner.SetToolActive(ctx, sessionID, toolID, active)` | writes only `gotato.tool.<id>` |
+| CLI | `gotato run --session ID --instruction S --compact-ceiling N` (the Run's first write), and `gotato tools activate\|deactivate` | the CLI sets no other key; `session create --meta` is for a new Session only |
+| HTTP, gRPC | none | `metadata` on a run request, and on `POST /v1/runs`, is applied only when the request creates the Session, and is ignored for an existing one; `CreateSession` takes it too |
+
+- **There is no call that only changes metadata.** `Runner`, HTTP and gRPC have no `UpdateSession`, and the `*session.Record` that `CreateSession` and `Runner.Session` return is for reading: calling `Set` on it writes nothing to the store. To change a setting without a model call, the application sets it on the Run that follows (`Update`), or creates the Session with the value.
+- **Where to keep the application's own fields.** Anything the application keeps about a Session, such as a chat ID or an owner, is set at creation (`CreateSession`'s `metadata`) and is stable. A value that changes often belongs in the application's own store, keyed by the Session ID.
+
 ## What the model sees
 
 ### G-F04 — Context ✅

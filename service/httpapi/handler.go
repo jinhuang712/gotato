@@ -24,6 +24,10 @@
 //	POST   /v1/runs/stream                  same, streaming
 //	POST   /v1/runs/{run_id}/cancel
 //
+// The metadata of a run request is applied only when the request creates the
+// Session; for an existing Session it is ignored. No route changes the
+// metadata of a Session that exists.
+//
 // A message (steer, follow_up or interrupt) with no Run going starts one, and
 // its response is held until that Run settles (200 with the Run's result); a
 // client that closes the connection first ends the Run. A caller that cannot
