@@ -121,13 +121,13 @@ type opsToolSet struct{ tools []gotato.Tool }
 func (s opsToolSet) Spec() gotato.ToolSetSpec                     { return gotato.ToolSetSpec{Name: "ops"} }
 func (s opsToolSet) Tools(context.Context) ([]gotato.Tool, error) { return s.tools, nil }
 
-func TestEffectCapHidesToolsOfAnActivatedToolSet(t *testing.T) {
+func TestEffectCapKeepsAToolOfAToolSetOutOfTheIndex(t *testing.T) {
 	ctx := context.Background()
 	lookup := testkit.NewFakeTool("lookup", "found")
 	push := testkit.NewFakeTool("push", "pushed")
 	set := opsToolSet{tools: []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.EffectRead), gotato.ToolWithEffect(push, gotato.EffectWriteExternal)}}
 	model := testkit.NewFakeModel(
-		testkit.ToolCalls(gotato.ToolCall{ID: "a", ToolID: gotato.ActivationToolName, Arguments: []byte(`{"name":"ops"}`)}),
+		testkit.ToolCalls(gotato.ToolCall{ID: "a", ToolID: gotato.SearchToolName, Arguments: []byte(`{"names":["ops.lookup","ops.push"],"queries":["push"]}`)}),
 		testkit.ToolCalls(gotato.ToolCall{ID: "b", ToolID: "ops.lookup", Arguments: []byte(`{}`)},
 			gotato.ToolCall{ID: "c", ToolID: "ops.push", Arguments: []byte(`{}`)}),
 		testkit.Text("done"),
@@ -144,12 +144,22 @@ func TestEffectCapHidesToolsOfAnActivatedToolSet(t *testing.T) {
 	if len(requests) != 3 {
 		t.Fatalf("model calls = %d, want 3", len(requests))
 	}
-	// The activation tool declares read, so even the lowest cap keeps it.
-	if got := specIDs(requests[0].Tools); !slices.Equal(got, []string{gotato.ActivationToolName}) {
-		t.Fatalf("first request tools = %v, want only the activation tool", got)
+	// The search tool declares read, so even the lowest cap keeps it.
+	if got := specIDs(requests[0].Tools); !slices.Equal(got, []string{gotato.SearchToolName}) {
+		t.Fatalf("first request tools = %v, want only the search tool", got)
 	}
-	if got := specIDs(requests[1].Tools); !slices.Equal(got, []string{"ops.lookup"}) {
-		t.Fatalf("tools after activation = %v, want [ops.lookup]", got)
+	catalog := requests[0].Tools[0].Description
+	if !strings.Contains(catalog, "ops.lookup") || strings.Contains(catalog, "ops.push") {
+		t.Fatalf("the catalog = %q, want ops.lookup and not ops.push", catalog)
+	}
+	// The cap comes first: the tool is not found by name or by query, and is not loaded.
+	found := toolResultsByCall(requests[1])["a"]
+	text := gotato.TextOf(gotato.Message{Parts: found.Content})
+	if !strings.Contains(text, "Loaded: ops.lookup.") || !strings.Contains(text, "Not found: ops.push.") || !strings.Contains(text, "No tool matches: push") {
+		t.Fatalf("search result = %q", text)
+	}
+	if got := specIDs(requests[1].Tools); !slices.Equal(got, []string{"ops.lookup", gotato.SearchToolName}) {
+		t.Fatalf("tools after the load = %v, want [ops.lookup search_tools]", got)
 	}
 	if lookup.Calls() != 1 || push.Calls() != 0 {
 		t.Fatalf("calls: lookup %d, push %d; want 1, 0", lookup.Calls(), push.Calls())

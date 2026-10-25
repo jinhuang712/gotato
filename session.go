@@ -36,6 +36,8 @@ type sessionConfig struct {
 	tools          []Tool
 	toolSets       []toolSetConfig
 	toolSources    []ToolSource
+	toolFilter     func(string) bool
+	toolSearcher   ToolSearcher
 	rootNamespace  string
 	extensions     extensionSet
 	limits         CoreLimits
@@ -110,7 +112,8 @@ func WithCacheKey(key string) Option {
 }
 
 // WithMaxEffect caps the Effect of the Tools the Session offers. A Tool above
-// the cap, including one in a ToolSet activated later, is never shown to the
+// the cap, including one in a ToolSet, is never in the catalog, never found by a
+// search, never loaded and never shown to the
 // Model, and a call to it fails as a call to an unknown Tool. A Tool that
 // declares no Effect ranks as EffectDestructive, so any lower cap hides it.
 // EffectUnspecified means no cap, which is the default.
@@ -789,17 +792,18 @@ func (a *Session) measureTranscript() error {
 	return nil
 }
 
-// syncToolSets switches off the ToolSets a rewritten Transcript no longer lists
-// as active, so the Session offers the ones a load would. A ToolSet the Agent
-// installed active stays on.
-func (a *Session) syncToolSets() error {
-	source, ok := a.transcript.(ActiveToolSetSource)
+// syncLoadedTools sets the loaded Tools to the ones a rewritten Transcript
+// lists, so the Session offers the Tools a load would: a compaction unloads
+// the Tools its Segment and kept tail did not call. A Tool of a ToolSet the
+// Agent installed active is never loaded or unloaded.
+func (a *Session) syncLoadedTools() error {
+	source, ok := a.transcript.(LoadedToolSource)
 	if !ok {
 		return nil
 	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
-	return a.registry.narrow(source.ActiveToolSets())
+	return a.registry.syncLoaded(source.LoadedTools())
 }
 
 func addUsage(total, current Usage) Usage {
@@ -1021,7 +1025,7 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 //
 // The snapshot it builds from has no RunID and is Turn 1, as at the start of
 // a Run. A ContextTransformer whose output depends on the Run or the Turn, or
-// a ToolSet the Model activated during a Run, makes a later Turn differ.
+// a Tool the Model loaded during a Run, makes a later Turn differ.
 func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error) {
 	if ctx == nil {
 		ctx = context.Background()

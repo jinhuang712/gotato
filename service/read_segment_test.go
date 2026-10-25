@@ -22,9 +22,9 @@ func (gitToolSet) Tools(context.Context) ([]gotato.Tool, error) {
 	return []gotato.Tool{testkit.NewFakeTool("log", "commits")}, nil
 }
 
-func activate(name string) testkit.Script {
-	arguments, _ := json.Marshal(map[string]string{"name": name})
-	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("act-" + name), ToolID: gotato.ActivationToolName, Arguments: arguments})
+func load(id string) testkit.Script {
+	arguments, _ := json.Marshal(map[string][]string{"names": {id}})
+	return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID("load-" + id), ToolID: gotato.SearchToolName, Arguments: arguments})
 }
 
 func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *service.Runner {
@@ -56,18 +56,18 @@ func inspectJSON(t *testing.T, runner *service.Runner, id string) (string, []str
 
 // The model gets read_segment once the Session has a Segment, reads the
 // Segment back through the Runner, and every instance that loads the Session,
-// from a Checkpoint or between two, offers the same Tools and ToolSets and
+// from a Checkpoint or between two, offers the same Tools and
 // builds the same request.
-func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameToolSets(t *testing.T) {
+func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	readCall := testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "read_segment", Arguments: []byte(`{"segment":1}`)})
 	model := testkit.NewFakeModel(
-		activate("files"), testkit.ToolCalls(gotato.ToolCall{ID: "files-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("opened"), // Run 1
+		load("files.read"), testkit.ToolCalls(gotato.ToolCall{ID: "files-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("opened"), // Run 1
 		testkit.Text("second"),              // Run 2
 		readCall, testkit.Text("I read it"), // Run 3
 		testkit.Text("fourth"),                     // Run 4
-		activate("git"), testkit.Text("git is on"), // Run 5, after the merge
+		load("git.log"), testkit.Text("git is on"), // Run 5, after the merge
 	)
 	runner := segmentRunner(t, store, model)
 
@@ -88,7 +88,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameToolSets(t *testing.T)
 	}
 	_, tools := inspectJSON(t, runner, id)
 	if !slices.Contains(tools, "read_segment") || !slices.Contains(tools, "files.read") {
-		t.Fatalf("tools after the first Segment = %v, want read_segment and the ToolSet the Segment used", tools)
+		t.Fatalf("tools after the first Segment = %v, want read_segment and the tool the Segment called", tools)
 	}
 	if entries, err := runner.Tools(ctx, "a", id); err != nil || !slices.ContainsFunc(entries, func(e service.ToolEntry) bool { return e.Spec.ID == "read_segment" && e.Active }) {
 		t.Fatalf("Runner.Tools of the Session = %+v, %v", entries, err)
@@ -111,7 +111,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameToolSets(t *testing.T)
 			read = gotato.TextOf(gotato.Message{Parts: message.ToolResult.Content})
 		}
 	}
-	for _, want := range []string{"[user] open the files", "[call " + gotato.ActivationToolName + "]", "[assistant] opened", "End of segment 1."} {
+	for _, want := range []string{"[user] open the files", "[call " + gotato.SearchToolName + "]", "[assistant] opened", "End of segment 1."} {
 		if !strings.Contains(read, want) {
 			t.Errorf("read_segment(1) lacks %q:\n%s", want, read)
 		}
@@ -143,9 +143,9 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameToolSets(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSets := slices.Clone(viewed.ActiveToolSets())
+	wantSets := slices.Clone(viewed.LoadedTools())
 
-	// Between two Checkpoints: the model switches a ToolSet on after the merge.
+	// Between two Checkpoints: the model loads a tool after the merge.
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "show the history"}); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameToolSets(t *testing.T)
 	if viewed, err = session.View(ctx, store, id); err != nil {
 		t.Fatal(err)
 	}
-	if got := viewed.ActiveToolSets(); !slices.Equal(got, append(wantSets, "git")) {
-		t.Fatalf("ToolSets between two Checkpoints = %v, want %v and git", got, wantSets)
+	if got := viewed.LoadedTools(); !slices.Equal(got, append(wantSets, "git.log")) {
+		t.Fatalf("tools between two Checkpoints = %v, want %v and git.log", got, wantSets)
 	}
 }

@@ -73,8 +73,8 @@ type Document struct {
 	Usage       gotato.Usage      `json:"usage"`
 	Compactions []Compaction      `json:"compactions,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
-	// ToolSets are the ToolSets the model switched on (Record.ActiveToolSets).
-	ToolSets []string `json:"tool_sets,omitempty"`
+	// Tools are the Tools the model loaded (Record.LoadedTools).
+	Tools []string `json:"tools,omitempty"`
 	// Segments are the Segments the Messages start with (Record.Segments);
 	// their rendered Messages are the first of Messages.
 	Segments []gotato.Segment `json:"segments,omitempty"`
@@ -143,8 +143,8 @@ type Record struct {
 	usage       gotato.Usage
 	compactions []Compaction
 	metadata    map[string]string
-	// toolSets are the ToolSets the model switched on, in the order it did.
-	toolSets   []string
+	// loaded are the Tools the model loaded, in the order it did.
+	loaded     []string
 	eventLimit int
 	now        func() time.Time
 
@@ -307,7 +307,7 @@ func Load(doc Document) (*Record, error) {
 		usage:       doc.Usage,
 		compactions: slices.Clone(doc.Compactions),
 		metadata:    maps.Clone(doc.Metadata),
-		toolSets:    slices.Clone(doc.ToolSets),
+		loaded:      slices.Clone(doc.Tools),
 		eventLimit:  doc.EventLimit,
 		closed:      map[int]gotato.Segment{},
 		positions:   map[gotato.MessageID]gotato.MessagePosition{},
@@ -352,7 +352,7 @@ func (s *Record) Snapshot() Document {
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
-		ToolSets:      slices.Clone(s.toolSets),
+		Tools:         slices.Clone(s.loaded),
 		Segments:      s.segmentsLocked(),
 		MaxSegment:    s.maxSegment,
 		EventLimit:    s.eventLimit,
@@ -491,35 +491,42 @@ func (s *Record) foldLive(event gotato.Event) {
 		s.running = e.RunID
 	case gotato.RunEnded:
 		s.endRun(runEnded(e))
-	case gotato.ToolSetActivated:
-		s.activate(e.ToolSet)
+	case gotato.ToolLoaded:
+		s.load(e.Tool)
+	case gotato.ToolUnloaded:
+		s.unload(e.Tool)
 	}
 }
 
-// activate adds a ToolSet to the active ones. The caller holds the lock.
-func (s *Record) activate(name string) {
-	if !slices.Contains(s.toolSets, name) {
-		s.toolSets = append(s.toolSets, name)
+// load adds a Tool to the loaded ones. The caller holds the lock.
+func (s *Record) load(id string) {
+	if !slices.Contains(s.loaded, id) {
+		s.loaded = append(s.loaded, id)
 	}
 }
 
-// ActiveToolSets returns the names of the ToolSets the model switched on in
-// the Session, in the order it did. A Session restores them in later Runs,
-// a fork inherits them, and a Checkpoint keeps them.
-func (s *Record) ActiveToolSets() []string {
+// unload removes a Tool from the loaded ones. The caller holds the lock.
+func (s *Record) unload(id string) {
+	s.loaded = slices.DeleteFunc(s.loaded, func(have string) bool { return have == id })
+}
+
+// LoadedTools returns the qualified IDs of the catalog Tools the model loaded
+// in the Session, in the order it did. A Session offers them again in later
+// Runs on any instance, a fork inherits them, and a Checkpoint keeps them.
+func (s *Record) LoadedTools() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return slices.Clone(s.toolSets)
+	return slices.Clone(s.loaded)
 }
 
-// SetActiveToolSets replaces the ToolSets the Record holds as switched on with
-// names, in that order, and records no Event: a compaction narrows them just
-// before the Checkpoint that keeps them. It must not run while a Run is using
-// the Record.
-func (s *Record) SetActiveToolSets(names []string) {
+// SetLoadedTools replaces the Tools the Record holds as loaded with ids, in
+// that order, and records no Event: a compaction narrows them just before the
+// Checkpoint that keeps them, and emits a ToolUnloaded for each it drops. It
+// must not run while a Run is using the Record.
+func (s *Record) SetLoadedTools(ids []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.toolSets = slices.Clone(names)
+	s.loaded = slices.Clone(ids)
 }
 
 func runStarted(e gotato.RunStarted) Run {
@@ -714,7 +721,7 @@ func Fork(parent *Record, options ...Option) *Record {
 	child.messages = doc.Messages
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
-	child.toolSets = doc.ToolSets
+	child.loaded = doc.Tools
 	child.inheritSegments(doc.ID, doc.Segments, parent.maxSegmentNumber(), parent.positionTimes())
 	if len(child.metadata) == 0 {
 		child.metadata = doc.Metadata

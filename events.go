@@ -252,8 +252,8 @@ type Compaction struct {
 	Ceiling      int `json:"ceiling,omitempty"`
 	// RecapUsage is what the model call that wrote the Recap used.
 	RecapUsage *Usage `json:"recap_usage,omitempty"`
-	// ToolSets are the ToolSets the compaction kept active.
-	ToolSets []string `json:"tool_sets,omitempty"`
+	// Tools are the loaded Tools the compaction kept loaded.
+	Tools []string `json:"tools,omitempty"`
 }
 
 // ForkedFrom names the Session a new Session was forked from, and the
@@ -444,11 +444,42 @@ func WithoutBody(event Event) Event {
 	return event
 }
 
-// ToolSetActivated: the model switches on a ToolSet. It is a fact of the
-// Session: later Runs, forks and Checkpoints keep the ToolSet active.
-type ToolSetActivated struct {
+// ToolLoadedWhy says why a Tool was loaded.
+type ToolLoadedWhy string
+
+// Why a Tool is loaded.
+const (
+	// ToolLoadedNames: search_tools was given the Tool's name.
+	ToolLoadedNames ToolLoadedWhy = "names"
+	// ToolLoadedQuery: a search of search_tools found the Tool among its top matches.
+	ToolLoadedQuery ToolLoadedWhy = "query"
+	// ToolLoadedCall: the model called a catalog Tool it had not loaded.
+	ToolLoadedCall ToolLoadedWhy = "call"
+)
+
+// ToolLoaded: a catalog Tool is loaded, so the model is offered it. It is a
+// fact of the Session: later Runs on any instance, forks and Checkpoints keep
+// the Tool loaded until a compaction unloads it.
+type ToolLoaded struct {
 	Header
-	ToolSet string `json:"toolset"`
+	// Tool is the Tool's qualified ID, "<toolset>.<tool>".
+	Tool string        `json:"tool"`
+	Why  ToolLoadedWhy `json:"why"`
+}
+
+// ToolUnloadedWhy says why a Tool was unloaded.
+type ToolUnloadedWhy string
+
+// ToolUnloadedCompaction: a compaction closed a Segment that did not call the
+// Tool, and the kept tail does not call it either.
+const ToolUnloadedCompaction ToolUnloadedWhy = "compaction"
+
+// ToolUnloaded: a loaded Tool is no longer offered. It is a fact of the
+// Session, like ToolLoaded.
+type ToolUnloaded struct {
+	Header
+	Tool string          `json:"tool"`
+	Why  ToolUnloadedWhy `json:"why"`
 }
 
 // ---- Messages into a Session ------------------------------------------------
@@ -570,9 +601,9 @@ type SessionCreated struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	// Compactions is the compaction history a fork inherits.
 	Compactions []Compaction `json:"compactions,omitempty"`
-	// ToolSets are the ToolSets the model had switched on, in the order it
-	// did, which a fork inherits.
-	ToolSets []string `json:"tool_sets,omitempty"`
+	// Tools are the Tools the model had loaded, in the order it did, which a
+	// fork inherits.
+	Tools []string `json:"tools,omitempty"`
 	// Segments are the numbers of the Segments the Context starts with, in
 	// order, before Messages: a fork inherits them. Their SegmentClosed
 	// Events follow this one.
@@ -608,9 +639,9 @@ type CompactionEnded struct {
 	History    []Compaction      `json:"history,omitempty"`
 	Messages   []Message         `json:"messages"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
-	// ToolSets are the ToolSets the model had switched on, in the order it
-	// did, as a Checkpoint keeps them.
-	ToolSets []string `json:"tool_sets,omitempty"`
+	// Tools are the Tools the model had loaded, in the order it did, as a
+	// Checkpoint keeps them.
+	Tools []string `json:"tools,omitempty"`
 	// Segments are the numbers of the Segments the Context starts with, in
 	// order. A load resolves each to the Messages its SegmentClosed Event
 	// stored, so the Checkpoint does not copy them.

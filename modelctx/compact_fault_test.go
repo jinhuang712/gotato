@@ -24,7 +24,7 @@ func failWrites(t *testing.T) {
 func conversation(t *testing.T) *session.Record {
 	t.Helper()
 	record := session.New(session.WithID("faulty"))
-	record.SetActiveToolSets([]string{"files"})
+	record.SetLoadedTools([]string{"files.read"})
 	for i, text := range []string{"u1", "a1", "u2", "a2"} {
 		m := gotato.UserMessage(text)
 		if i%2 == 1 {
@@ -51,8 +51,8 @@ func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 	if !gotato.IsCode(err, gotato.ErrStoreFailure) {
 		t.Fatalf("err = %v", err)
 	}
-	if record.Len() != 4 || len(record.Segments()) != 0 || len(record.Compactions()) != 0 || len(record.ActiveToolSets()) != 1 {
-		t.Fatalf("the dropped compaction changed the Record: %d Messages, %d Segments, ToolSets %v", record.Len(), len(record.Segments()), record.ActiveToolSets())
+	if record.Len() != 4 || len(record.Segments()) != 0 || len(record.Compactions()) != 0 || len(record.LoadedTools()) != 1 {
+		t.Fatalf("the dropped compaction changed the Record: %d Messages, %d Segments, loaded Tools %v", record.Len(), len(record.Segments()), record.LoadedTools())
 	}
 	var kinds []gotato.EventKind
 	var failed gotato.CompactionFailed

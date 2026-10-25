@@ -21,9 +21,9 @@ func (filesToolSet) Tools(context.Context) ([]gotato.Tool, error) {
 	return []gotato.Tool{testkit.NewFakeTool("read", "contents")}, nil
 }
 
-func activateFiles() testkit.Script {
-	arguments, _ := json.Marshal(map[string]string{"name": "files"})
-	return testkit.ToolCalls(gotato.ToolCall{ID: "act-1", ToolID: gotato.ActivationToolName, Arguments: arguments})
+func loadFiles() testkit.Script {
+	arguments, _ := json.Marshal(map[string][]string{"names": {"files.read"}})
+	return testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: arguments})
 }
 
 func toolIDsOf(request gotato.ModelRequest) []string {
@@ -46,14 +46,14 @@ func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	return runner
 }
 
-// TestActivatedToolSetStaysActiveInLaterRuns is the Stage 3 exit test: a
-// ToolSet the model switches on in one Run is in the first request of the
+// TestLoadedToolStaysLoadedInLaterRuns is an exit test of tool search: a
+// tool the model loads in one Run is in the first request of the
 // next Run, also through another Runner on the same store, and through a
 // fork and a compaction.
-func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
+func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	model := testkit.NewFakeModel(activateFiles(), testkit.Text("opened"), testkit.Text("second"),
+	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"),
 		testkit.ToolCalls(gotato.ToolCall{ID: "read-1", ToolID: "files.read", Arguments: []byte(`{}`)}), testkit.Text("third"), testkit.Text("fourth"))
 	runner := toolSetRunner(t, store, model)
 
@@ -62,7 +62,7 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	requests := model.Requests()
-	if slices.Contains(toolIDsOf(requests[0]), "files.read") || !slices.Contains(toolIDsOf(requests[0]), gotato.ActivationToolName) {
+	if slices.Contains(toolIDsOf(requests[0]), "files.read") || !slices.Contains(toolIDsOf(requests[0]), gotato.SearchToolName) {
 		t.Fatalf("Run 1 first request tools = %v", toolIDsOf(requests[0]))
 	}
 	if !slices.Contains(toolIDsOf(requests[1]), "files.read") {
@@ -75,7 +75,7 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 	}
 	requests = model.Requests()
 	run2 := toolIDsOf(requests[2])
-	if !slices.Contains(run2, "files.read") || slices.Contains(run2, gotato.ActivationToolName) {
+	if !slices.Contains(run2, "files.read") || !slices.Contains(run2, gotato.SearchToolName) {
 		t.Fatalf("Run 2 first request tools = %v", run2)
 	}
 
@@ -89,8 +89,8 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 		t.Fatalf("Run 3 first request tools = %v", toolIDsOf(requests[3]))
 	}
 
-	// A compaction writes a Checkpoint that keeps the activation of a ToolSet
-	// the closed Segment used (Run 3 called files.read).
+	// A compaction writes a Checkpoint that keeps the load of a tool
+	// the closed Segment called (Run 3 called files.read).
 	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactOptions{Keep: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +99,8 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fork.ActiveToolSets(); !slices.Equal(got, []string{"files"}) {
-		t.Fatalf("fork ActiveToolSets = %v", got)
+	if got := fork.LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
+		t.Fatalf("fork LoadedTools = %v", got)
 	}
 	if _, err := other.Run(ctx, service.RunRequest{SessionID: fork.ID(), Prompt: "in the fork"}); err != nil {
 		t.Fatal(err)
@@ -113,7 +113,34 @@ func TestActivatedToolSetStaysActiveInLaterRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reopened.ActiveToolSets(); !slices.Equal(got, []string{"files"}) {
-		t.Fatalf("after a compaction ActiveToolSets = %v", got)
+	if got := reopened.LoadedTools(); !slices.Equal(got, []string{"files.read"}) {
+		t.Fatalf("after a compaction LoadedTools = %v", got)
+	}
+}
+
+// TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded: the Session's
+// switch (gotato.tool.<id>) wins over loading, for a tool of a ToolSet too.
+func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
+	ctx := context.Background()
+	model := testkit.NewFakeModel(loadFiles(), testkit.Text("done"))
+	runner := toolSetRunner(t, session.NewMemoryStore(), model)
+	result, err := runner.Run(ctx, service.RunRequest{
+		Prompt:   "open the files",
+		Metadata: map[string]string{service.MetaToolPrefix + "files.read": "inactive"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	// Nothing in the ToolSet may load, so the Agent offers no search tool.
+	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || slices.Contains(got, gotato.SearchToolName) {
+		t.Fatalf("tools = %v, want neither files.read nor search_tools", got)
+	}
+	record, err := session.View(ctx, runner.Store(), result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := record.LoadedTools(); len(got) != 0 {
+		t.Fatalf("LoadedTools = %v", got)
 	}
 }

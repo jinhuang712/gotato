@@ -71,7 +71,7 @@ func orDefault(value, fallback int) int {
 // recap is the text that ends it, or empty. position says when a Message was
 // committed. The Record freezes the rendered Messages when it closes the
 // Segment, so every instance sends the same bytes.
-func buildSegment(number int, closed []gotato.Message, recap string, settings SegmentSettings, active []string, position func(gotato.MessageID) (gotato.MessagePosition, bool)) gotato.Segment {
+func buildSegment(number int, closed []gotato.Message, recap string, settings SegmentSettings, loaded []string, position func(gotato.MessageID) (gotato.MessagePosition, bool)) gotato.Segment {
 	loc := settings.location()
 	segment := gotato.Segment{Number: number}
 	var first, last gotato.MessagePosition
@@ -132,7 +132,7 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 	}
 	segment.Messages = out.messages
 	segment.Recap = recap
-	segment.ToolSets = toolSetsCalled(closed, active)
+	segment.Tools = toolsCalled(closed, loaded)
 	return segment
 }
 
@@ -473,14 +473,14 @@ func limitLines(items []item, limit int) {
 	items[last].overflow = fmt.Sprintf("… %d more calls: %s", total, strings.Join(counts, ", "))
 }
 
-// toolSetsCalled lists the active ToolSets whose Tools the Messages call. A
-// Tool of a ToolSet has the ID "<set>.<tool>".
-func toolSetsCalled(messages []gotato.Message, active []string) []string {
+// toolsCalled lists the loaded Tools (qualified IDs) the Messages call, in the
+// order they were loaded.
+func toolsCalled(messages []gotato.Message, loaded []string) []string {
 	var out []string
-	for _, name := range active {
+	for _, id := range loaded {
 		for _, message := range messages {
-			if slices.ContainsFunc(message.ToolCalls, func(call gotato.ToolCall) bool { return strings.HasPrefix(call.ToolID, name+".") }) {
-				out = append(out, name)
+			if slices.ContainsFunc(message.ToolCalls, func(call gotato.ToolCall) bool { return call.ToolID == id }) {
+				out = append(out, id)
 				break
 			}
 		}

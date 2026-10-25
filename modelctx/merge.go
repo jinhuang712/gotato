@@ -236,7 +236,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 		BytesBefore:      len(beforeBytes),
 		BytesAfter:       len(afterBytes),
 		Ceiling:          opts.Ceiling,
-		ToolSets:         s.ActiveToolSets(),
+		Tools:            s.LoadedTools(),
 	}
 	numbers := make([]int, count)
 	for i, segment := range replaced {
@@ -297,7 +297,7 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 		loc = time.UTC
 	}
 	merged := gotato.Segment{Number: number, Recap: recap}
-	var toolSets []string
+	var tools []string
 	for _, segment := range segments {
 		if len(segment.Merged) > 0 {
 			merged.Merged = append(merged.Merged, segment.Merged...)
@@ -310,13 +310,13 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 		if segment.To.After(merged.To) {
 			merged.To = segment.To
 		}
-		for _, name := range segment.ToolSets {
-			if !slices.Contains(toolSets, name) {
-				toolSets = append(toolSets, name)
+		for _, id := range segment.Tools {
+			if !slices.Contains(tools, id) {
+				tools = append(tools, id)
 			}
 		}
 	}
-	merged.ToolSets = toolSets
+	merged.Tools = tools
 	first, last := merged.Merged[0].Source, merged.Merged[len(merged.Merged)-1].Source
 	if first.SessionID == last.SessionID {
 		merged.Source = gotato.SegmentSource{SessionID: first.SessionID, FromNumber: first.FromNumber, ToNumber: last.ToNumber}

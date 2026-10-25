@@ -22,7 +22,8 @@ const (
 	KindToolProgress        EventKind = "tool_progress"
 	KindToolResultCommitted EventKind = "tool_result_committed"
 	KindToolResultSpilled   EventKind = "tool_result_spilled"
-	KindToolSetActivated    EventKind = "toolset_activated"
+	KindToolLoaded          EventKind = "tool_loaded"
+	KindToolUnloaded        EventKind = "tool_unloaded"
 	KindRunRequested        EventKind = "run_requested"
 	KindRunWaiting          EventKind = "run_waiting"
 	KindRunRejected         EventKind = "run_rejected"
@@ -69,7 +70,8 @@ var eventClasses = map[EventKind]EventClass{
 	KindToolProgress:        ClassDelta,
 	KindToolResultCommitted: ClassStored,
 	KindToolResultSpilled:   ClassStored,
-	KindToolSetActivated:    ClassStored,
+	KindToolLoaded:          ClassStored,
+	KindToolUnloaded:        ClassStored,
 	KindRunRequested:        ClassInstance,
 	KindRunWaiting:          ClassInstance,
 	KindRunRejected:         ClassInstance,
@@ -252,12 +254,21 @@ func (e ToolResultSpilled) MarshalJSON() ([]byte, error) {
 }
 
 // Kind implements Event.
-func (ToolSetActivated) Kind() EventKind { return KindToolSetActivated }
+func (ToolLoaded) Kind() EventKind { return KindToolLoaded }
 
 // MarshalJSON writes the Event as one flat object whose kind names its type.
-func (e ToolSetActivated) MarshalJSON() ([]byte, error) {
-	type plain ToolSetActivated
-	return marshalKind(KindToolSetActivated, plain(e))
+func (e ToolLoaded) MarshalJSON() ([]byte, error) {
+	type plain ToolLoaded
+	return marshalKind(KindToolLoaded, plain(e))
+}
+
+// Kind implements Event.
+func (ToolUnloaded) Kind() EventKind { return KindToolUnloaded }
+
+// MarshalJSON writes the Event as one flat object whose kind names its type.
+func (e ToolUnloaded) MarshalJSON() ([]byte, error) {
+	type plain ToolUnloaded
+	return marshalKind(KindToolUnloaded, plain(e))
 }
 
 // Kind implements Event.
@@ -513,7 +524,8 @@ var eventDecoders = map[EventKind]func([]byte) (Event, error){
 	KindToolProgress:        decodeAs[ToolProgress],
 	KindToolResultCommitted: decodeAs[ToolResultCommitted],
 	KindToolResultSpilled:   decodeAs[ToolResultSpilled],
-	KindToolSetActivated:    decodeAs[ToolSetActivated],
+	KindToolLoaded:          decodeAs[ToolLoaded],
+	KindToolUnloaded:        decodeAs[ToolUnloaded],
 	KindRunRequested:        decodeAs[RunRequested],
 	KindRunWaiting:          decodeAs[RunWaiting],
 	KindRunRejected:         decodeAs[RunRejected],

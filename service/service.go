@@ -1131,7 +1131,10 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if len(extensions) > 0 {
 		options = append(options, gotato.WithExtensions(extensions...))
 	}
-	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}))
+	filter := &sessionTools{spec: spec, session: s}
+	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}),
+		// A Tool switched off for the Session is never in the catalog, found or loaded.
+		gotato.WithToolFilter(filter.active))
 	if spec.MaxEffect != gotato.EffectUnspecified {
 		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
 	}
@@ -1770,4 +1773,4 @@ func (u unjournaled) Len() int                      { return u.record.Len() }
 func (u unjournaled) Messages() []gotato.Message    { return u.record.Messages() }
 func (u unjournaled) Append(m gotato.Message) error { return u.record.Append(m) }
 func (u unjournaled) ID() string                    { return u.record.ID() }
-func (u unjournaled) ActiveToolSets() []string      { return u.record.ActiveToolSets() }
+func (u unjournaled) LoadedTools() []string         { return u.record.LoadedTools() }

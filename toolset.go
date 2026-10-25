@@ -2,17 +2,12 @@ package gotato
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 )
-
-// ActivationToolName is the local name of the built-in Tool that activates an
-// inactive ToolSet. It is visible only while an inactive ToolSet remains.
-const ActivationToolName = "activate_toolset"
 
 // ToolSetSpec identifies a ToolSet. The name must be stable and unique.
 type ToolSetSpec struct {
@@ -21,31 +16,67 @@ type ToolSetSpec struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
-// ToolSet stages capability discovery: its Tools stay hidden from the Model
-// until the ToolSet is activated. Resolution must be deterministic, and a
-// failure must not partially register the returned collection.
+// ToolSet is a named group of Tools from one source, such as an MCP server. It
+// is a grouping, not the unit of loading: the Model loads its Tools one by one
+// with search_tools, unless the ToolSet is installed active. Resolution must
+// be deterministic, and a failure must not partially register the returned
+// collection. A Tool's ID in the Session is "<set>.<tool>".
 type ToolSet interface {
 	Spec() ToolSetSpec
 	Tools(context.Context) ([]Tool, error)
 }
 
-// WithToolSet installs a ToolSet that starts inactive. The Model reaches its
-// Tools by calling the activation Tool first.
+// installMode says how much of a ToolSet the Model sees.
+type installMode int
+
+const (
+	// modeListed: the catalog shows the ToolSet's description and all its
+	// Tool names. The default.
+	modeListed installMode = iota
+	// modeFolded: the catalog shows the description and a count of Tools.
+	modeFolded
+	// modeActive: every Tool is visible, as if it were a base Tool.
+	modeActive
+)
+
+// WithToolSet installs a ToolSet whose catalog entry lists its description and
+// all its Tool names. The Model loads the Tools it needs with search_tools.
 func WithToolSet(set ToolSet) Option {
-	return withToolSet(set, false)
+	return withToolSet(set, modeListed)
 }
 
-// WithActiveToolSet installs a ToolSet whose Tools are visible immediately.
+// WithFoldedToolSet installs a ToolSet whose catalog entry shows only its
+// description and a count of its Tools. The Model lists them with the toolset
+// parameter of search_tools, then loads by name.
+func WithFoldedToolSet(set ToolSet) Option {
+	return withToolSet(set, modeFolded)
+}
+
+// WithActiveToolSet installs a ToolSet whose Tools are visible always, as if
+// they were base Tools. They are never in the catalog and never unloaded.
 func WithActiveToolSet(set ToolSet) Option {
-	return withToolSet(set, true)
+	return withToolSet(set, modeActive)
 }
 
-func withToolSet(set ToolSet, active bool) Option {
+func withToolSet(set ToolSet, mode installMode) Option {
 	return func(c *sessionConfig) error {
 		if set == nil {
 			return runtimeError(ErrInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
 		}
-		c.toolSets = append(c.toolSets, toolSetConfig{set: set, active: active})
+		c.toolSets = append(c.toolSets, toolSetConfig{set: set, mode: mode})
+		return nil
+	}
+}
+
+// WithToolFilter has the Session ask keep for the qualified ID of every Tool of
+// a ToolSet before it indexes, lists or offers it. A Tool keep refuses is never
+// in the catalog, never found by a search and never loaded, so a Session can
+// switch a Tool off and the Model cannot search its way past it. keep runs on
+// every rebuild of the Tool list, so it must be quick and safe to call from
+// several goroutines.
+func WithToolFilter(keep func(toolID string) bool) Option {
+	return func(c *sessionConfig) error {
+		c.toolFilter = keep
 		return nil
 	}
 }
@@ -63,55 +94,69 @@ func WithRootNamespace(namespace string) Option {
 	}
 }
 
-// ActiveToolSetSource is an optional method set of a Transcript: the names of
-// the ToolSets the model switched on in earlier Runs of the Session, in the
-// order it switched them on. NewSession switches those ToolSets on again, so
-// a ToolSet the model activated stays active for the Session; a session.Record
-// implements it. A name that no installed ToolSet carries, or whose ToolSet no
-// longer resolves, or that would pass MaxActiveToolSets, is left off.
-type ActiveToolSetSource interface {
-	ActiveToolSets() []string
+// LoadedToolSource is an optional method set of a Transcript: the qualified IDs
+// of the catalog Tools the Model loaded in earlier Runs of the Session, in the
+// order it loaded them, with a compaction's unloads applied. NewSession loads
+// those Tools again, so every instance that loads the Session from the same
+// Record offers the same Tools; a session.Record implements it. An ID that no
+// installed ToolSet carries any more stays unloaded.
+type LoadedToolSource interface {
+	LoadedTools() []string
 }
 
 type toolSetConfig struct {
-	set    ToolSet
-	active bool
+	set  ToolSet
+	mode installMode
 }
 
-// toolSetState tracks one installed ToolSet. resolved holds the Tools of an
-// active ToolSet; it is filled in one atomic step so a failed resolution
-// exposes nothing.
+// toolSetState tracks one installed ToolSet. Its Tools are resolved once, at
+// NewSession, so the catalog is the same on every request of the Session.
 type toolSetState struct {
-	set    ToolSet
-	spec   ToolSetSpec
-	active bool
-	// configured marks a ToolSet installed with WithActiveToolSet: the
-	// Agent's choice, never switched off by the Session's own state.
-	configured bool
-	resolved   []Tool
+	set      ToolSet
+	spec     ToolSetSpec
+	mode     installMode
+	resolved []Tool
 }
 
-// toolRegistry owns Tool identity, visibility, and activation for one Session.
-// The Session goroutine commits visibility changes at batch boundaries; the
-// activation Tool resolves and stages a ToolSet from its own goroutine, so mu
-// guards every mutation of that state.
+// catalogTool is one Tool of an installed ToolSet under its qualified ID.
+type catalogTool struct {
+	id   string
+	tool Tool
+	// spec is the visible spec: the qualified ID, and a Name that is never empty.
+	spec ToolSpec
+	set  *toolSetState
+}
+
+// pendingLoad is a load staged during the current batch.
+type pendingLoad struct {
+	id  string
+	why ToolLoadedWhy
+}
+
+// toolRegistry owns Tool identity and visibility for one Session. The Session
+// goroutine commits loads at batch boundaries; search_tools stages them from
+// its own goroutine, so mu guards every mutation of that state.
 type toolRegistry struct {
 	rootNamespace string
 	rootTools     []Tool
 	sources       []ToolSource
 	sourceTools   []Tool
 	sets          []*toolSetState
+	catalog       []catalogTool
+	byCatalog     map[string]*catalogTool
 	byQualified   map[string]Tool
 	specs         []ToolSpec
-	activation    Tool
-	maxActive     uint32
-	explicit      bool
+	// loaded are the qualified IDs of the loaded catalog Tools, in load order.
+	loaded []string
+	// pending holds loads staged during the current batch. Visibility commits
+	// at the batch boundary, never inside it.
+	pending  []pendingLoad
+	search   *searchTool
+	searcher ToolSearcher
+	filter   func(string) bool
 	// maxEffect hides every Tool above it; EffectUnspecified means no cap.
 	maxEffect ToolEffect
-	// pending holds ToolSets activated during the current batch. Visibility
-	// commits at the batch boundary, never inside it.
-	pending []*toolSetState
-	// mu guards sets, pending, resolved, specs, and byQualified. Callers that
+	// mu guards sets, pending, loaded, specs, and byQualified. Callers that
 	// run on the Session goroutine hold the Session's registryMu, which is the
 	// lock ToolInspector.Tools reads under; mu is the inner lock.
 	mu sync.Mutex
@@ -122,15 +167,19 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		rootNamespace: cfg.rootNamespace,
 		rootTools:     cfg.tools,
 		sources:       cfg.toolSources,
-		maxActive:     cfg.limits.MaxActiveToolSets,
-		explicit:      cfg.limitsSet,
 		maxEffect:     cfg.maxEffect,
+		filter:        cfg.toolFilter,
+		searcher:      cfg.toolSearcher,
+		byCatalog:     map[string]*catalogTool{},
 	}
+	if registry.searcher == nil {
+		registry.searcher = bm25Searcher{}
+	}
+	registry.search = &searchTool{registry: registry}
 	if err := registry.collectSources(); err != nil {
 		return nil, err
 	}
 	names := map[string]bool{}
-	activeCount := uint32(0)
 	for _, entry := range cfg.toolSets {
 		spec, err := toolSetSpec(entry.set)
 		if err != nil {
@@ -149,34 +198,42 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "duplicate ToolSet name: "+spec.Name, nil)
 		}
 		names[spec.Name] = true
-		if entry.active {
-			activeCount++
-			// Enforce the same ceiling here that stage enforces at activation,
-			// so WithActiveToolSet cannot install more active ToolSets than the
-			// limit admits.
-			if limitExceededUint32(registry.explicit, registry.maxActive, activeCount) {
-				return nil, runtimeError(ErrLimitExceeded, "ToolSet", "maximum active ToolSets exceeded", nil)
-			}
-		}
-		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, active: entry.active, configured: entry.active})
+		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, mode: entry.mode})
 	}
-	// Resolving the active ToolSets during construction keeps the first
-	// Model request deterministic and surfaces a broken ToolSet before the
-	// Session accepts any command.
+	// Resolving every ToolSet during construction keeps the catalog and the
+	// first Model request deterministic, and surfaces a broken ToolSet before
+	// the Session accepts any command.
 	for _, state := range registry.sets {
-		if !state.active {
-			continue
-		}
 		tools, err := resolveToolSet(ctx, state)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// A cancelled caller gets no half-resolved Session.
+			return nil, runtimeError(codeForContext(ctxErr), "NewSession", "context ended while resolving ToolSets", ctxErr)
+		}
 		if err != nil {
 			return nil, err
 		}
 		state.resolved = tools
-	}
-	if source, ok := cfg.transcript.(ActiveToolSetSource); ok {
-		if err := registry.restore(ctx, source.ActiveToolSets()); err != nil {
-			return nil, err
+		for _, tool := range tools {
+			spec := tool.Spec()
+			id := registry.qualify(state.spec.Name, spec.ID)
+			visible := cloneToolSpec(spec)
+			visible.ID = id
+			if visible.Name == "" {
+				visible.Name = spec.ID
+			}
+			registry.catalog = append(registry.catalog, catalogTool{id: id, tool: tool, spec: visible, set: state})
 		}
+	}
+	sort.SliceStable(registry.catalog, func(i, j int) bool { return registry.catalog[i].id < registry.catalog[j].id })
+	for i := range registry.catalog {
+		entry := &registry.catalog[i]
+		if _, dup := registry.byCatalog[entry.id]; dup {
+			return nil, runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
+		}
+		registry.byCatalog[entry.id] = entry
+	}
+	if source, ok := cfg.transcript.(LoadedToolSource); ok {
+		registry.loaded = registry.known(source.LoadedTools())
 	}
 	if err := registry.rebuild(); err != nil {
 		return nil, err
@@ -184,60 +241,37 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 	return registry, nil
 }
 
-// restore switches on again the ToolSets a Session's earlier Runs activated.
-// It never fails the Session over a restored name: a name nothing installed
-// carries, a ToolSet that no longer resolves, a ToolSet whose Tools collide with
-// Tools already visible, and a ToolSet past MaxActiveToolSets all stay off,
-// each on its own, so the model can activate them again. A context that ends
-// during the restore fails it instead: the caller no longer wants the Session.
-func (r *toolRegistry) restore(ctx context.Context, names []string) error {
-	for _, name := range names {
-		for _, state := range r.sets {
-			if state.spec.Name != name || state.active {
-				continue
-			}
-			if limitExceededUint32(r.explicit, r.maxActive, r.activeCount()+1) {
-				return nil
-			}
-			tools, err := resolveToolSet(ctx, state)
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				// A cancelled caller gets no half-restored Session.
-				return runtimeError(codeForContext(ctxErr), "NewSession", "context ended while restoring ToolSets", ctxErr)
-			}
-			if err != nil {
-				break
-			}
-			state.resolved = tools
-			state.active = true
-			if err := r.rebuild(); err != nil {
-				// Only this ToolSet stays off; the rest of the Session starts.
-				state.active = false
-				state.resolved = nil
-				_ = r.rebuild()
-			}
-			break
+// known keeps the IDs that name a catalog Tool the Model can load: one that an
+// installed ToolSet carries and that is not installed active.
+func (r *toolRegistry) known(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		entry, ok := r.byCatalog[id]
+		if !ok || entry.set.mode == modeActive || slices.Contains(out, id) {
+			continue
 		}
+		out = append(out, id)
 	}
-	return nil
+	return out
 }
 
-// narrow switches off every ToolSet the Session switched on that names does
-// not list. A ToolSet installed active stays on.
-func (r *toolRegistry) narrow(names []string) error {
+// syncLoaded sets the loaded Tools to ids, the Transcript's list after a
+// rewrite such as a compaction. A Tool installed active is never among them.
+func (r *toolRegistry) syncLoaded(ids []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	changed := false
-	for _, state := range r.sets {
-		if state.active && !state.configured && !slices.Contains(names, state.spec.Name) {
-			state.active = false
-			state.resolved = nil
-			changed = true
-		}
-	}
-	if !changed {
+	next := r.known(ids)
+	if slices.Equal(next, r.loaded) {
 		return nil
 	}
-	return r.rebuild()
+	previous := r.loaded
+	r.loaded = next
+	if err := r.rebuild(); err != nil {
+		r.loaded = previous
+		_ = r.rebuild()
+		return err
+	}
+	return nil
 }
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
@@ -288,6 +322,28 @@ func (r *toolRegistry) hidden(spec ToolSpec) bool {
 	return r.maxEffect != EffectUnspecified && !spec.Effect.Within(r.maxEffect)
 }
 
+// indexable reports whether the Model may find and load a catalog Tool: the
+// Effect cap and the filter come first, and a Tool whose ID a static Tool
+// already holds cannot be offered twice.
+func (r *toolRegistry) indexable(entry *catalogTool) bool {
+	if r.hidden(entry.spec) {
+		return false
+	}
+	if r.filter != nil && !r.filter(entry.id) {
+		return false
+	}
+	return !r.staticHolds(entry.id)
+}
+
+func (r *toolRegistry) staticHolds(id string) bool {
+	for _, tool := range r.staticTools() {
+		if r.qualify("", tool.Spec().ID) == id {
+			return true
+		}
+	}
+	return false
+}
+
 // rebuild recomputes the visible Tool set. Ordering is deterministic: Tools
 // sort by qualified ID. A Tool above the Effect cap is left out entirely, so
 // it is neither offered nor resolvable by any name.
@@ -295,9 +351,6 @@ func (r *toolRegistry) rebuild() error {
 	byQualified := map[string]Tool{}
 	specs := make([]ToolSpec, 0, len(r.rootTools))
 	register := func(qualified string, tool Tool, spec ToolSpec) error {
-		if r.hidden(spec) {
-			return nil
-		}
 		if _, exists := byQualified[qualified]; exists {
 			return runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
 		}
@@ -315,29 +368,40 @@ func (r *toolRegistry) rebuild() error {
 		if err := validateToolSpec(spec); err != nil {
 			return err
 		}
+		if r.hidden(spec) {
+			continue
+		}
 		if err := register(r.qualify("", spec.ID), tool, spec); err != nil {
 			return err
 		}
 	}
-	for _, state := range r.sets {
-		if !state.active {
+	hasCatalog := false
+	for i := range r.catalog {
+		entry := &r.catalog[i]
+		if entry.set.mode == modeActive {
+			if r.hidden(entry.spec) || (r.filter != nil && !r.filter(entry.id)) {
+				continue
+			}
+			if err := register(entry.id, entry.tool, entry.spec); err != nil {
+				return err
+			}
 			continue
 		}
-		for _, tool := range state.resolved {
-			spec := tool.Spec()
-			if err := register(r.qualify(state.spec.Name, spec.ID), tool, spec); err != nil {
+		if !r.indexable(entry) {
+			continue
+		}
+		hasCatalog = true
+		if slices.Contains(r.loaded, entry.id) {
+			if err := register(entry.id, entry.tool, entry.spec); err != nil {
 				return err
 			}
 		}
 	}
-	if inactive := r.inactiveNames(); len(inactive) > 0 {
-		activation := &activationTool{registry: r, names: inactive}
-		r.activation = activation
-		if err := register(r.qualify("", ActivationToolName), activation, activation.Spec()); err != nil {
+	if hasCatalog {
+		r.search.setDescription(r.catalogText())
+		if err := register(r.qualify("", SearchToolName), r.search, r.search.Spec()); err != nil {
 			return err
 		}
-	} else {
-		r.activation = nil
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	r.byQualified = byQualified
@@ -414,15 +478,12 @@ func (r *toolRegistry) refreshSources() error {
 	return nil
 }
 
-// abortPending discards ToolSets staged by a Run that never reached a commit
-// boundary (a failed or cancelled Run), so a later Run cannot activate a
-// ToolSet the Model never asked for.
+// abortPending discards loads staged by a Run that never reached a commit
+// boundary (a failed or cancelled Run), so a later Run cannot load a Tool the
+// Model never got.
 func (r *toolRegistry) abortPending() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, state := range r.pending {
-		state.resolved = nil
-	}
 	r.pending = nil
 }
 
@@ -436,64 +497,123 @@ func (r *toolRegistry) qualify(namespace, local string) string {
 	return namespace + "." + local
 }
 
-func (r *toolRegistry) inactiveNames() []string {
-	names := make([]string, 0, len(r.sets))
-	for _, state := range r.sets {
-		if !state.active {
-			names = append(names, state.spec.Name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-func (r *toolRegistry) activeCount() uint32 {
-	var count uint32
-	for _, state := range r.sets {
-		if state.active {
-			count++
-		}
-	}
-	return count
-}
-
 func (r *toolRegistry) lookup(id string) Tool { return r.byQualified[id] }
 
 func (r *toolRegistry) visibleSpecs() []ToolSpec { return cloneToolSpecs(r.specs) }
 
-// stage resolves a ToolSet and queues it for activation. Resolution runs here
-// so a failure reaches the Model as a failed Tool Result; visibility changes
-// only at the batch boundary.
-func (r *toolRegistry) stage(ctx context.Context, name string) error {
+// loadStatus says what staging a load did.
+type loadStatus int
+
+const (
+	// loadStaged: the Tool will be visible after the batch.
+	loadStaged loadStatus = iota
+	// loadAlready: the Tool is visible, loaded, or staged already.
+	loadAlready
+	// loadNotFound: no Tool the Session may load carries that ID.
+	loadNotFound
+)
+
+// stageLoad queues a Tool for loading. Visibility changes only at the batch
+// boundary (commitPending). A Tool the Effect cap or the filter refuses, or
+// that no ToolSet carries, is not found.
+func (r *toolRegistry) stageLoad(id string, why ToolLoadedWhy) loadStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.byCatalog[id]
+	if !ok || !r.indexable(entry) {
+		return loadNotFound
+	}
+	if entry.set.mode == modeActive || slices.Contains(r.loaded, id) || slices.ContainsFunc(r.pending, func(p pendingLoad) bool { return p.id == id }) {
+		return loadAlready
+	}
+	r.pending = append(r.pending, pendingLoad{id: id, why: why})
+	return loadStaged
+}
+
+// stageCall handles a call to a Tool that is not visible. It stages the load
+// and reports true when the Tool is a catalog Tool the Session may load.
+func (r *toolRegistry) stageCall(id string) bool {
+	return r.stageLoad(id, ToolLoadedCall) != loadNotFound
+}
+
+// candidates lists, in ID order, the specs of the catalog Tools the Model may
+// still load: not loaded, not staged, in the Session's index.
+func (r *toolRegistry) candidates() []ToolSpec {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []ToolSpec
+	for i := range r.catalog {
+		entry := &r.catalog[i]
+		if entry.set.mode == modeActive || !r.indexable(entry) || slices.Contains(r.loaded, entry.id) {
+			continue
+		}
+		if slices.ContainsFunc(r.pending, func(p pendingLoad) bool { return p.id == entry.id }) {
+			continue
+		}
+		out = append(out, cloneToolSpec(entry.spec))
+	}
+	return out
+}
+
+// setTools lists the Tools of a catalog ToolSet the Model may load, with
+// whether each is loaded. ok is false when no catalog ToolSet has that name.
+func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, state := range r.sets {
-		if state.spec.Name != name {
+		if state.spec.Name != name || state.mode == modeActive {
 			continue
 		}
-		if state.active {
-			return nil
+		for i := range r.catalog {
+			entry := &r.catalog[i]
+			if entry.set != state || !r.indexable(entry) {
+				continue
+			}
+			specs = append(specs, cloneToolSpec(entry.spec))
+			loaded = append(loaded, slices.Contains(r.loaded, entry.id))
 		}
-		if slices.Contains(r.pending, state) {
-			return nil
-		}
-		if limitExceededUint32(r.explicit, r.maxActive, r.activeCount()+uint32(len(r.pending))+1) {
-			return runtimeError(ErrLimitExceeded, "ToolSet", "maximum active ToolSets exceeded", nil)
-		}
-		tools, err := resolveToolSet(ctx, state)
-		if err != nil {
-			return err
-		}
-		state.resolved = tools
-		r.pending = append(r.pending, state)
-		return nil
+		return specs, loaded, true
 	}
-	return runtimeError(ErrToolResolutionFailure, "ToolSet", "unknown ToolSet: "+name, nil)
+	return nil, nil, false
 }
 
-// commitPending makes staged ToolSets visible. It reports the names it
-// activated so the Loop can emit one Event per activation.
-func (r *toolRegistry) commitPending() ([]string, error) {
+// catalogText is the description of search_tools: each catalog ToolSet by what
+// its install mode shows. It lists a loaded Tool like any other, so the text
+// does not change while Tools load. The caller holds mu or is constructing.
+func (r *toolRegistry) catalogText() string {
+	var b strings.Builder
+	b.WriteString("Load tools before you call them. Pass names to load tools exactly, queries to search, or toolset to list a folded ToolSet.\n")
+	for _, state := range r.sets {
+		if state.mode == modeActive {
+			continue
+		}
+		var ids []string
+		for i := range r.catalog {
+			entry := &r.catalog[i]
+			if entry.set == state && r.indexable(entry) {
+				ids = append(ids, entry.id)
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		description := strings.TrimSpace(state.spec.Description)
+		b.WriteString("\n" + state.spec.Name)
+		if description != "" {
+			b.WriteString(" — " + description)
+		}
+		if state.mode == modeFolded {
+			fmt.Fprintf(&b, " (%d tools; pass toolset=%q to list them)\n", len(ids), state.spec.Name)
+			continue
+		}
+		b.WriteString("\n  " + strings.Join(ids, ", ") + "\n")
+	}
+	return b.String()
+}
+
+// commitPending makes staged loads visible. It reports what it loaded, in the
+// order staged, so the Loop can emit one Event per load.
+func (r *toolRegistry) commitPending() ([]pendingLoad, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.pending) == 0 {
@@ -501,68 +621,15 @@ func (r *toolRegistry) commitPending() ([]string, error) {
 	}
 	staged := r.pending
 	r.pending = nil
-	for _, state := range staged {
-		state.active = true
+	previous := r.loaded
+	r.loaded = slices.Clone(previous)
+	for _, p := range staged {
+		r.loaded = append(r.loaded, p.id)
 	}
 	if err := r.rebuild(); err != nil {
-		for _, state := range staged {
-			state.active = false
-			state.resolved = nil
-		}
+		r.loaded = previous
 		_ = r.rebuild()
 		return nil, err
 	}
-	names := make([]string, 0, len(staged))
-	for _, state := range staged {
-		names = append(names, state.spec.Name)
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-// activationTool is the ordinary Tool the Model calls to activate a ToolSet.
-type activationTool struct {
-	registry *toolRegistry
-	names    []string
-}
-
-func (t *activationTool) Spec() ToolSpec {
-	enum := make([]any, 0, len(t.names))
-	for _, name := range t.names {
-		enum = append(enum, name)
-	}
-	schema, _ := json.Marshal(map[string]any{
-		"type":                 "object",
-		"required":             []any{"name"},
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"name": map[string]any{"type": "string", "enum": enum},
-		},
-	})
-	return ToolSpec{
-		ID:          ActivationToolName,
-		Name:        ActivationToolName,
-		Description: "Activate one inactive ToolSet. Its Tools become visible on the next request.",
-		Sequential:  true,
-		InputSchema: schema,
-		// It changes only which Tools the Model sees, and those Tools pass
-		// the Effect cap like any other, so it stays visible under every cap.
-		Effect: EffectRead,
-	}
-}
-
-func (t *activationTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
-	var input struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
-		return ToolResult{}, runtimeError(ErrToolArgumentFailure, ActivationToolName, "cannot decode activation arguments", err)
-	}
-	if err := t.registry.stage(ctx, input.Name); err != nil {
-		return ToolResult{}, err
-	}
-	return ToolResult{
-		Status:  ToolResultOK,
-		Content: []ContentPart{{Kind: ContentText, Text: "ToolSet " + input.Name + " is active on the next request."}},
-	}, nil
+	return staged, nil
 }

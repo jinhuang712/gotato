@@ -150,8 +150,9 @@ func causeOf(err error) gotato.ErrorCode {
 // sanctioned point).
 //
 // The kept tail starts at a Turn boundary, so a tool call is never separated
-// from its result (see CompactOptions). The ToolSets the Segment used and the
-// kept tail calls stay active; the others are switched off.
+// from its result (see CompactOptions). The loaded Tools the Segment called and the
+// kept tail calls stay loaded; the others are unloaded, each with a
+// tool_unloaded Event (why: compaction).
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
 // "none"; the usage of a model call that was made is still recorded). A stretch below opts.MinTokens, or one the tail covers whole, is
@@ -230,9 +231,9 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		message.Usage = gotato.Usage{}
 		tail = append(tail, message)
 	}
-	active := s.ActiveToolSets()
-	segment := buildSegment(s.NextSegment(), closed, recapText, opts.SegmentSettings, active, s.Position)
-	kept := keptToolSets(active, segment.ToolSets, tail)
+	loaded := s.LoadedTools()
+	segment := buildSegment(s.NextSegment(), closed, recapText, opts.SegmentSettings, loaded, s.Position)
+	kept := keptTools(loaded, segment.Tools, tail)
 
 	before, _ := json.Marshal(all)
 	// What the Record holds after: the Segments before, the new one, the tail.
@@ -255,13 +256,18 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
 		Ceiling:          opts.Ceiling,
-		ToolSets:         kept,
+		Tools:            kept,
 	}
-	s.SetActiveToolSets(kept)
+	s.SetLoadedTools(kept)
 	if _, err := closeSegment(s, why, segment, earlier, tail, &record); err != nil {
-		s.SetActiveToolSets(active)
+		s.SetLoadedTools(loaded)
 		s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(err)})
 		return Result{}, err
+	}
+	for _, id := range loaded {
+		if !slices.Contains(kept, id) {
+			s.Emit(gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedCompaction})
+		}
 	}
 	result := Result{
 		SessionID: s.ID(), Replaced: true, Compaction: &record,
@@ -285,14 +291,15 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	return result, nil
 }
 
-// keptToolSets returns the active ToolSets the closed Segment used or the kept
-// tail calls, in the order they were switched on. A ToolSet the Agent installed
-// active is not among the Record's, and stays on whatever this returns.
-func keptToolSets(active, used []string, tail []gotato.Message) []string {
+// keptTools returns the loaded Tools the closed Segment called or the kept
+// tail calls, in the order they were loaded. A Tool of a ToolSet the Agent
+// installed active is not among the Record's, and stays visible whatever this
+// returns.
+func keptTools(loaded, used []string, tail []gotato.Message) []string {
 	out := []string{}
-	for _, name := range active {
-		if slices.Contains(used, name) || len(toolSetsCalled(tail, []string{name})) > 0 {
-			out = append(out, name)
+	for _, id := range loaded {
+		if slices.Contains(used, id) || len(toolsCalled(tail, []string{id})) > 0 {
+			out = append(out, id)
 		}
 	}
 	return out

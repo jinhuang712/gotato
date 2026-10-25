@@ -127,8 +127,8 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		a.runMu.Unlock()
 	}()
-	// A Run that ends before a commit boundary must not leave a staged ToolSet
-	// behind for the next Run to activate unasked.
+	// A Run that ends before a commit boundary must not leave a staged load
+	// behind for the next Run to commit unasked.
 	defer a.registry.abortPending()
 	a.inRun.Store(true)
 	defer a.inRun.Store(false)
@@ -297,7 +297,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				if err := a.measureTranscript(); err != nil {
 					return fail(asRuntimeError(err))
 				}
-				if err := a.syncToolSets(); err != nil {
+				if err := a.syncLoadedTools(); err != nil {
 					return fail(asRuntimeError(err))
 				}
 				if err := a.refreshTools(); err != nil {
@@ -520,17 +520,17 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		batch = openBatch{}
 
-		// ToolSet activation commits at the batch boundary, so newly active
-		// Tools appear only in the next Model request. registryMu serializes
-		// the visibility write with ToolInspector.Tools on other goroutines.
+		// A load commits at the batch boundary, so a loaded Tool appears only
+		// in the next Model request. registryMu serializes the visibility
+		// write with ToolInspector.Tools on other goroutines.
 		a.registryMu.Lock()
-		activated, activationErr := a.registry.commitPending()
+		loads, loadErr := a.registry.commitPending()
 		a.registryMu.Unlock()
-		if activationErr != nil {
-			return fail(asRuntimeError(activationErr))
+		if loadErr != nil {
+			return fail(asRuntimeError(loadErr))
 		}
-		for _, name := range activated {
-			a.stage(ToolSetActivated{Header: hd(turn), ToolSet: name})
+		for _, load := range loads {
+			a.stage(ToolLoaded{Header: hd(turn), Tool: load.id, Why: load.why})
 		}
 
 		a.stage(TurnEnded{

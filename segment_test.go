@@ -18,7 +18,7 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 		ToolCalls: []gotato.ToolCallLine{
 			{At: at, ToolID: "logs.query", Args: `{"a":1}`, Status: gotato.ToolResultOK, Count: 2},
 		},
-		Recap: "## What happened\n- x", ToolSets: []string{"logs"},
+		Recap: "## What happened\n- x", Tools: []string{"logs.tail"},
 	}
 	event := gotato.SegmentClosed{Header: gotato.Header{Time: at, SessionID: "s1", Number: 9}, Segment: segment}
 	data, err := gotato.MarshalEvent(event)
@@ -38,11 +38,11 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 }
 
 func TestSegmentCloneSharesNothing(t *testing.T) {
-	segment := gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("a")}, ToolSets: []string{"x"}, ToolCalls: []gotato.ToolCallLine{{ToolID: "t"}}}
+	segment := gotato.Segment{Messages: []gotato.Message{gotato.UserMessage("a")}, Tools: []string{"x"}, ToolCalls: []gotato.ToolCallLine{{ToolID: "t"}}}
 	clone := segment.Clone()
 	clone.Messages[0].Parts[0].Text = "b"
-	clone.ToolSets[0], clone.ToolCalls[0].ToolID = "y", "u"
-	if gotato.TextOf(segment.Messages[0]) != "a" || segment.ToolSets[0] != "x" || segment.ToolCalls[0].ToolID != "t" {
+	clone.Tools[0], clone.ToolCalls[0].ToolID = "y", "u"
+	if gotato.TextOf(segment.Messages[0]) != "a" || segment.Tools[0] != "x" || segment.ToolCalls[0].ToolID != "t" {
 		t.Fatal("a clone shares memory with its Segment")
 	}
 }

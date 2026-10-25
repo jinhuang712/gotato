@@ -97,9 +97,9 @@ func (f *fixture) calls(run, text string, minute int, statuses map[string]gotato
 	}
 }
 
-func (f *fixture) activate(name string) {
+func (f *fixture) load(id string) {
 	f.t.Helper()
-	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolSetActivated{Header: gotato.Header{Time: f.base}, ToolSet: name}}); err != nil {
+	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolLoaded{Header: gotato.Header{Time: f.base}, Tool: id, Why: gotato.ToolLoadedNames}}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -288,7 +288,7 @@ func TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest(t *testing.T)
 	if got, _ := json.Marshal(loaded.Segments()[0].Messages); string(got) != string(first) {
 		t.Fatalf("Segment 1 after a reload:\n%s", got)
 	}
-	if !slices.Equal(loaded.Compactions()[0].ToolSets, f.rec.Compactions()[0].ToolSets) || len(loaded.Compactions()) != 2 {
+	if !slices.Equal(loaded.Compactions()[0].Tools, f.rec.Compactions()[0].Tools) || len(loaded.Compactions()) != 2 {
 		t.Fatalf("compactions after a reload = %+v", loaded.Compactions())
 	}
 }
@@ -617,10 +617,10 @@ func TestFinalRepliesAreGroupedByRun(t *testing.T) {
 	}
 }
 
-func TestToolSetsTheSegmentAndTheTailUseStayActive(t *testing.T) {
+func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
 	f := newFixture(t)
-	for _, name := range []string{"files", "mail", "db", "idle"} {
-		f.activate(name)
+	for _, id := range []string{"files.read", "mail.send", "db.query", "idle.x"} {
+		f.load(id)
 	}
 	f.user("r1", "go", 1)
 	f.calls("r1", "", 2, nil, `c1 files.read {}`)
@@ -630,16 +630,26 @@ func TestToolSetsTheSegmentAndTheTailUseStayActive(t *testing.T) {
 	f.calls("r2", "", 6, nil, `c3 db.query {}`)
 	f.reply("r2", "ok", 7)
 	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
-	want := []string{"files", "mail", "db"}
-	if !slices.Equal(result.Compaction.ToolSets, want) || !slices.Equal(f.rec.ActiveToolSets(), want) {
-		t.Fatalf("kept ToolSets = %v / %v, want %v (idle is switched off)", result.Compaction.ToolSets, f.rec.ActiveToolSets(), want)
+	want := []string{"files.read", "mail.send", "db.query"}
+	if !slices.Equal(result.Compaction.Tools, want) || !slices.Equal(f.rec.LoadedTools(), want) {
+		t.Fatalf("kept Tools = %v / %v, want %v (idle.x is unloaded)", result.Compaction.Tools, f.rec.LoadedTools(), want)
 	}
-	if got := f.rec.Segments()[0].ToolSets; !slices.Equal(got, []string{"files", "mail"}) {
-		t.Errorf("Segment ToolSets = %v", got)
+	if got := f.rec.Segments()[0].Tools; !slices.Equal(got, []string{"files.read", "mail.send"}) {
+		t.Errorf("Segment Tools = %v", got)
 	}
-	// Every instance that loads the Record offers the same ToolSets.
-	if got := f.reload().ActiveToolSets(); !slices.Equal(got, want) {
-		t.Errorf("ToolSets after a load = %v", got)
+	// The unload is a fact of the Record, with its reason.
+	var unloaded []gotato.ToolUnloaded
+	for _, event := range f.rec.Events() {
+		if e, ok := event.(gotato.ToolUnloaded); ok {
+			unloaded = append(unloaded, e)
+		}
+	}
+	if len(unloaded) != 1 || unloaded[0].Tool != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedCompaction {
+		t.Errorf("tool_unloaded = %+v, want idle.x for compaction", unloaded)
+	}
+	// Every instance that loads the Record offers the same Tools.
+	if got := f.reload().LoadedTools(); !slices.Equal(got, want) {
+		t.Errorf("Tools after a load = %v", got)
 	}
 }
 

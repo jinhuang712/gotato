@@ -18,7 +18,6 @@ type CoreLimits struct {
 	// MaxParallelTools bounds the workers one Turn may run at once. Zero or
 	// one keeps a batch sequential.
 	MaxParallelTools  uint32
-	MaxActiveToolSets uint32
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
 }
@@ -34,8 +33,7 @@ const TruncatedContinuationText = "Your last reply was cut off at the output lim
 // A zero field is interpreted per field, not uniformly. Once WithLimits makes
 // the limits explicit, a zero MaxMessages, MaxMessageBytes or
 // MaxTranscriptBytes admits no work of that kind, and a zero MaxToolProgressBytes or MaxToolProgressUpdates
-// suppresses Tool progress reports. MaxActiveToolSets zero admits no ToolSet
-// activation. MaxParallelTools zero or one keeps a batch sequential, and
+// suppresses Tool progress reports. MaxParallelTools zero or one keeps a batch sequential, and
 // MaxSteerMessages or MaxFollowUpMessages zero leaves that control channel
 // unbuffered. A zero deadline disables that deadline.
 //
@@ -60,7 +58,6 @@ func defaultLimits() CoreLimits {
 		MaxSteerMessages:       8,
 		MaxFollowUpMessages:    4,
 		MaxParallelTools:       1,
-		MaxActiveToolSets:      16,
 		ModelCallDeadline:      2 * time.Minute,
 		ToolCallDeadline:       2 * time.Minute,
 	}

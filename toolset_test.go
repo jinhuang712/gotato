@@ -2,7 +2,6 @@ package gotato
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"sync"
@@ -108,119 +107,11 @@ func (s *stubToolSet) Tools(ctx context.Context) ([]Tool, error) {
 	return s.tools, nil
 }
 
-func activationScript(name string) []ModelEvent {
-	arguments, _ := json.Marshal(map[string]string{"name": name})
-	return []ModelEvent{
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-activate", ToolID: ActivationToolName, Arguments: arguments}},
-		{Kind: ModelDone, StopReason: StopToolCalls},
-	}
-}
-
-func TestToolSetStaysHiddenUntilTheNextRequest(t *testing.T) {
-	set := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "write"}}}
-	model := &recordingModel{scripts: [][]ModelEvent{activationScript("files"), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithToolSet(set))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	events, err := agent.Subscribe(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = events.Close() }()
-
-	if _, err := agent.Prompt(context.Background(), UserMessage("open the files")); err != nil {
-		t.Fatal(err)
-	}
-	first := model.toolIDs(0)
-	if !slices.Contains(first, ActivationToolName) {
-		t.Fatalf("first request tools = %v", first)
-	}
-	if slices.Contains(first, "files.read") {
-		t.Fatalf("inactive ToolSet leaked into the first request: %v", first)
-	}
-	second := model.toolIDs(1)
-	if !slices.Contains(second, "files.read") || !slices.Contains(second, "files.write") {
-		t.Fatalf("activated ToolSet missing from the next request: %v", second)
-	}
-	if slices.Contains(second, ActivationToolName) {
-		t.Fatalf("activation Tool stayed visible with no inactive ToolSet: %v", second)
-	}
-
-	activations := 0
-	for {
-		event, nextErr := events.Next(context.Background())
-		if nextErr != nil {
-			t.Fatal(nextErr)
-		}
-		if activated, ok := event.(ToolSetActivated); ok {
-			if activated.Kind().Class() != ClassStored || activated.ToolSet != "files" || activated.Number == 0 {
-				t.Fatalf("activation event = %+v", activated)
-			}
-			activations++
-		}
-		if event.Kind() == KindRunEnded {
-			break
-		}
-	}
-	if activations != 1 {
-		t.Fatalf("activation events = %d", activations)
-	}
-}
-
-func TestToolSetActivationIsIdempotent(t *testing.T) {
-	files := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}
-	// Two activation calls for the same ToolSet inside one batch: this is
-	// the race idempotency has to survive. Across batches the ToolSet is no
-	// longer in the activation enum, so a repeat call is an argument error.
-	arguments, _ := json.Marshal(map[string]string{"name": "files"})
-	batch := []ModelEvent{
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-a", ToolID: ActivationToolName, Arguments: arguments}},
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-b", ToolID: ActivationToolName, Arguments: arguments}},
-		{Kind: ModelDone, StopReason: StopToolCalls},
-	}
-	model := &recordingModel{scripts: [][]ModelEvent{batch, finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithToolSet(files))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), UserMessage("open")); err != nil {
-		t.Fatal(err)
-	}
-	next := model.toolIDs(1)
-	occurrences := 0
-	for _, id := range next {
-		if id == "files.read" {
-			occurrences++
-		}
-	}
-	if occurrences != 1 {
-		t.Fatalf("duplicate activation changed visibility: %v", next)
-	}
-	if files.calls != 1 {
-		t.Fatalf("ToolSet resolved %d times for two activation calls", files.calls)
-	}
-}
-
-func TestFailedToolSetResolutionExposesNothing(t *testing.T) {
+func TestFailedToolSetResolutionFailsNewSession(t *testing.T) {
 	set := &stubToolSet{name: "files", err: errors.New("catalog is down")}
-	model := &recordingModel{scripts: [][]ModelEvent{activationScript("files"), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithToolSet(set))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), UserMessage("open")); err != nil {
-		t.Fatal(err)
-	}
-	second := model.toolIDs(1)
-	if slices.Contains(second, "files.read") {
-		t.Fatalf("failed ToolSet exposed Tools: %v", second)
-	}
-	if !slices.Contains(second, ActivationToolName) {
-		t.Fatalf("activation Tool disappeared after a failure: %v", second)
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
+	if _, err := NewSession(WithModel(model), WithToolSet(set)); !IsCode(err, ErrToolResolutionFailure) {
+		t.Fatalf("a ToolSet that does not resolve = %v, want tool_resolution_failure", err)
 	}
 }
 
@@ -439,32 +330,6 @@ func TestSequentialToolRunsAlone(t *testing.T) {
 	}
 	if tracker.peakValue() != 1 {
 		t.Fatalf("a Sequential Tool ran alongside others: peak = %d", tracker.peakValue())
-	}
-}
-
-func TestActiveToolSetsRespectTheLimitAtConstruction(t *testing.T) {
-	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
-	limits := defaultLimits()
-	limits.MaxActiveToolSets = 1
-	if _, err := NewSession(WithModel(model), WithLimits(limits),
-		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
-		WithActiveToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
-	); !IsCode(err, ErrLimitExceeded) {
-		t.Fatalf("active ToolSets over the limit = %v, want limit_exceeded", err)
-	}
-	// One active plus one inactive is within the limit, and staging still
-	// obeys it at activation time.
-	agent, err := NewSession(WithModel(model), WithLimits(limits),
-		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
-		WithToolSet(&stubToolSet{name: "git", tools: []Tool{&namedTool{id: "status"}}}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	registry := agent.registry
-	if err := registry.stage(context.Background(), "git"); !IsCode(err, ErrLimitExceeded) {
-		t.Fatalf("staging over the active limit = %v, want limit_exceeded", err)
 	}
 }
 

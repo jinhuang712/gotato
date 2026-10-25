@@ -298,7 +298,7 @@ func (s *Record) checkpointLocked(why gotato.CompactionWhy, tail []gotato.Messag
 	s.emit(gotato.CompactionEnded{
 		Header: s.header(), Instance: s.claim.Instance, Epoch: s.claim.Epoch, Why: why, Compaction: compaction, History: slices.Clone(s.compactions),
 		Messages: cloneMessages(tail), Segments: slices.Clone(s.used), Tail: kept,
-		Metadata: maps.Clone(s.metadata), ToolSets: slices.Clone(s.toolSets),
+		Metadata: maps.Clone(s.metadata), Tools: slices.Clone(s.loaded),
 	})
 }
 
