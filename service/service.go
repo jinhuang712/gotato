@@ -150,8 +150,24 @@ type Config struct {
 	Store     session.Store
 	Agents    []Agent
 	Admission Admission
-	// Instance names this Runner in the Claims it writes to the store. Empty
-	// generates a new name, so each start is a new Instance.
+	// Instance names this Runner in the Claims it writes to the store, and
+	// names its Liveness row. Empty generates a new name, so each start is a
+	// new Instance, and that is the one safe choice for a process that may
+	// restart. A name you set must be unique for each process start, never
+	// the same across restarts (a StatefulSet pod name, for example), and
+	// never shared by two live processes. The runtime does not tell a restart
+	// from the process it replaces:
+	//   - a Claim that names this Instance is taken as this Runner's own, at
+	//     the same Epoch: the holder check and the wait for a live writer are
+	//     skipped, and an old process that is still running is fenced only by
+	//     the position of the Claim Entry, so its next write fails with a
+	//     conflict, not by the Epoch;
+	//   - the Liveness row is the same row. If the old process died without
+	//     Close, its row stays and expires, an expired row never comes back,
+	//     and every write of the new process fails with session.ErrExpired
+	//     until it is started again under another name;
+	//   - if the old process calls Close after the new one started, it
+	//     removes the row the new process is using.
 	Instance string
 	// Liveness sets this Runner's Liveness row, and how long a Run waits
 	// for a Session that runs on another Instance.
