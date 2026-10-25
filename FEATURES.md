@@ -73,8 +73,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Tool search | `search_tools` holds the catalog in its description, loads tools by name or by a BM25 search, and lists more candidates | G-F34 | ✅ |
 | Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
-| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ✅ |
-| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ✅ |
+| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | 🚧 |
+| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | 🚧 |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 | Reading large results | how a model greps and filters a spilled result in a pod with no machine; design open | G-F36 | ⬜ |
 
@@ -868,6 +868,7 @@ The tools a Session offers can change while it runs.
 | `WithFoldedToolSet(set)` | the set's description and a count of its tools, in the catalog |
 
 - **A loaded tool stays until the next compaction.** At a compaction, a tool called in the Segment it closes or in the kept tail stays, and the others unload ([G-F06](#g-f06--compaction-)). Loading and unloading are facts of the Record (`tool_loaded`, `tool_unloaded`), so every instance offers the same tools after a load, and a Fork carries them. There is no limit on how many tools are loaded: `MaxActiveToolSets` is gone. See *ToolSets resolve at the start of every Run* below.
+- **ToolSets resolve at the same time.** `NewSession` and the start of every Run ask all ToolSets at once and keep their answers in install order, so a Run waits for the slowest ToolSet, not for the sum, and the catalog bytes do not depend on which answered first. There is no limit on how many resolve together.
 - **ToolSets resolve at the start of every Run.** `NewSession` resolves each ToolSet once, and the first Run uses that answer; every later Run, on a warm Session too, resolves them again before its first Turn, and never inside a Run, so the catalog is the same on every request of a Run. An MCP server's `list_changed` therefore takes effect at the next Run. When nothing changed, the catalog is the same bytes, so the cache stays.
   - **A ToolSet that fails is skipped.** A failed resolution (an error, a panic, a nil Tool, an invalid or duplicate Tool) does not fail `NewSession` or the Run. The catalog keeps the ToolSet's description with the note `(unavailable now; no tools)`, the Session's other tools work, and a stored `extension_failed` Event with `stage: "toolset:<name>"` and `code: tool_resolution_failure` is the warning, once per Run while the ToolSet stays down. A ToolSet that answers again comes back at the next Run. Only a `ctx` that ends fails the resolution, and with it the Run.
   - **A loaded tool that vanished is unloaded by a fact.** If a ToolSet answers and no longer carries a loaded tool, the Run stores `tool_unloaded` with `why: gone` before its first Turn. The Record folds it like any unload, so an instance that loads the Session later reads the same loaded tools from the Record, whatever its own ToolSet answers: the decision is made once, by the instance that ran, and is written. A loaded tool of a ToolSet that is *unavailable* is only hidden for that Run, with no event, because the ToolSet said nothing about it; it is offered again when the ToolSet recovers.
@@ -876,7 +877,7 @@ The tools a Session offers can change while it runs.
 
 **Gap:** `Runner.SetToolActive` and `gotato tools activate` name the Agent's own tools, because a ToolSet lives in the Agent's Options and the Runner cannot list it before a Session exists. A tool of a ToolSet is switched off by setting `gotato.tool.<id>` to `inactive` in the Session's metadata (`RunRequest.Update`, or `Metadata` on a new Session), which the Runner reads for the whole surface. Listing a Session's tools shows `search_tools` and the tools loaded, not the unloaded tools of a catalog ToolSet; those are in the catalog, the description of `search_tools`.
 
-### G-F34 — Tool search ✅
+### G-F34 — Tool search 🚧
 
 A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4: the catalog, the search, the facts, the list form and the native form.
 
@@ -953,7 +954,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 
 **Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show the catalog and which tools are loaded.
 
-### G-F12 — The MCP adapter ✅
+### G-F12 — The MCP adapter 🚧
 
 Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, as `adapter/grpc` is, on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0, Apache-2.0). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
 
