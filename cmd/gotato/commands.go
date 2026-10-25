@@ -381,7 +381,8 @@ func (c *cli) contextCompact(args []string) int {
 	bindModel(fs, &flags)
 	keep := fs.Int("keep", 0, "number of recent messages to keep as they are (default: the latest run's turns)")
 	minTokens := fs.Int("min-tokens", 0, "skip a stretch since the last checkpoint estimated below this many tokens (default 0: always compact)")
-	recapFlag := fs.String("recap", "none", "none (the segment has no recap), truncate (deterministic) or model (uses the session's agent, or --model)")
+	recapFlag := fs.String("recap", "none", "none (the default: the segment has no recap), truncate (deterministic) or model (the session's agent writes it on the cached prefix; use only once the payments check passes on your gateway)")
+	recapMax := fs.Uint("recap-max-tokens", modelctx.DefaultRecapMaxTokens, "output limit of the model call that writes the recap (--recap model)")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -419,7 +420,7 @@ func (c *cli) contextCompact(args []string) int {
 		if !ok {
 			return c.failErr(service.ErrUnknownAgent)
 		}
-		writer = modelctx.ModelRecap{Model: spec.Model, Label: "model:" + spec.Name}
+		writer = modelctx.ModelRecap{Model: spec.Model, MaxTokens: uint32(min(*recapMax, 1<<31)), Label: "model:" + spec.Name}
 	default:
 		return c.usageError("unknown recap writer " + *recapFlag)
 	}

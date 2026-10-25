@@ -4,141 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
-
-// RecapWriter turns a run of Messages into one summary Message. The Message it
-// returns should be user-role text; Compact tags it as a compaction summary.
-type RecapWriter interface {
-	Name() string
-	WriteRecap(context.Context, []gotato.Message) (gotato.Message, error)
-}
-
-// TruncateRecap is the deterministic default: it lists the text of the
-// Messages by role and truncates to MaxChars (default 2000). It needs no
-// Model, so it is safe in tests and CI.
-type TruncateRecap struct {
-	MaxChars int
-}
-
-// Name implements RecapWriter.
-func (TruncateRecap) Name() string { return "truncate" }
-
-// WriteRecap implements RecapWriter.
-func (t TruncateRecap) WriteRecap(_ context.Context, messages []gotato.Message) (gotato.Message, error) {
-	limit := t.MaxChars
-	if limit <= 0 {
-		limit = 2000
-	}
-	var b strings.Builder
-	b.WriteString("Summary of earlier conversation (" + fmt.Sprint(len(messages)) + " messages):\n")
-	for _, message := range messages {
-		line := strings.TrimSpace(gotato.TextOf(message))
-		if line == "" && message.ToolResult != nil {
-			line = "[tool " + string(message.ToolResult.Status) + "]"
-		}
-		if len(message.ToolCalls) > 0 {
-			names := make([]string, 0, len(message.ToolCalls))
-			for _, call := range message.ToolCalls {
-				names = append(names, call.ToolID)
-			}
-			line = strings.TrimSpace(line + " [called " + strings.Join(names, ", ") + "]")
-		}
-		if line == "" {
-			continue
-		}
-		b.WriteString("- " + string(message.Role) + ": " + line + "\n")
-	}
-	text := b.String()
-	if len(text) > limit {
-		// Cut on a rune boundary: text[:limit] can split a multi-byte rune,
-		// and json.Marshal would then turn the invalid bytes into U+FFFD.
-		cut := limit
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		text = text[:cut] + "…"
-	}
-	return gotato.UserMessage(text), nil
-}
-
-// ModelRecap asks a Model to summarize. Instruction defaults to a
-// concise, faithful summary prompt.
-type ModelRecap struct {
-	Model       gotato.Model
-	Instruction string
-	Label       string
-}
-
-// Name implements RecapWriter.
-func (m ModelRecap) Name() string {
-	if m.Label != "" {
-		return m.Label
-	}
-	return "model"
-}
-
-// WriteRecap implements RecapWriter.
-func (m ModelRecap) WriteRecap(ctx context.Context, messages []gotato.Message) (gotato.Message, error) {
-	if m.Model == nil {
-		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
-	}
-	instruction := m.Instruction
-	if instruction == "" {
-		instruction = "Summarize the conversation so far for your own future reference. Preserve decisions, facts, open questions, and tool outcomes. Be concise and faithful."
-	}
-	// The transcript is presented as one user Message inside a tagged block
-	// so the request is valid for any provider regardless of tool-call
-	// adjacency rules.
-	encoded, _ := json.Marshal(gotato.ForModel(messages))
-	body := gotato.RenderBlocks([]gotato.Block{{Tag: "conversation", Attrs: map[string]string{"format": "json"}, Text: string(encoded)}})
-	request := gotato.ModelRequest{
-		SystemInstructions: instruction,
-		Messages:           []gotato.Message{gotato.UserMessage(body)},
-	}
-	stream, err := m.Model.Stream(ctx, request)
-	if err != nil {
-		return gotato.Message{}, err
-	}
-	if stream == nil {
-		return gotato.Message{}, errors.New("modelctx: Model returned a nil stream")
-	}
-	defer func() { _ = stream.Close() }()
-	var b strings.Builder
-	completed := false
-	for {
-		event, err := stream.Recv(ctx)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return gotato.Message{}, err
-		}
-		if event.Kind == gotato.ModelTextDelta {
-			b.WriteString(event.Text)
-		}
-		if event.Kind == gotato.ModelDone {
-			completed = true
-			break
-		}
-	}
-	if !completed {
-		return gotato.Message{}, errors.New("modelctx: model stream ended before ModelDone")
-	}
-	summary := strings.TrimSpace(b.String())
-	if summary == "" {
-		return gotato.Message{}, errors.New("modelctx: model returned an empty summary")
-	}
-	return gotato.UserMessage("Summary of earlier conversation:\n" + summary), nil
-}
 
 // CompactOptions controls Compact.
 type CompactOptions struct {
@@ -161,6 +33,11 @@ type CompactOptions struct {
 	// Recap writes the Recap that ends the Segment; nil means the Segment has
 	// none. A Recap that fails leaves the Segment without one.
 	Recap RecapWriter
+	// Context builds the request the next model call would send for the
+	// Session as it is now, which a Recap written by a model sends as its
+	// prefix. service.Runner sets it. Without it, a ModelRecap fails and the
+	// Segment has no Recap.
+	Context func(context.Context) (gotato.ModelRequest, error)
 	// DropReasoning leaves the reasoning out of the Messages Compact keeps,
 	// for a Model whose provider is sent only the current Round's reasoning
 	// (see DropsReasoning). The Segment changes the prefix that reasoning
@@ -255,7 +132,7 @@ func causeOf(err error) gotato.ErrorCode {
 // kept tail calls stay active; the others are switched off.
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
-// "none"). A stretch below opts.MinTokens, or one the tail covers whole, is
+// "none"; the usage of a model call that was made is still recorded). A stretch below opts.MinTokens, or one the tail covers whole, is
 // left as it is and returns a Result with Replaced false and a Reason. A
 // Record whose last Checkpoint holds one summary written before Segments is
 // refused with ErrOldSummary.
@@ -292,14 +169,31 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 
 	closed := stretch[:cut]
 	recapName, recapText := "none", ""
+	var recapUsage *gotato.Usage
 	if opts.Recap != nil {
-		message, err := opts.Recap.WriteRecap(ctx, closed)
+		request := RecapRequest{Segment: s.NextSegment(), Closed: closed, From: stretchStart(closed, s.Position), Location: opts.Location}
+		var contextErr error
+		if opts.Context != nil {
+			var built gotato.ModelRequest
+			if built, contextErr = opts.Context(ctx); contextErr == nil {
+				request.Context = &built
+			}
+		}
+		var message gotato.Message
+		var err error
+		if contextErr == nil {
+			message, err = opts.Recap.WriteRecap(ctx, request)
+		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(ctxErr)})
 			return Result{}, ctxErr
 		}
+		if message.Usage != (gotato.Usage{}) {
+			usage := message.Usage
+			recapUsage = &usage
+		}
 		// A Recap that fails costs the Segment its Recap, not the compaction.
-		if text := strings.TrimSpace(gotato.TextOf(message)); err == nil && text != "" {
+		if text := strings.TrimSpace(gotato.TextOf(message)); err == nil && contextErr == nil && text != "" {
 			recapName, recapText = opts.Recap.Name(), text
 		}
 	}
@@ -329,6 +223,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		FromMessageID:    closed[0].ID,
 		ToMessageID:      closed[cut-1].ID,
 		Recap:            recapName,
+		RecapUsage:       recapUsage,
 		Segment:          segment.Number,
 		TokensBefore:     EstimateTokens(all),
 		TokensAfter:      EstimateTokens(after),
@@ -370,10 +265,12 @@ func keptToolSets(active, used []string, tail []gotato.Message) []string {
 // Window is the Model's context window, 0 when unknown. DropReasoning is
 // CompactOptions.DropReasoning for every compaction the policy makes.
 type CompactPolicy struct {
-	Ceiling       int
-	Floor         int
-	Window        int
-	Recap         RecapWriter
+	Ceiling int
+	Floor   int
+	Window  int
+	Recap   RecapWriter
+	// Context is CompactOptions.Context for every compaction the policy makes.
+	Context       func(context.Context) (gotato.ModelRequest, error)
 	DropReasoning bool
 	Now           func() time.Time
 	SegmentSettings
@@ -403,7 +300,7 @@ func (a *AutoCompactor) PrepareRun(ctx context.Context, _ gotato.Transcript) err
 	}
 	result, err := Compact(ctx, a.session, CompactOptions{
 		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.policy.Ceiling,
-		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
+		Recap: a.policy.Recap, Context: a.policy.Context, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
 		Why: gotato.CompactionPastCeiling, SegmentSettings: a.policy.SegmentSettings,
 	})
 	if err != nil {
@@ -543,4 +440,16 @@ func isSummary(message gotato.Message) bool {
 		}
 	}
 	return false
+}
+
+// stretchStart returns when the earliest of the Messages was committed, or the
+// zero time when no position says.
+func stretchStart(messages []gotato.Message, position func(gotato.MessageID) (gotato.MessagePosition, bool)) time.Time {
+	var from time.Time
+	for _, message := range messages {
+		if p, ok := position(message.ID); ok && !p.Time.IsZero() && (from.IsZero() || p.Time.Before(from)) {
+			from = p.Time.UTC()
+		}
+	}
+	return from
 }

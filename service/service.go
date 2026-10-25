@@ -1033,6 +1033,9 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		builder = modelctx.FullHistory()
 	}
 	policy := compactPolicyFor(spec, s)
+	if policy.Recap != nil && policy.Context == nil {
+		policy.Context = r.recapContext(spec, s)
+	}
 	var auto *modelctx.AutoCompactor
 	var extensions []any
 	if policy.Ceiling > 0 {
@@ -1258,6 +1261,9 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		r.publishOpened(writer, early, agentName)
 		if spec, ok := r.Agent(agentName); ok {
 			opts = compactOptionsFor(spec, writer.Record(), opts)
+			if opts.Recap != nil && opts.Context == nil {
+				opts.Context = r.recapContext(spec, writer.Record())
+			}
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts)
 		if err != nil {
@@ -1279,6 +1285,10 @@ func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.Compact
 	opts.DropReasoning = opts.DropReasoning || policy.DropReasoning
 	if opts.Recap == nil {
 		opts.Recap = policy.Recap
+	}
+	opts.Recap = withAgentModel(opts.Recap, spec.Model)
+	if opts.Context == nil {
+		opts.Context = policy.Context
 	}
 	if opts.Keep <= 0 && opts.Floor <= 0 {
 		opts.Floor = policy.Floor
@@ -1306,10 +1316,39 @@ func cmpPositive(a, b int) int {
 	return b
 }
 
+// withAgentModel gives a modelctx.ModelRecap that names no Model the Agent's
+// own, so an Agent turns the model's Recap on with Recap: modelctx.ModelRecap{}.
+func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) modelctx.RecapWriter {
+	if recap, ok := writer.(modelctx.ModelRecap); ok && recap.Model == nil {
+		recap.Model = model
+		return recap
+	}
+	return writer
+}
+
+// recapContext returns what a Recap written by a model sends as its prefix:
+// the request the Agent's next model call would send for the Session now,
+// built by a live Session that is inspected and not run.
+func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.Context) (gotato.ModelRequest, error) {
+	return func(ctx context.Context) (gotato.ModelRequest, error) {
+		live, _, err := r.buildSession(ctx, spec, record, nil, InspectOptions{})
+		if err != nil {
+			return gotato.ModelRequest{}, err
+		}
+		defer func() { _ = live.Close(context.Background()) }()
+		inspection, err := live.InspectContext(ctx)
+		if err != nil {
+			return gotato.ModelRequest{}, err
+		}
+		return inspection.Request, nil
+	}
+}
+
 // compactPolicyFor is the Agent's CompactPolicy with the Model's window and
 // the Session's own ceiling (MetaCompactCeiling) applied.
 func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy {
 	policy := spec.Compact
+	policy.Recap = withAgentModel(policy.Recap, spec.Model)
 	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
 	if policy.Window <= 0 {
 		policy.Window = modelctx.WindowOf(spec.Model)

@@ -165,7 +165,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 type failingRecap struct{}
 
 func (failingRecap) Name() string { return "failing" }
-func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
+func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
 }
 

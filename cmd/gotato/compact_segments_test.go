@@ -92,3 +92,54 @@ func TestContextCompactMinTokensAndTheDefaultTail(t *testing.T) {
 		t.Fatalf("recap = %q", withRecap.Compaction.Recap)
 	}
 }
+
+// --recap model has the session's Agent write the Recap on the Context the
+// next call would send; the default writes none, and a model that does not
+// follow the five headings leaves the Segment without one.
+func TestContextCompactRecapModelIsAChoice(t *testing.T) {
+	h := newHarness(t)
+	type answer struct {
+		Replaced   bool `json:"replaced"`
+		Compaction struct {
+			Segment int    `json:"segment"`
+			Recap   string `json:"recap"`
+		} `json:"compaction"`
+	}
+	for name, tc := range map[string]struct {
+		model string
+		args  []string
+		recap string
+	}{
+		"default is none":    {"demo", nil, "none"},
+		"demo writes one":    {"demo", []string{"--recap", "model"}, "model:demo"},
+		"echo does not":      {"echo", []string{"--recap", "model"}, "none"},
+		"output limit given": {"demo", []string{"--recap", "model", "--recap-max-tokens", "4000"}, "model:demo"},
+	} {
+		var created map[string]any
+		h.mustJSON(h.ok("session", "create", "--model", tc.model, "--json"), &created)
+		id := created["id"].(string)
+		for _, prompt := range []string{"one", "two", "three"} {
+			h.ok("run", "--session", id, "--model", tc.model, "--quiet", prompt)
+		}
+		var got answer
+		h.mustJSON(h.ok(append([]string{"context", "compact", id, "--model", tc.model, "--json"}, tc.args...)...), &got)
+		if !got.Replaced || got.Compaction.Segment != 1 || got.Compaction.Recap != tc.recap {
+			t.Errorf("%s: %+v, want recap %q", name, got, tc.recap)
+		}
+		var doc struct {
+			Messages []gotato.Message `json:"messages"`
+		}
+		h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
+		hasRecap := false
+		for _, m := range doc.Messages {
+			text := gotato.TextOf(m)
+			hasRecap = hasRecap || strings.Contains(text, "<recap n=\"1\">")
+			if strings.Contains(text, "Write a recap") {
+				t.Errorf("%s: the ask was stored", name)
+			}
+		}
+		if hasRecap != (tc.recap != "none") {
+			t.Errorf("%s: recap in the Context = %v", name, hasRecap)
+		}
+	}
+}

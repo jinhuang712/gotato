@@ -432,6 +432,11 @@ func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 // {"value":"from-tool"}; otherwise it answers "demo response: <text>".
 type DemoModel struct{}
 
+// DemoRecap is what DemoModel answers when it is asked for a Recap (a last
+// user message that starts "Write a recap"), so a compaction with the model's
+// Recap can run in the CLI without a provider.
+const DemoRecap = "## What happened\n- the user talked with the demo model\n## Key facts\n- the demo tool returned from-tool"
+
 // DemoToolID is the Tool DemoModel calls.
 const DemoToolID = "demo.echo"
 
@@ -448,6 +453,9 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 			lastUser = promptText(message)
 			break
 		}
+	}
+	if strings.HasPrefix(lastUser, "Write a recap") {
+		return &stream{events: Text(DemoRecap)}, nil
 	}
 	if strings.TrimSpace(lastUser) == "use-tool" && !hasToolResult {
 		return &stream{events: ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: DemoToolID, Arguments: []byte(`{"value":"from-tool"}`)})}, nil

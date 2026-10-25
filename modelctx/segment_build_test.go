@@ -664,7 +664,7 @@ func TestMinTokensSkipsAStretchTooShortToCompact(t *testing.T) {
 type fixedRecap struct{ text string }
 
 func (fixedRecap) Name() string { return "fixed" }
-func (r fixedRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
+func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.UserMessage(r.text), nil
 }
 

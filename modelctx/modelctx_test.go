@@ -92,7 +92,7 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
 	messages := []gotato.Message{gotato.UserMessage(strings.Repeat("é", 100))}
 	for limit := 1; limit < 140; limit++ {
-		summary, err := (modelctx.TruncateRecap{MaxChars: limit}).WriteRecap(context.Background(), messages)
+		summary, err := (modelctx.TruncateRecap{MaxChars: limit}).WriteRecap(context.Background(), modelctx.RecapRequest{Closed: messages})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,43 +102,34 @@ func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
 	}
 }
 
-func TestModelRecap(t *testing.T) {
-	model := testkit.NewFakeModel(testkit.Text("they discussed things"))
-	summary, err := modelctx.ModelRecap{Model: model}.WriteRecap(context.Background(), toolConversation())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(gotato.TextOf(summary), "they discussed things") {
-		t.Fatalf("summary = %q", gotato.TextOf(summary))
-	}
-	request, _ := model.LastRequest()
-	if request.SystemInstructions == "" || len(request.Messages) != 1 || !strings.Contains(gotato.TextOf(request.Messages[0]), `<conversation format="json">`) {
-		t.Fatalf("request = %+v", request)
-	}
-}
-
 type nilStreamModel struct{}
 
 func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return nil, nil
 }
 
+// recapRequest is a RecapRequest with the Context of a small conversation.
+func recapRequest() modelctx.RecapRequest {
+	context := gotato.ModelRequest{SystemInstructions: "be brief", Messages: toolConversation()}
+	return modelctx.RecapRequest{Segment: 1, Closed: toolConversation(), Context: &context}
+}
+
 func TestModelRecapRejectsIncompleteStream(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
-	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), toolConversation()); err == nil {
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
 		t.Fatal("expected an error when the stream ends before ModelDone")
 	}
 }
 
 func TestModelRecapRejectsEmptySummary(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}})
-	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), toolConversation()); err == nil {
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
 		t.Fatal("expected an error for an empty summary")
 	}
 }
 
 func TestModelRecapRejectsNilStream(t *testing.T) {
-	if _, err := (modelctx.ModelRecap{Model: nilStreamModel{}}).WriteRecap(context.Background(), toolConversation()); err == nil {
+	if _, err := (modelctx.ModelRecap{Model: nilStreamModel{}}).WriteRecap(context.Background(), recapRequest()); err == nil {
 		t.Fatal("expected an error when the Model returns a nil stream")
 	}
 }
@@ -146,6 +137,6 @@ func TestModelRecapRejectsNilStream(t *testing.T) {
 type failingRecap struct{}
 
 func (failingRecap) Name() string { return "failing" }
-func (failingRecap) WriteRecap(context.Context, []gotato.Message) (gotato.Message, error) {
+func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
 }
