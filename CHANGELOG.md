@@ -6,6 +6,25 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Tool search
+
+- **The model loads tools one by one, from a catalog.** A ToolSet is a grouping and a source; the unit of loading is one tool ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25), [FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-)). `search_tools` replaces `activate_toolset`; its description is the catalog, which lists a loaded tool like any other and so stays the same bytes while tools load. It takes `names[]` (load exactly), `queries[]` (BM25, standard library: load the top 3, list 5 more) and `toolset` (list a folded ToolSet's tools, load none). A call to a catalog tool that is not loaded does not run: the tool is loaded and the call fails with "was not loaded, so this call did not run. It is loaded now; call it again." A loaded tool stays until a compaction, which keeps the tools called in the Segment it closes or in the kept tail and unloads the rest. A tool above the Effect cap, or switched off for the Session (`gotato.tool.<id>`), is never in the catalog, never found and never loaded. In this step the tool list changes when a tool loads (the `list` form); the native form is Phase 7, step 4. No old name is kept.
+
+  | Before | After |
+  |---|---|
+  | `WithToolSet(set)`: the model called `activate_toolset` to make the whole set visible on the next request | `WithToolSet(set)`: the catalog lists the set's description and all its tool names; the model loads tools with `search_tools` |
+  | no such mode | `gotato.WithFoldedToolSet(set)`: the catalog shows the description and a count of tools |
+  | `activate_toolset` (`gotato.ActivationToolName`), visible while a ToolSet was inactive | `search_tools` (`gotato.SearchToolName`), visible while the catalog holds a tool the Session may load |
+  | `CoreLimits.MaxActiveToolSets` (16) | removed; there is no limit on loaded tools |
+  | Event `toolset_activated` (`{toolset}`), `gotato.ToolSetActivated`, gRPC `toolset_activated = 26` | `tool_loaded` (`{tool, why}`, why is `names`, `query` or `call`; `gotato.ToolLoaded`, gRPC `tool_loaded = 26`) and `tool_unloaded` (`{tool, why}`, why is `compaction`; `gotato.ToolUnloaded`, gRPC `tool_unloaded = 55`), both facts of the Record |
+  | `session.Record.ActiveToolSets()`, `SetActiveToolSets`, `gotato.ActiveToolSetSource` | `LoadedTools()`, `SetLoadedTools`, `gotato.LoadedToolSource`; the names are qualified tool IDs (`orders.lookup`), not ToolSet names |
+  | `tool_sets` (names of ToolSets) in `session_created`, `compaction_ended`, `Compaction` and `Segment` JSON, gRPC `tool_sets`, CLI `context compact --json` `compaction.tool_sets` | `tools` (qualified tool IDs); `Segment.Tools` holds the loaded tools its stretch called |
+  | every ToolSet resolved on its first activation, and a failure reached the model as a failed result | every ToolSet is resolved when the Session is built, because the catalog needs its tool names; one that does not resolve fails `NewSession` with `tool_resolution_failure`, and a cancelled context fails it with `cancelled` |
+  | a tool of a ToolSet could not be switched off for a Session | `gotato.WithToolFilter(keep)`; the Runner sets it from `gotato.tool.<id>` for every tool of every ToolSet |
+  | `Runner.Tools` with a Session listed the Agent's tools, `read_segment` and `read_result` | adds `search_tools` (its description is the catalog) and the tools the Session has loaded, in `Runner.Tools` and `gotato tools list --session` |
+
+  `gotato.WithToolSearcher(searcher)` plugs in a team's own search: `ToolSearcher.Search(ctx, query, tools []ToolSpec) ([]string, error)` returns IDs best first. The `toolregistry` package is unchanged: it is a `ToolSource` for tools switched on and off by the application, and never served `activate_toolset`. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`), since the break ships with the changes above that already raised them.
+
 ### Limits
 
 - **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.
@@ -20,7 +39,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
   | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
   | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
 
-  `MaxMessageBytes`, `ModelCallDeadline`, `ToolCallDeadline` and `MaxActiveToolSets` are unchanged. `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits, so the contract versions stay as they are.
+  `MaxMessageBytes`, `ModelCallDeadline` and `ToolCallDeadline` are unchanged (`MaxActiveToolSets` goes in *Tool search*, below). `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits, so the contract versions stay as they are.
 
 ### Large Tool Results
 

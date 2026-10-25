@@ -66,13 +66,13 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
 | Effect cap per Agent | the model never sees a tool above the Agent's highest Effect | G-F09 | ✅ |
 | Tool registry | register, remove, switch on and switch off tools at any time | G-F10 | ✅ |
-| Tool sets | groups of tools the model switches on itself, a whole set at a time (`activate_toolset`) | G-F10 | ✅ |
+| Tool sets | a named group of tools from one source; the model loads its tools one by one, never the whole set | G-F10 | ✅ |
 | Tools per Session | switch a tool on or off for one Session | G-F10 | ✅ |
-| ToolSets that stay on | a ToolSet the model switched on is a fact, so the next Run, on any instance, offers it too | G-F10 | ✅ |
-| Install modes | `WithActiveToolSet` always visible, `WithToolSet` listed in the catalog with all its tool names, `WithFoldedToolSet` listed with a tool count | G-F10 | ⬜ |
-| Tool search | `search_tools` holds the catalog in its description, loads tools by name or by a BM25 search, and lists more candidates | G-F34 | ⬜ |
-| Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ⬜ |
-| Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ⬜ |
+| Tools that stay loaded | a tool the model loaded is a fact, so the next Run, on any instance, offers it too | G-F10 | ✅ |
+| Install modes | `WithActiveToolSet` always visible, `WithToolSet` listed in the catalog with all its tool names, `WithFoldedToolSet` listed with a tool count | G-F10 | ✅ |
+| Tool search | `search_tools` holds the catalog in its description, loads tools by name or by a BM25 search, and lists more candidates | G-F34 | ✅ |
+| Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
+| Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ⬜ |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | ⬜ |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
@@ -556,7 +556,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **Tags and escaping.** A Part marked `gotato.MetaTag` is tagged text the system wrote; every other Part has the start or end of the four tags escaped in the request ([G-F29](#g-f29--runtime-notices-)). A tool source that bridges foreign metadata, such as the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)), must drop that key when it copies foreign metadata into a Tool Result.
 - **The gateway** reads `context_window`, reports the cache retention in effect (`Client.CacheRetention()`), and reports a request refused as too long as `context_overflow` ([G-F07](#g-f07--models-and-providers-)).
 - **Loaded tools** are facts of the Record (`tool_loaded`, `tool_unloaded`), restored for every Run and kept in a Checkpoint and a Fork ([G-F34](#g-f34--tool-search-)).
-- **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetActiveToolSets` while the unit is a ToolSet), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
+- **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetLoadedTools`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
 - **A Message carries the Run** that committed it (`Message.RunID`), so a Segment groups Messages by Run (*What a Segment keeps*, below).
 
 **Gap:** none for compaction itself. Everything below was designed on 2026-10-19, and it was built before the warm Session in four steps ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)); the idle trigger came with the warm Session ([Phase 8](ROADMAP.md#phase-8--warm-session), step 1). What is not measured is G-B15, which needs a provider's cache.
@@ -867,17 +867,19 @@ The tools a Session offers can change while it runs.
 | `WithToolSet(set)` (the default) | the set's description and all its tool names, in the catalog |
 | `WithFoldedToolSet(set)` | the set's description and a count of its tools, in the catalog |
 
-- **A loaded tool stays until the next compaction.** At a compaction, a tool called in the Segment it closes or in the kept tail stays, and the others unload ([G-F06](#g-f06--compaction-)). Loading and unloading are facts of the Record (`tool_loaded`, `tool_unloaded`), so every instance offers the same tools after a load, and a Fork carries them. There is no limit on how many tools are loaded: `MaxActiveToolSets` goes.
-- For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`. A tool switched off for a Session is never in the index and never loaded, so the switch wins over loading.
+- **A loaded tool stays until the next compaction.** At a compaction, a tool called in the Segment it closes or in the kept tail stays, and the others unload ([G-F06](#g-f06--compaction-)). Loading and unloading are facts of the Record (`tool_loaded`, `tool_unloaded`), so every instance offers the same tools after a load, and a Fork carries them. There is no limit on how many tools are loaded: `MaxActiveToolSets` is gone. A ToolSet is resolved once, when the Session is built, so the catalog is the same on every request; a ToolSet that does not resolve fails `NewSession`.
+- For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`. A tool switched off for a Session is never in the catalog, never found by a search and never loaded, so the switch wins over loading. In the Go API this is `gotato.WithToolFilter`, which the Runner sets from the Session's metadata for every tool of every ToolSet.
 - Tools come from your own Go code or from an MCP server. The CLI ships `demo.echo` and `time.now` for diagnostics only.
 
-**Gap:** what is built is the earlier form, with the ToolSet as the unit. The model switches on a whole ToolSet by calling `activate_toolset`, up to 16 can be active (`MaxActiveToolSets`), `toolset_activated` is the fact of the Record that makes it stay (`Record.ActiveToolSets()`), and a compaction keeps the ToolSets called in the closed Segment or the kept tail, and those installed with `WithActiveToolSet`. `WithFoldedToolSet`, `search_tools`, `tool_loaded` and `tool_unloaded` come in Phase 7 ([ROADMAP.md](ROADMAP.md#phase-7--mcp-and-tool-search)), with no old name kept.
+**Gap:** `Runner.SetToolActive` and `gotato tools activate` name the Agent's own tools, because a ToolSet lives in the Agent's Options and the Runner cannot list it before a Session exists. A tool of a ToolSet is switched off by setting `gotato.tool.<id>` to `inactive` in the Session's metadata (`RunRequest.Update`, or `Metadata` on a new Session), which the Runner reads for the whole surface. Listing a Session's tools shows `search_tools` and the tools loaded, not the unloaded tools of a catalog ToolSet; those are in the catalog, the description of `search_tools`.
 
-### G-F34 — Tool search ⬜
+### G-F34 — Tool search 🚧
 
-A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4.
+A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4. Step 3 is built: the catalog, the search, the facts and the list form. Step 4, the native form, is not.
 
-**The catalog.** It lives in the description of one discovery tool, `search_tools`, which replaces `activate_toolset`. It lists each ToolSet by what its install mode shows ([G-F10](#g-f10--tool-sets-and-the-registry-)):
+**Gap:** a loaded tool is added to the tool list, which stays sorted by ID (the `list` form), so a load costs a cache read after the tools. The `deferred_tools` key and the native forms of Anthropic Messages and OpenAI's Responses API come in step 4 ([ROADMAP.md](ROADMAP.md#phase-7--mcp-and-tool-search)).
+
+**The catalog.** It lives in the description of one discovery tool, `search_tools`. It lists each ToolSet by what its install mode shows ([G-F10](#g-f10--tool-sets-and-the-registry-)):
 
 ```text
 Load tools before you call them. Pass names to load tools exactly, queries to search,
@@ -903,7 +905,7 @@ crm — Customer records (214 tools; pass toolset="crm" to list them)
 - **The tool declares `read`,** so every Effect cap keeps it.
 - **A name that matches no tool,** or a tool the Session may not load, is named in the result as not found, and the Run goes on.
 
-**The search.** It is BM25 over each tool's name and description, written with the standard library. `ToolSearcher` is a Go interface, so a team plugs in its own search, such as one over embeddings; Gotato hands it the queries and the tools the Session may load, and loads what it returns.
+**The search.** It is BM25 over each tool's ID and description, written with the standard library (`k1` 1.2, `b` 0.75, and a word in the ID counts three times as much as one in the description). `ToolSearcher` is a Go interface, `Search(ctx, query, tools []ToolSpec) ([]string, error)`, so a team plugs in its own search with `gotato.WithToolSearcher`, such as one over embeddings. Gotato hands it one query at a time and the specs of the tools the Session may still load (not loaded, not above the Effect cap, not switched off), and loads the first three IDs it returns and lists the next five. An ID that is not among the tools it was given is ignored.
 
 **Which tools can load.** The index holds the tools of the installed ToolSets that the Session may use:
 
@@ -1453,8 +1455,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran; a call blocked before it ran has a `tool_ended` and no `tool_started`. A `tool_ended` rides the write that commits its group's results, so it is sent when the group is done: in a parallel group it can wait behind the slowest sibling, though its `elapsed_ms` and time are those of its own Tool | Record |
 | `tool_progress` | a Tool reports its own progress | sent only |
 | `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
-| `toolset_activated` | the model switches on a ToolSet; `tool_loaded` and `tool_unloaded` replace it in Phase 7 | Record |
-| `tool_loaded`, `tool_unloaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it; a compaction unloads a tool, with why ([G-F34](#g-f34--tool-search-)); planned with G-F34 | Record |
+| `tool_loaded`, `tool_unloaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it; a compaction unloads a tool, with why (`tool` and `why`: `names`, `query`, `call` or `compaction`, [G-F34](#g-f34--tool-search-)) | Record |
 | `tool_result_spilled` | a Tool Result over one page is stored in full as an Entry of its own; a load skips it ([G-F35](#g-f35--large-tool-results-)); subscribers get it without the body | Record |
 
 *Messages into a Session*
@@ -1497,7 +1498,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `extension_failed` | an advisory extension failed, and the Run went on | Record |
 | `events_skipped` | an Instance's stream fell behind and skipped Events; it says how many | Instance |
 
-**Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `toolset_activated` (replaced by `tool_loaded` and `tool_unloaded` in Phase 7, [G-F34](#g-f34--tool-search-)), `segment_closed` ([G-F06](#g-f06--compaction-)), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it, with one exception: when the last Run of a Session never ended, the load also reads the log since that Checkpoint, rebuilds the Cut-off reply from the `reply_part_kept` Entries, and the Instance that takes the Session over stores it as a `reply_cut_off`. A crash loses at most the last part of a reply. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
+**Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `tool_loaded` and `tool_unloaded` ([G-F34](#g-f34--tool-search-)), `segment_closed` ([G-F06](#g-f06--compaction-)), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it, with one exception: when the last Run of a Session never ended, the load also reads the log since that Checkpoint, rebuilds the Cut-off reply from the `reply_part_kept` Entries, and the Instance that takes the Session over stores it as a `reply_cut_off`. A crash loses at most the last part of a reply. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
 
 **Subscriptions.** A Session puts each Event in its subscribers' queues and never waits for one:
 

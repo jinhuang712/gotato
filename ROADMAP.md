@@ -70,7 +70,7 @@ Exit:
 Built.
 
 - ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
-- ✅ A tool above the cap is hidden from the model, including the tools of a ToolSet it activates later, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- ✅ A tool above the cap is hidden from the model, including a tool of a ToolSet, which is never in the index and is never loaded, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
 - ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
 - ✅ `gotato tools list`, `GET /v1/agents` and the gRPC `Agents` call report the cap.
 
@@ -174,7 +174,7 @@ A Session's tools come from many places, and a service that connects MCP servers
 
 - ✅ Step 1, limits that guard a real failure: `MaxTurns`, `MaxToolCalls`, `MaxToolResultBytes` and `RunDeadline` leave the core. A team that wants a Turn or call cap writes a `TurnStopper`, and a Run's deadline is its `ctx`. `service.Agent` keeps one Run deadline, `RunTimeout` (30 minutes by default), that the request's own timeout overrides. `MaxMessageBytes` stays, and `ModelCallDeadline` and `ToolCallDeadline` stay, marked for review. The DESIGNS section about every Run ending is the final form of this step.
 - ✅ Step 2, large Tool Results: a Tool Result over one page (about 8K tokens) is spilled into the Record as an Entry of its own, the Context holds a preview and a ref, and the model reads the rest page by page with `read_result`, which pages as `read_segment` does. A load does not read a spilled body until it is asked for. This replaces what `MaxToolResultBytes` did.
-- ⬜ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search.
+- ✅ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search. The tool list changes when a tool loads (the list form); the native form is step 4.
 - ⬜ Step 4, native deferred loading: the part of G-F32 that concerns tools. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
 - ⬜ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK. One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect.
 
