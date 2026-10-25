@@ -161,7 +161,7 @@ Every Event carries its time and the Session it concerns, if any; a stored Event
 
 At scale, what the model reads costs more than what the service holds ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)). A provider serves the part of a request it has seen before from its prompt cache, at a fraction of the price, as long as every byte of that part is the same. So each request is the one before with new content after it: what never changes comes first, what grows comes last, and a change is told at the end instead of rewritten at the top.
 
-The same Record giving the same bytes (*The store is the only truth*) is not enough on its own. A rule that sorted the tools again whenever a ToolSet was switched on would give the same bytes for the same Record, and still make the provider read everything after the tools at full price.
+The same Record giving the same bytes (*The store is the only truth*) is not enough on its own. A rule that sorted the tools again whenever a tool was loaded would give the same bytes for the same Record, and still make the provider read everything after the tools at full price.
 
 A few decisions change bytes already sent, on purpose and at a known moment: the last Round's reasoning is left out once a new Round starts, a compaction changes the tool list, and the oldest Segments are merged when they pass their budget. Each says so, and why the cost is worth it.
 
@@ -214,10 +214,25 @@ Gotato and the service sometimes have to tell the model something the user did n
 - **Instead of:** a retention on each Agent, or one value for every provider.
 - **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
 
+### Tools load one by one from a catalog — 2026-10-25
+
+The tool list comes before the Transcript, so every tool definition in it is read on every request, and a change to it makes the provider read everything after it again. A service that connects MCP servers can offer hundreds of tools. The model should see the few it needs, and loading one should cost as little of the cache as it can ([FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-)).
+
+| Option | For | Against |
+|---|---|---|
+| **A Tool is the unit of loading, found through a catalog in the description of one discovery tool** (chosen) | The model loads only what it uses. The catalog is the same bytes while tools load, and a provider's deferred loading keeps the tool list the same bytes too. A ToolSet is a grouping and a source, and a team chooses how much of it the catalog shows. | A search tool to call before the first use, and a fallback for the wire API that has no deferred loading. |
+| A ToolSet is the unit, switched on whole (the earlier form) | Few concepts. | A big ToolSet, such as one MCP server, fills the tool list the moment it is switched on, and a count limit on active ToolSets is a guess. |
+| Every tool always visible | Nothing to discover. | Hundreds of definitions in every request, and a model that chooses badly among them. |
+
+- **No catalog budget.** The catalog shows what the install mode says, and a team that installs a big ToolSet folds it. A budget would be a number somebody guessed ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
+- **A loaded tool stays until the next compaction.** The tool list changes at that moment anyway, so the model keeps what it called in the Segment being closed or in the kept tail, and the rest unloads.
+- **Loading is a fact of the Record,** so every instance offers the same tools after a load, as the store is the only truth.
+- **The cap and the switch come first.** A tool above the Agent's Effect cap is never in the index, and a tool a Session switched off is never loaded: a model cannot search its way past a bound ([The bounds are in the definition](#the-bounds-are-in-the-definition)).
+
 ### A Segment is written once, and a Checkpoint points to it — 2026-10-24
 
 - **Instead of:** copying every Segment's Messages into each Checkpoint, or storing a Segment as data and rendering it when a request is built.
-- **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the ToolSets it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
+- **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the tools it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
 - **What it costs.** A load reads every `segment_closed` Entry before the last Checkpoint, including one a later Checkpoint no longer lists, so a load grows with the history. A Record that holds Segments is read only by a Gotato that knows them.
 
 ## 3. The Context is a bounded view
@@ -235,6 +250,20 @@ What the model sees is a value built on every Turn, not the history sent as it i
 
 - **Instead of:** built-in retrieval or memory search.
 - **Why:** retrieval and windowing depend on the application's data. Gotato ships full history, Static blocks and Compaction.
+
+### A large Tool Result is spilled, and read in pages — 2026-10-25
+
+A tool can return far more than a Context should hold, and the Context is built from the Record on every Turn. A result over one page, about 8K tokens, would stay in every later request, or be refused for its size ([FEATURES.md → G-F35](FEATURES.md#g-f35--large-tool-results-)).
+
+| Option | For | Against |
+|---|---|---|
+| **Spill the body into the Record as an Entry of its own, keep a preview and a ref in the Context, and let the model read it in pages** (chosen) | The Context stays small. Nothing is lost: the Record keeps the whole body, and the Message that stays is written once, so the bytes already sent do not change. A load does not read the body. | A tool call to read more, and a body that costs a read from the store. |
+| Fail the Run past a size limit (the earlier form) | Simple. | A result the model could have read in pages ends the Run, at a size that has nothing to do with the window. |
+| Cut the result and drop the rest | Simple, and no extra call. | The model cannot get what was cut, and cannot tell whether it matters. |
+
+- **The Record is the truth, and a warm Session is a cache.** Any instance reads the same body from the Record, and a warm copy only keeps the bodies it has read.
+- **One page is the line.** The threshold and the page of the reader are the same, so a result either fits in the Context or is read page by page.
+- **The reader is a sibling of `read_segment`.** The two share their paging. `read_segment`'s name is written into every Segment already stored, whose bytes never change, so the name stays, and a second tool reads results.
 
 ### Reasoning goes back for the current Round, where the provider allows it — 2026-10-18
 
@@ -267,7 +296,7 @@ A Session's user often comes back long after the provider's cache has expired, a
 - **Safe by default.** Segments have a token budget, so the oldest are merged when they pass it, and on an overflow too. They merge into one merged Segment that opens the Context, down to half the budget, so the far past is one Recap and only it is a summary of a summary. With no `context_window` and no ceiling there is still a default budget, 32K tokens, so a long conversation cannot grow until every request is refused.
 - **The ceiling is the exception.** A Run about to outgrow the model's window is compacted while the cache is still warm, mid-Run if need be, because it cannot go on otherwise. The same goes for a request the provider refuses as too long, which is compacted and sent again once, and for a compaction asked for on demand.
 - **Nothing is lost,** unless the team prunes the entries before a Checkpoint. The Record keeps every Message a Segment covers, and the model can read a Segment back in full with a built-in tool; after such a prune, the tool says the Segment's Messages were removed.
-- **The tools change with it.** Only the ToolSets used in the Segment being closed, and those a kept tail still calls, stay active. The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
+- **The tools change with it.** Only the loaded tools used in the Segment being closed, and those a kept tail still calls, stay loaded ([Tools load one by one from a catalog](#tools-load-one-by-one-from-a-catalog--2026-10-25)). The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
 
 ### Code builds a Segment, and the model writes only the Recap at its end
 
@@ -412,12 +441,15 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 
 ```text
 cmd/gotato, gRPC adapter  ──►  service, service/httpapi  ──►  session, modelctx, toolregistry, testkit  ──►  core
+                                           MCP adapter  ──────────────────────────────────────────────────►  core
 ```
+
+The MCP adapter only supplies Tools, so it builds on the core alone and no runtime package imports it.
 
 ### The core uses only the standard library
 
 - **Instead of:** vendor SDKs or other libraries that save some code, or one module that carries every dependency.
-- **Why:** every dependency lands in every service that embeds Gotato. The root package imports only the standard library, the root module requires only `gopkg.in/yaml.v3`, and the gRPC adapter is a module of its own.
+- **Why:** every dependency lands in every service that embeds Gotato. The root package imports only the standard library, the root module requires only `gopkg.in/yaml.v3`, and the gRPC adapter and the MCP adapter are modules of their own.
 
 ### Providers are configured by wire API — 2026-09-17
 
@@ -516,7 +548,7 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 ### Tools are Go functions or MCP tools
 
 - **Instead of:** a tool catalog or marketplace that ships with Gotato.
-- **Why:** the team chooses and writes its tools. General-purpose tools come from MCP servers and from the application.
+- **Why:** the team chooses and writes its tools. General-purpose tools come from MCP servers and from the application. An MCP server is one ToolSet, brought in by `adapter/mcp`, a module of its own on the official Go SDK, so a service that uses no MCP carries none of it ([FEATURES.md → G-F12](FEATURES.md#g-f12--the-mcp-adapter-)). The adapter maps a server's tools to Tools, takes their Effect from the server's annotations, and builds none of the protocol's other features ([G-N20](FEATURES.md#g-n20--mcp-features-gotato-does-not-build)).
 
 ### The bounds are in the definition
 
