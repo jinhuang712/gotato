@@ -165,24 +165,15 @@ type Config struct {
 	Store     session.Store
 	Agents    []Agent
 	Admission Admission
-	// Instance names this Runner in the Claims it writes to the store, and
-	// names its Liveness row. Empty generates a new name, so each start is a
-	// new Instance, and that is the one safe choice for a process that may
-	// restart. A name you set must be unique for each process start, never
-	// the same across restarts (a StatefulSet pod name, for example), and
-	// never shared by two live processes. The runtime does not tell a restart
-	// from the process it replaces:
-	//   - a Claim that names this Instance is taken as this Runner's own, at
-	//     the same Epoch: the holder check and the wait for a live writer are
-	//     skipped, and an old process that is still running is fenced only by
-	//     the position of the Claim Entry, so its next write fails with a
-	//     conflict, not by the Epoch;
-	//   - the Liveness row is the same row. If the old process died without
-	//     Close, its row stays and expires, an expired row never comes back,
-	//     and every write of the new process fails with session.ErrExpired
-	//     until it is started again under another name;
-	//   - if the old process calls Close after the new one started, it
-	//     removes the row the new process is using.
+	// Instance is a human-readable label for this Runner, such as a pod name.
+	// It is not the identity: each start appends a random suffix, so the name
+	// the Runner writes to the store, in its Claims, its Liveness row and its
+	// session_claimed Events, is unique per process start, for example
+	// "pod-0-3fa9c1d2". Runner.Instance returns that name. Empty generates a
+	// whole new name. A label may therefore be the same across restarts, or
+	// shared by two live processes: the new process never takes the old
+	// process's Claim as its own, it goes through the holder check like any
+	// other Instance, and the old process's Close removes only its own row.
 	Instance string
 	// Liveness sets this Runner's Liveness row, and how long a Run waits
 	// for a Session that runs on another Instance.
@@ -425,8 +416,13 @@ func New(cfg Config) (*Runner, error) {
 		handles:    map[string][]*runHandle{},
 		byRun:      map[gotato.RunID]*runHandle{},
 	}
+	// The label is never the identity: the suffix makes the name unique per
+	// start, so a restarted or overlapping process cannot share a Liveness
+	// row or a Claim with the one it replaces.
 	if r.instance == "" {
 		r.instance = session.NewID()
+	} else {
+		r.instance += "-" + session.NewID()[:8]
 	}
 	if r.clock == nil {
 		r.clock = systemClock{}
@@ -469,7 +465,9 @@ func New(cfg Config) (*Runner, error) {
 // Store returns the Session store.
 func (r *Runner) Store() session.Store { return r.store }
 
-// Instance returns the name this Runner writes its Claims with.
+// Instance returns the name this Runner writes its Claims with: Config.Instance
+// and a random suffix, or a generated name when none was set. It is new for
+// each start.
 func (r *Runner) Instance() string { return r.instance }
 
 // Session reads a Session's whole Record from the store: its facts, Runs,

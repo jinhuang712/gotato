@@ -398,7 +398,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	if claims := claimsOf(t, a, first.SessionID); len(claims) != 1 || claims[0].Why != gotato.ClaimNewSession ||
-		claims[0].Instance != "instance-a" || claims[0].Epoch != 1 || claims[0].From != "" {
+		!isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].From != "" {
 		t.Fatalf("claims = %+v, want one: instance-a at epoch 1 for a new_session", claims)
 	}
 	// The first Run of a new Session releases it too: it is busy from its
@@ -434,11 +434,11 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 		t.Fatalf("Events = %v, want session_claimed, run_started, run_ended, session_released in that order", numbered(events))
 	}
 	claim := events[claimed].(gotato.SessionClaimed)
-	if claim.Why != gotato.ClaimIdle || claim.Instance != "instance-a" || claim.Epoch != 1 {
+	if claim.Why != gotato.ClaimIdle || !isInstance(claim.Instance, "instance-a") || claim.Epoch != 1 {
 		t.Fatalf("claim = %+v, want instance-a at epoch 1, why idle", claim)
 	}
 	release := events[released].(gotato.SessionReleased)
-	if release.Instance != "instance-a" || release.Epoch != 1 {
+	if !isInstance(release.Instance, "instance-a") || release.Epoch != 1 {
 		t.Fatalf("release = %+v, want instance-a at epoch 1", release)
 	}
 	if released != len(events)-1 {
@@ -464,10 +464,10 @@ func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
 	if len(claims) != 2 {
 		t.Fatalf("claims = %+v, want two", claims)
 	}
-	if claims[0].Instance != "instance-a" || claims[0].Epoch != 1 || claims[0].Why != gotato.ClaimNewSession {
+	if !isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].Why != gotato.ClaimNewSession {
 		t.Fatalf("first claim = %+v", claims[0])
 	}
-	if got := claims[1]; got.Instance != "instance-b" || got.Epoch != 2 || got.From != "instance-a" || got.Why != gotato.ClaimIdle {
+	if got := claims[1]; !isInstance(got.Instance, "instance-b") || got.Epoch != 2 || !isInstance(got.From, "instance-a") || got.Why != gotato.ClaimIdle {
 		t.Fatalf("takeover claim = %+v, want instance-b at epoch 2, from instance-a, why idle", got)
 	}
 }
@@ -480,7 +480,7 @@ type deadHolders struct {
 }
 
 func (s deadHolders) Instance(ctx context.Context, id string) (session.InstanceState, error) {
-	if id != s.self {
+	if !isInstance(id, s.self) {
 		return session.InstanceState{ID: id}, nil
 	}
 	return s.Store.Instance(ctx, id)
@@ -519,7 +519,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 		t.Fatal("no session_fenced was published to instance-a's Instance stream")
 	}
 	event, ok := fenced.Events()[0].(gotato.SessionFenced)
-	if !ok || event.Instance != "instance-a" || string(event.SessionID) != s.ID() {
+	if !ok || !isInstance(event.Instance, "instance-a") || string(event.SessionID) != s.ID() {
 		t.Fatalf("event = %+v, want session_fenced by instance-a for %s", fenced.Events()[0], s.ID())
 	}
 	// The fenced Instance wrote nothing after the takeover: its reply is not
@@ -568,7 +568,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("liveness_lapsed was published %d times, want once", len(events))
 	}
-	if event, ok := events[0].(gotato.LivenessLapsed); !ok || event.Instance != "instance-a" {
+	if event, ok := events[0].(gotato.LivenessLapsed); !ok || !isInstance(event.Instance, "instance-a") {
 		t.Fatalf("event = %+v, want liveness_lapsed of instance-a", events[0])
 	}
 }

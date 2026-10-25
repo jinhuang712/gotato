@@ -68,7 +68,7 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 			release = entry
 		}
 	}
-	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || release.Instance != instance {
+	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
 		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
 	if loaded, err := store.Load(ctx, id); err != nil || loaded.Summary.Busy || loaded.Summary.Running != "" {
@@ -120,7 +120,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			waitFor(t, a.Draining)
 
 			// The row says draining, so every instance can see it.
-			if state, err := open().Instance(ctx, "instance-a"); err != nil || !state.Alive || !state.Draining {
+			if state, err := open().Instance(ctx, a.Instance()); err != nil || !state.Alive || !state.Draining {
 				t.Fatalf("instance-a while draining = %+v, %v; want alive and draining", state, err)
 			}
 			// It takes no new Session: no new Run, and no new Claim.
@@ -175,7 +175,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 				}
 				checkReleased(t, open(), id, "instance-a")
 			}
-			if state, err := open().Instance(ctx, "instance-a"); err != nil || !state.Alive {
+			if state, err := open().Instance(ctx, a.Instance()); err != nil || !state.Alive {
 				t.Fatalf("instance-a after its drain = %+v, %v; want still alive", state, err)
 			}
 			for _, id := range ids {
@@ -188,7 +188,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			if err := a.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if state, err := open().Instance(ctx, "instance-a"); err != nil || state.Alive {
+			if state, err := open().Instance(ctx, a.Instance()); err != nil || state.Alive {
 				t.Fatalf("instance-a after Close = %+v, %v; want not alive", state, err)
 			}
 		})

@@ -377,7 +377,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 		t.Fatalf("Send with no Run going = %+v, %v; want a new Run on b", result, err)
 	}
 	view, _ := b.Session(ctx, s.ID())
-	if claim := view.Claim(); claim.Instance != "instance-b" {
+	if claim := view.Claim(); !isInstance(claim.Instance, "instance-b") {
 		t.Fatalf("claim = %+v, want instance-b", claim)
 	}
 }

@@ -19,6 +19,13 @@ import (
 
 var fastLiveness = service.Liveness{TTL: 150 * time.Millisecond, Wait: 3 * time.Second}
 
+// isInstance reports whether got is the name of the Instance that was
+// configured with label: the label and the per-start suffix.
+func isInstance(got, label string) bool {
+	suffix, ok := strings.CutPrefix(got, label+"-")
+	return ok && len(suffix) == 8
+}
+
 func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Liveness) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
@@ -56,7 +63,7 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claim := view.Claim(); claim.Instance != "instance-a" || claim.Epoch != 3 {
+	if claim := view.Claim(); !isInstance(claim.Instance, "instance-a") || claim.Epoch != 3 {
 		t.Fatalf("claim = %+v, want instance-a at epoch 3", claim)
 	}
 	if got := len(view.Messages()); got != 6 {
@@ -229,7 +236,7 @@ func (m ownerModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	if err != nil {
 		return nil, err
 	}
-	if claim := stored.Claim(); claim.Instance != m.instance {
+	if claim := stored.Claim(); !isInstance(claim.Instance, m.instance) {
 		m.violations.Add(1)
 	}
 	return testkit.NewFakeModel(testkit.Text(m.instance+": "+prompt)).Stream(ctx, gotato.ModelRequest{})
@@ -378,7 +385,7 @@ func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	if _, err := a.CreateSessionExclusive(ctx, "echo", "after-close", nil); err == nil || errors.Is(err, service.ErrSessionExists) {
 		t.Fatalf("a closed Runner creating a Session = %v, want a refusal that is not ErrSessionExists", err)
 	}
-	if state, err := store.Instance(ctx, "instance-a"); err != nil || state.Alive {
+	if state, err := store.Instance(ctx, a.Instance()); err != nil || state.Alive {
 		t.Fatalf("instance-a after Close and a late write = %+v, %v; want not alive", state, err)
 	}
 	if err := a.Close(ctx); err != nil {
