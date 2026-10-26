@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -41,20 +42,29 @@ func (t *tool) Spec() gotato.ToolSpec { return t.spec }
 // protocol or transport failure is an error; a result the server marks
 // isError is a failed Tool Result the model reads.
 func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolProgressFunc) (gotato.ToolResult, error) {
-	session, err := t.set.connect(ctx)
-	if err != nil {
-		return gotato.ToolResult{}, err
-	}
 	params := &sdk.CallToolParams{Name: t.name}
 	if len(bytes.TrimSpace(use.ArgumentsJSON)) > 0 {
 		params.Arguments = json.RawMessage(use.ArgumentsJSON)
 	}
-	result, err := session.CallTool(ctx, params)
-	if err != nil {
+	// A server that forgot the session (it restarted) answers 404 before it
+	// runs anything, so the call is sent once more on a new session, even for
+	// a tool that writes. A connection that closed during a call may have run
+	// it, and that error is the caller's.
+	for attempt := 0; ; attempt++ {
+		session, err := t.set.connect(ctx)
+		if err != nil {
+			return gotato.ToolResult{}, err
+		}
+		result, err := session.CallTool(ctx, params)
+		if err == nil {
+			return ConvertResult(result), nil
+		}
 		t.set.drop(session, err)
+		if attempt == 0 && errors.Is(err, sdk.ErrSessionMissing) && ctx.Err() == nil {
+			continue
+		}
 		return gotato.ToolResult{}, fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err)
 	}
-	return ConvertResult(result), nil
 }
 
 // EffectOf maps a tool's annotations to its Effect, with the defaults of the

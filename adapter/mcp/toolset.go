@@ -8,8 +8,11 @@
 //
 // Lifecycle. NewToolSet connects to nothing. The first resolution connects,
 // and every Session that installs the same *ToolSet shares that one
-// connection (for stdio, one subprocess). A connection that closes is dropped
-// and made again by the next call. The code that made the ToolSet closes it
+// connection (for stdio, one subprocess). A connection that closes, or a
+// session that the server forgot (it restarted and answers 404), is dropped
+// and made again: a resolution or a call the server answered 404 is sent again
+// once on the new session, since the server did not run it, and any other
+// failed call is the caller's. The code that made the ToolSet closes it
 // with Close, which ends the connection and the subprocess; a Session never
 // closes it. Every call passes the caller's ctx to the SDK, so cancelling a
 // Run cancels the call.
@@ -215,8 +218,9 @@ func (s *ToolSet) fromCache() ([]gotato.Tool, bool) {
 	return slices.Clone(s.cached), true
 }
 
-// list reads every page of the server's tools. A closed connection is made
-// again once, since listing changes nothing.
+// list reads every page of the server's tools. A closed connection, or a
+// session the server forgot, is made again once, since listing changes
+// nothing.
 func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, error) {
 	for attempt := 0; ; attempt++ {
 		session, err := s.connect(ctx)
@@ -236,7 +240,7 @@ func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, error) {
 			return tools, nil
 		}
 		s.drop(session, listErr)
-		if attempt > 0 || !errors.Is(listErr, sdk.ErrConnectionClosed) || ctx.Err() != nil {
+		if attempt > 0 || !gone(listErr) || ctx.Err() != nil {
 			return nil, fmt.Errorf("mcp %s: list tools: %w", s.name, listErr)
 		}
 	}
@@ -260,10 +264,17 @@ func (s *ToolSet) connect(ctx context.Context) (*sdk.ClientSession, error) {
 	return session, nil
 }
 
+// gone reports whether err says the session cannot be used again: its
+// connection closed, or the server answered 404 to its ID, as a restarted
+// server does (MCP §2.5.3: the client then starts a new session).
+func gone(err error) bool {
+	return errors.Is(err, sdk.ErrConnectionClosed) || errors.Is(err, sdk.ErrSessionMissing)
+}
+
 // drop forgets a session whose connection is gone, so the next call connects
 // again.
 func (s *ToolSet) drop(session *sdk.ClientSession, cause error) {
-	if !errors.Is(cause, sdk.ErrConnectionClosed) {
+	if !gone(cause) {
 		return
 	}
 	s.connMu.Lock()

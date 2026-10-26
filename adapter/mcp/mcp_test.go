@@ -617,6 +617,68 @@ func TestAnHTTPServerThatRestartsIsReachedAgain(t *testing.T) {
 	}
 }
 
+// restartedHTTPServer returns a ToolSet that has resolved its tools against a
+// server, and restarts that server on the same address as a new process, which
+// knows none of the old sessions.
+func restartedHTTPServer(t *testing.T) (*gmcp.ToolSet, []gotato.Tool) {
+	t.Helper()
+	server := newServer()
+	first := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil))
+	address := first.Listener.Addr().String()
+	set := newSet(t, gmcp.StreamableHTTP(first.URL))
+	tools, err := set.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.CloseClientConnections()
+	first.Close()
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Skipf("the address was taken before the server could restart: %v", err)
+	}
+	fresh := newServer()
+	second := httptest.NewUnstartedServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fresh }, nil))
+	second.Listener = listener
+	second.Start()
+	t.Cleanup(func() { second.CloseClientConnections(); second.Close() })
+	return set, tools
+}
+
+// The server answers 404 to the old session: it did not process the request,
+// so the ToolSet starts a new session at once, and the first resolution after
+// the restart succeeds.
+func TestTheFirstResolutionAfterAServerRestartSucceeds(t *testing.T) {
+	set, _ := restartedHTTPServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tools, err := set.Tools(ctx)
+	if err != nil {
+		t.Fatalf("the first resolution after the restart failed: %v", err)
+	}
+	if len(tools) == 0 {
+		t.Fatal("no tools after the restart")
+	}
+}
+
+// A call on the old session got a 404, so the server never ran it: the ToolSet
+// sends it again on a new session, and the caller sees one result, even for a
+// tool that writes.
+func TestTheFirstCallAfterAServerRestartSucceeds(t *testing.T) {
+	_, tools := restartedHTTPServer(t)
+	for _, tool := range tools {
+		if tool.Spec().ID != "echo" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := tool.Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(`{"text":"hi"}`)}, nil); err != nil {
+			t.Fatalf("the first call after the restart failed: %v", err)
+		}
+		return
+	}
+	t.Fatal("no echo tool")
+}
+
 // headerTransport adds a header to every request, as a team's gateway or auth would.
 type headerTransport struct{ key, value string }
 
