@@ -54,17 +54,17 @@ The core, `gotato-core`, is the package every program uses. It depends on the st
 
 Without `session` a conversation lives in the memory of one process and is gone when it exits; that is the one thing to add before you run on many pods.
 
-Guides: [Getting started](docs/getting-started.md) and [Embed Gotato in a service](docs/embed-in-a-service.md). Each feature, with its status, is in [FEATURES.md](FEATURES.md).
+Guides: [Install](guides/install.md), [Getting started](guides/getting-started.md) and [Embed Gotato in a service](guides/embed-in-a-service.md). Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## Install
 
-Gotato has no release yet, so a version is a commit. Pin one you have tested:
+Gotato has no release yet, so a version is a commit:
 
 ```sh
 go get github.com/jinhuang712/gotato@<commit>
 ```
 
-Until the first release a name may change, with the before and after in [CHANGELOG.md](CHANGELOG.md). The root module needs Go 1.22; the gRPC, MCP and `bash` adapters are modules of their own.
+[Install](guides/install.md) has the details, including the adapters.
 
 ## Documents
 
@@ -74,11 +74,12 @@ Until the first release a name may change, with the before and after in [CHANGEL
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
 | [DESIGNS.md](DESIGNS.md) | design principles, and the decisions that follow from them |
 | [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
-| [GOALS.md](GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
 | [FEATURES.md](FEATURES.md) | what is built, with status markers, and what is not planned |
-| [ROADMAP.md](ROADMAP.md) | what gets built next, and how each step is known to be done |
-| [TODO.md](TODO.md) | open defects and decisions |
-| [AGENTS.md](AGENTS.md), [GITFLOW.md](GITFLOW.md) | how to work in this repository |
+| [RUNBOOK.md](RUNBOOK.md) | what to do when a service built on Gotato misbehaves |
+| [plan/GOALS.md](plan/GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
+| [plan/ROADMAP.md](plan/ROADMAP.md) | what gets built next, and how each step is known to be done |
+| [plan/TODO.md](plan/TODO.md) | open defects and decisions |
+| [AGENTS.md](AGENTS.md) | how to work in this repository, and the Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first |
 
 ## Origin

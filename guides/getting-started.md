@@ -1,6 +1,6 @@
 # Getting started
 
-By the end of this page you have run an agent in your own program, with a tool it can call. You need Go 1.22 and the root module (`go get github.com/jinhuang712/gotato@<commit>`; see [Install](../README.md#install)). No provider key is needed: the examples run on a fake model, so they behave the same every time.
+By the end of this page you have run an agent in your own program, with a tool it can call. You need Go 1.22 and the root module (`go get github.com/jinhuang712/gotato@<commit>`; see [Install](install.md)). No provider key is needed: the examples run on a fake model, so they behave the same every time.
 
 ## 1. A Session and a prompt
 
