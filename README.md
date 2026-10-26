@@ -23,7 +23,7 @@ Four things get in the way when a Go service needs an agent:
 
 - 🐍 **Not Go.** A Python, TypeScript or Rust stack means a second language, build and deployment. The agent becomes a system *beside* your service.
 - 🕸️ **Too heavy.** Graph frameworks are slow, costly and hard to debug. One loop does the job: call the model, run its tools, repeat.
-- 🧠 **Stuck in one process.** Pods come and go. A conversation held in a pod's memory goes with it.
+- 🧠 **Lost on every deploy.** Agent stacks keep the conversation in one process's memory. A rolling deploy or a scale-down ends it, and pinning each chat to a pod gives up what scaling is for.
 - 🏋️ **A machine per chat.** Anthropic's hosting guide starts each Agent SDK session at 1 GiB RAM and 1 CPU, paid while the conversation sits idle.
 
 ## 💡 The idea
