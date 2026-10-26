@@ -15,8 +15,6 @@
 
 </div>
 
-Gotato runs **purpose-built agents** inside the **Go services you already operate**. A Session is a small agent loop plus a runtime that saves it to your store and lets it go when it is idle, so **any pod can run the next message**.
-
 ## 🤔 Why
 
 Four things get in the way when a Go service needs an agent:
@@ -53,6 +51,21 @@ A request can reach any pod. Only one of them runs a given Session at a time, an
 ```
 
 [PROPOSAL.md](PROPOSAL.md) tells the longer story.
+
+## ✨ What you get
+
+| | |
+|---|---|
+| 🔌 **Fits your service** | A library, not a new stack: `go get`, and it builds and deploys with your service. The core uses only the standard library. Your store, your telemetry, any model provider. |
+| 🌐 **Runs on many pods** | Every step is saved as it happens, so no conversation is lost. Any pod answers as if it were the only one, and only one pod runs a Session at a time. |
+| 🧩 **Stays simple** | One loop, no workflow language. You can inspect exactly what the model sees. Tools declare their effect, so they are safe without a sandbox. |
+| 🔒 **Stays stable** | The Go API, the HTTP and gRPC contracts and the saved Session change only through versioned breaks, with before-and-after notes. From the first release on. |
+
+📏 A program that imports the agent, the runner, the session store and the HTTP server pulls 3 modules and builds a 3.8 MB binary on Go 1.22 (measured 2026-10-15; [the numbers](PROPOSAL.md#where-gotato-fits)).
+
+## 🚫 What it is not
+
+Not a cloud coding agent, a remote dev environment, a general-purpose assistant, a workflow language, an approval system, a separate platform, infrastructure, or a set of ready-made clients. [Why not](PROPOSAL.md#what-we-dont-want).
 
 ## ⚡ How Simple is Gotato?
 
