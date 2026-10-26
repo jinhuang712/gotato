@@ -53,18 +53,35 @@ A request can reach any pod. Only one of them runs a given Session at a time, an
 
 ## ✨ What you get
 
-| | |
-|---|---|
-| 🔌 **Fits your service** | A library, not a new stack: `go get`, and it builds and deploys with your service. The core uses only the standard library. Your store, your telemetry, any model provider. |
-| 🌐 **Runs on many pods** | Every step is saved as it happens, so no conversation is lost. Any pod answers as if it were the only one, and only one pod runs a Session at a time. |
-| 🧩 **Stays simple** | One loop, no workflow language. You can inspect exactly what the model sees. Tools declare their effect, so they are safe without a sandbox. |
-| 🔒 **Stays stable** | The Go API, the HTTP and gRPC contracts and the saved Session change only through versioned breaks, with before-and-after notes. From the first release on. |
+- 🔌 **Fits your service.** A library, not a stack, with a standard-library core.
+- 🌐 **Runs on many pods.** Every step is saved, and one pod runs a Session at a time.
+- 🧩 **Stays simple.** One loop, no workflow language, and you see what the model sees.
+- 🔒 **Stays stable.** Breaks are versioned and come with before-and-after notes, from the first release on.
 
-📏 A program that imports the agent, the runner, the session store and the HTTP server pulls 3 modules and builds a 3.8 MB binary on Go 1.22 (measured 2026-10-15; [the numbers](PROPOSAL.md#where-gotato-fits)).
+📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds a 3.8 MB binary on Go 1.22 ([measured](PROPOSAL.md#where-gotato-fits)).
 
 ## 🚫 What it is not
 
-Not a cloud coding agent, a remote dev environment, a general-purpose assistant, a workflow language, an approval system, a separate platform, infrastructure, or a set of ready-made clients. [Why not](PROPOSAL.md#what-we-dont-want).
+Not a coding agent, a workflow language, a platform or infrastructure. Gotato runs purpose-built agents inside your service, and your service owns the rest ([the full list](PROPOSAL.md#what-we-dont-want)).
+
+## 🧰 Capabilities
+
+| Capability | What you get | |
+|---|---|---|
+| **Agent loop** | `Prompt`, `Continue` and `Abort`; steer, follow up and interrupt a Run in flight | ✅ |
+| **Context management** | built every Turn, your own builder, inspection; automatic compaction into Segments the model can read back | ✅ |
+| **Tools** | Go functions with an Effect; tool search; large results spilled and read back, with a read-only `bash` | ✅ |
+| **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | 🚧 |
+| **Extensions** | six stages around the loop, from `TurnPreparer` to `TurnStopper` | ✅ |
+| **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own | ✅ |
+| **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
+| **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
+| **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
+| **Endpoints** | Go API, HTTP, gRPC and a CLI | ✅ |
+| **Testing** | fake models, a fake gateway for each wire API, a reference workload | ✅ |
+| **Telemetry** | OpenTelemetry mapping of Events | later |
+
+✅ built, 🚧 built with a gap named (for MCP: tool progress is not forwarded), and later. [FEATURES.md](FEATURES.md) lists every feature and its status.
 
 ## ⚡ How Simple is Gotato?
 
