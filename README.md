@@ -15,14 +15,17 @@
 
 </div>
 
-## 🤔 Why
+## 🤔 Why Gotato?
 
-Four things get in the way when a Go service needs an agent:
+**☁️ Why agents as a cloud service?** Agents are moving off developers' machines into the systems they serve: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. With one conversation per user, a machine each does not add up. A million conversations at 1 GiB each is about a petabyte of memory; at a few kilobytes idle, it is a few gigabytes.
 
-- 🐍 **Not Go.** A Python, TypeScript or Rust stack means a second language, build and deployment. The agent becomes a system *beside* your service.
-- 🕸️ **Too heavy.** Graph frameworks are slow, costly and hard to debug. One loop does the job: call the model, run its tools, repeat.
-- 🧠 **Lost on every deploy.** Agent stacks keep the conversation in one process's memory. A rolling deploy or a scale-down ends it, and pinning each chat to a pod gives up what scaling is for.
-- 🏋️ **A machine per chat.** Anthropic's hosting guide starts each Agent SDK session at 1 GiB RAM and 1 CPU, paid while the conversation sits idle.
+**🐹 Why Go?** Your services already run on Go. An agent stack in another language brings a second build and a second deployment, and the agent ends up *beside* your service. A Go agent is a package inside it. kagent measured the same minimal agent at 253 Mi idle on its Python runtime and 7 Mi on its Go runtime.
+
+**🕸️ Why not a graph?** Graphs made up for weaker models: a model that could not plan got its plan drawn. Models now plan and recover on their own, so one loop (call the model, run its tools, repeat) does what the nodes did, and it is cheaper to run and easier to debug.
+
+**📦 Why not an existing SDK?** Lab SDKs run a subprocess for every session. Hosted agents keep your conversation on their side. Go frameworks leave conversation storage to you. Big toolkits bring workflows, sub-agents and a server. None is the smallest thing that runs on many pods ([how they compare](PROPOSAL.md#where-gotato-fits)).
+
+**🪶 Why minimalistic?** The model keeps taking over the harness, so the harness should stay thin. A core that uses only the standard library is easy to read, to trust and to embed, and your store, tools, auth and telemetry plug in. Every feature must pass one test: would a Go service embedding an agent want this on its own?
 
 ## 💡 The idea
 
