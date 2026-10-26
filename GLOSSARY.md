@@ -99,4 +99,4 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Advertised address** | An address an Instance puts in its Liveness row, an optional setting: where a caller can reach that Instance's own endpoint. It is what Not writer names. Gotato reads it and never connects to it. | service discovery, membership | `service.Config.Address`, `session.InstanceRow.Address` |
 | **Load balancer** | The router in front of your Instances. It sends every request for one Session to one Instance by hashing its `session-id`. It belongs to your infrastructure, not to Gotato. | gateway (Gotato's `gateway` package talks to model providers) | |
 | **Cloud agent** | An Agent whose Sessions live in your own cluster and are called like any other service. | | |
-| **Agent as a service** | Gotato's aim: callers start and talk to Sessions like any other API, inside your own infrastructure. | | |
+| **Agent-as-a-Service** | Gotato's mission: any service can easily become an agent, and the agent becomes the cloud service itself. Callers start and talk to Sessions like any other API, inside your own infrastructure. | | |
