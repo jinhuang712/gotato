@@ -23,6 +23,26 @@ Gotato splits an agent in two. An **Agent** is a definition, written once: a mod
 
 Between messages a Session is its record in your store, a log that only grows. Any pod can load it and continue, and one writer per Session keeps two pods from running it at once. A Session needs no process, shell or sandbox of its own, and an idle one costs a few kilobytes, so a Go service hosts Sessions the way it serves any other request.
 
+A request can reach any pod. Only one of them runs a given Session at a time, and the Session itself lives in your store:
+
+```text
+                request
+                   │
+      ┌────────────▼────────────┐
+      │      load balancer      │   the one you already run
+      └───┬───────────┬───────┬─┘
+          │           │       │
+      ┌───▼───┐   ┌───▼───┐ ┌─▼─────┐
+      │ pod A │   │ pod B │ │ pod C │   each pod: a Runner hosting Sessions
+      └───┬───┘   └───┬───┘ └─┬─────┘
+          └───────────┼───────┘
+      ┌───────────────▼─────────────┐
+      │         your store          │   Session S = its record, a log that only grows
+      └─────────────────────────────┘
+
+  pod A runs S ──► pod A goes away ──► the next message reaches pod B, which loads S and goes on
+```
+
 [PROPOSAL.md](PROPOSAL.md) tells the longer story.
 
 ## How Simple is Gotato?
