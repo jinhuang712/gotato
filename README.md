@@ -4,6 +4,8 @@
 
 <img src="assets/tagline.svg" alt="A minimal Go library that turns cloud services into cloud agents: distributed, efficient and stable from day 1." width="860">
 
+🎯 **Our mission: agent as a service for Go.** Callers start and talk to Sessions like any other API, inside your own infrastructure.
+
 [![CI](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml/badge.svg)](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jinhuang712/gotato.svg)](https://pkg.go.dev/github.com/jinhuang712/gotato)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
