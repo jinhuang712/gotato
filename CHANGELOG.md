@@ -6,6 +6,10 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Examples
+
+- **A chat-bot example, `examples/larkbot`.** A Lark chat bot that runs several Gotato instances, with a fake Lark and a local kind cluster that plays ten scenarios. It is a module of its own and adds nothing to the root module. Guide: [Example: a chat bot](guides/example-chat-bot.md).
+
 ### MCP
 
 - **A restarted MCP server is reached again at once.** When a server forgets the ToolSet's session (it restarted, and answers 404 to the old session ID), `adapter/mcp` now starts a new session and sends the resolution or the call again once; the server did not run it. Before, the first resolution after the restart failed with `session not found`, so a Run that began then had no tools from that server, and the first call failed twice before the third succeeded. After, both succeed on the first try. A call whose connection closed during it is still not sent again, since the server may have run it.
