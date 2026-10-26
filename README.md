@@ -69,29 +69,42 @@ Not a cloud coding agent, a remote dev environment, a general-purpose assistant,
 
 ## ⚡ How Simple is Gotato?
 
+A real model, one tool, one question:
+
 ```go
 import (
+    "github.com/jinhuang712/gotato/gateway"
     gotato "github.com/jinhuang712/gotato/gotato-core"
-    "github.com/jinhuang712/gotato/testkit"
+    "github.com/jinhuang712/gotato/toolregistry"
 )
 
-s, err := gotato.NewSession(
-    gotato.WithModel(testkit.EchoModel{}), // any gotato.Model; providers live in gateway/
+model, _ := gateway.New(gateway.Config{
+    API:    gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
+    Model:  "claude-sonnet-5-5",
+    APIKey: os.Getenv("ANTHROPIC_API_KEY"),
+})
+
+weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {
+    City string `json:"city" description:"the city to look up"`
+}) (string, error) {
+    return "sunny in " + in.City, nil
+})
+
+s, _ := gotato.NewSession(
+    gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
+    gotato.WithToolSource(toolregistry.MustNew(weather)),
 )
-if err != nil {
-    return err
-}
 defer s.Close(ctx)
 
-result, err := s.Prompt(ctx, gotato.UserMessage("hello"))
-fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
+result, _ := s.Prompt(ctx, gotato.UserMessage("Do I need an umbrella in Paris?"))
+fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```
 
-> [!TIP]
-> No provider key is needed to try this: `testkit.EchoModel` answers `echo: <your text>`.
+`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato-core/example_test.go).
 
-`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. This code is run as a test: [example_test.go](gotato-core/example_test.go).
+> [!TIP]
+> No key yet? Use `testkit.EchoModel{}` as the model. It answers `echo: <your text>`, and [Getting started](guides/getting-started.md) begins there.
 
 ## 📦 What you import
 

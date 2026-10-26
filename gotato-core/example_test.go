@@ -3,8 +3,12 @@ package gotato_test
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
+	"strings"
 
+	"github.com/jinhuang712/gotato/gateway"
 	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/test/fakegateway"
 	"github.com/jinhuang712/gotato/testkit"
 	"github.com/jinhuang712/gotato/toolregistry"
 )
@@ -89,4 +93,47 @@ func ExampleSession_SubscribeRun() {
 	// Output:
 	// echo: hello
 	// status: completed
+}
+
+// A real model through the gateway, and a tool. The README shows this code with
+// an Anthropic key; here the endpoint is a fake gateway that speaks the same
+// wire API, so the test needs no key and no network.
+func Example_gatewayAndTool() {
+	fake := httptest.NewServer(fakegateway.New())
+	defer fake.Close()
+
+	model, err := gateway.New(gateway.Config{
+		API:     gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
+		Model:   "claude-sonnet-5-5",
+		APIKey:  "test-key", // the README reads it from the environment
+		BaseURL: fake.URL,   // the README leaves this out
+	})
+	if err != nil {
+		panic(err)
+	}
+	weather, err := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {
+		City string `json:"city" description:"the city to look up"`
+	}) (string, error) {
+		return "sunny in " + in.City, nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	s, err := gotato.NewSession(
+		gotato.WithModel(model),
+		gotato.WithInstruction("You are a helpful assistant."),
+		gotato.WithToolSource(toolregistry.MustNew(weather)),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+
+	// "use-tool" makes the fake gateway call the first tool; a real model decides for itself.
+	result, err := s.Prompt(context.Background(), gotato.UserMessage("use-tool"))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(result.Status, result.Metrics.ToolCalls, strings.HasPrefix(gotato.TextOf(*result.FinalMessage), "tool said: sunny in"))
+	// Output: completed 1 true
 }
