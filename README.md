@@ -19,18 +19,18 @@ Gotato runs **purpose-built agents** inside the **Go services you already operat
 
 ## 🤔 Why
 
-When a Go service needs an agent today, four things get in the way.
+Four things get in the way when a Go service needs an agent:
 
-- 🐍 **The agent stack is not Go.** The established stacks are written in Python, TypeScript or Rust. A Go service that adopts one takes on a second language, a second build and a second deployment, and the agent ends up as a separate system beside the service it works for.
-- 🕸️ **Graph frameworks are heavy for the work.** They are expensive to run, slow, and hard to develop and debug. In our experience they do not do clearly better than one loop: call the model, run the tools it asked for, repeat until it answers.
-- 🧠 **The conversation lives in one process.** On Kubernetes, pods come and go. A conversation kept in a pod's memory is gone when the pod is, and pinning each conversation to a pod gives up much of what scaling is for.
-- 🏋️ **A simple task carries a coding agent's weight.** Coding-agent harnesses bring a machine to every session: Anthropic's hosting guide for its Agent SDK starts each session at 1 GiB RAM, 5 GiB disk, 1 CPU and one subprocess. A conversation is idle most of the time, so that cost runs while nothing happens.
+- 🐍 **Not Go.** A Python, TypeScript or Rust stack means a second language, build and deployment. The agent becomes a system *beside* your service.
+- 🕸️ **Too heavy.** Graph frameworks are slow, costly and hard to debug. One loop does the job: call the model, run its tools, repeat.
+- 🧠 **Stuck in one process.** Pods come and go. A conversation held in a pod's memory goes with it.
+- 🏋️ **A machine per chat.** Anthropic's hosting guide starts each Agent SDK session at 1 GiB RAM and 1 CPU, paid while the conversation sits idle.
 
 ## 💡 The idea
 
-Gotato splits an agent in two. An **Agent** is a definition, written once: a model, an instruction, tools and limits. A **Session** is one conversation that runs it: a small loop, plus a runtime that saves every step to your store.
+An **Agent** is a definition: model, instruction, tools, limits. A **Session** is one conversation running it: a small loop, plus a runtime that saves every step to your store.
 
-Between messages a Session is its record in your store, a log that only grows. Any pod can load it and continue, and one writer per Session keeps two pods from running it at once. A Session needs no process, shell or sandbox of its own, and an idle one costs a few kilobytes, so a Go service hosts Sessions the way it serves any other request.
+Between messages a Session is only a record in your store. Any pod can load it and carry on, and one writer per Session keeps two pods apart. No process, no shell, no sandbox, and a few kilobytes while idle.
 
 A request can reach any pod. Only one of them runs a given Session at a time, and the Session itself lives in your store:
 
