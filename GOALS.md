@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-26 -->
+<!-- what-we-build: approved 2026-10-26 -->
 # Gotato — Goals
 
 What Gotato measures, so that each principle in [DESIGNS.md](DESIGNS.md) is a promise that can fail. Every item serves one principle; ⭐ marks the core ones, which serve the four guarantees. An item keeps its number wherever it is listed.
