@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 100" role="img" aria-label="A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.">
+  <style>
+    text { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 27px; font-weight: 600; fill: #24292f; }
+    .go { fill: #00add8; }
+    .distributed { fill: #00a6c8; }
+    .cheap { fill: #e8710a; }
+    .stable { fill: #2da44e; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6edf3; }
+      .go { fill: #3dd5f3; }
+      .distributed { fill: #3dd5f3; }
+      .cheap { fill: #ffa657; }
+      .stable { fill: #56d364; }
+    }
+  </style>
+  <text x="500" y="36" text-anchor="middle">A minimal <tspan class="go">Go</tspan> library that turns cloud services into cloud agents:</text>
+  <text x="500" y="80" text-anchor="middle"><tspan class="distributed">distributed</tspan>, <tspan class="cheap">cheap</tspan> and <tspan class="stable">stable</tspan> from day 1.</text>
+</svg>
