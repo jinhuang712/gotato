@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -556,5 +557,61 @@ func TestNewToolSetRefusesABadName(t *testing.T) {
 	}
 	if _, err := gmcp.NewToolSet("a", gmcp.Stdio("x"), gmcp.WithToolEffect("t", "bogus")); err == nil {
 		t.Fatal("an unknown Effect was accepted")
+	}
+}
+
+func TestWithoutNotificationsAKeptCacheIsNotRefreshedByTheServer(t *testing.T) {
+	server := newServer()
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	set := newSet(t, gmcp.StreamableHTTP(httpServer.URL, gmcp.WithoutNotifications()), gmcp.WithListCache(time.Hour))
+	before := toolIDs(set, t)
+	server.AddTool(&sdk.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return textResult("late"), nil
+		})
+	// The same wait that TestListChangedIsSeenWhenTheCacheIsKept needs far less than.
+	time.Sleep(500 * time.Millisecond)
+	if after := toolIDs(set, t); !slices.Equal(after, before) {
+		t.Fatalf("tools = %v, want the cached %v", after, before)
+	}
+}
+
+func TestAnHTTPServerThatRestartsIsReachedAgain(t *testing.T) {
+	server := newServer()
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	first := httptest.NewServer(handler)
+	address := first.Listener.Addr().String()
+	set := newSet(t, gmcp.StreamableHTTP(first.URL))
+	if !slices.Contains(toolIDs(set, t), "echo") {
+		t.Fatal("the first resolution did not see the tools")
+	}
+	first.CloseClientConnections()
+	first.Close()
+
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Skipf("the address was taken before the server could restart: %v", err)
+	}
+	// A new process knows none of the old sessions.
+	fresh := newServer()
+	second := httptest.NewUnstartedServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fresh }, nil))
+	second.Listener = listener
+	second.Start()
+	t.Cleanup(func() { second.CloseClientConnections(); second.Close() })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		tools, err := set.Tools(ctx)
+		cancel()
+		if err == nil && len(tools) > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the ToolSet never reached the restarted server: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
