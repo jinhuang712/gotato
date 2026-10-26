@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -613,5 +614,43 @@ func TestAnHTTPServerThatRestartsIsReachedAgain(t *testing.T) {
 			t.Fatalf("the ToolSet never reached the restarted server: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// headerTransport adds a header to every request, as a team's gateway or auth would.
+type headerTransport struct{ key, value string }
+
+func (h headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set(h.key, h.value)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestACustomHTTPClientCarriesItsHeaderOnEveryRequest(t *testing.T) {
+	server := newServer()
+	inner := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	var mu sync.Mutex
+	var seen, missing int
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if r.Header.Get("Authorization") == "Bearer secret" {
+			seen++
+		} else {
+			missing++
+		}
+		mu.Unlock()
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { httpServer.CloseClientConnections(); httpServer.Close() })
+	client := &http.Client{Transport: headerTransport{"Authorization", "Bearer secret"}}
+	set := newSet(t, gmcp.StreamableHTTP(httpServer.URL, gmcp.WithHTTPClient(client)))
+	result := execute(t, set, "echo", `{"text":"hi"}`)
+	if got := gotato.TextOf(gotato.Message{Parts: result.Content}); got != "echo: hi" {
+		t.Fatalf("got %q", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if seen == 0 || missing != 0 {
+		t.Fatalf("requests with the header = %d, without = %d", seen, missing)
 	}
 }
