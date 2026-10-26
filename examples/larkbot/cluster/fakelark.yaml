@@ -1,0 +1,38 @@
+# The Lark in front of the bot. -bots-dns resolves the headless Service at every delivery; that Service lists
+# ready pods only (publishNotReadyAddresses is off), so a pod that fails /readyz gets no new events.
+# -ids-from-clock keeps message IDs (and so Session IDs) unique when this pod restarts on a kept store.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fakelark
+  namespace: gotato
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fakelark}
+  template:
+    metadata:
+      labels: {app: fakelark}
+    spec:
+      containers:
+        - name: fakelark
+          image: fakelark:__TAG__
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", "0.0.0.0:9000", "-bots-dns", "larkbot-pods:8080", "-ids-from-clock"]
+          ports: [{containerPort: 9000}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 9000}
+            periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakelark
+  namespace: gotato
+spec:
+  selector: {app: fakelark}
+  ports: [{port: 9000, targetPort: 9000}]

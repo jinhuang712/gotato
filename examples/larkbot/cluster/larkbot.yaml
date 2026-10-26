@@ -1,0 +1,87 @@
+# Three bot replicas on one file store (a hostPath: kind has one node). Not Lark's real delivery: the bot
+# takes events over HTTP (-lark-events http) from the fake Lark, and talks to it at -lark-base-url.
+apiVersion: v1
+kind: Service
+metadata:
+  name: larkbot-pods          # headless: one DNS record per ready pod; fakelark picks one per delivery
+  namespace: gotato
+spec:
+  clusterIP: None
+  selector: {app: larkbot}
+  ports: [{name: http, port: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: larkbot               # for the driver (through kubectl proxy): reads Transcripts from any ready pod
+  namespace: gotato
+spec:
+  selector: {app: larkbot}
+  ports: [{name: http, port: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: larkbot
+  namespace: gotato
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: larkbot}
+  template:
+    metadata:
+      labels: {app: larkbot}
+    spec:
+      # The bot drains for up to 30 s after SIGTERM (main.go); leave room for the reply loop and the close.
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: larkbot
+          image: larkbot:__TAG__
+          imagePullPolicy: IfNotPresent
+          args:
+            - -model=gateway
+            - -store=/var/gotato
+            - -lark-events=http
+            - -lark-base-url=http://fakelark:9000
+            - -addr=0.0.0.0:8080
+            - -advertise=http://$(POD_IP):8080
+            - -instance-label=$(POD_NAME)
+            - -retry-budget=__RETRY_BUDGET__
+            - -ack-delay=__ACK_DELAY__
+            - -tools=__TOOLS__
+            - -script=__SCRIPT__
+            - -recap=__RECAP__
+            - -mcp-url=http://fakemcp:8090/mcp
+          env:
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+            - {name: LARK_APP_ID, value: fake}
+            - {name: LARK_APP_SECRET, value: fake}
+            - {name: GOTATO_GATEWAY_CONFIG, value: /etc/gotato/gateway.yaml}
+          ports: [{name: http, containerPort: 8080}]
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8080}
+            periodSeconds: 2
+            failureThreshold: 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: store, mountPath: /var/gotato}
+            - {name: gateway, mountPath: /etc/gotato, readOnly: true}
+      volumes:
+        - name: store
+          hostPath: {path: /var/gotato, type: Directory}   # run.sh makes it on the kind node, writable for uid 65532
+        - name: gateway
+          configMap: {name: gateway-config}

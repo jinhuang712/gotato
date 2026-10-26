@@ -1,0 +1,49 @@
+# The model: Gotato's test/fakegateway (Anthropic Messages wire API), and the gateway YAML the bot reads.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: gotato
+data:
+  gateway.yaml: |
+    api: anthropic-messages
+    base_url: http://fakegateway:8080
+    api_key: dummy
+    model: fake-model
+    no_retries: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fakegateway
+  namespace: gotato
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fakegateway}
+  template:
+    metadata:
+      labels: {app: fakegateway}
+    spec:
+      containers:
+        - name: fakegateway
+          image: fakegateway:__TAG__
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", "0.0.0.0:8080"]
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            tcpSocket: {port: 8080}
+            periodSeconds: 2
+          securityContext: &sc
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakegateway
+  namespace: gotato
+spec:
+  selector: {app: fakegateway}
+  ports: [{port: 8080, targetPort: 8080}]

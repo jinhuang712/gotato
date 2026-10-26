@@ -1,0 +1,42 @@
+# The MCP server of s7 and s8: internal/fakemcp over streamable HTTP, one replica, as Service fakemcp.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakemcp
+  namespace: gotato
+spec:
+  selector: {app: fakemcp}
+  ports: [{port: 8090, targetPort: 8090}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fakemcp
+  namespace: gotato
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fakemcp}
+  template:
+    metadata:
+      labels: {app: fakemcp}
+    spec:
+      # On SIGTERM fakemcp exits at once (s7) or, with -drain (MCP_DRAIN=20s, s10), stops answering /healthz, lets the
+      # calls in flight finish and exits.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: fakemcp
+          image: fakemcp:__TAG__
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", "0.0.0.0:8090", "-stateless=__MCP_STATELESS__", "-drain=__MCP_DRAIN__", "-linger=3s", "-trace=__MCP_TRACE__"]
+          ports: [{containerPort: 8090}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8090}
+            periodSeconds: 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
