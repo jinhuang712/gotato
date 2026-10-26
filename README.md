@@ -17,15 +17,11 @@
 
 ## 🤔 Why Gotato?
 
-**☁️ Why agents as a cloud service?** Agents are moving off developers' machines into the systems they serve: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. With one conversation per user, a machine each does not add up. A million conversations at 1 GiB each is about a petabyte of memory; at a few kilobytes idle, it is a few gigabytes.
-
-**🐹 Why Go?** Your services already run on Go. An agent stack in another language brings a second build and a second deployment, and the agent ends up *beside* your service. A Go agent is a package inside it. kagent measured the same minimal agent at 253 Mi idle on its Python runtime and 7 Mi on its Go runtime.
-
-**🕸️ Why not a graph?** Graphs made up for weaker models: a model that could not plan got its plan drawn. Models now plan and recover on their own, so one loop (call the model, run its tools, repeat) does what the nodes did, and it is cheaper to run and easier to debug.
-
-**📦 Why not an existing SDK?** Lab SDKs run a subprocess for every session. Hosted agents keep your conversation on their side. Go frameworks leave conversation storage to you. Big toolkits bring workflows, sub-agents and a server. None is the smallest thing that runs on many pods ([how they compare](PROPOSAL.md#where-gotato-fits)).
-
-**🪶 Why minimalistic?** The model keeps taking over the harness, so the harness should stay thin. A core that uses only the standard library is easy to read, to trust and to embed, and your store, tools, auth and telemetry plug in. Every feature must pass one test: would a Go service embedding an agent want this on its own?
+- **☁️ Why agents as a cloud service?** A machine per conversation does not scale: a million is about a petabyte, and at a few kilobytes idle it is a few gigabytes.
+- **🐹 Why Go?** Your services already are. No second language, no second deployment: the agent is a package, not a system beside yours.
+- **🕸️ Why not a graph?** Models plan on their own now. One loop does what the nodes did, with less to run and debug.
+- **📦 Why not an existing SDK?** Each brings a subprocess per session, a conversation held elsewhere, or a whole toolkit. None is the [smallest thing that runs on many pods](PROPOSAL.md#where-gotato-fits).
+- **🪶 Why minimalistic?** The model keeps taking over the harness, so the harness stays thin: a standard-library core, with your store, tools and telemetry plugged in.
 
 ## 💡 The idea
 
