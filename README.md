@@ -78,18 +78,21 @@ import (
     "github.com/jinhuang712/gotato/toolregistry"
 )
 
+// 1. A model. A provider is configuration: a wire API, a model and a key.
 model, _ := gateway.New(gateway.Config{
     API:    gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
     Model:  "claude-sonnet-5-5",
     APIKey: os.Getenv("ANTHROPIC_API_KEY"),
 })
 
+// 2. A tool is a Go function. Its input type becomes the schema the model sees.
 weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {
     City string `json:"city" description:"the city to look up"`
 }) (string, error) {
     return "sunny in " + in.City, nil
 })
 
+// 3. A Session is one conversation: the model, an instruction and the tools.
 s, _ := gotato.NewSession(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
@@ -97,6 +100,7 @@ s, _ := gotato.NewSession(
 )
 defer s.Close(ctx)
 
+// 4. Ask. Prompt runs the loop (model, tools, model, ...) and returns the final reply.
 result, _ := s.Prompt(ctx, gotato.UserMessage("Do I need an umbrella in Paris?"))
 fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```

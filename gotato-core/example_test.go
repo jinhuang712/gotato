@@ -102,6 +102,7 @@ func Example_gatewayAndTool() {
 	fake := httptest.NewServer(fakegateway.New())
 	defer fake.Close()
 
+	// 1. A model. A provider is configuration: a wire API, a model and a key.
 	model, err := gateway.New(gateway.Config{
 		API:     gateway.APIAnthropicMessages, // or OpenAI Chat Completions, or Responses
 		Model:   "claude-sonnet-5-5",
@@ -111,6 +112,7 @@ func Example_gatewayAndTool() {
 	if err != nil {
 		panic(err)
 	}
+	// 2. A tool is a Go function. Its input type becomes the schema the model sees.
 	weather, err := gotato.NewFuncTool("weather", "Returns the weather of a city.", func(_ context.Context, in struct {
 		City string `json:"city" description:"the city to look up"`
 	}) (string, error) {
@@ -119,6 +121,7 @@ func Example_gatewayAndTool() {
 	if err != nil {
 		panic(err)
 	}
+	// 3. A Session is one conversation: the model, an instruction and the tools.
 	s, err := gotato.NewSession(
 		gotato.WithModel(model),
 		gotato.WithInstruction("You are a helpful assistant."),
@@ -129,6 +132,7 @@ func Example_gatewayAndTool() {
 	}
 	defer func() { _ = s.Close(context.Background()) }()
 
+	// 4. Ask. Prompt runs the loop (model, tools, model, ...) and returns the final reply.
 	// "use-tool" makes the fake gateway call the first tool; a real model decides for itself.
 	result, err := s.Prompt(context.Background(), gotato.UserMessage("use-tool"))
 	if err != nil {
