@@ -25,7 +25,7 @@ Gotato is designed around nine principles, in three groups.
 
 A principle is a question to ask of every new requirement. The four guarantees are asked of every decision on this page, whatever its section: a decision about tools or instances can still lose a step, change a byte already sent, or let the Context grow without bound. Each section below names its question, then lists the decisions that follow from the principle: what was chosen, what was not, and why. The decisions that weighed several options keep their table and their date. After the principles comes the order that decides when two of them pull apart.
 
-This page describes the design we intend, not the state of the code. What is built, and how each feature works, is in [FEATURES.md](FEATURES.md). Open design questions are in [ROADMAP.md](ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
+This page describes the design we intend, not the state of the code. What is built, and how each feature works, is in [FEATURES.md](FEATURES.md). Open design questions are in [ROADMAP.md](plan/ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
 
 ## 1. The store is the only truth
 

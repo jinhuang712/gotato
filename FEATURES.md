@@ -1,7 +1,7 @@
 <!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Features
 
-What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
+What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
 
 ## TL;DR
 
@@ -422,7 +422,7 @@ The decision above relies on the load balancer's hash. A caller that cannot rout
 
 ### G-F29 — Runtime notices 🚧
 
-Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A user message is the wrong place for it: the model takes it for the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and a compacted stretch of history becomes a Segment, with tags of its own ([G-F06](#g-f06--compaction-)). Designed on 2026-10-18, and the `time_away` notice on 2026-10-25; built in Phase 8 ([ROADMAP.md](ROADMAP.md#phase-8--warm-session)), after the warm Session and messages from any endpoint. A row marked ⬜ below waits for the feature that sends it, or for the native forms.
+Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A user message is the wrong place for it: the model takes it for the user speaking, and a new Round begins, which drops the reasoning in flight on Claude and OpenAI. A notice is a Message of its own kind for this ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and a compacted stretch of history becomes a Segment, with tags of its own ([G-F06](#g-f06--compaction-)). Designed on 2026-10-18, and the `time_away` notice on 2026-10-25; built in Phase 8 ([ROADMAP.md](plan/ROADMAP.md#phase-8--warm-session-)), after the warm Session and messages from any endpoint. A row marked ⬜ below waits for the feature that sends it, or for the native forms.
 
 **The notices.** Gotato sends four kinds itself, each after the Event that causes it; a service or an extension sends its own:
 
@@ -559,7 +559,7 @@ You can see what the model would receive now, without calling it.
 - The Runner builds the live Session a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
 - The report includes the prefix hash, the size of the system part, and an estimate of the tokens (bytes ÷ 4).
 - `compaction_pending` says the next Run compacts the Session first, because its size, by the last reported usage and an estimate of what came after, is past the ceiling (`compact_ceiling`: the Agent's or the Session's, else the one the model's window gives). That Run then sends a shorter request than the report shows.
-- Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](GOALS.md) G-G03).
+- Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](plan/GOALS.md) G-G03).
 
 In Go, the same request comes from the Session itself:
 
@@ -599,7 +599,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetLoadedTools`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
 - **A Message carries the Run** that committed it (`Message.RunID`), so a Segment groups Messages by Run (*What a Segment keeps*, below).
 
-**Gap:** none for compaction itself. Everything below was designed on 2026-10-19, and it was built before the warm Session in four steps ([ROADMAP.md → Phase 6](ROADMAP.md#phase-6--compaction)); the idle trigger came with the warm Session ([Phase 8](ROADMAP.md#phase-8--warm-session), step 1). What is not measured is G-B15, which needs a provider's cache.
+**Gap:** none for compaction itself. Everything below was designed on 2026-10-19, and it was built before the warm Session in four steps ([ROADMAP.md → Phase 6](plan/ROADMAP.md#phase-6--compaction-)); the idle trigger came with the warm Session ([Phase 8](plan/ROADMAP.md#phase-8--warm-session-), step 1). What is not measured is G-B15, which needs a provider's cache.
 
 **Segments.** Each compaction closes what came since the last Checkpoint into a Segment, a stretch of history that is never rewritten, and appends it after the Segments before it:
 
@@ -743,7 +743,7 @@ first heading.
 - **`min_tokens`.** The compact endpoints take `min_tokens` (`CompactOptions.MinTokens`, `{"min_tokens":N}`, `--min-tokens N`): a stretch since the last Checkpoint estimated below it is not compacted, and the answer says so. The default, 0, always compacts.
 - **Past the ceiling.** The size is the input and output tokens the last model call reported, plus an estimate of what came after it (bytes ÷ 4). After a compaction, the old usage no longer counts (the Messages it keeps carry none) and the size is estimated afresh, from the Messages and the instruction and tools of the request, so a compaction does not set off another at once. The ceiling is the window less max(10% of it, 16K tokens): 180K for a 200K window, and always at least 16K for a reply and a Recap. The window is the model's `context_window` in the gateway configuration ([G-F07](#g-f07--models-and-providers-)); without it there is no default ceiling, and this trigger is off unless the Agent or the Session sets one. Segments are still merged at their default budget. A ceiling set without a window is used as it is, since the room left for a reply and a Recap cannot be known. A window too small to leave a reserve gives no ceiling.
 - **Mid-Run.** The cut falls between two Turns, so a tool call never leaves its result. The Run's latest Turns stay in the kept tail, tool results included, with reasoning as [DESIGNS.md → Reasoning](DESIGNS.md#reasoning-goes-back-for-the-current-round-where-the-provider-allows-it--2026-10-18) says, checked against Claude and OpenAI (below), up to 20K tokens and no more than a quarter of the window, or of the ceiling when no window is known. The tail always holds at least the latest Turn, whatever it weighs, because the call that follows continues from it. Before the first call of a Run, the Run that is starting does not count as the latest: the Run before it stays in the tail as it was, and the new prompt follows it. The Run's prompt stays word for word in the Segment, which has no final reply yet, and the Recap says where the Run stands: the step it is on and the next one.
-- **Overflow.** When the provider refuses a request as too long before any output (to verify: an Anthropic stream may report it in the middle of a reply, see [TODO.md](TODO.md)), the Session is compacted and the call sent again, unless the Turn has compacted already. A refusal after some output is not retried. The Recap of the Segment that closes is asked on the request the provider just refused plus the ask, so it may be refused too, and then the Segment has no Recap; the compaction goes on. The oldest Segments are merged too when the Segments alone are past the limit, and that Recap is asked on the Recaps alone, so it is never too long (*Merging on an overflow*, below). The Runner turns this trigger on for every Agent, with or without a ceiling.
+- **Overflow.** When the provider refuses a request as too long before any output (to verify: an Anthropic stream may report it in the middle of a reply, see [TODO.md](plan/TODO.md)), the Session is compacted and the call sent again, unless the Turn has compacted already. A refusal after some output is not retried. The Recap of the Segment that closes is asked on the request the provider just refused plus the ask, so it may be refused too, and then the Segment has no Recap; the compaction goes on. The oldest Segments are merged too when the Segments alone are past the limit, and that Recap is asked on the Recaps alone, so it is never too long (*Merging on an overflow*, below). The Runner turns this trigger on for every Agent, with or without a ceiling.
 - **Once per Turn.** A Turn compacts at most once, whatever the trigger, and a compaction that was dropped counts. Still past the ceiling after it, the Run ends with `limit_exceeded`, and its error says why: still past the ceiling after the compaction, nothing to compact, or the compaction failed. When the provider still refuses the request as too long after it, the Run ends with `context_overflow`. Either usually means one tool result is too large, so `MaxToolResultBytes` is the first guard.
 - **A compaction that fails.** A compaction helps a Run but is not a step it needs, so its failure stays local ([DESIGNS.md → A failure stays local](DESIGNS.md#4-a-failure-stays-local)):
 
@@ -829,9 +829,9 @@ tail          Turns 27–30 as they were, tool calls and results included
 | the digest of a merge with no model | 4,000 bytes | a merge keeps the far past small whoever writes it |
 | time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
 
-**Checked against the providers' behavior.** Each team runs its own gateway, so Gotato does not tune compaction to one provider and runs no checks against real providers. It adapts to each wire API, proves that with unit tests, and plays the providers' quirks on a fake gateway, `test/fakegateway` ([ROADMAP.md → Phase 10](ROADMAP.md#phase-10--before-the-release)), built from the providers' public wire formats. What only a real model can show, a team checks on its own gateway, and the model's Recap stays off by default until it does:
+**Checked against the providers' behavior.** Each team runs its own gateway, so Gotato does not tune compaction to one provider and runs no checks against real providers. It adapts to each wire API, proves that with unit tests, and plays the providers' quirks on a fake gateway, `test/fakegateway` ([ROADMAP.md → Phase 10](plan/ROADMAP.md#phase-10--before-the-release)), built from the providers' public wire formats. What only a real model can show, a team checks on its own gateway, and the model's Recap stays off by default until it does:
 
-- the Recap's quality: whether the Agent's model, writing on the cached prefix, keeps the IDs, numbers and open items a later question needs. This is the payments check of [G-E01](GOALS.md#g-e01--the-recap-keeps-the-facts-), which ships: `go run ./cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml -min-share 0.8` plays the payments conversation of this section, compacts it with the model's Recap, and prints the share of questions whose answers were only in Tool Results that the model answers before and after (*The live run*, below). It runs on demand against a team's own gateway, never in CI;
+- the Recap's quality: whether the Agent's model, writing on the cached prefix, keeps the IDs, numbers and open items a later question needs. This is the payments check of [G-E01](plan/GOALS.md#g-e01--the-recap-keeps-the-facts-), which ships: `go run ./cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml -min-share 0.8` plays the payments conversation of this section, compacts it with the model's Recap, and prints the share of questions whose answers were only in Tool Results that the model answers before and after (*The live run*, below). It runs on demand against a team's own gateway, never in CI;
 - how the model reads a `<tool_calls>` block between a user message and the reply: as a record of calls already made, not as calls to make again or text to copy;
 - what Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going while the Segment changed the prefix that reasoning was written under;
 - whether Claude reads the Segments before from the cache at a marker at the end of the last Segment ([G-F04](#g-f04--context-)).
@@ -846,7 +846,7 @@ The instruction and the tools come before the Transcript, so changing them mid-S
 - A compaction folds such changes back into the prefix, where the request changes anyway ([G-F06](#g-f06--compaction-)).
 - Whether it pays depends on how often a service makes such changes, so the reference workload measures a Session whose instruction changes, and one that switches a tool on, before this is designed.
 
-**Design first:** after a measurement ([ROADMAP.md → Waiting for design](ROADMAP.md#waiting-for-design)).
+**Design first:** after a measurement ([ROADMAP.md → Waiting for design](plan/ROADMAP.md#waiting-for-design)).
 
 ## Tools
 
@@ -862,7 +862,7 @@ lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
 - `gotato.NewFuncTool` turns a Go function into a tool. Its input schema comes from the Go type, and every call is checked against that schema before the tool runs. The check covers `type`, `enum`, `required`, `properties` and `additionalProperties`; other keywords pass through unchecked.
 - Every tool declares its Effect: `read` < `write_local` < `write_external` < `destructive`. A tool that declares nothing counts as destructive. `gotato.ToolWithEffect` sets the Effect on any tool, and `gotato tools list --json` shows a declared Effect (a tool with none shows no `effect` field).
 - A tool result carries a status. A failure carries a safe message for the model.
-- A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](GOALS.md) G-G04).
+- A call the model gets wrong fails as a tool result, and the Run goes on: an unknown tool, or arguments that are not valid JSON or fail the schema check. The result says what was wrong, and for an unknown tool it lists the tools the model was shown, so the model can correct the call on its next Turn ([GOALS.md](plan/GOALS.md) G-G04).
 
 **The Effect cap.** An Agent can name the highest Effect its tools may have. Here the refund tool is never offered, because the Agent only reads:
 
@@ -876,7 +876,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup, refu
 - A tool that declares no Effect counts as destructive, so any cap below `destructive` hides it.
 - No cap is the default. In a service, `service.Agent.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent (see the decision below).
 - The cap is shown by `gotato tools list` (`max_effect` in `--json`), and by `GET /v1/agents` and the gRPC `Agents` call, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
-- The check is G-G05: every cap against tools of every Effect ([GOALS.md](GOALS.md)).
+- The check is G-G05: every cap against tools of every Effect ([GOALS.md](plan/GOALS.md)).
 
 #### The Effect cap hides tools, and only an Agent sets it — 2026-10-16
 
@@ -1078,7 +1078,7 @@ O-88501,paid,41.20,…
 
 ### G-F36 — Reading large results ✅
 
-Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). The `bash` tool lets it query its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It is built in Phase 9 ([ROADMAP.md](ROADMAP.md#phase-9--reading-large-results)); the reasons, and what was ruled out, are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
+Paging reads a spilled result from the top. Often the model wants one line, one field or the lines that match, and it cannot run `grep` inside a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)). The `bash` tool lets it query its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It is built in Phase 9 ([ROADMAP.md](plan/ROADMAP.md#phase-9--reading-large-results-)); the reasons, and what was ruled out, are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
 
 ```text
 bash(command="grep -i timeout /results/call_9a2 | head -20")
@@ -1300,7 +1300,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 | Busy policy | ✅ | a second Run on a busy Session is rejected with 409 (`reject`, the default), or waits (`wait`) |
 | Capacity | ✅ | past `MaxActiveRuns`, a new Run is rejected with 429; off by default |
 | Drain | ✅ | on SIGTERM, or when your own endpoint calls `Runner.Drain`, the instance marks its Liveness row draining, `/readyz` answers 503, and it admits no new Run and takes no Session over from another instance. Every Run in flight finishes, saves and releases its Session. At the drain timeout the Runs still going are stopped, saved and released, and only then does each of their streams end with a reconnect code. `Runner.Close` then removes the row. |
-| Save every step | ✅ | each step is written as it happens: the prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run, each tool result, each continuation. A crash loses at most the step in flight ([GOALS.md](GOALS.md) G-G01). |
+| Save every step | ✅ | each step is written as it happens: the prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run, each tool result, each continuation. A crash loses at most the step in flight ([GOALS.md](plan/GOALS.md) G-G01). |
 | One writer at a time | ✅ | the writer holds a Claim: a fact naming its instance and an Epoch, a number that grows with every new Claim, written at the position after the head it read. A writer that lost its Claim always writes to a taken position, so the store refuses it, and a second instance stops before it calls the model (G-G08). |
 | Liveness rows | ✅ | each instance renews one row in the store every third of its TTL, timed by the store's clock. When the row expires, every Claim of that instance ends at once. An instance that cannot show its row was renewed in time writes nothing, so it never calls the model. |
 | Any instance answers | ✅ | an instance that is not the writer takes over a Session that is idle, or whose writer is gone, and loads its facts from the last Checkpoint. For a Session its live writer is using, draining or not, it waits, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
@@ -1330,7 +1330,7 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 - Planned: the row carries the instance's count of live Sessions, as a load signal.
 - **The row carries an address the instance advertises.** It is a setting (`Config.Address`, `--advertise`), and optional. It is where a caller can reach this instance's own HTTP or gRPC endpoint (`http://10.0.0.7:8787`, or `10.0.0.7:8788` for gRPC), and the only thing about another instance that Gotato reads (`Store.Instance` returns it): `not_writer` takes the writer's address from the row its Claim names ([G-F26](#g-f26--steering-a-run-)). Gotato does not connect to it, discover it or check it. The row is timed by the store's clock like the rest, so a dead instance's address lapses with it.
 
-**The warm Session.** After a Run, the Session's Record and the Writer that wrote it stay in memory, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). The Runner still builds a live `gotato.Session` over the copy for each Run; the live Session's queue stays warm when messages reach it between Runs (step 3 of [Phase 8](ROADMAP.md#phase-8--warm-session)):
+**The warm Session.** After a Run, the Session's Record and the Writer that wrote it stay in memory, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). The Runner still builds a live `gotato.Session` over the copy for each Run; the live Session's queue stays warm when messages reach it between Runs (step 3 of [Phase 8](plan/ROADMAP.md#phase-8--warm-session-)):
 
 ```text
 Run ends ──► warm and idle, holding no Claim ──► idle lead: compaction ──► TTL ends: leaves memory
@@ -1387,7 +1387,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 
 - **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, gRPC `UNAVAILABLE` with the trailer `gotato-not-run: true`, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run. The runtime sets it (`gotato.NotRun`); a draining instance's refusal carries it too.
 - **What is not refused.** A Run on a Session that is active here already, which reaches the busy policy instead; creating or forking a Session, which activates nothing; and the short changes that open a Session under its lock (compact, tool activation, delete).
-- **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 8](ROADMAP.md#phase-8--warm-session)) the same setting counts the Sessions held in memory, as the next part says.
+- **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 8](plan/ROADMAP.md#phase-8--warm-session-)) the same setting counts the Sessions held in memory, as the next part says.
 - **Why `/readyz` does not fail at the limit.** A full instance still serves the Sessions it holds, and a consistent hash sends their requests here. `/readyz` answers 503 for a drain only, and reports `active_sessions` beside `active_runs`, so an operator sees how close the instance is.
 - While an instance keeps refusing new Sessions, the Sessions routed to it run elsewhere, and each of their requests takes one extra retry, until load moves.
 
@@ -1724,7 +1724,7 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 - It also ships a fake tool, an Event recorder, a ready-made Session, and the `echo` and `demo` models.
 - CLI scenarios run in-process and against the built binary, and assert on JSON.
 
-**The reference workload.** `testkit.ReferenceTasks` returns the tasks [GOALS.md](GOALS.md) measures, each with a fake model and a check of its answers:
+**The reference workload.** `testkit.ReferenceTasks` returns the tasks [GOALS.md](plan/GOALS.md) measures, each with a fake model and a check of its answers:
 
 | Task | What it does |
 |---|---|

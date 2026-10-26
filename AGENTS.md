@@ -11,12 +11,12 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 2. PHILOSOPHY.md        — the beliefs every change follows
 3. DESIGNS.md           — design principles, and the decisions that follow from them
 4. GLOSSARY.md          — one name per thing, and its name in today's code
-5. GOALS.md             — goals that pass or fail, and benchmarks tracked against a reference
+5. plan/GOALS.md        — goals that pass or fail, and benchmarks tracked against a reference
 6. FEATURES.md          — implementation inventory with status markers, and what is not planned
 7. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 
-These root documents are the single source of truth for Gotato's design.
+These documents are the single source of truth for Gotato's design. PROPOSAL to FEATURES are in the repository root; GOALS, ROADMAP and TODO are in `plan/`.
 
 ## Hard Architectural Rules
 
@@ -86,7 +86,7 @@ When writing or rewriting a project document:
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakegateway.New()` in `test/fakegateway` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./test/fakegateway/cmd/fakegateway` serves it on a port |
 | the echo / demo models used by the CLI and the reference service | `testkit.EchoModel`, `testkit.DemoModel`, `testkit.DemoEchoTool()` |
 | the reference workload's tasks, with their fake models and checks | `testkit.ReferenceTasks()` (`testkit.ToolSearchTask()` is the one whose tools load, with `Task.Options` for its ToolSets and `testkit.WithLoadedToolsOf` to copy a history with its loads); `testkit.LongSession(turns, perRun, resultBytes, window, recap)` for a Session that compacts and merges (`LongSessionTask()` is the 2,000-Turn task of G-G10, played only when named); `testkit.BashLookupTask(bashtool.Tools())` is the `bash` tool task, played by `go run ./cmd/gotato-workload-bash` in `adapter/bash` |
-| play tasks through a Runner and measure them (GOALS.md) | `workload.Run` in `service/workload`; `go run ./cmd/gotato-workload` prints the report |
+| play tasks through a Runner and measure them (plan/GOALS.md) | `workload.Run` in `service/workload`; `go run ./cmd/gotato-workload` prints the report |
 
 ## CLI Scenario Loop
 
@@ -110,6 +110,83 @@ A change is not complete until:
 - relevant tests pass (`go test -race ./...`, `go vet ./...`, `gofmt -l .` empty) in every module touched;
 - the affected CLI and/or API behavior has actually been exercised (a test, or a CLI scenario whose JSON you inspected);
 - documentation reflects the new state (`FEATURES.md` marker, package docs, README when user-visible);
-- the commit follows `GITFLOW.md`.
+- the commit follows [Git Flow](#git-flow) below.
 
 Do not report work as complete when tests fail or a step was skipped; say so explicitly.
+
+## Git Flow
+
+A lightweight Git policy for human contributors and coding agents. It is deliberately not an enterprise process.
+
+### Principles
+
+1. **Preserve history.** Never reinitialize the repository, never rewrite shared history, never force-push `main`.
+2. **Never destroy user work.** No `git reset --hard`, `git checkout -- .`, `git clean -f`, or stash-drop on a working tree you did not create. If the tree contains changes you did not make, leave them alone and mention the collision in your report.
+3. **Small, focused branches.** One concern per branch. Land often.
+4. **One conceptual change per commit** when practical. A commit should build and pass tests on its own.
+5. **Tests before commit and before merge.** `go test ./...` in every module you touched, plus `go vet ./...`.
+6. **Docs travel with public changes.** A commit that changes an exported API, a CLI command, an event kind, or a JSON field updates the relevant documentation (and `FEATURES.md` status markers) in the same commit or the same branch.
+7. **No AI/model/tool attribution in commit authorship** (no `Co-Authored-By` for a model or tool) unless the user explicitly requests it.
+
+### Branches
+
+`main` is the integration branch and must always build and pass tests.
+
+Branch names use a type prefix:
+
+```text
+feat/<short-topic>
+fix/<short-topic>
+refactor/<short-topic>
+docs/<short-topic>
+test/<short-topic>
+chore/<short-topic>
+```
+
+Example: `refactor/runtime-foundation`, `feat/session-file-store`, `fix/event-subscription-leak`.
+
+### Commits
+
+Conventional, descriptive subjects in the imperative mood, under ~72 characters:
+
+```text
+feat: add file-backed session store
+fix: stop leaking a goroutine per event subscription
+refactor: route agent commits through Transcript
+docs: mark the file store as done in FEATURES.md
+test: cover context window strategy boundaries
+chore: add CI workflow
+```
+
+A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F16`, ...) when a commit exists to satisfy one.
+
+### Updating and Merging
+
+- Rebase a short-lived branch on `main` before merging when it has fallen behind and the rebase is trivial. Prefer merge commits when a rebase would rewrite many commits other people have already pulled.
+- Resolve conflicts locally; run the full test suite again after resolution.
+- Squash only your own noise commits ("wip", "fix typo") before opening a PR; do not squash away meaningful history.
+
+### Breaking Changes and Migration Notes
+
+A breaking change to the public Go API, CLI contract, or event kinds must:
+
+1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
+2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
+3. until the first release, keep no old symbol: rename or remove it directly. From the first release on, prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low.
+
+### Generated Files
+
+- Protobuf/gRPC output under `adapter/grpc/gotato/v2/` is generated by `buf` (`adapter/grpc/buf.gen.yaml`). Regenerate rather than hand-edit; commit the generated output together with the `.proto` change.
+- Do not commit build output, coverage files, `go.work`, or local credentials (see `.gitignore`; `gateway.yaml` is ignored on purpose).
+
+### Coding-Agent Checklist Before Committing
+
+```text
+git status --short                # only your intended files are staged
+gofmt -l .                        # empty
+go vet ./...                      # clean
+golangci-lint run ./...           # 0 issues (also in adapter/grpc)
+go test ./...                     # green (also in adapter/grpc when touched)
+go build ./cmd/gotato             # CLI builds
+docs updated?                     # FEATURES.md / README / package docs
+```

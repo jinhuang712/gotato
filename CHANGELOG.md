@@ -4,7 +4,7 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
-Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
+Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
 ### MCP
 
@@ -77,7 +77,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](ROADMAP.md): the Effect cap, the names, eve
 
 ### Messages from any endpoint
 
-Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
 
 - **A message that arrives while a Run is ending is not answered `busy`.** `run_ended` comes a few milliseconds before the Run saves and releases its Session; a message sent in that window (a chat bot replying to `run_ended`, say) found the Session held and was refused. `Runner.Send`, and so `POST /v1/sessions/{id}/messages`, gRPC `SendMessage` and `gotato session message`, now waits for the release, bounded by the caller's context, and starts the next Run. A Run on another instance still answers `not_writer`; a plain `Runner.Run` on a busy Session is unchanged. A Stop in the window finds the ending Run and returns nil; a notice already waited for the Session.
 
@@ -117,7 +117,7 @@ Phase 8, step 3 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md
 
 ### Runtime notices
 
-Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
 
 - **A notice is a Message of its own kind.** `gotato.RoleNotice` and `Message.Notice` (`NoticeInfo{Kind, Source, CausedBy}`) tell the model a fact the user did not say. It waits in the queue beside the Steer queue, goes in right before the next model call, and starts no Round and no Run. The request carries it as `<notice kind="…">…</notice>`, with the text escaped, and a request that holds one ends its system part with the fixed sentence about the four tags.
 - **A service sends its own.**
@@ -142,7 +142,7 @@ Phase 8, step 4 of [ROADMAP.md](ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md
 
 ### Limits
 
-- **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](ROADMAP.md). No old name is kept.
+- **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](plan/ROADMAP.md). No old name is kept.
 
   | Before | After |
   |---|---|
@@ -596,7 +596,7 @@ These are additions, within the version change that the changes above already ho
 
 ### Measurement
 
-- **The long_session task measures a long Session.** `testkit.LongSessionTask` plays 2,000 Turns of 20 KB Tool Results in 100 Runs on one Session against a fake model with a 128K-token window (`testkit.LongSession` sets the size, `LongSessionRecapTask` turns the model's Recap on). `testkit.Task` gains `Window` and `Recap`; the driver gives the Model the window, counts every request against it, refuses one over it, and `workload.TaskReport` gains `window`: the requests, those over the window, the largest, the size at Turns 1, 10, 100, 1000 and 2000, the compactions and merges, and the Recap's tokens against what each compaction took out. `gotato-workload -tasks long_session` plays it; the default workload does not hold it. G-G10 passes on it; see [GOALS.md](GOALS.md).
+- **The long_session task measures a long Session.** `testkit.LongSessionTask` plays 2,000 Turns of 20 KB Tool Results in 100 Runs on one Session against a fake model with a 128K-token window (`testkit.LongSession` sets the size, `LongSessionRecapTask` turns the model's Recap on). `testkit.Task` gains `Window` and `Recap`; the driver gives the Model the window, counts every request against it, refuses one over it, and `workload.TaskReport` gains `window`: the requests, those over the window, the largest, the size at Turns 1, 10, 100, 1000 and 2000, the compactions and merges, and the Recap's tokens against what each compaction took out. `gotato-workload -tasks long_session` plays it; the default workload does not hold it. G-G10 passes on it; see [GOALS.md](plan/GOALS.md).
 - **The payments check of G-E01 ships.** `testkit.PaymentsRecapCheck` is a conversation whose facts only Tool Results held, with five questions about them and a fake model. `workload.RunRecapCheck` compacts the Session with the model's Recap and asks the questions before and after, unsaved and with the tools switched off. `gotato-workload -recap-check` prints the report (`-live` plays it on your gateway; `-min-share` makes the exit code 3 below a share), and never runs in CI against a provider. `testkit.DemoModel` answers a Recap's ask, so `gotato context compact --model demo --recap model` runs without a provider.
 
 ### Contracts
@@ -608,7 +608,7 @@ These are additions, within the version change that the changes above already ho
 
 ## Before the first release — 2026-10-16
 
-Phase 1 of [ROADMAP.md](ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](GOALS.md) but G-B13. The HTTP and gRPC contract version is now `"3"`.
+Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](plan/GOALS.md) but G-B13. The HTTP and gRPC contract version is now `"3"`.
 
 ### Runtime
 

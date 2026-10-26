@@ -1,7 +1,7 @@
 <!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Roadmap
 
-What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
+What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).
 
 Gotato has made no release yet. The first release is named 0.1.0, and it is cut when every phase below is done, so there are no point releases before it. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names. No phase has a date.
 
@@ -55,7 +55,7 @@ Builds the tools that most goals need, and gives every benchmark a number. Each 
 - ✅ each failed Run and tool call attributed to its cause: the model, the provider, the tool, the store or Gotato;
 - ✅ a prompt cache key per Session, so the live run measures cache hits at all (G-B01).
 
-Every number about a Run is computed from recorded Events and `Usage`, so a team gets the same numbers from its own telemetry ([DESIGNS.md → Every number about a Run comes from Events and `Usage`](DESIGNS.md#every-number-about-a-run-comes-from-events-and-usage)). Memory, CPU, startup and footprint come from Go benchmarks and the build script.
+Every number about a Run is computed from recorded Events and `Usage`, so a team gets the same numbers from its own telemetry ([DESIGNS.md → Every number about a Run comes from Events and `Usage`](../DESIGNS.md#every-number-about-a-run-comes-from-events-and-usage)). Memory, CPU, startup and footprint come from Go benchmarks and the build script.
 
 Exit:
 
@@ -68,7 +68,7 @@ Exit:
 Built.
 
 - ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
-- ✅ A tool above the cap is hidden from the model, including a tool of a ToolSet, which is never in the index and is never loaded, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- ✅ A tool above the cap is hidden from the model, including a tool of a ToolSet, which is never in the index and is never loaded, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](../FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
 - ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
 - ✅ `gotato tools list`, `GET /v1/agents` and the gRPC `Agents` call report the cap.
 
@@ -81,10 +81,10 @@ Exit:
 Built.
 
 - ✅ `service.AgentSpec` becomes `service.Agent`.
-- ✅ The old `gotato.Agent` becomes `gotato.Session`, the live Session: one concrete type, with the interfaces it was split into removed. The Loop stays a concept ([FEATURES.md → The live Session is `gotato.Session`](FEATURES.md#the-live-session-is-gotatosession-and-its-record-is-sessionrecord--2026-10-16)).
+- ✅ The old `gotato.Agent` becomes `gotato.Session`, the live Session: one concrete type, with the interfaces it was split into removed. The Loop stays a concept ([FEATURES.md → The live Session is `gotato.Session`](../FEATURES.md#the-live-session-is-gotatosession-and-its-record-is-sessionrecord--2026-10-16)).
 - ✅ `session.Session`, the stored record, becomes `session.Record`.
 - ✅ A live Session's ID is its Session ID, and Events carry it as `session_id`. `agent_start` and `agent_end` become `run_start` and `run_end`.
-- ✅ The rename ships as one planned break, with no `// Deprecated:` aliases, and a [CHANGELOG.md](CHANGELOG.md) entry.
+- ✅ The rename ships as one planned break, with no `// Deprecated:` aliases, and a [CHANGELOG.md](../CHANGELOG.md) entry.
 
 Exit:
 
@@ -95,11 +95,11 @@ Exit:
 
 The three store questions are answered as decisions dated 2026-10-16: the first two in DESIGNS.md, and the third with its feature in FEATURES.md. The maintainer approved them on 2026-10-17.
 
-- ✅ How a Turn is saved: [The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16).
-- ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
-- ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
+- ✅ How a Turn is saved: [The Record is an append-only log](../DESIGNS.md#the-record-is-an-append-only-log--2026-10-16).
+- ✅ How one instance runs a Session at a time, and what happens to a request that reaches another instance: [One writer per Session, claimed in the store](../DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16) and [Gotato builds no infrastructure, and stays within its boundary](../DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16).
+- ✅ What happens to a message that arrives during a Run: [Messages that arrive during a Run](../FEATURES.md#messages-that-arrive-during-a-run--2026-10-16).
 
-Runtime notices (FEATURES.md G-F29), which follow from the third answer, were designed on 2026-10-18 ([DESIGNS.md → What is not the user's words goes to the model as a notice](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and are built in [Phase 8](#phase-8--warm-session). The warm Session, and the answer for a message that reaches an instance that is not the writer, were designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F26](FEATURES.md#when-the-hash-missed-the-answer-names-the-writer--2026-10-25)), and are built in the same phase. The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
+Runtime notices (FEATURES.md G-F29), which follow from the third answer, were designed on 2026-10-18 ([DESIGNS.md → What is not the user's words goes to the model as a notice](../DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice--2026-10-18)), and are built in [Phase 8](#phase-8--warm-session). The warm Session, and the answer for a message that reaches an instance that is not the writer, were designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](../DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F26](../FEATURES.md#when-the-hash-missed-the-answer-names-the-writer--2026-10-25)), and are built in the same phase. The Events on a message's way into a Session were designed with every other Event on 2026-10-18 ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](../DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
 
 Exit: the maintainer approves the three Decisions.
 
@@ -107,10 +107,10 @@ Exit: the maintainer approves the three Decisions.
 
 Built.
 
-- ✅ The Record becomes an append-only log of facts and log entries ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)). Every step is appended as it happens, at a position the store never gives twice, so a crash loses at most the step in flight. A reply cut off mid-stream is kept, and each reply records the model that answered it.
+- ✅ The Record becomes an append-only log of facts and log entries ([DESIGNS.md → The Record is an append-only log](../DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](../DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)). Every step is appended as it happens, at a position the store never gives twice, so a crash loses at most the step in flight. A reply cut off mid-stream is kept, and each reply records the model that answered it.
 - ✅ A compaction appends a Checkpoint, and a load reads the facts from the last one.
 - ✅ A Claim is an Entry, so a writer that lost its Claim always writes to a taken position, and the store refuses it. The store contract also carries the Liveness rows that Phase 5 uses, so adapters change once.
-- ✅ A store conformance suite in `testkit/storetest`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
+- ✅ A store conformance suite in `testkit/storetest`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](../FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
 - ✅ Fault injection: a crash after every write of the reference workload, and a client that disconnects mid-stream on HTTP and gRPC.
 
 Exit:
@@ -124,12 +124,12 @@ Exit:
 
 Built. The part that keeps two instances from running one Session is built, and so is the drain. The Event design, decided on 2026-10-18, is built too, because stream resume and the Claim Events stand on it, and so are the routes that resume a stream, the load balancer's part and the harness behind a hashing proxy.
 
-- ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
+- ✅ One writer at a time: an instance claims a Session in the store before it calls the model, and its Claim is valid while its Liveness row is ([DESIGNS.md → One writer per Session](../DESIGNS.md#one-writer-per-session-claimed-in-the-store--2026-10-16)). An instance that cannot show its row was renewed in time writes nothing.
 - ✅ Any instance answers: it takes over an idle Session, and waits, up to a bound, for one its live writer is using, then answers 409 with `Retry-After`.
-- ✅ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header as a check and answer with it when they create a Session, an instance past its hard limit (`MaxActiveSessions`, `--max-sessions`) refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain and the active Sessions ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
-- ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
-- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the contract version change that Phase 3 made. The message Events have their types, and a live Session sends them; the Runner and the endpoints got them in Phase 8, step 3.
-- ✅ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch: `GET /v1/sessions/{id}/stream` (`Last-Event-ID`, `after`) and gRPC `StreamSession`. A Run's stream carries each Event's number, and a stream that ends says whether to reconnect and after how long, spread at random ([FEATURES.md → G-F14](FEATURES.md#g-f14--http-grpc-and-streaming-)).
+- ✅ The load balancer's part: the HTTP and gRPC endpoints read the `session-id` header as a check and answer with it when they create a Session, an instance past its hard limit (`MaxActiveSessions`, `--max-sessions`) refuses new Sessions with a 503 marked "not run", and `/readyz` reports a drain and the active Sessions ([FEATURES.md → G-F27](../FEATURES.md#g-f27--service-many-instances-)).
+- ✅ Drain in order, on SIGTERM or an endpoint: mark the Liveness row draining, answer 503 on `/readyz`, take no new Sessions, let each Run finish, save and release, then close each stopped Run's stream with a reconnect code ([FEATURES.md → G-F27](../FEATURES.md#g-f27--service-many-instances-)). Another instance still waits for a Session the draining one is using.
+- ✅ The Event design ([DESIGNS.md → Every step is an Event, and a stored Event is an Entry](../DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18), [FEATURES.md → G-F13](../FEATURES.md#g-f13--events-)): every stored Event is an Entry, numbered by its position and written before it is sent; each kind of Event is a Go type with the names that FEATURES.md lists; a Session sends to Subscriptions it never waits for, and `EventObserver` goes. The HTTP, gRPC and CLI contracts changed with it, in the contract version change that Phase 3 made. The message Events have their types, and a live Session sends them; the Runner and the endpoints got them in Phase 8, step 3.
+- ✅ A stream resumes on any instance from the number of the last Event it saw, with the Record's epoch: `GET /v1/sessions/{id}/stream` (`Last-Event-ID`, `after`) and gRPC `StreamSession`. A Run's stream carries each Event's number, and a stream that ends says whether to reconnect and after how long, spread at random ([FEATURES.md → G-F14](../FEATURES.md#g-f14--http-grpc-and-streaming-)).
 - ✅ Claim Events: `session_claimed`, with why and from which instance, `session_released`, `session_fenced` and `liveness_lapsed`.
 - ✅ The multi-instance harness: several instances over one shared store behind a hashing proxy, with requests sent through it and straight to random instances, concurrent messages and an instance killed.
 - ✅ Ended Liveness rows are cleaned up: an instance removes its own row when it stops, and the store conformance suite checks that a removed row reads as not alive.
@@ -140,14 +140,14 @@ Exit:
 - ✅ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
 - ✅ A stream cut at every Event of the reference workload resumes equal to an uncut one, over HTTP and over gRPC.
 - ✅ A subscriber that stops reading never slows its Session, and catches up from the Record with every stored Event once.
-- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), under the contract version change that Phase 3 made.
+- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md), under the contract version change that Phase 3 made.
 - ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ✅ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.
 
 ## Phase 6 — Compaction ✅
 
-A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
+A Session can live for weeks, and its user is rarely there: they come back after the provider's cache has expired, and a long Run can outgrow the window. Each compaction closes the history since the last Checkpoint into a Segment that is never rewritten, with the conversation word for word, a line per tool call, and a Recap the Agent's model writes on the cached prefix ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](../DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19), [FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-)). Each item is marked ✅ built or ⬜ to build.
 
 - ✅ Already built: tags and their escaping, the gateway's `context_window`, cache retention and overflow report, ToolSets that stay on, the Record's storage for Segments, the Run on every Message, and the Recap names.
 - Each team runs its own gateway, so Gotato adapts to the wire APIs and tests that with unit tests, and runs no checks against real providers. The model's Recap is off by default; a team turns it on once the payments check (G-E01) passes on its own gateway. Fake gateways that play each wire API's quirks are built in Phase 10 (`test/fakegateway`).
@@ -168,13 +168,13 @@ Exit:
 
 ## Phase 7 — MCP and tool search ✅
 
-A Session's tools come from many places, and a service that connects MCP servers can offer hundreds of them. The model should see the few it needs, and a Tool Result should never fill the Context on its own. This phase loads tools one by one from a catalog, adds the MCP adapter that supplies them, spills a large Tool Result into the Record, and takes the counting caps out of the core. Designed on 2026-10-25 ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25), [FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-), [G-F12](FEATURES.md#g-f12--the-mcp-adapter-) and [G-F35](FEATURES.md#g-f35--large-tool-results-)). Each step is marked ✅ when built; they build on one another, in this order:
+A Session's tools come from many places, and a service that connects MCP servers can offer hundreds of them. The model should see the few it needs, and a Tool Result should never fill the Context on its own. This phase loads tools one by one from a catalog, adds the MCP adapter that supplies them, spills a large Tool Result into the Record, and takes the counting caps out of the core. Designed on 2026-10-25 ([DESIGNS.md → A limit guards a real failure](../DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25), [FEATURES.md → G-F34](../FEATURES.md#g-f34--tool-search-), [G-F12](../FEATURES.md#g-f12--the-mcp-adapter-) and [G-F35](../FEATURES.md#g-f35--large-tool-results-)). Each step is marked ✅ when built; they build on one another, in this order:
 
 - ✅ Step 1, limits that guard a real failure: `MaxTurns`, `MaxToolCalls`, `MaxToolResultBytes` and `RunDeadline` leave the core. A team that wants a Turn or call cap writes a `TurnStopper`, and a Run's deadline is its `ctx`. `service.Agent` keeps one Run deadline, `RunTimeout` (30 minutes by default), that the request's own timeout overrides. `MaxMessageBytes` stays, and `ModelCallDeadline` and `ToolCallDeadline` stay, marked for review. The DESIGNS section about every Run ending is the final form of this step.
 - ✅ Step 2, large Tool Results: a Tool Result over one page (about 8K tokens) is spilled into the Record as an Entry of its own, the Context holds a preview and a ref, and the model reads the rest page by page with `read_result`, which pages as `read_segment` does. A load does not read a spilled body until it is asked for. This replaces what `MaxToolResultBytes` did.
 - ✅ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search. The tool list changes when a tool loads (the list form); the native form is step 4.
 - ✅ Step 4, native deferred loading: the part of G-F32 that concerns tools. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
-- ✅ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK (v1.8.0). One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect. It comes with a change to the core: a ToolSet that fails to resolve is skipped with a warning instead of failing `NewSession`, and ToolSets resolve again at the start of every Run, so a server's `list_changed` takes effect at the next Run, a loaded tool that vanished is unloaded (`why: gone`), a recovered ToolSet comes back, and the ToolSets resolve at the same time, so a Run waits for the slowest server ([FEATURES.md → G-F10](FEATURES.md#g-f10--tool-sets-and-the-registry-)).
+- ✅ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK (v1.8.0). One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect. It comes with a change to the core: a ToolSet that fails to resolve is skipped with a warning instead of failing `NewSession`, and ToolSets resolve again at the start of every Run, so a server's `list_changed` takes effect at the next Run, a loaded tool that vanished is unloaded (`why: gone`), a recovered ToolSet comes back, and the ToolSets resolve at the same time, so a Run waits for the slowest server ([FEATURES.md → G-F10](../FEATURES.md#g-f10--tool-sets-and-the-registry-)).
 
 Exit:
 
@@ -187,7 +187,7 @@ Exit:
 
 ## Phase 8 — Warm Session ✅
 
-A Session stays in memory while it is in use, so a Run in progress can be steered from any endpoint, and the runtime can tell the model facts that are not the user's words. The store stays the truth, and a warm copy is a cache, never a lock. Designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-) and [G-F26](FEATURES.md#g-f26--steering-a-run-)). The steps build on one another, in this order:
+A Session stays in memory while it is in use, so a Run in progress can be steered from any endpoint, and the runtime can tell the model facts that are not the user's words. The store stays the truth, and a warm copy is a cache, never a lock. Designed on 2026-10-25 ([DESIGNS.md → A warm copy is a cache, not a lock](../DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25), [FEATURES.md → G-F27](../FEATURES.md#g-f27--service-many-instances-) and [G-F26](../FEATURES.md#g-f26--steering-a-run-)). The steps build on one another, in this order:
 
 - ✅ Step 1, the lifecycle: after a Run the Session stays in memory, and leaves after its TTL (60 idle minutes, per Agent). Before each Run on a warm copy the instance compares the Record's head in the store with the copy's: unchanged, it uses the copy; changed, it reloads. The copy holds no Claim while idle, so another instance can take the Session over, and the old copy is dropped. A warm Session that idles is compacted by default shortly before its prompt cache expires or it leaves memory, by its own timer, with the same compaction a service's timer calls in Phase 6; a message that arrives cancels it and is served first. A setting turns the idle compaction off. What stays warm in this step is the Session's Record and its Writer, held by the Runner, which takes a clock as a setting so that tests wait for no TTL. The Runner still builds a live `gotato.Session` over the copy for each Run, since nothing reaches a Session between Runs before step 3.
 - ✅ Step 2, the memory limit: warm Sessions count toward `MaxActiveSessions`. At the limit the instance evicts the longest-idle warm Session first, and refuses a Run as not run (`overloaded`) only when every live Session is running a Run.
@@ -219,12 +219,12 @@ Exit:
 
 ## Phase 9 — Reading large results ✅
 
-A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. This phase gives the model a `bash` tool: a read-only subset of bash that queries its own Session's Record, with behavior that matches GNU and bash and a clear error for anything not supported. The design and what was ruled out are in [DESIGNS.md → Reading a large result needs no machine](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26), and the feature is [FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-). It is a module of its own, `adapter/bash`, whose engine does not import Gotato.
+A model that reads a spilled result page by page reads all of it or guesses. Often it wants one line, one field or the lines that match, and in a pod with no machine ([DESIGNS.md → A Session has no machine](../DESIGNS.md#a-session-has-no-machine)) it cannot run `grep`. This phase gives the model a `bash` tool: a read-only subset of bash that queries its own Session's Record, with behavior that matches GNU and bash and a clear error for anything not supported. The design and what was ruled out are in [DESIGNS.md → Reading a large result needs no machine](../DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26), and the feature is [FEATURES.md → G-F36](../FEATURES.md#g-f36--reading-large-results-). It is a module of its own, `adapter/bash`, whose engine does not import Gotato.
 
 - ✅ Step 1, the core exposes a Session's Record as a read-only `fs.FS`, with the standard library alone.
 - ✅ Step 2, the engine: the interpreter's handlers taken over (commands, file opens, environment) and the syntax check that refuses loops, functions, `$( )` and writing redirects, with `cat`, `head` and `grep` running. Built in `adapter/bash` (`bash.Run`, on `mvdan.cc/sh/v3`); `grep` had `-i -v -c -n -E -F -G -e -x -l -q -H -h`, and `-o -w -r -A -B -C` came in step 3.
-- ✅ Step 3, the remaining commands, each with GNU conformance tests: `tail`, `sed -n`, `wc`, `sort`, `uniq`, `cut`, `tr`, `base64`, `echo`, `ls`, and `grep -o -w -r -A -B -C`. The commands follow the `C.UTF-8` locale; the supported flags are in the table of [DESIGNS.md](DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
-- ✅ Step 4, jq through gojq, and the protections: `jq` (`-r -j -c -s -n -R -e -S -a --tab --indent --arg --argjson`, with the differences from jq written in [DESIGNS.md](DESIGNS.md#jq-where-it-differs-from-jq)), the cut for a very long line (`WithMaxLine`, 8 KiB by default, on the final stdout only), `--help` on every command, and `ctx` and output bounds on a jq program (no heap watcher or timer of the engine's own: a process-wide measure is wrong in a service; a program that builds a huge value without output is ended only by the Run's deadline, a known limit). The spill of long output is the Gotato layer's, in step 5: the engine hands it the output up to the bound and `Result.Truncated`.
+- ✅ Step 3, the remaining commands, each with GNU conformance tests: `tail`, `sed -n`, `wc`, `sort`, `uniq`, `cut`, `tr`, `base64`, `echo`, `ls`, and `grep -o -w -r -A -B -C`. The commands follow the `C.UTF-8` locale; the supported flags are in the table of [DESIGNS.md](../DESIGNS.md#reading-a-large-result-needs-no-machine--2026-10-26).
+- ✅ Step 4, jq through gojq, and the protections: `jq` (`-r -j -c -s -n -R -e -S -a --tab --indent --arg --argjson`, with the differences from jq written in [DESIGNS.md](../DESIGNS.md#jq-where-it-differs-from-jq)), the cut for a very long line (`WithMaxLine`, 8 KiB by default, on the final stdout only), `--help` on every command, and `ctx` and output bounds on a jq program (no heap watcher or timer of the engine's own: a process-wide measure is wrong in a service; a program that builds a huge value without output is ended only by the Run's deadline, a known limit). The spill of long output is the Gotato layer's, in step 5: the engine hands it the output up to the bound and `Result.Truncated`.
 - ✅ Step 5, the Gotato layer and the reference task. `adapter/bash/bashtool` wraps the engine as the `bash` tool (Effect read, one parameter `command`), installed with `SessionTools: []service.SessionToolsFunc{bashtool.Tools()}`; the generic hook `service.Agent.SessionTools` gives it the calling Session's Record and the Runner's store, and each call runs over `session.ResultsFS`. Output is bounded at four pages and spilled by the core over one page, and the spilled output is readable through the tool. The reference task is `testkit.BashLookupTask`, played by `workload.Run` and by `go run ./cmd/gotato-workload-bash` in `adapter/bash`; it cannot join `testkit.ReferenceTasks()`, because the root module cannot link the engine.
 
 Exit:
@@ -241,12 +241,12 @@ The last phase tests Gotato the way a team would run it: against gateways that b
 
 - ✅ **Fake gateways.** `test/fakegateway` is one test-only server that speaks each wire API (Claude's Messages, OpenAI's Responses, Chat Completions) and plays their quirks on demand, from a directive in the last user text or the `X-Fake-Quirk` header: a refusal as too long in each provider's words and fields, before any output and mid-stream; a stream cut after text and in a tool call's arguments; cached-token usage; a reasoning replay, which it refuses to see dropped; a system or `developer` message mid-conversation, accepted or refused as the provider does; a slow reply, for the cluster. It records every request, and `test/fakegateway/cmd/fakegateway` serves it on a port. The gateway's adaptation and compaction's overflow path run against it.
 - ✅ **A local cluster.** Several instances of the chat bot below on one local Kubernetes cluster (kind), sharing a file store, with the fake gateway as the model and a fake chat platform in front, so a Run stays in flight. The scenarios, each run on a cold cluster and checked afterwards against the Records: a rolling deploy while Runs are in flight, a writer killed mid-Run (deleted, and killed with SIGKILL), scaling from 3 to 1 to 5 instances, bursts of messages on one Session from several instances, and events delivered again after a late acknowledgement; and, with the `bash` tool and an MCP server on it, a spilled result read from the instance that took a Session over, an MCP server restarted and a bot deployed while calls are in flight, and a tool loaded by search still loaded after a takeover. The cluster files, the load driver and the fake chat platform live in the example's repository, because they belong to the application.
-- ✅ **A chat bot.** An example the maintainer builds, in a repository of its own: a Lark chat bot that embeds Gotato, one Session per message thread, and runs on the local cluster behind the fake gateway. It is an application and not a client Gotato ships ([G-N18](FEATURES.md#g-n18--no-ready-made-clients)). A chat platform delivers each event to one instance at random, so the bot checks from the caller's side what [FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-) says about a caller that cannot route by Session: it forwards a message to the writer, and retries one that was not run, with backoff and in order per Session. What it leaves to the application, with the numbers from the cluster, is how to drop an event delivered again.
+- ✅ **A chat bot.** An example the maintainer builds, in a repository of its own: a Lark chat bot that embeds Gotato, one Session per message thread, and runs on the local cluster behind the fake gateway. It is an application and not a client Gotato ships ([G-N18](../FEATURES.md#g-n18--no-ready-made-clients)). A chat platform delivers each event to one instance at random, so the bot checks from the caller's side what [FEATURES.md → G-F26](../FEATURES.md#g-f26--steering-a-run-) says about a caller that cannot route by Session: it forwards a message to the writer, and retries one that was not run, with backoff and in order per Session. What it leaves to the application, with the numbers from the cluster, is how to drop an event delivered again.
 - ⬜ **Compatibility check**, below.
 
 ### Compatibility check
 
-- CI compares the exported identifiers of the core package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
+- CI compares the exported identifiers of the core package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](../CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](../DESIGNS.md#a-named-versioned-contract)).
 - It starts when mass testing begins, and the maintainer sets the date. Until the first release is tagged there is nothing to compare with, so CI does not run the check, and its tests use a baseline of their own.
 
 Exit:
@@ -258,7 +258,7 @@ Exit:
 
 ## Waiting for design
 
-These are planned in [FEATURES.md](FEATURES.md) and need a design before they get a phase. Each is discussed when what it depends on is in place.
+These are planned in [FEATURES.md](../FEATURES.md) and need a design before they get a phase. Each is discussed when what it depends on is in place.
 
 | Feature | Depends on | Discussed |
 |---|---|---|
@@ -268,10 +268,10 @@ These are planned in [FEATURES.md](FEATURES.md) and need a design before they ge
 
 - Every goal that passed keeps passing.
 - Every benchmark but G-B13 is measured again, and compared with the previous release (for the first release, with the numbers of Phase 1) and with what its row in GOALS.md names.
-- G-G06 is checked: each break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md).
+- G-G06 is checked: each break has a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Not scheduled
 
 - G-B13, which needs developers new to Gotato;
-- the ideas in [FEATURES.md → Later](FEATURES.md#later);
+- the ideas in [FEATURES.md → Later](../FEATURES.md#later);
 - the other items in [TODO.md](TODO.md), which are fixed or settled outside the phases.

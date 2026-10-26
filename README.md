@@ -152,12 +152,11 @@ Stdout is data, stderr is diagnostics, exit codes are documented: [cmd/gotato/RE
 | [PHILOSOPHY.md](PHILOSOPHY.md) | the beliefs behind it |
 | [DESIGNS.md](DESIGNS.md) | design principles, and the decisions that follow from them |
 | [GLOSSARY.md](GLOSSARY.md) | one name per thing, and its name in today's code |
-| [GOALS.md](GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
+| [GOALS.md](plan/GOALS.md) | goals that pass or fail, and benchmarks tracked against a reference |
 | [FEATURES.md](FEATURES.md) | implementation inventory with status markers, and what is not planned |
-| [ROADMAP.md](ROADMAP.md) | what gets built next, in what order, and how each step is known to be done |
-| [TODO.md](TODO.md) | open defects and design decisions, verified against the code |
-| [AGENTS.md](AGENTS.md) | instructions for coding agents working here |
-| [GITFLOW.md](GITFLOW.md) | Git policy |
+| [ROADMAP.md](plan/ROADMAP.md) | what gets built next, in what order, and how each step is known to be done |
+| [TODO.md](plan/TODO.md) | open defects and design decisions, verified against the code |
+| [AGENTS.md](AGENTS.md) | instructions for coding agents, and the Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first, with before/after notes for breaking changes |
 
 ## MCP tools
