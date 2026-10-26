@@ -16,6 +16,15 @@
 // with Close, which ends the connection and the subprocess; a Session never
 // closes it. Every call passes the caller's ctx to the SDK, so cancelling a
 // Run cancels the call.
+//
+// A server behind a load balancer. A stateful MCP server keeps its sessions in
+// the memory of one process, so a request that carries a session ID must reach
+// that process. Behind a round-robin balancer with more than one replica, or
+// during a rolling deploy while the old and the new process both answer, a
+// request can reach a process that does not know the session and gets 404; the
+// ToolSet starts a new session and tries once, and what still fails reaches
+// the model as a tool error. Run a stateless server, or give the balancer
+// session affinity.
 package mcp
 
 import (
