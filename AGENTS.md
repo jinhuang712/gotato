@@ -160,9 +160,9 @@ chore: add CI workflow
 
 A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F16`, ...) when a commit exists to satisfy one.
 
-### Updating and Merging
+### Landing a Branch
 
-- Rebase a short-lived branch on `main` before merging when it has fallen behind and the rebase is trivial. Prefer merge commits when a rebase would rewrite many commits other people have already pulled.
+- Land a branch by rebasing it on `main` and fast-forwarding `main` to it, so `main` stays a straight line with no merge commits. Rebase a branch of your own, one that nobody else has pulled; never rewrite shared history.
 - Resolve conflicts locally; run the full test suite again after resolution.
 - Squash only your own noise commits ("wip", "fix typo") before opening a PR; do not squash away meaningful history.
 
