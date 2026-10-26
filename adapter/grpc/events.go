@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 

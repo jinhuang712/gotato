@@ -3,7 +3,7 @@ package grpcadapter
 import (
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // tool_result_spilled has a wire form: its size travels and, on a stream, its

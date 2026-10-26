@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // SchemaVersion is the persisted document version written by stores.

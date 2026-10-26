@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // A notice from the CLI starts no Run: its notice_queued is stored with the

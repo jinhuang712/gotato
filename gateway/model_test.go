@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // fallbackReply scripts, per wire API, a reply in which the provider reports

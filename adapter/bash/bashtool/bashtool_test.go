@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/adapter/bash"
 	"github.com/jinhuang712/gotato/adapter/bash/bashtool"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/workload"
 	"github.com/jinhuang712/gotato/session"

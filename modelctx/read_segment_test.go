@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/session"
 )

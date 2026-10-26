@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/gateway"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"

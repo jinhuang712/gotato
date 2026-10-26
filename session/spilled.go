@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // DefaultSpillCacheBytes is how much of the bodies of spilled results a live

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // wireItems decodes the conversation of an encoded request: "messages" on

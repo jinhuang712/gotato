@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // RecapCheck is the payments example of GOALS.md G-E01: an operations

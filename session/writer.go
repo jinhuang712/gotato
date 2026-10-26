@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // Writer writes one Record's Entries to a Store, as the Instance that holds

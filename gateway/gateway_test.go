@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {

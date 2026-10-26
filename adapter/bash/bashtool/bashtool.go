@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato"
 	"github.com/jinhuang712/gotato/adapter/bash"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/session"
 )
 

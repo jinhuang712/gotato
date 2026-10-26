@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 var wireAPIs = []string{APIChatCompletions, APIResponses, APIAnthropicMessages}

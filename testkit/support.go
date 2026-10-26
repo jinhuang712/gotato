@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // The support case's Tools.

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jinhuang712/gotato"
 	gmcp "github.com/jinhuang712/gotato/adapter/mcp"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/testkit"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

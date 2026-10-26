@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // APIAnthropicMessages selects the Anthropic Messages API.

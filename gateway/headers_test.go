@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 func drain(t *testing.T, stream gotato.ModelStream) []gotato.ModelEvent {

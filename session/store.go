@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // summaryTime is how a Summary writes a time.

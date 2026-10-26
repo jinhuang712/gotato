@@ -3,7 +3,7 @@ package modelctx
 import (
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // ContextWindower is a Model that knows its context window in tokens.

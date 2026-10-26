@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // A hand-built json Tool Result with an imitated tag reaches every encoder escaped.

@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // The native form of deferred tools (Config.DeferredTools). The core hands a

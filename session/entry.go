@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // Layer says what an Entry is for. A fact is part of what the Session is: a

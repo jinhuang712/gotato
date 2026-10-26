@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // followOn is a Run that follows another with the messages it left: the first

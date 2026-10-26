@@ -12,12 +12,17 @@ import (
 
 const modulePath = "github.com/jinhuang712/gotato"
 
-// TestLayering enforces DESIGNS.md → Dependencies point inward: the root
-// package imports only the standard library, and standard runtime packages
-// never import the optional service layer or the CLI.
+// TestLayering enforces DESIGNS.md → Dependencies point inward: the core
+// package (gotato-core, named gotato) imports only the standard library, the
+// module root holds no Go package, and standard runtime packages never import
+// the optional service layer or the CLI.
 func TestLayering(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
-	root := filepath.Dir(file)
+	core := filepath.Dir(file)
+	root := filepath.Dir(core) // the module root: documents, and directories of packages
+	if files, _ := filepath.Glob(filepath.Join(root, "*.go")); len(files) > 0 {
+		t.Fatalf("the module root holds Go files %v; every package lives in a directory", files)
+	}
 	imports := func(dir string) []string {
 		pkg, err := build.ImportDir(dir, 0)
 		if err != nil {
@@ -25,9 +30,9 @@ func TestLayering(t *testing.T) {
 		}
 		return pkg.Imports
 	}
-	for _, imported := range imports(root) {
+	for _, imported := range imports(core) {
 		if strings.HasPrefix(imported, modulePath) || strings.Contains(imported, ".") {
-			t.Fatalf("root package imports %q; it may import only the standard library", imported)
+			t.Fatalf("the core package imports %q; it may import only the standard library", imported)
 		}
 	}
 	forbiddenForInner := []string{modulePath + "/service"}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato"
+	gotato "github.com/jinhuang712/gotato/gotato-core"
 )
 
 // ResultsDir is the directory of ResultsFS that holds the Tool Results, one
