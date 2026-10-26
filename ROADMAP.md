@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](DESIGNS.md). Terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -246,7 +246,7 @@ The last phase tests Gotato the way a team would run it: against gateways that b
 
 ### Compatibility check
 
-- CI compares the exported identifiers of the root package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
+- CI compares the exported identifiers of the core package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](DESIGNS.md#a-named-versioned-contract)).
 - It starts when mass testing begins, and the maintainer sets the date. Until the first release is tagged there is nothing to compare with, so CI does not run the check, and its tests use a baseline of their own.
 
 Exit:

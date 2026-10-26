@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -438,7 +438,7 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 ### Dependencies point inward
 
 - **Instead of:** behavior that only the CLI or only the service has, or a core that knows about the service.
-- **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `layering_test.go` keeps each layer building only on the layers inside it:
+- **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato-core/layering_test.go` keeps each layer building only on the layers inside it:
 
 ```text
 cmd/gotato, gRPC adapter  ──►  service, service/httpapi  ──►  session, modelctx, toolregistry, testkit  ──►  core
@@ -450,7 +450,7 @@ The MCP adapter only supplies Tools, so it builds on the core alone and no runti
 ### The core uses only the standard library
 
 - **Instead of:** vendor SDKs or other libraries that save some code, or one module that carries every dependency.
-- **Why:** every dependency lands in every service that embeds Gotato. The root package imports only the standard library, the root module requires only `gopkg.in/yaml.v3`, and the gRPC adapter and the MCP adapter are modules of their own.
+- **Why:** every dependency lands in every service that embeds Gotato. The core package imports only the standard library, the root module requires only `gopkg.in/yaml.v3`, and the gRPC adapter and the MCP adapter are modules of their own.
 
 ### Providers are configured by wire API — 2026-09-17
 
@@ -518,7 +518,7 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 ### A named, versioned contract
 
 - **Instead of:** changes that slip in unannounced.
-- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the root and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Until the first release, any part of it may change: Gotato keeps no old names and no compatibility shims, and every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), so a break is never silent. From the first release on, additions are free and a break is rare and raises the version. Consumers tolerate unknown Event kinds either way.
+- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the core and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP and gRPC contracts, which carry their own version; the store contract; and the places where many instances behave differently from one. Until the first release, any part of it may change: Gotato keeps no old names and no compatibility shims, and every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), so a break is never silent. From the first release on, additions are free and a break is rare and raises the version. Consumers tolerate unknown Event kinds either way.
 
 ## 7. Serve purpose-built agents
 

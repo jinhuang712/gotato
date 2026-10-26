@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -252,7 +252,7 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 
 A Tool Result over one page is not a limit: it is spilled into the Record and read back in pages ([G-F35](#g-f35--large-tool-results-)). A cap on Turns, on tool calls or on tokens is the team's own, written as a `TurnStopper` ([G-F15](#g-f15--extensions-)).
 
-A team that wants a cap on Turns writes it as a `TurnStopper`, a few lines (`ExampleTurnStopper` in `runend_test.go` runs it):
+A team that wants a cap on Turns writes it as a `TurnStopper`, a few lines (`ExampleTurnStopper` in `gotato-core/runend_test.go` runs it):
 
 ```go
 type maxTurns uint32
