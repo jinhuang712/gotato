@@ -3,21 +3,24 @@
 [![CI](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml/badge.svg)](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jinhuang712/gotato.svg)](https://pkg.go.dev/github.com/jinhuang712/gotato)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)
+![Status](https://img.shields.io/badge/status-pre--release-orange)
+![Core](https://img.shields.io/badge/core-standard%20library%20only-brightgreen)
 
 > **A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.**
 
 Gotato runs purpose-built agents inside the Go services you already operate. A Session is a small agent loop plus a runtime that saves it to your store and lets it go when it is idle, so any pod can run the next message.
 
-## Why
+## 🤔 Why
 
 When a Go service needs an agent today, four things get in the way.
 
-- **The agent stack is not Go.** The established stacks are written in Python, TypeScript or Rust. A Go service that adopts one takes on a second language, a second build and a second deployment, and the agent ends up as a separate system beside the service it works for.
-- **Graph frameworks are heavy for the work.** They are expensive to run, slow, and hard to develop and debug. In our experience they do not do clearly better than one loop: call the model, run the tools it asked for, repeat until it answers.
-- **The conversation lives in one process.** On Kubernetes, pods come and go. A conversation kept in a pod's memory is gone when the pod is, and pinning each conversation to a pod gives up much of what scaling is for.
-- **A simple task carries a coding agent's weight.** Coding-agent harnesses bring a machine to every session: Anthropic's hosting guide for its Agent SDK starts each session at 1 GiB RAM, 5 GiB disk, 1 CPU and one subprocess. A conversation is idle most of the time, so that cost runs while nothing happens.
+- 🐍 **The agent stack is not Go.** The established stacks are written in Python, TypeScript or Rust. A Go service that adopts one takes on a second language, a second build and a second deployment, and the agent ends up as a separate system beside the service it works for.
+- 🕸️ **Graph frameworks are heavy for the work.** They are expensive to run, slow, and hard to develop and debug. In our experience they do not do clearly better than one loop: call the model, run the tools it asked for, repeat until it answers.
+- 🧠 **The conversation lives in one process.** On Kubernetes, pods come and go. A conversation kept in a pod's memory is gone when the pod is, and pinning each conversation to a pod gives up much of what scaling is for.
+- 🏋️ **A simple task carries a coding agent's weight.** Coding-agent harnesses bring a machine to every session: Anthropic's hosting guide for its Agent SDK starts each session at 1 GiB RAM, 5 GiB disk, 1 CPU and one subprocess. A conversation is idle most of the time, so that cost runs while nothing happens.
 
-## The idea
+## 💡 The idea
 
 Gotato splits an agent in two. An **Agent** is a definition, written once: a model, an instruction, tools and limits. A **Session** is one conversation that runs it: a small loop, plus a runtime that saves every step to your store.
 
@@ -45,7 +48,7 @@ A request can reach any pod. Only one of them runs a given Session at a time, an
 
 [PROPOSAL.md](PROPOSAL.md) tells the longer story.
 
-## How Simple is Gotato?
+## ⚡ How Simple is Gotato?
 
 ```go
 import (
@@ -66,9 +69,12 @@ result, err := s.Prompt(ctx, gotato.UserMessage("hello"))
 fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
 ```
 
+> [!TIP]
+> No provider key is needed to try this: `testkit.EchoModel` answers `echo: <your text>`.
+
 `Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. This code is run as a test: [example_test.go](gotato-core/example_test.go).
 
-## What you import
+## 📦 What you import
 
 The core, `gotato-core`, is the package every program uses. It depends on the standard library alone, and it is complete on its own: a Session with an in-memory conversation, tools, and Events. The other packages add what a service needs.
 
@@ -86,9 +92,12 @@ Without `session` a conversation lives in the memory of one process and is gone 
 
 Guides: [Install](guides/install.md), [Getting started](guides/getting-started.md) and [Embed Gotato in a service](guides/embed-in-a-service.md); [Example: a chat bot](guides/example-chat-bot.md) runs several instances locally. Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
-## Install
+## 🚀 Install
 
-Gotato has no release yet, so a version is a commit:
+> [!WARNING]
+> Gotato has no release yet. A version is a commit, and until the first release a name may change.
+
+Pin a commit you have tested:
 
 ```sh
 go get github.com/jinhuang712/gotato@<commit>
@@ -96,7 +105,7 @@ go get github.com/jinhuang712/gotato@<commit>
 
 [Install](guides/install.md) has the details, including the adapters.
 
-## Documents
+## 📚 Documents
 
 | Document | Role |
 |---|---|
@@ -112,6 +121,6 @@ go get github.com/jinhuang712/gotato@<commit>
 | [AGENTS.md](AGENTS.md) | how to work in this repository, and the Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first |
 
-## License
+## 📄 License
 
 Gotato is licensed under the [Apache License 2.0](LICENSE).
