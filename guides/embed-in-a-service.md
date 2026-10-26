@@ -71,4 +71,4 @@ The handler serves the same Runner over HTTP, with a stream for each Run and eac
 
 ## A chat bot on three pods
 
-[FEATURES.md → Service: many instances](../FEATURES.md#g-f27--service-many-instances-) lists every behavior above. The maintainer's chat-bot example, which runs three pods on a local cluster through a rolling deploy, a killed writer and a scale-down, is described in [ROADMAP.md → Phase 10](../plan/ROADMAP.md#phase-10--before-the-release).
+[FEATURES.md → Service: many instances](../FEATURES.md#g-f27--service-many-instances-) lists every behavior above. The chat-bot example, which runs three pods on a local cluster through a rolling deploy, a killed writer and a scale-down, is in [`examples/larkbot`](../examples/larkbot/README.md) and described in [Example: a chat bot](example-chat-bot.md).

@@ -80,10 +80,11 @@ The core, `gotato-core`, is the package every program uses. It depends on the st
 | Call MCP servers, or read large results with a `bash` tool | `adapter/mcp`, `adapter/bash` (modules of their own) |
 | Serve it over HTTP or gRPC | `service/httpapi`, `adapter/grpc` |
 | Write tests with a fake model | `testkit` |
+| See an application on many pods | the chat bot in `examples/larkbot` ([guide](guides/example-chat-bot.md)) |
 
 Without `session` a conversation lives in the memory of one process and is gone when it exits; that is the one thing to add before you run on many pods.
 
-Guides: [Install](guides/install.md), [Getting started](guides/getting-started.md) and [Embed Gotato in a service](guides/embed-in-a-service.md). Each feature, with its status, is in [FEATURES.md](FEATURES.md).
+Guides: [Install](guides/install.md), [Getting started](guides/getting-started.md) and [Embed Gotato in a service](guides/embed-in-a-service.md); [Example: a chat bot](guides/example-chat-bot.md) runs several instances locally. Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## Install
 
