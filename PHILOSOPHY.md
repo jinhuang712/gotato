@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Philosophy
 
 Agents are moving off developers' machines and into the systems they serve. The work they do there is not new: settling the hard cases in a pipeline, investigating an alert, answering a user from the service's own records. What is new is how little it takes. A loop around a capable model now does work that used to need a graph framework, and most of that work needs tools and data, not a machine.
@@ -7,7 +7,7 @@ Agents are moving off developers' machines and into the systems they serve. The 
 >
 > — Erik S. and Barry Zhang, *Building effective agents*, Anthropic, 2024
 
-Gotato is built for that kind of agent: purpose-built, running inside an ordinary service, and cheap enough to have many of. This page asks four questions about that world and answers each one.
+Gotato is built for that kind of agent: purpose-built, running inside an ordinary service, and light enough to have many of. This page asks four questions about that world and answers each one.
 
 ## 1. What actually changed?
 

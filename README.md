@@ -2,7 +2,7 @@
 
 <img src="assets/gotato-logo.webp" alt="Gotato" width="560">
 
-<img src="assets/tagline.svg" alt="A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1." width="860">
+<img src="assets/tagline.svg" alt="A minimal Go library that turns cloud services into cloud agents: distributed, efficient and stable from day 1." width="860">
 
 [![CI](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml/badge.svg)](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jinhuang712/gotato.svg)](https://pkg.go.dev/github.com/jinhuang712/gotato)

@@ -1,15 +1,15 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Proposal
 
 > **Agent as a service for Go.**
 >
-> A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.
+> A minimal Go library that turns cloud services into cloud agents: distributed, efficient and stable from day 1.
 
 Proposed 2026-08-27, rewritten 2026-10-15. Why it is shaped this way: [PHILOSOPHY.md](PHILOSOPHY.md). How it is built: [DESIGNS.md](DESIGNS.md). Terms: [GLOSSARY.md](GLOSSARY.md).
 
 ## In short
 
-Gotato runs purpose-built agents inside the Go services you already operate. It does one thing: it makes the agent session small, cheap and safe to run on many pods.
+Gotato runs purpose-built agents inside the Go services you already operate. It does one thing: it makes the agent session small, efficient and safe to run on many pods.
 
 For most scenarios, a cloud-hosted full session, with a machine for each conversation, is a waste of resources. A purpose-built agent looks things up, decides and answers. For that, a session needs two parts:
 
