@@ -8,7 +8,7 @@ None open.
 
 ## Decisions
 
-- [ ] **Should an overflow in the middle of a reply compact and send again?** Played on the fake gateway (`test/fakegateway`): a reply that stops with `model_context_window_exceeded` on Claude, or an error event on OpenAI, after some text ends the Run with `context_overflow` and keeps the text as a Cut-off reply. The loop compacts and sends again only for a request refused before any output (`modelctx.AutoCompactor`, `gateway/overflow.go`). The same reply could be dropped, as `model_retried` drops a cut stream's, and sent again after a compaction. To decide, with a test on the fake gateway for each wire API.
+None open.
 
 ## Open checks
 

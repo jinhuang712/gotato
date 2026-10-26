@@ -279,7 +279,9 @@ type ToolOutcome struct {
 // RunStarted: a Run starts.
 type RunStarted struct{ Header }
 
-// RunEnded: a Run settles, with its status, its cause and its stop reason.
+// RunEnded: a Run settles, with its status, its cause and its stop reason. It
+// does not carry the final text, which can be long: read it from the Run's
+// result (service.RunResult.FinalText), or from the Transcript.
 type RunEnded struct {
 	Header
 	Status RunStatus `json:"status"`

@@ -20,7 +20,12 @@ const (
 	// ErrContextOverflow means the Model refused a request as longer than its
 	// context window. A Model reports it by returning an error with a
 	// `ContextOverflow() bool` method that answers true, as the gateway's
-	// Error does; any other Model failure is ErrModelFailure.
+	// Error does; any other Model failure is ErrModelFailure. A request
+	// refused before any output is compacted and sent again once. A reply
+	// that overflows after some text ends the Run with this code and keeps the
+	// text as a Cut-off reply: the compaction before every model call leaves
+	// room for a reply, so the next message compacts first and the Session
+	// goes on.
 	ErrContextOverflow       ErrorCode = "context_overflow"
 	ErrModelProtocolFailure  ErrorCode = "model_protocol_failure"
 	ErrToolResolutionFailure ErrorCode = "tool_resolution_failure"
