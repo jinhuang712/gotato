@@ -1,4 +1,8 @@
-# Gotato
+<div align="center">
+
+<img src="assets/gotato-logo.webp" alt="Gotato" width="560">
+
+**A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.**
 
 [![CI](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml/badge.svg)](https://github.com/jinhuang712/gotato/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jinhuang712/gotato.svg)](https://pkg.go.dev/github.com/jinhuang712/gotato)
@@ -7,7 +11,7 @@
 ![Status](https://img.shields.io/badge/status-pre--release-orange)
 ![Core](https://img.shields.io/badge/core-standard%20library%20only-brightgreen)
 
-> **A minimal Go library that turns cloud services into cloud agents: distributed, cheap and stable from day 1.**
+</div>
 
 Gotato runs purpose-built agents inside the Go services you already operate. A Session is a small agent loop plus a runtime that saves it to your store and lets it go when it is idle, so any pod can run the next message.
 
