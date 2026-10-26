@@ -107,9 +107,6 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 
 `Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato-core/example_test.go).
 
-> [!TIP]
-> No key yet? Use `testkit.EchoModel{}` as the model. It answers `echo: <your text>`, and [Getting started](guides/getting-started.md) begins there.
-
 ## 📦 What you import
 
 The core, `gotato-core`, is the package every program uses. It depends on the standard library alone, and it is complete on its own: a Session with an in-memory conversation, tools, and Events. The other packages add what a service needs.
