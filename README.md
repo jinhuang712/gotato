@@ -10,9 +10,18 @@ Gotato runs purpose-built agents inside the Go services you already operate. A S
 
 ## Why
 
-- **Go all the way.** One language, one build and one deployment: the agent is a package in your service, not a second system beside it.
-- **The conversation survives your pods.** State lives in your store. A rolling deploy, a scale-down or a crash does not lose it, and one writer per Session keeps two pods from running it at once.
-- **No machine per conversation.** An idle Session costs a few kilobytes, so many fit in one process.
+When a Go service needs an agent today, four things get in the way.
+
+- **The agent stack is not Go.** The established stacks are written in Python, TypeScript or Rust. A Go service that adopts one takes on a second language, a second build and a second deployment, and the agent ends up as a separate system beside the service it works for.
+- **Graph frameworks are heavy for the work.** They are expensive to run, slow, and hard to develop and debug. In our experience they do not do clearly better than one loop: call the model, run the tools it asked for, repeat until it answers.
+- **The conversation lives in one process.** On Kubernetes, pods come and go. A conversation kept in a pod's memory is gone when the pod is, and pinning each conversation to a pod gives up much of what scaling is for.
+- **A simple task carries a coding agent's weight.** Coding-agent harnesses bring a machine to every session: Anthropic's hosting guide for its Agent SDK starts each session at 1 GiB RAM, 5 GiB disk, 1 CPU and one subprocess. A conversation is idle most of the time, so that cost runs while nothing happens.
+
+## The idea
+
+Gotato splits an agent in two. An **Agent** is a definition, written once: a model, an instruction, tools and limits. A **Session** is one conversation that runs it: a small loop, plus a runtime that saves every step to your store.
+
+Between messages a Session is its record in your store, a log that only grows. Any pod can load it and continue, and one writer per Session keeps two pods from running it at once. A Session needs no process, shell or sandbox of its own, and an idle one costs a few kilobytes, so a Go service hosts Sessions the way it serves any other request.
 
 [PROPOSAL.md](PROPOSAL.md) tells the longer story.
 
