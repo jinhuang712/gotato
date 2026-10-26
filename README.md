@@ -106,23 +106,21 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 
 `Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato-core/example_test.go).
 
-## 📦 What you import
+## 🧪 Example
 
-The core, `gotato-core`, is the package every program uses. It depends on the standard library alone, and it is complete on its own: a Session with an in-memory conversation, tools, and Events. The other packages add what a service needs.
+**A chat bot on several pods.** A Lark bot built on Gotato: one Session per thread, any pod can answer, and a killed or replaced pod does not end a conversation. It runs on your machine with a fake chat platform and no secrets, and on a local Kubernetes cluster through a rolling deploy, a killed writer and a scale-down. See [`examples/larkbot`](examples/larkbot) and its [guide](guides/example-chat-bot.md).
 
-| You want to | Import |
+## 📖 Guides
+
+| Guide | You learn |
 |---|---|
-| Run an agent in your program | `gotato-core`, and a model: `gateway` for OpenAI or Anthropic, or your own `gotato.Model` |
-| Keep conversations in a store and continue them on any pod | add `service` (the Runner) and `session` (the Store) |
-| Keep long conversations small | `modelctx`; the Runner brings it |
-| Call MCP servers, or read large results with a `bash` tool | `adapter/mcp`, `adapter/bash` (modules of their own) |
-| Serve it over HTTP or gRPC | `service/httpapi`, `adapter/grpc` |
-| Write tests with a fake model | `testkit` |
-| See an application on many pods | the chat bot in `examples/larkbot` ([guide](guides/example-chat-bot.md)) |
+| [Install](guides/install.md) | how to add Gotato and its adapters to your `go.mod` |
+| [Which packages do I import?](guides/packages.md) | what each package is for, and what leaving one out costs |
+| [Getting started](guides/getting-started.md) | a Session, a tool and the Events of a Run |
+| [Embed Gotato in a service](guides/embed-in-a-service.md) | the Runner, many pods and shutting down |
+| [Example: a chat bot](guides/example-chat-bot.md) | several instances behind a chat platform |
 
-Without `session` a conversation lives in the memory of one process and is gone when it exits; that is the one thing to add before you run on many pods.
-
-Guides: [Install](guides/install.md), [Getting started](guides/getting-started.md) and [Embed Gotato in a service](guides/embed-in-a-service.md); [Example: a chat bot](guides/example-chat-bot.md) runs several instances locally. Each feature, with its status, is in [FEATURES.md](FEATURES.md).
+Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## 🚀 Install
 
