@@ -101,7 +101,7 @@ Two things follow:
 
 **What it costs.** A purpose-built agent does less than a general one. Teams write careful tools, because the tools are the bounds. Keeping the conversation outside the process costs a write for every step.
 
-## 4. Where is agent as a service going?
+## 4. Where is Agent-as-a-Service going?
 
 **Agent services will scale with the number of users, not with the number of sandboxes.**
 

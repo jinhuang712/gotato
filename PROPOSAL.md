@@ -1,7 +1,7 @@
 <!-- what-we-build: drafted 2026-10-26 -->
 # Gotato — Proposal
 
-> **Agent as a service for Go.**
+> **Agent-as-a-Service for Go.**
 >
 > A minimal Go library that turns cloud services into cloud agents: distributed, efficient and stable from day 1.
 
