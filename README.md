@@ -16,7 +16,7 @@ Gotato runs purpose-built agents inside the Go services you already operate. A S
 
 [PROPOSAL.md](PROPOSAL.md) tells the longer story.
 
-## Try it
+## How Simple is Gotato?
 
 ```go
 import (
@@ -81,13 +81,6 @@ go get github.com/jinhuang712/gotato@<commit>
 | [plan/TODO.md](plan/TODO.md) | open defects and decisions |
 | [AGENTS.md](AGENTS.md) | how to work in this repository, and the Git policy |
 | [CHANGELOG.md](CHANGELOG.md) | what changed, newest first |
-
-## Origin
-
-Inspired by [Pi](https://pi.dev)'s agent kernel (`@earendil-works/pi-agent-core`, created by Mario Zechner and contributors, MIT-licensed), redesigned as a Go-native runtime. Gotato is an independent design: it expresses Pi's loop semantics (Prompt/Continue, streaming, tool batches, steering and follow-up, abort, interception) through goroutines, channels, `context.Context` cancellation, and explicit extensions. Attribution is retained wherever derived material requires it.
-
-- [Pi repository](https://github.com/earendil-works/pi)
-- [`pi-agent-core` on npm](https://www.npmjs.com/package/@earendil-works/pi-agent-core)
 
 ## License
 
