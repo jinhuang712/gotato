@@ -7,6 +7,11 @@ By the end of this page you have run an agent in your own program, with a tool i
 A Session is one conversation: a model, an instruction and a loop. `Prompt` runs the loop and returns when the Run settles.
 
 ```go
+import (
+    gotato "github.com/jinhuang712/gotato/gotato-core"
+    "github.com/jinhuang712/gotato/testkit"
+)
+
 s, err := gotato.NewSession(
     gotato.WithModel(testkit.EchoModel{}), // any gotato.Model
     gotato.WithInstruction("You are a helpful assistant."),
@@ -24,7 +29,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
 - A Session keeps its conversation in memory unless you give it a place to write ([Embed Gotato in a service](embed-in-a-service.md)).
 - To talk to a real model, use a provider from the `gateway` package (OpenAI Chat Completions, OpenAI Responses, Anthropic Messages). Gotato takes a base URL and a key in a YAML file, so a team can point it at its own gateway.
 
-This example is run as a test: `Example` in [example_test.go](../example_test.go).
+This example is run as a test: `Example` in [example_test.go](../gotato-core/example_test.go).
 
 ## 2. A tool
 
@@ -45,7 +50,7 @@ s, err := gotato.NewSession(
 
 The model asks for the tool, the Session runs it, gives the result back, and the loop goes on until the model answers. Gotato checks the model's arguments against the schema first; arguments that do not fit go back to the model as a failed Tool Result, and it corrects them.
 
-This example is run as a test: `ExampleNewFuncTool` in [example_test.go](../example_test.go).
+This example is run as a test: `ExampleNewFuncTool` in [example_test.go](../gotato-core/example_test.go).
 
 ## 3. Watch what happens
 
@@ -71,7 +76,7 @@ go func() {
 
 A Session never waits for a subscriber: a slow reader does not slow the Run.
 
-This example is run as a test: `ExampleSession_SubscribeRun` in [example_test.go](../example_test.go).
+This example is run as a test: `ExampleSession_SubscribeRun` in [example_test.go](../gotato-core/example_test.go).
 
 ## Next
 

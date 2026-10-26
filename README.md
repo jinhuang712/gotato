@@ -19,6 +19,11 @@ Gotato runs purpose-built agents inside the Go services you already operate. A S
 ## Try it
 
 ```go
+import (
+    gotato "github.com/jinhuang712/gotato/gotato-core"
+    "github.com/jinhuang712/gotato/testkit"
+)
+
 s, err := gotato.NewSession(
     gotato.WithModel(testkit.EchoModel{}), // any gotato.Model; providers live in gateway/
     gotato.WithInstruction("You are a helpful assistant."),
@@ -32,17 +37,24 @@ result, err := s.Prompt(ctx, gotato.UserMessage("hello"))
 fmt.Println(gotato.TextOf(*result.FinalMessage)) // echo: hello
 ```
 
-`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. This code is run as a test: [example_test.go](example_test.go).
+`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. This code is run as a test: [example_test.go](gotato-core/example_test.go).
 
-## What you get
+## What you import
 
-| You want to | Start here |
+The core, `gotato-core`, is the package every program uses. It depends on the standard library alone, and it is complete on its own: a Session with an in-memory conversation, tools, and Events. The other packages add what a service needs.
+
+| You want to | Import |
 |---|---|
-| Run an agent in your program | [Getting started](docs/getting-started.md) |
-| Run it in a service on many pods | [Embed Gotato in a service](docs/embed-in-a-service.md) |
-| Call tools, MCP servers, read large results | [FEATURES.md](FEATURES.md): Tool search, The MCP adapter, Reading large results |
-| Keep long conversations small | [FEATURES.md](FEATURES.md): Compaction |
-| Serve it over HTTP or gRPC, or from a CLI | `service/httpapi`, `adapter/grpc`, [cmd/gotato](cmd/gotato/README.md) |
+| Run an agent in your program | `gotato-core`, and a model: `gateway` for OpenAI or Anthropic, or your own `gotato.Model` |
+| Keep conversations in a store and continue them on any pod | add `service` (the Runner) and `session` (the Store) |
+| Keep long conversations small | `modelctx`; the Runner brings it |
+| Call MCP servers, or read large results with a `bash` tool | `adapter/mcp`, `adapter/bash` (modules of their own) |
+| Serve it over HTTP or gRPC | `service/httpapi`, `adapter/grpc` |
+| Write tests with a fake model | `testkit` |
+
+Without `session` a conversation lives in the memory of one process and is gone when it exits; that is the one thing to add before you run on many pods.
+
+Guides: [Getting started](docs/getting-started.md) and [Embed Gotato in a service](docs/embed-in-a-service.md). Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## Install
 
