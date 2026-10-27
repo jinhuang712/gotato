@@ -20,8 +20,11 @@ type RunRequest struct {
 	// Agent selects the Agent for a new Session; an existing Session
 	// keeps the Agent it was created with unless Agent is set.
 	Agent string
-	// Prompt is the user input. Empty with Continue=true resumes the loop.
-	Prompt   string
+	// Prompt is the user input. It is required unless Continue is set.
+	Prompt string
+	// Continue resumes the loop of a Session without a new Message. It takes
+	// no Prompt: a request with both is refused as invalid_argument, since the
+	// Prompt would otherwise be dropped without a word.
 	Continue bool
 	// Metadata is applied to a new Session.
 	Metadata map[string]string
@@ -154,6 +157,9 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	}
 	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
 		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: prompt is required"))
+	}
+	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
+		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: continue takes no prompt"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still

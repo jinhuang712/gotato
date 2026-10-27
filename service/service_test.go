@@ -1127,3 +1127,18 @@ func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
 		t.Fatalf("the stored Record has team = %q from a refused Run", team)
 	}
 }
+
+// Continue takes no Prompt: a request with both is refused, not run with the
+// Prompt dropped.
+func TestRunContinueWithAPromptIsRefused(t *testing.T) {
+	runner, _ := newRunner(t)
+	ctx := context.Background()
+	s, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Continue: true})
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
+		t.Fatalf("err = %v, want invalid_argument that did not run", err)
+	}
+}

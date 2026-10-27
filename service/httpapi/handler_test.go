@@ -216,6 +216,7 @@ func TestRunAndErrors(t *testing.T) {
 	}{
 		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{}, http.StatusBadRequest, ""},
 		{http.MethodPost, "/v1/sessions", map[string]any{"agent": "nope"}, http.StatusBadRequest, "invalid_argument"},
+		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": "x", "continue": true}, http.StatusBadRequest, "invalid_argument"},
 		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": "x", "bogus": 1}, http.StatusBadRequest, ""},
 		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": "x", "agent": "echo"}, http.StatusBadRequest, ""},
 		{http.MethodPost, "/v1/sessions/missing/runs", map[string]any{"prompt": "x"}, http.StatusNotFound, ""},

@@ -4,6 +4,15 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A Continue with a Prompt is refused
+
+**Breaking**: `RunRequest.Continue` resumes a Session without a new Message, and a `Prompt` set beside it was dropped without a word. The request is refused now, before any Run, as `invalid_argument` (`NotRun`); over HTTP it is a 400.
+
+| Before | After |
+|---|---|
+| `RunRequest{Prompt: "hi", Continue: true}` resumes the loop and ignores `"hi"` | it returns `invalid_argument` ("continue takes no prompt") and runs nothing |
+| `POST .../runs` with `{"prompt": "hi", "continue": true}` runs a Continue | it answers 400 with the code `invalid_argument` |
+
 ### A Run refused for its Agent writes nothing
 
 `RunRequest.Update` was applied to the Session's Record before the Agent was resolved, so a Run on an existing Session with an unknown Agent returned `ErrUnknownAgent` and still saved the Update when the Session was released. The Agent is resolved first now: a refused Run leaves the stored Record as it was. An `Update` of `gotato.agent` still selects the Agent, as before.
