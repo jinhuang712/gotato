@@ -213,6 +213,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Withdrawing a waiting message | a Steer or FollowUp is a call the caller made; nothing takes it back, and a `message_withdrawn` Event would never be sent | G-N23 | not planned |
 | Notices for a settings change and an interrupted Run | `settings_changed` and `run_interrupted` are not sent; the instruction is the Agent's, and a Run's end is an Event | G-N24 | not planned |
 | A native form for a notice | a `system` or `developer` message in the middle of a conversation; a notice stays tagged text in a user turn | G-N25 | not planned |
+| A load signal in the Liveness row | the row stays an address and a draining mark; `/readyz` already reports `active_sessions` and `active_runs` | G-N26 | not planned |
 
 Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25, G-F28 and G-F30 retired (G-F30 became [G-N21](#g-n21--a-last-turn-that-answers-is-the-callers-notice)).
 
@@ -1233,7 +1234,7 @@ The suite's own tests check that it fails an adapter that moves a stale write on
 
 ## Many instances
 
-### G-F27 — Service: many instances 🚧
+### G-F27 — Service: many instances ✅
 
 A Runner hosts Sessions inside your service, on as many instances as you run. Any instance answers a request as if it were the only one ([DESIGNS.md → No instance is special](DESIGNS.md#8-no-instance-is-special)).
 
@@ -1269,7 +1270,6 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 - An instance that cannot show its row was renewed within its TTL, less a margin, refuses writes, so it never calls the model, and publishes `liveness_lapsed`. Its `/readyz` does not fail. The usual cause is the store being unreachable, and then it is unreachable for every pod at once; failing readiness there would turn request errors into a whole service taken out of rotation.
 - `Runner.Close` removes the row when an instance stops, so its Sessions move at once instead of after the TTL, and the store keeps nothing of the instance. A closed Runner writes nothing more, so its row never comes back. `gotato`, `gotato serve` and `gotato-grpc` call it.
 - The row of an instance that died is not removed: it stays in the store, expired, so it can never be renewed.
-- Planned: the row carries the instance's count of live Sessions, as a load signal.
 - **The row carries an address the instance advertises.** It is a setting (`Config.Address`, `--advertise`), and optional. It is where a caller can reach this instance's own HTTP or gRPC endpoint (`http://10.0.0.7:8787`, or `10.0.0.7:8788` for gRPC), and the only thing about another instance that Gotato reads (`Store.Instance` returns it): `not_writer` takes the writer's address from the row its Claim names ([G-F26](#g-f26--steering-a-run-)). Gotato does not connect to it, discover it or check it. The row is timed by the store's clock like the rest, so a dead instance's address lapses with it.
 
 **The warm Session.** After a Run, the Session's Record and the Writer that wrote it stay in memory, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). The Runner still builds a live `gotato.Session` over the copy for each Run; the live Session's queue stays warm when messages reach it between Runs (step 3 of [Phase 8](plan/ROADMAP.md#phase-8--warm-session-)):
@@ -1954,3 +1954,12 @@ A notice could go to the model in the form a provider offers for it: a `system` 
 - **The gain is small.** The user turn that holds a notice follows the Tool Results or the next prompt, so the cached prefix holds and the reasoning in flight stays. What a native form would add is the weight the provider gives a system message, and a fixed sentence in the system part already says that text in these tags is written by the system, not by the user.
 - **A provider's mid-conversation message is not stable ground.** Anthropic documents the system message and its model list; OpenAI does not document a developer message in the middle of a conversation, or whether it starts a new turn for reasoning. Gotato runs no checks against real providers, so a native form would rest on documentation alone.
 - **A team that wants one writes its own Model.** It receives the notice as a Message of the role `notice` and sends it in any form its provider takes.
+
+### G-N26 — The Liveness Row Carries No Load
+
+The Liveness row of an instance could carry the count of the Sessions it holds, so that another instance, or a router, could read how loaded it is. Gotato does not build it. The row says that the instance is alive, whether it is draining, and the address it advertises ([G-F27](#g-f27--service-many-instances-)).
+
+- **The row is a fact about being alive.** Each renewal writes it, every third of the TTL. A count that changes with every Run would make the renewal carry a figure that is old by the time anyone reads it, and the store would be asked for load balancing it was never meant to give.
+- **An instance already reports its own load.** `/readyz` shows `active_sessions` and `active_runs`, and `Runner.ActiveSessions` and `Runner.ActiveRuns` give the same to a Go service. An operator or a metrics scrape reads them where the instance is.
+- **Routing is the load balancer's.** A consistent hash on the Session sends a request to the instance that holds the Session, which no count improves ([G-F27](#g-f27--service-many-instances-)). An instance at its limit refuses a Run as not run, and the caller tries another ([Activation limit](#g-f27--service-many-instances-)).
+- **The feature test says no.** A Go service embedding an agent has not asked for the load of its peers inside the store. If one does, the request should name the case, and the row gets the field with it.
