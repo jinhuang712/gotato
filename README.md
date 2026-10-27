@@ -90,7 +90,7 @@ A real model, one tool, one question:
 ```go
 import (
     "github.com/jinhuang712/gotato/gateway"
-    gotato "github.com/jinhuang712/gotato/gotato-core"
+    "github.com/jinhuang712/gotato/gotato"
 )
 
 // 1. A model. A provider is configuration: a wire API, a model and a key.
@@ -120,7 +120,7 @@ result, _ := s.Prompt(ctx, gotato.UserMessage("Do I need an umbrella in Paris?")
 fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```
 
-`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato-core/example_test.go).
+`Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato/example_test.go).
 
 ## 🧪 Example
 

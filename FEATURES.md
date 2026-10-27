@@ -103,7 +103,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Your own store | an adapter with eight calls onto the database you run, each an ordinary conditional write | G-F03 | ✅ |
 | Versioned shape | an Entry of an unknown kind, or a document from a newer `schema_version`, is refused, never misread | G-F03 | ✅ |
 | Append-only Record | every step is appended as it happens, as facts and a log; compaction appends a Checkpoint; a load reads the facts from the last Checkpoint | G-F03 | ✅ |
-| Store conformance suite | `testkit/storetest`: one suite that an adapter runs to prove it meets the store contract | G-F03 | ✅ |
+| Store conformance suite | `session/storetest`: one suite that an adapter runs to prove it meets the store contract | G-F03 | ✅ |
 
 **Many instances**
 
@@ -254,7 +254,7 @@ The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` ret
 
 A Tool Result over one page is not a limit: it is spilled into the Record and read back in pages ([G-F35](#g-f35--large-tool-results-)). A cap on Turns, on tool calls or on tokens is the team's own, written as a `TurnStopper` ([G-F15](#g-f15--extensions-)).
 
-A team that wants a cap on Turns writes it as a `TurnStopper`, a few lines (`ExampleTurnStopper` in `gotato-core/runend_test.go` runs it):
+A team that wants a cap on Turns writes it as a `TurnStopper`, a few lines (`ExampleTurnStopper` in `gotato/runend_test.go` runs it):
 
 ```go
 type maxTurns uint32
@@ -1218,7 +1218,7 @@ The store is the truth, and each team backs it with its own adapter, so a team n
 | The contract in prose only | Nothing to maintain. | Each adapter reads the prose its own way, and a wrong one shows up as a lost Turn. |
 | Ship a database adapter in the core | Works on day one for one database. | Rejected with "Gotato owns the shapes, and adapters own storage and telemetry": drivers, migrations and one schema for everyone. |
 
-The suite is `testkit/storetest`, a package of its own so that importing `testkit` does not link the `testing` package into a program. `storetest.Run(t, backing)` runs every check, each on a new backing store, with several handles on one store as several instances use it:
+The suite is `session/storetest`, a package of its own, next to the Store it tests, so that importing `session` does not link the `testing` package into a program. `storetest.Run(t, backing)` runs every check, each on a new backing store, with several handles on one store as several instances use it:
 
 - a Record created, loaded and listed, and a second create of one ID refused;
 - appends that continue the log, and a load that starts at the last Checkpoint;

@@ -6,6 +6,23 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### The core lives in `gotato/`, and `storetest` next to the Store
+
+The package layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias; a test-helper package sits next to what it tests. The core directory `gotato-core` is now `gotato`, and the Store contract suite moved beside `session`. `gotato.NewSession` and every other call stay as they were; only two import paths change, and the alias is no longer needed. `gotato/layering_test.go` (was `gotato-core/layering_test.go`) keeps the rules.
+
+```go
+// before
+import (
+    gotato "github.com/jinhuang712/gotato/gotato-core"
+    "github.com/jinhuang712/gotato/testkit/storetest"
+)
+// after
+import (
+    "github.com/jinhuang712/gotato/gotato"
+    "github.com/jinhuang712/gotato/session/storetest"
+)
+```
+
 ### Our test tools leave the public surface
 
 The reference tasks, the workload driver and the fake gateway are tools for testing Gotato itself. They moved under `internal/`, so they promise nothing to a team. `testkit` keeps the fakes and recorders: `FakeModel`, `ReplayModel`, `FuncModel`, `FakeTool`, `EventRecorder`, `NewRecord`, and the echo and demo models. `examples/larkbot` and `bench/refservice` still build, since Go's `internal/` rule is by import path and larkbot's path sits under the root module's.

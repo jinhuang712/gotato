@@ -438,7 +438,7 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 ### Dependencies point inward
 
 - **Instead of:** behavior that only the CLI or only the service has, or a core that knows about the service.
-- **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato-core/layering_test.go` keeps each layer building only on the layers inside it:
+- **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato/layering_test.go` keeps each layer building only on the layers inside it:
 
 ```text
 cmd/gotato  ──►  service, service/httpapi  ──►  session, modelctx, testkit  ──►  core

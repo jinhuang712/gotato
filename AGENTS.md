@@ -32,8 +32,8 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep the module root free of Go files.** It holds the documents and the module files; every package, the core included, lives in a directory. `gotato-core/layering_test.go` fails when a `.go` file appears at the root.
-- **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library: it lives in `gotato-core/` and is named `gotato`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato-core/layering_test.go` enforces this; keep it passing.
+- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
+- **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow
@@ -79,7 +79,7 @@ When writing or rewriting a project document:
 | a model that replays recorded `ModelEvent`s and fails when exhausted | `testkit.ReplayModel` |
 | a model that answers from the request (shared by agents, racy input order) | `testkit.FuncModel` with `testkit.ToolResults` / `testkit.UserText` |
 | a tool that returns a fixed result / records calls | `testkit.FakeTool` |
-| prove a `session.Store` adapter keeps the store contract | `storetest.Run` in `testkit/storetest` |
+| prove a `session.Store` adapter keeps the store contract | `storetest.Run` in `session/storetest` |
 | capture every Event of a live Session or a Subscription in order | `testkit.RecordEvents(session)` right after `gotato.NewSession`, or `testkit.RecordSubscription(sub)`; read `Events()`, `Kinds()`, `OfKind(kind)` |
 | a pre-populated Session Record | `testkit.NewRecord("q", "a", ...)` |
 | a provider's wire API and its quirks over HTTP: a refusal as too long (before output and mid-stream), a cut stream, cached tokens, a reasoning replay, a mid-conversation `system`/`developer` message, a slow reply | `fakegateway.New()` in `internal/fakegateway` behind `httptest.NewServer`; quirks by `[quirk:name]` in the last user text or the `X-Fake-Quirk` header; `g.Requests()` records every request; `go run ./internal/fakegateway/cmd/fakegateway` serves it on a port |

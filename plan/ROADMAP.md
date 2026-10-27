@@ -109,7 +109,7 @@ Built.
 - ✅ The Record becomes an append-only log of facts and log entries ([DESIGNS.md → The Record is an append-only log](../DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](../DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)). Every step is appended as it happens, at a position the store never gives twice, so a crash loses at most the step in flight. A reply cut off mid-stream is kept, and each reply records the model that answered it.
 - ✅ A compaction appends a Checkpoint, and a load reads the facts from the last one.
 - ✅ A Claim is an Entry, so a writer that lost its Claim always writes to a taken position, and the store refuses it. The store contract also carries the Liveness rows that Phase 5 uses, so adapters change once.
-- ✅ A store conformance suite in `testkit/storetest`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](../FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
+- ✅ A store conformance suite in `session/storetest`, written against that contract. An adapter runs it to prove it keeps what Gotato relies on, and the memory and file stores run it too ([FEATURES.md → Adapters prove the store contract](../FEATURES.md#adapters-prove-the-store-contract-with-a-conformance-suite--2026-10-16)).
 - ✅ Fault injection: a crash after every write of the reference workload, and a client that disconnects mid-stream on HTTP.
 
 Exit:
