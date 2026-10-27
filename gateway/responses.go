@@ -188,14 +188,7 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	// as a tool_search_call item, and our answer as a tool_search_output item
 	// that lists the functions it loads; a loaded function is injected at the
 	// end of the context, so the tool list stays the same.
-	ordered := make([]layoutTool, 0, len(request.Tools))
-	if layout != nil {
-		ordered = layout.tools
-	} else {
-		for _, spec := range request.Tools {
-			ordered = append(ordered, layoutTool{spec: spec})
-		}
-	}
+	ordered := orderedTools(layout, request)
 	tools := make([]any, 0, len(ordered))
 	for _, entry := range ordered {
 		spec := entry.spec
@@ -203,18 +196,15 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 		if err != nil {
 			return nil, nil, err
 		}
-		parameters := spec.InputSchema
-		if len(parameters) == 0 {
-			parameters = []byte(`{"type":"object"}`)
-		}
-		if !json.Valid(parameters) {
-			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
+		parameters, err := toolSchema(spec, `{"type":"object"}`)
+		if err != nil {
+			return nil, nil, err
 		}
 		if layout != nil && isSearchToolID(spec.ID) {
-			tools = append(tools, responsesToolSearch{Type: "tool_search", Execution: "client", Description: spec.Description, Parameters: json.RawMessage(parameters)})
+			tools = append(tools, responsesToolSearch{Type: "tool_search", Execution: "client", Description: spec.Description, Parameters: parameters})
 			continue
 		}
-		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters), DeferLoading: entry.deferred})
+		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: parameters, DeferLoading: entry.deferred})
 	}
 
 	instructions := request.SystemInstructions
@@ -361,13 +351,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 			}
 			return []any{responsesToolSearchOutput{Type: "tool_search_output", Execution: "client", CallID: callID, Status: "completed", Tools: loaded}}, nil
 		}
-		output := toolResultText(message)
-		if output == "" && message.ToolResult != nil {
-			output = message.ToolResult.SafeError
-		}
-		if output == "" {
-			output = "(no tool output)"
-		}
+		output := toolResultOutput(message)
 		return []any{responsesFunctionOutput{Type: "function_call_output", CallID: callID, Output: output}}, nil
 	default:
 		return nil, fmt.Errorf("gateway: unsupported Message role %q", role)
@@ -504,7 +488,7 @@ func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 			}
 			return gotato.ModelEvent{}, io.EOF
 		}
-		data, err := nextSSEData(ctx, s.reader)
+		data, err := readSSEEvent(ctx, s.reader)
 		if err != nil {
 			response, rerr := s.restart.recover(ctx, err)
 			if rerr != nil {
@@ -543,10 +527,6 @@ func (s *responsesStream) reopen(response *http.Response) {
 	s.calls = make(map[int]*responsesCall)
 	s.texts = make(map[int]bool)
 	s.queue = nil
-}
-
-func nextSSEData(ctx context.Context, reader *bufio.Reader) (string, error) {
-	return readSSEEvent(ctx, reader)
 }
 
 func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte) {

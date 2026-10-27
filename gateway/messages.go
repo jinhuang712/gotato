@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -39,4 +40,32 @@ func toolResultText(message gotato.Message) string {
 		}
 	}
 	return b.String()
+}
+
+// toolResultOutput is the text a provider is sent for a Tool Result: its
+// output, or the safe error text when it has none, or a placeholder, since no
+// wire API accepts an empty one.
+func toolResultOutput(message gotato.Message) string {
+	text := toolResultText(message)
+	if text == "" && message.ToolResult != nil {
+		text = message.ToolResult.SafeError
+	}
+	if text == "" {
+		text = "(no tool output)"
+	}
+	return text
+}
+
+// toolSchema returns a Tool's input schema for the wire: the spec's own, or
+// fallback when it has none (each wire API names its own empty schema). A
+// schema that is not valid JSON is refused.
+func toolSchema(spec gotato.ToolSpec, fallback string) (json.RawMessage, error) {
+	schema := spec.InputSchema
+	if len(schema) == 0 {
+		schema = []byte(fallback)
+	}
+	if !json.Valid(schema) {
+		return nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
+	}
+	return json.RawMessage(schema), nil
 }

@@ -122,28 +122,18 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	// tools come last, so the cache_control marker sits on a tool that is not
 	// deferred, as the API requires.
 	layout := newDeferredLayout(request, rules)
-	ordered := make([]layoutTool, 0, len(request.Tools))
-	if layout != nil {
-		ordered = layout.tools
-	} else {
-		for _, spec := range request.Tools {
-			ordered = append(ordered, layoutTool{spec: spec})
-		}
-	}
+	ordered := orderedTools(layout, request)
 	for _, entry := range ordered {
 		spec := entry.spec
 		name, err := assignFunctionName(names, spec.ID)
 		if err != nil {
 			return nil, nil, err
 		}
-		schema := spec.InputSchema
-		if len(schema) == 0 {
-			schema = []byte(`{"type":"object"}`)
+		schema, err := toolSchema(spec, `{"type":"object"}`)
+		if err != nil {
+			return nil, nil, err
 		}
-		if !json.Valid(schema) {
-			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
-		}
-		payload.Tools = append(payload.Tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: json.RawMessage(schema), DeferLoading: entry.deferred})
+		payload.Tools = append(payload.Tools, anthropicTool{Name: name, Description: spec.Description, InputSchema: schema, DeferLoading: entry.deferred})
 	}
 
 	ends := make([]blockRef, len(request.Messages))
@@ -213,18 +203,12 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 		}
 		return "user", blocks, nil
 	case gotato.RoleToolResult:
-		content := toolResultText(message)
+		content := toolResultOutput(message)
 		callID := ""
 		failed := false
 		if message.ToolResult != nil {
 			callID = string(message.ToolResult.CallID)
-			if content == "" {
-				content = message.ToolResult.SafeError
-			}
 			failed = message.ToolResult.Status != "" && message.ToolResult.Status != gotato.ToolResultStatusOK
-		}
-		if content == "" {
-			content = "(no tool output)"
 		}
 		block := anthropicBlock{"type": "tool_result", "tool_use_id": callID, "content": content}
 		if failed {

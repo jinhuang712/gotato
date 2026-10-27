@@ -114,3 +114,16 @@ func (l *deferredLayout) references(result *gotato.ToolResult) []string {
 	}
 	return ids
 }
+
+// orderedTools returns the tools in the order a request sends them: the
+// layout's when the native form is on, the request's own list otherwise.
+func orderedTools(layout *deferredLayout, request gotato.ModelRequest) []layoutTool {
+	if layout != nil {
+		return layout.tools
+	}
+	ordered := make([]layoutTool, 0, len(request.Tools))
+	for _, spec := range request.Tools {
+		ordered = append(ordered, layoutTool{spec: spec})
+	}
+	return ordered
+}

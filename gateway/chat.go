@@ -65,14 +65,11 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 		if err != nil {
 			return nil, nil, err
 		}
-		parameters := spec.InputSchema
-		if len(parameters) == 0 {
-			parameters = []byte(`{}`)
+		parameters, err := toolSchema(spec, `{}`)
+		if err != nil {
+			return nil, nil, err
 		}
-		if !json.Valid(parameters) {
-			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
-		}
-		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)}})
+		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
 	}
 	payload := chatRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
 	if request.Config.Temperature != nil || request.Config.MaxTokens != 0 {
@@ -91,13 +88,7 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 func convertChatMessage(message gotato.Message, names map[string]string, keepReasoning bool) (chatMessage, error) {
 	role := string(message.Role)
 	if role == string(gotato.RoleToolResult) {
-		content := toolResultText(message)
-		if content == "" && message.ToolResult != nil {
-			content = message.ToolResult.SafeError
-		}
-		if content == "" {
-			content = "(no tool output)"
-		}
+		content := toolResultOutput(message)
 		callID := ""
 		if message.ToolResult != nil {
 			callID = string(message.ToolResult.CallID)
@@ -255,7 +246,7 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		if s.finished {
 			return gotato.ModelEvent{}, io.EOF
 		}
-		data, err := s.nextData(ctx)
+		data, err := readSSEEvent(ctx, s.reader)
 		if errors.Is(err, io.EOF) && s.finish != "" {
 			// A provider that omits [DONE] after a finish_reason still
 			// completed the response.
@@ -313,10 +304,6 @@ func (s *chatStream) reopen(response *http.Response) {
 	s.queue = nil
 	s.finish = ""
 	s.usage = gotato.Usage{}
-}
-
-func (s *chatStream) nextData(ctx context.Context) (string, error) {
-	return readSSEEvent(ctx, s.reader)
 }
 
 func (s *chatStream) processChunk(chunk chatChunk) {
