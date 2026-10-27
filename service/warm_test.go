@@ -166,11 +166,11 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	if warm.IdleMinTokens == 0 {
 		warm.IdleMinTokens = -1
 	}
-	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Clock: clock,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: store, Instance: name,
 		Admission: service.Admission{Queue: service.WaitWhileBusy},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: warm}},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,11 +462,11 @@ func TestWarmSessionLeavesMemoryAtItsTTL(t *testing.T) {
 func TestWarmTTLIsPerAgent(t *testing.T) {
 	clock := newFakeClock()
 	store := session.NewMemoryStore()
-	runner, err := service.New(service.Config{Store: store, Clock: clock, Agents: []service.Agent{
+	runner, err := service.New(service.WithClock(service.Config{Store: store, Agents: []service.Agent{
 		{Name: "short", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: 10 * time.Minute, NoIdleCompaction: true}},
 		{Name: "never", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}},
 		{Name: "default", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}},
-	}})
+	}}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,14 +650,14 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 	clock := newFakeClock()
 	store := &tallyStore{Store: session.NewMemoryStore()}
 	model := &askModel{started: make(chan struct{}), reply: recapModel()}
-	runner, err := service.New(service.Config{
-		Store: store, Instance: "a", Clock: clock,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: store, Instance: "a",
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
 			Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}},
 			Warm:    service.WarmPolicy{IdleMinTokens: -1},
 		}},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}

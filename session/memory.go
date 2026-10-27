@@ -27,9 +27,8 @@ type memoryInstance struct {
 }
 
 // NewMemoryStore creates an empty MemoryStore.
-func NewMemoryStore(options ...StoreOption) *MemoryStore {
-	config := newStoreConfig(options)
-	return &MemoryStore{records: map[string]*memoryRecord{}, instances: map[string]memoryInstance{}, now: config.now}
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{records: map[string]*memoryRecord{}, instances: map[string]memoryInstance{}, now: time.Now}
 }
 
 // Create implements Store.

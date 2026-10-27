@@ -6,6 +6,24 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Hooks that only tests used leave the public API
+
+Six exported names existed for tests alone. They are gone from the public API; the tests of each package reach them through an `export_test.go`. `service.Config.Liveness` and `service.Config.StreamPoll` stay: they are settings of a running service.
+
+```text
+before  service.Config{Clock: clock}, service.Clock, service.Timer
+after   gone; service's tests use WithClock(cfg, clock) from export_test.go
+
+before  httpapi.New(runner, httpapi.WithKeepAlive(d))
+after   gone; the keepalive is fixed at 15 seconds
+
+before  session.WithClock(now), session.WithEventLimit(n), session.DefaultEventLimit
+after   gone; the limit is fixed at 1000 Events; session's tests use export_test.go
+
+before  session.NewMemoryStore(session.WithStoreClock(now)), session.NewFileStore(dir, opts...), session.StoreOption
+after   session.NewMemoryStore(), session.NewFileStore(dir)
+```
+
 ### Every HTTP route is under `/v1/sessions`
 
 Gotato's HTTP API had two ways to do some things. `POST /v1/runs` and `POST /v1/runs/stream` created a Session and ran it in one call, which `POST /v1/sessions` followed by `POST /v1/sessions/{id}/runs` already does. `POST /v1/runs/{run_id}/cancel` duplicated `POST /v1/sessions/{id}/cancel`, but was not scoped by Session: it never reached the Run's writer, so it was wrong on more than one instance. Both are removed, and with them `service.Runner.CancelRun`. A run request no longer takes `agent` or `metadata`: they applied only when a run created the Session, and `POST /v1/sessions` takes them.

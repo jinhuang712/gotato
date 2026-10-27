@@ -76,15 +76,14 @@ const batchNameDigits = 20
 // dir, with any missing parents (mode 0755), when it does not exist, so a
 // service needs no setup step; an empty dir, or one that cannot be created, is
 // an error.
-func NewFileStore(dir string, options ...StoreOption) (*FileStore, error) {
+func NewFileStore(dir string) (*FileStore, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("session: store directory is empty")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	config := newStoreConfig(options)
-	return &FileStore{dir: dir, now: config.now, heads: map[string]fileHead{}}, nil
+	return &FileStore{dir: dir, now: time.Now, heads: map[string]fileHead{}}, nil
 }
 
 // Dir returns the directory.

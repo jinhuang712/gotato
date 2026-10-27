@@ -152,26 +152,6 @@ type Store interface {
 	Instance(ctx context.Context, id string) (InstanceState, error)
 }
 
-// StoreOption configures a built-in Store.
-type StoreOption func(*storeConfig)
-
-type storeConfig struct{ now func() time.Time }
-
-// WithStoreClock sets the clock a store times Liveness rows with (tests).
-func WithStoreClock(now func() time.Time) StoreOption {
-	return func(c *storeConfig) { c.now = now }
-}
-
-func newStoreConfig(options []StoreOption) storeConfig {
-	config := storeConfig{now: time.Now}
-	for _, option := range options {
-		if option != nil {
-			option(&config)
-		}
-	}
-	return config
-}
-
 // checkBatch checks that entries continue position after without a gap, and
 // that a new Record starts with a Checkpoint.
 func checkBatch(after uint64, entries []Entry) error {

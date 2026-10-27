@@ -85,16 +85,6 @@ type Handler struct {
 // Option configures New.
 type Option func(*Handler)
 
-// WithKeepAlive sets how long an idle Session stream waits before it sends a
-// comment, so that a proxy does not close it. The default is 15 seconds.
-func WithKeepAlive(d time.Duration) Option {
-	return func(h *Handler) {
-		if d > 0 {
-			h.keepAlive = d
-		}
-	}
-}
-
 // WithForwarding turns on forwarding. A message or a cancel that reaches this
 // instance while another live instance writes the Run is sent, as it came, to
 // the address that instance advertises, with the header Gotato-Forwarded, and

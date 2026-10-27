@@ -179,10 +179,10 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	model := testkit.NewFakeModel(scripts...)
 	agent.Name, agent.Model = "echo", model
 	agent.Warm.NoIdleCompaction = true
-	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(), Instance: "a", Clock: clock, Liveness: steadyLiveness,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: session.NewMemoryStore(), Instance: "a", Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.WaitWhileBusy}, Agents: []service.Agent{agent},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,11 +422,11 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fakeClock) (*service.Runner, *testkit.FakeModel) {
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
-	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Clock: clock, Liveness: steadyLiveness,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: store, Instance: name, Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.WaitWhileBusy},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}

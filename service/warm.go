@@ -96,16 +96,16 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 	return after, why, true
 }
 
-// Clock is the time a Runner waits by. The default is the system clock; a test
+// clock is the time a Runner waits by. The default is the system clock; a test
 // supplies one it advances itself, so no test waits for a TTL.
-type Clock interface {
+type clock interface {
 	Now() time.Time
 	// AfterFunc calls f once, in a goroutine of its own, after d.
-	AfterFunc(d time.Duration, f func()) Timer
+	AfterFunc(d time.Duration, f func()) timer
 }
 
-// Timer is a pending call of Clock.AfterFunc.
-type Timer interface {
+// timer is a pending call of clock.AfterFunc.
+type timer interface {
 	// Stop prevents the call when it has not happened yet.
 	Stop() bool
 }
@@ -114,7 +114,7 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
-func (systemClock) AfterFunc(d time.Duration, f func()) Timer { return time.AfterFunc(d, f) }
+func (systemClock) AfterFunc(d time.Duration, f func()) timer { return time.AfterFunc(d, f) }
 
 // warmEntry is the live copy of one idle Session: its Record and the Writer
 // that wrote it, kept in memory after a Run. It holds no Claim.
@@ -123,7 +123,7 @@ type warmEntry struct {
 	agent  string
 	spec   Agent
 	writer *session.Writer
-	timers []Timer
+	timers []timer
 	// since is when the Session went idle, and seq orders copies that went
 	// idle at the same time; eviction takes the least of them first.
 	since time.Time

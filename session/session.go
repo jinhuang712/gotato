@@ -37,10 +37,10 @@ import (
 // SchemaVersion is the persisted document version written by stores.
 const SchemaVersion = 1
 
-// DefaultEventLimit bounds the Events a Record keeps in memory. Older Events
+// defaultEventLimit bounds the Events a Record keeps in memory. Older Events
 // are dropped first; Runs, Messages, and Usage are never dropped, and the
 // store keeps every Event.
-const DefaultEventLimit = 1000
+const defaultEventLimit = 1000
 
 // Run is the per-Run record kept in a Record: what its RunStarted and RunEnded
 // Events say.
@@ -205,17 +205,6 @@ type Option func(*Record)
 // WithID sets the Session ID. Default: a random 16-byte hex ID.
 func WithID(id string) Option { return func(s *Record) { s.id = id } }
 
-// WithEventLimit bounds the Events kept in memory. Zero keeps
-// DefaultEventLimit; a negative value keeps none.
-func WithEventLimit(limit int) Option {
-	return func(s *Record) {
-		if limit == 0 {
-			limit = DefaultEventLimit
-		}
-		s.eventLimit = limit
-	}
-}
-
 // WithMetadata sets initial application metadata.
 func WithMetadata(metadata map[string]string) Option {
 	return func(s *Record) { s.metadata = maps.Clone(metadata) }
@@ -227,12 +216,9 @@ func WithMessages(messages ...gotato.Message) Option {
 	return func(s *Record) { s.messages = cloneMessages(messages) }
 }
 
-// WithClock overrides the clock (tests).
-func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = now } }
-
 // New creates an empty Record.
 func New(options ...Option) *Record {
-	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, retainRead: true, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
+	s := &Record{eventLimit: defaultEventLimit, now: time.Now, retainRead: true, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, option := range options {
 		if option != nil {
 			option(s)
@@ -336,7 +322,7 @@ func Load(doc Document) (*Record, error) {
 		}
 	}
 	if s.eventLimit == 0 {
-		s.eventLimit = DefaultEventLimit
+		s.eventLimit = defaultEventLimit
 	}
 	s.maxSegment = max(doc.MaxSegment, 0)
 	for _, segment := range doc.Segments {
@@ -648,7 +634,7 @@ func (s *Record) Usage() gotato.Usage {
 }
 
 // Events returns the stored Events the Record keeps in memory, in order: the
-// last DefaultEventLimit of them, unless WithEventLimit says otherwise. Events
+// last defaultEventLimit of them. Events
 // are values; do not modify what they point to.
 func (s *Record) Events() []gotato.Event {
 	s.mu.RLock()

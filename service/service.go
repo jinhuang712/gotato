@@ -181,9 +181,9 @@ type Config struct {
 	// value turns the look off, so a stream carries only what this Instance
 	// writes.
 	StreamPoll time.Duration
-	// Clock times the warm Sessions: their TTL and their idle compaction.
-	// Nil means the system clock; a test supplies one it advances itself.
-	Clock Clock
+	// clock times the warm Sessions: their TTL and their idle compaction.
+	// Nil means the system clock; the tests of this package set it.
+	clock clock
 }
 
 // ErrBusy is returned when a Session already has a Run in flight and the
@@ -247,7 +247,7 @@ type Runner struct {
 	// clock times the warm Sessions. warm holds the idle ones, each a cache
 	// of a Record and never a lock; warmClosed says the Runner has let them
 	// all go and keeps none (see warm.go).
-	clock Clock
+	clock clock
 	// beforeDetach is a test seam: it runs when a Run has settled and its live
 	// Session still takes messages (see export_test.go).
 	beforeDetach func()
@@ -401,7 +401,7 @@ func New(cfg Config) (*Runner, error) {
 		agents:     map[string]Agent{},
 		admission:  cfg.Admission,
 		locks:      newSessionLocks(),
-		clock:      cfg.Clock,
+		clock:      cfg.clock,
 		warm:       map[string]*warmEntry{},
 		feeds:      map[feedKey]*sessionFeed{},
 		handles:    map[string][]*runHandle{},

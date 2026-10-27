@@ -17,11 +17,11 @@ import (
 // warm ones included, and queues a Run on a busy Session.
 func limitedInstance(t *testing.T, store session.Store, clock service.Clock, model gotato.Model, limit int) *service.Runner {
 	t.Helper()
-	runner, err := service.New(service.Config{
-		Store: store, Instance: "a", Clock: clock,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: store, Instance: "a",
 		Admission: service.Admission{MaxActiveSessions: limit, Queue: service.WaitWhileBusy},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,15 +217,15 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	clock := newFakeClock()
 	store := &tallyStore{Store: session.NewMemoryStore()}
 	model := &askModel{started: make(chan struct{}), reply: recapModel()}
-	runner, err := service.New(service.Config{
-		Store: store, Instance: "a", Clock: clock,
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: store, Instance: "a",
 		Admission: service.Admission{MaxActiveSessions: 1},
 		Agents: []service.Agent{{
 			Name: "echo", Model: model,
 			Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}},
 			Warm:    service.WarmPolicy{IdleMinTokens: -1},
 		}},
-	})
+	}, clock))
 	if err != nil {
 		t.Fatal(err)
 	}

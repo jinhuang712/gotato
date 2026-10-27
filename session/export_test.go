@@ -1,5 +1,7 @@
 package session
 
+import "time"
+
 // StartLog turns r's log on, as storing r does.
 func StartLog(r *Record) { r.startLog() }
 
@@ -18,3 +20,20 @@ func TakePending(r *Record) []Entry {
 // SetBeforeWrite makes f call fn at the start of every write of a batch, after
 // Append has checked its writer.
 func SetBeforeWrite(f *FileStore, fn func()) { f.beforeWrite = fn }
+
+// DefaultEventLimit is the number of Events a Record keeps in memory.
+const DefaultEventLimit = defaultEventLimit
+
+// WithEventLimit bounds the Events kept in memory. Zero keeps
+// DefaultEventLimit; a negative value keeps none.
+func WithEventLimit(limit int) Option {
+	return func(s *Record) {
+		if limit == 0 {
+			limit = defaultEventLimit
+		}
+		s.eventLimit = limit
+	}
+}
+
+// WithClock overrides the Record's clock.
+func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = now } }

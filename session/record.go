@@ -121,7 +121,7 @@ func fromEntries(entries []Entry, retain bool, segments []Entry) (*Record, error
 	if len(entries) == 0 || !entries[0].IsCheckpoint() {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a log must start at a checkpoint")
 	}
-	s := &Record{eventLimit: DefaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
+	s := &Record{eventLimit: defaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, entry := range segments {
 		if entry.Kind != gotato.KindSegmentClosed {
 			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))

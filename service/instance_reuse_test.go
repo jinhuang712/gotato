@@ -3,7 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,21 +16,24 @@ import (
 // store identity is unique per process start. These tests run a restarted
 // process, and a process that overlaps the one it replaces, under one label.
 
-type reuseClock struct {
-	mu  sync.Mutex
-	now time.Time
+// deadStore is a Store whose process died without Close: after die, its
+// heartbeats reach nothing, and the Liveness row it left is removed.
+type deadStore struct {
+	session.Store
+	dead atomic.Bool
 }
 
-func (c *reuseClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
+func (d *deadStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
+	if d.dead.Load() {
+		return nil
+	}
+	return d.Store.Beat(ctx, row, ttl)
 }
 
-func (c *reuseClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
+// die ends the Liveness row of instance, as its expiry would.
+func (d *deadStore) die(ctx context.Context, instance string) error {
+	d.dead.Store(true)
+	return d.Store.Beat(ctx, session.InstanceRow{ID: instance}, 0)
 }
 
 // A process that died without Close leaves its Liveness row to expire. The
@@ -38,17 +41,19 @@ func (c *reuseClock) Advance(d time.Duration) {
 // new row and is not refused.
 func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	ctx := context.Background()
-	clock := &reuseClock{now: time.Now()}
-	store := session.NewMemoryStore(session.WithStoreClock(clock.Now))
+	shared := session.NewMemoryStore()
+	store := &deadStore{Store: shared}
 	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	s, err := old.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The old process is gone without Close; its row lapses.
-	clock.Advance(time.Hour)
+	if err := store.die(ctx, old.Instance()); err != nil {
+		t.Fatal(err)
+	}
 
-	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
+	restarted := instanceRunner(t, shared, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	if !isInstance(old.Instance(), "pod-0") || !isInstance(restarted.Instance(), "pod-0") || old.Instance() == restarted.Instance() {
 		t.Fatalf("instances = %q and %q, want pod-0 and a different suffix each", old.Instance(), restarted.Instance())
 	}
