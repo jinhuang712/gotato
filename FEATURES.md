@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-27 -->
+<!-- what-we-build: drafted 2026-10-27 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -526,7 +526,7 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | Surface | How | Note |
 |---|---|---|
 | Go API | `service.RunRequest.Update`, a map applied before the Run, under its Claim, as the Run's first write; an empty value deletes the key | it needs a Run: a `Prompt`, or `Continue`. With `SkipSave` the change applies to that Run only |
-| Go API | `Runner.SetToolActive(ctx, sessionID, toolID, active)` | writes only `gotato.tool.<id>` |
+| Go API | `Runner.SetToolActive(ctx, sessionID, toolID, active)` | writes only `gotato.tool.<id>`; the ID is a tool of the Agent or of one of its ToolSets |
 | CLI | `gotato run --session ID --instruction S --compact-ceiling N` (the Run's first write), and `gotato tools activate\|deactivate` | the CLI sets no other key; `session create --meta` is for a new Session only |
 | HTTP, gRPC | none | `metadata` on a run request, and on `POST /v1/runs`, is applied only when the request creates the Session, and is ignored for an existing one; `CreateSession` takes it too |
 
@@ -910,10 +910,12 @@ The tools a Session offers can change while it runs.
 - **ToolSets resolve at the start of every Run.** `NewSession` resolves each ToolSet once, and the first Run uses that answer; every later Run, on a warm Session too, resolves them again before its first Turn, and never inside a Run, so the catalog is the same on every request of a Run. An MCP server's `list_changed` therefore takes effect at the next Run. When nothing changed, the catalog is the same bytes, so the cache stays.
   - **A ToolSet that fails is skipped.** A failed resolution (an error, a panic, a nil Tool, an invalid or duplicate Tool) does not fail `NewSession` or the Run. The catalog keeps the ToolSet's description with the note `(unavailable now; no tools)`, the Session's other tools work, and a stored `extension_failed` Event with `stage: "toolset:<name>"` and `code: tool_resolution_failure` is the warning, once per Run while the ToolSet stays down. A ToolSet that answers again comes back at the next Run. Only a `ctx` that ends fails the resolution, and with it the Run.
   - **A loaded tool that vanished is unloaded by a fact.** If a ToolSet answers and no longer carries a loaded tool, the Run stores `tool_unloaded` with `why: gone` before its first Turn. The Record folds it like any unload, so an instance that loads the Session later reads the same loaded tools from the Record, whatever its own ToolSet answers: the decision is made once, by the instance that ran, and is written. A loaded tool of a ToolSet that is *unavailable* is only hidden for that Run, with no event, because the ToolSet said nothing about it; it is offered again when the ToolSet recovers.
-- For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`. A tool switched off for a Session is never in the catalog, never found by a search and never loaded, so the switch wins over loading. In the Go API this is `gotato.WithToolFilter`, which the Runner sets from the Session's metadata for every tool of every ToolSet.
+- For one Session: `gotato tools activate <id> --session ID` and `deactivate`, stored as `gotato.tool.<id>`. The ID is a tool of the Agent or a qualified ID of one of its ToolSets (`files.read`). To find a ToolSet's tool the Runner builds the live Session, which resolves the ToolSets as a Run does; the switch itself is the same metadata fact for both, so every instance reads it. A name in a ToolSet that is unavailable now is refused with a message that says so, and a tool above the Effect cap stays unknown. A tool switched off for a Session is never in the catalog, never found by a search and never loaded, so the switch wins over loading. In the Go API this is `gotato.WithToolFilter`, which the Runner sets from the Session's metadata for every tool of every ToolSet.
 - Tools come from your own Go code or from an MCP server. The CLI ships `demo.echo` and `time.now` for diagnostics only.
 
-**Gap:** `Runner.SetToolActive` and `gotato tools activate` name the Agent's own tools, because a ToolSet lives in the Agent's Options and the Runner cannot list it before a Session exists. A tool of a ToolSet is switched off by setting `gotato.tool.<id>` to `inactive` in the Session's metadata (`RunRequest.Update`, or `Metadata` on a new Session), which the Runner reads for the whole surface. Listing a Session's tools shows `search_tools` and the tools loaded, not the unloaded tools of a catalog ToolSet; those are in the catalog, the description of `search_tools`.
+- Listing a Session's tools (`Runner.Tools` with a Session, `gotato tools list --session`) names every tool of every ToolSet, loaded or not: its ID, effect, `toolset`, `loaded` and `active` (false when switched off). A ToolSet that did not resolve is one entry with the ToolSet's name as `id` and `unavailable: true`. The list is the ToolSets' last resolution, made when the listing builds the live Session; `search_tools` is listed as before.
+
+**Gap:** listing without a Session (`Runner.Tools` with no Session ID, `gotato tools list` without `--session`) shows the Agent's own tools only, because a ToolSet lives in the Agent's Options and resolving it is a Session's work (an MCP server may be asked over the network). The HTTP and gRPC surfaces have no tool listing or switch today; a service that wants one calls `Runner.Tools` and `Runner.SetToolActive`, or writes `gotato.tool.<id>` with `RunRequest.Update`. The CLI's own agents install no ToolSet, so the ToolSet fields of `tools list` are tested through the Runner, not through the CLI.
 
 ### G-F34 — Tool search 🚧
 
@@ -990,7 +992,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 - **Gotato runs no checks against real providers.** A fake gateway plays each form (ROADMAP Phase 9), and a team whose gateway refuses `native` sets `list`.
 - This is the part of [G-F32](#g-f32--changes-that-keep-the-cache-) that concerns the tools the model loads. A change the service makes is still G-F32's.
 
-**Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show the catalog and which tools are loaded.
+**Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show every catalog tool, which are loaded and which are switched off ([G-F10](#g-f10--tool-sets-and-the-registry-)).
 
 ### G-F12 — The MCP adapter 🚧
 

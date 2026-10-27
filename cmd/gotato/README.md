@@ -112,10 +112,10 @@ Compaction closes everything since the last checkpoint, less a kept tail, into a
 
 | Command | Output (`--json`) |
 |---|---|
-| `tools list [--session ID] [--model M]` | `{session_id?, agent?, max_effect?, tools:[{id, name, description, input_schema, sequential, effect, active}]}` |
+| `tools list [--session ID] [--model M]` | `{session_id?, agent?, max_effect?, tools:[{id, name, description, input_schema, sequential, effect, active, toolset?, loaded?, unavailable?}]}`; with `--session`, every tool of every ToolSet is listed (`toolset` names it, `loaded` says the model loaded it, `active` is false when switched off), and a ToolSet that did not resolve is one entry with its name as `id` and `unavailable: true` |
 | `tools describe <id> [--session ID]` | one tool entry |
 | `tools active [--session ID]` | active tools only |
-| `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>` |
+| `tools activate <id> --session ID` | updated entry; stored as session metadata `gotato.tool.<id>`; `<id>` may be a tool of a ToolSet (`files.read`) |
 | `tools deactivate <id> --session ID` | updated entry |
 
 Tool activation is session state: `run --session ID` honors it. Without `--session`, `list`/`describe`/`active` describe the default surface; `activate`/`deactivate` require `--session` (exit 2).
