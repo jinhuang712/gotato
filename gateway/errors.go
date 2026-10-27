@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// Error is a provider's refusal or a failed request. StatusCode is the HTTP
+// status, or 0 when the failure was not one (a transport error, a stream cut
+// off). Message is the provider's own text where it sent one.
 type Error struct {
 	StatusCode int
 	retryable  bool
@@ -37,6 +40,8 @@ func (e *Error) ContextLimit() int {
 // method, and sets Retryable on the Run's model_failure.
 func (e *Error) Retryable() bool { return e != nil && e.retryable }
 
+// Error implements the error interface: "gateway: HTTP 429: message", or
+// without the status when there was none.
 func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"

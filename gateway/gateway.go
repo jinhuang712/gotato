@@ -29,6 +29,10 @@ const (
 	statusOverloaded = 529
 )
 
+// Config is the settings of one Client: which wire API to speak, where, as
+// whom, and how to retry. Only Model and an address (Endpoint or BaseURL) are
+// required: the Responses and Anthropic Messages APIs have a default address.
+// The Responses API also needs an APIKey. LoadYAML reads a Config from a file.
 type Config struct {
 	// API selects the wire protocol: APIChatCompletions (the default when
 	// empty), APIResponses, or APIAnthropicMessages. Any other
@@ -106,6 +110,9 @@ const (
 	DeferredFormList   DeferredForm = "list"
 )
 
+// Client is a gotato.Model that streams from one provider endpoint over one
+// wire API. It keeps no per-request state, so one Client serves many
+// concurrent Runs.
 type Client struct {
 	overflow       overflowMatcher
 	api            API
@@ -123,6 +130,9 @@ type Client struct {
 	contextWindow  int
 }
 
+// New checks config and returns a Client for it. It makes no request: a
+// refusal here is a mistake in the settings, and every one is reported
+// before the first call to Stream.
 func New(config Config) (*Client, error) {
 	api, err := normalizeAPI(config.API)
 	if err != nil {
@@ -347,6 +357,10 @@ func normalizeAPI(api API) (API, error) {
 	}
 }
 
+// Stream sends the request and returns the reply as it arrives. A refused
+// request is an *Error; a stream cut after its headers is sent again within
+// MaxRetries (see restart.go). Closing the stream, or canceling ctx, ends the
+// connection.
 func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	if ctx == nil {
 		ctx = context.Background()

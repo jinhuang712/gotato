@@ -233,6 +233,11 @@ type chatChunk struct {
 	} `json:"usage"`
 }
 
+// Recv returns the next event. A stream that ends with no finish_reason is
+// handed to the restarter as an ordinary interruption, so its error has no
+// "ended before completion" text: unlike the other two APIs, this one has no
+// terminal event that must arrive (a provider may omit [DONE]), so there is
+// none to name as missing.
 func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()

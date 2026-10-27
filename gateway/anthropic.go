@@ -25,6 +25,9 @@ const (
 	maxAnthropicCacheBreakpoints = 4
 )
 
+// streamAnthropic sends the CacheKey in its header only. There is no body
+// field for it: New refuses Config.CacheKeyField for this API, which caches by
+// cache_control.
 func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	body, names, err := encodeAnthropicRequest(c.model, request, c.rules)
 	if err != nil {
