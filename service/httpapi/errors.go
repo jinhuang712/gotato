@@ -31,22 +31,22 @@ type errorResponse struct {
 // a new one cannot be left to a default by accident; the test over
 // gotato.ErrorCodes fails when one is missing.
 var statusOfCode = map[gotato.ErrorCode]int{
-	gotato.CodeInvalidArgument:       http.StatusBadRequest,
-	gotato.CodeNotSupported:          http.StatusBadRequest,
-	gotato.CodeNotFound:              http.StatusNotFound,
-	gotato.CodeSessionClosed:         http.StatusConflict,
-	gotato.CodeSessionClosing:        http.StatusConflict,
-	gotato.CodeInvalidState:          http.StatusConflict,
-	gotato.CodeBusy:                  http.StatusConflict,
-	gotato.CodeConflict:              http.StatusConflict,
-	gotato.CodeCannotResume:          http.StatusConflict,
-	gotato.CodeNotWriter:             http.StatusConflict,
-	gotato.CodeStoreFailure:          http.StatusServiceUnavailable,
-	gotato.CodeOverloaded:            http.StatusServiceUnavailable,
-	gotato.CodeDraining:              http.StatusServiceUnavailable,
-	gotato.CodeLimitExceeded:         http.StatusTooManyRequests,
-	gotato.CodeContextOverflow:       http.StatusUnprocessableEntity,
-	gotato.CodeDeadlineExceeded:      http.StatusGatewayTimeout,
+	gotato.CodeInvalidArgument:  http.StatusBadRequest,
+	gotato.CodeNotSupported:     http.StatusBadRequest,
+	gotato.CodeNotFound:         http.StatusNotFound,
+	gotato.CodeSessionClosed:    http.StatusConflict,
+	gotato.CodeSessionClosing:   http.StatusConflict,
+	gotato.CodeInvalidState:     http.StatusConflict,
+	gotato.CodeBusy:             http.StatusConflict,
+	gotato.CodeConflict:         http.StatusConflict,
+	gotato.CodeCannotResume:     http.StatusConflict,
+	gotato.CodeNotWriter:        http.StatusConflict,
+	gotato.CodeStoreFailure:     http.StatusServiceUnavailable,
+	gotato.CodeOverloaded:       http.StatusServiceUnavailable,
+	gotato.CodeDraining:         http.StatusServiceUnavailable,
+	gotato.CodeLimitExceeded:    http.StatusTooManyRequests,
+	gotato.CodeContextOverflow:  http.StatusUnprocessableEntity,
+	gotato.CodeDeadlineExceeded: http.StatusGatewayTimeout,
 	// A Run that was aborted answers 200 with its canceled result; canceled
 	// reaches a status only when the caller left before anything ran, so the
 	// status is seen in the server's log, not by a client.
