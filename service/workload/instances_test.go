@@ -102,7 +102,22 @@ type cluster struct {
 	mu        sync.Mutex
 }
 
-var clusterLiveness = service.Liveness{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
+// clusterLiveness keeps every instance's row alive through a late renewal.
+// victimLiveness is for the instance a test kills, whose row must expire for
+// another instance to take its Sessions over.
+var (
+	clusterLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 5 * time.Second}
+	victimLiveness  = service.Liveness{TTL: 300 * time.Millisecond, Wait: 5 * time.Second}
+)
+
+// lastIsVictim gives the last of n instances the short Liveness TTL.
+func lastIsVictim(n int) func(i int, cfg *service.Config) {
+	return func(i int, cfg *service.Config) {
+		if i == n-1 {
+			cfg.Liveness = victimLiveness
+		}
+	}
+}
 
 // newCluster starts n instances over one new store, each serving every task as
 // an Agent, and the hashing proxy in front of them.
@@ -525,7 +540,11 @@ func TestRandomInstancesGiveWhatOneInstanceGives(t *testing.T) {
 	tasks := testkit.ReferenceTasks()
 	for _, kill := range []bool{false, true} {
 		t.Run(fmt.Sprintf("killed=%v", kill), func(t *testing.T) {
-			c := newCluster(t, 3, tasks, 17)
+			var adjust []func(i int, cfg *service.Config)
+			if kill {
+				adjust = append(adjust, lastIsVictim(3))
+			}
+			c := newCluster(t, 3, tasks, 17, adjust...)
 			const perTask = 2
 			var plans []sessionPlan
 			for _, task := range tasks {
@@ -784,7 +803,7 @@ func TestConcurrentMessagesToOneSessionAreNeverInterleaved(t *testing.T) {
 func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	model := &holdModel{gate: make(chan struct{}), started: make(chan struct{}, 1)}
 	task := testkit.Task{Name: "echo", Model: model, Prompts: []string{"x"}}
-	c := newCluster(t, 3, []testkit.Task{task}, 11)
+	c := newCluster(t, 3, []testkit.Task{task}, 11, lastIsVictim(3))
 	t.Cleanup(func() {
 		select {
 		case <-model.gate:
