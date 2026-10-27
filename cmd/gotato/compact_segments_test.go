@@ -1,46 +1,11 @@
 package main
 
 import (
-	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
 )
-
-// A Session whose last Checkpoint holds one summary written before Segments is
-// not compacted: the command exits 1 (runtime error) and says why on stderr.
-func TestContextCompactRefusesASessionWithOneOldSummary(t *testing.T) {
-	ctx := context.Background()
-	h := newHarness(t)
-	store, err := session.NewFileStore(filepath.Join(h.home, "sessions"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := session.New(session.WithID("old-summary"))
-	summary := gotato.UserMessage("Summary of earlier conversation:\nthey talked")
-	summary.ID = "summary-1"
-	summary.Parts[0].Metadata = map[string]string{"compaction": "summary"}
-	record.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{summary, gotato.UserMessage("one"), gotato.AssistantMessage("two")}, &session.Compaction{ReplacedMessages: 2, Recap: "truncate"})
-	writer, err := session.Create(ctx, store, record, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Release(ctx); err != nil {
-		t.Fatal(err)
-	}
-	code, out, errOut := h.run("context", "compact", "old-summary", "--keep", "1", "--json")
-	var failure struct {
-		Error    string `json:"error"`
-		ExitCode int    `json:"exit_code"`
-	}
-	h.mustJSON(out, &failure)
-	if code != ExitError || failure.ExitCode != ExitError || !strings.HasPrefix(failure.Error, "invalid_state:") || !strings.Contains(errOut, "summary") {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
-	}
-}
 
 // --min-tokens skips a stretch too short to compact and says so; --keep 0
 // (the default) keeps the latest Run's Turns; --recap truncate asks for a Recap.

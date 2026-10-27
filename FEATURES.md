@@ -35,7 +35,6 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
 | Context | built every Turn in a fixed order, so the provider's cache keeps working | G-F04 | ✅ |
-| Static blocks | reference text the Agent carries, such as a schema or a runbook | G-F04 | ✅ |
 | Cache markers | after the system part, the tools and on the last message, and on Claude where the Round started; `cache_control` on Anthropic | G-F04 | ✅ |
 | Cache key | one key per Session on every request, so the provider serves a conversation from one prompt cache | G-F04 | ✅ |
 | Your own `ContextBuilder` | retrieval, a window, or any other way to choose what the model sees | G-F04 | ✅ |
@@ -542,10 +541,10 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 On every Turn, Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix from one Turn to the next:
 
 ```text
-instruction · Static blocks  →  tools, sorted by ID  →  the Transcript
+instruction  →  tools, sorted by ID  →  the Transcript
 ```
 
-- **Static blocks** are reference text the Agent carries, such as a schema or a runbook. You attach them with `modelctx.WithStatic` and the `Resource`, `Text` and `JSON` helpers.
+- **Reference text** the Agent carries, such as a schema or a runbook, is written into its instruction (`Agent.Instruction`, `gotato.WithInstruction`). It is the same for every Turn, so the provider's cache reuses it.
 - **Nothing that changes every Turn is added.** Such content is never cached, so it would cost its full price on every Turn. A fact the model needs now, such as the current time, comes from a tool it calls.
 - Gotato marks cache points after the system part, after the tools and on the last message, so each request is cached whole for the next Turn. For Anthropic, they become `cache_control`, and the last four are kept. For a recognized Claude, the gateway adds one where the last Round started, because a new Round leaves the last Round's reasoning out ([G-F07](#g-f07--models-and-providers-)). Claude takes at most four.
 - Every request also carries a cache key, so a provider that keys its prompt cache serves one conversation from one cache. The Runner gives each Session its own key, a hash of its Session ID; with `gotato.NewSession`, you set one with `gotato.WithCacheKey`. How the key travels is the gateway's configuration ([G-F07](#g-f07--models-and-providers-)).
@@ -587,7 +586,6 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **Merging.** The Segments together have a budget, half the ceiling or 32K tokens with none. When they pass it, the oldest merge into the one merged Segment that opens the Context, down to half the budget. The same happens on an overflow (*Many Segments*, below).
 - A compaction appends the Segment (`segment_closed`) and a Checkpoint (G-F03) in one step, so the closed part stays in the store and is no longer loaded. The Checkpoint lists the Segments the Context uses, holds the kept tail, and holds the loaded tools. A load by another instance builds the same request from it.
 - **Loaded tools.** The tools the closed Segment called and those the kept tail calls stay loaded; the other tools the model loaded are unloaded, and a tool of a ToolSet the Agent installed active is never unloaded ([G-F34](#g-f34--tool-search-)). The tool list comes before the Segments, so this is the moment the list changes: a compaction changes the request anyway.
-- **A Record compacted before Segments.** A Record whose last Checkpoint holds one summary is refused with `invalid_state` (`modelctx.ErrOldSummary`): 409 over HTTP, exit 1 from the CLI. Nothing migrates it.
 - **A compaction that fails.** A Recap that fails leaves the Segment without one. A compaction whose Record append fails is dropped: a `compaction_failed` Event says why, the Record and its loaded tools are as they were, an on-demand call returns the error, and the automatic one lets the Run go on. A Run stopped during a compaction ends cancelled.
 - When the Agent's model is sent only the current Round's reasoning (a recognized Claude or OpenAI, see [G-F07](#g-f07--models-and-providers-)), the kept tail is kept without its reasoning, because the Segment changes the prefix that reasoning was written under. The Runner asks the model (`modelctx.DropsReasoning`); with `modelctx.Compact` alone, set `CompactOptions.DropReasoning`. For DeepSeek and unrecognized providers, the reasoning stays.
 
@@ -805,7 +803,6 @@ tail          Turns 27–30 as they were, tool calls and results included
 - **The originals stay.** The Entries a Segment covers stay in the log, unread by the Context and readable by their range, which is how `read_segment` finds them.
 - **What a load reads.** A load returns the facts from the last Checkpoint and every `segment_closed` Entry before it (`Loaded.Segments`), including one a later Checkpoint no longer lists, such as a Segment that was merged. A load therefore grows with the number of Segments, a cost accepted for keeping each Segment written once. A Record that holds Segments is read only by a Gotato that knows them.
 - The compaction's record adds the Segment's number, the estimated tokens before and after, the usage of the model call that wrote the Recap, and the tools kept loaded. It records usage only, not cost: Gotato keeps no prices, and a cost is added once the model catalog ([Later](#later)) has them.
-- **A Record compacted before Segments.** A Record whose last Checkpoint holds one summary is read as it is, and the compaction that closes Segments refuses it with `invalid_state` instead of turning that summary into a Segment. Gotato has made no release, so no such Record has to carry on.
 - **The kept tail.** With Segments, a compaction closes everything since the last Checkpoint and keeps only a tail. `--keep N`, `{"keep":N}` on `POST /v1/sessions/{id}/compact` and `CompactPolicy.Floor` stay, as the size of that tail: `keep` in Messages and `Floor` in tokens, cut at a Turn boundary so a tool call keeps its result. Their meaning, "how much recent history stays", does not change, so the versioned CLI and HTTP contract does not break. Only the default changes, to the kept tail in the settings below: for an automatic compaction, and for one on demand that names no `keep`, such as a service's idle timer. A user who comes back most likely asks about the latest Run, so its Turns stay as they were, tool results included, and one rule sets every kept tail.
 - **The limits.** `MaxMessages` and `MaxTranscriptBytes` count only the Messages a load reads, as they do today, and a Segment's Messages are among them. It is the size of the Context that matters, not the number of messages, and a Context that grows too large is compacted by the ceiling and the Segments' budget. So the default of `MaxMessages` is 10,000, and a Session of short messages reaches a ceiling counted in tokens first.
 - An idle compaction runs outside any Run, so its usage is on its compaction Event, not on a Run.
@@ -1793,7 +1790,7 @@ Gotato provides the tool contract, tool sets, tool search and the MCP adapter ([
 
 ### G-N10 — Context Organization Beyond Full History Belongs to Applications
 
-Gotato ships full history, Static blocks and compaction. Retrieval, windowing, summarization pipelines and other ways to choose what the model sees are the application's own `ContextBuilder`.
+Gotato ships full history and compaction. Retrieval, windowing, summarization pipelines and other ways to choose what the model sees are the application's own `ContextBuilder`.
 
 ### G-N11 — Telemetry Backends Belong to Applications
 
@@ -1859,7 +1856,7 @@ The MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)) maps an MCP server's tools o
 |---|---|
 | Code mode | a model that writes code to call tools makes each step of a Run a program that cannot be replayed, and a tool that runs code is a bound nobody can read ([DESIGNS.md → No tool runs commands or code](DESIGNS.md#no-tool-runs-commands-or-code)) |
 | MCP resources | a Session reads data through tools the team chooses; a resource is data with no Effect and no schema check |
-| Prompts | the instruction and the Static blocks are the Agent's definition, where a reviewer reads them |
+| Prompts | the instruction, reference text included, is the Agent's definition, where a reviewer reads them |
 | Sampling | a server that asks the client's model to answer for it makes a Run's cost and bounds depend on a server the team may not control |
 | Elicitation | a server that asks a person a question needs a waiting state in the Loop, which Gotato does not have ([DESIGNS.md → No approval system](DESIGNS.md#no-approval-system--2026-10-15)) |
 | Gotato as an MCP server | callers reach Sessions through the HTTP handler and the Go API |

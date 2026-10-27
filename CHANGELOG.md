@@ -6,6 +6,22 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### An Agent's reference text is part of its instruction
+
+The "Static block" is gone. Reference text an Agent carries, such as a schema or a runbook, is written into its instruction. `modelctx.FullHistory()` was an alias of the core builder. `ErrOldSummary` refused a Record compacted before Segments existed; no such Record exists.
+
+```text
+before  modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", s))
+        modelctx.Text(tag, s), modelctx.JSON(tag, v)
+after   Agent.Instruction / gotato.WithInstruction(instruction + "\n\n" + s)
+
+before  modelctx.FullHistory(), modelctx.StrategyFullHistory
+after   gotato.FullHistoryContext()
+
+before  modelctx.ErrOldSummary, modelctx.MetadataCompaction; Compact refused such a Record
+after   gone; the Report's metadata no longer has static_blocks
+```
+
 ### Hooks that only tests used leave the public API
 
 Six exported names existed for tests alone. They are gone from the public API; the tests of each package reach them through an `export_test.go`. `service.Config.Liveness` and `service.Config.StreamPoll` stay: they are settings of a running service.

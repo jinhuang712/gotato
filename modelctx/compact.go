@@ -115,12 +115,6 @@ type Result struct {
 	Merge *MergeResult `json:"merge,omitempty"`
 }
 
-// ErrOldSummary is what Compact returns for a Record whose last Checkpoint
-// holds one summary written before Segments existed. Compact does not turn it
-// into a Segment, and nothing migrates it. It carries gotato.ErrInvalidState,
-// so a caller finds it with errors.Is(err, ErrOldSummary) or gotato.IsCode.
-var ErrOldSummary = gotato.ErrorOf(gotato.ErrInvalidState, "modelctx: the Session's last Checkpoint holds one summary written before Segments; Compact does not compact it")
-
 // closeSegment appends a Segment and its Checkpoint in one step. A test
 // replaces it to make the write fail.
 var closeSegment = (*session.Record).CloseSegmentAndCheckpoint
@@ -156,17 +150,12 @@ func causeOf(err error) gotato.ErrorCode {
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
 // "none"; the usage of a model call that was made is still recorded). A stretch below opts.MinTokens, or one the tail covers whole, is
-// left as it is and returns a Result with Replaced false and a Reason. A
-// Record whose last Checkpoint holds one summary written before Segments is
-// refused with ErrOldSummary.
+// left as it is and returns a Result with Replaced false and a Reason.
 func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
 	}
 	all := s.Messages()
-	if len(s.Segments()) == 0 && len(all) > 0 && isSummary(all[0]) {
-		return Result{}, ErrOldSummary
-	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -475,7 +464,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	options.SegmentBudget = budget
 	result, err := Compact(ctx, a.session, options)
 	if err != nil {
-		if errors.Is(err, ErrOldSummary) || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return prepared, false, err
 		}
 		return prepared, true, nil
@@ -697,15 +686,6 @@ func withoutReasoning(message gotato.Message) gotato.Message {
 	message = message.Clone()
 	message.Parts = slices.DeleteFunc(message.Parts, reasoning)
 	return message
-}
-
-func isSummary(message gotato.Message) bool {
-	for _, part := range message.Parts {
-		if part.Metadata[MetadataCompaction] == "summary" {
-			return true
-		}
-	}
-	return false
 }
 
 // stretchStart returns when the earliest of the Messages was committed, or the

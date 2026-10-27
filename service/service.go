@@ -93,7 +93,7 @@ type Agent struct {
 	// above it is hidden from the model and from Runner.Tools, and no Session
 	// can switch it on. Empty means no cap (gotato.WithMaxEffect).
 	MaxEffect gotato.ToolEffect
-	// ContextBuilder defaults to modelctx.FullHistory().
+	// ContextBuilder defaults to gotato.FullHistoryContext().
 	ContextBuilder gotato.ContextBuilder
 	Extensions     []any
 	Limits         *gotato.CoreLimits
@@ -1264,7 +1264,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	builder := spec.ContextBuilder
 	if builder == nil {
-		builder = modelctx.FullHistory()
+		builder = gotato.FullHistoryContext()
 	}
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.

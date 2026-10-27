@@ -33,31 +33,9 @@ func snapshot(messages []gotato.Message) gotato.ContextSnapshot {
 	return gotato.ContextSnapshot{SystemInstructions: "sys", Messages: messages}
 }
 
-func TestStaticGoesToSystemAndHistoryGoesAsCommitted(t *testing.T) {
-	builder := modelctx.WithStatic(modelctx.FullHistory(),
-		modelctx.Resource("AGENTS.md", "# Rules\nbe nice"),
-		modelctx.JSON("state", map[string]int{"open": 2}),
-	)
-	history := append(toolConversation(), gotato.UserMessage("u3"))
-	report, err := modelctx.Inspect(context.Background(), builder, snapshot(history), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	system := report.Request.SystemInstructions
-	if system != "sys\n\n<resource path=\"AGENTS.md\">\n# Rules\nbe nice\n</resource>\n<state>{\"open\":2}</state>" {
-		t.Fatalf("system = %q", system)
-	}
-	if last := report.Request.Messages[len(report.Request.Messages)-1]; gotato.TextOf(last) != "u3" {
-		t.Fatalf("tail = %q; the last Message goes as committed", gotato.TextOf(last))
-	}
-	if report.SystemBytes == 0 || report.Metadata["static_blocks"] != "2" {
-		t.Fatalf("report = %+v", report)
-	}
-}
-
 func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	messages := toolConversation()
-	builder := modelctx.FullHistory()
+	builder := gotato.FullHistoryContext()
 	tools := []gotato.ToolSpec{{ID: "t", InputSchema: []byte(`{"type":"object"}`)}}
 	first, _ := modelctx.Inspect(context.Background(), builder, snapshot(messages), tools)
 	// Next Turn: the tail Message changed (a new assistant answer appended and

@@ -170,7 +170,7 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 ### Stable content first, growing content last
 
 - **Instead of:** an order by time or by kind.
-- **Why:** the instruction and the Static blocks come first, then the tools sorted by ID, then the Transcript. Because the Record only grows at its end, one Turn's prefix is the next Turn's prefix.
+- **Why:** the instruction, with any reference text in it, comes first, then the tools sorted by ID, then the Transcript. Because the Record only grows at its end, one Turn's prefix is the next Turn's prefix.
 
 ### Nothing that changes every Turn goes into the request
 
@@ -250,7 +250,7 @@ What the model sees is a value built on every Turn, not the history sent as it i
 ### Full history by default, and your own `ContextBuilder` for the rest
 
 - **Instead of:** built-in retrieval or memory search.
-- **Why:** retrieval and windowing depend on the application's data. Gotato ships full history, Static blocks and Compaction.
+- **Why:** retrieval and windowing depend on the application's data. Gotato ships full history and Compaction.
 
 ### A large Tool Result is spilled, and read in pages — 2026-10-25
 

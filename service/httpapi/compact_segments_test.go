@@ -5,45 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-// A Session whose last Checkpoint holds one summary written before Segments is
-// not compacted: the route answers 409 with the refusal.
-func TestCompactRefusesASessionWithOneOldSummary(t *testing.T) {
-	ctx := context.Background()
-	store := session.NewMemoryStore()
-	record := session.New(session.WithID("old-summary"))
-	summary := gotato.UserMessage("Summary of earlier conversation:\nthey talked")
-	summary.ID = "summary-1"
-	summary.Parts[0].Metadata = map[string]string{"compaction": "summary"}
-	record.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{summary, gotato.UserMessage("one"), gotato.AssistantMessage("two")}, &session.Compaction{ReplacedMessages: 2, Recap: "truncate"})
-	writer, err := session.Create(ctx, store, record, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Release(ctx); err != nil {
-		t.Fatal(err)
-	}
-	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(httpapi.New(runner))
-	defer server.Close()
-	status, body := call(t, server, http.MethodPost, "/v1/sessions/old-summary/compact", map[string]any{"keep": 1})
-	if status != http.StatusConflict || !strings.Contains(string(body), "summary") {
-		t.Fatalf("compact = %d %s, want 409 naming the summary", status, body)
-	}
-}
 
 // {"min_tokens":N} skips a stretch estimated below N and says so; with no
 // "keep" the latest Run's Turns stay.

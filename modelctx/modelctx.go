@@ -4,7 +4,7 @@
 // Turn sends to the Model. Within a Session the history is append-only and the
 // Model always sees all of it, laid out so provider prompt caches hit:
 //
-//	system  = instruction + static Blocks   stable across Runs
+//	system  = instruction                   stable across Runs
 //	tools   = visible ToolSpecs, sorted      stable across Turns
 //	history = every committed Message        append-only prefix
 //
@@ -28,11 +28,10 @@
 // spilled into the Record: the Context holds a preview and a ref, and the model
 // reads the rest page by page, with the paging of read_segment.
 //
-//	builder := modelctx.WithStatic(modelctx.FullHistory(), modelctx.Resource("AGENTS.md", agentsMD))
 //	live, _ := gotato.NewSession(
 //	    gotato.WithModel(m),
+//	    gotato.WithInstruction(agentsMD),
 //	    gotato.WithTranscript(s),
-//	    gotato.WithContextBuilder(builder),
 //	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})),
 //	)
 package modelctx
@@ -40,63 +39,10 @@ package modelctx
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
-
-// StrategyFullHistory is the one selection strategy: everything, append-only.
-const StrategyFullHistory = "full_history"
-
-// MetadataCompaction marks a summary Message that a compaction wrote before
-// Segments existed: ContentPart.Metadata[MetadataCompaction] == "summary".
-// Compact refuses a Record whose last Checkpoint holds one (ErrOldSummary).
-const MetadataCompaction = "compaction"
-
-// FullHistory returns the default builder: the Model sees the whole Session.
-func FullHistory() gotato.ContextBuilder { return gotato.FullHistoryContext() }
-
-// WithStatic appends static Blocks to the system prompt produced by inner.
-// Static content belongs at the top of the request: it is identical across
-// Runs and forms the most valuable part of the cacheable prefix. Keep
-// anything that changes per Turn out of it.
-func WithStatic(inner gotato.ContextBuilder, blocks ...gotato.Block) gotato.ContextBuilder {
-	if inner == nil {
-		inner = FullHistory()
-	}
-	return gotato.ContextBuilderFunc(func(ctx context.Context, snapshot gotato.ContextSnapshot) (gotato.ModelContext, error) {
-		built, err := inner.Build(ctx, snapshot)
-		if err != nil {
-			return gotato.ModelContext{}, err
-		}
-		built.System = append(built.System, blocks...)
-		if built.Metadata == nil {
-			built.Metadata = map[string]string{}
-		}
-		built.Metadata["static_blocks"] = strconv.Itoa(len(built.System))
-		return built, nil
-	})
-}
-
-// Resource is a Block carrying a file or document:
-//
-//	<resource path="AGENTS.md">…markdown…</resource>
-func Resource(path, content string) gotato.Block {
-	return gotato.Block{Tag: "resource", Attrs: map[string]string{"path": path}, Text: content}
-}
-
-// Text is a tagged prose Block; an empty tag renders bare text.
-func Text(tag, text string) gotato.Block { return gotato.Block{Tag: tag, Text: text} }
-
-// JSON is a tagged Block whose body is the JSON encoding of value.
-func JSON(tag string, value any) gotato.Block {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		encoded = []byte(`{"error":"unencodable"}`)
-	}
-	return gotato.Block{Tag: tag, Text: string(encoded)}
-}
 
 // EstimateTokens is the bytes/4 heuristic over the JSON encoding of the
 // Messages a provider would receive. Provider-reported usage lives in the
@@ -160,7 +106,7 @@ func ReportOf(inspection gotato.ContextInspection) Report {
 // Extension and no model options.
 func Inspect(ctx context.Context, builder gotato.ContextBuilder, snapshot gotato.ContextSnapshot, tools []gotato.ToolSpec) (Report, error) {
 	if builder == nil {
-		builder = FullHistory()
+		builder = gotato.FullHistoryContext()
 	}
 	built, err := builder.Build(ctx, snapshot)
 	if err != nil {
