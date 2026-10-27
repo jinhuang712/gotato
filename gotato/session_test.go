@@ -205,11 +205,11 @@ func TestSessionCancelRun(t *testing.T) {
 	}
 	select {
 	case err := <-resultCh:
-		if !IsCode(err, ErrCancelled) {
+		if !IsCode(err, ErrCanceled) {
 			t.Fatalf("prompt error = %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("cancelled Run did not return")
+		t.Fatal("canceled Run did not return")
 	}
 }
 

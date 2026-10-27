@@ -128,11 +128,11 @@ func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 	}
 }
 
-// blockingTool waits for release, and says whether its context was cancelled.
+// blockingTool waits for release, and says whether its context was canceled.
 type blockingTool struct {
-	started   chan struct{}
-	release   chan struct{}
-	cancelled bool
+	started  chan struct{}
+	release  chan struct{}
+	canceled bool
 }
 
 func (t *blockingTool) Spec() ToolSpec {
@@ -142,7 +142,7 @@ func (t *blockingTool) Spec() ToolSpec {
 func (t *blockingTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFunc) (ToolResult, error) {
 	close(t.started)
 	<-t.release
-	t.cancelled = ctx.Err() != nil
+	t.canceled = ctx.Err() != nil
 	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "tool-ok"}}}, nil
 }
 
@@ -180,8 +180,8 @@ func TestInterruptLetsARunningToolFinish(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the Run did not settle")
 	}
-	if tool.cancelled {
-		t.Fatal("an Interrupt cancelled the running tool")
+	if tool.canceled {
+		t.Fatal("an Interrupt canceled the running tool")
 	}
 	// The tool's result lands first, and the interrupt follows it.
 	messages := model.transcript(1)

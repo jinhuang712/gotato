@@ -135,7 +135,7 @@ const (
 	ToolResultOK       ToolResultStatus = "ok"
 	ToolResultBlocked  ToolResultStatus = "blocked"
 	ToolResultFailed   ToolResultStatus = "failed"
-	ToolResultCanceled ToolResultStatus = "cancelled"
+	ToolResultCanceled ToolResultStatus = "canceled"
 )
 
 type ToolResult struct {
@@ -146,7 +146,7 @@ type ToolResult struct {
 	SafeError string            `json:"safe_error,omitempty"`
 	// Executed reports whether the Tool's executor was started. Core owns it:
 	// a call that was blocked, rejected, or never started because the Run
-	// ended has Executed false. A Tool cancelled while it ran keeps it true,
+	// ended has Executed false. A Tool canceled while it ran keeps it true,
 	// because it may have done its work.
 	Executed bool `json:"executed"`
 	// Spilled is set when the text of the result was longer than one page: the
@@ -200,7 +200,7 @@ const (
 	StopEndTurn   StopReason = "end_turn"
 	StopToolCalls StopReason = "tool_calls"
 	StopMaxTokens StopReason = "max_tokens"
-	StopCanceled  StopReason = "cancelled"
+	StopCanceled  StopReason = "canceled"
 	StopError     StopReason = "error"
 	// StopCutOff marks a reply whose stream broke before the Model finished:
 	// the Message keeps the text received so far. It stays in the Transcript
@@ -213,7 +213,7 @@ type RunStatus string
 const (
 	RunRunning          RunStatus = "running"
 	RunCompleted        RunStatus = "completed"
-	RunCanceled         RunStatus = "cancelled"
+	RunCanceled         RunStatus = "canceled"
 	RunDeadlineExceeded RunStatus = "deadline_exceeded"
 	RunFailed           RunStatus = "failed"
 )

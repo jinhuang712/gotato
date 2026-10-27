@@ -228,7 +228,7 @@ type setResult struct {
 
 // resolveAll asks every installed ToolSet for its Tools. A ToolSet that fails
 // is reported in its result, never as an error; only a context that ended
-// fails the call, so a cancelled caller gets no half-resolved Session. After
+// fails the call, so a canceled caller gets no half-resolved Session. After
 // NewSession's own resolution it returns nil for the first Run, which uses
 // that answer. It resolves the ToolSets concurrently and takes no lock: a
 // ToolSet may be slow.
@@ -595,7 +595,7 @@ func (r *toolRegistry) refreshSources() error {
 }
 
 // abortPending discards loads staged by a Run that never reached a commit
-// boundary (a failed or cancelled Run), so a later Run cannot load a Tool the
+// boundary (a failed or canceled Run), so a later Run cannot load a Tool the
 // Model never got.
 func (r *toolRegistry) abortPending() {
 	r.mu.Lock()

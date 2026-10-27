@@ -366,7 +366,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result := settled(t, done); result.Result.Status != gotato.RunCanceled {
-		t.Fatalf("the Run = %+v, want cancelled", result.Result)
+		t.Fatalf("the Run = %+v, want canceled", result.Result)
 	}
 	runOn(t, runner, s.ID(), "next")
 	if got := texts(model.request(1)); got[len(got)-2] != "user:next" || got[len(got)-1] != noticeText("k", "kept") {

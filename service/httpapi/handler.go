@@ -781,7 +781,7 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.ErrLimitExceeded:         http.StatusTooManyRequests,
 	gotato.ErrContextOverflow:       http.StatusUnprocessableEntity,
 	gotato.ErrDeadlineExceeded:      http.StatusGatewayTimeout,
-	gotato.ErrCancelled:             http.StatusRequestTimeout,
+	gotato.ErrCanceled:              http.StatusRequestTimeout,
 	gotato.ErrModelFailure:          http.StatusInternalServerError,
 	gotato.ErrModelProtocolFailure:  http.StatusInternalServerError,
 	gotato.ErrToolResolutionFailure: http.StatusInternalServerError,

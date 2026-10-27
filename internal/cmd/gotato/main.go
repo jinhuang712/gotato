@@ -356,7 +356,7 @@ var exitOfCode = map[gotato.ErrorCode]int{
 	gotato.ErrToolExecutionFailure:  ExitError,
 	gotato.ErrExtensionFailure:      ExitError,
 	gotato.ErrLimitExceeded:         ExitError,
-	gotato.ErrCancelled:             ExitError,
+	gotato.ErrCanceled:              ExitError,
 	gotato.ErrDeadlineExceeded:      ExitError,
 	gotato.ErrInternalInvariant:     ExitError,
 	gotato.ErrNotSupported:          ExitError,

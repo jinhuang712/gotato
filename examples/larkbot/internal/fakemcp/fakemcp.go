@@ -29,19 +29,19 @@ type args struct {
 
 // Server counts the calls it has seen; the counts start again from 0 when the process restarts.
 type Server struct {
-	started, finished, cancelled atomic.Int64
-	draining                     atomic.Bool
-	handler                      http.Handler
-	log                          *slog.Logger
-	trace                        bool
+	started, finished, canceled atomic.Int64
+	draining                    atomic.Bool
+	handler                     http.Handler
+	log                         *slog.Logger
+	trace                       bool
 }
 
 // Stats are the calls a Server has seen.
 type Stats struct {
-	Started   int64 `json:"started"`
-	Finished  int64 `json:"finished"`
-	Cancelled int64 `json:"cancelled"` // the caller went away before the answer
-	InFlight  int64 `json:"in_flight"` // started and not yet finished or cancelled
+	Started  int64 `json:"started"`
+	Finished int64 `json:"finished"`
+	Canceled int64 `json:"canceled"`  // the caller went away before the answer
+	InFlight int64 `json:"in_flight"` // started and not yet finished or canceled
 }
 
 // New returns the server. Stateless makes it answer with no Mcp-Session-Id, so any replica can answer any call.
@@ -56,7 +56,7 @@ func New(log *slog.Logger, stateless bool) *Server {
 					select {
 					case <-time.After(d):
 					case <-ctx.Done():
-						s.cancelled.Add(1)
+						s.canceled.Add(1)
 						return nil, nil, ctx.Err()
 					}
 				}
@@ -145,8 +145,8 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // Stats returns the calls seen so far.
 func (s *Server) Stats() Stats {
-	started, finished, cancelled := s.started.Load(), s.finished.Load(), s.cancelled.Load()
-	return Stats{Started: started, Finished: finished, Cancelled: cancelled, InFlight: started - finished - cancelled}
+	started, finished, canceled := s.started.Load(), s.finished.Load(), s.canceled.Load()
+	return Stats{Started: started, Finished: finished, Canceled: canceled, InFlight: started - finished - canceled}
 }
 
 // Drained says what Drain saw.

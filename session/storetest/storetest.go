@@ -62,7 +62,7 @@ var checks = []check{
 	{"delete", checkDelete},
 	{"a writer of a deleted record is refused", checkDeletedWriter},
 	{"an unknown record", checkUnknown},
-	{"a cancelled context", checkCancelled},
+	{"a canceled context", checkCanceled},
 	{"liveness rows", checkLiveness},
 	{"liveness rows expire", checkExpiry},
 	{"an ended row is removed", checkEndedRemoved},
@@ -616,22 +616,22 @@ func checkUnknown(ctx context.Context, open Open) error {
 	return nil
 }
 
-func checkCancelled(ctx context.Context, open Open) error {
+func checkCanceled(ctx context.Context, open Open) error {
 	store := open()
 	if _, err := create(ctx, store, "r1"); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	cancelled, cancel := context.WithCancel(ctx)
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := store.Append(cancelled, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); err == nil {
-		return errors.New("append ignored a cancelled context")
+	if err := store.Append(canceled, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); err == nil {
+		return errors.New("append ignored a canceled context")
 	}
-	if _, err := store.Load(cancelled, "r1"); err == nil {
-		return errors.New("load ignored a cancelled context")
+	if _, err := store.Load(canceled, "r1"); err == nil {
+		return errors.New("load ignored a canceled context")
 	}
 	loaded, err := store.Load(ctx, "r1")
 	if err != nil || loaded.Head != 3 {
-		return fmt.Errorf("an Append with a cancelled context wrote: head %d, %v", loaded.Head, err)
+		return fmt.Errorf("an Append with a canceled context wrote: head %d, %v", loaded.Head, err)
 	}
 	return nil
 }

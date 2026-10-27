@@ -109,7 +109,7 @@ Each check is a test or a harness that passes or fails.
 - **Serves:** [A failure stays local](../DESIGNS.md#4-a-failure-stays-local)
 - **Measure:** 100% of streams end with a final event. 100% of replies cut by the output limit say so. A client that disconnects mid-stream still gets its Run settled and saved.
 - **Method:** fault injection on the HTTP stream (`TestStreamDisconnectSettlesAndSavesTheRun`)
-- **Status:** ✅ The final event exists, and output-limit cutoffs are reported. A client that disconnects mid-stream gets its Run settled as cancelled and saved with its prompt, over HTTP. 2026-10-17.
+- **Status:** ✅ The final event exists, and output-limit cutoffs are reported. A client that disconnects mid-stream gets its Run settled as canceled and saved with its prompt, over HTTP. 2026-10-17.
 
 ### G-G04 — No failures caused by Gotato
 

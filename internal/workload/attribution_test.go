@@ -13,7 +13,7 @@ import (
 )
 
 func TestToolFailureAttribution(t *testing.T) {
-	failed, ok, blocked, cancelled := string(gotato.ToolResultFailed), string(gotato.ToolResultOK), string(gotato.ToolResultBlocked), string(gotato.ToolResultCanceled)
+	failed, ok, blocked, canceled := string(gotato.ToolResultFailed), string(gotato.ToolResultOK), string(gotato.ToolResultBlocked), string(gotato.ToolResultCanceled)
 	cases := []struct {
 		call    toolCall
 		result  string
@@ -27,7 +27,7 @@ func TestToolFailureAttribution(t *testing.T) {
 		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "tool_execution_failure (Tool): tool panic: boom", CauseTool, "tool_execution_failure", ""},
 		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "internal_invariant_failure (Core): broken", CauseGotato, "internal_invariant_failure", ""},
 		{toolCall{toolID: "orders.lookup", status: blocked}, "refused by policy", CauseExtension, "", ""},
-		{toolCall{toolID: "orders.lookup", status: cancelled}, "context canceled", CauseCancelled, "", ""},
+		{toolCall{toolID: "orders.lookup", status: canceled}, "context canceled", CauseCanceled, "", ""},
 		// Without a committed result, the Event alone decides the cause.
 		{toolCall{toolID: "orders.lookup", status: failed}, "", CauseModel, "", "orders.lookup: failed"},
 	}
@@ -55,7 +55,7 @@ func TestRunFailureAttribution(t *testing.T) {
 		gotato.ErrExtensionFailure:     CauseExtension,
 		gotato.ErrLimitExceeded:        CauseLimit,
 		gotato.ErrDeadlineExceeded:     CauseLimit,
-		gotato.ErrCancelled:            CauseCancelled,
+		gotato.ErrCanceled:             CauseCanceled,
 		gotato.ErrInternalInvariant:    CauseGotato,
 		gotato.ErrInvalidState:         CauseGotato,
 	}

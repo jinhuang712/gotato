@@ -230,7 +230,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			err = runtimeError(ErrInternalInvariant, "Run", "nil terminal error", nil)
 		}
 		result := RunResult{RunID: runID, Status: RunFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
-		if errors.Is(err.Cause, context.Canceled) || err.Code == ErrCancelled {
+		if errors.Is(err.Cause, context.Canceled) || err.Code == ErrCanceled {
 			result.Status = RunCanceled
 		}
 		if err.Code == ErrDeadlineExceeded {
@@ -383,7 +383,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		turnText, turnReasoning := replyBytes(assistant)
 		textBytes += turnText
 		reasoningBytes += turnReasoning
-		if modelErr != nil && modelErr.Code == ErrCancelled && runCtx.Err() == nil && a.interrupting() {
+		if modelErr != nil && modelErr.Code == ErrCanceled && runCtx.Err() == nil && a.interrupting() {
 			// An Interrupt cut the call short: the text it had sent is kept as
 			// a Cut-off reply, and the Interrupt starts the next Turn.
 			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
@@ -518,7 +518,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			for ; committed < end; committed++ {
 				call := plans[committed].call
 				toolResult := outcomes[committed]
-				// Post-Tool-Use sees executed, blocked, failed, and cancelled
+				// Post-Tool-Use sees executed, blocked, failed, and canceled
 				// outcomes alike, in reverse installation order.
 				finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
 				if postErr != nil {
@@ -560,7 +560,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				return fail(err)
 			}
 			completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
-			// A cancelled group still reports what it knows, so the closing
+			// A canceled group still reports what it knows, so the closing
 			// results of the failed Run keep Executed true for started Tools.
 			for index, result := range completed {
 				outcomes[index] = result

@@ -254,9 +254,9 @@ func (s stopper) WriteRecap(ctx context.Context, _ RecapRequest) (gotato.Message
 	return gotato.Message{}, ctx.Err()
 }
 
-// A Run stopped during its mid-Run compaction ends cancelled, and no Segment
+// A Run stopped during its mid-Run compaction ends canceled, and no Segment
 // is left.
-func TestARunStoppedDuringItsMidRunCompactionEndsCancelled(t *testing.T) {
+func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 	record := conversation(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -269,7 +269,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCancelled(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(ctx, gotato.UserMessage("investigate"))
-	if !gotato.IsCode(err, gotato.ErrCancelled) || model.Calls() != 1 || len(record.Segments()) != 0 {
+	if !gotato.IsCode(err, gotato.ErrCanceled) || model.Calls() != 1 || len(record.Segments()) != 0 {
 		t.Fatalf("result = %+v, err = %v, %d calls, %d Segments", result, err, model.Calls(), len(record.Segments()))
 	}
 }

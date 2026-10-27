@@ -488,7 +488,7 @@ Running a Session on many instances raises two kinds of problem: getting a reque
 ### No global scheduling or quotas
 
 - **Instead of:** scheduling resources or provider quotas across services.
-- **Why:** that is system policy, and the application owns it. Gotato offers Runs that are cheap and cancellable, bounds its own concurrent Runs, and keeps one Run per Session.
+- **Why:** that is system policy, and the application owns it. Gotato offers Runs that are cheap and cancelable, bounds its own concurrent Runs, and keeps one Run per Session.
 
 ### Gotato owns the shapes, and adapters own storage and telemetry — 2026-10-15
 
@@ -653,7 +653,7 @@ A second instance must stop before it calls the model, and a writer that lost it
 
 ### A drain finishes before it disconnects
 
-- **Instead of:** closing connections or cancelling Runs first, or letting another instance take over a Session the draining one is using.
+- **Instead of:** closing connections or canceling Runs first, or letting another instance take over a Session the draining one is using.
 - **Why:** a deploy should not lose work. An instance marks its liveness row draining, stops taking new Sessions, lets every Run finish, save and release its claim, and only then closes its streams. Another instance waits for a Session the draining one is using, as for any live writer, because taking it over would fence a Run that is about to be saved.
 
 ### An instance removes its liveness row when it stops

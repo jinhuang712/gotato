@@ -76,7 +76,7 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 		runs := view.Runs()
 		if len(runs) == 1 && runs[0].Status != gotato.RunRunning && runner.ActiveRuns() == 0 {
 			if runs[0].Status != gotato.RunCanceled {
-				t.Fatalf("run = %+v, want cancelled", runs[0])
+				t.Fatalf("run = %+v, want canceled", runs[0])
 			}
 			if messages := view.Messages(); len(messages) != 1 || gotato.TextOf(messages[0]) != "hello?" {
 				t.Fatalf("messages = %+v, want the prompt kept", messages)

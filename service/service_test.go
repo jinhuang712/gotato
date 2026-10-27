@@ -163,12 +163,12 @@ func TestWaitPolicyQueuesAndCancelSessionAborts(t *testing.T) {
 		firstDone <- result
 	}()
 	// Wait until the Run reached the Model so cancellation exercises the
-	// settled-cancelled path instead of racing the initial Session load.
+	// settled-canceled path instead of racing the initial Session load.
 	waitFor(t, func() bool { return model.Calls() == 1 })
 	if err := runner.CancelSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	// Cancelling the first run settles it as cancelled and frees the lock.
+	// Canceling the first run settles it as canceled and frees the lock.
 	first := <-firstDone
 	if first.Result.Status != gotato.RunCanceled {
 		t.Fatalf("first status = %s err=%v", first.Result.Status, first.Result.Error)
@@ -208,7 +208,7 @@ func TestCapacityAndDrain(t *testing.T) {
 	drainCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 	if err := runner.Drain(drainCtx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("drain err = %v, want deadline (run was cancelled after grace)", err)
+		t.Fatalf("drain err = %v, want deadline (run was canceled after grace)", err)
 	}
 	<-done
 	if _, err := runner.Run(ctx, service.RunRequest{Prompt: "after"}); !errors.Is(err, service.ErrDraining) {
@@ -288,7 +288,7 @@ func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	}
 }
 
-func TestQueuedRunIsCancellable(t *testing.T) {
+func TestQueuedRunIsCancelable(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
@@ -316,22 +316,22 @@ func TestQueuedRunIsCancellable(t *testing.T) {
 	}
 	select {
 	case result := <-queued:
-		t.Fatalf("cancelling the started run settled the queued one: %+v", result)
+		t.Fatalf("canceling the started run settled the queued one: %+v", result)
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	// Let the first Run leave before cancelling again, so the next
+	// Let the first Run leave before canceling again, so the next
 	// CancelSession can only match the queued Run (its handle is the only one
-	// registered), settling it as cancelled instead of leaving it invisible.
+	// registered), settling it as canceled instead of leaving it invisible.
 	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
 	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil })
 	select {
 	case result := <-queued:
 		if result.Result.Status != gotato.RunCanceled {
-			t.Fatalf("queued status = %q err=%v, want cancelled", result.Result.Status, result.Result.Error)
+			t.Fatalf("queued status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("queued run was not cancelled")
+		t.Fatal("queued run was not canceled")
 	}
 	close(block)
 }
@@ -370,7 +370,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	select {
 	case result := <-queued:
 		if result.Result.Status != gotato.RunCanceled {
-			t.Fatalf("queued status = %q, want cancelled", result.Result.Status)
+			t.Fatalf("queued status = %q, want canceled", result.Result.Status)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("drain left the queued run running")
@@ -378,7 +378,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	close(block)
 }
 
-func TestCallerCancelReportsCancelled(t *testing.T) {
+func TestCallerCancelReportsCanceled(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
@@ -394,7 +394,7 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	cancel()
 	result := <-done
 	if result.Result.Status != gotato.RunCanceled {
-		t.Fatalf("caller cancel status = %q err=%v, want cancelled", result.Result.Status, result.Result.Error)
+		t.Fatalf("caller cancel status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 	}
 	stored, err := session.View(context.Background(), store, result.SessionID)
 	if err != nil {
@@ -402,7 +402,7 @@ func TestCallerCancelReportsCancelled(t *testing.T) {
 	}
 	runs := stored.Runs()
 	if len(runs) != 1 || runs[0].Status != gotato.RunCanceled {
-		t.Fatalf("session run record = %+v, want cancelled", runs)
+		t.Fatalf("session run record = %+v, want canceled", runs)
 	}
 	close(block)
 }
@@ -1041,11 +1041,11 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 	}
 }
 
-// A cancelled Run settles inside its live Session, so its result must keep the
-// RunID, Turns and metrics the Session reported. Before the fix, cancelling
+// A canceled Run settles inside its live Session, so its result must keep the
+// RunID, Turns and metrics the Session reported. Before the fix, canceling
 // the Prompt context made Prompt give up on the settled result, and every
-// cancelled Run came back with an empty RunID.
-func TestCancelledRunKeepsItsRunID(t *testing.T) {
+// canceled Run came back with an empty RunID.
+func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
 	model := testkit.NewFakeModel(testkit.Text("slow"))
@@ -1074,7 +1074,7 @@ func TestCancelledRunKeepsItsRunID(t *testing.T) {
 	}
 	result := <-done
 	if result.Result.Status != gotato.RunCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
-		t.Fatalf("cancelled result = %+v, want status cancelled, RunID %s, one Turn", result.Result, runID)
+		t.Fatalf("canceled result = %+v, want status canceled, RunID %s, one Turn", result.Result, runID)
 	}
 	saved, err := session.View(ctx, store, s.ID())
 	if err != nil {

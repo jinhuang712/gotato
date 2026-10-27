@@ -266,7 +266,7 @@ func (r *Runner) dropWarm(id, why string) {
 	}
 }
 
-// dropAllWarm lets go of every warm copy, with why, cancelling any idle
+// dropAllWarm lets go of every warm copy, with why, canceling any idle
 // compaction first. An idle copy holds no Claim, so nothing is released.
 func (r *Runner) dropAllWarm(why string) {
 	r.warmMu.Lock()

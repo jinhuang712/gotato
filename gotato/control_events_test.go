@@ -114,7 +114,7 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 	}
 	agent.Abort()
 	model.gate <- struct{}{}
-	if err := <-done; !IsCode(err, ErrCancelled) {
+	if err := <-done; !IsCode(err, ErrCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 
@@ -216,7 +216,7 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 		t.Fatal("Model was not called")
 	}
 	agent.Abort()
-	if err := <-done; !IsCode(err, ErrCancelled) {
+	if err := <-done; !IsCode(err, ErrCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	events := seen.events()

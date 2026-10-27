@@ -63,7 +63,7 @@ func TestFuncModelErrorsAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := blocking.Stream(ctx, gotato.ModelRequest{}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled call = %v", err)
+		t.Fatalf("canceled call = %v", err)
 	}
 }
 

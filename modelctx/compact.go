@@ -128,7 +128,7 @@ func causeOf(err error) gotato.ErrorCode {
 	case errors.Is(err, context.DeadlineExceeded):
 		return gotato.ErrDeadlineExceeded
 	case errors.Is(err, context.Canceled):
-		return gotato.ErrCancelled
+		return gotato.ErrCanceled
 	}
 	return gotato.ErrStoreFailure
 }

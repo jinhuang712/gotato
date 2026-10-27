@@ -54,8 +54,8 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 	second.DropQueued(rest, "queue_full")
 }
 
-// A cancelled Run still drops what is queued, as before.
-func TestACancelledRunStillDropsItsQueue(t *testing.T) {
+// A canceled Run still drops what is queued, as before.
+func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
 	session, err := NewSession(WithModel(model), WithQueueHandoff())
 	if err != nil {
@@ -75,7 +75,7 @@ func TestACancelledRunStillDropsItsQueue(t *testing.T) {
 	model.gate <- struct{}{}
 	<-done
 	if left := session.TakeQueued(); len(left) != 0 {
-		t.Fatalf("a cancelled Run left %d messages for the host", len(left))
+		t.Fatalf("a canceled Run left %d messages for the host", len(left))
 	}
 }
 

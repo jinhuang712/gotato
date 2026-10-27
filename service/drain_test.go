@@ -248,7 +248,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	close(outcomes)
 	for o := range outcomes {
 		if o.result.Result.Status != gotato.RunCanceled || o.result.Result.RunID == "" {
-			t.Fatalf("a Run past the deadline = %+v, want a cancelled Run", o.result.Result)
+			t.Fatalf("a Run past the deadline = %+v, want a canceled Run", o.result.Result)
 		}
 		if o.result.Reconnect == nil || o.result.Reconnect.RetryAfterMS <= 0 {
 			t.Fatalf("reconnect = %+v, want a delay", o.result.Reconnect)
@@ -263,7 +263,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 			t.Fatal(err)
 		}
 		if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunCanceled {
-			t.Fatalf("runs = %+v, want one cancelled", runs)
+			t.Fatalf("runs = %+v, want one canceled", runs)
 		}
 		checkReleased(t, store, id, "instance-a")
 	}

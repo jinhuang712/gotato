@@ -63,7 +63,7 @@ func cutRaceRunners(t *testing.T) (a, b *service.Runner, held *holdStore, id str
 }
 
 // notCut fails the test when the stream was cut. Next returns the cut error
-// first if there is one; with a cancelled context it returns an Event or the
+// first if there is one; with a canceled context it returns an Event or the
 // context's error otherwise.
 func notCut(t *testing.T, stream *service.SessionStream) {
 	t.Helper()

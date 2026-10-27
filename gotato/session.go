@@ -154,7 +154,7 @@ func WithLimits(limits CoreLimits) Option {
 // Transcript when the Transcript has an ID, as a session.Record does, and
 // generates one otherwise. Close it when it is no longer needed.
 //
-// NewSession cannot be cancelled: it resolves ToolSets with a background
+// NewSession cannot be canceled: it resolves ToolSets with a background
 // context. Prefer NewSessionContext.
 func NewSession(options ...Option) (*Session, error) {
 	return NewSessionContext(context.Background(), options...)
@@ -163,7 +163,7 @@ func NewSession(options ...Option) (*Session, error) {
 // NewSessionContext is NewSession with a context for the work it does before
 // the Session exists: resolving the ToolSets installed active and the ones
 // the Session's earlier Runs activated. When ctx ends first, it fails with
-// cancelled or deadline_exceeded and builds nothing. ctx does not outlive the
+// canceled or deadline_exceeded and builds nothing. ctx does not outlive the
 // call; the Session's own Runs take their contexts as before.
 func NewSessionContext(ctx context.Context, options ...Option) (*Session, error) {
 	if ctx == nil {
@@ -451,7 +451,7 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	case a.commands <- cmd:
 		releaseAdmission = false
 	case <-ctx.Done():
-		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" was cancelled before admission", ctx.Err())
+		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" was canceled before admission", ctx.Err())
 	case <-a.closeSignal:
 		return RunResult{}, a.admissionError(operation)
 	}
@@ -475,9 +475,9 @@ func (a *Session) Steer(message Message) error {
 }
 
 // Interrupt delivers a Message that cuts the model call in flight short. The
-// call is cancelled, the text it had sent is kept as a Cut-off reply, and the
+// call is canceled, the text it had sent is kept as a Cut-off reply, and the
 // Message starts the next Turn of the same Run. A Tool in flight is not
-// cancelled: it finishes, and the Message follows its result at the Turn
+// canceled: it finishes, and the Message follows its result at the Turn
 // boundary, as a Steer does. It shares the Steer queue and its limit
 // (MaxSteerMessages), and is reported by the same Events, with the source
 // SourceInterrupt. It fails with invalid_state when no Run is in flight.
@@ -1420,7 +1420,7 @@ func cloneToolSpecs(specs []ToolSpec) []ToolSpec {
 // WithQueueHandoff makes the Session keep the messages (Steer, FollowUp,
 // Interrupt) still queued when a Run completes or fails, instead of dropping
 // them at its end, so the host can take them with TakeQueued and start the
-// next Run with them. A Run that is cancelled, or ends on its deadline, still
+// next Run with them. A Run that is canceled, or ends on its deadline, still
 // drops them. A host that sets it must call TakeQueued, or DropQueued, after
 // every Run; Close drops what is left (message_dropped, session_closed).
 func WithQueueHandoff() Option {

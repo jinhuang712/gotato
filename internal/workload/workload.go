@@ -186,8 +186,8 @@ const (
 	CauseLimit Cause = "limit"
 	// CauseExtension: an Extension failed or refused a tool call.
 	CauseExtension Cause = "extension"
-	// CauseCancelled: the caller cancelled.
-	CauseCancelled Cause = "cancelled"
+	// CauseCanceled: the caller canceled.
+	CauseCanceled Cause = "canceled"
 	// CauseGotato: everything else. GOALS.md G-G04 wants none.
 	CauseGotato Cause = "gotato"
 )
@@ -587,8 +587,8 @@ func causeOf(code gotato.ErrorCode) Cause {
 		return CauseExtension
 	case gotato.ErrLimitExceeded, gotato.ErrDeadlineExceeded:
 		return CauseLimit
-	case gotato.ErrCancelled:
-		return CauseCancelled
+	case gotato.ErrCanceled:
+		return CauseCanceled
 	default:
 		return CauseGotato
 	}
@@ -611,7 +611,7 @@ func toolFailure(call toolCall, committed *gotato.ToolResult) (failure, bool) {
 	case call.status == string(gotato.ToolResultBlocked):
 		f.cause = CauseExtension
 	case call.status == string(gotato.ToolResultCanceled):
-		f.cause = CauseCancelled
+		f.cause = CauseCanceled
 	case f.code == string(gotato.ErrInternalInvariant):
 		f.cause = CauseGotato
 	case call.executed:

@@ -109,7 +109,7 @@ This is an optimistic view, and it is stated as one. It starts from the work pur
 
 - **The hard cases inside a pipeline.** A user uploads hundreds of files for an identity check. Rules clear most of them, and a single model call clears most of the rest. When that call is not confident, an agent looks at past submissions and other sources, calls tools and decides. An `if` cannot express that step, one call is not enough, and running an agent on every file would be slow and expensive.
 - **Investigations.** On a schedule or an alert, an agent looks for dirty data with one clear goal, reads the state of a system and appends a short report for people to read later, or investigates an error, writes up what happened and tells the people responsible.
-- **Conversations with users** that need the service's own tools and records: rebooking a cancelled flight, explaining a double charge, advising within a known policy in travel, health or law.
+- **Conversations with users** that need the service's own tools and records: rebooking a canceled flight, explaining a double charge, advising within a known policy in travel, health or law.
 
 From there, two pictures of the future:
 

@@ -35,8 +35,8 @@ func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCancelled) {
-			t.Fatalf("err = %v, want cancelled", err)
+		if !IsCode(err, ErrCanceled) {
+			t.Fatalf("err = %v, want canceled", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("NewSessionContext did not return after the context ended")
@@ -46,7 +46,7 @@ func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
 func TestNewSessionContextRefusesAnEndedContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, ErrCancelled) {
-		t.Fatalf("err = %v, want cancelled", err)
+	if _, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, ErrCanceled) {
+		t.Fatalf("err = %v, want canceled", err)
 	}
 }

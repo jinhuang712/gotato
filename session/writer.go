@@ -408,7 +408,7 @@ func StoredEvents(ctx context.Context, store Store, id string, after uint64) ([]
 }
 
 // writeTimeout bounds one write. A write does not end with the caller's
-// context: a cancelled Run still writes its last steps.
+// context: a canceled Run still writes its last steps.
 const writeTimeout = 10 * time.Second
 
 // Flush writes the Record's queued Events, if any, in one write, and hands

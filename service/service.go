@@ -348,11 +348,11 @@ func (h *runHandle) attachRunID(runID gotato.RunID) {
 // stop aborts a started Run, or the pre-start wait when none started yet.
 //
 // Once the live Session is built, the Run is stopped only through Abort, never
-// by cancelling the context Prompt waits on: Prompt then returns the settled
-// cancelled result, with its RunID, usage and metrics, instead of giving up on
+// by canceling the context Prompt waits on: Prompt then returns the settled
+// canceled result, with its RunID, usage and metrics, instead of giving up on
 // it. A stop that lands before the Session has a Run to abort is kept, and
 // abortIfStopped applies it at run_start. Before the live Session exists,
-// cancelling the context is what reaches a Run that is waiting for the
+// canceling the context is what reaches a Run that is waiting for the
 // Session lock or loading the Session.
 func (h *runHandle) stop() {
 	h.mu.Lock()
@@ -988,8 +988,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		}
 		started = true
 		// From here a stop aborts the Run inside the live Session, so Prompt
-		// still returns the settled (cancelled) result. Prompt waits on the
-		// caller's context, not runCtx: a stop that cancelled runCtx while the
+		// still returns the settled (canceled) result. Prompt waits on the
+		// caller's context, not runCtx: a stop that canceled runCtx while the
 		// Session was loading reaches the Run through abortIfStopped instead.
 		handle.attachAbort(live.Abort)
 		handle.attachLive(live)
@@ -1063,7 +1063,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		}
 
 		if writer != nil {
-			// Persist the settled Session even when the Run was cancelled, but
+			// Persist the settled Session even when the Run was canceled, but
 			// bound the write so a stalled Store cannot pin the Run (and Drain)
 			// forever.
 			wroteAll := writer.Failed() == nil
@@ -1151,9 +1151,9 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
-			// Cancelled while waiting for the Session lock: report a settled
-			// cancelled Run rather than a bare error.
-			return cancelledRunResult(sessionID, request.Agent, lockErr), lockErr
+			// Canceled while waiting for the Session lock: report a settled
+			// canceled Run rather than a bare error.
+			return canceledRunResult(sessionID, request.Agent, lockErr), lockErr
 		}
 		return RunResult{}, lockErr
 	}
@@ -1177,10 +1177,10 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	}
 }
 
-// cancelledRunResult reports a Run cancelled before its Agent started as a
-// settled cancelled Run.
-func cancelledRunResult(sessionID, agent string, err error) RunResult {
-	code := gotato.ErrCancelled
+// canceledRunResult reports a Run canceled before its Agent started as a
+// settled canceled Run.
+func canceledRunResult(sessionID, agent string, err error) RunResult {
+	code := gotato.ErrCanceled
 	if errors.Is(err, context.DeadlineExceeded) {
 		code = gotato.ErrDeadlineExceeded
 	}
@@ -1223,11 +1223,11 @@ func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bo
 }
 
 // runStatusForError classifies a terminal error when the Session itself did not
-// report a status: a caller-cancelled context is a cancelled Run, not a
+// report a status: a caller-canceled context is a canceled Run, not a
 // failure, and the Session's Run record says the same.
 func runStatusForError(err error) gotato.RunStatus {
 	switch {
-	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.ErrCancelled):
+	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.ErrCanceled):
 		return gotato.RunCanceled
 	case errors.Is(err, context.DeadlineExceeded), gotato.IsCode(err, gotato.ErrDeadlineExceeded):
 		return gotato.RunDeadlineExceeded
@@ -1753,7 +1753,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 }
 
 // CancelSession stops the Run in flight on a Session: everything in flight is
-// cancelled through its context, and the Run settles as cancelled with every
+// canceled through its context, and the Run settles as canceled with every
 // Turn it committed. It is the Stop of the messages a Run takes (Send).
 //
 // A Run going on another live Instance is not stopped from here: the call

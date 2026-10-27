@@ -67,7 +67,7 @@ func TestARunEndsByTheModelsReplyWhateverItsLength(t *testing.T) {
 }
 
 // A Run with no TurnStopper settles by its ctx: a deadline on it ends the Run
-// with deadline_exceeded, and a cancel with cancelled. The core sets none itself.
+// with deadline_exceeded, and a cancel with canceled. The core sets none itself.
 func TestARunEndsByItsCtx(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -81,7 +81,7 @@ func TestARunEndsByItsCtx(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			time.AfterFunc(50*time.Millisecond, cancel)
 			return ctx, cancel
-		}, gotato.ErrCancelled},
+		}, gotato.ErrCanceled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {

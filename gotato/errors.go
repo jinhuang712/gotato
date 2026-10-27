@@ -33,7 +33,7 @@ const (
 	ErrToolExecutionFailure  ErrorCode = "tool_execution_failure"
 	ErrExtensionFailure      ErrorCode = "extension_failure"
 	ErrLimitExceeded         ErrorCode = "limit_exceeded"
-	ErrCancelled             ErrorCode = "cancelled"
+	ErrCanceled              ErrorCode = "canceled"
 	ErrDeadlineExceeded      ErrorCode = "deadline_exceeded"
 	ErrInternalInvariant     ErrorCode = "internal_invariant_failure"
 	ErrNotSupported          ErrorCode = "not_supported"
@@ -72,7 +72,7 @@ func ErrorCodes() []ErrorCode {
 		ErrInvalidArgument, ErrInvalidState, ErrBusy, ErrSessionClosed, ErrSessionClosing,
 		ErrModelFailure, ErrContextOverflow, ErrModelProtocolFailure,
 		ErrToolResolutionFailure, ErrToolArgumentFailure, ErrToolExecutionFailure,
-		ErrExtensionFailure, ErrLimitExceeded, ErrCancelled, ErrDeadlineExceeded,
+		ErrExtensionFailure, ErrLimitExceeded, ErrCanceled, ErrDeadlineExceeded,
 		ErrInternalInvariant, ErrNotSupported, ErrConflict, ErrStoreFailure,
 		ErrOverloaded, ErrDraining, ErrNotFound, ErrCannotResume, ErrNotWriter,
 	}
@@ -194,7 +194,7 @@ func codeForContext(err error) ErrorCode {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrDeadlineExceeded
 	}
-	return ErrCancelled
+	return ErrCanceled
 }
 
 func IsCode(err error, code ErrorCode) bool {

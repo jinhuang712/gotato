@@ -177,7 +177,7 @@ func (s *holdSet) Tools(ctx context.Context) ([]Tool, error) {
 	return nil, ctx.Err()
 }
 
-func TestACancelledRunStopsAParallelResolution(t *testing.T) {
+func TestACanceledRunStopsAParallelResolution(t *testing.T) {
 	const n = 4
 	var armed atomic.Bool
 	entered := make(chan struct{}, n)
@@ -208,7 +208,7 @@ func TestACancelledRunStopsAParallelResolution(t *testing.T) {
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("a cancelled resolution did not fail the Run")
+			t.Fatal("a canceled resolution did not fail the Run")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the Run did not return after cancel")

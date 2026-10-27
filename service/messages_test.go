@@ -279,7 +279,7 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 	}
 	result := settled(t, done)
 	if result.Result.Status != gotato.RunCanceled {
-		t.Fatalf("status = %q, want cancelled", result.Result.Status)
+		t.Fatalf("status = %q, want canceled", result.Result.Status)
 	}
 	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:do A", "assistant:partial"}) {
 		t.Fatalf("transcript = %v", got)

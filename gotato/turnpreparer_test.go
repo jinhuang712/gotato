@@ -259,9 +259,9 @@ func TestATurnPreparerEndsTheRunWithItsError(t *testing.T) {
 	}
 }
 
-// A preparer that fails while its Run is stopped ends the Run cancelled, not
+// A preparer that fails while its Run is stopped ends the Run canceled, not
 // with a failure of its own, whatever error it returns.
-func TestAPreparerStoppedWithTheRunEndsItCancelled(t *testing.T) {
+func TestAPreparerStoppedWithTheRunEndsItCanceled(t *testing.T) {
 	model := &callModel{steps: []any{finalScript("never")}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -274,7 +274,7 @@ func TestAPreparerStoppedWithTheRunEndsItCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Prompt(ctx, UserMessage("go")); !IsCode(err, ErrCancelled) {
+	if _, err := session.Prompt(ctx, UserMessage("go")); !IsCode(err, ErrCanceled) {
 		t.Fatalf("Prompt: %v", err)
 	}
 	wait, done := context.WithTimeout(context.Background(), 5*time.Second)
@@ -285,8 +285,8 @@ func TestAPreparerStoppedWithTheRunEndsItCancelled(t *testing.T) {
 			t.Fatalf("no RunEnded: %v", err)
 		}
 		if ended, ok := event.(RunEnded); ok {
-			if ended.Status != RunCanceled || ended.Cause != ErrCancelled || model.calls() != 0 {
-				t.Fatalf("RunEnded = %+v, %d calls; want cancelled by the stop", ended, model.calls())
+			if ended.Status != RunCanceled || ended.Cause != ErrCanceled || model.calls() != 0 {
+				t.Fatalf("RunEnded = %+v, %d calls; want canceled by the stop", ended, model.calls())
 			}
 			return
 		}

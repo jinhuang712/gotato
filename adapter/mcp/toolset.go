@@ -17,7 +17,7 @@
 // once on the new session, since the server did not run it, and any other
 // failed call is the caller's. The code that made the ToolSet closes it
 // with Close, which ends the connection and the subprocess; a Session never
-// closes it. Every call passes the caller's ctx to the SDK, so cancelling a
+// closes it. Every call passes the caller's ctx to the SDK, so canceling a
 // Run cancels the call.
 //
 // A server behind a load balancer. A stateful MCP server keeps its sessions in

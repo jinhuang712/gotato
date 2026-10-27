@@ -281,7 +281,7 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 		t.Fatalf("forwarded cancel = %d %s, want 202", resp.StatusCode, body)
 	}
 	if result := wait(); result.Result.Status != gotato.RunCanceled {
-		t.Fatalf("the Run = %+v, want cancelled", result.Result)
+		t.Fatalf("the Run = %+v, want canceled", result.Result)
 	}
 }
 

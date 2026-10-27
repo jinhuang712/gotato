@@ -174,7 +174,7 @@ func (a *Session) executeToolGroup(
 		a.stage(ToolEnded{Header: NewHeader(a.id, runID, turn), CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: elapsed})
 	}
 	// cancelRest settles every call of the group that has no outcome yet as
-	// cancelled. started says whether their executors were started: a started
+	// canceled. started says whether their executors were started: a started
 	// Tool may have carried out its side effect before it saw the
 	// cancellation, so it is recorded as executed, with its outcome unknown.
 	cancelRest := func(started bool) map[int]ToolResult {
@@ -186,7 +186,7 @@ func (a *Session) executeToolGroup(
 		}
 		return outcomes
 	}
-	// A Run cancelled before this group started never launches it: a Tool that
+	// A Run canceled before this group started never launches it: a Tool that
 	// ignores its context would still carry out its side effect.
 	if ctx.Err() != nil {
 		return cancelRest(false)
@@ -194,7 +194,7 @@ func (a *Session) executeToolGroup(
 
 	signals := make(chan toolSignal, len(group)*4+4)
 	// abandon is closed when executeToolGroup returns. A worker that finishes
-	// after the batch was cancelled or abandoned uses it so its final send
+	// after the batch was canceled or abandoned uses it so its final send
 	// never blocks forever, which removes the need for a drainer goroutine
 	// that could outlive the Run when a Tool ignores cancellation.
 	abandon := make(chan struct{})
@@ -252,7 +252,7 @@ func (a *Session) executeToolGroup(
 		case <-ctx.Done():
 			// Cancellation must settle the Run even when a Tool ignores its
 			// context. A worker that already reported keeps its outcome; the
-			// rest are cancelled, as executed, because their executors were
+			// rest are canceled, as executed, because their executors were
 			// started. abandon (closed on return) releases any worker still
 			// trying to report a late result.
 		drain:
@@ -262,7 +262,7 @@ func (a *Session) executeToolGroup(
 					if signal.update {
 						continue
 					}
-					settle(signal.index, cancelledOutcome(ctx, signal.result))
+					settle(signal.index, canceledOutcome(ctx, signal.result))
 				default:
 					break drain
 				}
@@ -273,15 +273,15 @@ func (a *Session) executeToolGroup(
 				a.send(ToolProgress{Header: a.deltaHeader(runID, turn), CallID: plans[signal.index].call.ID, Text: signal.text})
 				continue
 			}
-			settle(signal.index, cancelledOutcome(ctx, signal.result))
+			settle(signal.index, canceledOutcome(ctx, signal.result))
 		}
 	}
 	return outcomes
 }
 
-// cancelledOutcome marks an outcome that arrived after the Run was cancelled.
+// canceledOutcome marks an outcome that arrived after the Run was canceled.
 // The Tool ran, so Executed stays true.
-func cancelledOutcome(ctx context.Context, result ToolResult) ToolResult {
+func canceledOutcome(ctx context.Context, result ToolResult) ToolResult {
 	if ctx.Err() != nil {
 		result.Status = ToolResultCanceled
 		if result.SafeError == "" {

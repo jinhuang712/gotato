@@ -81,9 +81,9 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 		{name: "provider error", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), err: errors.New("connection reset")}
 		}, status: RunFailed, code: ErrModelFailure},
-		{name: "cancelled", stream: func() *breakingStream {
+		{name: "canceled", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), reached: make(chan struct{})}
-		}, cancel: true, status: RunCanceled, code: ErrCancelled},
+		}, cancel: true, status: RunCanceled, code: ErrCanceled},
 		{name: "deadline", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), reached: make(chan struct{})}
 		}, limits: &CoreLimits{ModelCallDeadline: 20 * time.Millisecond}, status: RunDeadlineExceeded, code: ErrDeadlineExceeded},

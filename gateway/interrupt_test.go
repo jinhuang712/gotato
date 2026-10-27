@@ -194,7 +194,7 @@ func TestStreamRestartStopsOnCancellation(t *testing.T) {
 			t.Fatalf("error = %v, want context.Canceled", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("a cancelled context did not stop the restart backoff")
+		t.Fatal("a canceled context did not stop the restart backoff")
 	}
 }
 

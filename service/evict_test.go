@@ -259,7 +259,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 	}
 	kinds := storedKinds(t, store, first.SessionID)
 	if count(kinds, gotato.KindCompactionStarted) != 1 || count(kinds, gotato.KindCompactionFailed) != 1 || count(kinds, gotato.KindSegmentClosed) != 0 {
-		t.Fatalf("stored Events %v, want one cancelled compaction and no Segment", kinds)
+		t.Fatalf("stored Events %v, want one canceled compaction and no Segment", kinds)
 	}
 	if runner.WarmSessions() != 1 || clock.Pending() != 2 {
 		t.Fatalf("warm %d, timers %d, want only the new Session's", runner.WarmSessions(), clock.Pending())

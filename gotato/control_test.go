@@ -352,7 +352,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	controllable.Abort()
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCancelled) {
+		if !IsCode(err, ErrCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 	case <-time.After(2 * time.Second):
@@ -389,7 +389,7 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 	model.gate <- struct{}{}
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCancelled) {
+		if !IsCode(err, ErrCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 	case <-time.After(2 * time.Second):

@@ -66,7 +66,7 @@ type PreToolUse interface {
 }
 
 // PostToolUse runs in reverse installation order over executed, blocked,
-// failed, and cancelled outcomes. It must preserve identity and Executed
+// failed, and canceled outcomes. It must preserve identity and Executed
 // truth.
 type PostToolUse interface {
 	After(context.Context, ToolResult) (ToolResult, error)

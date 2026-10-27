@@ -251,11 +251,11 @@ func (e *env) waitMCP(ctx context.Context, limit time.Duration) string {
 
 // mcpStats reads fakemcp's counters through the API server's service proxy.
 func (e *env) mcpStats(ctx context.Context) string {
-	var s struct{ Started, Finished, Cancelled int }
+	var s struct{ Started, Finished, Canceled int }
 	if err := e.do(ctx, "GET", e.svc("fakemcp", 8090)+"/stats", nil, &s); err != nil {
 		return "stats: " + err.Error()
 	}
-	return fmt.Sprintf("calls since this pod started: %d started, %d finished, %d cancelled by the caller", s.Started, s.Finished, s.Cancelled)
+	return fmt.Sprintf("calls since this pod started: %d started, %d finished, %d canceled by the caller", s.Started, s.Finished, s.Canceled)
 }
 
 // s8: tool search. The model loads one tool of the catalog; the writer is killed after the load is a fact of

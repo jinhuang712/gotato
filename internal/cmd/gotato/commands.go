@@ -780,7 +780,7 @@ func (c *cli) cmdServe(args []string) int {
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
 	warmTTL := fs.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
 	noIdleCompaction := fs.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
-	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before cancelling them")
+	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before canceling them")
 	advertise := fs.String("advertise", "", "URL other callers reach this instance at, such as http://10.0.0.7:8787; a message for a run this instance writes, sent to another instance, is answered not_writer with it")
 	forward := fs.Bool("forward", false, "send a message or cancel for a run another instance writes to that instance's advertised address, instead of answering not_writer")
 	if _, err := parseInterspersed(fs, args); err != nil {

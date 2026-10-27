@@ -688,7 +688,7 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 	}
 	kinds := storedKinds(t, store, first.SessionID)
 	if count(kinds, gotato.KindCompactionStarted) != 1 || count(kinds, gotato.KindCompactionFailed) != 1 || count(kinds, gotato.KindSegmentClosed) != 0 {
-		t.Fatalf("stored Events %v, want one cancelled compaction and no Segment", kinds)
+		t.Fatalf("stored Events %v, want one canceled compaction and no Segment", kinds)
 	}
 	// The Run started the TTL again, and the compaction does not run twice.
 	if runner.WarmSessions() != 1 {

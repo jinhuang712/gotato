@@ -356,7 +356,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			wantSettled(t, res, gotato.RunDeadlineExceeded)
 			r.wantUsable(id, before)
 		})
-		t.Run("until the Run is cancelled", func(t *testing.T) {
+		t.Run("until the Run is canceled", func(t *testing.T) {
 			r, _ := newRig(t)
 			id, before := r.seed()
 			r.arm(rigFault{tool: "hang"})
@@ -378,7 +378,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			case o := <-done:
 				wantSettled(t, o.res, gotato.RunCanceled)
 			case <-time.After(10 * time.Second):
-				t.Fatal("the Run did not settle after it was cancelled")
+				t.Fatal("the Run did not settle after it was canceled")
 			}
 			r.wantUsable(id, before)
 		})

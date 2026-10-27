@@ -64,7 +64,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 	agent.Abort()
 	select {
 	case promptErr := <-resultCh:
-		if !IsCode(promptErr, ErrCancelled) {
+		if !IsCode(promptErr, ErrCanceled) {
 			t.Fatalf("prompt error = %v", promptErr)
 		}
 	case <-time.After(2 * time.Second):
@@ -233,7 +233,7 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 			t.Fatal(err)
 		}
 		log := recordAll(t, agent)
-		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrCancelled) {
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 		_ = agent.Close(context.Background())
@@ -285,7 +285,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	agent.Abort()
-	if err := <-done; !IsCode(err, ErrCancelled) {
+	if err := <-done; !IsCode(err, ErrCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	result, ok := resultsByCall(agent.Transcript().Messages())["c1"]

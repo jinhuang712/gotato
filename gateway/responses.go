@@ -830,7 +830,7 @@ func responsesStopReason(status string, details *struct {
 	if status == "incomplete" && details != nil && details.Reason == "max_output_tokens" {
 		return gotato.StopMaxTokens
 	}
-	if status == "failed" || status == "cancelled" || (status == "incomplete" && (details == nil || details.Reason != "max_output_tokens")) {
+	if status == "failed" || status == "canceled" || (status == "incomplete" && (details == nil || details.Reason != "max_output_tokens")) {
 		return gotato.StopError
 	}
 	return gotato.StopEndTurn

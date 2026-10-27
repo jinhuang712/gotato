@@ -171,8 +171,8 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatalf("a stopped Run's stream = %+v", frames)
 	}
 	result, reconnect := frames[len(frames)-2], frames[len(frames)-1]
-	if result.event != "result" || !strings.Contains(result.data, `"status":"cancelled"`) {
-		t.Fatalf("a stopped Run's result = %+v, want cancelled", result)
+	if result.event != "result" || !strings.Contains(result.data, `"status":"canceled"`) {
+		t.Fatalf("a stopped Run's result = %+v, want canceled", result)
 	}
 	var hint service.Reconnect
 	if reconnect.event != "reconnect" || json.Unmarshal([]byte(reconnect.data), &hint) != nil || hint.RetryAfterMS <= 0 || reconnect.retry == "" {

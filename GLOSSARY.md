@@ -19,7 +19,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Transcript** | A Session's stored history: every committed Message, in order. | history, log | `gotato.Transcript`, implemented by `session.Record` and `session.Writer` |
 | **Context** | What the model sees on one Turn, built from the Transcript. | prompt, model view | `gotato.ModelContext`, built by a `ContextBuilder` |
 | **Runner** | The part of a Go service that hosts Sessions: it starts them from Agents, routes messages to them, loads them from the Store and applies limits. | host, server | `service.Runner` |
-| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `RunResult.Status` for one Run: `completed`, `failed`, `cancelled`, `deadline_exceeded` or `failed` (a Run whose reply or end could not be written is `failed` with `store_failure`). |
+| **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `RunResult.Status` for one Run: `completed`, `failed`, `canceled`, `deadline_exceeded` or `failed` (a Run whose reply or end could not be written is `failed` with `store_failure`). |
 
 ## Execution
 

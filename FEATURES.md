@@ -15,7 +15,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Run, continue and abort | `Prompt` returns when the Run settles; `Continue` resumes it; `Abort` stops it | G-F01 | ✅ |
 | The Loop | calls the model and the tools it asks for, until it answers, its `ctx` ends or a `TurnStopper` stops it | G-F01 | ✅ |
 | Parallel tools | up to `MaxParallelTools` at once, results committed in the model's order | G-F01 | ✅ |
-| Settled results | every Run ends `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
+| Settled results | every Run ends `completed`, `failed`, `canceled` or `deadline_exceeded`, with its usage | G-F01 | ✅ |
 | Errors that say what to do | every error says whether its request ran and whether sending it again may succeed (`gotato.NotRun`, `gotato.Retryable`), decided in the runtime | G-F01 | ✅ |
 | Limits | messages, message bytes, parallel tools and the deadline of a model call and of a tool call, each with a default; no count of Turns or tool calls in the core | G-F01 | ✅ |
 | Continue a cut-off Turn | ask the model to go on after the output limit (`MaxTruncatedContinuations`), in a `continue` notice that starts no Round | G-F01 | ✅ |
@@ -228,7 +228,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers, its `ctx` ends, or a `TurnStopper` stops it. The core counts no Turns and no tool calls.
 - A Turn's tools run one at a time by default. With `MaxParallelTools` above 1, up to that many run at once, and their results are committed in the order the model asked for them.
-- Every Run that starts settles as `completed`, `failed`, `cancelled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. A Run whose reply or end could not be written settles as `failed` with `store_failure`, because the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success. A Run whose only failed write is the release of the Session stays `completed`: all its Events are stored, `session_saved` with `failed: true` and `store_write_failed` warn the operator, and the Claim lapses with the Liveness row ([G-F27](#g-f27--service-many-instances-)).
+- Every Run that starts settles as `completed`, `failed`, `canceled` or `deadline_exceeded`, with its final message and its token usage, including cache reads and writes. The final message carries the reason the model stopped. `completed` never carries an error, and every other status always does. A Run whose reply or end could not be written settles as `failed` with `store_failure`, because the Record does not hold it ([G-F03](#g-f03--stores-)); a caller that reads only the status cannot take it for a success. A Run whose only failed write is the release of the Session stays `completed`: all its Events are stored, `session_saved` with `failed: true` and `store_write_failed` warn the operator, and the Claim lapses with the Liveness row ([G-F27](#g-f27--service-many-instances-)).
 - A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 - **How a Run ends.** By its model's final reply, by its `ctx` (a cancel or a deadline), by a `TurnStopper`, by the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses the request), or by a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A team that wants a cap on Turns or tool calls writes a `TurnStopper` with the number its jobs need.
@@ -327,7 +327,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - `Steer` adds a message to the running Loop, and the model reads it on its next call. Up to 8 can wait (`MaxSteerMessages`).
 - `FollowUp` adds a message the Run picks up when it would otherwise settle, so the same Run keeps going. Its Turns are Turns of the same Run, so a `TurnStopper` counts them too. Up to 4 can wait (`MaxFollowUpMessages`).
 - `Interrupt` cancels the model call in flight and starts the next Turn of the same Run with the message. The text the call had sent is kept in the Transcript as a Cut-off reply, which the model does not read again. It shares the Steer queue and its limit.
-- `Abort` stops the Run at once. It still settles, as cancelled, and keeps every Turn it committed. The Runner's Stop is the same.
+- `Abort` stops the Run at once. It still settles, as canceled, and keeps every Turn it committed. The Runner's Stop is the same.
 - A message still waiting when a Run of a `gotato.Session` ends is dropped, not kept for the next Run, and a `message_dropped` Event says so. A notice is the exception: it asks for no work, so it is not dropped, and waits for the next Run ([G-F29](#g-f29--runtime-notices-)). A host that sets `WithQueueHandoff` keeps them after a Run that completed or failed and takes them (`TakeQueued`, `Requeue`, `DropQueued`); the Runner does, so its messages are not dropped (below). One that reaches the Runner between Runs is not a waiting message: it starts a Run.
 
 **Where messages enter.** Each reaches the Run in the writer's own process, and the surface that takes it only translates:
@@ -342,14 +342,14 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 - **A message that starts a Run holds its call until the Run settles.** `Runner.Send` returns at once with `Queued` only when a Run is going on this instance; when none is, it is `Runner.Run` for the message, so it returns when the Run ends (`MessageResult.Run` is set). The HTTP route and `gotato session message` do the same, and so does a request the endpoint forwarded to the writer, whose answer arrives when the writer's call returns. A caller that must not wait, such as a chat bot answering a webhook, has three ways, which can be combined:
   - call `Send` in a goroutine, with a `ctx` of its own that outlives the webhook;
   - read the reply from the Session's stream, not from the answer ([G-F13](#g-f13--events-), *Following one Session*);
-  - set a deadline on the call only if ending the Run is acceptable: the `ctx` of `Send`, or the client's request timeout over HTTP, is the Run's `ctx`. A deadline that passes settles the Run as `deadline_exceeded` (`cancelled` when the caller cancels), keeping the Turns it committed, and the message stays in the Record. Over HTTP, a client that merely gives up has the same effect when the server sees the connection close.
+  - set a deadline on the call only if ending the Run is acceptable: the `ctx` of `Send`, or the client's request timeout over HTTP, is the Run's `ctx`. A deadline that passes settles the Run as `deadline_exceeded` (`canceled` when the caller cancels), keeping the Turns it committed, and the message stays in the Record. Over HTTP, a client that merely gives up has the same effect when the server sees the connection close.
 - A message that arrives while a Run is ending, after it stopped taking messages and before it has saved and released the Session, waits for the release (bounded by the caller's context) and starts the next Run; it is never answered `busy`.
 - **A message the instance called queued is not lost because its Run ended.** If the Run does not take it before it settles, a following Run does, on the same Session and instance:
   - the Runner stops delivering to the settled Run and takes what its queues hold in one step, so a message either reaches that Run's queue before it, or finds no live Session and waits for the following Run (or starts one, as above). Nothing slips between the two;
   - the following Run starts when the first has saved and released the Session, with the leftovers in the order they were accepted, a Steer and a FollowUp alike: the first is its prompt, and the rest are committed in order at its boundaries. An Interrupt left over is a Steer, since no model call is in flight. The messages keep their IDs, so `message_committed` of the following Run names the ID the caller was given (the first, as a prompt);
   - it takes the Session lock like a Run that waits for it, whatever the busy policy, so the one-Run-per-Session rule holds. It counts as the admitted Run until the last following Run ends, so a drain waits for it and `MaxActiveRuns` does not count it twice;
   - the caller of the first Run gets that Run's result, as before, and the caller of `Send` got its 202. Neither gets the following Run's: it is in the Session's stream and the Instance's stream (`run_started`, `message_committed`, `run_ended`) and in the Record. A Stop reaches it like any Run.
-- **When leftovers are dropped instead.** Only for a cause that ends the work: the Run was stopped, cancelled or past its deadline (`message_dropped`, `run_ended`); the instance is draining (`draining`); the Run's writer failed (`writer_failed`); the following Run's queues are full (`queue_full`); or the Session was closed with the message still in a queue (`session_closed`, a safety net for a Go user of `gotato.Session` who set `WithQueueHandoff` and did not take them). A writer that dies, or a Session deleted meanwhile, loses them with it, as it loses any accepted message, and a following Run that cannot start (the store fails) loses them too.
+- **When leftovers are dropped instead.** Only for a cause that ends the work: the Run was stopped, canceled or past its deadline (`message_dropped`, `run_ended`); the instance is draining (`draining`); the Run's writer failed (`writer_failed`); the following Run's queues are full (`queue_full`); or the Session was closed with the message still in a queue (`session_closed`, a safety net for a Go user of `gotato.Session` who set `WithQueueHandoff` and did not take them). A writer that dies, or a Session deleted meanwhile, loses them with it, as it loses any accepted message, and a following Run that cannot start (the store fails) loses them too.
 - A Stop with no Run going anywhere fails with `invalid_state` (`service.ErrNoRun`).
 
 Each kind takes effect at its own point:
@@ -359,8 +359,8 @@ Each kind takes effect at its own point:
 | Steer | at the next Turn boundary |
 | Notice ([G-F29](#g-f29--runtime-notices-)) | right before the next model call, from the same queue as a Steer; it never starts a Run, and never keeps one going |
 | FollowUp | where the Run would otherwise settle |
-| Interrupt | at once: a model call in flight is cancelled, a tool in flight finishes (the message follows its result), and the message starts the next Turn of the same Run |
-| Stop | at once: everything in flight is cancelled through its `ctx`, and the Run settles as cancelled |
+| Interrupt | at once: a model call in flight is canceled, a tool in flight finishes (the message follows its result), and the message starts the next Turn of the same Run |
+| Stop | at once: everything in flight is canceled through its `ctx`, and the Run settles as canceled |
 
 - An Interrupt lets a running tool finish, because a write cut in half can leave half a side effect. Stop cancels tools too, and each tool decides how to stop safely.
 - A message the writer accepted but has not committed is lost if the writer dies. The caller sees its stream end and sends it again, as it would with a single instance.
@@ -575,7 +575,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **Merging.** The Segments together have a budget, half the ceiling or 32K tokens with none. When they pass it, the oldest merge into the one merged Segment that opens the Context, down to half the budget. The same happens on an overflow (*Many Segments*, below).
 - A compaction appends the Segment (`segment_closed`) and a Checkpoint (G-F03) in one step, so the closed part stays in the store and is no longer loaded. The Checkpoint lists the Segments the Context uses, holds the kept tail, and holds the loaded tools. A load by another instance builds the same request from it.
 - **Loaded tools.** The tools the closed Segment called and those the kept tail calls stay loaded; the other tools the model loaded are unloaded, and a tool of a ToolSet the Agent installed active is never unloaded ([G-F34](#g-f34--tool-search-)). The tool list comes before the Segments, so this is the moment the list changes: a compaction changes the request anyway.
-- **A compaction that fails.** A Recap that fails leaves the Segment without one. A compaction whose Record append fails is dropped: a `compaction_failed` Event says why, the Record and its loaded tools are as they were, an on-demand call returns the error, and the automatic one lets the Run go on. A Run stopped during a compaction ends cancelled.
+- **A compaction that fails.** A Recap that fails leaves the Segment without one. A compaction whose Record append fails is dropped: a `compaction_failed` Event says why, the Record and its loaded tools are as they were, an on-demand call returns the error, and the automatic one lets the Run go on. A Run stopped during a compaction ends canceled.
 - When the Agent's model is sent only the current Round's reasoning (a recognized Claude or OpenAI, see [G-F07](#g-f07--models-and-providers-)), the kept tail is kept without its reasoning, because the Segment changes the prefix that reasoning was written under. The Runner asks the model (`modelctx.DropsReasoning`); with `modelctx.Compact` alone, set `CompactOptions.DropReasoning`. For DeepSeek and unrecognized providers, the reasoning stays.
 
 **Built for the design.** The parts a compaction stands on:
@@ -738,7 +738,7 @@ first heading.
   |---|---|
   | the Recap fails | the Segment is kept without one (*The Recap*, above), and the usage of the call that was made is still recorded |
   | a write to the store fails | the compaction is dropped, an Event says why, and the Run goes on with the Context it had |
-  | the Run is stopped during it | the Run settles as cancelled |
+  | the Run is stopped during it | the Run settles as canceled |
   | still past the ceiling after a dropped compaction | the Run ends with `limit_exceeded`, and the Event says the compaction failed |
 
   The write that follows a dropped append belongs to the Writer, which stops at its first failed write ([G-F03](#g-f03--stores-)): the Run's later steps then report `ErrNotPersisted`, as for any failed write. After a compaction that was dropped, the size is estimated afresh, from the Messages the Context holds, and not read from the usage a reply reported: a Run whose Context is under the ceiling by that estimate goes on, and one still past it ends with `limit_exceeded`, its error saying that the compaction failed.
@@ -1156,7 +1156,7 @@ A Gotato service runs far from its callers, on networks and providers it does no
 - The reply cut off stays in the Record only as a log of what happened. The text received is a Cut-off reply (`StopCutOff`, `reply_cut_off`), which no model is ever sent, and the new reply is a reply of its own, with its own `reply_started`. This holds for text, a tool call's arguments and reasoning alike.
 - **A stream reader who sees `model_retried` discards what it received of that reply**: the `text_delta` and `reasoning_delta` Events since the last `reply_started`. The Events come in this order: `model_retried`, `reply_cut_off` when text was kept, and `reply_started` for the new reply.
 - When the attempts run out, the Run fails with `model_failure` as before, and the Record keeps the last Cut-off reply.
-- A refusal of the request (including `context_overflow`), an Interrupt, a cancelled `ctx` and a deadline are not cuts and are not sent again. The gateway restarts only on a transport interruption: a connection reset, or a close before the stream's end. An invalid chunk is never one.
+- A refusal of the request (including `context_overflow`), an Interrupt, a canceled `ctx` and a deadline are not cuts and are not sent again. The gateway restarts only on a transport interruption: a connection reset, or a close before the stream's end. An invalid chunk is never one.
 - The gateway sends again after output only when a Session is listening (`gotato.ReportModelRetry` returns true). A caller that reads `Client.Stream` with no Session would see the reply twice, so for it a cut after output still fails with a retryable error.
 
 A Model of your own that retries inside its stream calls `gotato.ReportModelRetry` before it sends the request again, and starts the reply over.
@@ -1213,7 +1213,7 @@ The suite is `session/storetest`, a package of its own, next to the Store it tes
 - appends that continue the log, and a load that starts at the last Checkpoint;
 - a stale writer refused, an append that does not continue the head refused, and a race of eight writers with exactly one winner;
 - a writer of a deleted Record refused with `ErrNotFound` when the Record was created again, at the same length or longer;
-- deletes, unknown Records and a cancelled context;
+- deletes, unknown Records and a canceled context;
 - Liveness rows that are alive, and that expire by the store's clock and never come back;
 - a row its instance ended, which is removed and reads as not alive from every handle.
 
@@ -1324,7 +1324,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 
 - **Evict first.** A Run that would activate one Session more than the limit first evicts the longest-idle warm Session. Nothing is lost, because the store is the truth. The evicted Session is not compacted first, and its stretch waits for the next idle time or the ceiling ([G-F06](#g-f06--compaction-)). `session_unloaded` says `evicted`.
 - **The longest idle goes first.** Idle time runs from the end of a Session's last Run; ties go to the copy that went idle first. A Session with an admitted Run is never evicted. Its timers (TTL and idle compaction) stop with it.
-- **An idle compaction in progress is cancelled.** Eviction treats it as a message does: it cancels the compaction, waits for it to let go of the Session, and goes on. The compaction leaves nothing half-written, and its stretch waits as said above. Skipping a Session that compacts would pass over the longest-idle ones, since the idle compaction runs just before the TTL, and refuse a Run for no reason.
+- **An idle compaction in progress is canceled.** Eviction treats it as a message does: it cancels the compaction, waits for it to let go of the Session, and goes on. The compaction leaves nothing half-written, and its stretch waits as said above. Skipping a Session that compacts would pass over the longest-idle ones, since the idle compaction runs just before the TTL, and refuse a Run for no reason.
 - **Refuse last.** Only when every live Session is running a Run is the new one refused: `overloaded`, marked not run, before anything is loaded, claimed or created.
 - **A warm Session is not a new activation.** A Run on a Session that is warm here reuses its copy and adds nothing to the count.
 
@@ -1397,13 +1397,13 @@ POST   /v1/sessions/{id}/cancel
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
 - `GET /readyz` answers 200 with `active_runs` and `active_sessions`, and 503 with `"draining": true` while the instance drains.
-- A Run that settles as failed, cancelled or past its deadline still answers 200, with the outcome in the body. A request the model refused as too long is such a Run: it answers 200 with `context_overflow` in `result.error.code`, and 422 is left to a call that fails with that error on its own. Only request-level problems use error codes:
+- A Run that settles as failed, canceled or past its deadline still answers 200, with the outcome in the body. A request the model refused as too long is such a Run: it answers 200 with `context_overflow` in `result.error.code`, and 422 is left to a call that fails with that error on its own. Only request-level problems use error codes:
 
 | Code | When |
 |---|---|
 | 400 | the request is invalid |
 | 404 | the Session does not exist (`not_found`, marked not run) |
-| 408 | the caller cancelled the request |
+| 408 | the caller canceled the request |
 | 409 | the Session is busy, the Run is not active, or a stream cannot resume (`cannot_resume`, with the current `record_epoch`); or a message or a cancel for a Run another instance writes (`not_writer`, marked not run, with a `Gotato-Writer` header and `writer` in the body) |
 | 502 | a forward to the writer's address failed, so the message may have reached it (not marked not run) |
 | 413 | the body is too large |
@@ -1639,7 +1639,7 @@ The numbers about a Run come from its Events, the store's time included, as a te
 | Test | What it does |
 |---|---|
 | `TestCrashAtEveryWriteRebuildsTheLastStep` | plays each reference task with an instance that dies after its n-th write, for every n (244 crash points over the eight tasks). Another instance must open exactly what that write left, with every tool call answered and a Context whose prefix hash matches a clean play's, and its next Run must complete. Each write holds at most one more stored Message than the one before. |
-| `TestStreamDisconnectSettlesAndSavesTheRun` | over HTTP: a client that leaves mid-stream still gets its Run settled as cancelled and saved. |
+| `TestStreamDisconnectSettlesAndSavesTheRun` | over HTTP: a client that leaves mid-stream still gets its Run settled as canceled and saved. |
 | `TestManyInstancesOneWriter` | three Runners over one memory store, and over one file store, take concurrent prompts sent to random instances, and one instance is killed partway. Every completed Run's prompt lands once, followed by its reply, and no instance calls the model for a Session it does not hold. |
 | `TestStreamCutAtEveryEventResumesEqualToAnUncutOne` | over HTTP: for each Event of each reference task, a Session's stream is cut after that Event and resumed after its number, by `Last-Event-ID` or `after` and with the Record's epoch. The two parts joined are the same stored Events, in the same order, numbered with no gap and no repeat, as a stream that was never cut read; no resumed delta follows an Event before the cut. |
 | `TestRandomInstancesGiveWhatOneInstanceGives` | the hashing proxy: three instances over one store, each behind its own HTTP handler, and a proxy that hashes on `session-id`. Reference tasks run on Sessions created through the proxy, with prompts sent through it or straight to random instances, Sessions running concurrently, and in one variant an instance killed between two prompts. Each Session ends with the Transcript and the Events, under the same numbers and in the same order, that one instance gives. A stream read on an instance that is not the writer reads the same Events. |
@@ -1676,7 +1676,7 @@ Each feature above says what happens when its part fails. This table collects th
 | The model fails | the Run fails, and the Record keeps every step written before it, the text of a reply cut off mid-stream included | G-F01 |
 | The provider refuses a request as too long | the Session is compacted and the call sent again, once, unless the Turn has compacted already; a refusal after that ends the Run with `context_overflow`. The oldest Segments are merged too when they alone are past the limit; when that merge's Recap or write fails, nothing is merged and the Run ends with `context_overflow` | G-F06 |
 | A Recap fails: the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened` | the compaction goes on, and the Segment is kept without a Recap, with its conversation and tool call lines; the Event says `recap: none`. A merge whose Recap fails leaves the Segments unmerged, and `compaction_failed` says why; at the start of a Run or after a compaction the Run goes on, and on an overflow it ends with `context_overflow` | G-F06 |
-| The Run's `ctx` ends, or a `TurnStopper` stops it | a deadline settles it as `deadline_exceeded`, a cancel as `cancelled`, and a `TurnStopper` with the reason it gave in `run_ended`; the Record keeps every Turn committed | G-F01 |
+| The Run's `ctx` ends, or a `TurnStopper` stops it | a deadline settles it as `deadline_exceeded`, a cancel as `canceled`, and a `TurnStopper` with the reason it gave in `run_ended`; the Record keeps every Turn committed | G-F01 |
 | The Context is still past the compaction ceiling after the Turn's one compaction | the Run ends with `limit_exceeded`, and its error says why | G-F06 |
 | A Session is busy on its writer, or the instance is at `MaxActiveRuns` | the new Run waits or is rejected, as the admission policy says | G-F27 |
 | A write fails | the Run stops at that step with `store_failure` or `conflict`, and a failed model-call write stops it before the model is called; the caller retries or reports it | G-F03 |
@@ -1723,7 +1723,7 @@ Durable application tasks, task dependency graphs, task scheduling, multi-agent 
 
 ### G-N03 — Global Resource Scheduling Belongs to Applications
 
-Applications that run many agents own global concurrency, CPU and memory protection, build and test limits, provider quotas, and other system-level resource policy. Gotato provides cancellable, lightweight Runs that those schedulers control. The Runner only bounds concurrent Runs and keeps one Run per Session (G-F27).
+Applications that run many agents own global concurrency, CPU and memory protection, build and test limits, provider quotas, and other system-level resource policy. Gotato provides cancelable, lightweight Runs that those schedulers control. The Runner only bounds concurrent Runs and keeps one Run per Session (G-F27).
 
 ### G-N04 — Product UI Belongs to Applications
 

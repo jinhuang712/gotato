@@ -393,7 +393,7 @@ func TestWithoutACacheEveryResolutionAsksTheServer(t *testing.T) {
 	}
 }
 
-func TestACancelledContextEndsTheCall(t *testing.T) {
+func TestACanceledContextEndsTheCall(t *testing.T) {
 	server := sdk.NewServer(&sdk.Implementation{Name: "slow", Version: "1"}, nil)
 	entered := make(chan struct{})
 	server.AddTool(&sdk.Tool{Name: "hang", InputSchema: map[string]any{"type": "object"}},
@@ -418,7 +418,7 @@ func TestACancelledContextEndsTheCall(t *testing.T) {
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("the cancelled call returned no error")
+			t.Fatal("the canceled call returned no error")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("cancel did not end the call")

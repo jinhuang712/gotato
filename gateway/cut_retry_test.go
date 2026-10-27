@@ -190,7 +190,7 @@ func TestCutsBeyondTheLimitFailTheRunWithModelFailure(t *testing.T) {
 	}
 }
 
-func TestCutAfterOutputIsNotRetriedWhenTheRunIsCancelled(t *testing.T) {
+func TestCutAfterOutputIsNotRetriedWhenTheRunIsCanceled(t *testing.T) {
 	sent := make(chan struct{})
 	var once sync.Once
 	var mu sync.Mutex
@@ -227,7 +227,7 @@ func TestCutAfterOutputIsNotRetriedWhenTheRunIsCancelled(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if calls != 1 || len(recorder.OfKind(gotato.KindModelRetried)) != 0 {
-		t.Fatalf("a cancelled Run was retried: %d calls, %v", calls, recorder.Kinds())
+		t.Fatalf("a canceled Run was retried: %d calls, %v", calls, recorder.Kinds())
 	}
 }
 
