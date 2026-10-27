@@ -288,17 +288,38 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	}
 }
 
-func TestDefaultLimitsAllowPartialOverride(t *testing.T) {
-	limits := DefaultLimits()
-	limits.MaxSteerMessages = 3
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-	agent, err := NewSession(WithModel(model), WithLimits(limits))
+// A zero field of CoreLimits is its default, so a caller sets only what it
+// means to change: a Session still admits a Message, and a Tool's progress
+// still reaches the Run.
+func TestZeroLimitFieldsKeepTheirDefaults(t *testing.T) {
+	call := ToolCall{ID: "c1", ToolID: "progress", Arguments: []byte(`{}`)}
+	model := &testModel{scripts: [][]ModelEvent{
+		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
+		{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+	}}
+	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: 1, updates: 3}), WithLimits(CoreLimits{MaxParallelTools: 4}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
+	seen := recordAll(t, agent)
 	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
-		t.Fatalf("prompt with partial override failed: %v", err)
+		t.Fatalf("prompt with one field set failed: %v", err)
+	}
+	progress := 0
+	for _, kind := range seen.kinds() {
+		if kind == KindToolProgress {
+			progress++
+		}
+	}
+	if progress != 3 {
+		t.Fatalf("progress events = %d, want 3 (kinds %v)", progress, seen.kinds())
+	}
+	if err := agent.FollowUp(UserMessage("more")); err != nil {
+		t.Fatalf("FollowUp with one field set: %v", err)
+	}
+	if _, err := agent.Notice(context.Background(), "k", "a notice"); err != nil {
+		t.Fatalf("Notice with one field set: %v", err)
 	}
 }
 

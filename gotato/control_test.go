@@ -280,7 +280,7 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 func TestControlBuffersAreBounded(t *testing.T) {
 	limits := defaultLimits()
 	limits.MaxFollowUpMessages = 1
-	limits.MaxSteerMessages = 0
+	limits.MaxSteerMessages = 1
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
 	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
@@ -295,8 +295,11 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	if err := controllable.FollowUp(UserMessage("two")); !IsCode(err, ErrLimitExceeded) {
 		t.Fatalf("full follow-up buffer = %v", err)
 	}
+	if err := controllable.Steer(UserMessage("one")); err != nil {
+		t.Fatal(err)
+	}
 	if err := controllable.Steer(UserMessage("nope")); !IsCode(err, ErrLimitExceeded) {
-		t.Fatalf("disabled Steer = %v", err)
+		t.Fatalf("full Steer buffer = %v", err)
 	}
 	if err := controllable.Steer(Message{Role: RoleAssistant}); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("non-user control message = %v", err)

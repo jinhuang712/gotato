@@ -127,9 +127,6 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: SourceNotice, Why: why})
 		return 0, err
 	}
-	if a.noticeLimit == 0 {
-		return reject("disabled", runtimeError(ErrLimitExceeded, "Notice", "Notice is disabled by the configured limit", nil))
-	}
 	if a.noticeLen() >= a.noticeLimit {
 		return reject("queue_full", runtimeError(ErrLimitExceeded, "Notice", "notice queue is full", nil))
 	}

@@ -41,7 +41,6 @@ type sessionConfig struct {
 	toolSearcher   ToolSearcher
 	extensions     extensionSet
 	limits         CoreLimits
-	limitsSet      bool
 	transcript     Transcript
 	contextBuilder ContextBuilder
 	modelOptions   ModelOptions
@@ -146,7 +145,6 @@ func WithLimits(limits CoreLimits) Option {
 			return runtimeError(ErrInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
 		}
 		c.limits = limits
-		c.limitsSet = true
 		return nil
 	}
 }
@@ -174,7 +172,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 	if err := ctx.Err(); err != nil {
 		return nil, runtimeError(codeForContext(err), "NewSession", "context ended", err)
 	}
-	cfg := sessionConfig{limits: defaultLimits()}
+	cfg := sessionConfig{}
 	for _, option := range options {
 		if option == nil {
 			continue
@@ -189,6 +187,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 	if err := validateLimits(cfg.limits); err != nil {
 		return nil, err
 	}
+	cfg.limits = cfg.limits.withDefaults()
 
 	registry, err := newToolRegistry(ctx, &cfg)
 	if err != nil {
@@ -214,7 +213,6 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
-		limitsSet:      cfg.limitsSet,
 		modelOptions:   cfg.modelOptions,
 		cacheKey:       cfg.cacheKey,
 		commands:       make(chan sessionCommand),
@@ -273,7 +271,6 @@ type Session struct {
 	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
-	limitsSet   bool
 	// modelOptions and cacheKey are sent unchanged with every model call.
 	modelOptions ModelOptions
 	cacheKey     string
@@ -560,9 +557,6 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
 		return err
 	}
-	if cap(target) == 0 {
-		return reject("disabled", runtimeError(ErrLimitExceeded, operation, operation+" is disabled by the configured limit", nil))
-	}
 	if len(target) >= cap(target) {
 		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
 	}
@@ -821,10 +815,10 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	if err != nil {
 		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	if enforce && limitExceededUint32(a.limitsSet, a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
+	if enforce && limitExceededUint32(a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
-	if enforce && limitExceededUint64(a.limitsSet, a.limits.MaxMessageBytes, uint64(len(bytes))) {
+	if enforce && limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(bytes))) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
 	}
 	// The transcript bound is tracked incrementally: one JSON array of n
@@ -833,7 +827,7 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	if a.transcript.Len() > 0 {
 		candidate++
 	}
-	if enforce && limitExceededUint64(a.limitsSet, a.limits.MaxTranscriptBytes, candidate+2) {
+	if enforce && limitExceededUint64(a.limits.MaxTranscriptBytes, candidate+2) {
 		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	if err := a.transcript.Append(message); err != nil {
@@ -1201,7 +1195,7 @@ func validateContinuable(messages []Message) error {
 }
 
 // controlCapacity turns a configured control-message limit into a channel
-// capacity. A zero limit disables that control command.
+// capacity.
 func controlCapacity(limit uint32) int {
 	if limit > maxControlCapacity {
 		return maxControlCapacity
@@ -1369,12 +1363,12 @@ func schemaTypeMatches(typ string, value any) bool {
 	}
 }
 
-func limitExceededUint32(explicit bool, limit, value uint32) bool {
-	return (explicit && limit == 0) || (limit > 0 && value > limit)
+func limitExceededUint32(limit, value uint32) bool {
+	return value > limit
 }
 
-func limitExceededUint64(explicit bool, limit, value uint64) bool {
-	return (explicit && limit == 0) || (limit > 0 && value > limit)
+func limitExceededUint64(limit, value uint64) bool {
+	return value > limit
 }
 
 func safeError(err error) string {

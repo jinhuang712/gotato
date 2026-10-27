@@ -129,13 +129,11 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
 		limit := int(gotato.DefaultLimits().MaxNotices)
-		if known && spec.Limits != nil {
+		if known && spec.Limits != nil && spec.Limits.MaxNotices > 0 {
 			limit = int(spec.Limits.MaxNotices)
 		}
 		var written []gotato.Event
 		switch {
-		case limit == 0:
-			err = notRunError(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: notices are disabled by the Agent's limit"))
 		case len(writer.Record().PendingNotices()) >= limit:
 			err = notRunError(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: the notice queue is full"))
 		default:

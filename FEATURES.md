@@ -242,15 +242,18 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - **How a Run ends.** By its model's final reply, by its `ctx` (a cancel or a deadline), by a `TurnStopper`, by the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses the request), or by a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A team that wants a cap on Turns or tool calls writes a `TurnStopper` with the number its jobs need.
 - **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, `service.Agent.RunTimeout` (`service.DefaultRunTimeout`, 30 minutes, unless it sets another; negative means none), and a request's own timeout (`timeout_ms` on HTTP, `--timeout` on the CLI) overrides it. A Run past its deadline settles as `deadline_exceeded`.
 
-The limits are passed with `gotato.WithLimits`, and `gotato.DefaultLimits()` returns the defaults. Each guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)):
+The limits are passed with `gotato.WithLimits`. A zero field always means its default, so `gotato.WithLimits(gotato.CoreLimits{MaxParallelTools: 4})` changes that one field and keeps the rest; `gotato.DefaultLimits()` returns the defaults for reading. Each guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)):
 
 | Setting | Default | Why it exists |
 |---|---|---|
 | `MaxMessages`, `MaxTranscriptBytes` | 10,000 messages, 32 MiB | keeps what the model is sent from growing without bound. They count what a load reads, the last Checkpoint's Messages and what follows it, not every Message the Record holds ([G-F06](#g-f06--compaction-)). The Messages a Segment keeps word for word count too, since a load reads them, so the count is high enough that a Session of short messages reaches the ceiling in tokens first. |
 | `MaxMessageBytes` | 4 MiB | keeps one reply from filling memory |
+| `MaxSteerMessages`, `MaxFollowUpMessages`, `MaxNotices` | 8, 4, 16 | bound the messages and notices that wait for the Run's next boundary; one past the bound is refused with `limit_exceeded` |
 | `MaxParallelTools` | 1 | tools run in order, unless the team knows they are safe to run together |
-| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run. Marked for review: a fixed two minutes may not fit a slow model or a long tool. |
+| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run. A deadline cannot be turned off. Marked for review: a fixed two minutes may not fit a slow model or a long tool. |
 | `MaxTruncatedContinuations` | 0, off | a model can spend a Turn's whole output limit thinking and stop before it acts. Above 0, the Run asks it to go on, up to that many times, instead of settling on the cut-off reply. |
+
+A Tool's progress reports are capped inside the core (1 MiB and 1,000 reports per call; more are dropped and the call goes on). The cap is not a setting.
 
 A Tool Result over one page is not a limit: it is spilled into the Record and read back in pages ([G-F35](#g-f35--large-tool-results-)). A cap on Turns, on tool calls or on tokens is the team's own, written as a `TurnStopper` ([G-F15](#g-f15--extensions-)).
 

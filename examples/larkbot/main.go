@@ -180,9 +180,7 @@ func readyHandler(draining func() bool) http.HandlerFunc {
 // buffer is refused (limit_exceeded) with nothing to retry against, as the Run
 // may last minutes.
 func botLimits() *gotato.CoreLimits {
-	l := gotato.DefaultLimits()
-	l.MaxFollowUpMessages = 32
-	return &l
+	return &gotato.CoreLimits{MaxFollowUpMessages: 32}
 }
 
 // instruction is the persona of the bot. Replace it with your own.

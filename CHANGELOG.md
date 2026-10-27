@@ -24,6 +24,19 @@ before  session.NewMemoryStore(session.WithStoreClock(now)), session.NewFileStor
 after   session.NewMemoryStore(), session.NewFileStore(dir)
 ```
 
+### A zero limit always means its default
+
+`CoreLimits` read a zero field two ways. Without `WithLimits` a zero was the default; once `WithLimits` was called, a zero size limit admitted nothing, a zero progress cap suppressed progress, a zero `MaxNotices`, `MaxSteerMessages` or `MaxFollowUpMessages` refused that control message, and a zero deadline disabled it. `WithLimits(CoreLimits{MaxParallelTools: 4})` gave a Session that admitted no message. Now a zero field is its default, for every field, with or without `WithLimits`. Nothing is kept for the old reading.
+
+| Before | After |
+|---|---|
+| `l := gotato.DefaultLimits(); l.MaxParallelTools = 4; gotato.WithLimits(l)` (a bare `CoreLimits{MaxParallelTools: 4}` admitted nothing) | `gotato.WithLimits(gotato.CoreLimits{MaxParallelTools: 4})` |
+| `ModelCallDeadline: 0` or `ToolCallDeadline: 0` disabled the deadline | the default (2 minutes); a deadline cannot be turned off, and a Run's own deadline is still its `ctx` |
+| `MaxSteerMessages`, `MaxFollowUpMessages` or `MaxNotices` of 0 refused that message (`message_rejected` with `why: "disabled"`) | the default (8, 4, 16); `why` is only `queue_full` now. A queue cannot be switched off |
+| `CoreLimits.MaxToolProgressBytes` (1 MiB), `CoreLimits.MaxToolProgressUpdates` (1000) | removed; the same caps stay inside the core |
+| `service.Agent.Limits` with `MaxNotices: 0` refused `POST …/notices` | the default queue size (16) |
+
+
 ### Every HTTP route is under `/v1/sessions`
 
 Gotato's HTTP API had two ways to do some things. `POST /v1/runs` and `POST /v1/runs/stream` created a Session and ran it in one call, which `POST /v1/sessions` followed by `POST /v1/sessions/{id}/runs` already does. `POST /v1/runs/{run_id}/cancel` duplicated `POST /v1/sessions/{id}/cancel`, but was not scoped by Session: it never reached the Run's writer, so it was wrong on more than one instance. Both are removed, and with them `service.Runner.CancelRun`. A run request no longer takes `agent` or `metadata`: they applied only when a run created the Session, and `POST /v1/sessions` takes them.
@@ -48,7 +61,7 @@ Each thing now has one way. `WithTool` is folded into the variadic `WithTools`; 
 |---|---|
 | `gotato.WithTool(t)` | `gotato.WithTools(t)` |
 | `gotato.WithFunc("n", "d", fn)` | `tool, err := gotato.NewFuncTool("n", "d", fn)`, then `gotato.WithTools(tool)`; a type the schema cannot describe now fails at `NewFuncTool` |
-| `gotato.WithDeadlines(m, t)`: only the two deadlines, other limits keep their defaults | `l := gotato.DefaultLimits(); l.ModelCallDeadline = m; l.ToolCallDeadline = t; gotato.WithLimits(l)`. `WithLimits` makes the limits explicit, so start from `DefaultLimits()`: a zero size limit would otherwise admit no work of that kind. A zero deadline still disables it |
+| `gotato.WithDeadlines(m, t)`: only the two deadlines, other limits keep their defaults | `gotato.WithLimits(gotato.CoreLimits{ModelCallDeadline: m, ToolCallDeadline: t})` |
 | `gotato.WithRootNamespace("ns")` | none; a root Tool keeps its declared ID |
 
 ### The core lives in `gotato/`, and `storetest` next to the Store

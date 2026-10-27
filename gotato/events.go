@@ -558,8 +558,7 @@ type MessageDropped struct {
 	Why       string        `json:"why"`
 }
 
-// MessageRejected: a message is refused because the queue is full, or is
-// disabled by a limit.
+// MessageRejected: a message is refused because the queue is full.
 type MessageRejected struct {
 	Header
 	MessageID MessageID     `json:"message_id"`

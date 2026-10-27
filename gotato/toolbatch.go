@@ -211,11 +211,11 @@ func (a *Session) executeToolGroup(
 			var progressUpdates uint32
 			progress := func(text string) {
 				progressMu.Lock()
-				if (a.limitsSet && a.limits.MaxToolProgressUpdates == 0) || (a.limits.MaxToolProgressUpdates > 0 && progressUpdates >= a.limits.MaxToolProgressUpdates) {
+				if progressUpdates >= maxToolProgressUpdates {
 					progressMu.Unlock()
 					return
 				}
-				if (a.limitsSet && a.limits.MaxToolProgressBytes == 0) || (a.limits.MaxToolProgressBytes > 0 && progressBytes+uint64(len(text)) > a.limits.MaxToolProgressBytes) {
+				if progressBytes+uint64(len(text)) > maxToolProgressBytes {
 					progressMu.Unlock()
 					return
 				}

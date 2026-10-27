@@ -144,12 +144,11 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 	}
 }
 
-// A full queue produces a MessageRejected and a limit_exceeded error; so does
-// a disabled one.
+// A full queue produces a MessageRejected and a limit_exceeded error.
 func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	limits := defaultLimits()
 	limits.MaxFollowUpMessages = 1
-	limits.MaxSteerMessages = 0
+	limits.MaxSteerMessages = 1
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
 	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
@@ -164,8 +163,11 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	if err := agent.FollowUp(UserMessage("two")); !IsCode(err, ErrLimitExceeded) {
 		t.Fatalf("full follow-up queue = %v", err)
 	}
+	if err := agent.Steer(UserMessage("one")); err != nil {
+		t.Fatal(err)
+	}
 	if err := agent.Steer(UserMessage("nope")); !IsCode(err, ErrLimitExceeded) {
-		t.Fatalf("disabled Steer = %v", err)
+		t.Fatalf("full Steer queue = %v", err)
 	}
 	var rejected []MessageRejected
 	queued := 0
@@ -177,11 +179,11 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 			queued++
 		}
 	}
-	if queued != 1 || len(rejected) != 2 {
+	if queued != 2 || len(rejected) != 2 {
 		t.Fatalf("queued %d, rejected %+v in %v", queued, rejected, seen.kinds())
 	}
 	if rejected[0].Source != SourceFollowUp || rejected[0].Why != "queue_full" ||
-		rejected[1].Source != SourceSteer || rejected[1].Why != "disabled" {
+		rejected[1].Source != SourceSteer || rejected[1].Why != "queue_full" {
 		t.Fatalf("rejections = %+v", rejected)
 	}
 	for _, event := range rejected {
