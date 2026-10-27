@@ -11,7 +11,6 @@
 package gateway
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -323,24 +322,5 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 	case APIAnthropicMessages:
 		return c.streamAnthropic(ctx, request)
 	}
-	body, names, err := encodeRequest(c.model, request, c.rules)
-	if err == nil {
-		body, err = c.withCacheKeyField(body, request.CacheKey)
-	}
-	if err != nil {
-		return nil, err
-	}
-	open := c.withCacheKeyHeader(c.do, request.CacheKey)
-	response, err := open(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-	return &stream{
-		response: response,
-		reader:   bufio.NewReader(response.Body),
-		nameMap:  names,
-		byIndex:  make(map[int]*callBuffer),
-		restart:  restarter{client: c, body: body, open: open},
-		overflow: c.overflow,
-	}, nil
+	return c.streamChat(ctx, request)
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
-	var received wireRequest
+	var received chatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Errorf("authorization = %q", got)
@@ -272,7 +272,7 @@ func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
 		Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"summary":"sunny"}`}},
 	}
-	wire, err := convertMessage(message, map[string]string{}, true)
+	wire, err := convertChatMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
 		Role:       gotato.RoleToolResult,
 		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusFailed, SafeError: "upstream is down"},
 	}
-	wire, err := convertMessage(message, map[string]string{}, true)
+	wire, err := convertChatMessage(message, map[string]string{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

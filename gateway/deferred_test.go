@@ -60,7 +60,7 @@ func encodersByAPI() map[API]bodyEncoder {
 			return body, err
 		},
 		APIChatCompletions: func(c *Client, r gotato.ModelRequest) ([]byte, error) {
-			body, _, err := encodeRequest(c.model, r, c.rules)
+			body, _, err := encodeChatRequest(c.model, r, c.rules)
 			return body, err
 		},
 	}

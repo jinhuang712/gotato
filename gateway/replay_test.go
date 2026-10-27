@@ -77,7 +77,7 @@ func replayedArguments(t *testing.T, api API, body []byte) []string {
 	var arguments []string
 	switch api {
 	case APIChatCompletions:
-		var request wireRequest
+		var request chatRequest
 		if err := json.Unmarshal(body, &request); err != nil {
 			t.Fatal(err)
 		}
@@ -178,7 +178,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 // are a JSON object, and as {} otherwise.
 func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
 	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-		APIChatCompletions:   encodeRequest,
+		APIChatCompletions:   encodeChatRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
 	}

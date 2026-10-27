@@ -108,7 +108,7 @@ func TestACallsSignatureStaysWithItsWireAPI(t *testing.T) {
 			echoResult("call_1"),
 		}}
 	}
-	chat, _, err := encodeRequest("m", request("fc_1"), providerRules{})
+	chat, _, err := encodeChatRequest("m", request("fc_1"), providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}

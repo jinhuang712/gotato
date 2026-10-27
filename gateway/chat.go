@@ -14,19 +14,42 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-func encodeRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
+func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
+	body, names, err := encodeChatRequest(c.model, request, c.rules)
+	if err == nil {
+		body, err = c.withCacheKeyField(body, request.CacheKey)
+	}
+	if err != nil {
+		return nil, err
+	}
+	open := c.withCacheKeyHeader(c.do, request.CacheKey)
+	response, err := open(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	return &chatStream{
+		response: response,
+		reader:   bufio.NewReader(response.Body),
+		nameMap:  names,
+		byIndex:  make(map[int]*chatCall),
+		restart:  restarter{client: c, body: body, open: open},
+		overflow: c.overflow,
+	}, nil
+}
+
+func encodeChatRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
 	}
-	messages := make([]wireMessage, 0, len(request.Messages)+1)
+	messages := make([]chatMessage, 0, len(request.Messages)+1)
 	if request.SystemInstructions != "" {
-		messages = append(messages, wireMessage{Role: "system", Content: request.SystemInstructions})
+		messages = append(messages, chatMessage{Role: "system", Content: request.SystemInstructions})
 	}
 	start := roundStart(request.Messages)
 	for i, message := range request.Messages {
 		keep := rules.keepsReasoning(i, start)
-		converted, err := convertMessage(message, names, keep)
+		converted, err := convertChatMessage(message, names, keep)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -36,7 +59,7 @@ func encodeRequest(model string, request gotato.ModelRequest, rules providerRule
 		}
 		messages = append(messages, converted)
 	}
-	tools := make([]wireTool, 0, len(request.Tools))
+	tools := make([]chatTool, 0, len(request.Tools))
 	for _, spec := range request.Tools {
 		name, err := assignFunctionName(names, spec.ID)
 		if err != nil {
@@ -49,9 +72,9 @@ func encodeRequest(model string, request gotato.ModelRequest, rules providerRule
 		if !json.Valid(parameters) {
 			return nil, nil, fmt.Errorf("gateway: Tool %q has invalid InputSchema", spec.ID)
 		}
-		tools = append(tools, wireTool{Type: "function", Function: wireFunction{Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)}})
+		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)}})
 	}
-	payload := wireRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &wireStreamOptions{IncludeUsage: true}}
+	payload := chatRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
 	if request.Config.Temperature != nil || request.Config.MaxTokens != 0 {
 		payload.Temperature = request.Config.Temperature
 		if request.Config.MaxTokens != 0 {
@@ -65,7 +88,7 @@ func encodeRequest(model string, request gotato.ModelRequest, rules providerRule
 	return body, names, nil
 }
 
-func convertMessage(message gotato.Message, names map[string]string, keepReasoning bool) (wireMessage, error) {
+func convertChatMessage(message gotato.Message, names map[string]string, keepReasoning bool) (chatMessage, error) {
 	role := string(message.Role)
 	if role == string(gotato.RoleToolResult) {
 		content := toolResultText(message)
@@ -79,7 +102,7 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 		if message.ToolResult != nil {
 			callID = string(message.ToolResult.CallID)
 		}
-		return wireMessage{Role: "tool", Content: content, ToolCallID: callID}, nil
+		return chatMessage{Role: "tool", Content: content, ToolCallID: callID}, nil
 	}
 	if message.Role == gotato.RoleNotice {
 		// Chat Completions has no system message mid-conversation: a notice
@@ -88,23 +111,23 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 		role = string(gotato.RoleUser)
 	}
 	if role != string(gotato.RoleUser) && role != string(gotato.RoleAssistant) {
-		return wireMessage{}, fmt.Errorf("gateway: unsupported Message role %q", role)
+		return chatMessage{}, fmt.Errorf("gateway: unsupported Message role %q", role)
 	}
 	for _, part := range message.Parts {
 		if part.Kind != gotato.ContentKindText && part.Kind != gotato.ContentKindReasoning && (part.Text != "" || len(part.Data) > 0) {
-			return wireMessage{}, fmt.Errorf("gateway: unsupported content kind %q", part.Kind)
+			return chatMessage{}, fmt.Errorf("gateway: unsupported content kind %q", part.Kind)
 		}
 	}
-	out := wireMessage{Role: role, Content: gotato.TextOf(message)}
+	out := chatMessage{Role: role, Content: gotato.TextOf(message)}
 	if role == string(gotato.RoleAssistant) && keepReasoning {
 		out.ReasoningContent = gotato.ReasoningOf(message)
 	}
 	for _, call := range message.ToolCalls {
 		name, err := assignFunctionName(names, call.ToolID)
 		if err != nil {
-			return wireMessage{}, err
+			return chatMessage{}, err
 		}
-		wire := wireToolCall{ID: string(call.ID), Type: "function", Function: wireFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}}
+		wire := chatToolCall{ID: string(call.ID), Type: "function", Function: chatFunctionCall{Name: name, Arguments: string(replayArguments(call.Arguments))}}
 		// The call's extra_content goes back as it came. Another wire API's
 		// artifact, such as a Responses item ID, is not an object.
 		if isJSONObject(call.Signature) {
@@ -115,60 +138,60 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 	return out, nil
 }
 
-type wireRequest struct {
+type chatRequest struct {
 	Model         string             `json:"model"`
-	Messages      []wireMessage      `json:"messages"`
-	Tools         []wireTool         `json:"tools,omitempty"`
+	Messages      []chatMessage      `json:"messages"`
+	Tools         []chatTool         `json:"tools,omitempty"`
 	Stream        bool               `json:"stream"`
-	StreamOptions *wireStreamOptions `json:"stream_options,omitempty"`
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
 	Temperature   *float64           `json:"temperature,omitempty"`
 	MaxTokens     uint32             `json:"max_tokens,omitempty"`
 }
 
-type wireStreamOptions struct {
+type chatStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
-type wireTool struct {
+type chatTool struct {
 	Type     string       `json:"type"`
-	Function wireFunction `json:"function"`
+	Function chatFunction `json:"function"`
 }
-type wireFunction struct {
+type chatFunction struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters"`
 }
-type wireMessage struct {
+type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content,omitempty"`
 	// ReasoningContent is the model's thinking (DeepSeek), streamed as
 	// delta.reasoning_content; a thinking model requires it back.
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	ToolCalls        []wireToolCall `json:"tool_calls,omitempty"`
+	ToolCalls        []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
 }
-type wireToolCall struct {
+type chatToolCall struct {
 	ID       string           `json:"id"`
 	Type     string           `json:"type"`
-	Function wireFunctionCall `json:"function"`
+	Function chatFunctionCall `json:"function"`
 	// ExtraContent is provider data on a call, kept as it came: Gemini puts
 	// the thought signature it requires back here (google.thought_signature).
 	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
-type wireFunctionCall struct {
+type chatFunctionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
-type stream struct {
+type chatStream struct {
 	response *http.Response
 	reader   *bufio.Reader
 	nameMap  map[string]string
 	// calls are the Tool calls in the order they first appeared; byIndex
 	// is the call each provider index names now, and last the call the
 	// latest delta added to.
-	calls     []*callBuffer
-	byIndex   map[int]*callBuffer
-	last      *callBuffer
+	calls     []*chatCall
+	byIndex   map[int]*chatCall
+	last      *chatCall
 	queue     []gotato.ModelEvent
 	finish    gotato.StopReason
 	usage     gotato.Usage
@@ -179,13 +202,13 @@ type stream struct {
 	closeOnce sync.Once
 }
 
-type callBuffer struct {
+type chatCall struct {
 	id, name, arguments string
 	// extra is the call's extra_content, from whichever delta carried it.
 	extra json.RawMessage
 }
 
-type wireChunk struct {
+type chatChunk struct {
 	// Model is the model that answered, which a gateway with fallbacks may
 	// have chosen over the requested one.
 	Model string `json:"model"`
@@ -224,7 +247,7 @@ type wireChunk struct {
 	} `json:"usage"`
 }
 
-func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
+func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -254,7 +277,7 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		if data == "" {
 			continue
 		}
-		var chunk wireChunk
+		var chunk chatChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			return gotato.ModelEvent{}, fmt.Errorf("gateway: invalid SSE chunk: %w", err)
 		}
@@ -278,25 +301,25 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 
 // reopen continues on a re-issued response, discarding everything decoded
 // from the interrupted one (nothing of it reached the caller).
-func (s *stream) reopen(response *http.Response) {
+func (s *chatStream) reopen(response *http.Response) {
 	if s.response != nil && s.response.Body != nil {
 		_ = s.response.Body.Close()
 	}
 	s.response = response
 	s.reader = bufio.NewReader(response.Body)
 	s.calls = nil
-	s.byIndex = make(map[int]*callBuffer)
+	s.byIndex = make(map[int]*chatCall)
 	s.last = nil
 	s.queue = nil
 	s.finish = ""
 	s.usage = gotato.Usage{}
 }
 
-func (s *stream) nextData(ctx context.Context) (string, error) {
+func (s *chatStream) nextData(ctx context.Context) (string, error) {
 	return readSSEEvent(ctx, s.reader)
 }
 
-func (s *stream) processChunk(chunk wireChunk) {
+func (s *chatStream) processChunk(chunk chatChunk) {
 	if chunk.Model != "" {
 		s.model = chunk.Model
 	}
@@ -330,7 +353,7 @@ func (s *stream) processChunk(chunk wireChunk) {
 			}
 		}
 		if choice.FinishReason != nil {
-			s.finish = mapStopReason(*choice.FinishReason)
+			s.finish = chatStopReason(*choice.FinishReason)
 		}
 	}
 }
@@ -341,13 +364,13 @@ func (s *stream) processChunk(chunk wireChunk) {
 // index, with a null one, or all at index 0. So a delta that names an ID
 // other than the one its index holds starts a new call, and a delta without
 // an index adds to the last call.
-func (s *stream) callFor(index *int, id string) *callBuffer {
+func (s *chatStream) callFor(index *int, id string) *chatCall {
 	call := s.last
 	if index != nil {
 		call = s.byIndex[*index]
 	}
 	if call == nil || (id != "" && call.id != "" && id != call.id) {
-		call = &callBuffer{}
+		call = &chatCall{}
 		s.calls = append(s.calls, call)
 		if index != nil {
 			s.byIndex[*index] = call
@@ -357,7 +380,7 @@ func (s *stream) callFor(index *int, id string) *callBuffer {
 	return call
 }
 
-func (s *stream) finishStream() {
+func (s *chatStream) finishStream() {
 	for _, call := range s.calls {
 		name := call.name
 		if original, ok := s.nameMap[name]; ok {
@@ -379,7 +402,7 @@ func (s *stream) finishStream() {
 	s.finished = true
 }
 
-func (s *stream) Close() error {
+func (s *chatStream) Close() error {
 	s.closeOnce.Do(func() {
 		if s.response != nil && s.response.Body != nil {
 			_ = s.response.Body.Close()
@@ -388,7 +411,7 @@ func (s *stream) Close() error {
 	return nil
 }
 
-func mapStopReason(reason string) gotato.StopReason {
+func chatStopReason(reason string) gotato.StopReason {
 	switch reason {
 	case "tool_calls", "function_call":
 		return gotato.StopReasonToolCalls

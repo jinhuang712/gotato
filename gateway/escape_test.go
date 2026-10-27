@@ -19,7 +19,7 @@ func TestEncodersSendEscapedJSONToolResult(t *testing.T) {
 		},
 	}
 	request := gotato.ModelRequest{Messages: gotato.ForModel(messages)}
-	chat, _, err1 := encodeRequest("m", request, providerRules{})
+	chat, _, err1 := encodeChatRequest("m", request, providerRules{})
 	anthropic, _, err2 := encodeAnthropicRequest("m", request, providerRules{})
 	responses, _, err3 := encodeResponsesRequest("m", request, providerRules{})
 	for _, err := range []error{err1, err2, err3} {

@@ -19,7 +19,7 @@ import (
 )
 
 var wireEncoders = map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-	APIChatCompletions:   encodeRequest,
+	APIChatCompletions:   encodeChatRequest,
 	APIResponses:         encodeResponsesRequest,
 	APIAnthropicMessages: encodeAnthropicRequest,
 }

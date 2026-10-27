@@ -12,7 +12,7 @@ import (
 // are the same with a RunID and without, whatever the encoder is given.
 func TestRunIDNeverReachesAWireRequest(t *testing.T) {
 	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-		APIChatCompletions:   encodeRequest,
+		APIChatCompletions:   encodeChatRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
 	}

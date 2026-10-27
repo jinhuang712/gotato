@@ -53,7 +53,7 @@ func TestAssignFunctionNameResolvesCollisions(t *testing.T) {
 // chat and Responses adapters named the history's calls before the Tools.
 func TestAcceptedToolIDsKeepTheirNamesInACollision(t *testing.T) {
 	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
-		APIChatCompletions:   encodeRequest,
+		APIChatCompletions:   encodeChatRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
 	}

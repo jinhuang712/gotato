@@ -18,11 +18,11 @@ import (
 // deltas become reasoning events, and an assistant message's reasoning is
 // replayed as reasoning_content, never mixed into content.
 func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
-	var second wireRequest
+	var second chatRequest
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		var req wireRequest
+		var req chatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Error(err)
 		}
@@ -56,7 +56,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("q2")); err != nil {
 		t.Fatal(err)
 	}
-	var assistant *wireMessage
+	var assistant *chatMessage
 	for i := range second.Messages {
 		if second.Messages[i].Role == "assistant" {
 			assistant = &second.Messages[i]
@@ -70,7 +70,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 // Reasoning is omitted from requests to providers that never produced it,
 // so a strict provider sees no unknown field.
 func TestChatRequestOmitsEmptyReasoning(t *testing.T) {
-	body, _, err := encodeRequest("m", gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}}, providerRules{})
+	body, _, err := encodeChatRequest("m", gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("q"), gotato.AssistantMessage("a")}}, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
