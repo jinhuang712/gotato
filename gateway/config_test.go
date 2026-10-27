@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,8 +48,8 @@ api_key: secret
 	if client.endpoint != "https://api.openai.com/v1/responses" {
 		t.Fatalf("endpoint = %s", client.endpoint)
 	}
-	if _, err := ParseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: pi_oauth\n")); err == nil {
-		t.Fatal("pi_oauth must be rejected")
+	if _, err := ParseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: api_key\n")); err == nil || !strings.Contains(err.Error(), "auth") {
+		t.Fatalf("an auth key must be rejected by name, err = %v", err)
 	}
 	if _, err := New(Config{API: "openai-codex-responses", Model: "m", BaseURL: "https://gw.example.com"}); err != nil {
 		t.Fatalf("legacy alias rejected: %v", err)

@@ -1122,7 +1122,7 @@ A few providers have rules of their own for reasoning and the cache. The gateway
 - **DeepSeek** refuses a request that leaves out earlier `reasoning_content` once tools are in play, on its chat API and on its Anthropic one, and an unknown provider may do the same. Both get all the reasoning, and no field or header beyond the request.
 - **A new model** gets the reasoning as it is. The provider drops what its model cannot read.
 - **Block binding.** Claude's newest models check that a thinking block comes after the same system prompt, tools and Messages it was written under. Leaving out every earlier Round's reasoning keeps that true; `drop_block` asks Claude to drop a block whose prefix changed anyway, instead of refusing the request. `no_drop_block: true` turns it off. Claude reports what it dropped in `input_transformations`, which Gotato does not read yet.
-- **Cache retention.** `cache_retention` sets how long the provider keeps the cache. Without it, a recognized provider gets its longest; a shorter value than the provider's longer option keeps its default. OpenAI models before GPT-5.6 keep their own default, which is 24 hours for an organization without Zero Data Retention. `GOTATO_GATEWAY_CACHE_RETENTION` sets it for every model in the process and wins over each model's own.
+- **Cache retention.** `cache_retention` sets how long the provider keeps the cache. Without it, a recognized provider gets its longest; a shorter value than the provider's longer option keeps its default. OpenAI models before GPT-5.6 keep their own default, which is 24 hours for an organization without Zero Data Retention.
 - **The retention in effect.** `Client.CacheRetention()` reports what the client asks of the provider: 1 hour or 5 minutes on Anthropic Messages, 30 minutes on Responses when it sends the option, and 0, unknown, everywhere else. Compaction reads it to time an idle compaction ([G-F06](#g-f06--compaction-)).
 - **A request refused as too long.** A 400 or 413 whose error message, code or type says the request was longer than the model's context window, is reported as an error that answers `ContextOverflow()`, and a Run it ends fails with `context_overflow`. An Anthropic reply that stops with `model_context_window_exceeded` in the middle of the reply is the same error, and the text received stays as a Cut-off reply. The gateway reads this out of the provider's wording, a short list of phrases matched without regard to case, because providers publish no stable code for it; the `overflow_phrases` setting adds a team's own phrases, or codes, to that list ([G-F07](#g-f07--models-and-providers-)), and `internal/fakegateway` plays each provider's form, before any output and in the middle of a reply (ROADMAP Phase 9). A request whose `max_tokens` alone is too large is not an overflow, since compaction cannot shorten it. An error that a Chat Completions or Responses stream carries in place of a chunk (`{"error": …}`, an `error` event) is the same error, and is not sent again as a cut stream is.
 
@@ -1146,7 +1146,6 @@ All the settings in the YAML file:
 | `api` | `openai-chat-completions` | picks the wire API the provider speaks |
 | `endpoint` or `base_url` | — | where the provider listens |
 | `api_key` | — | the provider's key. Write `${NAME}` to read it from the environment, so the file can be committed. |
-| `auth.type` | `api_key`, the only scheme | the gateway never logs in interactively or reads another program's credentials |
 | `model` | — | the model to call |
 | `context_window` | none | the model's context window, in tokens, from which compaction takes its ceiling ([G-F06](#g-f06--compaction-)). Gotato keeps no table of windows, so without it there is no default ceiling, and Segments merge at their default budget. `Client.ContextWindow()` returns it, and the Runner takes the default ceiling from it. |
 | `headers` | none | headers some providers or proxies require |
@@ -1156,11 +1155,11 @@ All the settings in the YAML file:
 | `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
 | `provider` | recognized from the provider's own address, else none | `anthropic`, `openai`, `deepseek` or `other`: whose rules for reasoning and the cache apply |
-| `cache_retention` | the recognized provider's longest | how long the provider keeps the prompt cache, such as `5m` to keep Claude's default and its lower write price. `GOTATO_GATEWAY_CACHE_RETENTION` wins over it. |
+| `cache_retention` | the recognized provider's longest | how long the provider keeps the prompt cache, such as `5m` to keep Claude's default and its lower write price. |
 | `no_drop_block` | false | stops asking Claude to drop a thinking block whose prefix changed, so such a request is refused instead |
 | `overflow_phrases` | none | a list of the team's own phrases, or codes, added to the gateway's short default list. A 400 or 413 whose error `message`, `code` or `type` contains one (without regard to case) is reported as `context_overflow` (`Config.OverflowPhrases`). |
 
-Without a YAML file, `gateway.NewFromEnv()` reads `GOTATO_GATEWAY_API`, `GOTATO_GATEWAY_BASE_URL`, `GOTATO_GATEWAY_ENDPOINT`, `GOTATO_GATEWAY_API_KEY`, `GOTATO_GATEWAY_MODEL` and `GOTATO_GATEWAY_PROVIDER`, and falls back to `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL`.
+The YAML file is the only way to configure the gateway. A secret reaches it through `${NAME}`, which the loader expands from the environment, and a key the file format does not know is an error that names it. `gateway.LoadYAML(path)` reads a file.
 
 ### G-F31 — Recovering a cut stream ✅
 
@@ -1381,7 +1380,7 @@ Settings, on `service.Config` or `gotato serve`:
 
 A provider keeps a cached prefix for minutes, and a conversation that pauses longer pays full price to start again.
 
-- **Retention:** the gateway asks a recognized provider for its longest cache retention: an hour on Claude, and 30 minutes on OpenAI's Responses API from GPT-5.6. It is set where the provider is configured, not per Agent: `cache_retention` for one model, and `GOTATO_GATEWAY_CACHE_RETENTION` for every model, winning over each model's own ([G-F07](#g-f07--models-and-providers-)). An hour on Claude doubles the price of a cache write; `5m` keeps its default.
+- **Retention:** the gateway asks a recognized provider for its longest cache retention: an hour on Claude, and 30 minutes on OpenAI's Responses API from GPT-5.6. It is set where the provider is configured, not per Agent, with `cache_retention` ([G-F07](#g-f07--models-and-providers-)). An hour on Claude doubles the price of a cache write; `5m` keeps its default.
 - **What Gotato does with it.** Compaction reads the retention in effect to time an idle compaction before the cache expires ([G-F06](#g-f06--compaction-)). A conversation that pauses longer than the retention pays for the cache once, on a prefix that the idle compaction has made smaller.
 - **No keepalive.** Gotato does not refresh a warm Session's cache. Each refresh pays a cache read of the whole prefix, and with idle compaction and Claude's one-hour retention it saves little. The idea is kept in [Later](#later).
 

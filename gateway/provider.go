@@ -3,7 +3,6 @@ package gateway
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,11 +23,6 @@ const (
 	// ProviderOther turns recognition off, even on a provider's own address.
 	ProviderOther = "other"
 )
-
-// CacheRetentionEnv names the environment variable that sets the prompt
-// cache retention of every model the process builds, over each model's own
-// Config.CacheRetention, for example GOTATO_GATEWAY_CACHE_RETENTION=5m.
-const CacheRetentionEnv = "GOTATO_GATEWAY_CACHE_RETENTION"
 
 // officialHosts are the providers' own addresses. Without a configured
 // provider, only these are recognized: a gateway in front of the providers
@@ -99,22 +93,13 @@ func resolveProvider(configured, endpoint string) (string, error) {
 	}
 }
 
-// cacheRetention returns the retention every request asks for: the global
-// setting when it is set, and the model's own otherwise. Zero means the
+// cacheRetention returns the retention every request asks for. Zero means the
 // provider's longest.
 func cacheRetention(configured time.Duration) (time.Duration, error) {
-	retention := configured
-	if raw := strings.TrimSpace(os.Getenv(CacheRetentionEnv)); raw != "" {
-		parsed, err := time.ParseDuration(raw)
-		if err != nil {
-			return 0, fmt.Errorf("gateway: invalid %s %q: %w", CacheRetentionEnv, raw, err)
-		}
-		retention = parsed
-	}
-	if retention < 0 {
+	if configured < 0 {
 		return 0, fmt.Errorf("gateway: CacheRetention cannot be negative")
 	}
-	return retention, nil
+	return configured, nil
 }
 
 // newProviderRules derives the rules for one model. A retention shorter than

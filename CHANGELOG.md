@@ -53,6 +53,17 @@ before  runner.CancelRun(ctx, runID)
 after   runner.CancelSession(ctx, sessionID)
 ```
 
+### The gateway is configured by its YAML file only
+
+The gateway had three ways to be configured: a YAML file, environment variables read by `gateway.NewFromEnv()`, and `GOTATO_GATEWAY_CACHE_RETENTION`, which won over the file. Now there is the YAML file. A secret reaches it through `${NAME}`, which the loader expands from the environment. `GOTATO_GATEWAY_CONFIG`, the CLI's path to the file, stays. The `auth` section is removed too: `api_key` was its only scheme. The loader rejects unknown keys, so an old `auth:` key fails with `field auth not found`.
+
+| Before | After |
+|---|---|
+| `GOTATO_GATEWAY_API_KEY=… ` and `gateway.NewFromEnv()`; the `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL` fallbacks | a YAML file with `api_key: ${GOTATO_GATEWAY_API_KEY}`, and `gateway.LoadYAML(path)` |
+| `GOTATO_GATEWAY_API`, `_BASE_URL`, `_ENDPOINT`, `_MODEL`, `_PROVIDER` | the `api`, `base_url`, `endpoint`, `model` and `provider` keys |
+| `GOTATO_GATEWAY_CACHE_RETENTION=5m`, over each model's own | `cache_retention: 5m` in the model's file; `gateway.CacheRetentionEnv` is removed |
+| `auth: {type: api_key}`; `gateway.AuthConfig`, `Config.Auth` | nothing: delete the key |
+
 ### One way to give a Session its tools; unused options go
 
 Each thing now has one way. `WithTool` is folded into the variadic `WithTools`; `WithFunc` is `NewFuncTool` plus `WithTools`; `WithDeadlines` is a field pair of `CoreLimits`; `WithRootNamespace` had no caller. No old name is kept.

@@ -10,14 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// AuthConfig is the authentication section of the on-disk configuration.
-type AuthConfig struct {
-	// Type is "api_key" (the only supported scheme). The gateway is a
-	// service-level adapter: it never performs an interactive login or
-	// touches another program's credential files.
-	Type string `yaml:"type"`
-}
-
 // YAMLConfig is the on-disk configuration format for gotato-gateway.
 // Environment variables may be referenced as ${NAME}; this is useful for
 // keeping API keys out of the configuration file committed to source control.
@@ -29,7 +21,6 @@ type YAMLConfig struct {
 	BaseURL  string            `yaml:"base_url"`
 	APIKey   string            `yaml:"api_key"`
 	Model    string            `yaml:"model"`
-	Auth     *AuthConfig       `yaml:"auth"`
 	Headers  map[string]string `yaml:"headers"`
 	// CacheKeyHeader and CacheKeyField say how each request's cache key is
 	// sent (see Config).
@@ -103,9 +94,6 @@ func ParseYAML(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("invalid cache_retention %q: %w", fileConfig.CacheRetention, err)
 		}
 		config.CacheRetention = retention
-	}
-	if fileConfig.Auth != nil {
-		config.Auth = *fileConfig.Auth
 	}
 	if fileConfig.RetryBackoff != "" {
 		backoff, err := time.ParseDuration(strings.TrimSpace(fileConfig.RetryBackoff))

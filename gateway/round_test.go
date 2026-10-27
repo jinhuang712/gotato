@@ -499,9 +499,8 @@ func sentCacheTTL(t *testing.T, api, body string) string {
 	}
 }
 
-// The global setting wins over each model's own, so one variable sets the
-// retention of every model the process builds.
-func TestGlobalCacheRetentionWinsOverEachModel(t *testing.T) {
+// The model's own CacheRetention is the only setting.
+func TestCacheRetentionComesFromTheConfig(t *testing.T) {
 	ttl := func(retention time.Duration) string {
 		t.Helper()
 		client, err := New(Config{API: APIAnthropicMessages, Model: "claude-opus-4-6", CacheRetention: retention})
@@ -518,19 +517,6 @@ func TestGlobalCacheRetentionWinsOverEachModel(t *testing.T) {
 	if got := ttl(5 * time.Minute); got != "" {
 		t.Fatalf("model setting 5m: ttl = %q", got)
 	}
-	t.Setenv(CacheRetentionEnv, "1h")
-	if got := ttl(5 * time.Minute); got != "1h" {
-		t.Fatalf("global 1h over model 5m: ttl = %q", got)
-	}
-	t.Setenv(CacheRetentionEnv, "5m")
-	if got := ttl(2 * time.Hour); got != "" {
-		t.Fatalf("global 5m over model 2h: ttl = %q", got)
-	}
-	t.Setenv(CacheRetentionEnv, "soon")
-	if _, err := New(Config{API: APIAnthropicMessages, Model: "m"}); err == nil {
-		t.Fatal("an unreadable global retention was accepted")
-	}
-	t.Setenv(CacheRetentionEnv, "")
 	if _, err := New(Config{API: APIAnthropicMessages, Model: "m", CacheRetention: -time.Minute}); err == nil {
 		t.Fatal("a negative retention was accepted")
 	}

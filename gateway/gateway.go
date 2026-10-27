@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +47,6 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
-	Auth    AuthConfig
 
 	HTTPClient *http.Client
 	Headers    map[string]string
@@ -76,8 +74,7 @@ type Config struct {
 	// Zero asks a recognized provider for its longest: an hour on Claude,
 	// and 30 minutes on OpenAI's Responses API from GPT-5.6 on. A shorter
 	// value than the provider's longer option keeps its default. An
-	// unrecognized provider is sent no retention. The environment variable
-	// CacheRetentionEnv, when set, wins over this field.
+	// unrecognized provider is sent no retention.
 	CacheRetention time.Duration
 	// NoDropBlock stops asking Claude to drop a thinking block whose prefix
 	// changed (block_binding drop_block) on the models that check it; the
@@ -134,9 +131,6 @@ func New(config Config) (*Client, error) {
 	api, err := normalizeAPI(config.API)
 	if err != nil {
 		return nil, err
-	}
-	if config.Auth.Type != "" && config.Auth.Type != "api_key" {
-		return nil, fmt.Errorf("gateway: unsupported auth type %q: the gateway authenticates with api_key only", config.Auth.Type)
 	}
 
 	endpoint := strings.TrimSpace(config.Endpoint)
@@ -317,19 +311,6 @@ func normalizeAPI(api string) (string, error) {
 	default:
 		return "", fmt.Errorf("gateway: unsupported API %q (use %s, %s, or %s)", api, APIChatCompletions, APIResponses, APIAnthropicMessages)
 	}
-}
-
-func NewFromEnv() (*Client, error) {
-	base := firstEnv("GOTATO_GATEWAY_BASE_URL", "OPENAI_BASE_URL")
-	endpoint := firstEnv("GOTATO_GATEWAY_ENDPOINT", "")
-	return New(Config{
-		API:      firstEnv("GOTATO_GATEWAY_API", ""),
-		Endpoint: endpoint,
-		BaseURL:  base,
-		APIKey:   firstEnv("GOTATO_GATEWAY_API_KEY", "OPENAI_API_KEY"),
-		Model:    firstEnv("GOTATO_GATEWAY_MODEL", "OPENAI_MODEL"),
-		Provider: firstEnv("GOTATO_GATEWAY_PROVIDER", ""),
-	})
 }
 
 func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
@@ -1077,16 +1058,4 @@ func cloneHeaders(headers map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
-}
-
-func firstEnv(names ...string) string {
-	for _, name := range names {
-		if name == "" {
-			continue
-		}
-		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return ""
 }

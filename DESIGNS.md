@@ -212,7 +212,7 @@ Gotato and the service sometimes have to tell the model something the user did n
 ### Cache retention is set where the provider is configured
 
 - **Instead of:** a retention on each Agent, or one value for every provider.
-- **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. One environment variable, `GOTATO_GATEWAY_CACHE_RETENTION`, sets it for every model, and it wins over each model's own, so a service changes it in one place. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
+- **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
 
 ### Tools load one by one from a catalog — 2026-10-25
 

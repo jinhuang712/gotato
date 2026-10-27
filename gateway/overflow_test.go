@@ -272,7 +272,6 @@ func TestContextWindowFromConfigAndYAML(t *testing.T) {
 }
 
 func TestCacheRetentionIsWhatTheClientAsksFor(t *testing.T) {
-	t.Setenv(CacheRetentionEnv, "")
 	cases := []struct {
 		name   string
 		config Config
