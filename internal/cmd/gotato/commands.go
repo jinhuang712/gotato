@@ -72,14 +72,11 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
 	request := service.RunRequest{SessionID: *sessionID, Agent: agent, Prompt: prompt, Continue: *continueRun, Timeout: c.timeout, SkipSave: *noSave}
 	if *sessionID == "" {
-		request.Metadata, err = settings.metadata()
+		request.Metadata = settings.metadata()
 	} else {
 		// The settings change the Session as the Run's first write, under
 		// its Claim; with --no-save they apply to this Run only.
-		request.Update, err = settings.metadata()
-	}
-	if err != nil {
-		return c.failErr(err)
+		request.Update = settings.metadata()
 	}
 	var result service.RunResponse
 	if *events == "jsonl" {
@@ -299,9 +296,7 @@ func (c *cli) sessionCreate(args []string) int {
 		return c.usageError(err.Error())
 	}
 	settings := sessionSettings{instruction: flags.instruction, compactCeiling: *compactCeiling}
-	if err := settings.apply(func(key, value string) { metadata[key] = value }); err != nil {
-		return c.failErr(err)
-	}
+	settings.apply(func(key, value string) { metadata[key] = value })
 	if *id != "" {
 		s, err := rt.runner.CreateSessionExclusive(ctx, agent, *id, metadata)
 		if errors.Is(err, service.ErrSessionExists) {
@@ -351,31 +346,31 @@ func (c *cli) sessionList(args []string) int {
 	return ExitOK
 }
 
-func (c *cli) loadSession(args []string, name string) (*session.Record, session.Store, context.Context, context.CancelFunc, int) {
+func (c *cli) loadSession(args []string, name string) (*session.Record, context.Context, context.CancelFunc, int) {
 	fs := c.newFlagSet(name)
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
-		return nil, nil, nil, nil, c.parseError(err)
+		return nil, nil, nil, c.parseError(err)
 	}
 	if len(positionals) != 1 {
-		return nil, nil, nil, nil, c.usageError(name + " needs exactly one session id")
+		return nil, nil, nil, c.usageError(name + " needs exactly one session id")
 	}
 	ctx, cancel := c.ctx()
 	store, _, err := c.store()
 	if err != nil {
 		cancel()
-		return nil, nil, nil, nil, c.failErr(err)
+		return nil, nil, nil, c.failErr(err)
 	}
 	s, err := session.View(ctx, store, positionals[0])
 	if err != nil {
 		cancel()
-		return nil, nil, nil, nil, c.failErr(err)
+		return nil, nil, nil, c.failErr(err)
 	}
-	return s, store, ctx, cancel, -1
+	return s, ctx, cancel, -1
 }
 
 func (c *cli) sessionShow(args []string) int {
-	s, _, _, cancel, code := c.loadSession(args, "session show")
+	s, _, cancel, code := c.loadSession(args, "session show")
 	if code >= 0 {
 		return code
 	}
@@ -422,7 +417,7 @@ func (c *cli) sessionFork(args []string) int {
 }
 
 func (c *cli) sessionDelete(args []string) int {
-	s, _, ctx, cancel, code := c.loadSession(args, "session delete")
+	s, ctx, cancel, code := c.loadSession(args, "session delete")
 	if code >= 0 {
 		return code
 	}

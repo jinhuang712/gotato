@@ -190,20 +190,19 @@ type sessionSettings struct {
 	compactCeiling int
 }
 
-func (s sessionSettings) apply(set func(key, value string)) error {
+func (s sessionSettings) apply(set func(key, value string)) {
 	if s.instruction != "" {
 		set(service.MetaInstruction, s.instruction)
 	}
 	if s.compactCeiling > 0 {
 		set(service.MetaCompactCeiling, strconv.Itoa(s.compactCeiling))
 	}
-	return nil
 }
 
-func (s sessionSettings) metadata() (map[string]string, error) {
+func (s sessionSettings) metadata() map[string]string {
 	out := map[string]string{}
-	err := s.apply(func(key, value string) { out[key] = value })
-	return out, err
+	s.apply(func(key, value string) { out[key] = value })
+	return out
 }
 
 // readPrompt returns the prompt from positionals or, when "-" is given, from

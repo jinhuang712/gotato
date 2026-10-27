@@ -695,7 +695,9 @@ func (s *sseWriter) flush() {
 func (s *sseWriter) event(name string, data any) {
 	var buf bytes.Buffer
 	if name != "" {
-		buf.WriteString("event: " + name + "\n")
+		buf.WriteString("event: ")
+		buf.WriteString(name)
+		buf.WriteString("\n")
 	}
 	buf.WriteString("data: ")
 	switch d := data.(type) {

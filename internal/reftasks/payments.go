@@ -173,7 +173,9 @@ func (m paymentsModel) recap(messages []gotato.Message) string {
 	if m.faithful {
 		b.WriteString("## Key facts\n")
 		for _, result := range testkit.ToolResults(gotato.ModelRequest{Messages: messages}) {
-			b.WriteString("- " + result + "\n")
+			b.WriteString("- ")
+			b.WriteString(result)
+			b.WriteString("\n")
 		}
 	}
 	b.WriteString("## Open items\n- O-88213 and O-88347 were left alone.\n")
@@ -184,10 +186,12 @@ func (m paymentsModel) recap(messages []gotato.Message) string {
 func requestText(messages []gotato.Message) string {
 	var b strings.Builder
 	for _, message := range messages {
-		b.WriteString(gotato.TextOf(message) + "\n")
+		b.WriteString(gotato.TextOf(message))
+		b.WriteString("\n")
 		if message.ToolResult != nil {
 			for _, part := range message.ToolResult.Content {
-				b.WriteString(part.Text + "\n")
+				b.WriteString(part.Text)
+				b.WriteString("\n")
 			}
 		}
 	}
