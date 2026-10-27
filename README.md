@@ -158,11 +158,11 @@ Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 Gotato needs Go 1.24. The runtime is one module; the MCP adapter is a module of its own, so a service that does not use MCP carries none of it:
 
 ```sh
-go get github.com/jinhuang712/gotato@v0.1.0
-go get github.com/jinhuang712/gotato/adapter/mcp@v0.1.0   # only for MCP servers
+go get github.com/jinhuang712/gotato@v0.2.0
+go get github.com/jinhuang712/gotato/adapter/mcp@v0.2.0   # only for MCP servers
 ```
 
-From 0.1.0 on, a break is written in [CHANGELOG.md](CHANGELOG.md). [Install](guides/install.md) has the details, and the 0.1.0 notes say what was never checked against a real provider.
+From 0.2.0 on, a break is written in [CHANGELOG.md](CHANGELOG.md). [Install](guides/install.md) has the details, and the 0.2.0 notes say what was never checked against a real provider.
 
 ## 📚 Documents
 

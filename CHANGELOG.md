@@ -4,9 +4,11 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
-## 0.1.0 — 2026-10-28
+## 0.2.0 — YYYY-MM-DD
 
-Gotato 0.1.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).
+Gotato 0.2.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).
+
+The first release is 0.2.0 because versions 0.1.0 and 0.1.1 of the module path were published by mistake before it, hold other code, and are retracted.
 
 **In this release**
 
@@ -24,7 +26,7 @@ Gotato 0.1.0 is the first release: a minimal, synchronous, Go-native agent runti
 | `gateway` | A provider is YAML, not code: the OpenAI Chat Completions, OpenAI Responses and Anthropic Messages wire APIs. |
 | `service`, `service/httpapi` | The Runner that runs Sessions on many instances over one Store, and its HTTP and streaming surface under `/v1/sessions`. |
 | `testkit` | Fake and replay models and tools, and Event recorders, for deterministic tests. |
-| `adapter/mcp` | A module of its own: an MCP server's tools as a `ToolSet`. Tagged `adapter/mcp/v0.1.0`. |
+| `adapter/mcp` | A module of its own: an MCP server's tools as a `ToolSet`. Tagged `adapter/mcp/v0.2.0`. |
 
 The test CLI (`internal/cmd/gotato`), the workload tools, `examples/larkbot` and `bench/refservice` are in the repository but are not part of the release's promise. The CLI is our test tool and keeps no contract.
 
@@ -32,7 +34,7 @@ The test CLI (`internal/cmd/gotato`), the workload tools, `examples/larkbot` and
 
 - A breaking change to the Go API, the HTTP contract or the Event kinds has a CHANGELOG entry with a before and after.
 - Where the cost is low, the old symbol stays for at least one release with a `// Deprecated:` comment.
-- Before this release nothing kept an old form. The changes made on the way here are kept under *Before 0.1.0* in [CHANGELOG.md](CHANGELOG.md) as history; they describe states no user ever had.
+- Before this release nothing kept an old form. The changes made on the way here are kept under *Before 0.2.0* in [CHANGELOG.md](CHANGELOG.md) as history; they describe states no user ever had.
 
 ### What was never checked against a real provider
 
@@ -48,11 +50,15 @@ Gotato runs no tests against real providers, and CI has no provider credentials.
 - **MCP servers ([G-F12](FEATURES.md#g-f12--the-mcp-adapter-)).** The tests use the MCP SDK's own server; no other server was tried, and none of the specification's multi round-trip revision.
 - **Time to a first agent ([G-B13]X).** Not measured; it needs developers new to Gotato.
 
-## Before 0.1.0 (development history)
+## Before 0.2.0 (development history)
 
 These sections record changes between development states that no release ever held. They are kept as history, and a before/after note in them does not describe a move any user made.
 
 ### Since 2026-10-16
+
+#### The first release is 0.2.0; 0.1.0 and 0.1.1 are retracted
+
+The module proxy holds `github.com/jinhuang712/gotato` v0.1.0 and v0.1.1 for good, from tags pushed before the first release and deleted since; they hold other code. The root `go.mod` retracts both, the MCP adapter retracts its own v0.1.0 (it requires the stray gotato v0.1.0), and the first release takes the name 0.2.0 for both modules.
 
 #### A zero usage, config or end time is left out of the JSON
 

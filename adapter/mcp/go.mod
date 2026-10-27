@@ -2,7 +2,7 @@ module github.com/jinhuang712/gotato/adapter/mcp
 
 go 1.25.0
 
-require github.com/jinhuang712/gotato v0.1.0
+require github.com/jinhuang712/gotato v0.2.0
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
@@ -17,3 +17,5 @@ require (
 )
 
 replace github.com/jinhuang712/gotato => ../..
+
+retract v0.1.0 // tagged by mistake before the first release; requires a gotato v0.1.0 that holds other code
