@@ -15,8 +15,8 @@ Inventory of 2026-10-27. "Users" counts code outside `_test.go` files, in every 
 
 | Item | Code lines | Users | Proposed kind | Decision |
 |---|---|---|---|---|
-| `adapter/grpc` (module) | 1,195 written, 8,124 generated | only its own binary | remove: about 90% of its operations repeat `service/httpapi`, and no example or service uses it | open |
-| `adapter/grpc/cmd/gotato-grpc` | 176 | none | remove: it runs the test kit's fake models and has no test | open |
+| `adapter/grpc` (module) | 1,195 written, 8,124 generated | only its own binary | remove: about 90% of its operations repeat `service/httpapi`, and no example or service uses it | removed (G-N27), f86c812 |
+| `adapter/grpc/cmd/gotato-grpc` | 176 | none | remove: it runs the test kit's fake models and has no test | removed (G-N27), f86c812 |
 | `service/httpapi` | 931 | the CLI, `bench/refservice`, larkbot | product: the transport the guides and examples use | open |
 | `cmd/gotato` | 1,639 | — | product, as a local tool for a file store; it is never a client of a server | open |
 | Echo and demo models in shipped binaries | — | `cmd/gotato`, `gotato-grpc`, larkbot | move out of `testkit`: a shipped binary should not link test fakes | open |
