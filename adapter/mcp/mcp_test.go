@@ -134,7 +134,7 @@ func overStdio(*testing.T, *sdk.Server) gmcp.Transport {
 
 var allTransports = []transportCase{{"in-memory", inMemory}, {"streamable-http", overHTTP}, {"stdio", overStdio}}
 
-func newSet(t *testing.T, transport gmcp.Transport, options ...gmcp.Option) *gmcp.ToolSet {
+func newSet(t *testing.T, transport gmcp.Transport, options ...gmcp.ToolSetOption) *gmcp.ToolSet {
 	t.Helper()
 	set, err := gmcp.NewToolSet("crm", transport, options...)
 	if err != nil {
@@ -732,12 +732,12 @@ func clientInfoSeenBy(t *testing.T) (gmcp.Transport, func() (name, version strin
 func TestTheClientTellsTheServerWhoItIs(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		options     []gmcp.Option
+		options     []gmcp.ToolSetOption
 		wantName    string
 		wantVersion string
 	}{
 		{"default", nil, "gotato", "0"},
-		{"WithClientInfo", []gmcp.Option{gmcp.WithClientInfo("billing-svc", "1.2")}, "billing-svc", "1.2"},
+		{"WithClientInfo", []gmcp.ToolSetOption{gmcp.WithClientInfo("billing-svc", "1.2")}, "billing-svc", "1.2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			transport, seen := clientInfoSeenBy(t)

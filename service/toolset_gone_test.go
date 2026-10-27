@@ -40,7 +40,7 @@ func TestAGoneToolIsUnloadedInTheRecordForEveryInstance(t *testing.T) {
 	model := testkit.NewFakeModel(loadFiles(), testkit.Text("opened"), testkit.Text("second"))
 	runner, err := service.New(service.Config{
 		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.Option{gotato.WithToolSet(set)}}},
+		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(set)}}},
 	})
 	if err != nil {
 		t.Fatal(err)

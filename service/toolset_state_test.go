@@ -38,7 +38,7 @@ func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store:  store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.Option{gotato.WithToolSet(filesToolSet{})}}},
+		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(filesToolSet{})}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 
 	// A compaction writes a Checkpoint that keeps the load of a tool
 	// the closed Segment called (Run 3 called files.read).
-	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactOptions{Keep: 2}); err != nil {
+	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactConfig{Keep: 2}); err != nil {
 		t.Fatal(err)
 	}
 	// A fork starts with it too.

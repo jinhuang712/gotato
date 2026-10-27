@@ -13,8 +13,8 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// CompactOptions controls Compact.
-type CompactOptions struct {
+// CompactConfig controls Compact.
+type CompactConfig struct {
 	// Keep is the number of most recent Messages to keep in the tail. The cut
 	// moves forward to a Turn boundary so a tool call keeps its result. With
 	// Keep and Floor both 0, the tail is the latest Run's Turns, up to
@@ -65,7 +65,7 @@ type CompactOptions struct {
 	// SegmentBudget is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged right after the
 	// Segment closes (MergeSegments). 0 means SegmentsBudget(Ceiling): half
-	// the ceiling, or DefaultSegmentsBudget with none.
+	// the ceiling, or DefaultSegmentsBudgetTokens with none.
 	SegmentBudget int
 	// SegmentSettings are the limits and the time zone of the Segment.
 	SegmentSettings
@@ -93,7 +93,7 @@ type CompactReason string
 
 const (
 	// CompactReasonBelowMinTokens: the stretch since the last Checkpoint is below
-	// CompactOptions.MinTokens.
+	// CompactConfig.MinTokens.
 	CompactReasonBelowMinTokens CompactReason = "below_min_tokens"
 	// CompactReasonNothingToClose: the kept tail covers the whole stretch.
 	CompactReasonNothingToClose CompactReason = "nothing_to_close"
@@ -146,14 +146,14 @@ func causeOf(err error) gotato.ErrorCode {
 // sanctioned point).
 //
 // The kept tail starts at a Turn boundary, so a tool call is never separated
-// from its result (see CompactOptions). The loaded Tools the Segment called and the
+// from its result (see CompactConfig). The loaded Tools the Segment called and the
 // kept tail calls stay loaded; the others are unloaded, each with a
 // tool_unloaded Event (why: compaction).
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
 // "none"; the usage of a model call that was made is still recorded). A stretch below opts.MinTokens, or one the tail covers whole, is
 // left as it is and returns a Result with Replaced false and a Reason.
-func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Result, error) {
+func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
 	}
@@ -268,7 +268,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	// The Segments may now pass their budget: the oldest merge, in a
 	// Checkpoint of their own. A merge that fails leaves the Segment just
 	// closed in place, and the Segments unmerged.
-	merge, err := MergeSegments(ctx, s, MergeOptions{
+	merge, err := MergeSegments(ctx, s, MergeConfig{
 		Budget: opts.SegmentBudget, Ceiling: opts.Ceiling, Recap: opts.Recap, Why: why, Location: opts.Location, Now: opts.Now,
 	})
 	if err != nil {
@@ -320,7 +320,7 @@ func DefaultCeiling(window int) int {
 // window there is no ceiling. A negative Ceiling turns the ceiling off.
 // Window is the Model's context window, 0 when unknown. Floor, when above 0, is
 // the most tokens the kept tail holds; with none, the tail is the latest Run's
-// Turns (CompactOptions). DropReasoning is CompactOptions.DropReasoning for
+// Turns (CompactConfig). DropReasoning is CompactConfig.DropReasoning for
 // every compaction the policy makes.
 type CompactPolicy struct {
 	Ceiling       int
@@ -331,13 +331,13 @@ type CompactPolicy struct {
 	Now           func() time.Time
 	// SegmentBudget is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged. 0 means half the
-	// ceiling in force, or DefaultSegmentsBudget with none (effectiveBudget).
+	// ceiling in force, or DefaultSegmentsBudgetTokens with none (effectiveBudget).
 	SegmentBudget int
 	SegmentSettings
 }
 
 // effectiveBudget is the Segments' budget in force: SegmentBudget when set,
-// else half the ceiling in force, else DefaultSegmentsBudget.
+// else half the ceiling in force, else DefaultSegmentsBudgetTokens.
 func (p CompactPolicy) effectiveBudget() int {
 	if p.SegmentBudget > 0 {
 		return p.SegmentBudget
@@ -446,7 +446,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		}
 	}
 	a.compacted = true
-	options := CompactOptions{
+	options := CompactConfig{
 		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.Ceiling(),
 		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
 		Why: why, SegmentSettings: a.policy.SegmentSettings, KeepLastTurn: true,
@@ -479,7 +479,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	merge := result.Merge
 	if !result.Replaced {
 		// Nothing to close, but the Segments may still pass their budget.
-		merged, err := MergeSegments(ctx, a.session, MergeOptions{
+		merged, err := MergeSegments(ctx, a.session, MergeConfig{
 			Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
 		})
 		if err != nil {
@@ -514,7 +514,7 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 		}
 	}
 	a.compacted = true
-	merge, err := MergeSegments(ctx, a.session, MergeOptions{
+	merge, err := MergeSegments(ctx, a.session, MergeConfig{
 		Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
 	})
 	return gotato.TurnPrepared{Changed: merge.Merged}, err
@@ -582,7 +582,7 @@ func requestOverhead(request gotato.ModelRequest) int {
 // Turns within the default budget: 20K tokens, and no more than a quarter of
 // the window, or of the ceiling when no window is known. Every cut moves
 // forward to a Turn boundary.
-func tailStart(stretch []gotato.Message, opts CompactOptions) int {
+func tailStart(stretch []gotato.Message, opts CompactConfig) int {
 	cut := 0
 	switch {
 	case opts.Keep > 0:

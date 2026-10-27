@@ -101,8 +101,8 @@ func StdioCommand(newCmd func() *exec.Cmd) Transport {
 	return func() sdk.Transport { return &sdk.CommandTransport{Command: newCmd()} }
 }
 
-// Option configures a ToolSet.
-type Option func(*config)
+// ToolSetOption configures a ToolSet.
+type ToolSetOption func(*config)
 
 type config struct {
 	description string
@@ -113,13 +113,13 @@ type config struct {
 }
 
 // WithDescription sets the ToolSet's description, which the catalog shows.
-func WithDescription(text string) Option {
+func WithDescription(text string) ToolSetOption {
 	return func(c *config) { c.description = text }
 }
 
 // WithToolEffect sets the Effect of one tool (by its name on the server),
 // replacing the one its annotations give.
-func WithToolEffect(tool string, effect gotato.ToolEffect) Option {
+func WithToolEffect(tool string, effect gotato.ToolEffect) ToolSetOption {
 	return func(c *config) { c.effects[tool] = effect }
 }
 
@@ -127,12 +127,12 @@ func WithToolEffect(tool string, effect gotato.ToolEffect) Option {
 // does not ask the server for it again unless the server sent list_changed.
 // The default 0 asks the server at every resolution (one request per Run),
 // which sees a change even when the server cannot notify.
-func WithListCache(ttl time.Duration) Option {
+func WithListCache(ttl time.Duration) ToolSetOption {
 	return func(c *config) { c.cacheTTL = ttl }
 }
 
 // WithClientInfo sets the name and version this client tells the server.
-func WithClientInfo(name, version string) Option {
+func WithClientInfo(name, version string) ToolSetOption {
 	return func(c *config) { c.clientName, c.clientVer = name, version }
 }
 
@@ -169,7 +169,7 @@ var _ gotato.ToolSet = (*ToolSet)(nil)
 // NewToolSet makes the ToolSet of one MCP server. It does not connect: the
 // first resolution does, so a server that is down makes the ToolSet
 // unavailable for a Run (the Session still starts) and not an error here.
-func NewToolSet(name string, transport Transport, options ...Option) (*ToolSet, error) {
+func NewToolSet(name string, transport Transport, options ...ToolSetOption) (*ToolSet, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.Contains(name, ".") {
 		return nil, fmt.Errorf("mcp: ToolSet name %q must be non-empty and contain no dot", name)

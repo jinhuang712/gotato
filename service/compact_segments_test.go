@@ -39,11 +39,11 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 		}
 		id = result.SessionID
 	}
-	skipped, err := runner.Compact(ctx, id, modelctx.CompactOptions{MinTokens: 1 << 20})
+	skipped, err := runner.Compact(ctx, id, modelctx.CompactConfig{MinTokens: 1 << 20})
 	if err != nil || skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens {
 		t.Fatalf("below min_tokens = %+v, %v", skipped, err)
 	}
-	result, err := runner.Compact(ctx, id, modelctx.CompactOptions{})
+	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "truncate" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}

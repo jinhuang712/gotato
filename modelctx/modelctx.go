@@ -20,7 +20,7 @@
 // (Compact) or triggered by AutoCompact, a gotato.TurnPreparer, before any model
 // call: past a ceiling in tokens, which the model's window gives by default,
 // and once when the provider refuses a request as too long. Segments have a
-// budget too, half the ceiling or DefaultSegmentsBudget with none: when they
+// budget too, half the ceiling or DefaultSegmentsBudgetTokens with none: when they
 // pass it, MergeSegments merges the oldest into the one merged Segment that
 // opens the Context, and ReadSegmentTool (SegmentTools, as a ToolSource) lets
 // the model read any Segment back, a merged one's originals included.

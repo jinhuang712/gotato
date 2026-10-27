@@ -65,7 +65,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
 			t.Fatal(err)
 		}
-		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactOptions{Keep: 2})
+		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{Keep: 2})
 		if err != nil || !result.Replaced {
 			t.Fatalf("round=%v: compact = %+v, %v", round, result, err)
 		}

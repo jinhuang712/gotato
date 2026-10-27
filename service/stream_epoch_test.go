@@ -58,7 +58,7 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 			_, _ = runner.SetToolActive(ctx, id, "no.such.tool", false)
 		}},
 		{"a compaction", func(runner *service.Runner, id string) {
-			_, _ = runner.Compact(ctx, id, modelctx.CompactOptions{Keep: 2})
+			_, _ = runner.Compact(ctx, id, modelctx.CompactConfig{Keep: 2})
 		}},
 	}
 	for _, c := range changes {

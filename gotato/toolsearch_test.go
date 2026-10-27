@@ -118,9 +118,9 @@ func runCollecting(t *testing.T, agent *Session, text string) (loaded []ToolLoad
 	}
 }
 
-func newSearchSession(t *testing.T, model Model, options ...Option) *Session {
+func newSearchSession(t *testing.T, model Model, options ...SessionOption) *Session {
 	t.Helper()
-	agent, err := NewSession(append([]Option{WithModel(model)}, options...)...)
+	agent, err := NewSession(append([]SessionOption{WithModel(model)}, options...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

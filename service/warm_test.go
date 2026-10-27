@@ -755,7 +755,7 @@ func TestCompactUsesTheWarmCopy(t *testing.T) {
 	runner := warmInstance(t, store, "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
-	result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactOptions{})
+	result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}

@@ -48,7 +48,7 @@ func (t *memoryTranscript) Append(message Message) error {
 
 // WithTranscript makes the Session commit to an external Transcript, such as
 // the session.Record it is loaded from, instead of a private in-memory one.
-func WithTranscript(transcript Transcript) Option {
+func WithTranscript(transcript Transcript) SessionOption {
 	return func(c *sessionConfig) error {
 		if transcript == nil {
 			return runtimeError(CodeInvalidArgument, "WithTranscript", "transcript is nil", nil)
@@ -214,7 +214,7 @@ func FullHistoryContext() ContextBuilder {
 
 // WithContextBuilder selects the strategy that turns the Transcript into the
 // Model's Context for each Turn. The default is FullHistoryContext.
-func WithContextBuilder(builder ContextBuilder) Option {
+func WithContextBuilder(builder ContextBuilder) SessionOption {
 	return func(c *sessionConfig) error {
 		if builder == nil {
 			return runtimeError(CodeInvalidArgument, "WithContextBuilder", "builder is nil", nil)
@@ -290,7 +290,7 @@ type ToolSource interface {
 }
 
 // WithToolSource installs a dynamic Tool source.
-func WithToolSource(source ToolSource) Option {
+func WithToolSource(source ToolSource) SessionOption {
 	return func(c *sessionConfig) error {
 		if source == nil {
 			return runtimeError(CodeInvalidArgument, "WithToolSource", "source is nil", nil)

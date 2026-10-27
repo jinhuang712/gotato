@@ -364,7 +364,7 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep and min_tokens cannot be negative"))
 		return
 	}
-	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactOptions{Keep: in.Keep, MinTokens: in.MinTokens})
+	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactConfig{Keep: in.Keep, MinTokens: in.MinTokens})
 	if err != nil {
 		writeFailure(w, err)
 		return

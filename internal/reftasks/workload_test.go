@@ -20,7 +20,7 @@ func play(t *testing.T, task reftasks.Task) (*session.Record, []string) {
 			t.Fatal(err)
 		}
 	}
-	options := []gotato.Option{
+	options := []gotato.SessionOption{
 		gotato.WithModel(task.Model),
 		gotato.WithInstruction(task.Instruction),
 		gotato.WithTranscript(s),

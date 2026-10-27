@@ -199,25 +199,25 @@ type Record struct {
 	cutOff []gotato.Message
 }
 
-// Option configures New.
-type Option func(*Record)
+// RecordOption configures New.
+type RecordOption func(*Record)
 
 // WithID sets the Session ID. Default: a random 16-byte hex ID.
-func WithID(id string) Option { return func(s *Record) { s.id = id } }
+func WithID(id string) RecordOption { return func(s *Record) { s.id = id } }
 
 // WithMetadata sets initial application metadata.
-func WithMetadata(metadata map[string]string) Option {
+func WithMetadata(metadata map[string]string) RecordOption {
 	return func(s *Record) { s.metadata = maps.Clone(metadata) }
 }
 
 // WithMessages sets the Messages a new Record starts with, as history that
 // its first Entry holds rather than Messages committed one by one.
-func WithMessages(messages ...gotato.Message) Option {
+func WithMessages(messages ...gotato.Message) RecordOption {
 	return func(s *Record) { s.messages = cloneMessages(messages) }
 }
 
 // New creates an empty Record.
-func New(options ...Option) *Record {
+func New(options ...RecordOption) *Record {
 	s := &Record{eventLimit: defaultEventLimit, now: time.Now, retainRead: true, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, option := range options {
 		if option != nil {
@@ -761,7 +761,7 @@ func (s *Record) interruptRun(runID gotato.RunID) {
 // parent's log it branches at, copies Messages, Usage, Compactions, and
 // Metadata, and starts with empty Run and Event records. It is a state
 // operation: no relationship between Sessions is implied.
-func Fork(parent *Record, options ...Option) *Record {
+func Fork(parent *Record, options ...RecordOption) *Record {
 	doc := parent.Snapshot()
 	parentSeq := parent.Head()
 	child := New(options...)

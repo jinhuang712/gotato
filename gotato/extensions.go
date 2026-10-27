@@ -86,7 +86,7 @@ type AdvisoryExtension interface {
 // WithExtension installs one Extension. A value may implement several
 // Extension interfaces; it is installed into each of them. The resulting
 // order is immutable for the Session lifetime.
-func WithExtension(extension any) Option {
+func WithExtension(extension any) SessionOption {
 	return func(c *sessionConfig) error {
 		if extension == nil {
 			return runtimeError(CodeInvalidArgument, "WithExtension", "extension is nil", nil)
@@ -124,7 +124,7 @@ func WithExtension(extension any) Option {
 }
 
 // WithExtensions installs several Extensions in the given order.
-func WithExtensions(extensions ...any) Option {
+func WithExtensions(extensions ...any) SessionOption {
 	return func(c *sessionConfig) error {
 		for _, extension := range extensions {
 			if err := WithExtension(extension)(c); err != nil {

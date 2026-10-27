@@ -170,7 +170,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if result, err := first.Compact(ctx, s.ID(), modelctx.CompactOptions{Keep: 2}); err != nil || !result.Replaced {
+	if result, err := first.Compact(ctx, s.ID(), modelctx.CompactConfig{Keep: 2}); err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
 	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "four"}); err != nil {

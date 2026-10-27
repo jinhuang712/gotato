@@ -32,7 +32,7 @@ type RecapRequest struct {
 	// as it is now: the same instruction, tools, Messages and cache hints. A
 	// writer that asks a model builds its request from it, so the provider
 	// reads the prefix from its cache. Nil when the caller supplied none
-	// (CompactOptions.Context).
+	// (CompactConfig.Context).
 	Context *gotato.ModelRequest
 }
 
@@ -303,7 +303,7 @@ func mergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.Model
 	}
 	return gotato.ModelRequest{
 		Messages: []gotato.Message{gotato.UserMessage(mergeRecapAsk(request))},
-		Options:  gotato.ModelOptions{MaxTokens: maxTokens},
+		Options:  gotato.ModelConfig{MaxTokens: maxTokens},
 	}
 }
 

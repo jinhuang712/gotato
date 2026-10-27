@@ -20,9 +20,9 @@ type ModelRequest struct {
 	// sends every catalog Tool as deferred in a fixed order, so the tool
 	// list stays the same while Tools load, and shows a load as a
 	// reference in the Tool Result that loaded it (ToolResult.Loaded).
-	LoadedTools   []string     `json:"loaded_tools,omitempty"`
-	UnloadedTools []ToolSpec   `json:"unloaded_tools,omitempty"`
-	Options       ModelOptions `json:"options,omitempty"`
+	LoadedTools   []string    `json:"loaded_tools,omitempty"`
+	UnloadedTools []ToolSpec  `json:"unloaded_tools,omitempty"`
+	Options       ModelConfig `json:"options,omitempty"`
 	// CacheBreakpoints are provider-neutral prompt-cache hints in prefix
 	// order. An adapter maps them to its provider's mechanism (for example
 	// Anthropic cache_control) or ignores them when the provider caches
@@ -54,10 +54,10 @@ type CacheBreakpoint struct {
 	Index int         `json:"index,omitempty"`
 }
 
-// ModelOptions carries per-request sampling and reasoning hints. A Session
-// sends the options from WithModelOptions on every model call, and gateway
+// ModelConfig carries per-request sampling and reasoning hints. A Session
+// sends the options from WithModelConfig on every model call, and gateway
 // adapters map the fields their provider supports.
-type ModelOptions struct {
+type ModelConfig struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	MaxTokens        uint32   `json:"max_tokens,omitempty"`
 	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`

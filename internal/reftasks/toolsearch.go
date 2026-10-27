@@ -127,8 +127,8 @@ func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.
 
 // ToolSearchOptions returns the Options the tool_search task adds to its Agent:
 // the shop and the carrier as listed ToolSets, the warehouse as a folded one.
-func ToolSearchOptions() []gotato.Option {
-	return []gotato.Option{
+func ToolSearchOptions() []gotato.SessionOption {
+	return []gotato.SessionOption{
 		gotato.WithToolSet(newToolSearchSet(ShopSetName)),
 		gotato.WithToolSet(newToolSearchSet(CarrierSetName)),
 		gotato.WithFoldedToolSet(newToolSearchSet(WarehouseSetName)),
@@ -340,7 +340,7 @@ func summarize(text string) string {
 // order, which is what a Session that played them holds as long as it did not
 // compact. A Record built with session.WithMessages starts with no loaded
 // Tools, so a check that copies a Session's history to a new Record adds this.
-func WithLoadedToolsOf(messages []gotato.Message) session.Option {
+func WithLoadedToolsOf(messages []gotato.Message) session.RecordOption {
 	var ids []string
 	for _, message := range messages {
 		if message.ToolResult == nil {

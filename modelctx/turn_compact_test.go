@@ -175,7 +175,7 @@ func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactOptions{Keep: 2}); err != nil || !result.Replaced {
+	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{Keep: 2}); err != nil || !result.Replaced {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
 	// Two Runs that read a large result each: a Segment keeps a line per call.
@@ -292,7 +292,7 @@ func TestACompactionClearsTheUsageOfTheMessagesItKeeps(t *testing.T) {
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactOptions{Keep: 2}); err != nil {
+	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{Keep: 2}); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range l.writer.Record().Tail() {

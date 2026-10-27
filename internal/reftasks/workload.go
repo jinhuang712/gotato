@@ -32,7 +32,7 @@ type Task struct {
 	Tools []gotato.Tool
 	// Options are added to the Agent after its Tools, such as the ToolSets of
 	// the tool_search task. They keep no state.
-	Options []gotato.Option
+	Options []gotato.SessionOption
 	// Model plays the task. It keeps no state and no copy of the requests,
 	// so one value serves concurrent plays.
 	Model gotato.Model

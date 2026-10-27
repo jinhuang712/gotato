@@ -53,7 +53,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: []byte(arguments)}),
 		testkit.Text("loaded"))
-	agent := service.Agent{Name: "a", Model: model, Options: []gotato.Option{gotato.WithToolSet(twoToolSet{}), gotato.WithToolSet(downToolSet{})}}
+	agent := service.Agent{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithToolSet(twoToolSet{}), gotato.WithToolSet(downToolSet{})}}
 	runner, err := service.New(service.Config{Store: store, Agents: []service.Agent{agent}})
 	if err != nil {
 		t.Fatal(err)

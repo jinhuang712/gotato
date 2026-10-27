@@ -475,7 +475,7 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectOptions{Instruction: flags.instruction})
+	report, err := rt.runner.Inspect(ctx, positionals[0], service.InspectConfig{Instruction: flags.instruction})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -549,7 +549,7 @@ func (c *cli) contextCompact(args []string) int {
 	default:
 		return c.usageError("unknown recap writer " + *recapFlag)
 	}
-	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactOptions{Keep: *keep, MinTokens: *minTokens, Recap: writer})
+	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactConfig{Keep: *keep, MinTokens: *minTokens, Recap: writer})
 	if err != nil {
 		return c.failErr(err)
 	}

@@ -44,7 +44,7 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 			if client.DeferredTools() != DeferredNative {
 				t.Fatalf("form = %q", client.DeferredTools())
 			}
-			options := append([]gotato.Option{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)
+			options := append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)
 			session, err := gotato.NewSession(options...)
 			if err != nil {
 				t.Fatal(err)

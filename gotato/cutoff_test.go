@@ -92,7 +92,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 			stream := tc.stream()
 			reached := stream.reached
 			transcript := &recordingTranscript{}
-			options := []Option{WithModel(&breakingModel{first: stream}), WithTranscript(transcript)}
+			options := []SessionOption{WithModel(&breakingModel{first: stream}), WithTranscript(transcript)}
 			if tc.limits != nil {
 				limits := DefaultLimits()
 				limits.ModelCallDeadline = tc.limits.ModelCallDeadline

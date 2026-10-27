@@ -66,13 +66,13 @@ func (s *cutServer) requests() []string {
 	return append([]string(nil), s.bodies...)
 }
 
-func cutSession(t *testing.T, s *cutServer, maxRetries int, opts ...gotato.Option) (*gotato.Session, *testkit.EventRecorder) {
+func cutSession(t *testing.T, s *cutServer, maxRetries int, opts ...gotato.SessionOption) (*gotato.Session, *testkit.EventRecorder) {
 	t.Helper()
 	client, err := New(Config{Endpoint: s.URL, Model: "m", MaxRetries: maxRetries, RetryBackoff: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := gotato.NewSession(append([]gotato.Option{gotato.WithModel(client)}, opts...)...)
+	session, err := gotato.NewSession(append([]gotato.SessionOption{gotato.WithModel(client)}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

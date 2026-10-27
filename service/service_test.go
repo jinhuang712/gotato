@@ -251,7 +251,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if report.SelectedMessages != 8 || report.PrefixHash == "" {
 		t.Fatalf("report = %+v", report)
 	}
-	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactOptions{Keep: 2})
+	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactConfig{Keep: 2})
 	if err != nil || !compact.Replaced || compact.MessagesAfter != 8 || compact.Compaction.Segment != 1 {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
@@ -722,8 +722,8 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 // the Record, then fails before the live Session starts.
 func unbuildableSpec() service.Agent {
 	negative := -1.0
-	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.Option{
-		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &negative}),
+	return service.Agent{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{
+		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &negative}),
 	}}
 }
 
@@ -967,14 +967,14 @@ func (briefNote) Transform(_ context.Context, snapshot gotato.ContextSnapshot) (
 // model options included.
 func TestInspectMatchesTheNextRun(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
-	maxTokens := gotato.ModelOptions{MaxTokens: 256}
+	maxTokens := gotato.ModelConfig{MaxTokens: 256}
 	runner, _ := newRunner(t, service.Agent{
 		Name:        "orders",
 		Model:       model,
 		Instruction: "You track orders.",
 		Tools:       []gotato.Tool{testkit.NewFakeTool("orders.lookup", "shipped")},
 		Extensions:  []any{briefNote{}},
-		Options:     []gotato.Option{gotato.WithModelOptions(maxTokens)},
+		Options:     []gotato.SessionOption{gotato.WithModelConfig(maxTokens)},
 	})
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "orders", nil, session.WithMessages(gotato.UserMessage("where is order 42?")))

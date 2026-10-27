@@ -143,7 +143,7 @@ func dump(messages []gotato.Message) string {
 	return b.String()
 }
 
-func mustCompact(t *testing.T, rec *session.Record, opts modelctx.CompactOptions) modelctx.Result {
+func mustCompact(t *testing.T, rec *session.Record, opts modelctx.CompactConfig) modelctx.Result {
 	t.Helper()
 	result, err := modelctx.Compact(context.Background(), rec, opts)
 	if err != nil {
@@ -155,7 +155,7 @@ func mustCompact(t *testing.T, rec *session.Record, opts modelctx.CompactOptions
 func TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	if !result.Replaced || result.Compaction == nil || result.Compaction.Segment != 1 || result.Compaction.Recap != "none" {
 		t.Fatalf("result = %+v", result)
 	}
@@ -222,7 +222,7 @@ O-1 went through.
 func TestCompactEmitsTheSegmentAndItsCheckpoint(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	var kinds []gotato.EventKind
 	var ended gotato.CompactionEnded
 	for _, event := range f.rec.Events() {
@@ -252,13 +252,13 @@ func TestCompactEmitsTheSegmentAndItsCheckpoint(t *testing.T) {
 func TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	first, _ := json.Marshal(f.rec.Segments()[0].Messages)
 
 	f.user("r4", "and the other two?", 60)
 	f.calls("r4", "", 61, nil, `c4 orders.search {"ids":["O-2"]}`)
 	f.reply("r4", "O-2 is waiting.", 62)
-	second := mustCompact(t, f.rec, modelctx.CompactOptions{})
+	second := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	if !second.Replaced || second.Compaction.Segment != 2 {
 		t.Fatalf("second compaction = %+v", second)
 	}
@@ -300,7 +300,7 @@ func TestKeptTailStartsAtATurnSoACallKeepsItsResult(t *testing.T) {
 		f.calls("r1", "", 2, nil, `c1 a.x {}`, `c2 a.y {}`)
 		f.calls("r1", "", 3, nil, `c3 a.z {}`)
 		f.reply("r1", "done", 4)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactOptions{Keep: keep})
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{Keep: keep})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -341,14 +341,14 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	// Without a window or a ceiling the whole latest Run fits 20K tokens, and
 	// the Run before it is all that closes.
 	f := build()
-	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	if !result.Replaced || gotato.TextOf(f.rec.Tail()[0]) != "second" || len(f.rec.Tail()) != 10 {
 		t.Fatalf("tail = %d Messages starting %q", len(f.rec.Tail()), gotato.TextOf(f.rec.Tail()[0]))
 	}
 	// A window of 800 tokens caps the tail at 200: only the latest Turns stay,
 	// from a Turn boundary.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactOptions{Window: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{Window: 800})
 	tail := f.rec.Tail()
 	if len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult || gotato.TextOf(tail[len(tail)-1]) != "second answer" {
 		t.Fatalf("capped tail = %d Messages: %+v", len(tail), tail)
@@ -358,18 +358,18 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	}
 	// With no window, the ceiling caps it the same way.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactOptions{Ceiling: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{Ceiling: 800})
 	if got := len(f.rec.Tail()); got != len(tail) {
 		t.Errorf("tail under a ceiling = %d Messages, want %d as under the window", got, len(tail))
 	}
 	// Keep and Floor override the default.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactOptions{Keep: 1})
+	mustCompact(t, f.rec, modelctx.CompactConfig{Keep: 1})
 	if tail := f.rec.Tail(); len(tail) != 1 || gotato.TextOf(tail[0]) != "second answer" {
 		t.Fatalf("Keep: 1 tail = %+v", tail)
 	}
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactOptions{Floor: 150})
+	mustCompact(t, f.rec, modelctx.CompactConfig{Floor: 150})
 	if tail := f.rec.Tail(); len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult {
 		t.Fatalf("Floor tail = %d Messages", len(tail))
 	}
@@ -379,7 +379,7 @@ func TestACompactionWhoseTailCoversTheStretchClosesNothing(t *testing.T) {
 	f := newFixture(t)
 	f.user("r1", "only", 1)
 	f.reply("r1", "run", 2)
-	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	if result.Replaced || result.Reason != modelctx.CompactReasonNothingToClose || result.Compaction != nil || len(f.rec.Segments()) != 0 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -395,7 +395,7 @@ func TestToolCallLinesEscapeTheArgumentsTheyQuote(t *testing.T) {
 	f.reply("r1", "done", 3)
 	f.user("r2", "next", 4)
 	f.reply("r2", "ok", 5)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	var block string
 	for _, m := range f.rec.Segments()[0].Messages {
 		for _, part := range m.Parts {
@@ -421,7 +421,7 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	lines := strings.Split(text, "\n")
 	var calls []string
@@ -459,7 +459,7 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	g.reply("r1", "done", 3)
 	g.user("r2", "next", 4)
 	g.reply("r2", "ok", 5)
-	mustCompact(t, g.rec, modelctx.CompactOptions{})
+	mustCompact(t, g.rec, modelctx.CompactConfig{})
 	segment := g.rec.Segments()[0]
 	shown := strings.Count(dump(segment.Messages), " → ok")
 	if shown != 100 || len(segment.ToolCalls) != 100 {
@@ -479,7 +479,7 @@ func TestALongMessageIsCutWithALineThatNamesReadSegment(t *testing.T) {
 	f.reply("r2", "short answer", 4)
 	f.user("r3", "next", 5)
 	f.reply("r3", "ok", 6)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	messages := f.rec.Segments()[0].Messages
 	for _, m := range []gotato.Message{messages[0], messages[1]} {
 		var kept, note string
@@ -508,7 +508,7 @@ func TestALongMessageIsCutWithALineThatNamesReadSegment(t *testing.T) {
 	g.reply("r1", "a", 2)
 	g.user("r2", "next", 3)
 	g.reply("r2", "ok", 4)
-	mustCompact(t, g.rec, modelctx.CompactOptions{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}})
+	mustCompact(t, g.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}})
 	if text := dump(g.rec.Segments()[0].Messages); !strings.Contains(text, strings.Repeat("x", 40)+"\n") || strings.Contains(text, strings.Repeat("x", 41)) {
 		t.Errorf("a limit of 10 tokens kept %s", text)
 	}
@@ -527,7 +527,7 @@ func TestAnImageOrAFileBecomesAPlaceholder(t *testing.T) {
 	f.reply("r1", "seen", 2)
 	f.user("r2", "next", 3)
 	f.reply("r2", "ok", 4)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	for _, want := range []string{"[image: shot.png, 2048 bytes]", "[image: 10 bytes]", "[file: report.pdf, 7 bytes]", "look at this"} {
 		if !strings.Contains(text, want) {
@@ -550,7 +550,7 @@ func TestNoticesAreLeftOutUnlessTheServiceSentThem(t *testing.T) {
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	if strings.Contains(text, "gotato's own") || strings.Contains(text, gotato.TruncatedContinuationText) {
 		t.Errorf("Gotato's own notices stayed:\n%s", text)
@@ -565,7 +565,7 @@ func TestSegmentTimesAreUTCUnlessTheAgentSetsAZone(t *testing.T) {
 	for _, loc := range []*time.Location{nil, zone} {
 		f := newFixture(t)
 		threeRuns(f)
-		mustCompact(t, f.rec, modelctx.CompactOptions{SegmentSettings: modelctx.SegmentSettings{Location: loc}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{Location: loc}})
 		text := dump(f.rec.Segments()[0].Messages)
 		if loc == nil && (!strings.Contains(text, "10:02 payments.get_batch") || !strings.Contains(text, `from="2026-10-19T10:01:00Z"`)) {
 			t.Errorf("UTC times:\n%s", text)
@@ -594,7 +594,7 @@ func TestFinalRepliesAreGroupedByRun(t *testing.T) {
 	f.commit(gotato.AssistantMessage("old answer"), 6)
 	f.user("r2", "next", 7)
 	f.reply("r2", "ok", 8)
-	mustCompact(t, f.rec, modelctx.CompactOptions{})
+	mustCompact(t, f.rec, modelctx.CompactConfig{})
 	text := dump(f.rec.Segments()[0].Messages)
 	if strings.Contains(text, "first part") || !strings.Contains(text, "the real final reply") {
 		t.Errorf("final reply:\n%s", text)
@@ -623,7 +623,7 @@ func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
 	f.user("r2", "next", 5)
 	f.calls("r2", "", 6, nil, `c3 db.query {}`)
 	f.reply("r2", "ok", 7)
-	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	want := []string{"files.read", "mail.send", "db.query"}
 	if !slices.Equal(result.Compaction.Tools, want) || !slices.Equal(f.rec.LoadedTools(), want) {
 		t.Fatalf("kept Tools = %v / %v, want %v (idle.x is unloaded)", result.Compaction.Tools, f.rec.LoadedTools(), want)
@@ -651,7 +651,7 @@ func TestMinTokensSkipsAStretchTooShortToCompact(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	stretch := modelctx.EstimateTokens(f.rec.Tail())
-	skipped := mustCompact(t, f.rec, modelctx.CompactOptions{MinTokens: stretch + 1})
+	skipped := mustCompact(t, f.rec, modelctx.CompactConfig{MinTokens: stretch + 1})
 	if skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens || len(f.rec.Segments()) != 0 || f.rec.Len() != 11 {
 		t.Fatalf("below min_tokens: %+v", skipped)
 	}
@@ -660,7 +660,7 @@ func TestMinTokensSkipsAStretchTooShortToCompact(t *testing.T) {
 			t.Fatal("a skipped compaction started")
 		}
 	}
-	if done := mustCompact(t, f.rec, modelctx.CompactOptions{MinTokens: stretch}); !done.Replaced {
+	if done := mustCompact(t, f.rec, modelctx.CompactConfig{MinTokens: stretch}); !done.Replaced {
 		t.Fatalf("at min_tokens: %+v", done)
 	}
 }
@@ -675,7 +675,7 @@ func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.M
 func TestTheConfiguredRecapEndsTheSegmentEscaped(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	result := mustCompact(t, f.rec, modelctx.CompactOptions{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}})
 	if result.Compaction.Recap != "fixed" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -701,7 +701,7 @@ func TestARecapThatFailsLeavesTheSegmentWithoutOne(t *testing.T) {
 	} {
 		f := newFixture(t)
 		threeRuns(f)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactOptions{Recap: writer})
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{Recap: writer})
 		if err != nil || !result.Replaced {
 			t.Fatalf("%s: result = %+v, err = %v; a failed Recap must not fail the compaction", name, result, err)
 		}
@@ -719,7 +719,7 @@ func TestACompactionStoppedDuringTheRecapWritesNothing(t *testing.T) {
 	threeRuns(f)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactOptions{Recap: failingRecap{}})
+	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactConfig{Recap: failingRecap{}})
 	if !errors.Is(err, context.Canceled) || len(f.rec.Segments()) != 0 {
 		t.Fatalf("err = %v, segments = %d", err, len(f.rec.Segments()))
 	}

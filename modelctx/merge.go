@@ -15,21 +15,21 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// DefaultSegmentsBudget is the Segments' budget with no ceiling: the most the
+// DefaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most the
 // Segments together may hold, in estimated tokens (bytes ÷ 4), when the model
 // has no known window and neither the Agent nor the Session sets a ceiling.
 // With a ceiling, the budget is half of it (SegmentsBudget).
-const DefaultSegmentsBudget = 32000
+const DefaultSegmentsBudgetTokens = 32000
 
 // SegmentsBudget returns the most the Segments of a Context may hold, in
 // estimated tokens, under the ceiling in force: half of it, or
-// DefaultSegmentsBudget when there is no ceiling (ceiling 0). When the
+// DefaultSegmentsBudgetTokens when there is no ceiling (ceiling 0). When the
 // Segments pass it, the oldest are merged (MergeSegments).
 func SegmentsBudget(ceiling int) int {
 	if ceiling > 0 {
 		return max(ceiling/2, 1)
 	}
-	return DefaultSegmentsBudget
+	return DefaultSegmentsBudgetTokens
 }
 
 // MergeRecapWriter is a RecapWriter that also writes the Recap of a merge of
@@ -75,8 +75,8 @@ const (
 // digest built by code.
 const MergeDigestName = "digest"
 
-// MergeOptions controls MergeSegments.
-type MergeOptions struct {
+// MergeConfig controls MergeSegments.
+type MergeConfig struct {
 	// Budget is the most the Segments together may hold, in estimated
 	// tokens. 0 means SegmentsBudget(Ceiling).
 	Budget int
@@ -139,7 +139,7 @@ var mergeSegments = (*session.Record).MergeSegments
 // compaction_started and a compaction_ended Event, or a compaction_failed.
 //
 // It must not run while a Run is using the Session.
-func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (MergeResult, error) {
+func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (MergeResult, error) {
 	if s == nil {
 		return MergeResult{}, errors.New("modelctx: session is nil")
 	}

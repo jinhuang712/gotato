@@ -21,8 +21,8 @@ const ReadSegmentID = "read_segment"
 // long Segment is read page by page and one call never fills the Context.
 const DefaultReadSegmentPageBytes = gotato.SpillPageBytes
 
-// ReadSegmentOptions controls ReadSegmentTool.
-type ReadSegmentOptions struct {
+// ReadSegmentConfig controls ReadSegmentTool.
+type ReadSegmentConfig struct {
 	// PageBytes is the most one page holds, in bytes. 0 means
 	// DefaultReadSegmentPageBytes.
 	PageBytes int
@@ -30,7 +30,7 @@ type ReadSegmentOptions struct {
 	Location *time.Location
 }
 
-func (o ReadSegmentOptions) pageBytes() int {
+func (o ReadSegmentConfig) pageBytes() int {
 	if o.PageBytes <= 0 {
 		return DefaultReadSegmentPageBytes
 	}
@@ -42,7 +42,7 @@ func (o ReadSegmentOptions) pageBytes() int {
 // comes from the Record's last Checkpoint, so every instance that loads the
 // Session offers the same one. log is where the Messages a Segment covers are
 // read back from, the Store of the Record.
-func SegmentTools(record *session.Record, log session.EntryLog, opts ReadSegmentOptions) gotato.ToolSource {
+func SegmentTools(record *session.Record, log session.EntryLog, opts ReadSegmentConfig) gotato.ToolSource {
 	return segmentTools{record: record, tool: ReadSegmentTool(record, log, opts)}
 }
 
@@ -78,7 +78,7 @@ type readSegmentInput struct {
 // in any Tool Result, so neither a user nor a tool can speak as the assistant
 // or the system in it. It is cut into pages of opts.PageBytes. When the log no
 // longer holds the Entries (the team pruned it), the result says so.
-func ReadSegmentTool(record *session.Record, log session.EntryLog, opts ReadSegmentOptions) gotato.Tool {
+func ReadSegmentTool(record *session.Record, log session.EntryLog, opts ReadSegmentConfig) gotato.Tool {
 	tool, err := gotato.NewFuncTool(ReadSegmentID,
 		"Returns the messages of a segment of this conversation word for word, tool calls and tool results included, as they were before the segment was closed or merged. "+
 			"Use it when a recap leaves out a detail you need, such as an ID or a number a tool returned.",
@@ -117,7 +117,7 @@ func refsOf(segments []gotato.Segment) (refs []segmentRef, merged map[int][]int)
 	return refs, merged
 }
 
-func readSegment(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadSegmentOptions, in readSegmentInput) (string, error) {
+func readSegment(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadSegmentConfig, in readSegmentInput) (string, error) {
 	refs, merged := refsOf(record.Segments())
 	var ref *segmentRef
 	for i := range refs {

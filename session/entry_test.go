@@ -191,7 +191,7 @@ func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
 	}
 	session.StartLog(r)
 	session.TakePending(r)
-	result, err := modelctx.Compact(context.Background(), r, modelctx.CompactOptions{Keep: 2})
+	result, err := modelctx.Compact(context.Background(), r, modelctx.CompactConfig{Keep: 2})
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}

@@ -56,9 +56,9 @@ func (f preparerFunc) PrepareTurn(ctx context.Context, pending PendingTurn) (Tur
 	return f(ctx, pending)
 }
 
-func newPreparedSession(t *testing.T, model Model, transcript Transcript, preparer TurnPreparer, extra ...Option) *Session {
+func newPreparedSession(t *testing.T, model Model, transcript Transcript, preparer TurnPreparer, extra ...SessionOption) *Session {
 	t.Helper()
-	options := []Option{WithModel(model), WithTools(&countingTool{}), WithExtension(preparer)}
+	options := []SessionOption{WithModel(model), WithTools(&countingTool{}), WithExtension(preparer)}
 	if transcript != nil {
 		options = append(options, WithTranscript(transcript))
 	}
@@ -215,7 +215,7 @@ func TestARefusalNoPreparerCanMendEndsTheRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			model := &callModel{steps: []any{overflowError{overflow: true}, finalScript("never")}}
-			options := []Option{WithModel(model)}
+			options := []SessionOption{WithModel(model)}
 			for _, preparer := range preparers {
 				options = append(options, WithExtension(preparer))
 			}

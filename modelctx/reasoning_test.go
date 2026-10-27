@@ -64,7 +64,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 4, DropReasoning: drop})
+		result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{Keep: 4, DropReasoning: drop})
 		if err != nil {
 			t.Fatal(err)
 		}

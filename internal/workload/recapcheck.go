@@ -137,7 +137,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 	if err := ask(func(a *RecapAnswer, text string, ok bool) { a.Before, a.BeforeCorrect = text, ok }); err != nil {
 		return report, err
 	}
-	compacted, err := runner.Compact(ctx, id, modelctx.CompactOptions{})
+	compacted, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
 	if err != nil {
 		return report, fmt.Errorf("workload: %s: the compaction failed: %w", check.Name, err)
 	}

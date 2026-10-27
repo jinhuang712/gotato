@@ -57,7 +57,7 @@ func (f *spillFixture) call(id, body string) []gotato.ModelRequest {
 	})
 	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", body)),
-		gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultOptions{})))
+		gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 	}
 	// The live Record serves the body from memory: the store's log is not read.
 	reads := f.store.logs.Load()
-	tool := modelctx.ReadResultTool(record, f.store, modelctx.ReadResultOptions{})
+	tool := modelctx.ReadResultTool(record, f.store, modelctx.ReadResultConfig{})
 	first, err := readResult(t, tool, `{"ref":"result:c1"}`)
 	if err != nil || f.store.logs.Load() != reads || !strings.HasPrefix(first, fmt.Sprintf("Result result:c1, %d bytes. Page 1 of %d.\n", len(body), pages)) {
 		t.Fatalf("first page (err %v, %d log reads after %d): %.120q", err, f.store.logs.Load(), reads, first)
@@ -169,7 +169,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 
 	// The reloaded instance reads the body from the store, page by page, and
 	// gets all of it back.
-	reloaded := modelctx.ReadResultTool(a, f.store, modelctx.ReadResultOptions{})
+	reloaded := modelctx.ReadResultTool(a, f.store, modelctx.ReadResultConfig{})
 	var got []string
 	for page := 1; ; page++ {
 		text, err := readResult(t, reloaded, fmt.Sprintf(`{"ref":"result:c1","page":%d}`, page))
@@ -287,7 +287,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 			return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "read_result", Arguments: fmt.Appendf(nil, `{"ref":%q}`, ref)}), nil
 		})
 		agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer),
-			gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultOptions{})))
+			gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -306,7 +306,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 // read_result is a sibling of read_segment: it declares read, and offers both
 // the ref and the page.
 func TestReadResultDeclaresReadAndItsInput(t *testing.T) {
-	tool := modelctx.ReadResultTool(session.New(), session.NewMemoryStore(), modelctx.ReadResultOptions{})
+	tool := modelctx.ReadResultTool(session.New(), session.NewMemoryStore(), modelctx.ReadResultConfig{})
 	spec := tool.Spec()
 	if spec.ID != "read_result" || spec.Effect != gotato.ToolEffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
 		t.Fatalf("spec = %+v", spec)

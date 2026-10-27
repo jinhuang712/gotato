@@ -59,7 +59,7 @@ func TestTheModelsRecapIsOffUnlessTheAgentTurnsItOn(t *testing.T) {
 	model := recapModel()
 	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Instruction: "be brief"})
 	id := runThree(t, runner)
-	result, err := runner.Compact(context.Background(), id, modelctx.CompactOptions{})
+	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
@@ -78,7 +78,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.Compact(ctx, id, modelctx.CompactOptions{})
+	result, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "model" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
@@ -118,7 +118,7 @@ func TestAFailedModelRecapKeepsTheSegmentWithoutOne(t *testing.T) {
 	})
 	runner, _ := newRunner(t, service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{}}})
 	id := runThree(t, runner)
-	result, err := runner.Compact(context.Background(), id, modelctx.CompactOptions{})
+	result, err := runner.Compact(context.Background(), id, modelctx.CompactConfig{})
 	if err != nil || !result.Replaced || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}

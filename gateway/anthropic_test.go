@@ -150,7 +150,7 @@ func TestAnthropicRequestReplaysReasoningMergesToolResultsAndPlacesCacheMarkers(
 			{After: gotato.CacheAnchorAfterTools},
 			{After: gotato.CacheAnchorAfterMessage, Index: 3},
 		},
-		Options: gotato.ModelOptions{MaxTokens: 512},
+		Options: gotato.ModelConfig{MaxTokens: 512},
 	}
 	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
 	if err != nil {

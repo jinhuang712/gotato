@@ -87,8 +87,8 @@ func barrierSets(n int, b *barrier) []*barrierSet {
 	return sets
 }
 
-func withSets(sets []*barrierSet) []Option {
-	var opts []Option
+func withSets(sets []*barrierSet) []SessionOption {
+	var opts []SessionOption
 	for _, set := range sets {
 		opts = append(opts, WithToolSet(set))
 	}
@@ -181,7 +181,7 @@ func TestACanceledRunStopsAParallelResolution(t *testing.T) {
 	const n = 4
 	var armed atomic.Bool
 	entered := make(chan struct{}, n)
-	var opts []Option
+	var opts []SessionOption
 	for i := range n {
 		opts = append(opts, WithToolSet(&holdSet{name: fmt.Sprintf("hold%d", i), armed: &armed, entered: entered}))
 	}

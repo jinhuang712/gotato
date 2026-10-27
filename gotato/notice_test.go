@@ -28,9 +28,9 @@ func sameRoles(got []Message, want ...Role) bool {
 	return true
 }
 
-func newNoticeSession(t *testing.T, model Model, options ...Option) *Session {
+func newNoticeSession(t *testing.T, model Model, options ...SessionOption) *Session {
 	t.Helper()
-	agent, err := NewSession(append([]Option{WithModel(model), WithTools(&scriptedTool{})}, options...)...)
+	agent, err := NewSession(append([]SessionOption{WithModel(model), WithTools(&scriptedTool{})}, options...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

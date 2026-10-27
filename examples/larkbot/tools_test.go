@@ -193,7 +193,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	if got := lastReply(t, b, "s1", "T[b] [script:loaded]"); got != "loaded: true" {
 		t.Fatalf("before the compaction: %q", got)
 	}
-	res, err := b.Compact(ctx, "s1", modelctx.CompactOptions{})
+	res, err := b.Compact(ctx, "s1", modelctx.CompactConfig{})
 	if err != nil || !res.Replaced {
 		t.Fatalf("compact = %+v, %v", res, err)
 	}

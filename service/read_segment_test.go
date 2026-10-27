@@ -31,7 +31,7 @@ func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store,
-		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.Option{
+		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{
 			gotato.WithToolSet(filesToolSet{}), gotato.WithToolSet(gitToolSet{}),
 		}}},
 	})
@@ -82,7 +82,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "again"}); err != nil {
 		t.Fatal(err)
 	}
-	closed, err := runner.Compact(ctx, id, modelctx.CompactOptions{})
+	closed, err := runner.Compact(ctx, id, modelctx.CompactConfig{})
 	if err != nil || !closed.Replaced {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
@@ -121,7 +121,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "once more"}); err != nil {
 		t.Fatal(err)
 	}
-	if closed, err = runner.Compact(ctx, id, modelctx.CompactOptions{SegmentBudget: 1}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
+	if closed, err = runner.Compact(ctx, id, modelctx.CompactConfig{SegmentBudget: 1}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
 	if record, err = session.View(ctx, store, id); err != nil {

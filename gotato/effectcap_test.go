@@ -177,8 +177,8 @@ func TestNoEffectCapOffersEveryTool(t *testing.T) {
 		want = append(want, effectToolID(effect))
 	}
 	slices.Sort(want)
-	for _, extra := range [][]gotato.Option{nil, {gotato.WithMaxEffect(gotato.ToolEffectUnspecified)}} {
-		options := append([]gotato.Option{gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tools...)}, extra...)
+	for _, extra := range [][]gotato.SessionOption{nil, {gotato.WithMaxEffect(gotato.ToolEffectUnspecified)}} {
+		options := append([]gotato.SessionOption{gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tools...)}, extra...)
 		agent, err := gotato.NewSession(options...)
 		if err != nil {
 			t.Fatal(err)

@@ -20,14 +20,14 @@ const ReadResultID = gotato.ReadResultToolID
 // spilled.
 const DefaultReadResultPageBytes = gotato.SpillPageBytes
 
-// ReadResultOptions controls ReadResultTool.
-type ReadResultOptions struct {
+// ReadResultConfig controls ReadResultTool.
+type ReadResultConfig struct {
 	// PageBytes is the most one page holds, in bytes. 0 means
 	// DefaultReadResultPageBytes.
 	PageBytes int
 }
 
-func (o ReadResultOptions) pageBytes() int {
+func (o ReadResultConfig) pageBytes() int {
 	if o.PageBytes <= 0 {
 		return DefaultReadResultPageBytes
 	}
@@ -39,7 +39,7 @@ func (o ReadResultOptions) pageBytes() int {
 // the Turn a Tool Result is first spilled; the host offers it to an Agent that
 // has any tool. log is where a body is read from when the live Record does not
 // hold it, the Store of the Record.
-func ResultTools(record *session.Record, log session.EntryLog, opts ReadResultOptions) gotato.ToolSource {
+func ResultTools(record *session.Record, log session.EntryLog, opts ReadResultConfig) gotato.ToolSource {
 	return resultTools{tool: ReadResultTool(record, log, opts)}
 }
 
@@ -64,7 +64,7 @@ type readResultInput struct {
 // The pages are those of read_segment (text.Paginate), and the text carries
 // no tag of its own: like any Tool Result it has the four tags escaped when it
 // goes into a request.
-func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResultOptions) gotato.Tool {
+func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResultConfig) gotato.Tool {
 	tool, err := gotato.NewFuncTool(ReadResultID,
 		"Returns the rest of a tool result that was cut, page by page. "+
 			"Use it with the ref in the line that says a result was cut, such as result:call_9a2.",
@@ -77,7 +77,7 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
-func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultOptions, in readResultInput) (string, error) {
+func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, in readResultInput) (string, error) {
 	callID, ok := text.CallOfRef(in.Ref)
 	if !ok {
 		return "", fmt.Errorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, text.SpillRefPrefix, listRefs(record))

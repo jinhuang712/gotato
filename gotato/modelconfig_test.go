@@ -8,12 +8,12 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-func TestWithModelOptionsReachesEveryModelCall(t *testing.T) {
+func TestWithModelConfigReachesEveryModelCall(t *testing.T) {
 	temperature := 0.2
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	agent, err := gotato.NewSession(
 		gotato.WithModel(model),
-		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &temperature, MaxTokens: 256, ReasoningEffort: "low"}),
+		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature, MaxTokens: 256, ReasoningEffort: "low"}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestWithModelOptionsReachesEveryModelCall(t *testing.T) {
 func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) {
 	// run plays a two-Turn Run and returns its requests and the prefix hash
 	// each Turn's context_built reported.
-	run := func(options ...gotato.Option) ([]gotato.ModelRequest, []string) {
+	run := func(options ...gotato.SessionOption) ([]gotato.ModelRequest, []string) {
 		t.Helper()
 		model := testkit.NewFakeModel(
 			testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
@@ -74,11 +74,11 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 	}
 }
 
-func TestWithModelOptionsRejectsNegativeTemperature(t *testing.T) {
+func TestWithModelConfigRejectsNegativeTemperature(t *testing.T) {
 	temperature := -1.0
 	_, err := gotato.NewSession(
 		gotato.WithModel(testkit.NewFakeModel(testkit.Text("done"))),
-		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &temperature}),
+		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature}),
 	)
 	if err == nil {
 		t.Fatal("NewSession accepted a negative temperature")

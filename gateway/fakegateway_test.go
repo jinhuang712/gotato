@@ -47,9 +47,9 @@ func newFake(t *testing.T, wire fakeWire, opts ...fakegateway.Option) (*fakegate
 	return fake, client
 }
 
-func newFakeSession(t *testing.T, client *Client, opts ...gotato.Option) (*gotato.Session, *testkit.EventRecorder) {
+func newFakeSession(t *testing.T, client *Client, opts ...gotato.SessionOption) (*gotato.Session, *testkit.EventRecorder) {
 	t.Helper()
-	session, err := gotato.NewSession(append([]gotato.Option{gotato.WithModel(client), gotato.WithTools(testkit.DemoEchoTool())}, opts...)...)
+	session, err := gotato.NewSession(append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(testkit.DemoEchoTool())}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestFakeMaxTokensAloneTooLargeIsNotAnOverflow(t *testing.T) {
 		t.Run(wire.name, func(t *testing.T) {
 			_, client := newFake(t, wire, fakegateway.WithMaxOutput(1000))
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{
-				Messages: []gotato.Message{gotato.UserMessage("hi")}, Options: gotato.ModelOptions{MaxTokens: 99999}})
+				Messages: []gotato.Message{gotato.UserMessage("hi")}, Options: gotato.ModelConfig{MaxTokens: 99999}})
 			gerr := asGatewayError(t, err)
 			if gerr.ContextOverflow() || gerr.StatusCode != 400 || !strings.Contains(gerr.Message, "99999") {
 				t.Fatalf("error = %+v", gerr)

@@ -447,7 +447,7 @@ func (r *Runner) idleCompact(entry *warmEntry, why gotato.CompactionWhy) {
 		}
 		return
 	}
-	opts := compactOptionsFor(entry.spec, record, modelctx.CompactOptions{MinTokens: minTokens, Why: why})
+	opts := compactOptionsFor(entry.spec, record, modelctx.CompactConfig{MinTokens: minTokens, Why: why})
 	if opts.Recap != nil && opts.Context == nil {
 		opts.Context = r.recapContext(entry.spec, record)
 	}

@@ -49,7 +49,7 @@ const DefaultEventLimit = defaultEventLimit
 
 // WithEventLimit bounds the Events kept in memory. Zero keeps
 // DefaultEventLimit; a negative value keeps none.
-func WithEventLimit(limit int) Option {
+func WithEventLimit(limit int) RecordOption {
 	return func(s *Record) {
 		if limit == 0 {
 			limit = defaultEventLimit
@@ -59,4 +59,4 @@ func WithEventLimit(limit int) Option {
 }
 
 // WithClock overrides the Record's clock.
-func WithClock(now func() time.Time) Option { return func(s *Record) { s.now = now } }
+func WithClock(now func() time.Time) RecordOption { return func(s *Record) { s.now = now } }

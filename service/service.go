@@ -121,7 +121,7 @@ type Agent struct {
 	TimeAwayAfter time.Duration
 	// Options are appended verbatim for anything the fields above do not
 	// cover.
-	Options []gotato.Option
+	Options []gotato.SessionOption
 }
 
 // QueuePolicy decides what happens when a Session is busy.
@@ -487,7 +487,7 @@ func (r *Runner) Draining() bool {
 
 // CreateSession creates and saves a Session bound to an Agent. It fails with
 // ErrSessionExists when an ID given in options is taken.
-func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.Option) (*session.Record, error) {
+func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[string]string, options ...session.RecordOption) (*session.Record, error) {
 	s, spec, err := r.newSession(agent, metadata, options...)
 	if err != nil {
 		return nil, err
@@ -501,7 +501,7 @@ func (r *Runner) CreateSession(ctx context.Context, agent string, metadata map[s
 }
 
 // newSession builds a Session bound to an Agent, without saving it.
-func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.Option) (*session.Record, Agent, error) {
+func (r *Runner) newSession(agent string, metadata map[string]string, options ...session.RecordOption) (*session.Record, Agent, error) {
 	spec, ok := r.Agent(agent)
 	if !ok {
 		return nil, Agent{}, ErrUnknownAgent
@@ -910,7 +910,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			handle.attachRunID(runID)
 			handle.abortIfStopped()
 		})
-		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed), gotato.WithQueueHandoff())
+		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectConfig{}, onRunStart, gotato.WithFeed(feed), gotato.WithQueueHandoff())
 		if err != nil {
 			return abandon(err)
 		}
@@ -1202,7 +1202,7 @@ func compacted(auto *modelctx.AutoCompactor) bool {
 // so every step of a Run is written as it happens; without one the Record is,
 // and keeps the Session's Events in memory. extra options come after the
 // Agent's own.
-func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record, writer *session.Writer, override InspectOptions, extra ...gotato.Option) (*gotato.Session, *modelctx.AutoCompactor, error) {
+func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record, writer *session.Writer, override InspectConfig, extra ...gotato.SessionOption) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	// Without a writer nothing is stored: the live Session numbers its Events
 	// on its own stream, and does not use the Record's numbers, which are
 	// positions in the log that this Run does not write.
@@ -1226,7 +1226,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	auto := modelctx.AutoCompact(s, compactPolicyFor(spec, s))
 	extensions := append([]any{auto}, spec.Extensions...)
 
-	options := []gotato.Option{
+	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
 		gotato.WithTranscript(transcript),
@@ -1276,18 +1276,18 @@ func sessionCacheKey(s *session.Record) string {
 	return CacheKey(s.ID())
 }
 
-// InspectOptions override Session settings for one inspection without
+// InspectConfig override Session settings for one inspection without
 // touching the Session.
-type InspectOptions struct {
+type InspectConfig struct {
 	Instruction string
 }
 
 // Inspect reports the Context a Run against the Session would send now. It
 // builds the live Session a Run would build and asks it, so the report includes the
 // Agent's Extensions, Tools and model options, and says whether the next Run
-// compacts the Session first. Optional InspectOptions override the Session's
+// compacts the Session first. Optional InspectConfig override the Session's
 // stored settings. The Session is not changed.
-func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectOptions) (modelctx.Report, error) {
+func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectConfig) (modelctx.Report, error) {
 	s, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
 		return modelctx.Report{}, err
@@ -1297,7 +1297,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if !ok {
 		return modelctx.Report{}, ErrUnknownAgent
 	}
-	var override InspectOptions
+	var override InspectConfig
 	if len(options) > 0 {
 		override = options[0]
 	}
@@ -1339,14 +1339,14 @@ type sessionTools struct {
 // Agent spec: the Messages are read back from the Runner's store, in pages
 // that fit one page, in the zone of its Segments' times.
 func (r *Runner) segmentTools(spec Agent, record *session.Record) gotato.ToolSource {
-	options := modelctx.ReadSegmentOptions{Location: spec.Compact.Location}
+	options := modelctx.ReadSegmentConfig{Location: spec.Compact.Location}
 	return modelctx.SegmentTools(record, r.store, options)
 }
 
 // resultTools is the ToolSource that offers read_result: a spilled result is
 // read back from the live Record or from the Runner's store.
 func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
-	return modelctx.ResultTools(record, r.store, modelctx.ReadResultOptions{})
+	return modelctx.ResultTools(record, r.store, modelctx.ReadResultConfig{})
 }
 
 func (t *sessionTools) Tools() []gotato.Tool {
@@ -1430,7 +1430,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		// A Session's ToolSets live in the Agent's Options, so the live Session
 		// says what they hold: every tool of every ToolSet, loaded or not,
 		// switched off or not, and search_tools, whose description is the catalog.
-		live, _, err := r.buildSession(ctx, spec, s, nil, InspectOptions{})
+		live, _, err := r.buildSession(ctx, spec, s, nil, InspectConfig{})
 		if err != nil {
 			return nil, err
 		}
@@ -1525,7 +1525,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 // holds it), its ToolSet and whether it is loaded. A name inside an
 // unavailable ToolSet is an error that says so.
 func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
-	live, _, err := r.buildSession(ctx, spec, s, nil, InspectOptions{})
+	live, _, err := r.buildSession(ctx, spec, s, nil, InspectConfig{})
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -1551,7 +1551,7 @@ func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record,
 // ceiling in force, the Segments' budget, and, with neither Keep nor Floor, its Floor. When the
 // Agent's Model is sent only the current Round's reasoning
 // (modelctx.DropsReasoning), the kept Messages lose their reasoning.
-func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactOptions) (modelctx.Result, error) {
+func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactConfig) (modelctx.Result, error) {
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)
@@ -1585,7 +1585,7 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 
 // compactOptionsFor fills what opts leaves unset from the Agent's compaction
 // settings and its Model.
-func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.CompactOptions) modelctx.CompactOptions {
+func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.CompactConfig) modelctx.CompactConfig {
 	policy := compactPolicyFor(spec, record)
 	opts.DropReasoning = opts.DropReasoning || policy.DropReasoning
 	if opts.Recap == nil {
@@ -1636,7 +1636,7 @@ func withAgentModel(writer modelctx.RecapWriter, model gotato.Model) modelctx.Re
 // built by a live Session that is inspected and not run.
 func (r *Runner) recapContext(spec Agent, record *session.Record) func(context.Context) (gotato.ModelRequest, error) {
 	return func(ctx context.Context) (gotato.ModelRequest, error) {
-		live, _, err := r.buildSession(ctx, spec, record, nil, InspectOptions{})
+		live, _, err := r.buildSession(ctx, spec, record, nil, InspectConfig{})
 		if err != nil {
 			return gotato.ModelRequest{}, err
 		}
@@ -1687,7 +1687,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	if err != nil {
 		return nil, err
 	}
-	var options []session.Option
+	var options []session.RecordOption
 	if newID != "" {
 		options = append(options, session.WithID(newID))
 	}

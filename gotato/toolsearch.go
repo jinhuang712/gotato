@@ -35,7 +35,7 @@ type ToolSearcher interface {
 }
 
 // WithToolSearcher replaces the built-in BM25 search of search_tools.
-func WithToolSearcher(searcher ToolSearcher) Option {
+func WithToolSearcher(searcher ToolSearcher) SessionOption {
 	return func(c *sessionConfig) error {
 		if searcher == nil {
 			return runtimeError(CodeInvalidArgument, "WithToolSearcher", "ToolSearcher is nil", nil)

@@ -28,8 +28,8 @@ const (
 	SessionStatusClosed  SessionStatus = "closed"
 )
 
-// Option configures a Session built by NewSession.
-type Option func(*sessionConfig) error
+// SessionOption configures a Session built by NewSession.
+type SessionOption func(*sessionConfig) error
 
 type sessionConfig struct {
 	model          Model
@@ -43,7 +43,7 @@ type sessionConfig struct {
 	limits         CoreLimits
 	transcript     Transcript
 	contextBuilder ContextBuilder
-	modelOptions   ModelOptions
+	modelConfig    ModelConfig
 	cacheKey       string
 	maxEffect      ToolEffect
 	feed           *Feed
@@ -56,7 +56,7 @@ type sessionConfig struct {
 // the Session's stream across Runs. The host owns the Feed and closes it; it
 // also sets the Feed's source, which is where a subscriber that falls behind
 // catches up.
-func WithFeed(feed *Feed) Option {
+func WithFeed(feed *Feed) SessionOption {
 	return func(c *sessionConfig) error {
 		if feed == nil {
 			return runtimeError(CodeInvalidArgument, "WithFeed", "feed is nil", nil)
@@ -69,11 +69,11 @@ func WithFeed(feed *Feed) Option {
 // WithRunStart calls fn on the Session's goroutine with each Run's ID, as the
 // Run starts and before its first Event. fn must not block. A host uses it
 // to find the Run it started.
-func WithRunStart(fn func(RunID)) Option {
+func WithRunStart(fn func(RunID)) SessionOption {
 	return func(c *sessionConfig) error { c.onRunStart = fn; return nil }
 }
 
-func WithModel(model Model) Option {
+func WithModel(model Model) SessionOption {
 	return func(c *sessionConfig) error {
 		if model == nil {
 			return runtimeError(CodeInvalidArgument, "WithModel", "model is nil", nil)
@@ -83,22 +83,22 @@ func WithModel(model Model) Option {
 	}
 }
 
-func WithInstruction(instruction string) Option {
+func WithInstruction(instruction string) SessionOption {
 	return func(c *sessionConfig) error { c.instruction = instruction; return nil }
 }
 
-// WithModelOptions sets the sampling and reasoning hints the Session sends on
+// WithModelConfig sets the sampling and reasoning hints the Session sends on
 // every model call. Provider adapters map the fields they support.
-func WithModelOptions(options ModelOptions) Option {
+func WithModelConfig(options ModelConfig) SessionOption {
 	return func(c *sessionConfig) error {
 		if options.Temperature != nil && *options.Temperature < 0 {
-			return runtimeError(CodeInvalidArgument, "WithModelOptions", "temperature is negative", nil)
+			return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is negative", nil)
 		}
 		if options.Temperature != nil {
 			temperature := *options.Temperature
 			options.Temperature = &temperature
 		}
-		c.modelOptions = options
+		c.modelConfig = options
 		return nil
 	}
 }
@@ -107,7 +107,7 @@ func WithModelOptions(options ModelOptions) Option {
 // call: a stable value for one conversation, such as a hash of its Session ID,
 // so the provider serves its Turns from one prompt cache. It never changes the
 // prompt.
-func WithCacheKey(key string) Option {
+func WithCacheKey(key string) SessionOption {
 	return func(c *sessionConfig) error { c.cacheKey = key; return nil }
 }
 
@@ -117,7 +117,7 @@ func WithCacheKey(key string) Option {
 // Model, and a call to it fails as a call to an unknown Tool. A Tool that
 // declares no Effect ranks as ToolEffectDestructive, so any lower cap hides it.
 // ToolEffectUnspecified means no cap, which is the default.
-func WithMaxEffect(effect ToolEffect) Option {
+func WithMaxEffect(effect ToolEffect) SessionOption {
 	return func(c *sessionConfig) error {
 		if !effect.Valid() {
 			return runtimeError(CodeInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
@@ -127,7 +127,7 @@ func WithMaxEffect(effect ToolEffect) Option {
 	}
 }
 
-func WithTools(tools ...Tool) Option {
+func WithTools(tools ...Tool) SessionOption {
 	return func(c *sessionConfig) error {
 		for _, tool := range tools {
 			if tool == nil {
@@ -139,7 +139,7 @@ func WithTools(tools ...Tool) Option {
 	}
 }
 
-func WithLimits(limits CoreLimits) Option {
+func WithLimits(limits CoreLimits) SessionOption {
 	return func(c *sessionConfig) error {
 		if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
 			return runtimeError(CodeInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
@@ -156,7 +156,7 @@ func WithLimits(limits CoreLimits) Option {
 //
 // NewSession cannot be canceled: it resolves ToolSets with a background
 // context. Prefer NewSessionContext.
-func NewSession(options ...Option) (*Session, error) {
+func NewSession(options ...SessionOption) (*Session, error) {
 	return NewSessionContext(context.Background(), options...)
 }
 
@@ -165,7 +165,7 @@ func NewSession(options ...Option) (*Session, error) {
 // the Session's earlier Runs activated. When ctx ends first, it fails with
 // canceled or deadline_exceeded and builds nothing. ctx does not outlive the
 // call; the Session's own Runs take their contexts as before.
-func NewSessionContext(ctx context.Context, options ...Option) (*Session, error) {
+func NewSessionContext(ctx context.Context, options ...SessionOption) (*Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -213,7 +213,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		contextBuilder: cfg.contextBuilder,
 		extensions:     cfg.extensions,
 		limits:         cfg.limits,
-		modelOptions:   cfg.modelOptions,
+		modelConfig:    cfg.modelConfig,
 		cacheKey:       cfg.cacheKey,
 		commands:       make(chan sessionCommand),
 		closeSignal:    make(chan struct{}),
@@ -271,9 +271,9 @@ type Session struct {
 	registryMu  sync.Mutex
 	extensions  extensionSet
 	limits      CoreLimits
-	// modelOptions and cacheKey are sent unchanged with every model call.
-	modelOptions ModelOptions
-	cacheKey     string
+	// modelConfig and cacheKey are sent unchanged with every model call.
+	modelConfig ModelConfig
+	cacheKey    string
 
 	// transcript is the committed history, such as a session.Record. The Session
 	// goroutine is its only writer during a Run. transcriptBytes tracks the
@@ -1066,7 +1066,7 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 	request, _ := AssembleRequest(built, a.registry.visibleSpecs())
 	request.LoadedTools, request.UnloadedTools = a.registry.catalogView()
 	prefix := prefixHash(request)
-	request.Options = a.modelOptions
+	request.Options = a.modelConfig
 	request.CacheKey = a.cacheKey
 	return built, request, prefix, nil
 }
@@ -1423,7 +1423,7 @@ func cloneToolSpecs(specs []ToolSpec) []ToolSpec {
 // next Run with them. A Run that is canceled, or ends on its deadline, still
 // drops them. A host that sets it must call TakeQueued, or DropQueued, after
 // every Run; Close drops what is left (message_dropped, session_closed).
-func WithQueueHandoff() Option {
+func WithQueueHandoff() SessionOption {
 	return func(c *sessionConfig) error { c.handoff = true; return nil }
 }
 
