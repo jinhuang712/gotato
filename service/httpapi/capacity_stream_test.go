@@ -38,8 +38,11 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 		_, _ = runner.Run(context.Background(), service.RunRequest{Prompt: "hold"})
 	}()
 	t.Cleanup(func() { close(gate); <-held })
-	deadline := time.Now().Add(5 * time.Second)
-	for model.Calls() == 0 && time.Now().Before(deadline) {
+	deadline := time.Now().Add(10 * time.Second)
+	for model.Calls() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the held Run did not reach the model")
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	for _, path := range []string{"/v1/runs", "/v1/runs/stream"} {

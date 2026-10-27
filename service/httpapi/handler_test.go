@@ -74,14 +74,20 @@ func TestReadyzReportsDraining(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	go func() { _, _ = runner.Run(context.Background(), service.RunRequest{Prompt: "hi"}) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for model.Calls() == 0 && time.Now().Before(deadline) {
+	deadline := time.Now().Add(10 * time.Second)
+	for model.Calls() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the held Run did not reach the model")
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	go func() { _ = runner.Drain(drainCtx) }()
-	for !runner.Draining() && time.Now().Before(deadline) {
+	for !runner.Draining() {
+		if time.Now().After(deadline) {
+			t.Fatal("the Runner did not start draining")
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	status, body := call(t, server, http.MethodGet, "/readyz", nil)

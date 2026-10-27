@@ -134,8 +134,11 @@ func TestActivationLimitAnswersUnavailableMarkedNotRun(t *testing.T) {
 		}
 		<-held
 	})
-	deadline := time.Now().Add(5 * time.Second)
-	for model.Calls() == 0 && time.Now().Before(deadline) {
+	deadline := time.Now().Add(10 * time.Second)
+	for model.Calls() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the held Run did not reach the model")
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	ctx := context.Background()

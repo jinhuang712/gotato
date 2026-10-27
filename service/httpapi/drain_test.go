@@ -132,8 +132,11 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 	defer cancel()
 	drained := make(chan error, 1)
 	go func() { drained <- runner.Drain(drainCtx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for !runner.Draining() && time.Now().Before(deadline) {
+	deadline := time.Now().Add(10 * time.Second)
+	for !runner.Draining() {
+		if time.Now().After(deadline) {
+			t.Fatal("the Runner did not start draining")
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	if status, body := call(t, server, http.MethodGet, "/readyz", nil); status != http.StatusServiceUnavailable || !strings.Contains(string(body), `"draining":true`) {
