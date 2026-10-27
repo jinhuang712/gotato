@@ -74,7 +74,7 @@ Gotato has made no release, so no consumer has seen a contract version. The numb
 
 ### Examples
 
-- **A chat-bot example, `examples/larkbot`.** A Lark chat bot that runs several Gotato instances, with a fake Lark and a local kind cluster that plays ten scenarios. It is a module of its own and adds nothing to the root module. Guide: [Example: a chat bot](guides/example-chat-bot.md).
+- **A chat-bot example, `examples/larkbot`.** A Lark chat bot that runs several Gotato instances, with a fake Lark and a local kind cluster that plays seven scenarios. It is a module of its own and adds nothing to the root module. Guide: [Example: a chat bot](guides/example-chat-bot.md).
 
 ### MCP
 
