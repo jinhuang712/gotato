@@ -217,9 +217,6 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 	for i, message := range closed {
 		switch message.Role {
 		case gotato.RoleUser:
-			if skipUser(message) {
-				continue
-			}
 			flush()
 			if parts := keptParts(message.Parts, limit, number); len(parts) > 0 {
 				items = append(items, item{role: gotato.RoleUser, parts: parts})
@@ -284,13 +281,6 @@ func noticePart(kind string, parts []gotato.ContentPart) gotato.ContentPart {
 		}
 	}
 	return taggedPart(gotato.TagNotice, [][2]string{{"kind", kind}}, text.EscapeTags(body.String()))
-}
-
-// skipUser reports whether a user Message is left out of a Segment: the
-// continuation a Record written before notices holds, which was a user
-// Message.
-func skipUser(message gotato.Message) bool {
-	return gotato.TextOf(message) == gotato.TruncatedContinuationText
 }
 
 // finalReplies marks each Run's final reply: its last assistant Message

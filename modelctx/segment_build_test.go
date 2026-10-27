@@ -585,7 +585,7 @@ func TestFinalRepliesAreGroupedByRun(t *testing.T) {
 	f := newFixture(t)
 	f.user("r1", "question", 1)
 	f.reply("r1", "first part, then the limit cut it", 2)
-	cont := gotato.UserMessage(gotato.TruncatedContinuationText)
+	cont := gotato.NewNotice(gotato.NoticeSourceGotato, gotato.NoticeContinue, gotato.TruncatedContinuationText)
 	cont.RunID = "r1"
 	f.commit(cont, 3)
 	f.reply("r1", "the real final reply", 4)
