@@ -61,7 +61,7 @@ func TestPreEpochRecordHasOneEpochOnEverySurface(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("Sessions = %v, %v", list, err)
 	}
-	want := "created-" + list[0].CreatedAt
+	want := "created-" + list[0].CreatedAt.Format("2006-01-02T15:04:05.000Z07:00")
 	stream, err := runner.StreamSession(ctx, result.SessionID, service.StreamFrom{RecordEpoch: want})
 	if err != nil {
 		t.Fatalf("the stream refuses the epoch %q: %v", want, err)

@@ -11,8 +11,10 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// infoTime is how a RecordInfo writes a time.
-const infoTime = "2006-01-02T15:04:05.000Z07:00"
+// epochTime is how an epoch made of a creation time writes it: to the
+// millisecond, so that it reads the same before and after a Record's times went
+// through a store.
+const epochTime = "2006-01-02T15:04:05.000Z07:00"
 
 // RecordInfo is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
@@ -22,8 +24,8 @@ type RecordInfo struct {
 	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch). A
 	// store keeps it with the rest of the RecordInfo; Epoch reads it.
 	RecordEpoch string            `json:"record_epoch,omitempty"`
-	CreatedAt   string            `json:"created_at"`
-	UpdatedAt   string            `json:"updated_at"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 	Messages    int               `json:"messages"`
 	Runs        int               `json:"runs"`
 	Usage       gotato.Usage      `json:"usage"`
@@ -35,10 +37,10 @@ type RecordInfo struct {
 	// Busy says the writer opened the Session and has not released it: a
 	// Run or a change is under way, also before its Run has started.
 	Busy bool `json:"busy,omitempty"`
-	// LastRunEnd is when the last Run that ended did, empty when none has
+	// LastRunEnd is when the last Run that ended did, zero when none has
 	// (Record.LastRunEnd). The summary keeps it so that a Record loaded from
 	// its facts, whose Run records stay in the log, still knows it.
-	LastRunEnd string `json:"last_run_end,omitempty"`
+	LastRunEnd time.Time `json:"last_run_end,omitzero"`
 	// Notices are the notices queued and neither committed nor dropped
 	// (Record.PendingNotices), so that the next Run on any instance can queue
 	// them again.
@@ -52,7 +54,7 @@ func (s RecordInfo) Epoch() string {
 	if s.RecordEpoch != "" {
 		return s.RecordEpoch
 	}
-	return "created-" + s.CreatedAt
+	return epochOfCreation(s.CreatedAt)
 }
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
@@ -200,7 +202,7 @@ func (s *Record) infoLocked() RecordInfo {
 	summary.Busy = s.busy
 	summary.Notices = slices.Clone(s.notices)
 	if !s.lastRunEnd.IsZero() {
-		summary.LastRunEnd = s.lastRunEnd.Format(infoTime)
+		summary.LastRunEnd = s.lastRunEnd
 	}
 	return summary
 }
@@ -209,8 +211,8 @@ func infoOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs 
 	return RecordInfo{
 		ID:        id,
 		ParentID:  parentID,
-		CreatedAt: createdAt.Format(infoTime),
-		UpdatedAt: updatedAt.Format(infoTime),
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
 		Messages:  messages,
 		Runs:      runs,
 		Usage:     usage,
@@ -220,9 +222,15 @@ func infoOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs 
 
 func sortInfos(out []RecordInfo) {
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt == out[j].UpdatedAt {
+		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
 			return out[i].ID < out[j].ID
 		}
-		return out[i].UpdatedAt > out[j].UpdatedAt
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
+}
+
+// epochOfCreation is the epoch of a Record written before epochs: its creation
+// time, to the millisecond.
+func epochOfCreation(createdAt time.Time) string {
+	return "created-" + createdAt.Format(epochTime)
 }

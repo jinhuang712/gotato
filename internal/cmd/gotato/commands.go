@@ -346,7 +346,7 @@ func (c *cli) sessionList(args []string) int {
 		return c.writeJSON(list)
 	}
 	for _, item := range list {
-		fmt.Fprintf(c.stdout, "%s\t%d msgs\t%d runs\t%s\n", item.ID, item.Messages, item.Runs, item.UpdatedAt)
+		fmt.Fprintf(c.stdout, "%s\t%d msgs\t%d runs\t%s\n", item.ID, item.Messages, item.Runs, item.UpdatedAt.Format(time.RFC3339))
 	}
 	return ExitOK
 }

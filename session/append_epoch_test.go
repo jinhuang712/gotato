@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -86,7 +87,7 @@ func TestFileStoreRefusesAPositionAnotherRecordHolds(t *testing.T) {
 		return session.Entry{Seq: seq, Kind: kind, Layer: layer, Data: []byte(`{}`)}
 	}
 	summary := func(epoch string, seq uint64) session.RecordInfo {
-		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
+		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), Seq: seq}
 	}
 	first := []session.Entry{entry(1, gotato.EventKindSessionCreated, session.LayerFact), entry(2, gotato.EventKindMessageCommitted, session.LayerFact), entry(3, gotato.EventKindMessageCommitted, session.LayerFact)}
 	if err := a.Create(ctx, "r", first, summary("e1", 3)); err != nil {

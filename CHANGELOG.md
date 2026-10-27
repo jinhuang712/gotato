@@ -4,6 +4,16 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A RecordInfo's times are `time.Time`
+
+**Breaking**: before the first release nothing keeps an old form. `session.RecordInfo` held its times as strings in a fixed millisecond format, while `Record.CreatedAt()`, `UpdatedAt()` and `LastRunEnd()` returned `time.Time`. The three fields are `time.Time` now. On the wire (a store's JSON, `GET /v1/sessions`, a Session summary) they are RFC 3339 with as many fraction digits as the time has, where they had three. `last_run_end` is left out when no Run has ended (`omitzero`). `RecordInfo.Epoch()` of a Record written before epochs is unchanged: `created-` and the creation time to the millisecond.
+
+| Before | After |
+|---|---|
+| `RecordInfo.CreatedAt`, `UpdatedAt`, `LastRunEnd` of type `string`, `"2026-10-17T00:00:00.000Z"` | type `time.Time`; `LastRunEnd` is the zero time when no Run has ended |
+| `info.UpdatedAt > other.UpdatedAt` | `info.UpdatedAt.After(other.UpdatedAt)` |
+| a store adapter keeps three strings | keeps three times; `storetest.Run` compares them with `Equal`, so a store may change the zone but not the instant |
+
 ### The kept tail has one token setting, and counts name their unit
 
 **Breaking**: before the first release nothing keeps an old name. The kept tail of a compaction was sized three ways: `Keep` in Messages, `Floor` in tokens (which ignored the Run boundary and the quarter-window cap), and the default, `SegmentSettings.TailTokens`. `Floor` is gone; `TailTokens` is the one token setting, and a tail it sizes now always stays within the latest Run and under the quarter cap. The compaction settings that hold a count of tokens or Messages say so in their names.

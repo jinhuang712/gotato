@@ -269,7 +269,7 @@ func (s *Record) epochLocked() string {
 	if s.epoch != "" {
 		return s.epoch
 	}
-	return "created-" + s.createdAt.Format(infoTime)
+	return epochOfCreation(s.createdAt)
 }
 
 // NewID returns a random, restart-safe identifier.

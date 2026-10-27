@@ -312,9 +312,7 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	// A load that starts at a compaction_ended Checkpoint has not read
 	// session_created: what it held comes from the RecordInfo.
 	if r.createdAt.IsZero() {
-		if at, err := time.Parse("2006-01-02T15:04:05.000Z07:00", loaded.Info.CreatedAt); err == nil {
-			r.createdAt = at
-		}
+		r.createdAt = loaded.Info.CreatedAt
 	}
 	if r.parentID == "" {
 		r.parentID = loaded.Info.ParentID
@@ -327,8 +325,8 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	r.running = loaded.Info.Running
 	r.busy = loaded.Info.Busy
 	r.notices = slices.Clone(loaded.Info.Notices)
-	if at, err := time.Parse(infoTime, loaded.Info.LastRunEnd); err == nil {
-		r.lastRunEnd = at.UTC()
+	if !loaded.Info.LastRunEnd.IsZero() {
+		r.lastRunEnd = loaded.Info.LastRunEnd.UTC()
 	}
 	r.logging = false
 	r.retainRead = true

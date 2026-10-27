@@ -134,7 +134,19 @@ func logEntry(seq uint64, writer string) session.Entry {
 }
 
 func summary(id string, seq uint64, updated string) session.RecordInfo {
-	return session.RecordInfo{ID: id, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: updated, Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
+	return session.RecordInfo{ID: id, CreatedAt: infoTime("2026-10-17T00:00:00.000Z"), UpdatedAt: infoTime(updated), Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
+}
+
+// infoTime reads a time written in RFC 3339; empty is the zero time.
+func infoTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		panic(err)
+	}
+	return at
 }
 
 func seqs(entries []session.Entry) []uint64 {
@@ -198,14 +210,17 @@ func checkInfoNotices(ctx context.Context, open Open) error {
 		return gotato.PendingNotice{MessageID: gotato.MessageID(fmt.Sprintf("m%d", n)), Kind: "order_update", Source: gotato.NoticeSourceService, Text: text, Number: n}
 	}
 	first := summary("r1", 3, "2026-10-17T00:00:03.000Z")
-	first.LastRunEnd = "2026-10-17T00:00:02.500Z"
+	first.LastRunEnd = infoTime("2026-10-17T00:00:02.500Z")
 	first.Notices = []gotato.PendingNotice{pending(3, "one")}
 	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	same := func(got session.RecordInfo, want session.RecordInfo, step string) error {
-		if got.LastRunEnd != want.LastRunEnd || len(got.Notices) != len(want.Notices) {
-			return fmt.Errorf("%s: summary has last_run_end %q and notices %+v, want %q and %+v", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
+		if !got.CreatedAt.Equal(want.CreatedAt) || !got.UpdatedAt.Equal(want.UpdatedAt) {
+			return fmt.Errorf("%s: summary has created_at %v and updated_at %v, want %v and %v", step, got.CreatedAt, got.UpdatedAt, want.CreatedAt, want.UpdatedAt)
+		}
+		if !got.LastRunEnd.Equal(want.LastRunEnd) || len(got.Notices) != len(want.Notices) {
+			return fmt.Errorf("%s: summary has last_run_end %v and notices %+v, want %v and %+v", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
 		}
 		for i := range want.Notices {
 			if got.Notices[i] != want.Notices[i] {
@@ -222,7 +237,7 @@ func checkInfoNotices(ctx context.Context, open Open) error {
 		return err
 	}
 	second := summary("r1", 4, "2026-10-17T00:00:04.000Z")
-	second.LastRunEnd = "2026-10-17T00:00:04.000Z"
+	second.LastRunEnd = infoTime("2026-10-17T00:00:04.000Z")
 	second.Notices = []gotato.PendingNotice{pending(3, "one"), pending(5, "two")}
 	if err := store.Append(ctx, "r1", 3, []session.Entry{logEntry(4, "a")}, second); err != nil {
 		return fmt.Errorf("append: %w", err)

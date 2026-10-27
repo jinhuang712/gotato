@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -92,15 +93,15 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 // one, from its creation time, so a client can tell it from a Record created
 // under the same ID later.
 func TestSummaryEpochFallsBackToTheCreationTime(t *testing.T) {
-	legacy := session.RecordInfo{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z"}
+	legacy := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
 	if legacy.Epoch() == "" {
 		t.Fatal("a RecordInfo without an epoch names none")
 	}
-	later := session.RecordInfo{ID: "x", CreatedAt: "2026-10-02T00:00:00.000Z"}
+	later := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)}
 	if legacy.Epoch() == later.Epoch() {
 		t.Fatal("two creation times share an epoch")
 	}
-	own := session.RecordInfo{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z", RecordEpoch: "abc"}
+	own := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), RecordEpoch: "abc"}
 	if own.Epoch() != "abc" {
 		t.Fatalf("Epoch = %q, want its own", own.Epoch())
 	}
