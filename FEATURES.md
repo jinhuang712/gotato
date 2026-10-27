@@ -73,7 +73,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
 | Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | 🚧 |
-| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations | G-F12 | 🚧 |
+| MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations, their progress as `tool_progress`, and their instructions as the description | G-F12 | ✅ |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 
 **Models**
@@ -994,7 +994,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 
 **Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show every catalog tool, which are loaded and which are switched off ([G-F10](#g-f10--tool-sets-and-the-registry-)).
 
-### G-F12 — The MCP adapter 🚧
+### G-F12 — The MCP adapter ✅
 
 Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, as `adapter/grpc` is, on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0, Apache-2.0). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
 
@@ -1045,10 +1045,14 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
   `isError` becomes a failed Tool Result whose content the model reads. A protocol or transport failure is a failed call. `_meta` of the result and of a content block is copied as strings, and the `gotato.MetaTag` key is dropped, so a server cannot write tagged text as the system ([G-F29](#g-f29--runtime-notices-)).
 - **A server's tool list can change.** The adapter notes the server's `list_changed`, and every Run resolves its ToolSets again before its first Turn ([G-F10](#g-f10--tool-sets-and-the-registry-)), so the change takes effect at the next Run and the tools and the catalog never change in the middle of one. A server that is down at a Run is skipped with a warning, and comes back when it answers.
 - **A large result is spilled** like any other ([G-F35](#g-f35--large-tool-results-)).
-- **Tested** against an in-process server of the SDK over an in-memory transport, streamable HTTP on loopback, and stdio (the test binary is the server): the Effect, the slimmed schemas, the content mapping, `isError`, `_meta`, `list_changed`, a server that is down, cancel, one connection shared by many Sessions, and a full Run that finds a tool with `search_tools`.
+- **Tested** against an in-process server of the SDK over an in-memory transport, streamable HTTP on loopback, and stdio (the test binary is the server): the Effect, the slimmed schemas, the content mapping, `isError`, `_meta`, `list_changed`, a server that is down, cancel, one connection shared by many Sessions, a full Run that finds a tool with `search_tools`, progress, instructions, and a tool that asks for input.
 - What the adapter does not build is in [G-N20](#g-n20--mcp-features-gotato-does-not-build).
 
-**Gap:** a tool's `progress` notifications are not forwarded as `tool_progress`; a server description (its `instructions`) is not read, so the catalog's description is the one the team passes with `WithDescription`; an MCP tool that asks for input mid-call (a multi round-trip request) fails.
+- **Progress becomes `tool_progress`.** A call that has a progress function carries a progress token, since a server sends progress only to a call that has one; each `notifications/progress` for it reaches the Tool's `ToolProgressFunc`, and so a `tool_progress` Event ([G-F09](#g-f09--tools-and-their-effect-)). The text is the server's message, or `progress/total` (`2/3`) when it sent none. A call without a progress function carries no token. The SDK queues incoming notifications, so one that arrives after the call's result is dropped.
+- **The server's `instructions` describe the ToolSet.** The adapter reads them when it connects. When the team did not pass `WithDescription`, the ToolSet's description is the first paragraph of the instructions on one line, and `WithDescription` wins. The description is empty until the first resolution has connected, which is when the catalog first asks for it. The adapter cuts at the paragraph and at no length; a server whose first paragraph is long gets a long catalog line, and `WithDescription` is the team's answer.
+- **A tool that asks for input in the middle of a call ends with a failed Tool Result.** Gotato has no person and no model for the ToolSet to ask, so the client declares neither elicitation nor sampling and turns the SDK's automatic reply off. A server that answers a call with input requests (a multi round-trip request) gets a failed Tool Result that says the tool asked for input and tells the model to call again with everything in the arguments. A server that asks by a request of its own gets "client does not support …" back, and its call ends with that error as the failed Tool Result. Nothing waits, and nothing is added to the Loop ([G-N20](#g-n20--mcp-features-gotato-does-not-build)).
+
+**Gap:** none for the three above. Not checked: a server that answers an input request and then expects the call to be retried with replies is not supported by design, and no real server of the specification's multi round-trip revision was tried; the tests use the SDK's own server.
 
 ### G-F35 — Large Tool Results ✅
 

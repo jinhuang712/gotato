@@ -12,6 +12,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names
 
 ### MCP
 
+- **An MCP tool's progress, a server's instructions, and a tool that asks for input.** Progress notifications reach the Tool's progress function, so they are `tool_progress` Events; before, they were dropped. A server's `instructions` (first paragraph) is the ToolSet's description when `WithDescription` is not set; before, the description was empty. A tool that asks for input mid-call (elicitation, sampling) ends with a failed Tool Result that says so; before, the call failed with the SDK's error text.
 - **A restarted MCP server is reached again at once.** When a server forgets the ToolSet's session (it restarted, and answers 404 to the old session ID), `adapter/mcp` now starts a new session and sends the resolution or the call again once; the server did not run it. Before, the first resolution after the restart failed with `session not found`, so a Run that began then had no tools from that server, and the first call failed twice before the third succeeded. After, both succeed on the first try. A call whose connection closed during it is still not sent again, since the server may have run it.
 
 ### Layout
