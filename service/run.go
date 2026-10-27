@@ -210,17 +210,37 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	return out, err
 }
 
+// runState is what one serve call shares between its phases: the Session it
+// works on, the Writer and Feed it holds, and the outcome it builds.
+type runState struct {
+	r       *Runner
+	request RunRequest
+	stream  *runStream
+	handle  *runHandle
+	follow  *followOn
+
+	s         *session.Record
+	writer    *session.Writer
+	saved     session.WriteStats
+	feed      *gotato.Feed
+	track     *tracker
+	sessionID string
+	// acquired is the shared Feed the Run holds, released when serve returns.
+	acquired feedKey
+
+	// started says the Run's live Session was built, so the Run cannot be
+	// undone by deleting the Session it created.
+	started bool
+	out     RunResponse
+	runErr  error
+}
+
 // serve runs one admitted Run.
 func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle, follow *followOn) (RunResponse, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
-	var s *session.Record
-	var writer *session.Writer
-	var saved session.WriteStats
-	var feed *gotato.Feed
-	track := &tracker{}
-	sessionID := request.SessionID
+	st := &runState{r: r, request: request, stream: stream, handle: handle, follow: follow, track: &tracker{}, sessionID: request.SessionID}
 	// The Run's stream ends with the Run: what is queued is still delivered.
 	defer func() {
 		if stream != nil && stream.sub != nil {
@@ -229,369 +249,432 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 	}()
 	// A Record's Feed is shared and counted; a Run that is not saved has a
 	// Feed of its own, since its Events are in no Record.
-	var acquired feedKey
 	defer func() {
-		if acquired != (feedKey{}) {
-			r.releaseFeed(acquired)
+		if st.acquired != (feedKey{}) {
+			r.releaseFeed(st.acquired)
 		}
 	}()
-	if sessionID == "" {
+	if st.sessionID == "" {
 		if request.SkipSave {
 			// No persistence: build an in-memory Session for this Run only.
-			s = session.New()
+			st.s = session.New()
 			for key, value := range request.Metadata {
-				s.Set(key, value)
+				st.s.Set(key, value)
 			}
-			feed = gotato.NewFeed(nil)
-			defer feed.Close()
-			if err := r.streamTo(ctx, feed, stream, track); err != nil {
+			st.feed = gotato.NewFeed(nil)
+			defer st.feed.Close()
+			if err := r.streamTo(ctx, st.feed, stream, st.track); err != nil {
 				return RunResponse{}, err
 			}
-		} else {
-			fresh, spec, err := r.newSession(request.Agent, request.Metadata)
-			if err != nil {
-				return RunResponse{}, err
-			}
-			// The Run's stream starts before the Session is created, so its
-			// first Event is the session_created that the Run caused.
-			acquired = feedKey{fresh.ID(), fresh.RecordEpoch()}
-			feed = r.acquireFeed(acquired, spec.Name)
-			if err := r.streamTo(ctx, feed, stream, track); err != nil {
-				return RunResponse{}, err
-			}
-			writer, err = r.create(runCtx, fresh, spec.Name)
-			stats := session.WriteStats{}
-			if writer != nil {
-				stats = writer.Stats()
-				saved = stats
-			}
-			r.notice(savedEvent(fresh.ID(), "", fresh.Len(), stats, err), spec.Name)
-			if err != nil {
-				return RunResponse{}, err
-			}
-			s = fresh
+		} else if err := st.createSession(ctx, runCtx); err != nil {
+			return RunResponse{}, err
 		}
 		// A newly created Session has a generated ID; retarget the handle so
 		// AbortSession can find it for the rest of the Run.
-		sessionID = s.ID()
-		r.retargetHandle(handle, sessionID)
+		st.sessionID = st.s.ID()
+		r.retargetHandle(handle, st.sessionID)
 	}
 
 	// One Run per Session at a time. Every Session mutation goes through
 	// withSessionLock; the admission policy decides the busy behavior.
-	var out RunResponse
-	var runErr error
-	started := false
 	created := request.SessionID == "" && !request.SkipSave
 	// A Run that follows another waits for the Session whatever the busy policy.
-	lockErr := r.sessionLock(runCtx, sessionID, follow != nil || handle.wait, func() error {
-		// An existing Session is loaded once, under the lock: another Run
-		// may have saved it meanwhile, and a Session deleted in between must
-		// not be resurrected from a stale copy.
-		var loadTime time.Duration
-		// The Events the open writes, a claim among them, are published once
-		// the Run knows its Record and its Agent, so they go to that Record's
-		// Feed and carry the Agent's name.
-		var early []gotato.Event
-		// reused says a warm copy served the Run: the Session was not loaded.
-		reused := false
-		if request.SessionID != "" {
-			// A Run writes as this Instance: opening the Session claims it
-			// when another Instance held it, and a stale writer is fenced.
-			began := time.Now()
-			var err error
-			if request.SkipSave {
-				feed = gotato.NewFeed(nil)
-				defer feed.Close()
-				if err := r.streamTo(ctx, feed, stream, track); err != nil {
-					return err
-				}
-				s, err = session.Open(runCtx, r.store, sessionID)
-				loadTime = time.Since(began)
-			} else {
-				var before *session.WriteStats
-				writer, early, before, err = r.acquire(runCtx, sessionID)
-				if before != nil {
-					// A warm copy has written for earlier Runs: this Run's
-					// writes count from here, its claim included.
-					reused, saved = true, *before
-				}
-				if writer != nil {
-					loadTime = writer.Stats().Load
-					s = writer.Record()
-				} else {
-					loadTime = time.Since(began)
-				}
-			}
-			if err != nil {
-				r.notice(loadedEvent(sessionID, 0, loadTime, err), request.Agent)
-				r.noteFailure(err, sessionID, request.Agent)
-				return err
-			}
-			if writer != nil {
-				// The Record's epoch is known once it is loaded: the Run uses
-				// that Record's Feed, and its stream starts there, with the
-				// claim the open wrote.
-				acquired = feedKey{sessionID, s.RecordEpoch()}
-				feed = r.acquireFeed(acquired, request.Agent)
-				if err := r.streamTo(ctx, feed, stream, track); err != nil {
-					releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-					_ = writer.Release(releaseCtx)
-					cancelRelease()
-					return err
-				}
-			}
-		}
-		for key, value := range request.Update {
-			s.Set(key, value)
-		}
-
-		agentName := request.Agent
-		if agentName == "" {
-			agentName, _ = s.Get(MetaAgent)
-		}
-		spec, ok := r.Agent(agentName)
-		if request.SessionID != "" {
-			label := spec.Name
-			if !ok {
-				label = ""
-			}
-			feed.SetLabel(label)
-			if writer != nil {
-				writer.SetPublisher(r.publisher(acquired, label))
-			}
-			for _, event := range early {
-				feed.Publish(event)
-			}
-			if !reused {
-				r.notice(loadedEvent(sessionID, s.Len(), loadTime, nil), label)
-			}
-		}
-		// A Run that cannot start still releases the Session it opened.
-		abandon := func(err error) error {
-			if writer != nil {
-				releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-				_ = writer.Release(releaseCtx)
-				cancelRelease()
-			}
-			return err
-		}
-		if !ok {
-			return abandon(ErrUnknownAgent)
-		}
-		s.Set(MetaAgent, spec.Name)
-		if spec.ModelName != "" {
-			s.Set(MetaModel, spec.ModelName)
-		}
-
-		onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
-			track.set(runID)
-			handle.attachRunID(runID)
-			handle.abortIfStopped()
-		})
-		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectConfig{}, onRunStart, gotato.WithFeed(feed), gotato.WithQueueHandoff())
-		if err != nil {
-			return abandon(err)
-		}
-		// The notices that wait in the Record are read before this Run queues
-		// any of its own.
-		kept := s.PendingNotices()
-		if follow == nil && !request.Continue {
-			// A message that starts a Run after a long absence is followed by
-			// a notice with the time.
-			r.queueTimeAway(ctx, spec, s, live)
-		}
-		if len(kept) > 0 {
-			// Notices that were queued and not committed, by an earlier Run or
-			// by a call between Runs, on this instance or another, go in after
-			// this Run's prompt. The Record is where they wait.
-			queued := make([]gotato.Queued, len(kept))
-			for i, notice := range kept {
-				queued[i] = notice.Queued()
-			}
-			if rest := live.Requeue(queued); len(rest) > 0 {
-				live.DropQueued(rest, "queue_full")
-			}
-		}
-		if follow != nil {
-			// The messages that waited behind the first one wait in this Run's
-			// queues, in order, before anything new can reach them.
-			if rest := live.Requeue(follow.rest); len(rest) > 0 {
-				live.DropQueued(rest, "queue_full")
-			}
-		}
-		started = true
-		// From here a stop aborts the Run inside the live Session, so Prompt
-		// still returns the settled (canceled) result. Prompt waits on the
-		// caller's context, not runCtx: a stop that canceled runCtx while the
-		// Session was loading reaches the Run through abortIfStopped instead.
-		handle.attachAbort(live.Abort)
-		handle.attachLive(live)
-
-		// The Run's deadline: the request's Timeout, else the Agent's
-		// RunTimeout. The caller's own deadline on ctx overrides it when
-		// it is shorter, as any child context's does.
-		runDeadline := request.Timeout
-		if runDeadline == 0 {
-			runDeadline = spec.RunTimeout
-		}
-		if runDeadline == 0 {
-			runDeadline = DefaultRunTimeout
-		}
-		var result gotato.RunResult
-		func() {
-			runCtx := ctx
-			if runDeadline > 0 {
-				var cancelDeadline context.CancelFunc
-				runCtx, cancelDeadline = context.WithTimeout(ctx, runDeadline)
-				defer cancelDeadline()
-			}
-			switch {
-			case request.Continue:
-				result, runErr = live.Continue(runCtx)
-			case follow != nil:
-				result, runErr = live.Prompt(runCtx, follow.prompt)
-			default:
-				result, runErr = live.Prompt(runCtx, gotato.UserMessage(request.Prompt))
-			}
-		}()
-		// The messages the Run left in its queues are taken in the same step
-		// that stops delivering to it, and a Run follows with them unless
-		// something ends the work they were meant for.
-		if r.beforeDetach != nil {
-			r.beforeDetach()
-		}
-		// A notice from a service the Run left waits for the next Run, even
-		// when the Run was stopped, since it asks for no work: its
-		// notice_queued is in the Record, and the next Run queues it again.
-		// Gotato's own notices, such as time_away, mattered only at the time.
-		notices := handle.detachLive(func(left []gotato.Queued) bool {
-			why := ""
-			switch {
-			case writer == nil:
-				why = "run_ended"
-			case writer.Failed() != nil:
-				why = "writer_failed"
-			case r.Draining():
-				why = "draining"
-			case handle.isStopped() || runCtx.Err() != nil:
-				why = "run_ended"
-			}
-			if why != "" {
-				live.DropQueued(left, why)
-				return false
-			}
-			return true
-		})
-		for _, notice := range notices {
-			if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeSourceGotato {
-				live.DropQueued([]gotato.Queued{notice}, "run_ended")
-			}
-		}
-		_ = live.Close(context.Background())
-		if stream != nil && stream.sub != nil {
-			stream.sub.End()
-		}
-		if r.beforeRelease != nil {
-			r.beforeRelease()
-		}
-
-		if writer != nil {
-			// Persist the settled Session even when the Run was canceled, but
-			// bound the write so a stalled Store cannot pin the Run (and Drain)
-			// forever.
-			wroteAll := writer.Failed() == nil
-			saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
-			saveErr := writer.Release(saveCtx)
-			cancelSave()
-			r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(saved), saveErr), spec.Name)
-			r.noteFailure(saveErr, s.ID(), spec.Name)
-			if saveErr == nil && wroteAll {
-				// The Session stays in memory, as a cache the store can always
-				// replace; the next Run checks its head.
-				r.keepWarm(writer, spec)
-			}
-			// Only the release failed: every fact of the Run is stored, so the
-			// Run keeps its status. The warning Events above tell the operator,
-			// and the Claim lapses with the Liveness row.
-			if saveErr != nil && !wroteAll {
-				// An earlier write of the Run failed, and the Writer refuses
-				// the release too: keep the Run error and add the persistence
-				// failure so callers can observe both (errors.Is still matches
-				// each).
-				var saveFailure *gotato.RuntimeError
-				if !errors.As(saveErr, &saveFailure) {
-					saveFailure = gotato.ErrorOf(gotato.CodeStoreFailure, saveErr.Error())
-					saveFailure.Cause = saveErr
-					saveErr = saveFailure
-				}
-				// completed never carries an error. The Run's own writes
-				// settle it as failed, so this only guards the rule.
-				if result.Status == gotato.RunStatusCompleted {
-					result.Status = gotato.RunStatusFailed
-					result.Error = saveFailure
-				}
-				persistErr := error(notPersisted{saveErr})
-				if runErr == nil {
-					runErr = persistErr
-				} else {
-					runErr = errors.Join(runErr, persistErr)
-				}
-			}
-		}
-		r.noteFailure(runErr, s.ID(), spec.Name)
-		out = RunResponse{
-			SessionID: s.ID(),
-			Agent:     spec.Name,
-			Model:     spec.ModelName,
-			Result:    result,
-			Compacted: auto != nil && compacted(auto),
-			Messages:  s.Len(),
-			Events:    len(s.Events()),
-		}
-		if writer != nil {
-			out.RecordEpoch = s.RecordEpoch()
-		}
-		if request.SkipSave {
-			// The Run stored nothing: its Events are those of its own stream,
-			// numbered from 1, so the last number counts them.
-			out.Events = int(feed.Last())
-		}
-		if result.FinalMessage != nil {
-			out.FinalText = gotato.TextOf(*result.FinalMessage)
-		}
-		if runErr != nil && out.Result.Error == nil {
-			var runtimeErr *gotato.RuntimeError
-			if errors.As(runErr, &runtimeErr) {
-				out.Result.Error = runtimeErr
-			} else {
-				out.Result.Error = gotato.ErrorOf(gotato.CodeInternalInvariant, runErr.Error())
-			}
-			if out.Result.Status == "" {
-				out.Result.Status = runStatusForError(runErr)
-			}
-		}
-		return nil
+	lockErr := r.sessionLock(runCtx, st.sessionID, follow != nil || handle.wait, func() error {
+		return st.serveLocked(ctx, runCtx)
 	})
 	if lockErr != nil {
-		if created && !started {
-			// A one-shot Run that never started must not leave an empty
-			// Session behind. A failed cleanup is reported, not discarded.
-			deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
-			deleteErr := r.store.Delete(deleteCtx, sessionID)
-			cancelDelete()
-			if deleteErr != nil {
-				lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", sessionID, deleteErr))
-			}
+		if created && !st.started {
+			lockErr = st.cleanupUnstarted(ctx, lockErr)
 		}
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Canceled while waiting for the Session lock: report a settled
 			// canceled Run rather than a bare error.
-			return canceledRunResult(sessionID, request.Agent, lockErr), lockErr
+			return canceledRunResult(st.sessionID, request.Agent, lockErr), lockErr
 		}
 		return RunResponse{}, lockErr
 	}
-	return out, runErr
+	return st.out, st.runErr
+}
+
+// createSession creates and claims the Record of a new, saved Run. The Run's
+// stream starts before the Session is created, so its first Event is the
+// session_created that the Run caused.
+func (st *runState) createSession(ctx, runCtx context.Context) error {
+	r := st.r
+	fresh, spec, err := r.newSession(st.request.Agent, st.request.Metadata)
+	if err != nil {
+		return err
+	}
+	st.acquired = feedKey{fresh.ID(), fresh.RecordEpoch()}
+	st.feed = r.acquireFeed(st.acquired, spec.Name)
+	if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
+		return err
+	}
+	st.writer, err = r.create(runCtx, fresh, spec.Name)
+	stats := session.WriteStats{}
+	if st.writer != nil {
+		stats = st.writer.Stats()
+		st.saved = stats
+	}
+	r.notice(savedEvent(fresh.ID(), "", fresh.Len(), stats, err), spec.Name)
+	if err != nil {
+		return err
+	}
+	st.s = fresh
+	return nil
+}
+
+// serveLocked is the part of a Run that holds the Session lock: open the
+// Session, build the live Session, prompt it, then save and report.
+func (st *runState) serveLocked(ctx, runCtx context.Context) error {
+	r, request, handle := st.r, st.request, st.handle
+	// An existing Session is loaded once, under the lock: another Run
+	// may have saved it meanwhile, and a Session deleted in between must
+	// not be resurrected from a stale copy.
+	var loadTime time.Duration
+	// The Events the open writes, a claim among them, are published once
+	// the Run knows its Record and its Agent, so they go to that Record's
+	// Feed and carry the Agent's name.
+	var early []gotato.Event
+	// reused says a warm copy served the Run: the Session was not loaded.
+	reused := false
+	if request.SessionID != "" {
+		// A Run writes as this Instance: opening the Session claims it
+		// when another Instance held it, and a stale writer is fenced.
+		began := time.Now()
+		var err error
+		if request.SkipSave {
+			st.feed = gotato.NewFeed(nil)
+			defer st.feed.Close()
+			if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
+				return err
+			}
+			st.s, err = session.Open(runCtx, r.store, st.sessionID)
+			loadTime = time.Since(began)
+		} else {
+			loadTime, early, reused, err = st.openWriter(runCtx, began)
+		}
+		if err != nil {
+			r.notice(loadedEvent(st.sessionID, 0, loadTime, err), request.Agent)
+			r.noteFailure(err, st.sessionID, request.Agent)
+			return err
+		}
+		if st.writer != nil {
+			if err := st.joinFeed(ctx, runCtx); err != nil {
+				return err
+			}
+		}
+	}
+	s := st.s
+	for key, value := range request.Update {
+		s.Set(key, value)
+	}
+
+	agentName := request.Agent
+	if agentName == "" {
+		agentName, _ = s.Get(MetaAgent)
+	}
+	spec, ok := r.Agent(agentName)
+	if request.SessionID != "" {
+		st.announceOpen(spec, ok, early, reused, loadTime)
+	}
+	if !ok {
+		return st.abandon(runCtx, ErrUnknownAgent)
+	}
+	s.Set(MetaAgent, spec.Name)
+	if spec.ModelName != "" {
+		s.Set(MetaModel, spec.ModelName)
+	}
+
+	live, auto, err := st.startRun(ctx, spec)
+	if err != nil {
+		return st.abandon(runCtx, err)
+	}
+	var result gotato.RunResult
+	result, st.runErr = st.promptWithDeadline(ctx, spec, live)
+	// The messages the Run left in its queues are taken in the same step
+	// that stops delivering to it, and a Run follows with them unless
+	// something ends the work they were meant for.
+	if r.beforeDetach != nil {
+		r.beforeDetach()
+	}
+	// A notice from a service the Run left waits for the next Run, even
+	// when the Run was stopped, since it asks for no work: its
+	// notice_queued is in the Record, and the next Run queues it again.
+	// Gotato's own notices, such as time_away, mattered only at the time.
+	notices := handle.detachLive(func(left []gotato.Queued) bool {
+		why := ""
+		switch {
+		case st.writer == nil:
+			why = "run_ended"
+		case st.writer.Failed() != nil:
+			why = "writer_failed"
+		case r.Draining():
+			why = "draining"
+		case handle.isStopped() || runCtx.Err() != nil:
+			why = "run_ended"
+		}
+		if why != "" {
+			live.DropQueued(left, why)
+			return false
+		}
+		return true
+	})
+	for _, notice := range notices {
+		if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeSourceGotato {
+			live.DropQueued([]gotato.Queued{notice}, "run_ended")
+		}
+	}
+	_ = live.Close(context.Background())
+	if st.stream != nil && st.stream.sub != nil {
+		st.stream.sub.End()
+	}
+	if r.beforeRelease != nil {
+		r.beforeRelease()
+	}
+	st.persist(runCtx, spec, &result)
+	st.respond(spec, auto, result)
+	return nil
+}
+
+// openWriter opens the Writer of an existing, saved Session: a warm copy of it
+// when the head still matches, else a load from the Store. It reports the time
+// the open took and whether a warm copy served.
+func (st *runState) openWriter(runCtx context.Context, began time.Time) (loadTime time.Duration, early []gotato.Event, reused bool, err error) {
+	var before *session.WriteStats
+	st.writer, early, before, err = st.r.acquire(runCtx, st.sessionID)
+	if before != nil {
+		// A warm copy has written for earlier Runs: this Run's
+		// writes count from here, its claim included.
+		reused, st.saved = true, *before
+	}
+	if st.writer != nil {
+		loadTime = st.writer.Stats().Load
+		st.s = st.writer.Record()
+	} else {
+		loadTime = time.Since(began)
+	}
+	return loadTime, early, reused, err
+}
+
+// joinFeed starts the Run's stream on the Feed of the Record it opened. The
+// Record's epoch is known once it is loaded: the Run uses that Record's Feed,
+// and its stream starts there, with the claim the open wrote.
+func (st *runState) joinFeed(ctx, runCtx context.Context) error {
+	st.acquired = feedKey{st.sessionID, st.s.RecordEpoch()}
+	st.feed = st.r.acquireFeed(st.acquired, st.request.Agent)
+	if err := st.r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
+		return st.abandon(runCtx, err)
+	}
+	return nil
+}
+
+// announceOpen labels the Feed with the Agent's name and publishes the Events
+// the open wrote and the session_loaded Event.
+func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, reused bool, loadTime time.Duration) {
+	label := spec.Name
+	if !known {
+		label = ""
+	}
+	st.feed.SetLabel(label)
+	if st.writer != nil {
+		st.writer.SetPublisher(st.r.publisher(st.acquired, label))
+	}
+	for _, event := range early {
+		st.feed.Publish(event)
+	}
+	if !reused {
+		st.r.notice(loadedEvent(st.sessionID, st.s.Len(), loadTime, nil), label)
+	}
+}
+
+// abandon returns err after a Run that cannot start has released the Session
+// it opened.
+func (st *runState) abandon(runCtx context.Context, err error) error {
+	if st.writer != nil {
+		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+		_ = st.writer.Release(releaseCtx)
+		cancelRelease()
+	}
+	return err
+}
+
+// startRun builds the live Session, queues the notices and follow-on messages
+// that wait for it, and makes the handle reach it.
+func (st *runState) startRun(ctx context.Context, spec Agent) (*gotato.Session, *modelctx.AutoCompactor, error) {
+	r, s, handle, follow := st.r, st.s, st.handle, st.follow
+	onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
+		st.track.set(runID)
+		handle.attachRunID(runID)
+		handle.abortIfStopped()
+	})
+	live, auto, err := r.buildSession(ctx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff())
+	if err != nil {
+		return nil, nil, err
+	}
+	// The notices that wait in the Record are read before this Run queues
+	// any of its own.
+	kept := s.PendingNotices()
+	if follow == nil && !st.request.Continue {
+		// A message that starts a Run after a long absence is followed by
+		// a notice with the time.
+		r.queueTimeAway(ctx, spec, s, live)
+	}
+	if len(kept) > 0 {
+		// Notices that were queued and not committed, by an earlier Run or
+		// by a call between Runs, on this instance or another, go in after
+		// this Run's prompt. The Record is where they wait.
+		queued := make([]gotato.Queued, len(kept))
+		for i, notice := range kept {
+			queued[i] = notice.Queued()
+		}
+		if rest := live.Requeue(queued); len(rest) > 0 {
+			live.DropQueued(rest, "queue_full")
+		}
+	}
+	if follow != nil {
+		// The messages that waited behind the first one wait in this Run's
+		// queues, in order, before anything new can reach them.
+		if rest := live.Requeue(follow.rest); len(rest) > 0 {
+			live.DropQueued(rest, "queue_full")
+		}
+	}
+	st.started = true
+	// From here a stop aborts the Run inside the live Session, so Prompt
+	// still returns the settled (canceled) result. Prompt waits on the
+	// caller's context, not runCtx: a stop that canceled runCtx while the
+	// Session was loading reaches the Run through abortIfStopped instead.
+	handle.attachAbort(live.Abort)
+	handle.attachLive(live)
+	return live, auto, nil
+}
+
+// promptWithDeadline runs the Run's prompt, or its continuation, on the live
+// Session under the Run's deadline: the request's Timeout, else the Agent's
+// RunTimeout. The caller's own deadline on ctx overrides it when it is
+// shorter, as any child context's does.
+func (st *runState) promptWithDeadline(ctx context.Context, spec Agent, live *gotato.Session) (gotato.RunResult, error) {
+	runDeadline := st.request.Timeout
+	if runDeadline == 0 {
+		runDeadline = spec.RunTimeout
+	}
+	if runDeadline == 0 {
+		runDeadline = DefaultRunTimeout
+	}
+	promptCtx := ctx
+	if runDeadline > 0 {
+		var cancelDeadline context.CancelFunc
+		promptCtx, cancelDeadline = context.WithTimeout(ctx, runDeadline)
+		defer cancelDeadline()
+	}
+	switch {
+	case st.request.Continue:
+		return live.Continue(promptCtx)
+	case st.follow != nil:
+		return live.Prompt(promptCtx, st.follow.prompt)
+	default:
+		return live.Prompt(promptCtx, gotato.UserMessage(st.request.Prompt))
+	}
+}
+
+// persist saves the settled Session, even when the Run was canceled, and
+// reports the save. A failed write of the Run is added to its error.
+func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.RunResult) {
+	r, s, writer := st.r, st.s, st.writer
+	if writer == nil {
+		return
+	}
+	// Bound the write so a stalled Store cannot pin the Run (and Drain)
+	// forever.
+	wroteAll := writer.Failed() == nil
+	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+	saveErr := writer.Release(saveCtx)
+	cancelSave()
+	r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(st.saved), saveErr), spec.Name)
+	r.noteFailure(saveErr, s.ID(), spec.Name)
+	if saveErr == nil && wroteAll {
+		// The Session stays in memory, as a cache the store can always
+		// replace; the next Run checks its head.
+		r.keepWarm(writer, spec)
+	}
+	// Only the release failed: every fact of the Run is stored, so the
+	// Run keeps its status. The warning Events above tell the operator,
+	// and the Claim lapses with the Liveness row.
+	if saveErr != nil && !wroteAll {
+		// An earlier write of the Run failed, and the Writer refuses
+		// the release too: keep the Run error and add the persistence
+		// failure so callers can observe both (errors.Is still matches
+		// each).
+		var saveFailure *gotato.RuntimeError
+		if !errors.As(saveErr, &saveFailure) {
+			saveFailure = gotato.ErrorOf(gotato.CodeStoreFailure, saveErr.Error())
+			saveFailure.Cause = saveErr
+			saveErr = saveFailure
+		}
+		// completed never carries an error. The Run's own writes
+		// settle it as failed, so this only guards the rule.
+		if result.Status == gotato.RunStatusCompleted {
+			result.Status = gotato.RunStatusFailed
+			result.Error = saveFailure
+		}
+		persistErr := error(notPersisted{saveErr})
+		if st.runErr == nil {
+			st.runErr = persistErr
+		} else {
+			st.runErr = errors.Join(st.runErr, persistErr)
+		}
+	}
+}
+
+// respond builds the Run's response from its settled result.
+func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result gotato.RunResult) {
+	s, runErr := st.s, st.runErr
+	st.r.noteFailure(runErr, s.ID(), spec.Name)
+	out := RunResponse{
+		SessionID: s.ID(),
+		Agent:     spec.Name,
+		Model:     spec.ModelName,
+		Result:    result,
+		Compacted: auto != nil && compacted(auto),
+		Messages:  s.Len(),
+		Events:    len(s.Events()),
+	}
+	if st.writer != nil {
+		out.RecordEpoch = s.RecordEpoch()
+	}
+	if st.request.SkipSave {
+		// The Run stored nothing: its Events are those of its own stream,
+		// numbered from 1, so the last number counts them.
+		out.Events = int(st.feed.Last())
+	}
+	if result.FinalMessage != nil {
+		out.FinalText = gotato.TextOf(*result.FinalMessage)
+	}
+	if runErr != nil && out.Result.Error == nil {
+		var runtimeErr *gotato.RuntimeError
+		if errors.As(runErr, &runtimeErr) {
+			out.Result.Error = runtimeErr
+		} else {
+			out.Result.Error = gotato.ErrorOf(gotato.CodeInternalInvariant, runErr.Error())
+		}
+		if out.Result.Status == "" {
+			out.Result.Status = runStatusForError(runErr)
+		}
+	}
+	st.out = out
+}
+
+// cleanupUnstarted removes the Session of a one-shot Run that never started,
+// so it does not leave an empty Session behind. A failed cleanup is reported,
+// not discarded.
+func (st *runState) cleanupUnstarted(ctx context.Context, lockErr error) error {
+	deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	deleteErr := st.r.store.Delete(deleteCtx, st.sessionID)
+	cancelDelete()
+	if deleteErr != nil {
+		lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", st.sessionID, deleteErr))
+	}
+	return lockErr
 }
 
 // noteFailure publishes the Instance Event for a write that failed: a
