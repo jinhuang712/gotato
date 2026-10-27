@@ -23,7 +23,7 @@ Do not use `@main` in a service: it moves each time you run it. Until the first 
 
 ## The adapters
 
-`adapter/grpc`, `adapter/mcp` and `adapter/bash` are modules of their own. Each requires the runtime at `v0.0.0`, which does not exist as a tag, so point that requirement at the same commit with one `replace`:
+`adapter/grpc` and `adapter/mcp` are modules of their own. Each requires the runtime at `v0.0.0`, which does not exist as a tag, so point that requirement at the same commit with one `replace`:
 
 ```sh
 go mod edit -replace=github.com/jinhuang712/gotato@v0.0.0=github.com/jinhuang712/gotato@<commit>

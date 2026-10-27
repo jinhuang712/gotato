@@ -70,7 +70,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 |---|---|---|
 | **Agent loop** | `Prompt`, `Continue` and `Abort`; steer, follow up and interrupt a Run in flight | ✅ |
 | **Context management** | built every Turn, your own builder, inspection; automatic compaction into Segments the model can read back | ✅ |
-| **Tools** | Go functions with an Effect; tool search; large results spilled and read back, with a read-only `bash` | ✅ |
+| **Tools** | Go functions with an Effect; tool search; large results spilled and read back in pages | ✅ |
 | **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | 🚧 |
 | **Extensions** | six stages around the loop, from `TurnPreparer` to `TurnStopper` | ✅ |
 | **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own | ✅ |

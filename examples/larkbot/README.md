@@ -9,7 +9,7 @@ A Lark chat bot built on [Gotato](../../README.md), and a local cluster to try i
 - **Ordered retry.** A message that was known not to have run (`not_writer`, `busy`, `draining`, a forward that could not connect) is sent again with backoff, in order per Session.
 - **Cards.** Every reply is a Lark interactive card whose footer names the instance that answered.
 - **Warm Sessions.** One Gotato Session per message thread. A new message starts a Session; a reply continues the Session of its thread. Any instance can pick a Session up from the shared store.
-- **Tools in a multi-instance service.** The `bash` tool over spilled results, an MCP server, and tool search, each checked across a takeover or a restart.
+- **Tools in a multi-instance service.** An MCP server, tool search and spilled results, each checked across a takeover or a restart.
 
 What it is not: a product. It has no users, no persona beyond one constant, no idempotency across instances, and no real model. Replace what you need.
 
@@ -88,7 +88,7 @@ curl -s -X POST localhost:9000/reset
 | `-delay DURATION` | `0` | sleep in every model call, to keep a Run in flight |
 | `-lark-base-url URL` | real Lark | the Lark Open API base URL; point it at `fakelark` |
 | `-lark-events ws\|http` | `ws` | `ws`: long connection. `http`: `POST /lark/event` on `-addr` |
-| `-tools LIST` | none | extra tools: `bash`, `export`, `mcp`, `mcp-search` (see Tools) |
+| `-tools LIST` | none | extra tools: `export`, `mcp`, `mcp-search` (see Tools) |
 
 SIGINT or SIGTERM closes the connection, drains the Runner (running Runs finish and are answered), and closes it.
 
@@ -110,7 +110,6 @@ Duplicates are left to you. Each instance keeps an in-memory set of message IDs 
 
 | `-tools` | What the Agent gets |
 |---|---|
-| `bash` | `bashtool.Tools()` in `Agent.SessionTools`: a read-only bash over the Session's own tool results, so the model can grep or jq a result the core spilled |
 | `export` | test only: a tool whose 1.2 MB result the core spills |
 | `mcp` | the MCP server at `-mcp-url` as a ToolSet, always visible, through `adapter/mcp` over streamable HTTP |
 | `mcp-search` | the same ToolSet in the catalog: the model loads a tool with `search_tools` |
@@ -145,7 +144,6 @@ Each scenario runs against a cold cluster and checks the Records afterwards. The
 | `s3` | scale 3 to 1 to 5 with Runs in flight | pods added by the scale-up take Sessions over |
 | `s4` | bursts into one thread from several pods | `not_writer` forwarding keeps order and the Records stay consistent |
 | `s5` | `ACK_DELAY=4s cluster/run.sh up` first: bots ack late | measures redelivered events; the bot has no cross-instance idempotency |
-| `s6` | `bash` tool, writer killed mid-Run | a spilled result is read by the pod that took over |
 | `s7` | MCP calls in flight while the MCP server restarts and the bot rolls | tool errors are visible, no Run is stuck (`MCP_STATELESS=true` for a stateless server) |
 | `s8` | tool search, writer killed | a tool loaded by search is still loaded after a takeover |
 | `s9` | compaction after a takeover | the loaded tool is unloaded, a Segment is read from another pod |

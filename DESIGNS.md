@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-27 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -289,7 +289,7 @@ A Session's user often comes back long after the provider's cache has expired, a
 
 | Option | For | Against |
 |---|---|---|
-| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same; on Claude that needs a cache marker at the end of the last Segment, which takes the place of the marker at the last Round's start right after a compaction, since Claude takes at most four markers (played by a fake gateway in ROADMAP Phase 10). It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. A merge writes one Recap of the oldest Recaps, and the words of the Segments it merged stay readable with `read_segment`. |
+| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same; on Claude that needs a cache marker at the end of the last Segment, which takes the place of the marker at the last Round's start right after a compaction, since Claude takes at most four markers (played by a fake gateway in ROADMAP Phase 9). It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. A merge writes one Recap of the oldest Recaps, and the words of the Segments it merged stay readable with `read_segment`. |
 | One summary of everything before the kept tail, written again at every compaction | One block, whose size stays bounded. | Each compaction summarizes the summary before it, so early facts blur or drop out, and the whole prefix changes every time. |
 | The provider's own compaction | No code in Gotato. | Its result cannot be read, does not carry over to another model, differs from one provider to the next, and cannot close one Segment at a time. It may become an option later. |
 
@@ -317,7 +317,7 @@ A Session's user often comes back long after the provider's cache has expired, a
 ### A notice is for runtime facts, and a Segment has tags of its own
 
 - **Instead of:** a notice that carries a summary of the history, or history and notices as untagged text.
-- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round (played by fake gateways in ROADMAP Phase 10), so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
+- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round (played by fake gateways in ROADMAP Phase 9), so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
 
 ## 4. A failure stays local
 
@@ -546,120 +546,26 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 - **Instead of:** built-in tools that run commands, code or a browser.
 - **Why:** Gotato is not a cloud coding agent, and a tool that runs anything is a bound nobody can read.
 
-### Reading a large result needs no machine — 2026-10-26
+### Reading a large result is paging, and a bash for it is another project — 2026-10-27
 
-A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)), the question is what the model is given in its place ([FEATURES.md → G-F36](FEATURES.md#g-f36--reading-large-results-)).
+A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)) the model has no `grep`.
 
-The answer is that the model queries its own Session's Record with a read-only subset of bash: no machine, behavior that matches GNU and bash, and a clear error for anything not supported. It has three goals:
+We considered giving it a read-only subset of bash over the Session's Record, and it was built and tested. We keep it out of Gotato for three reasons:
 
-- **Cheap.** Only what the model needs enters the Context.
-- **Fast.** A common lookup takes one call.
-- **Familiar.** The model learns nothing new, so it is right the first time.
+- **MCP tools and `read_result` are enough for now.** Paging is slower than a query, but it works on every result.
+- **It is a large, separate piece of work.** About 9,500 lines of commands, a jq on a library that is not jq, and conformance tests against GNU that run only in CI. Each is work of its own, with its own pace, and none is the agent runtime.
+- **It needs two hooks in the core that nothing else uses.** One gives a tool the Session's Record, the other shows the Record as a directory. A hook is added when a second user needs it.
 
-#### The constraints
+The engine lives in its own project, [go-bash](https://github.com/jinhuang712/go-bash): a command string, an `fs.FS` and `ctx` in; stdout, stderr and an exit code out. It does not import Gotato.
 
-- No machine, no `exec`, no sandbox. The tool is read-only and sees only its own Session.
-- The same Record gives the same output on every instance.
-- A command always ends and honours `ctx` cancellation. Memory is bounded.
-- **Supported means identical.** Every supported command and flag behaves exactly as GNU's, and every supported piece of syntax exactly as bash. Anything else fails with a clear error that lists what is supported. A silent difference gives the model a wrong answer it cannot notice, while a clear error costs one call.
+What we decided, and keep if a bash for large results returns:
 
-#### What was weighed
+- **No machine, no `exec`, no sandbox.** The tool is read-only and sees only its own Session's data.
+- **The same Record gives the same output on every instance.** A command always ends, honours `ctx`, and uses bounded memory.
+- **Supported means identical.** Every supported command, flag and piece of bash syntax behaves exactly as GNU's and bash's, and anything else fails with a clear error. A silent difference gives the model a wrong answer it cannot notice, while a clear error costs one call.
+- **Spill first, query after,** and the model keeps `read_result` as the fallback.
 
-| Option | For | Against |
-|---|---|---|
-| A machine, container or VM for each Session | Everything a shell does works. | It is the machine this page rules out: a cost per Session, a sandbox to keep safe, and a Session that is no longer cheap to rebuild. |
-| OS isolation inside the pod (namespaces, gVisor) | Real commands, with a wall around them. | They need `exec` or privileges that a pod of a service does not have, and a platform team would have to allow them. |
-| An in-process WebAssembly sandbox | No privileges needed. | A shrunken machine with its own footprint and cold start in every instance, to do what a few functions do. |
-| Code mode, where the model writes code that reads the result | One call can do much. | The model's program, not Gotato, decides the steps, so a Run cannot be replayed step by step. |
-| A bash interpreter run as it is | The syntax models know best. | It lets the model express far more than we want to allow: loops that may not end, `exec`, writes. |
-| A query language of our own | Exactly what we need. | Models have not seen it, so they use it badly. |
-| A virtual bash library with few users | Bash without writing it. | A dependency that few people keep up, in every service that embeds Gotato. |
-| Typed reader parameters (`lines`, `grep`, a `json` path) | The standard library only, and each parameter is checked. | The model must learn our parameters, and cannot compose them: what they do not say, it cannot ask. |
-| A pipeline language with a parser of our own | Models know the look of it. | Word expansion (quotes, `$var`, globs) is where a re-implementation drifts from bash, and the model cannot see the drift. |
-| A filter parameter on every tool call | One call, and the large result never spills. | The model must write the filter before it sees the result, which may be JSON of a shape it does not know. Every tool schema grows a parameter, and MCP schemas would be changed. The full result must be spilled anyway, because a tool with side effects cannot be called again. |
-| An own subset of jq | No dependency. | It drifts from jq, which models know best. |
-| gron-style flattening of JSON | Plain `grep` finds a field. | Models know jq better, and the flat form is a new shape to learn. |
-| Paging only | The simplest. | The model reads all of a result to find one line. Paging stays, as the fallback. |
-| **A read-only bash subset over the Session's Record** (chosen) | The model knows it. A common lookup is one pipeline. Nothing runs outside the process. | A set of commands to write and keep, and conformance tests to run. |
-
-#### The decisions
-
-- **Spill first, query after.** The model queries a result it has already seen the start of, and the cost is one more model round trip, only for a result over one page.
-- **It sees the Session's own Record as a read-only directory** (an `fs.FS`). `/results/<call_id>` comes first. `/segments/<n>` and `/files/<name>` (the user's files, once files live in the Record) join later under the same rule.
-- **Structured data goes through jq,** by `github.com/itchyny/gojq` (MIT). jq is the JSON tool models know best, and gojq runs its language. gojq is not jq, so each difference is made to match, refused, or written down ([jq: where it differs from jq](#jq-where-it-differs-from-jq)). jq can loop, so `ctx` and a bound on the output end it. The service gives every Run a deadline, which is the time limit; there is no timer or heap watcher of the engine's own, because in a service many Sessions share one process, and a measure of the whole process's heap could stop one Session's program for another's memory.
-- **The syntax is run by `mvdan.cc/sh` (BSD-3), parser and interpreter.** Before a command runs, Gotato walks the syntax tree and refuses loops, functions, command substitution and writing redirects, with an error that suggests a pipeline. Every handler of the interpreter is taken over: command execution goes to Gotato's own Go commands (no `exec`), file opens go to the read-only `fs.FS`, and the environment is empty. Word expansion is where a re-implementation drifts from bash, and the interpreter matches bash there.
-- **The commands are written by Gotato.** No Go coreutils is both widely used, GNU-faithful and licensed to embed: u-root aims at small embedded systems and opens OS files, and the Go ports of coreutils are GPL-3.0 and little used. A command earns its place by being what a model reaches for when it reads and looks for data.
-- **Protections.** A very long single line, such as minified JSON, is cut with an explicit marker like `[line cut: 1.0 MiB]`, never silently. Output over one page is spilled like any Tool Result, with a preview and a ref, so there is no new concept. Every command answers `--help` with the flags it supports.
-- **The cut is made on the final stdout only.** The writer of the command line's last output keeps the first 8 KiB of each line (`WithMaxLine`, a quarter of a page, ending at a character boundary) and writes the marker, which gives the size of the whole line. A cut between the stages of a pipeline would change what `grep` or `jq` reads, so the stages keep whole lines, up to 16 MiB. The writer holds one line's first 8 KiB, so its memory is bounded.
-- **The spill belongs to the layer above.** The engine hands back the output up to `WithMaxOutput` and `Result.Truncated`; the Gotato layer decides what one page is and spills the rest into the Record.
-- **GNU conformance tests run only in development and CI,** never at runtime.
-
-#### The first commands
-
-| Command | Supported |
-|---|---|
-| `ls` | `-1 -a -A -d -l -h -r -S`; sorted by name, one per line |
-| `echo` | the builtin of bash: `-n -e -E` |
-| `base64` | `-d -i -w` |
-| `wc` | `-l -w -m -c` |
-| `cat` | `-n` |
-| `head`, `tail` | `-n -c -q -v`, `-NUM`, and `+NUM` for `tail`; `tail` has no `-f` |
-| `cut` | `-b -c -d -f -s --complement` |
-| `tr` | `-d -s -c`, ranges and classes |
-| `sort` | `-n -r -u -k -t -f -s -b`, in the order of the `C.UTF-8` locale |
-| `uniq` | `-c -d -u -i` |
-| `sed` | `-n` with line-number addresses and ranges (`N`, `$`, `N,M`, `N,$`) of `p` only |
-| `grep` | `-i -v -c -n -o -E -F -G -e -w -x -l -q -H -h -r -A -B -C` |
-| `jq` | the language of jq 1.7 through gojq: `-r -j -c -s -n -R -e -S -a -M --tab --indent --arg --argjson` |
-
-The commands follow a UTF-8 locale, `C.UTF-8`, and the conformance tests run under `LC_ALL=C.UTF-8`. `sort` orders by code point, so upper case letters come before lower case, which is what GNU `sort` does in that locale, and not the collation of a language. `tr` and `cut -c` work on bytes, as GNU's do; `wc -m` and `grep` count UTF-8 characters. `sort` holds its input, up to 64 MiB, and fails past it with an error that says so.
-
-Three things differ from GNU on purpose, and each is written in the command's `--help` or the table of the tests: an error that GNU words with the quotation marks of the locale is worded with plain quotes; `ls -l` writes the owner `root`, the time with its year, and the total in 4 KiB blocks, since a result has no owner and no block count; and `wc < file` pads as `wc` does for a pipe, because the interpreter hides the file behind a redirect.
-
-Later, when a need shows: `awk` (through goawk, MIT), `sed` substitution, `nl`, `column`, `diff` and `comm`, CSV with quoted fields, URL and HTML decoding, here-strings. Never: `date`, `$RANDOM`, environment variables (they break same-Record-same-output), the network, writing files, `xargs`, `tee`, `find -exec`, compiling, git, processes.
-
-#### jq: where it differs from jq
-
-gojq runs the language of jq, and it is a different program. Each difference is made to match, refused, or written down, so that the model never gets a silently different answer. CI compares the cases that match with jq 1.7.1, the version `ubuntu-latest` installs.
-
-| Difference | What we do |
-|---|---|
-| Output format: indent, string escapes (DEL as `\u007f`), number form (`1e+17`, `1.5e-07`), `-S`, `-a`, `--tab`, `--indent` | Made to match. The writer is ours, and the cases are compared with jq. |
-| Input: invalid UTF-8, BOM, duplicate keys, a number too large, how deep a value nests | Made to match. The parser is ours. |
-| Exit statuses (0, 2, 3, 5, and the `-e` ones), `$ARGS`, `input_filename`, `halt_error`, `debug`, `stderr` | Made to match. |
-| `now`, `localtime`, `strflocaltime`: the output would depend on the clock or the machine | Refused, with an error that says why. `gmtime`, `mktime` and `strftime` work. |
-| `import`, `include`: there are no files to load a module from | Refused. |
-| `$ENV` and `env` | Empty, so the output does not depend on the process. |
-| Input too large, a program that does not end | A bound of 32 MiB of input, a bound on the output, and `ctx`. Input over the bound is an error that says so. A program that writes output ends at the output bound, and any program ends at the deadline of the Run. |
-| **A program that builds a huge value without writing output** (`[range(1e9)]`) | Written down as a known limit. Only the deadline of the Run ends it, and it holds memory until then. A heap bound or a time limit of the engine's own was tried and removed: a measure of the whole process is wrong in a service, and a fixed number is wrong for some deployment. |
-| Regular expressions are RE2's, with no back-references or look-around | Written down. A pattern RE2 cannot take is an error. |
-| `$__loc__`, `input_line_number`, `keys_unsorted` are not defined | A compile error that names the function. |
-| The words of an error, and of a filter that does not compile | Written down. The exit status is jq's. |
-| An integer is exact at any size, where jq 1.7 loses digits once it calculates | Written down. gojq's answer is the more exact, never the less. |
-| A number that is not an integer is written as its value (`1.10` is `1.1`, `3.0` is `3`), and inside `tojson`, `tostring`, `@text`, `@csv` and interpolation in gojq's form (`1.5e-7`) | Written down. The value is the same. |
-| **The order of the keys of an object** | Written down, and kept as far as it can be (below). |
-
-The order of keys is the one that can mislead. jq keeps the order of the input, and gojq keeps none: its objects are Go maps, so `jq .` would sort every object. What was weighed:
-
-| Option | For | Against |
-|---|---|---|
-| Sorted keys, as gojq does | Simple, and always the same. | Even `jq .` changes how the model sees a record, for no reason. |
-| A fork of gojq with an ordered object | Exact. | About 70 places of its value model change, and Gotato would carry a fork of a library. |
-| Refuse the programs whose output depends on order | Never wrong. | Most real programs, `to_entries`, `.[]` and `del` among them, would be refused on ordinary JSON. |
-| **Keep the input order of an object that reaches the output unchanged** (chosen) | `jq .`, `.items[0]` and `.[]` over records show the input order, which is what the model reads most. | An object the filter builds or changes has sorted keys, and what walks the keys (`.[]` on an object, `to_entries`, `paths`, `tojson`) sees them sorted. |
-
-The parser records the key order of each object whose keys are not already sorted, in a table keyed by the identity of the Go map, and the writer looks an object up in it when it writes. An object the filter changes is a new map, so it is not found and is written sorted. The one thing that can mislead is the model reading "the first key" from a listing and then asking `to_entries` for it. `jq --help` names the difference, so the model can read it, and it is the one known difference of its kind. If a real use shows it matters, the fork is the way to remove it.
-
-#### Where it lives
-
-- **A module of its own** inside the repository, as `adapter/mcp` is: `adapter/bash`. Its engine, package `bash`, does not import Gotato (it takes a command string, an `fs.FS` and `ctx`, and returns stdout, stderr and an exit code; it depends on `mvdan.cc/sh`, gojq and the standard library), so it can move to a repository of its own once it is stable.
-- **A thin Gotato layer** in a sub-package of the same module, `adapter/bash/bashtool`, wraps the engine as a Tool named `bash` (Effect read, one parameter, `command`). Only that sub-package requires Gotato, through a `replace` to the root, as `adapter/mcp` does; the root module never imports it. A call runs the engine over `session.ResultsFS` of the calling Session with the call's `ctx`, and the engine's output bound is four pages. Output over one page is spilled by the core like any Tool Result, and the spilled output is itself a file of `/results`, so the model can query it again. The tool is described as a read-only bash subset that queries this Session's data, so a model that tries full bash gets a clear error and corrects in one call. The description is the same bytes for every Session.
-- **The tool reads the result as the model does.** stdout comes first as it is; a `[stderr]` section, a note when the output was cut, and `[exit code: N]` follow when there is something to say. A refused command and a non-zero exit are Tool Results the model reads, not failed ones: `grep`'s exit 1 means no match, and a refusal tells the model what to write instead.
-- **How a Session's data reaches a tool.** `service.Agent.SessionTools` takes functions that run when a live Session reads its tools, and give each the Session's own `*session.Record` and the Runner's store, as the built-in `read_result` is given them. The hook is generic, so another tool that queries a Session's own data uses it too. Its Tools are within the Agent's `MaxEffect` like any other.
-- **The core adds one thing:** it exposes a Session's Record as a read-only `fs.FS`, from the standard library alone. The root module still imports only the standard library. `read_result` stays as the fallback for a service that does not install the module.
-- **Review.** When the chat bot of Phase 10 runs, the command list is reviewed against real use. Gotato runs no checks against real providers, so the choice is made on reasoning and reviewed there.
-
-This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process, the syntax is checked before it runs, and the tool can read one Session's data and nothing else.
+This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process.
 
 ### Tools are Go functions or MCP tools
 
