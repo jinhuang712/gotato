@@ -20,7 +20,7 @@ type weatherInput struct {
 	Notes map[string]string `json:"notes,omitempty"`
 	Extra struct {
 		Nested string `json:"nested"`
-	} `json:"extra,omitempty"`
+	} `json:"extra,omitzero"`
 	Skipped string `json:"-"`
 	private string //nolint:unused // fixture: the derived schema must skip unexported fields
 }

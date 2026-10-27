@@ -15,7 +15,8 @@ import (
 // validates before the executor runs.
 //
 // Field rules follow encoding/json: the `json` tag renames a field, `-` skips
-// it, and `omitempty` marks it optional. A pointer field is optional too. The
+// it, and `omitempty` or `omitzero` marks it optional. A pointer field is
+// optional too. The
 // `description` tag documents a field and the `enum` tag lists its allowed
 // string values, comma separated.
 //
@@ -138,9 +139,9 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 		name, options, _ := strings.Cut(tag, ",")
 		for option := range strings.SplitSeq(options, ",") {
 			switch option {
-			case "", "omitempty":
+			case "", "omitempty", "omitzero":
 			default:
-				// encoding/json options other than omitempty (notably
+				// encoding/json options other than omitempty and omitzero (notably
 				// ",string") change how a field is encoded but have no
 				// representation in the generated Schema. Reject them at
 				// construction rather than emit a Schema the decoder rejects.
@@ -197,7 +198,7 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 			}
 		}
 		properties[name] = child
-		optional := field.Type.Kind() == reflect.Pointer || strings.Contains(options, "omitempty")
+		optional := field.Type.Kind() == reflect.Pointer || strings.Contains(options, "omitempty") || strings.Contains(options, "omitzero")
 		if !optional {
 			*required = append(*required, name)
 		}
