@@ -14,27 +14,6 @@ import (
 // summaryTime is how a Summary writes a time.
 const summaryTime = "2006-01-02T15:04:05.000Z07:00"
 
-// ErrNotFound is returned by stores for an unknown Session ID.
-var ErrNotFound = gotato.ErrorOf(gotato.CodeNotFound, "session: not found")
-
-// ErrExists is returned by Store.Create for an ID the store already holds.
-var ErrExists = gotato.ErrorOf(gotato.CodeInvalidState, "session: already exists")
-
-// ErrOldLayout is returned by the file store for an ID held in a layout of an
-// earlier version, which it refuses to read. Gotato does not migrate it: the
-// error names the path, and the team moves it away or deletes it.
-var ErrOldLayout = gotato.ErrorOf(gotato.CodeNotSupported, "session: the file store holds this Record in an earlier layout, which is not read")
-
-// ErrConflict is returned by Store.Append when the position after its head is
-// already taken, or the head is not where the writer read it: another writer
-// wrote first. It carries gotato.CodeConflict.
-var ErrConflict = gotato.ErrorOf(gotato.CodeConflict, "session: another writer wrote to this Record first")
-
-// ErrExpired is returned by Store.Beat for a Liveness row that has expired.
-// An expired row never comes back to life: its Instance must start again
-// with a new identity.
-var ErrExpired = gotato.ErrorOf(gotato.CodeInvalidState, "session: liveness row expired")
-
 // Summary is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
 type Summary struct {

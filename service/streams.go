@@ -15,13 +15,6 @@ import (
 // Events that another Instance wrote.
 const defaultStreamPoll = time.Second
 
-// ErrCannotResume is returned by StreamSession when the position a client
-// holds no longer means what it did: the Record's epoch is not the one the
-// client saw, because the Record was deleted and created again under the same
-// ID, or the number is past the Record's last Event. The client starts over
-// from the first Event.
-var ErrCannotResume = gotato.ErrorOf(gotato.CodeCannotResume, "service: the stream cannot resume from that position")
-
 // reconnectBase and reconnectJitter set how long a caller waits before it
 // reconnects: the jitter keeps the callers of one instance from all coming
 // back at the same instant.

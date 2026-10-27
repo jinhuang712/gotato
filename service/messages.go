@@ -54,10 +54,6 @@ type MessageResult struct {
 	Run    *RunResult `json:"run,omitempty"`
 }
 
-// ErrNoRun is returned by AbortSession when no Run is going on the Session,
-// here or on the Instance that writes it: a Stop finds nothing to stop.
-var ErrNoRun = gotato.ErrorOf(gotato.CodeInvalidState, "service: session has no active run")
-
 // notWriter answers a message for a Run that another Instance writes. It was
 // not run, and a retry at the writer may succeed. The address is the writer's
 // advertised one, absent when it advertises none.

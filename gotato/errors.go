@@ -203,3 +203,9 @@ func IsCode(err error, code ErrorCode) bool {
 	var re *RuntimeError
 	return errors.As(err, &re) && re != nil && re.Code == code
 }
+
+var (
+	// ErrEventsLost ends a Subscription that needs Events its source no longer
+	// holds.
+	ErrEventsLost = ErrorOf(CodeCannotResume, "gotato: the Events this subscriber missed are no longer available")
+)

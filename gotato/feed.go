@@ -33,10 +33,6 @@ type EventSource interface {
 	EventsAfter(ctx context.Context, after uint64, limit int) ([]Event, error)
 }
 
-// ErrEventsLost ends a Subscription that needs Events its source no longer
-// holds.
-var ErrEventsLost = ErrorOf(CodeCannotResume, "gotato: the Events this subscriber missed are no longer available")
-
 const (
 	defaultSubscriptionBuffer = 256
 	catchUpBatch              = 128
