@@ -47,6 +47,9 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeLimitExceeded:         http.StatusTooManyRequests,
 	gotato.CodeContextOverflow:       http.StatusUnprocessableEntity,
 	gotato.CodeDeadlineExceeded:      http.StatusGatewayTimeout,
+	// A Run that was aborted answers 200 with its canceled result; canceled
+	// reaches a status only when the caller left before anything ran, so the
+	// status is seen in the server's log, not by a client.
 	gotato.CodeCanceled:              http.StatusRequestTimeout,
 	gotato.CodeModelFailure:          http.StatusInternalServerError,
 	gotato.CodeModelProtocolFailure:  http.StatusInternalServerError,
