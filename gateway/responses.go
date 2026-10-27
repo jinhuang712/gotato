@@ -71,7 +71,10 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 				return nil, ctx.Err()
 			}
 			if attempt < c.maxRetries {
-				if err := wait(ctx, withJitter(c.retryBackoff*time.Duration(attempt+1))); err != nil {
+				delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
+				// The error text can name hosts, and Events reach clients.
+				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the request could not be sent"})
+				if err := wait(ctx, delay); err != nil {
 					return nil, err
 				}
 				continue
@@ -86,7 +89,9 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 		_ = response.Body.Close()
 		retryable := retryableStatus(response.StatusCode, message)
 		if retryable && attempt < c.maxRetries {
-			if err := wait(ctx, c.retryDelay(response.Header, attempt)); err != nil {
+			delay := c.retryDelay(response.Header, attempt)
+			gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: fmt.Sprintf("the provider answered %d", response.StatusCode)})
+			if err := wait(ctx, delay); err != nil {
 				return nil, err
 			}
 			continue

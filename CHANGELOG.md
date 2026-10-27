@@ -4,6 +4,10 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A Responses retry is reported as `model_retried`
+
+The gateway repeated a Responses API request after a transport error or a 429/5xx without telling the Session, so no `model_retried` Event was stored. It now reports each retry, with the attempt, the wait and why, as the Chat Completions and Anthropic Messages calls already did.
+
 ### The gateway takes the three wire protocols by their own names
 
 **Breaking**: before the first release nothing keeps an old spelling. `Config.API` and the `api:` key of the YAML file accepted three aliases. They are refused now, with the error that names the supported values.
