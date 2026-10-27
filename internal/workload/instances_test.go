@@ -819,7 +819,10 @@ func TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight(t *testing.T) {
 	// A Session that hashes to the victim: the proxy will send it there first.
 	var target string
 	var ids []string
-	for range 60 {
+	// Which instance an id hashes to is not up to the test (the ring is keyed
+	// by instance names with a random suffix), so create until the victim owns
+	// one, and at least 60 exist.
+	for i := 0; i < 400 && (target == "" || len(ids) < 60); i++ {
 		id := c.create(task)
 		ids = append(ids, id)
 		if target == "" && c.proxy.owner(id) == victim.name {
