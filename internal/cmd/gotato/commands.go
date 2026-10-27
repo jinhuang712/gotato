@@ -126,7 +126,7 @@ func (c *cli) cmdSession(args []string) int {
 		return code
 	}
 	if len(args) == 0 {
-		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, message, notice, cancel, delete")
+		return c.usageError("session needs a subcommand: create, list, show, fork, events, resume, message, notice, abort, delete")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {

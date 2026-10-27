@@ -2,7 +2,7 @@
 // packages. It is not shipped and promises no contract.
 //
 //	gotato run [--session ID] [--model echo|demo|gateway] [--json|--events jsonl] "prompt"
-//	gotato session create|list|show|fork|events|resume|message|cancel
+//	gotato session create|list|show|fork|events|resume|message|notice|abort|delete
 //	gotato context inspect|build|compact <session>
 //	gotato tools list|describe|active|activate|deactivate
 //	gotato events --session <id> [--jsonl|--json]
@@ -61,7 +61,6 @@ type cli struct {
 	json     bool
 	jsonl    bool
 	quiet    bool
-	noColor  bool
 	timeout  time.Duration
 
 	// runners are the Runners this invocation built. They are closed when it
@@ -144,7 +143,6 @@ func (c *cli) bindCommon(fs *flag.FlagSet) {
 	fs.BoolVar(&c.json, "json", c.json, "machine-readable JSON output on stdout")
 	fs.BoolVar(&c.jsonl, "jsonl", c.jsonl, "machine-readable JSON Lines output on stdout")
 	fs.BoolVar(&c.quiet, "quiet", c.quiet, "suppress human-oriented output and diagnostics that are not errors")
-	fs.BoolVar(&c.noColor, "no-color", c.noColor, "accepted for compatibility; the CLI never emits ANSI color")
 	fs.DurationVar(&c.timeout, "timeout", c.timeout, "overall deadline for the command (0 = none)")
 }
 
@@ -420,7 +418,7 @@ Usage:
 
 Commands:
   run        [--session ID] [--model echo|demo|gateway] [--compact-ceiling N] [--json|--events jsonl] "prompt"
-  session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | message <id> [--kind steer|follow_up|interrupt] "text" | cancel <id> | delete <id>
+  session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | message <id> [--kind steer|follow_up|interrupt] "text" | notice <id> --kind K "text" | abort <id> | delete <id>
   context    inspect <id> | build <id> | compact <id> [--keep-messages N] [--recap truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
@@ -431,7 +429,7 @@ Commands:
 Global flags (also accepted after the command):
   --store DIR   session store directory (default $GOTATO_HOME/sessions or ~/.gotato/sessions)
   --json        JSON output on stdout      --jsonl   JSON Lines output on stdout
-  --quiet       suppress non-error output  --no-color  accepted; output is never colored
+  --quiet       suppress non-error output
   --timeout D   overall deadline, e.g. 30s
 
 Exit codes: 0 ok · 1 runtime error · 2 usage error · 3 not found · 4 run did not complete
