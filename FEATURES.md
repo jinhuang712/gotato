@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-27 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -1498,7 +1498,7 @@ The same thing is written the same way on every Event. A duration is a number of
 | `message_queued` | a Steer, FollowUp or Interrupt waits for its point in the Run | Record |
 | `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp or an Interrupt | Record |
 | `message_dropped`, `message_rejected` | a waiting message (with the source `notice`, a notice) is dropped, with why (the Run was stopped: `run_ended`; the instance drains: `draining`; the writer failed: `writer_failed`; the next Run's queue is full: `queue_full`; the Session closed: `session_closed`), or refused because the queue is full | Record |
-| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue (`label`, `source`, `text`), and goes into the Transcript right before a model call (`message`, and `queued`, the number of its `notice_queued`; absent for a notice of Gotato's own, which is committed at once) | Record |
+| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue (`notice_kind`, `source`, `text`), and goes into the Transcript right before a model call (`message`, and `queued`, the number of its `notice_queued`; absent for a notice of Gotato's own, which is committed at once) | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
 *Claims*

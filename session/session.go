@@ -557,7 +557,7 @@ func (s *Record) foldNotice(event gotato.Event) {
 		if e.Source != gotato.NoticeSourceService {
 			return
 		}
-		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.Label, Source: e.Source, Text: e.Text, Number: e.Number})
+		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.NoticeKind, Source: e.Source, Text: e.Text, Number: e.Number})
 	case gotato.NoticeCommitted:
 		s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.Number == e.Queued && e.Queued != 0 })
 	case gotato.MessageDropped:

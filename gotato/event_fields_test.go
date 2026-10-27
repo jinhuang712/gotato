@@ -17,7 +17,7 @@ func TestEventFieldsAreWrittenOneWay(t *testing.T) {
 	}{
 		{ToolLoaded{ToolID: "crm.get"}, map[string]any{"kind": "tool_loaded", "tool_id": "crm.get"}, []string{"tool"}},
 		{ToolUnloaded{ToolID: "crm.get"}, map[string]any{"kind": "tool_unloaded", "tool_id": "crm.get"}, []string{"tool"}},
-		{NoticeQueued{Label: "order_update"}, map[string]any{"kind": "notice_queued", "label": "order_update"}, []string{"notice_kind"}},
+		{NoticeQueued{NoticeKind: "order_update"}, map[string]any{"kind": "notice_queued", "notice_kind": "order_update"}, []string{"label"}},
 		{ToolEnded{}, map[string]any{"tool_id": ""}, nil},
 		{ToolResultSpilled{}, map[string]any{"tool_id": ""}, nil},
 		{TurnEnded{ElapsedMS: 1.25}, map[string]any{"elapsed_ms": 1.25}, nil},

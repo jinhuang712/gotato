@@ -531,11 +531,11 @@ type MessageCommitted struct {
 type NoticeQueued struct {
 	Header
 	MessageID MessageID `json:"message_id"`
-	// Label is the notice's kind (Message.Notice.Kind); it is not called Kind
-	// because "kind" in the JSON names the Event.
-	Label  string       `json:"label"`
-	Source NoticeSource `json:"source"`
-	Text   string       `json:"text"`
+	// NoticeKind is the notice's kind (Message.Notice.Kind); the Event's own
+	// kind is in `kind`.
+	NoticeKind string       `json:"notice_kind"`
+	Source     NoticeSource `json:"source"`
+	Text       string       `json:"text"`
 }
 
 // NoticeCommitted: a notice enters the Transcript, right before a model call.

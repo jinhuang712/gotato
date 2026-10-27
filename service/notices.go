@@ -136,7 +136,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		default:
 			written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
 				Header:    gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0),
-				MessageID: message.ID, Label: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
+				MessageID: message.ID, NoticeKind: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
 			}})
 		}
 		publish := r.publisher(feedKey{writer.ID(), writer.Record().RecordEpoch()}, agentName)

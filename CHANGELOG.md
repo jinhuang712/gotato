@@ -4,6 +4,14 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A notice_queued Event names the notice's kind `notice_kind`
+
+**Breaking**: before the first release nothing keeps an old name. `NoticeQueued.Label` held the notice's kind (`Message.Notice.Kind`). It cannot be called `Kind`, because `kind` in the Event JSON names the Event, so it is `NoticeKind`, and the key says the same.
+
+| Before | After |
+|---|---|
+| `NoticeQueued.Label` (`label`) | `NoticeQueued.NoticeKind` (`notice_kind`) |
+
 ### A RecordInfo's times are `time.Time`
 
 **Breaking**: before the first release nothing keeps an old form. `session.RecordInfo` held its times as strings in a fixed millisecond format, while `Record.CreatedAt()`, `UpdatedAt()` and `LastRunEnd()` returned `time.Time`. The three fields are `time.Time` now. On the wire (a store's JSON, `GET /v1/sessions`, a Session summary) they are RFC 3339 with as many fraction digits as the time has, where they had three. `last_run_end` is left out when no Run has ended (`omitzero`). `RecordInfo.Epoch()` of a Record written before epochs is unchanged: `created-` and the creation time to the millisecond.
@@ -49,7 +57,6 @@ The same thing is written the same way in Go and on the wire. Before, a duration
 |---|---|
 | `RunEnded.ElapsedMS`, `TurnEnded.ElapsedMS`, `RunMetrics.ElapsedMS`, `ModelRetried.WaitMS` (`int64`, whole milliseconds) | `float64` milliseconds, with the sub-millisecond part, like `SessionLoaded`, `SessionSaved` and `ToolEnded`; keys `elapsed_ms`, `wait_ms` unchanged |
 | `ToolLoaded.Tool`, `ToolUnloaded.Tool` (`tool`) | `ToolID` (`tool_id`) |
-| `NoticeQueued.NoticeKind` (`notice_kind`) | `Label` (`label`); `Kind` is taken by the Event's own `kind` |
 | `ToolEnded.ToolID`, `ToolResultSpilled.ToolID` (`tool_id,omitempty`) | `tool_id`, always written |
 | `ModelRequest.Options` (`options`) | `ModelRequest.Config` (`config`) |
 | `ToolUse.QualifiedID` (`qualified_id`) | `ToolUse.ToolID` (`tool_id`) |

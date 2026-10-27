@@ -133,7 +133,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		return reject("queue_full", runtimeError(CodeLimitExceeded, "Notice", "notice queue is full", nil))
 	}
 	written, werr := a.writeEvents(ctx, []Event{NoticeQueued{
-		Header: a.nowHeader(), MessageID: message.ID, Label: message.Notice.Kind,
+		Header: a.nowHeader(), MessageID: message.ID, NoticeKind: message.Notice.Kind,
 		Source: message.Notice.Source, Text: TextOf(message),
 	}})
 	if werr != nil {
