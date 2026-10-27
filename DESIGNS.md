@@ -98,7 +98,7 @@ Events are facts a program can read, instead of log lines. A Session's Record an
 
 | Option | For | Against |
 |---|---|---|
-| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP and CLI contracts change version. |
+| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP contract changes version. |
 | Events replace the log entries only | Half the duplication goes. | Facts and Events still say the same things twice. |
 | Events kept apart from the Record | No change. | Everything is said twice, and only one instance can resume a stream. |
 
@@ -366,13 +366,13 @@ A caller that gets an error has two questions before it reads the code: did anyt
 | Option | For | Against |
 |---|---|---|
 | **The runtime sets both answers on the error, and every surface translates** (chosen) | A service that embeds the Runner and never meets HTTP reads the same answers as a client behind a load balancer. A new code is classified once, where it is made. | The runtime names two facts that look like transport concerns. |
-| Each surface infers them from the code | Nothing in the runtime changes. | HTTP and the CLI each keep a copy, and they drift: a draining instance's refusal was not marked "not run" because only HTTP knew one code that was. An embedding service gets no answer at all. |
+| Each surface infers them from the code | Nothing in the runtime changes. | HTTP and each embedding service keep a copy, and they drift: a draining instance's refusal was not marked "not run" because only HTTP knew one code that was. An embedding service gets no answer at all. |
 | The caller infers them from the code | Simple for the runtime. | Every caller learns which codes are safe, and a new code silently breaks the rule. |
 
 - **Three answers on every error.** The code says what happened. `gotato.NotRun(err)` is true when nothing with side effects happened, so the request is safe to send to another instance. `gotato.Retryable(err)` is true when the same request, sent again later, may succeed. Both look through wrapped errors.
 - **Not run is a promise, so the default is no.** A store failure may have run, and a Run that reached the model has run. Only a refusal made before a Run starts says yes: draining, past a limit, busy, no such Session.
 - **A Run that started never says `completed` and carries an error.** A Run ends with three writes: the reply, the end of the Run (`run_ended`), and the release of the Session. When the reply or the end cannot be written, the Run settles as `failed` with `store_failure`: the store is the truth ([DESIGNS.md → The store is the only truth](#1-the-store-is-the-only-truth)), so a Run the store does not hold is not a success. When only the release fails, every fact of the Run is stored, so it stays `completed`, and an Event warns the operator. There is no status in between. A caller that reads only the status is not misled. A Run refused before it started has no status at all.
-- **Surfaces keep one table from code to status.** HTTP and the CLI each map every code on purpose, and a test fails when a code has no entry, so a new code cannot be forgotten.
+- **Surfaces keep one table from code to status.** The HTTP layer maps every code on purpose, and a test fails when a code has no entry, so a new code cannot be forgotten.
 
 ### A Session never waits for a subscriber
 
@@ -437,11 +437,11 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 
 ### Dependencies point inward
 
-- **Instead of:** behavior that only the CLI or only the service has, or a core that knows about the service.
-- **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato/layering_test.go` keeps each layer building only on the layers inside it:
+- **Instead of:** behavior that only the service has, or only the test CLI has, or a core that knows about the service.
+- **Why:** every behavior lives in the packages first, so the library and the service behave the same, and the test CLI, a thin client of the packages, shows it. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato/layering_test.go` keeps each layer building only on the layers inside it:
 
 ```text
-cmd/gotato  ──►  service, service/httpapi  ──►  session, modelctx, testkit  ──►  core
+a service  ──►  service, service/httpapi  ──►  session, modelctx, testkit  ──►  core
                                            MCP adapter  ──────────────────────────────────────────────────►  core
 ```
 
@@ -483,7 +483,7 @@ Running a Session on many instances raises two kinds of problem: getting a reque
 ### No authentication
 
 - **Instead of:** built-in authentication, OAuth or a tenant model.
-- **Why:** every service already authenticates its callers in its own way, and decides in its own way who may touch which Session. Gotato passes the request's `context.Context`, with its values, to every store and extension call it makes for that request, so the application's own code sees the caller where it enforces its rule. A refusal is `not_found`: a store wrapper returns `session.ErrNotFound` for a Session the caller does not own, which answers 404 on HTTP and exit 3 on the CLI, and does not reveal that the Session exists. Gotato adds no identity type, no "not allowed" error and no hook, and work it starts on its own, such as an idle compaction, has no caller ([FEATURES.md → G-N22](FEATURES.md#g-n22--access-control-belongs-to-applications)).
+- **Why:** every service already authenticates its callers in its own way, and decides in its own way who may touch which Session. Gotato passes the request's `context.Context`, with its values, to every store and extension call it makes for that request, so the application's own code sees the caller where it enforces its rule. A refusal is `not_found`: a store wrapper returns `session.ErrNotFound` for a Session the caller does not own, which answers 404 on HTTP, and does not reveal that the Session exists. Gotato adds no identity type, no "not allowed" error and no hook, and work it starts on its own, such as an idle compaction, has no caller ([FEATURES.md → G-N22](FEATURES.md#g-n22--access-control-belongs-to-applications)).
 
 ### No global scheduling or quotas
 
@@ -508,7 +508,7 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 ### No clients and no user interfaces
 
 - **Instead of:** bundled bots, schedulers, front ends or terminal UIs.
-- **Why:** callers write their own. Gotato provides the HTTP handler and the Go API they call, and its own human-facing surface is CLI output.
+- **Why:** callers write their own. Gotato provides the HTTP handler and the Go API they call, and it has no human-facing surface of its own.
 
 ### Embedding never forces an upgrade
 
@@ -518,7 +518,7 @@ Databases model schemas differently, and teams run different telemetry stacks, s
 ### A named, versioned contract
 
 - **Instead of:** changes that slip in unannounced.
-- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the core and standard runtime packages; the CLI's commands, flags, JSON fields and exit codes; the Event types, their names and their fields; the HTTP contract, which carries its own version (`"1"` at the first release); the store contract; and the places where many instances behave differently from one. Until the first release, any part of it may change: Gotato keeps no old names and no compatibility shims, and every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), so a break is never silent. Before the first release nothing carries a version number; the first release is version 1 (the CLI's `gotato version` and the `ContractVersion` of HTTP). From then on additions are free, and a break is rare, has its entry, and raises the version. Consumers tolerate unknown Event kinds either way.
+- **Why:** a service builds against Gotato, so it needs to know what can change under it. The contract is the exported identifiers of the core and standard runtime packages; the Event types, their names and their fields; the HTTP contract, which carries its own version (`"1"` at the first release); the store contract; and the places where many instances behave differently from one. Until the first release, any part of it may change: Gotato keeps no old names and no compatibility shims, and every break has a before-and-after entry in [CHANGELOG.md](CHANGELOG.md), so a break is never silent. Before the first release nothing carries a version number; the first release is version 1 (the `ContractVersion` of HTTP). From then on additions are free, and a break is rare, has its entry, and raises the version. Consumers tolerate unknown Event kinds either way.
 
 ## 7. Serve purpose-built agents
 
@@ -659,7 +659,7 @@ A second instance must stop before it calls the model, and a writer that lost it
 ### An instance removes its liveness row when it stops
 
 - **Instead of:** keeping every ended row, or a sweeper and a new store call that delete rows long expired.
-- **Why:** the instance that wrote the row knows when it is done with it, and most rows end there: every rolling deploy and every CLI command stops gently. A removed row reads as not alive, so every claim that names it ends, as when a row expires. A stopped instance never writes again, so its row never comes back. The row of an instance that died stays, expired, which keeps it from ever being renewed.
+- **Why:** the instance that wrote the row knows when it is done with it, and most rows end there: every rolling deploy and every process that ran a Runner stops gently. A removed row reads as not alive, so every claim that names it ends, as when a row expires. A stopped instance never writes again, so its row never comes back. The row of an instance that died stays, expired, which keeps it from ever being renewed.
 
 ## 9. A Session can be stopped and seen
 

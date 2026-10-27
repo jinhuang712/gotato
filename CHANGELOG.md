@@ -6,6 +6,15 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### The CLI is a test tool, not a deliverable
+
+`gotato` is no longer shipped or versioned. It moved to `internal/cmd/gotato` and is our own test tool, a thin client of the packages. Its commands, flags, JSON fields and exit codes promise nothing. **Breaking** for anything that installed it.
+
+```text
+before  go install github.com/jinhuang712/gotato/cmd/gotato@latest
+after   none; in this repository: go run ./internal/cmd/gotato
+```
+
 ### An Agent's reference text is part of its instruction
 
 The "Static block" is gone. Reference text an Agent carries, such as a schema or a runbook, is written into its instruction. `modelctx.FullHistory()` was an alias of the core builder. `ErrOldSummary` refused a Record compacted before Segments existed; no such Record exists.
@@ -139,12 +148,11 @@ FEATURES.md renames G-F10 from "Tool sets and the registry" to "Tool sets", and 
 
 ### Contract versions
 
-Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (the HTTP `ContractVersion` `"2"` to `"4"` and the CLI's `"2"`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.
+Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (the HTTP `ContractVersion` `"2"` to `"4"`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.
 
 | | before | after |
 |---|---|---|
 | HTTP `ContractVersion` (`GET /healthz` `contract`, `gotato serve` `contract`) | `"4"` | `"1"` |
-| CLI contract version (`gotato version`, `gotato doctor` `version`) | `"2"` | `"1"` |
 
 ### Removed
 

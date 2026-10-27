@@ -3,7 +3,7 @@
 
 What to do when a service built on Gotato misbehaves, found by what you see. Gotato is a library and sends no alerts of its own, so this runbook starts from the code, status or Event you see, not from an alert name. Your team owns on-call and paging.
 
-This is a first version. No team has run Gotato in production yet, so it holds only what the code does today. Each row was copied from [FEATURES.md](FEATURES.md) and [cmd/gotato/README.md](cmd/gotato/README.md) and has **not yet been verified by running it**. Add a row when a real incident needs one.
+This is a first version. No team has run Gotato in production yet, so it holds only what the code does today. Each row was copied from [FEATURES.md](FEATURES.md) and has **not yet been verified by running it**. Add a row when a real incident needs one.
 
 **What you see**
 
@@ -13,7 +13,6 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 | `/readyz` answers 503 | [An instance is draining](#an-instance-is-draining) |
 | A Session stays `busy` after its instance died | [An instance died](#an-instance-died) |
 | A Run ended `failed` with the cause `interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
-| `gotato` exits with a non-zero code | [CLI exit codes](#cli-exit-codes) |
 | A service that does not start or answer | [Check the setup](#check-the-setup) |
 
 ## A request is refused
@@ -47,23 +46,12 @@ A dead instance cannot release its Sessions, but it holds them only through its 
 
 A `run_ended` with the status `failed` and the cause `interrupted` means the Run never ended on its own: its instance stopped, for example by a crash, before it finished. The next instance that opens the Session writes that `run_ended` for it. A tool call that had started is answered in the Transcript with a result that says it stopped with an unknown outcome, so a tool may have done only part of its work. Gotato sends the model no notice about it.
 
-- **Read the Record** with `gotato events --session ID` and check what the last tool call did before you start the Run again.
+- **Read the Record** with `GET /v1/sessions/{id}/events` and check what the last tool call did before you start the Run again.
 - **A tool with an external effect** should be idempotent or check before it writes. Gotato does not undo a tool.
-
-## CLI exit codes
-
-| Code | Meaning | Do |
-|---|---|---|
-| `0` | success | nothing |
-| `1` | runtime error: store, provider, encoding; or a Run whose reply could not be written | read stderr; check the store and the provider |
-| `2` | usage error | read the usage text |
-| `3` | not found (a Session or a tool ID) | check the ID |
-| `4` | the Run did not complete: `failed`, `cancelled`, `deadline_exceeded` | the JSON on stdout still has the outcome; read its `error` |
 
 ## Check the setup
 
-`gotato doctor --json` checks the store, the models, the gateway configuration and the tools. It exits 1 only when a check that is not a warning fails.
+A service checks itself over HTTP.
 
-- **`model.gateway` warning**: `gateway.yaml` was not found. Pass `--gateway-config PATH` or set `GOTATO_GATEWAY_CONFIG`.
-- **`store` fails**: the directory under `GOTATO_HOME` is missing or not writable.
+- **`GET /readyz`** answers 503 while the instance drains.
 - **`GET /healthz`** answers with the contract version. An instance on an older contract refuses what it does not know during a rolling deploy, until it is replaced.

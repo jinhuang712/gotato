@@ -41,7 +41,7 @@ next message for S ──► pod B: opens S from the store, takes it over, goes 
 
 ## Errors say what to do
 
-Every error answers two questions, and HTTP and the CLI only translate the answers.
+Every error answers two questions, and HTTP only translates the answers.
 
 ```go
 out, err := runner.Run(ctx, req)

@@ -27,9 +27,8 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Keep Context as model-view construction**, built from the Transcript on every Turn.
 - **Preserve library-first use.** A small `main` must be able to build an agent with a fake model and run it in-process, with server, daemon, and database all optional.
 - **Keep the service on top.** `service` and `service/httpapi` turn the runtime into a service by composing it; Agent semantics stay in the runtime. `adapter/mcp` is the other adapter: it supplies an MCP server's tools as a `ToolSet`. `adapter/mcp` is a Go module of its own, with a `replace` to the root. Core and standard runtime packages must never import it. `examples/larkbot` is a Go module of its own too, an application (a Lark chat bot and a local-cluster harness) that imports the root module and the adapters through `replace`; nothing imports it.
-- **UI lives in applications.** Gotato's human-facing surface is CLI output; widgets, TUIs, and desktop state belong above it.
-- **CLI and library share runtime semantics.** `cmd/gotato` is a thin client of the packages. If you need a behavior in the CLI, add it to a package first.
-- **Machine-readable CLI behavior is part of the contract.** `--json`/`--jsonl` output fields and exit codes are versioned. Stdout is data, stderr is diagnostics.
+- **UI lives in applications.** Gotato has no human-facing surface of its own; widgets, TUIs, and desktop state belong to the applications above it.
+- **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages: it carries no runtime logic, so it tests the library's real behavior. If the CLI needs a behavior, add it to a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
 - **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
@@ -49,9 +48,9 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
    ```
 3. **Add regression tests for behavior changes.** A bug fix ships with a test that fails before the fix.
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
-5. **Use CLI integration tests** (`cmd/gotato/cli_test.go`) for user-visible runtime behavior; assert on JSON, not on prose.
-6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, `cmd/gotato/README.md` for CLI changes, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
-7. **Never break CLI JSON schemas or exit codes silently.** Until the first release, a field or exit code may be renamed or removed, with no old name kept; every such break has a before/after entry in `CHANGELOG.md`.
+5. **Use CLI integration tests** (`internal/cmd/gotato/cli_test.go`) as one way to test runtime behavior end to end; assert on JSON, not on prose.
+6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
+7. **Keep the CLI honest.** Until the first release, nothing is kept for compatibility, and the CLI's flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
 8. **Format**: `gofmt -l .` must print nothing.
 
 ## Editing the Project Documents
@@ -89,8 +88,10 @@ When writing or rewriting a project document:
 
 ## CLI Scenario Loop
 
+A smoke run of the test tool, to see the packages work end to end:
+
 ```bash
-go build -o ./bin/gotato ./cmd/gotato
+go build -o ./bin/gotato ./internal/cmd/gotato
 export GOTATO_HOME=$(mktemp -d)
 ./bin/gotato doctor --json
 id=$(./bin/gotato session create --json | jq -r .id)
@@ -100,14 +101,14 @@ id=$(./bin/gotato session create --json | jq -r .id)
 ./bin/gotato context compact "$id" --keep 2 --json
 ```
 
-Every command above must exit 0 and emit valid JSON on stdout. Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` not found, `4` run did not complete (failed, cancelled, deadline).
+Every command above should exit 0 and emit valid JSON on stdout. The tool's exit codes are in `internal/cmd/gotato/README.md`.
 
 ## Definition of Done
 
 A change is not complete until:
 
 - relevant tests pass (`go test -race ./...`, `go vet ./...`, `gofmt -l .` empty) in every module touched;
-- the affected CLI and/or API behavior has actually been exercised (a test, or a CLI scenario whose JSON you inspected);
+- the affected behavior has actually been exercised (a test, or a CLI scenario whose JSON you inspected);
 - documentation reflects the new state (`FEATURES.md` marker, package docs, README when user-visible);
 - the commit follows [Git Flow](#git-flow) below.
 
@@ -124,7 +125,7 @@ A lightweight Git policy for human contributors and coding agents. It is deliber
 3. **Small, focused branches.** One concern per branch. Land often.
 4. **One conceptual change per commit** when practical. A commit should build and pass tests on its own.
 5. **Tests before commit and before merge.** `go test ./...` in every module you touched, plus `go vet ./...`.
-6. **Docs travel with public changes.** A commit that changes an exported API, a CLI command, an event kind, or a JSON field updates the relevant documentation (and `FEATURES.md` status markers) in the same commit or the same branch.
+6. **Docs travel with public changes.** A commit that changes an exported API, an event kind, or a JSON field updates the relevant documentation (and `FEATURES.md` status markers) in the same commit or the same branch.
 7. **No AI/model/tool attribution in commit authorship** (no `Co-Authored-By` for a model or tool) unless the user explicitly requests it.
 
 ### Branches
@@ -157,7 +158,7 @@ test: cover context window strategy boundaries
 chore: add CI workflow
 ```
 
-A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F16`, ...) when a commit exists to satisfy one.
+A body is optional but welcome when the *why* is not obvious from the diff. Reference the goal or feature (`G-G08`, `G-F14`, ...) when a commit exists to satisfy one.
 
 ### Landing a Branch
 
@@ -167,7 +168,7 @@ A body is optional but welcome when the *why* is not obvious from the diff. Refe
 
 ### Breaking Changes and Migration Notes
 
-A breaking change to the public Go API, CLI contract, or event kinds must:
+A breaking change to the public Go API, HTTP contract, or event kinds must:
 
 1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
 2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
@@ -186,6 +187,6 @@ gofmt -l .                        # empty
 go vet ./...                      # clean
 golangci-lint run ./...           # 0 issues
 go test ./...                     # green
-go build ./cmd/gotato             # CLI builds
+go build -o /dev/null ./internal/cmd/gotato   # CLI builds
 docs updated?                     # FEATURES.md / README / package docs
 ```

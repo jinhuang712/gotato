@@ -15,8 +15,8 @@ github.com/jinhuang712/gotato
 ├── gotato/            the core: Session, Tool, Model, Event (standard library only)
 ├── session/
 │   └── storetest/     the Store contract suite
-├── modelctx/  gateway/  service/  service/httpapi/  testkit/  cmd/gotato/
-├── internal/          our own test tools
+├── modelctx/  gateway/  service/  service/httpapi/  testkit/
+├── internal/          our own test tools, the test CLI (internal/cmd/gotato) among them
 ├── adapter/mcp/       a module of its own
 ├── examples/larkbot/  a module of its own
 └── bench/refservice/  a module of its own

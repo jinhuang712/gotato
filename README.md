@@ -77,7 +77,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
 | **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
 | **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
-| **Endpoints** | Go API, HTTP and a CLI | ✅ |
+| **Endpoints** | Go API and HTTP | ✅ |
 | **Testing** | fake models, a fake gateway for each wire API, a reference workload | ✅ |
 | **Telemetry** | OpenTelemetry mapping of Events | later |
 
