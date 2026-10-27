@@ -547,7 +547,7 @@ You can see what the model would receive now, without calling it.
 - `GET /v1/sessions/{id}/context` return the request the Session's next Turn would send.
 - The Runner builds the live Session a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
 - The report includes the prefix hash, the size of the system part, and an estimate of the tokens (bytes ÷ 4).
-- `compaction_pending` says the next Run compacts the Session first, because its size, by the last reported usage and an estimate of what came after, is past the ceiling (`compact_ceiling`: the Agent's or the Session's, else the one the model's window gives). That Run then sends a shorter request than the report shows.
+- `compaction_pending` says the next Run compacts the Session first, because its size, by the last reported usage and an estimate of what came after, is past the ceiling (`compact_ceiling_tokens` in the report: the Agent's or the Session's, else the one the model's window gives). That Run then sends a shorter request than the report shows.
 - Every Turn emits a `context_built` Event with the prefix hash of the request it sent. The reference workload checks that it equals an inspection of that Turn's Transcript ([GOALS.md](plan/GOALS.md) G-G03).
 
 In Go, the same request comes from the Session itself:

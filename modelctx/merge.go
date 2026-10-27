@@ -100,9 +100,9 @@ type MergeResult struct {
 	Reason MergeReason `json:"reason,omitempty"`
 	// Error says why the Recap or the write failed.
 	Error string `json:"error,omitempty"`
-	// Budget is the Segments' budget in force, in estimated tokens, and
+	// BudgetTokens is the Segments' budget in force, in estimated tokens, and
 	// SegmentTokens what the Segments held before.
-	Budget        int `json:"budget"`
+	BudgetTokens  int `json:"budget_tokens"`
 	SegmentTokens int `json:"segment_tokens"`
 	// Segment is the number of the merged Segment, and Replaced the numbers
 	// of the Segments it stands for.
@@ -145,7 +145,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 	if budget <= 0 {
 		budget = SegmentsBudget(opts.CeilingTokens)
 	}
-	result := MergeResult{Budget: budget}
+	result := MergeResult{BudgetTokens: budget}
 	segments := s.Segments()
 	sizes := make([]int, len(segments))
 	for i, segment := range segments {
@@ -233,7 +233,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(beforeBytes),
 		BytesAfter:       len(afterBytes),
-		Ceiling:          opts.CeilingTokens,
+		CeilingTokens:    opts.CeilingTokens,
 		LoadedTools:      s.LoadedTools(),
 	}
 	numbers := make([]int, count)

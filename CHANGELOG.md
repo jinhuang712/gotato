@@ -4,6 +4,16 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### Report fields that count tokens end in `Tokens`
+
+**Breaking**: before the first release nothing keeps an old name. Three fields held a count of tokens without saying so. Each now ends in `Tokens`, in Go and in JSON alike: the merge result of `gotato context compact`, the context report (`context inspect`, `GET /v1/sessions/{id}/context`), and the `Compaction` that Events carry and the Record stores. A Record written before this change reads `ceiling` as unknown.
+
+| Before | After |
+|---|---|
+| `MergeResult.Budget`, JSON `budget` | `MergeResult.BudgetTokens`, `budget_tokens` |
+| `Report.CompactCeiling`, JSON `compact_ceiling` | `Report.CompactCeilingTokens`, `compact_ceiling_tokens` |
+| `gotato.Compaction.Ceiling`, JSON `ceiling` | `gotato.Compaction.CeilingTokens`, `ceiling_tokens` |
+
 ### An HTTP error body carries `code` and `message` only
 
 **Breaking**: before the first release nothing keeps an old field. The `error` field of an HTTP error body held the status text (`"Conflict"`, `"Not Found"`), which the response status already says. It is gone; `code` (when the error has one), `message`, and the optional `not_run`, `retryable`, `record_epoch` and `writer` stay. On a 5xx, `message` is still the status text. This holds for the `event: error` frame of a stream too.

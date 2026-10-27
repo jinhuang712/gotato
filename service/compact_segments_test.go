@@ -71,15 +71,15 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err := runner.Inspect(ctx, first.SessionID)
-	if err != nil || report.CompactCeiling != 180_000 {
-		t.Fatalf("ceiling = %d, %v; want 180000 from the window", report.CompactCeiling, err)
+	if err != nil || report.CompactCeilingTokens != 180_000 {
+		t.Fatalf("ceiling = %d, %v; want 180000 from the window", report.CompactCeilingTokens, err)
 	}
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again",
 		Update: map[string]string{service.MetaCompactCeiling: "9000"}}); err != nil {
 		t.Fatal(err)
 	}
-	if report, err = runner.Inspect(ctx, first.SessionID); err != nil || report.CompactCeiling != 9000 {
-		t.Fatalf("ceiling = %d, %v; want the Session's 9000", report.CompactCeiling, err)
+	if report, err = runner.Inspect(ctx, first.SessionID); err != nil || report.CompactCeilingTokens != 9000 {
+		t.Fatalf("ceiling = %d, %v; want the Session's 9000", report.CompactCeilingTokens, err)
 	}
 	// Without a window there is no ceiling.
 	plain, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
@@ -87,7 +87,7 @@ func TestTheModelsWindowGivesTheDefaultCeiling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report, err = plain.Inspect(ctx, one.SessionID); err != nil || report.CompactCeiling != 0 {
-		t.Fatalf("ceiling = %d, %v; want none", report.CompactCeiling, err)
+	if report, err = plain.Inspect(ctx, one.SessionID); err != nil || report.CompactCeilingTokens != 0 {
+		t.Fatalf("ceiling = %d, %v; want none", report.CompactCeilingTokens, err)
 	}
 }

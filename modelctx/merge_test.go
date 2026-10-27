@@ -84,7 +84,7 @@ func TestTheOldestSegmentsMergeDownToHalfTheBudget(t *testing.T) {
 	tailBefore := bytesOf(t, f.rec.Tail())
 
 	result := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: budget})
-	if !result.Merged || result.Reason != "" || result.Budget != budget || result.SegmentTokens != total || result.Recap != "digest" {
+	if !result.Merged || result.Reason != "" || result.BudgetTokens != budget || result.SegmentTokens != total || result.Recap != "digest" {
 		t.Fatalf("result = %+v", result)
 	}
 	count := len(result.Replaced)
@@ -256,7 +256,7 @@ func TestSegmentsUnderTheirBudgetOrAloneAreNotMerged(t *testing.T) {
 	if result := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: total}); result.Merged || result.Reason != modelctx.MergeReasonUnderBudget {
 		t.Errorf("at the budget: %+v", result)
 	}
-	if result := mustMerge(t, f.rec, modelctx.MergeConfig{CeilingTokens: total * 2}); result.Merged || result.Reason != modelctx.MergeReasonUnderBudget || result.Budget != total {
+	if result := mustMerge(t, f.rec, modelctx.MergeConfig{CeilingTokens: total * 2}); result.Merged || result.Reason != modelctx.MergeReasonUnderBudget || result.BudgetTokens != total {
 		t.Errorf("under half the ceiling: %+v", result)
 	}
 	if bytesOf(t, f.rec.Messages()) != before || len(f.rec.Events()) != events {

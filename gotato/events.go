@@ -246,10 +246,10 @@ type Compaction struct {
 	// a Segment.
 	Merged []int `json:"merged,omitempty"`
 	// TokensBefore and TokensAfter are estimates of the Context before and
-	// after, and Ceiling the ceiling in force, or 0 for none.
-	TokensBefore int `json:"tokens_before,omitempty"`
-	TokensAfter  int `json:"tokens_after,omitempty"`
-	Ceiling      int `json:"ceiling,omitempty"`
+	// after, and CeilingTokens the ceiling in force, or 0 for none.
+	TokensBefore  int `json:"tokens_before,omitempty"`
+	TokensAfter   int `json:"tokens_after,omitempty"`
+	CeilingTokens int `json:"ceiling_tokens,omitempty"`
 	// RecapUsage is what the model call that wrote the Recap used.
 	RecapUsage *Usage `json:"recap_usage,omitempty"`
 	// LoadedTools are the loaded Tools the compaction kept loaded.

@@ -41,12 +41,12 @@ func TestContextCompactMergesTheOldestSegmentsPastTheDefaultBudget(t *testing.T)
 	type answer struct {
 		Replaced bool `json:"replaced"`
 		Merge    *struct {
-			Merged   bool   `json:"merged"`
-			Reason   string `json:"reason"`
-			Segment  int    `json:"segment"`
-			Replaced []int  `json:"replaced"`
-			Recap    string `json:"recap"`
-			Budget   int    `json:"budget"`
+			Merged       bool   `json:"merged"`
+			Reason       string `json:"reason"`
+			Segment      int    `json:"segment"`
+			Replaced     []int  `json:"replaced"`
+			Recap        string `json:"recap"`
+			BudgetTokens int    `json:"budget_tokens"`
 		} `json:"merge"`
 	}
 	// Each Run is a question of about 2K tokens and the echo of it; the default
@@ -83,7 +83,7 @@ func TestContextCompactMergesTheOldestSegmentsPastTheDefaultBudget(t *testing.T)
 	// Eight Segments of about 4.1K tokens pass 32K; the merge takes the oldest
 	// down to half the budget, and the ninth Segment then fits.
 	if merged == nil || mergedAt != 8 || !merged.Merge.Merged || merged.Merge.Segment != 9 || len(merged.Merge.Replaced) < 2 || merged.Merge.Replaced[0] != 1 ||
-		merged.Merge.Recap != "digest" || merged.Merge.Budget != 32000 {
+		merged.Merge.Recap != "digest" || merged.Merge.BudgetTokens != 32000 {
 		t.Fatalf("the eighth compaction did not merge the oldest: %+v at %d", merged, mergedAt)
 	}
 	var report inspected

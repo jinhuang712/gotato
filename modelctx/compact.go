@@ -239,7 +239,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
-		Ceiling:          opts.CeilingTokens,
+		CeilingTokens:    opts.CeilingTokens,
 		LoadedTools:      kept,
 	}
 	s.SetLoadedTools(kept)
@@ -484,7 +484,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		// the caller is told, not left with a request that is refused again.
 		return prepared, false, gotato.ErrorOf(gotato.CodeContextOverflow,
 			fmt.Sprintf("the provider refused the request as too long, the Segments alone pass their limit (about %d tokens, limit %d), and merging the oldest failed, so nothing was merged: %s",
-				merge.SegmentTokens, merge.Budget, merge.Error))
+				merge.SegmentTokens, merge.BudgetTokens, merge.Error))
 	}
 	return prepared, false, nil
 }

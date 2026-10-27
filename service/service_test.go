@@ -988,7 +988,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 	if report.Request.Config.MaxTokens != 256 || gotato.TextOf(report.Request.Messages[0]) != "note: answer briefly" {
 		t.Fatalf("the report left out the Spec's Extensions or model options: %+v", report.Request)
 	}
-	if report.CompactionPending || report.CompactCeiling != 0 {
+	if report.CompactionPending || report.CompactCeilingTokens != 0 {
 		t.Fatalf("no compaction is configured: %+v", report)
 	}
 
@@ -1023,7 +1023,7 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.CompactionPending || report.CompactCeiling != 20000 {
+	if report.CompactionPending || report.CompactCeilingTokens != 20000 {
 		t.Fatalf("a short Session is under the ceiling: %+v", report)
 	}
 	for range 2 {
