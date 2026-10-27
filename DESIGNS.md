@@ -159,7 +159,7 @@ Every Event carries its time and the Session it concerns, if any; a stored Event
 
 ## 2. A request only grows at its end
 
-At scale, what the model reads costs more than what the service holds ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)). A provider serves the part of a request it has seen before from its prompt cache, at a fraction of the price, as long as every byte of that part is the same. So each request is the one before with new content after it: what never changes comes first, what grows comes last, and a change is told at the end instead of rewritten at the top.
+At scale, what the model reads costs more than what the service holds ([PHILOSOPHY.md → 4](PHILOSOPHY.md#4-where-is-agent-as-a-service-going)). A provider serves the part of a request it has seen before from its prompt cache, at a fraction of the price, as long as every byte of that part is the same. So each request is the one before with new content after it: what never changes comes first, what grows comes last, and a change Gotato makes itself is told at the end instead of rewritten at the top.
 
 The same Record giving the same bytes (*The store is the only truth*) is not enough on its own. A rule that sorted the tools again whenever a tool was loaded would give the same bytes for the same Record, and still make the provider read everything after the tools at full price.
 
@@ -180,22 +180,22 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 ### A change is appended, not rewritten into the prefix
 
 - **Instead of:** rewriting the instruction or the tool list at the top of the request.
-- **Why:** a change at the top makes the provider read the whole history again at full price. A change is told to the model in a notice, the next decision.
+- **Why:** a change at the top makes the provider read the whole history again at full price. A tool the model loads is told at the end, in the Tool Result that loaded it, and the tool list keeps its bytes ([FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-)). A change a service makes to an Agent in the middle of a Session, such as a new instruction, does rewrite the top. Gotato does not append it today: the idea is kept in [FEATURES.md → Later](FEATURES.md#later), to be built when the cost shows.
 
 ### What is not the user's words goes to the model as a notice — 2026-10-18
 
-Gotato and the service sometimes have to tell the model something the user did not say: a setting changed, the last Run was interrupted, the user has been away for hours, or something happened outside the conversation. A notice is how.
+Gotato and the service sometimes have to tell the model something the user did not say: the last reply was cut at the output limit, the user has been away for hours, or something happened outside the conversation. A notice is how.
 
 | Option | For | Against |
 |---|---|---|
-| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, and each wire API needs its own form for it. |
+| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, which each wire API carries as tagged text in a user turn. |
 | A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
 | Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
 
-- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `run_ended` or `metadata_changed`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
+- **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_ended`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
 - **A notice never starts or extends a Run.** It tells the model something; it asks for no work. A notice that arrives while no Run is going waits for the next one, and goes in after its prompt. A service that wants the model to react at once calls `Continue`.
-- **Each wire API in its own form.** Each wire API has a default form: a system message mid-conversation on Anthropic Messages for the models the gateway lists, a developer message on OpenAI's Responses API, and tagged text in the adjacent user Message on Chat Completions. The gateway configuration can override it, and tagged text is the fallback for every model, so no model list is a rule ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)).
+- **One form on every wire API.** A notice is tagged text, `<notice kind="…">…</notice>`, in a user turn: in the adjacent user turn on Anthropic Messages, as a user item on OpenAI's Responses API, and as a user message on Chat Completions. Gotato builds no native form, such as a system message in the middle of a conversation, so no model list is a rule ([FEATURES.md → G-N25](FEATURES.md#g-n25--a-notice-has-no-native-form)).
 - **Facts, not orders.** A notice says what is true; what the model should do about it belongs in the instruction.
 - **The time away is one of them.** A message that starts a Run after the Session was idle longer than a threshold (30 minutes by default, set per Agent) is followed by a notice with how long it has been and what time it is now. The model has no clock of its own, and a Segment's times are not the present. The idle time is read from the Record, so it does not depend on a warm copy.
 

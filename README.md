@@ -71,7 +71,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Agent loop** | `Prompt`, `Continue` and `Abort`; steer, follow up and interrupt a Run in flight | ✅ |
 | **Context management** | built every Turn, your own builder, inspection; automatic compaction into Segments the model can read back | ✅ |
 | **Tools** | Go functions with an Effect; tool search; large results spilled and read back in pages | ✅ |
-| **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | 🚧 |
+| **MCP** | MCP servers as tool sets, over streamable HTTP or stdio | ✅ |
 | **Extensions** | six stages around the loop, from `TurnPreparer` to `TurnStopper` | ✅ |
 | **Models** | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or your own | ✅ |
 | **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
@@ -81,7 +81,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Testing** | fake models, a fake gateway for each wire API, a reference workload | ✅ |
 | **Telemetry** | OpenTelemetry mapping of Events | later |
 
-✅ built, 🚧 built with a gap named (for MCP: tool progress is not forwarded), and later. [FEATURES.md](FEATURES.md) lists every feature and its status.
+✅ built, 🚧 built with a gap named, and later. [FEATURES.md](FEATURES.md) lists every feature and its status.
 
 ## ⚡ How Simple is Gotato?
 

@@ -12,7 +12,7 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 | HTTP 503 or gRPC `UNAVAILABLE` marked "not run" | [A request is refused](#a-request-is-refused) |
 | `/readyz` answers 503 | [An instance is draining](#an-instance-is-draining) |
 | A Session stays `busy` after its instance died | [An instance died](#an-instance-died) |
-| A Run ended with `run_interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
+| A Run ended `failed` with the cause `interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
 | `gotato` exits with a non-zero code | [CLI exit codes](#cli-exit-codes) |
 | A service that does not start or answer | [Check the setup](#check-the-setup) |
 
@@ -45,7 +45,7 @@ A dead instance cannot release its Sessions, but it holds them only through its 
 
 ## A Run was interrupted
 
-`run_interrupted` means the last Run stopped before it finished, by a drain or a crash, so a tool may have done only part of its work.
+A `run_ended` with the status `failed` and the cause `interrupted` means the Run never ended on its own: its instance stopped, for example by a crash, before it finished. The next instance that opens the Session writes that `run_ended` for it. A tool call that had started is answered in the Transcript with a result that says it stopped with an unknown outcome, so a tool may have done only part of its work. Gotato sends the model no notice about it.
 
 - **Read the Record** with `gotato events --session ID` and check what the last tool call did before you start the Run again.
 - **A tool with an external effect** should be idempotent or check before it writes. Gotato does not undo a tool.

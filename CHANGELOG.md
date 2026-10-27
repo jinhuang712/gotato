@@ -114,16 +114,23 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}`; the Events gain `notice_queued = 56` and `notice_committed = 57` |
   | CLI | `gotato session notice <id> --kind K "text"` → `{"session_id","queued":true,"number","message_id"}` |
 
-  A Run going on another live instance answers `not_writer`, and is forwarded when forwarding is on, as a message is. Gotato's four own kinds (`continue`, `settings_changed`, `run_interrupted`, `time_away`) are reserved. `CoreLimits.MaxNotices` (16) bounds the queue.
+  A Run going on another live instance answers `not_writer`, and is forwarded when forwarding is on, as a message is. Gotato's own kinds (`continue`, `time_away`) are reserved. `CoreLimits.MaxNotices` (16) bounds the queue.
 - **A notice outlives its instance.** The Record keeps the notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`, and `Summary.Notices` in the store's summary); a Run on any instance queues them again when it starts. A notice sent with no Run going takes the Session over for the one write of its `notice_queued`. `Summary.LastRunEnd` and `session.Record.LastRunEnd()` keep the Session's last busy time the same way. Only a service's notice is kept there; Gotato's own (`time_away`) is worked out afresh at each Run. **For store-adapter authors:** a `session.Store` adapter that copies the `Summary` field by field must copy `Notices` and `LastRunEnd`; the `storetest` suite now fails an adapter that loses either one across Create, Append, Load and List.
 - **`time_away`.** A message that starts a Run after the Session was idle longer than `service.Agent.TimeAwayAfter` (30 minutes by default; a negative value turns it off) is followed by a notice with how long it has been and the time now, in the zone of `Compact.Location` (UTC by default). The CLI sets it with `--time-away 2h|off` or `GOTATO_TIME_AWAY`.
-- **Gateway.** All three wire APIs take a notice as tagged text in a user turn (Anthropic Messages joins it to the adjacent user turn, after the Tool Results), so it starts no Round and the reasoning in flight stays. The native forms wait for G-F32.
+- **Gateway.** All three wire APIs take a notice as tagged text in a user turn (Anthropic Messages joins it to the adjacent user turn, after the Tool Results), so it starts no Round and the reasoning in flight stays. There is no native form ([FEATURES.md → G-N25](FEATURES.md#g-n25--a-notice-has-no-native-form)).
 - **Compaction.** A Segment keeps a notice from a service word for word, as `<notice kind="…">` with its text escaped, and leaves Gotato's own out.
 
   | Before | After |
   |---|---|
   | the output-limit continuation (`MaxTruncatedContinuations`) was a user Message with `TruncatedContinuationText`, so it started a new Round and Claude and OpenAI lost the cut reply's reasoning | a `continue` notice with the same text (`gotato.TruncatedContinuationText`); `notice_committed` names the `reply_ended` that caused it in `message.notice.caused_by`; the Round stays |
   | `gotato.SourceContinuation`, the `source` of that `message_committed` | removed; the continuation is a `notice_committed`. `gotato.SourceNotice` is the `source` of a `message_dropped` or `message_rejected` for a notice |
+
+- **The notice kinds `settings_changed` and `run_interrupted` are removed, and no native form of a notice is built.** Gotato never sent either kind, and a service that used one of the names was refused. They are not built ([G-N24](FEATURES.md#g-n24--no-notice-for-a-settings-change-or-an-interrupted-run), [G-N25](FEATURES.md#g-n25--a-notice-has-no-native-form)).
+
+  | Before | After |
+  |---|---|
+  | `gotato.NoticeSettingsChanged` and `gotato.NoticeRunInterrupted` were reserved: `Session.Notice`, `Runner.Notice`, HTTP, gRPC and the CLI refused `settings_changed` and `run_interrupted` as `invalid_argument` | removed; only `continue` and `time_away` are reserved, and the two names are free for a service |
+  | FEATURES.md planned a `system` message in the middle of a conversation (Anthropic Messages) and a `developer` message (OpenAI Responses) for a notice | not planned; a notice is tagged text in a user turn on every wire API, as it was. The gateway never had a setting for it |
 
 ### Limits
 
@@ -439,6 +446,13 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 ### Events
 
 The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against the build of 2026-10-16. It is one break. It shares the contract version change that the changes above already hold (HTTP and gRPC `"4"`, CLI `"2"`); the versions are not raised a second time.
+
+- **The Event `message_withdrawn` is removed.** Nothing could withdraw a waiting message, so Gotato never sent it ([G-N23](FEATURES.md#g-n23--a-waiting-message-is-not-withdrawn)). It is a break of the Event kinds, and it shares the contract version change above (HTTP and gRPC `"4"`); the versions are not raised again, because the Event was never sent and no stream or log can hold one.
+
+  | Before | After |
+  |---|---|
+  | `gotato.MessageWithdrawn`, `gotato.KindMessageWithdrawn` (`message_withdrawn`: `{message_id, source}`) | removed; `gotato.UnmarshalEvent` reads the kind as a `gotato.UnknownEvent`, like any kind it does not know |
+  | gRPC `Event.message_withdrawn = 33` and the message `MessageWithdrawn` | removed; the number 33 is reserved and not reused |
 
 - **Each kind of Event is a Go type, and a stored Event is an Entry of the Record.** `gotato.Event` is an interface with one type for each kind, such as `gotato.RunStarted`, and every type embeds a `gotato.Header`: `Time`, `SessionID`, `Number`, `RunID`, `Turn`. The number is the Entry's position in the Session's Record, so it counts the whole Record, and every instance reads the same number. A stored Event reaches subscribers only after it is written; deltas (`text_delta`, `reasoning_delta`, `tool_progress`) are sent at once, with the number of the stored Event they follow. A Session with no store numbers its Events in memory. **Breaking:**
 

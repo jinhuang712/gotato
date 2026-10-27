@@ -1,7 +1,7 @@
 <!-- what-we-build: drafted 2026-10-27 -->
 # Gotato — Roadmap
 
-What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).
+What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them. The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).
 
 Gotato has made no release yet. The first release is named 0.1.0, and it is cut when every phase below is done, so there are no point releases before it. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names. No phase has a date.
 
@@ -22,7 +22,6 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
 Phase 9  Before release      fake gateways, a local cluster with a chat bot on it
-         ── waiting for design: changes that keep the cache ──
 ```
 
 Why this order:
@@ -171,7 +170,7 @@ A Session's tools come from many places, and a service that connects MCP servers
 - ✅ Step 1, limits that guard a real failure: `MaxTurns`, `MaxToolCalls`, `MaxToolResultBytes` and `RunDeadline` leave the core. A team that wants a Turn or call cap writes a `TurnStopper`, and a Run's deadline is its `ctx`. `service.Agent` keeps one Run deadline, `RunTimeout` (30 minutes by default), that the request's own timeout overrides. `MaxMessageBytes` stays, and `ModelCallDeadline` and `ToolCallDeadline` stay, marked for review. The DESIGNS section about every Run ending is the final form of this step.
 - ✅ Step 2, large Tool Results: a Tool Result over one page (about 8K tokens) is spilled into the Record as an Entry of its own, the Context holds a preview and a ref, and the model reads the rest page by page with `read_result`, which pages as `read_segment` does. A load does not read a spilled body until it is asked for. This replaces what `MaxToolResultBytes` did.
 - ✅ Step 3, tool search: the unit of loading is one tool. `search_tools` replaces `activate_toolset`, and its description is the catalog. `WithFoldedToolSet` joins `WithToolSet` and `WithActiveToolSet`. A loaded tool stays until the next compaction. `MaxActiveToolSets` is removed, `tool_loaded` and `tool_unloaded` replace `toolset_activated`, and a `ToolSearcher` lets a team plug in its own search. The tool list changes when a tool loads (the list form); the native form is step 4.
-- ✅ Step 4, native deferred loading: the part of G-F32 that concerns tools. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
+- ✅ Step 4, native deferred loading: the tools the model loads keep the cache. On Anthropic Messages and OpenAI's Responses API the tool list stays byte for byte the same while tools load, chosen by the gateway key `deferred_tools`; Chat Completions changes the tool list.
 - ✅ Step 5, the MCP adapter `adapter/mcp`: a Go module of its own, as `adapter/grpc` is, on the official MCP Go SDK (v1.8.0). One MCP server is one ToolSet, streamable HTTP and stdio are the transports, and a tool's annotations become its Effect. It comes with a change to the core: a ToolSet that fails to resolve is skipped with a warning instead of failing `NewSession`, and ToolSets resolve again at the start of every Run, so a server's `list_changed` takes effect at the next Run, a loaded tool that vanished is unloaded (`why: gone`), a recovered ToolSet comes back, and the ToolSets resolve at the same time, so a Run waits for the slowest server ([FEATURES.md → G-F10](../FEATURES.md#g-f10--tool-sets-and-the-registry-)).
 
 Exit:
@@ -192,14 +191,11 @@ A Session stays in memory while it is in use, so a Run in progress can be steere
 - ✅ Step 3, messages from any endpoint: Steer, FollowUp, Interrupt and Stop reach a running Session through the Go API (`Runner.Send`, `Runner.CancelSession`), HTTP (`POST /v1/sessions/{id}/messages`), gRPC (`SendMessage`) and the CLI (`session message`, `session cancel`), each taking effect in the writer's own process, and a message that arrives after a Run has ended starts a new Run. This closes the G-F26 gap; notices join the same routes in step 4. `Interrupt`, which the core did not have yet, was built here: it cancels the model call in flight, keeps the text it had sent as a Cut-off reply, and starts the next Turn with the message. The Runner holds no queue between Runs, since a message that finds no Run starts one. It comes with:
   - the load balancer's hash first, and, for a caller that cannot route by Session, an advertised address in each instance's Liveness row (`Config.Address`, `--advertise`; optional) and a new error, `not_writer`, marked not run and retryable, that names the writer's address when a message reaches another instance during a Run;
   - forwarding to that address by the HTTP and gRPC endpoints (`httpapi.WithForwarding`, `grpcadapter.WithForwarding`, `--forward`), as a setting a team opts in to; a forwarded request is marked and never forwarded again. An embedding service forwards with its own client. Gotato builds no network between instances itself;
-  - the message Events (`message_queued`, `message_committed`, `message_dropped`, `message_rejected` and `abort_requested`) reaching the Runner and every endpoint, written through the Run's Writer. A message queued as its Run settles runs in a Run that follows it, on the same instance, in the order it was accepted; it is dropped, with a reason in its Event, only when the Run was stopped, the instance drains or the writer failed. `message_withdrawn` waits for a way to withdraw a message.
+  - the message Events (`message_queued`, `message_committed`, `message_dropped`, `message_rejected` and `abort_requested`) reaching the Runner and every endpoint, written through the Run's Writer. A message queued as its Run settles runs in a Run that follows it, on the same instance, in the order it was accepted; it is dropped, with a reason in its Event, only when the Run was stopped, the instance drains or the writer failed. 
 - ✅ Step 4, runtime notices (G-F29), designed on 2026-10-18: a notice is a Message of its own kind (`gotato.RoleNotice`), waits in the queue that holds a Steer, and goes in right before the next model call. It starts no Round and no Run. The output-limit continuation is a `continue` notice, and a service sends its own through `Session.Notice`, `Runner.Notice`, HTTP (`POST /v1/sessions/{id}/notices`), gRPC (`Notice`) and the CLI (`session notice`), with the routing of step 3 (`not_writer`, forwarding). A `time_away` notice joins them: a message that starts a Run after the Session was idle longer than a threshold (30 minutes by default, `Agent.TimeAwayAfter`) is followed by how long it has been and the current time. It comes with:
   - the notices kept in the Record (`notice_queued`, `notice_committed`, `Record.PendingNotices`, `Summary.Notices`), so a notice sent between Runs, or left by a Run that settled or was stopped, outlives its instance and goes in after the prompt of the Session's next Run on any instance;
   - the Session's last busy time kept in the Summary (`Summary.LastRunEnd`), so a Session loaded from its facts knows how long it was idle;
   - tagged text on all three wire APIs: a text block in the adjacent user turn on Anthropic Messages, a user item on the Responses API, a user message on Chat Completions; a Segment keeps a notice from a service word for word and leaves Gotato's own out.
-
-  The other two of Gotato's own kinds (`settings_changed`, `run_interrupted`) are sent by G-F32.
-- ⬜ The tags reach each wire API in its default native form, which the gateway configuration can override, with tagged text as the fallback for every model; a notice from the service stays inside a Segment word for word. This waits for runtime notices, and for changes that keep the cache (G-F32).
 - ✅ Step 5, a stream cut after some output (G-F31): the gateway sends the same request again within `max_retries`, with a `model_retried` Event, and the reply cut off stays in the Record as a log.
 - `gotato.Session`, which Phase 3 named, keeps its name. The warm copy, its TTL and its timers belong to the Runner, because they need the store's head and a clock; the live Session grows what step 3 needs, its queue held between Runs.
 
@@ -208,7 +204,7 @@ Exit:
 - ✅ G-G08 passes with messages that arrive mid-Run (`TestMessagesMidRunLandOnceOnTheWriter`, `TestManyInstancesOneWriterWithMessages`).
 - ✅ A test steers, interrupts and stops a Run on a fake model, and checks where each message lands in the Transcript (`service/messages_test.go`; the core's `interrupt_test.go`).
 - ✅ A test sends a message for a Run to an instance that is not its writer, and gets `not_writer`, marked not run and retryable, with the writer's advertised address; with forwarding on, the endpoint sends it to that address and the Run takes it. With no Run going, the same instance takes the Session over and starts a new Run. It runs over the Go API, HTTP (409, `Gotato-Writer`), gRPC (`FAILED_PRECONDITION`, `gotato-writer`) and the CLI (exit 1, `not_writer`).
-- ✅ A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API (tagged text today; the native forms wait for G-F32): `TestNoticeDuringARunLandsAfterTheToolResults`, `TestNoticeBetweenRunsWaitsForThePrompt` and `TestNoticeNeverKeepsARunGoing` in the core, `TestANoticeReachesARunAtItsNextModelCall`, `TestANoticeBetweenRunsWaitsForTheNextRun` and `TestANoticeBetweenRunsOutlivesItsInstance` in `service`, `gateway/notice_test.go`, and the HTTP, gRPC and CLI tests, `not_writer` included.
+- ✅ A test sends notices during a Run and between Runs, and checks that each lands right before a model call, after the Tool Results or the next prompt, starts no Round and no Run, and reaches each wire API (tagged text, the one form): `TestNoticeDuringARunLandsAfterTheToolResults`, `TestNoticeBetweenRunsWaitsForThePrompt` and `TestNoticeNeverKeepsARunGoing` in the core, `TestANoticeReachesARunAtItsNextModelCall`, `TestANoticeBetweenRunsWaitsForTheNextRun` and `TestANoticeBetweenRunsOutlivesItsInstance` in `service`, `gateway/notice_test.go`, and the HTTP, gRPC and CLI tests, `not_writer` included.
 - ✅ A test brings a message to a Session idle longer than the threshold, and checks that a `time_away` notice with the elapsed time and the current time follows it, and that a message inside the threshold gets none (`TestATimeAwayNoticeFollowsAMessageAfterALongAbsence`, on an evicted Session too). `TestOutputLimitContinuationIsANoticeAndStartsNoRound` checks that the output-limit continuation is a notice and starts no Round.
 - ✅ A test on a fake model lets a warm Session idle, and checks that it is compacted before its cache expires and leaves memory at its TTL.
 - ✅ A test writes a warm Session's Record from another instance, and checks that the first instance, at its next Run, finds the head changed, reloads, and runs on the new Record.
@@ -235,14 +231,6 @@ Exit:
 - ✅ Each quirk the fake gateways play has a test, and an overflow in each provider's form compacts and sends again. An overflow in the middle of a reply ends the Run with `context_overflow` instead, and the test pins that.
 - ✅ G-G08 and G-G11 pass on the local cluster through a rolling deploy and a killed writer.
 - ✅ The chat bot, with the fake gateway behind it, answers every message once through the same rolling deploy (25 of 25 messages, none twice).
-
-## Waiting for design
-
-These are planned in [FEATURES.md](../FEATURES.md) and need a design before they get a phase. Each is discussed when what it depends on is in place.
-
-| Feature | Depends on | Discussed |
-|---|---|---|
-| G-F32 — Changes that keep the cache | a reference task that changes a Session's instruction or switches a tool on for one Session, to measure what a change costs. The tools the model loads itself are Phase 7 | after that measurement |
 
 ## Every release, from the first on
 
