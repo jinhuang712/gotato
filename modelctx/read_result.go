@@ -27,11 +27,11 @@ type ReadResultConfig struct {
 	PageBytes int
 }
 
-func (o ReadResultConfig) pageBytes() int {
-	if o.PageBytes <= 0 {
+func (c ReadResultConfig) pageBytes() int {
+	if c.PageBytes <= 0 {
 		return DefaultReadResultPageBytes
 	}
-	return max(o.PageBytes, 256)
+	return max(c.PageBytes, 256)
 }
 
 // ResultTools is the gotato.ToolSource that gives a Session the built-in

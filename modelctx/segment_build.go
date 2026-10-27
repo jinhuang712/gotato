@@ -150,11 +150,12 @@ func (l *messageList) add(role gotato.Role, parts ...gotato.ContentPart) {
 // own, as FEATURES.md shows a Segment.
 func taggedPart(tag string, attrs [][2]string, text string) gotato.ContentPart {
 	var b strings.Builder
-	b.WriteString("<" + tag)
+	b.WriteString("<")
+	b.WriteString(tag)
 	for _, attr := range attrs {
-		b.WriteString(" " + attr[0] + `="` + strings.ReplaceAll(attr[1], `"`, "&quot;") + `"`)
+		fmt.Fprintf(&b, " %s=\"%s\"", attr[0], strings.ReplaceAll(attr[1], `"`, "&quot;"))
 	}
-	b.WriteString(">\n" + text + "\n</" + tag + ">")
+	fmt.Fprintf(&b, ">\n%s\n</%s>", text, tag)
 	return gotato.ContentPart{
 		Kind:     gotato.ContentKindText,
 		Text:     b.String(),

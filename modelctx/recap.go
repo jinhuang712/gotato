@@ -75,7 +75,7 @@ func (t TruncateRecap) WriteRecap(_ context.Context, request RecapRequest) (gota
 		limit = 2000
 	}
 	var b strings.Builder
-	b.WriteString("Summary of earlier conversation (" + fmt.Sprint(len(messages)) + " messages):\n")
+	fmt.Fprintf(&b, "Summary of earlier conversation (%d messages):\n", len(messages))
 	for _, message := range messages {
 		line := strings.TrimSpace(gotato.TextOf(message))
 		if line == "" && message.ToolResult != nil {
@@ -91,7 +91,7 @@ func (t TruncateRecap) WriteRecap(_ context.Context, request RecapRequest) (gota
 		if line == "" {
 			continue
 		}
-		b.WriteString("- " + string(message.Role) + ": " + line + "\n")
+		fmt.Fprintf(&b, "- %s: %s\n", message.Role, line)
 	}
 	text := b.String()
 	if len(text) > limit {

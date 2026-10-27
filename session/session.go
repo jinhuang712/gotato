@@ -15,9 +15,9 @@
 //	s.Prompt(ctx, gotato.UserMessage("hi"))
 //
 // A compaction can close a stretch of history into a gotato.Segment: the
-// Record writes it once (closeSegment), and a Checkpoint lists the Segments
-// the Context starts with by number (checkpointSegments), so the Messages that
-// render a Segment are stored once and never change. Tasks, projects, roles,
+// Record writes it once, and a Checkpoint lists the Segments the Context
+// starts with by number, so the Messages that render a Segment are stored once
+// and never change. Tasks, projects, roles,
 // and agent hierarchy are application semantics and belong in Metadata.
 package session
 
@@ -571,9 +571,8 @@ func (s *Record) Runs() []RunInfo {
 }
 
 // endRun finalizes the Run record with run's RunID, or adds run when there is
-// none, adds its usage to the Record's, and returns the final Run. The caller
-// holds the lock.
-func (s *Record) endRun(run RunInfo) RunInfo {
+// none, and adds its usage to the Record's. The caller holds the lock.
+func (s *Record) endRun(run RunInfo) {
 	found := false
 	for i := len(s.runs) - 1; i >= 0; i-- {
 		if s.runs[i].RunID != run.RunID {
@@ -598,7 +597,6 @@ func (s *Record) endRun(run RunInfo) RunInfo {
 	s.usage.TotalTokens += run.Usage.TotalTokens
 	s.usage.CacheReadTokens += run.Usage.CacheReadTokens
 	s.usage.CacheWriteTokens += run.Usage.CacheWriteTokens
-	return run
 }
 
 // Usage returns the aggregated usage across recorded Runs.
@@ -609,8 +607,8 @@ func (s *Record) Usage() gotato.Usage {
 }
 
 // Events returns the stored Events the Record keeps in memory, in order: the
-// last defaultEventLimit of them. Events
-// are values; do not modify what they point to.
+// last defaultEventLimit of them. Events are values; do not modify what they
+// point to.
 func (s *Record) Events() []gotato.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

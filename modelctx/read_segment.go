@@ -30,11 +30,11 @@ type ReadSegmentConfig struct {
 	Location *time.Location
 }
 
-func (o ReadSegmentConfig) pageBytes() int {
-	if o.PageBytes <= 0 {
+func (c ReadSegmentConfig) pageBytes() int {
+	if c.PageBytes <= 0 {
 		return DefaultReadSegmentPageBytes
 	}
-	return max(o.PageBytes, 256)
+	return max(c.PageBytes, 256)
 }
 
 // SegmentTools is the gotato.ToolSource that gives a Session the built-in

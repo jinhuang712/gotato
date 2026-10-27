@@ -93,7 +93,8 @@ func (s *Record) Head() uint64 {
 // Checkpoint replaces the committed Messages with messages, as a Compaction
 // does, records compaction when it is not nil, and appends a compaction_ended
 // Event, a Checkpoint, to the log. The Context is then messages alone, with no
-// Segments (see checkpointSegments for a Context that starts with some).
+// Segments (a compaction that closes a Segment writes a Checkpoint that lists
+// it instead).
 // Nothing written before is rewritten: the Messages it replaces stay in the
 // store, and a load starts after them. It must not run while a Run is using
 // the Record.
