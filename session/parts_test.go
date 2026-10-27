@@ -73,7 +73,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("hi"))
 	}()
 	<-sent
-	time.Sleep(50 * time.Millisecond)
+	waitStored(t, store, record.ID(), gotato.KindReplyPartKept, 1)
 
 	// The Instance that held the Session stopped: another one takes it over.
 	opened, err := session.OpenWriter(ctx, store, record.ID(), "b")
@@ -141,5 +141,39 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 		if event.Kind() == gotato.KindReplyPartKept {
 			t.Fatalf("an unstored Record holds %s", event.Kind())
 		}
+	}
+}
+
+// countStored counts the stored Events of a kind in a Session's Record.
+func countStored(t *testing.T, store session.Store, id string, kind gotato.EventKind) int {
+	t.Helper()
+	stored, err := session.StoredEvents(context.Background(), store, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, event := range stored {
+		if event.Kind() == kind {
+			count++
+		}
+	}
+	return count
+}
+
+// waitStored waits until the stored Events of a Session hold at least n of a
+// kind. The Session stages its writes, so a test that acts on what the Record
+// holds waits for it instead of guessing a delay.
+func waitStored(t *testing.T, store session.Store, id string, kind gotato.EventKind, n int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		count := countStored(t, store, id, kind)
+		if count >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the Record of %s never held %d %s Events (has %d)", id, n, kind, count)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

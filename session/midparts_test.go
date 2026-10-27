@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/session"
@@ -53,6 +52,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	turnsBefore := countStored(t, store, record.ID(), gotato.KindTurnStarted)
 	started := make(chan struct{})
 	live, err := gotato.NewSession(gotato.WithModel(blockModel{started}), gotato.WithTranscript(second))
 	if err != nil {
@@ -65,7 +65,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("p2"))
 	}()
 	<-started
-	time.Sleep(20 * time.Millisecond)
+	waitStored(t, store, record.ID(), gotato.KindTurnStarted, turnsBefore+1)
 
 	taken, err := session.OpenWriter(ctx, store, record.ID(), "b") // the crash: B takes over
 	if err != nil {
