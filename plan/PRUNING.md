@@ -20,12 +20,12 @@ Inventory of 2026-10-27. "Users" counts code outside `_test.go` files, in every 
 | `service/httpapi` | 931 | the CLI, `bench/refservice`, larkbot | product: the transport the guides and examples use | open |
 | `cmd/gotato` | 1,639 | — | product, as a local tool for a file store; it is never a client of a server | open |
 | Echo and demo models in shipped binaries | — | `cmd/gotato`, larkbot | move out of `testkit` | keep in `testkit` and the CLI: `testkit` imports no `testing` package, so linking it costs nothing, and the CLI runs on them with no provider |
-| `testkit` | 2,055 | the binaries above, `service/workload`, larkbot | split: the fakes and recorders stay, the reference-workload tasks leave the public surface | split: the reference-workload tasks move to `internal/reftasks`, exports nobody uses are removed; done, 40e3d28 |
+| `testkit` | 2,055 | the binaries above, `service/workload`, larkbot | split: the fakes and recorders stay, the reference-workload tasks leave the public surface | split: the reference-workload tasks move to `internal/reftasks`, exports nobody uses are removed; done, dbf0a5c |
 | `testkit/storetest` | 730 | none yet | product: FEATURES promises it to store-adapter authors | open |
-| `toolregistry` | 283 | none | remove: `gotato.WithTools`, ToolSets and `Runner.SetToolActive` already cover it; the README quickstart and getting-started guide teach it | remove; the guides teach `gotato.WithTools`; done, 2913e1a |
-| `test/fakegateway` | 1,833 | our tests | our tests; listed in the guides as a test tool | move to `internal/fakegateway`: it promises nothing, and can be made public later; done, 40e3d28 |
-| `test/fakegateway/cmd/fakegateway` | 43 | none | larkbot's cluster builds it | move with `test/fakegateway`; done, 40e3d28 |
-| `service/workload`, `cmd/gotato-workload` | 1,129, 239 | each other | our tests: the GOALS measurements | move to `internal/workload` and `internal/cmd/gotato-workload`; done, 40e3d28 |
+| `toolregistry` | 283 | none | remove: `gotato.WithTools`, ToolSets and `Runner.SetToolActive` already cover it; the README quickstart and getting-started guide teach it | remove; the guides teach `gotato.WithTools`; done, 5b5716f |
+| `test/fakegateway` | 1,833 | our tests | our tests; listed in the guides as a test tool | move to `internal/fakegateway`: it promises nothing, and can be made public later; done, dbf0a5c |
+| `test/fakegateway/cmd/fakegateway` | 43 | none | larkbot's cluster builds it | move with `test/fakegateway`; done, dbf0a5c |
+| `service/workload`, `cmd/gotato-workload` | 1,129, 239 | each other | our tests: the GOALS measurements | move to `internal/workload` and `internal/cmd/gotato-workload`; done, dbf0a5c |
 | `bench/refservice` (module) | 82 | — | our tests: G-B10 and G-B12 | open |
 | `adapter/mcp` (module) | 693 | larkbot | product: MCP is how Gotato reaches tools it does not build | open |
 | `examples/larkbot` (module) | about 1,400 for the bot, about 3,700 for its harness | — | example; its harness is open | open |

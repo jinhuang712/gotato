@@ -31,3 +31,6 @@ gateway.yaml
 
 # Serena project index
 .serena/
+
+# Benchmark binary built by bench/refservice/footprint.sh
+/bench/refservice/refservice
