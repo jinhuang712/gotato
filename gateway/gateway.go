@@ -128,30 +128,9 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	endpoint := strings.TrimSpace(config.Endpoint)
-	if endpoint == "" {
-		base := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
-		if base == "" && api == APIResponses {
-			base = defaultResponsesBaseURL
-		}
-		if base == "" && api == APIAnthropicMessages {
-			base = defaultAnthropicBaseURL
-		}
-		if base == "" {
-			return nil, fmt.Errorf("gateway: BaseURL or Endpoint is required")
-		}
-		path := "/chat/completions"
-		switch api {
-		case APIResponses:
-			path = "/responses"
-		case APIAnthropicMessages:
-			path = "/messages"
-		}
-		if !strings.HasSuffix(base, "/v1") {
-			path = "/v1" + path
-		}
-		endpoint = base + path
+	endpoint, err := resolveEndpoint(config, api)
+	if err != nil {
+		return nil, err
 	}
 	if config.Model == "" {
 		return nil, fmt.Errorf("gateway: Model is required")
@@ -167,35 +146,17 @@ func New(config Config) (*Client, error) {
 	if config.ContextWindowTokens < 0 {
 		return nil, fmt.Errorf("gateway: ContextWindowTokens cannot be negative")
 	}
-	if config.MaxRetries < 0 {
-		return nil, fmt.Errorf("gateway: MaxRetries cannot be negative")
-	}
-	if config.NoRetries && config.MaxRetries != 0 {
-		return nil, fmt.Errorf("gateway: NoRetries and MaxRetries are mutually exclusive")
-	}
-	maxRetries := config.MaxRetries
-	switch {
-	case config.NoRetries:
-		maxRetries = 0
-	case maxRetries == 0:
-		maxRetries = defaultMaxRetries
+	maxRetries, err := resolveRetries(config)
+	if err != nil {
+		return nil, err
 	}
 	deferred, err := resolveDeferredTools(config.DeferredTools, api)
 	if err != nil {
 		return nil, err
 	}
-	cacheKeyHeader := strings.TrimSpace(config.CacheKeyHeader)
-	if strings.ContainsAny(cacheKeyHeader, " \t:") {
-		return nil, fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
-	}
-	cacheKeyField := strings.TrimSpace(config.CacheKeyField)
-	switch {
-	case cacheKeyField == "none":
-		cacheKeyField = ""
-	case cacheKeyField == "" && api == APIResponses:
-		cacheKeyField = defaultResponsesCacheKeyField
-	case cacheKeyField != "" && api == APIAnthropicMessages:
-		return nil, fmt.Errorf("gateway: CacheKeyField is not supported by %s, which caches by cache_control", APIAnthropicMessages)
+	cacheKeyHeader, cacheKeyField, err := resolveCacheKey(config, api)
+	if err != nil {
+		return nil, err
 	}
 	backoff := config.RetryBackoff
 	if backoff == 0 {
@@ -206,19 +167,7 @@ func New(config Config) (*Client, error) {
 	}
 	client := config.HTTPClient
 	if client == nil {
-		// A stalled upstream must not hold a Run open forever. Overall stream
-		// duration stays governed by the caller's context; these bound only
-		// connection setup and the wait for response headers.
-		client = &http.Client{
-			Transport: &http.Transport{
-				Proxy:                 http.ProxyFromEnvironment,
-				DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 60 * time.Second,
-				ExpectContinueTimeout: time.Second,
-				IdleConnTimeout:       90 * time.Second,
-			},
-		}
+		client = defaultHTTPClient()
 	}
 	rules := newProviderRules(provider, api, config.Model, retention, config.NoDropBlock)
 	rules.deferredNative = deferred == DeferredFormNative
@@ -238,6 +187,92 @@ func New(config Config) (*Client, error) {
 		contextWindow:  config.ContextWindowTokens,
 		overflow:       newOverflowMatcher(config.OverflowPhrases),
 	}, nil
+}
+
+// resolveEndpoint returns the URL requests go to: Config.Endpoint as given, or
+// the wire API's path under BaseURL (its own origin for Responses and
+// Anthropic Messages when BaseURL is empty). A path gets /v1 in front unless
+// BaseURL already ends in it.
+func resolveEndpoint(config Config, api API) (string, error) {
+	endpoint := strings.TrimSpace(config.Endpoint)
+	if endpoint != "" {
+		return endpoint, nil
+	}
+	base := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
+	if base == "" && api == APIResponses {
+		base = defaultResponsesBaseURL
+	}
+	if base == "" && api == APIAnthropicMessages {
+		base = defaultAnthropicBaseURL
+	}
+	if base == "" {
+		return "", fmt.Errorf("gateway: BaseURL or Endpoint is required")
+	}
+	path := "/chat/completions"
+	switch api {
+	case APIResponses:
+		path = "/responses"
+	case APIAnthropicMessages:
+		path = "/messages"
+	}
+	if !strings.HasSuffix(base, "/v1") {
+		path = "/v1" + path
+	}
+	return base + path, nil
+}
+
+// resolveRetries returns how many times a failed request is sent again: none
+// with NoRetries, MaxRetries when set, the default otherwise.
+func resolveRetries(config Config) (int, error) {
+	if config.MaxRetries < 0 {
+		return 0, fmt.Errorf("gateway: MaxRetries cannot be negative")
+	}
+	if config.NoRetries && config.MaxRetries != 0 {
+		return 0, fmt.Errorf("gateway: NoRetries and MaxRetries are mutually exclusive")
+	}
+	switch {
+	case config.NoRetries:
+		return 0, nil
+	case config.MaxRetries == 0:
+		return defaultMaxRetries, nil
+	}
+	return config.MaxRetries, nil
+}
+
+// resolveCacheKey returns the header and the body field that carry the
+// request's CacheKey, empty for one that is not sent.
+func resolveCacheKey(config Config, api API) (header, field string, err error) {
+	header = strings.TrimSpace(config.CacheKeyHeader)
+	if strings.ContainsAny(header, " \t:") {
+		return "", "", fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
+	}
+	field = strings.TrimSpace(config.CacheKeyField)
+	switch {
+	case field == "none":
+		field = ""
+	case field == "" && api == APIResponses:
+		field = defaultResponsesCacheKeyField
+	case field != "" && api == APIAnthropicMessages:
+		return "", "", fmt.Errorf("gateway: CacheKeyField is not supported by %s, which caches by cache_control", APIAnthropicMessages)
+	}
+	return header, field, nil
+}
+
+// defaultHTTPClient is the client used when Config.HTTPClient is nil. A
+// stalled upstream must not hold a Run open forever. Overall stream duration
+// stays governed by the caller's context; these bound only connection setup
+// and the wait for response headers.
+func defaultHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
 }
 
 // resolveDeferredTools returns the form a wire API uses for deferred tools:
