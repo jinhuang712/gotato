@@ -49,7 +49,7 @@ type RunInfo struct {
 	Status     gotato.RunStatus `json:"status"`
 	Error      string           `json:"error,omitempty"`
 	StartedAt  time.Time        `json:"started_at"`
-	EndedAt    time.Time        `json:"ended_at,omitempty"`
+	EndedAt    time.Time        `json:"ended_at,omitzero"`
 	Turns      uint32           `json:"turns"`
 	ToolCalls  uint32           `json:"tool_calls"`
 	Usage      gotato.Usage     `json:"usage"`

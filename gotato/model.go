@@ -27,7 +27,7 @@ type ModelRequest struct {
 	// reference in the Tool Result that loaded it (ToolResult.LoadedTools).
 	LoadedTools   []string    `json:"loaded_tools,omitempty"`
 	UnloadedTools []ToolSpec  `json:"unloaded_tools,omitempty"`
-	Config        ModelConfig `json:"config,omitempty"`
+	Config        ModelConfig `json:"config,omitzero"`
 	// CacheBreakpoints are provider-neutral prompt-cache hints in prefix
 	// order. An adapter maps them to its provider's mechanism (for example
 	// Anthropic cache_control) or ignores them when the provider caches
@@ -101,7 +101,7 @@ type ModelEvent struct {
 	Text              string         `json:"text,omitempty"`
 	ReasoningArtifact []byte         `json:"reasoning_artifact,omitempty"`
 	ToolCall          *ToolCall      `json:"tool_call,omitempty"`
-	Usage             Usage          `json:"usage,omitempty"`
+	Usage             Usage          `json:"usage,omitzero"`
 	StopReason        StopReason     `json:"stop_reason,omitempty"`
 	// Model is the model the provider reports answering, when it reports
 	// one. Behind a gateway that falls back to another model, it can differ

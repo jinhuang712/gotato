@@ -54,6 +54,17 @@ These sections record changes between development states that no release ever he
 
 ### Since 2026-10-16
 
+#### A zero usage, config or end time is left out of the JSON
+
+**Breaking** for a reader that expected the key: `omitempty` has no effect on a struct field, so these were always written, zero or not. They are `omitzero` now, which says what the tag meant.
+
+| Before | After |
+|---|---|
+| every user Message wrote `"usage":{"input_tokens":0,...}` | a zero `usage` is left out (`Message`, `ModelEvent`, `RunResult`) |
+| a `ModelRequest` with no settings wrote `"config":{}` | a zero `config` is left out |
+| a Run that has not ended wrote `"ended_at":"0001-01-01T00:00:00Z"` | a zero `ended_at` is left out (`session.RunInfo`) |
+| `NewFuncTool` refused an input field tagged `omitzero` | `omitzero` marks the field optional, like `omitempty` |
+
 #### A following Run that fails drops its messages as `run_failed`
 
 A message `Send` reported as queued, left over when its Run settled, vanished without a trace when the following Run failed before its live Session took it (the store failed to open the Session, the Session was deleted, its Agent was no longer configured). Each such message now gets a `message_dropped` Event with the new Why `run_failed`, in the Record when it can be written, else on the Instance's stream alone.

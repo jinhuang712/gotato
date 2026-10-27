@@ -79,7 +79,7 @@ type Message struct {
 	Parts      []ContentPart `json:"parts,omitempty"`
 	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
 	ToolResult *ToolResult   `json:"tool_result,omitempty"`
-	Usage      Usage         `json:"usage,omitempty"`
+	Usage      Usage         `json:"usage,omitzero"`
 	StopReason StopReason    `json:"stop_reason,omitempty"`
 	// Model is the model that wrote an assistant reply, as its provider
 	// reported it, and is empty when the provider named none. It is a
@@ -259,7 +259,7 @@ type RunResult struct {
 	RunID        RunID         `json:"run_id"`
 	Status       RunStatus     `json:"status"`
 	FinalMessage *Message      `json:"final_message,omitempty"`
-	Usage        Usage         `json:"usage,omitempty"`
+	Usage        Usage         `json:"usage,omitzero"`
 	Metrics      RunMetrics    `json:"metrics"`
 	Error        *RuntimeError `json:"error,omitempty"`
 }
