@@ -122,6 +122,21 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 
 `Prompt` returns when the Run settles, and `ctx` carries its cancellation and deadline. The model asks for the tool, Gotato runs it and goes on until the model answers. Errors are left out here. This code is run as a test, against a fake gateway that speaks the same wire API: [Example_gatewayAndTool](gotato/example_test.go).
 
+### Tools from an MCP server
+
+A server you already run as MCP becomes a ToolSet. Its tools are named `<server>.<tool>`, and the adapter connects at the first Run. `WithActiveToolSet` shows the model every tool of the server; `WithToolSet` and `WithFoldedToolSet` leave them to `search_tools` when a server has many:
+
+```go
+import "github.com/jinhuang712/gotato/adapter/mcp"
+
+crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"))
+defer crm.Close() // the service closes it, never a Session
+
+s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithActiveToolSet(crm))
+```
+
+[The MCP adapter](FEATURES.md#g-f12--the-mcp-adapter-) lists the transports (streamable HTTP and stdio), how a tool's annotations become its Effect, and how to authenticate.
+
 ## 🧪 Example
 
 **A chat bot on several pods.** A Lark bot built on Gotato: one Session per thread, any pod can answer, and a killed or replaced pod does not end a conversation. It runs on your machine with a fake chat platform and no secrets, and on a local Kubernetes cluster through a rolling deploy, a killed writer and a scale-down. See [`examples/larkbot`](examples/larkbot) and its [guide](guides/example-chat-bot.md).
@@ -140,16 +155,14 @@ Each feature, with its status, is in [FEATURES.md](FEATURES.md).
 
 ## 🚀 Install
 
-> [!WARNING]
-> Gotato has no release yet. A version is a commit, and until the first release a name may change.
-
-Pin a commit you have tested:
+Gotato needs Go 1.24. The runtime is one module; the MCP adapter is a module of its own, so a service that does not use MCP carries none of it:
 
 ```sh
-go get github.com/jinhuang712/gotato@<commit>
+go get github.com/jinhuang712/gotato@v0.1.0
+go get github.com/jinhuang712/gotato/adapter/mcp@v0.1.0   # only for MCP servers
 ```
 
-[Install](guides/install.md) has the details, including the MCP adapter.
+From 0.1.0 on, a break is written in [CHANGELOG.md](CHANGELOG.md). [Install](guides/install.md) has the details, and the 0.1.0 notes say what was never checked against a real provider.
 
 ## 📚 Documents
 
