@@ -969,24 +969,57 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	}()
 	<-model.started
 
-	for i := range 12 {
+	// Session ids are random, so which instance an id hashes to is not up to
+	// the test: create Sessions until 4 hash to the full instance (its refusal
+	// is certain for each) and 8 to the other, then run them all.
+	full := c.instances[0].name
+	var ids []string
+	toFull, toOther := 0, 0
+	for range 400 {
+		if toFull == 4 && toOther == 8 {
+			break
+		}
 		id := c.create(task)
+		if c.proxy.owner(id) == full {
+			if toFull == 4 {
+				continue
+			}
+			toFull++
+		} else {
+			if toOther == 8 {
+				continue
+			}
+			toOther++
+		}
+		ids = append(ids, id)
+	}
+	if toFull != 4 || toOther != 8 {
+		t.Fatalf("created Sessions hashing %d to the full instance and %d to the other, want 4 and 8", toFull, toOther)
+	}
+	before := c.proxy.retries.Load()
+	for i, id := range ids {
 		r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id)
 		if r.status != http.StatusOK {
 			t.Fatalf("request %d = %d %s", i, r.status, r.body)
 		}
 	}
-	if c.proxy.retries.Load() == 0 {
-		t.Fatal("no request was refused by the full instance, so the retry was not exercised")
+	if got := c.proxy.retries.Load() - before; got != int64(toFull) {
+		t.Fatalf("%d requests retried, want %d: one for each that hashed to the full instance", got, toFull)
 	}
 	sessions, err := c.backing.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions) != 13 {
-		t.Fatalf("%d Sessions, want the held one and 12 more", len(sessions))
+	ran := map[string]bool{}
+	for _, id := range ids {
+		ran[id] = true
 	}
+	checked := 0
 	for _, summary := range sessions {
+		if !ran[summary.ID] && !summary.Busy {
+			continue // created while looking for ids, never run
+		}
+		checked++
 		loaded, err := c.backing.Load(context.Background(), summary.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -1000,6 +1033,9 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 		if busy && holder != c.instances[0].name || !busy && holder != c.instances[1].name {
 			t.Fatalf("Session %s is held by %s (busy %v): the full instance activated a Session it refused", summary.ID, holder, busy)
 		}
+	}
+	if checked != 13 {
+		t.Fatalf("%d Sessions checked, want the held one and 12 more", checked)
 	}
 	close(model.gate)
 	if err := <-held; err != nil {
