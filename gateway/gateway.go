@@ -401,7 +401,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 	// before any request; the other two APIs send no credential without one,
 	// which keyless local gateways rely on.
 	if c.api == APIResponses && strings.TrimSpace(c.apiKey) == "" {
-		return nil, &Error{Message: "gateway: api_key is required for the Responses API"}
+		return nil, &Error{Message: "api_key is required for the Responses API"}
 	}
 	for attempt := 0; ; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
