@@ -47,8 +47,8 @@ func TestToolWithEffectSetsSpecAndKeepsBehavior(t *testing.T) {
 func TestUnknownEffectIsRejected(t *testing.T) {
 	tool := gotato.ToolWithEffect(testkit.NewFakeTool("x", "ok"), gotato.ToolEffect("mutate"))
 	_, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tool))
-	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
-		t.Fatalf("NewSession with an unknown effect = %v, want ErrInvalidArgument", err)
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("NewSession with an unknown effect = %v, want CodeInvalidArgument", err)
 	}
 }
 

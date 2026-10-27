@@ -89,7 +89,7 @@ type AdvisoryExtension interface {
 func WithExtension(extension any) Option {
 	return func(c *sessionConfig) error {
 		if extension == nil {
-			return runtimeError(ErrInvalidArgument, "WithExtension", "extension is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithExtension", "extension is nil", nil)
 		}
 		installed := false
 		if typed, ok := extension.(ContextTransformer); ok {
@@ -117,7 +117,7 @@ func WithExtension(extension any) Option {
 			installed = true
 		}
 		if !installed {
-			return runtimeError(ErrInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
+			return runtimeError(CodeInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
 		}
 		return nil
 	}
@@ -155,7 +155,7 @@ func (s extensionSet) empty() bool {
 // prepareTurn runs every TurnPreparer in installation order before a model
 // call, and reports whether any of them rewrote the Transcript. A failure that
 // is already a RuntimeError keeps its code, so a preparer can end the Run with
-// ErrLimitExceeded or ErrContextOverflow.
+// CodeLimitExceeded or CodeContextOverflow.
 func (s extensionSet) prepareTurn(ctx context.Context, pending PendingTurn) (bool, *RuntimeError) {
 	changed := false
 	for _, preparer := range s.preparers {
@@ -206,13 +206,13 @@ func guard(stage string, call func() error) (err *RuntimeError) {
 		if recovered := recover(); recovered != nil {
 			// The stack stays on the Cause for logs; Message stays short
 			// because the service layer returns it to HTTP clients.
-			err = runtimeError(ErrExtensionFailure, stage,
+			err = runtimeError(CodeExtensionFailure, stage,
 				fmt.Sprintf("extension panic: %v", recovered),
 				fmt.Errorf("extension panic: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	if failure := call(); failure != nil {
-		return runtimeError(ErrExtensionFailure, stage, failure.Error(), failure)
+		return runtimeError(CodeExtensionFailure, stage, failure.Error(), failure)
 	}
 	return nil
 }

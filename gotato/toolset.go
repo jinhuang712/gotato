@@ -61,7 +61,7 @@ func WithActiveToolSet(set ToolSet) Option {
 func withToolSet(set ToolSet, mode installMode) Option {
 	return func(c *sessionConfig) error {
 		if set == nil {
-			return runtimeError(ErrInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
 		}
 		c.toolSets = append(c.toolSets, toolSetConfig{set: set, mode: mode})
 		return nil
@@ -188,13 +188,13 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		// the same ToolSet and qualified Tool IDs never contain stray spaces.
 		spec.Name = strings.TrimSpace(spec.Name)
 		if spec.Name == "" {
-			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "ToolSet name is empty", nil)
+			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet name is empty", nil)
 		}
 		if strings.Contains(spec.Name, ".") {
-			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "ToolSet name cannot contain a dot: "+spec.Name, nil)
+			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet name cannot contain a dot: "+spec.Name, nil)
 		}
 		if names[spec.Name] {
-			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "duplicate ToolSet name: "+spec.Name, nil)
+			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "duplicate ToolSet name: "+spec.Name, nil)
 		}
 		names[spec.Name] = true
 		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, mode: entry.mode})
@@ -281,7 +281,7 @@ func (r *toolRegistry) install(results []setResult) error {
 	for i := range r.catalog {
 		entry := &r.catalog[i]
 		if _, dup := r.byCatalog[entry.id]; dup {
-			return runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
+			return runtimeError(CodeInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
 		}
 		r.byCatalog[entry.id] = entry
 	}
@@ -395,7 +395,7 @@ func (r *toolRegistry) syncLoaded(ids []string) error {
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(ErrExtensionFailure, "ToolSet", fmt.Sprintf("ToolSet.Spec panicked: %v", recovered), nil)
+			err = runtimeError(CodeExtensionFailure, "ToolSet", fmt.Sprintf("ToolSet.Spec panicked: %v", recovered), nil)
 		}
 	}()
 	return set.Spec(), nil
@@ -414,19 +414,19 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 		return failure
 	}()
 	if err != nil {
-		return nil, runtimeError(ErrToolResolutionFailure, "ToolSet", "cannot resolve ToolSet "+state.spec.Name+": "+err.Error(), err)
+		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", "cannot resolve ToolSet "+state.spec.Name+": "+err.Error(), err)
 	}
 	local := map[string]bool{}
 	for _, tool := range tools {
 		if tool == nil {
-			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "ToolSet "+state.spec.Name+" returned a nil Tool", nil)
+			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet "+state.spec.Name+" returned a nil Tool", nil)
 		}
 		spec := tool.Spec()
 		if err := validateToolSpec(spec); err != nil {
 			return nil, err
 		}
 		if local[spec.ID] {
-			return nil, runtimeError(ErrInvalidArgument, "ToolSet", "duplicate local Tool name in ToolSet "+state.spec.Name+": "+spec.ID, nil)
+			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "duplicate local Tool name in ToolSet "+state.spec.Name+": "+spec.ID, nil)
 		}
 		local[spec.ID] = true
 	}
@@ -468,7 +468,7 @@ func (r *toolRegistry) rebuild() error {
 	specs := make([]ToolSpec, 0, len(r.rootTools))
 	register := func(qualified string, tool Tool, spec ToolSpec) error {
 		if _, exists := byQualified[qualified]; exists {
-			return runtimeError(ErrInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
+			return runtimeError(CodeInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
 		}
 		byQualified[qualified] = tool
 		visible := cloneToolSpec(spec)
@@ -560,14 +560,14 @@ func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 func (r *toolRegistry) collectSources() (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(ErrToolResolutionFailure, "ToolSource", fmt.Sprintf("ToolSource panicked: %v", recovered), nil)
+			err = runtimeError(CodeToolResolutionFailure, "ToolSource", fmt.Sprintf("ToolSource panicked: %v", recovered), nil)
 		}
 	}()
 	var tools []Tool
 	for _, source := range r.sources {
 		for _, tool := range source.Tools() {
 			if tool == nil {
-				return runtimeError(ErrInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
+				return runtimeError(CodeInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
 			}
 			tools = append(tools, tool)
 		}

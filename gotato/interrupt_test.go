@@ -196,7 +196,7 @@ func TestInterruptWithoutARunIsInvalidState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close(context.Background()) }()
-	if err := session.Interrupt(UserMessage("anyone there?")); !IsCode(err, ErrInvalidState) {
+	if err := session.Interrupt(UserMessage("anyone there?")); !IsCode(err, CodeInvalidState) {
 		t.Fatalf("Interrupt with no Run = %v", err)
 	}
 }

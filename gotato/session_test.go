@@ -102,7 +102,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	if got := agent.Status(); got != SessionStatusClosed {
 		t.Fatalf("status after Close = %s", got)
 	}
-	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, ErrSessionClosed) {
+	if _, err := agent.Prompt(context.Background(), UserMessage("closed")); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("expected closed error, got %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestSessionAbortRun(t *testing.T) {
 	}
 	select {
 	case err := <-resultCh:
-		if !IsCode(err, ErrCanceled) {
+		if !IsCode(err, CodeCanceled) {
 			t.Fatalf("prompt error = %v", err)
 		}
 	case <-time.After(time.Second):
@@ -229,7 +229,7 @@ func TestSessionSingleFlight(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Model was not called")
 	}
-	if _, err := agent.Prompt(context.Background(), UserMessage("second")); !IsCode(err, ErrBusy) {
+	if _, err := agent.Prompt(context.Background(), UserMessage("second")); !IsCode(err, CodeBusy) {
 		t.Fatalf("expected busy, got %v", err)
 	}
 	close(release)
@@ -375,10 +375,10 @@ func TestSchemaIntegerTypeRejectsFraction(t *testing.T) {
 
 func TestRuntimeErrorTypedNilTargetsDoNotPanic(t *testing.T) {
 	var typedNil *RuntimeError
-	if errors.Is(ErrorOf(ErrBusy, "x"), typedNil) {
+	if errors.Is(ErrorOf(CodeBusy, "x"), typedNil) {
 		t.Fatal("a typed-nil target matched")
 	}
-	if IsCode(typedNil, ErrBusy) {
+	if IsCode(typedNil, CodeBusy) {
 		t.Fatal("a typed-nil error reported a code")
 	}
 }

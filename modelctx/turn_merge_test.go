@@ -192,7 +192,7 @@ func TestTheLimitARefusalNamesSizesTheMerge(t *testing.T) {
 				if err != nil || result.Status != gotato.RunCompleted || model.calls() != 2 {
 					t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 				}
-			} else if !gotato.IsCode(err, gotato.ErrContextOverflow) || model.calls() != 1 {
+			} else if !gotato.IsCode(err, gotato.CodeContextOverflow) || model.calls() != 1 {
 				t.Fatalf("err = %v, %d calls; the refusal should stand", err, model.calls())
 			}
 			if l.merged() != tc.wantMerged {
@@ -209,7 +209,7 @@ func TestAFailedMergeRecapOnAnOverflowEndsTheRunWithContextOverflow(t *testing.T
 	l := overflowFixture(t, modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}})
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "six", "ok")
-	if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if !strings.Contains(err.Error(), "nothing was merged") || !strings.Contains(err.Error(), "gateway down") {
@@ -245,7 +245,7 @@ func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
 	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy { return modelctx.CompactPolicy{SegmentBudget: tokens - 100} })
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "five", "ok")
-	if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if got := whyOf(l.writer.Record()); len(got) != 5 || got[4] != gotato.CompactionPastBudget {

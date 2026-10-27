@@ -196,8 +196,8 @@ func TestJournalFailureStopsBeforeTheModelCall(t *testing.T) {
 		err  error
 		code ErrorCode
 	}{
-		{name: "conflict", err: ErrorOf(ErrConflict, "another writer"), code: ErrConflict},
-		{name: "other failure", err: errors.New("disk full"), code: ErrStoreFailure},
+		{name: "conflict", err: ErrorOf(CodeConflict, "another writer"), code: CodeConflict},
+		{name: "other failure", err: errors.New("disk full"), code: CodeStoreFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hi"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}

@@ -577,17 +577,17 @@ func runFailure(result service.RunResult, err error) (failure, bool) {
 // causeOf attributes a Run's error code.
 func causeOf(code gotato.ErrorCode) Cause {
 	switch code {
-	case gotato.ErrModelFailure, gotato.ErrContextOverflow, gotato.ErrModelProtocolFailure:
+	case gotato.CodeModelFailure, gotato.CodeContextOverflow, gotato.CodeModelProtocolFailure:
 		return CauseProvider
-	case gotato.ErrToolExecutionFailure:
+	case gotato.CodeToolExecutionFailure:
 		return CauseTool
-	case gotato.ErrToolResolutionFailure, gotato.ErrToolArgumentFailure:
+	case gotato.CodeToolResolutionFailure, gotato.CodeToolArgumentFailure:
 		return CauseModel
-	case gotato.ErrExtensionFailure:
+	case gotato.CodeExtensionFailure:
 		return CauseExtension
-	case gotato.ErrLimitExceeded, gotato.ErrDeadlineExceeded:
+	case gotato.CodeLimitExceeded, gotato.CodeDeadlineExceeded:
 		return CauseLimit
-	case gotato.ErrCanceled:
+	case gotato.CodeCanceled:
 		return CauseCanceled
 	default:
 		return CauseGotato
@@ -612,7 +612,7 @@ func toolFailure(call toolCall, committed *gotato.ToolResult) (failure, bool) {
 		f.cause = CauseExtension
 	case call.status == string(gotato.ToolResultCanceled):
 		f.cause = CauseCanceled
-	case f.code == string(gotato.ErrInternalInvariant):
+	case f.code == string(gotato.CodeInternalInvariant):
 		f.cause = CauseGotato
 	case call.executed:
 		f.cause = CauseTool
@@ -623,14 +623,14 @@ func toolFailure(call toolCall, committed *gotato.ToolResult) (failure, bool) {
 }
 
 // codePrefix reads the error code a Gotato error message starts with, as in
-// "tool_argument_validation_failure: …" or "tool_execution_failure (Tool): …".
+// "tool_argument_failure: …" or "tool_execution_failure (Tool): …".
 func codePrefix(message string) gotato.ErrorCode {
 	end := strings.IndexAny(message, ": (")
 	if end <= 0 {
 		return ""
 	}
 	switch code := gotato.ErrorCode(message[:end]); code {
-	case gotato.ErrToolArgumentFailure, gotato.ErrToolResolutionFailure, gotato.ErrToolExecutionFailure, gotato.ErrInternalInvariant:
+	case gotato.CodeToolArgumentFailure, gotato.CodeToolResolutionFailure, gotato.CodeToolExecutionFailure, gotato.CodeInternalInvariant:
 		return code
 	}
 	return ""

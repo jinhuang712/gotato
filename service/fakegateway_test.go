@@ -133,7 +133,7 @@ func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t
 			// The directive makes the fake refuse every time, as a window the history
 			// cannot get under would.
 			result, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "charlie [quirk:overflow]"})
-			if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunFailed {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if n := len(fake.Requests()); n != 4 {
@@ -197,7 +197,7 @@ func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireA
 			}
 			before := len(fake.Requests())
 			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "delta [quirk:overflow-midstream]"})
-			if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunFailed {
 				t.Fatalf("delta: %+v, %v", result, err)
 			}
 			if requests := fake.Requests()[before:]; len(requests) != 1 || requests[0].Outcome != "overflow-midstream" {

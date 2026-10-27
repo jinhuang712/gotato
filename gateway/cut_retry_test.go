@@ -175,7 +175,7 @@ func TestCutsBeyondTheLimitFailTheRunWithModelFailure(t *testing.T) {
 	server := newCutServer(t, cutScript{chunks: chatText("partial"), cut: true})
 	session, recorder := cutSession(t, server, 2)
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.ErrModelFailure {
+	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.CodeModelFailure {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	if got := len(server.requests()); got != 3 {

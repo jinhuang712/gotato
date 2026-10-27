@@ -180,7 +180,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 
 	// instance-a cannot show its row is alive: it writes nothing and never
 	// calls the model.
-	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); !gotato.IsCode(err, gotato.ErrConflict) {
+	if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); !gotato.IsCode(err, gotato.CodeConflict) {
 		t.Fatalf("a Run after the row lapsed = %v, want a conflict", err)
 	}
 	if len(model.Requests()) != 0 {

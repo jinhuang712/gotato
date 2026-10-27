@@ -415,7 +415,7 @@ func TestACustomToolSearcherDecidesWhatLoads(t *testing.T) {
 	if text := textOfResult(resultOf(t, model, 1, "s")); text != "Loaded: orders.refund, orders.lookup, orders.list_open." {
 		t.Fatalf("search result = %q (the custom order, without the unknown ID)", text)
 	}
-	if _, err := NewSession(WithModel(model), WithToolSearcher(nil)); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(model), WithToolSearcher(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil searcher = %v", err)
 	}
 }

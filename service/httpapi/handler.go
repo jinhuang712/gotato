@@ -361,7 +361,7 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Keep < 0 || in.MinTokens < 0 {
-		writeFailure(w, gotato.ErrorOf(gotato.ErrInvalidArgument, "keep and min_tokens cannot be negative"))
+		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep and min_tokens cannot be negative"))
 		return
 	}
 	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactOptions{Keep: in.Keep, MinTokens: in.MinTokens})
@@ -765,30 +765,30 @@ func writeDecodeError(w http.ResponseWriter, err error) {
 // a new one cannot be left to a default by accident; the test over
 // gotato.ErrorCodes fails when one is missing.
 var statusOfCode = map[gotato.ErrorCode]int{
-	gotato.ErrInvalidArgument:       http.StatusBadRequest,
-	gotato.ErrNotSupported:          http.StatusBadRequest,
-	gotato.ErrNotFound:              http.StatusNotFound,
-	gotato.ErrSessionClosed:         http.StatusConflict,
-	gotato.ErrSessionClosing:        http.StatusConflict,
-	gotato.ErrInvalidState:          http.StatusConflict,
-	gotato.ErrBusy:                  http.StatusConflict,
-	gotato.ErrConflict:              http.StatusConflict,
-	gotato.ErrCannotResume:          http.StatusConflict,
-	gotato.ErrNotWriter:             http.StatusConflict,
-	gotato.ErrStoreFailure:          http.StatusServiceUnavailable,
-	gotato.ErrOverloaded:            http.StatusServiceUnavailable,
-	gotato.ErrDraining:              http.StatusServiceUnavailable,
-	gotato.ErrLimitExceeded:         http.StatusTooManyRequests,
-	gotato.ErrContextOverflow:       http.StatusUnprocessableEntity,
-	gotato.ErrDeadlineExceeded:      http.StatusGatewayTimeout,
-	gotato.ErrCanceled:              http.StatusRequestTimeout,
-	gotato.ErrModelFailure:          http.StatusInternalServerError,
-	gotato.ErrModelProtocolFailure:  http.StatusInternalServerError,
-	gotato.ErrToolResolutionFailure: http.StatusInternalServerError,
-	gotato.ErrToolArgumentFailure:   http.StatusInternalServerError,
-	gotato.ErrToolExecutionFailure:  http.StatusInternalServerError,
-	gotato.ErrExtensionFailure:      http.StatusInternalServerError,
-	gotato.ErrInternalInvariant:     http.StatusInternalServerError,
+	gotato.CodeInvalidArgument:       http.StatusBadRequest,
+	gotato.CodeNotSupported:          http.StatusBadRequest,
+	gotato.CodeNotFound:              http.StatusNotFound,
+	gotato.CodeSessionClosed:         http.StatusConflict,
+	gotato.CodeSessionClosing:        http.StatusConflict,
+	gotato.CodeInvalidState:          http.StatusConflict,
+	gotato.CodeBusy:                  http.StatusConflict,
+	gotato.CodeConflict:              http.StatusConflict,
+	gotato.CodeCannotResume:          http.StatusConflict,
+	gotato.CodeNotWriter:             http.StatusConflict,
+	gotato.CodeStoreFailure:          http.StatusServiceUnavailable,
+	gotato.CodeOverloaded:            http.StatusServiceUnavailable,
+	gotato.CodeDraining:              http.StatusServiceUnavailable,
+	gotato.CodeLimitExceeded:         http.StatusTooManyRequests,
+	gotato.CodeContextOverflow:       http.StatusUnprocessableEntity,
+	gotato.CodeDeadlineExceeded:      http.StatusGatewayTimeout,
+	gotato.CodeCanceled:              http.StatusRequestTimeout,
+	gotato.CodeModelFailure:          http.StatusInternalServerError,
+	gotato.CodeModelProtocolFailure:  http.StatusInternalServerError,
+	gotato.CodeToolResolutionFailure: http.StatusInternalServerError,
+	gotato.CodeToolArgumentFailure:   http.StatusInternalServerError,
+	gotato.CodeToolExecutionFailure:  http.StatusInternalServerError,
+	gotato.CodeExtensionFailure:      http.StatusInternalServerError,
+	gotato.CodeInternalInvariant:     http.StatusInternalServerError,
 }
 
 // StatusFor maps a runtime error to an HTTP status. It translates the error's
@@ -858,7 +858,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 	// A Session busy on another instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
-		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == gotato.ErrNotWriter {
+		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == gotato.CodeNotWriter {
 			w.Header().Set(WriterHeader, writer)
 		}
 		if ms, convErr := strconv.ParseInt(runtimeErr.Details["retry_after_ms"], 10, 64); convErr == nil {

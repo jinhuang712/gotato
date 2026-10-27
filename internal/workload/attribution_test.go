@@ -21,11 +21,11 @@ func TestToolFailureAttribution(t *testing.T) {
 		code    string
 		example string
 	}{
-		{toolCall{toolID: "orders.lookup", status: failed}, "tool_argument_validation_failure: orders.lookup: arguments.id is required", CauseModel, "tool_argument_validation_failure", ""},
+		{toolCall{toolID: "orders.lookup", status: failed}, "tool_argument_failure: orders.lookup: arguments.id is required", CauseModel, "tool_argument_failure", ""},
 		{toolCall{toolID: "x", status: failed}, `tool_resolution_failure: unknown tool "x"; available tools: a`, CauseModel, "tool_resolution_failure", ""},
 		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "order 7 not found", CauseTool, "", "order 7 not found"},
 		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "tool_execution_failure (Tool): tool panic: boom", CauseTool, "tool_execution_failure", ""},
-		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "internal_invariant_failure (Core): broken", CauseGotato, "internal_invariant_failure", ""},
+		{toolCall{toolID: "orders.lookup", status: failed, executed: true}, "internal_invariant (Core): broken", CauseGotato, "internal_invariant", ""},
 		{toolCall{toolID: "orders.lookup", status: blocked}, "refused by policy", CauseExtension, "", ""},
 		{toolCall{toolID: "orders.lookup", status: canceled}, "context canceled", CauseCanceled, "", ""},
 		// Without a committed result, the Event alone decides the cause.
@@ -48,16 +48,16 @@ func TestToolFailureAttribution(t *testing.T) {
 
 func TestRunFailureAttribution(t *testing.T) {
 	cases := map[gotato.ErrorCode]Cause{
-		gotato.ErrModelFailure:         CauseProvider,
-		gotato.ErrModelProtocolFailure: CauseProvider,
-		gotato.ErrToolExecutionFailure: CauseTool,
-		gotato.ErrToolArgumentFailure:  CauseModel,
-		gotato.ErrExtensionFailure:     CauseExtension,
-		gotato.ErrLimitExceeded:        CauseLimit,
-		gotato.ErrDeadlineExceeded:     CauseLimit,
-		gotato.ErrCanceled:             CauseCanceled,
-		gotato.ErrInternalInvariant:    CauseGotato,
-		gotato.ErrInvalidState:         CauseGotato,
+		gotato.CodeModelFailure:         CauseProvider,
+		gotato.CodeModelProtocolFailure: CauseProvider,
+		gotato.CodeToolExecutionFailure: CauseTool,
+		gotato.CodeToolArgumentFailure:  CauseModel,
+		gotato.CodeExtensionFailure:     CauseExtension,
+		gotato.CodeLimitExceeded:        CauseLimit,
+		gotato.CodeDeadlineExceeded:     CauseLimit,
+		gotato.CodeCanceled:             CauseCanceled,
+		gotato.CodeInternalInvariant:    CauseGotato,
+		gotato.CodeInvalidState:         CauseGotato,
 	}
 	for code, want := range cases {
 		result := service.RunResult{Result: gotato.RunResult{Status: gotato.RunFailed, Error: gotato.ErrorOf(code, "x")}}

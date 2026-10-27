@@ -188,12 +188,12 @@ type Config struct {
 
 // ErrBusy is returned when a Session already has a Run in flight and the
 // policy is RejectWhileBusy.
-var ErrBusy = gotato.ErrorOf(gotato.ErrBusy, "service: session has a run in flight")
+var ErrBusy = gotato.ErrorOf(gotato.CodeBusy, "service: session has a run in flight")
 
 // ErrCapacity is returned when MaxActiveRuns is reached.
 // It is refused at admission, so the Run is not run, and another Instance, or
 // this one later, may take it.
-var ErrCapacity = refusedAtAdmission(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: maximum active runs reached"))
+var ErrCapacity = refusedAtAdmission(gotato.ErrorOf(gotato.CodeLimitExceeded, "service: maximum active runs reached"))
 
 // refusedAtAdmission marks a refusal made before a Run started: nothing ran,
 // and the same request may succeed elsewhere or later.
@@ -205,11 +205,11 @@ func refusedAtAdmission(e *gotato.RuntimeError) *gotato.RuntimeError {
 // ErrOverloaded is returned when the Instance is at its MaxActiveSessions and
 // the Run would activate another Session. The Run did not start and nothing
 // was written, so it is safe to send again to another Instance.
-var ErrOverloaded = gotato.ErrorOf(gotato.ErrOverloaded, "service: this instance is at its limit of active sessions")
+var ErrOverloaded = gotato.ErrorOf(gotato.CodeOverloaded, "service: this instance is at its limit of active sessions")
 
 // ErrUnknownAgent is returned for an unregistered Agent name.
 // The Run is refused before it starts, so it is not run.
-var ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown agent"))
+var ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown agent"))
 
 // notRunError marks a refusal made before a Run started.
 func notRunError(e *gotato.RuntimeError) *gotato.RuntimeError {
@@ -218,18 +218,18 @@ func notRunError(e *gotato.RuntimeError) *gotato.RuntimeError {
 }
 
 // ErrSessionExists is returned when an explicit Session ID is already taken.
-var ErrSessionExists = gotato.ErrorOf(gotato.ErrInvalidState, "service: session already exists")
+var ErrSessionExists = gotato.ErrorOf(gotato.CodeInvalidState, "service: session already exists")
 
 // ErrDraining refuses a new Run, and taking a Session over from another
 // Instance, once the Runner drains.
-var ErrDraining = gotato.ErrorOf(gotato.ErrDraining, "service: draining")
+var ErrDraining = gotato.ErrorOf(gotato.CodeDraining, "service: draining")
 
 // ErrNotPersisted reports that a write of a Run failed, so the Record does not
 // hold the Run. The Run outcome is still returned, settled as gotato.RunFailed
 // with store_failure; callers must treat the Session state as lost. A Run whose
 // only failed write is the release of the Session keeps its status and
 // returns no error: its Events are all stored.
-var ErrNotPersisted = errors.New("service: session was not persisted")
+var ErrNotPersisted = gotato.ErrorOf(gotato.CodeStoreFailure, "service: session was not persisted")
 
 // Runner serves Runs against Sessions.
 type Runner struct {
@@ -564,7 +564,7 @@ func (r *Runner) newSession(agent string, metadata map[string]string, options ..
 // two concurrent creates cannot both succeed, also on two Instances.
 func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, metadata map[string]string) (*session.Record, error) {
 	if strings.TrimSpace(id) == "" {
-		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required")
+		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required")
 	}
 	return r.CreateSession(ctx, agent, metadata, session.WithID(id))
 }
@@ -719,7 +719,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		ctx = context.Background()
 	}
 	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
-		return RunResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required"))
+		return RunResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: prompt is required"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still
@@ -1087,7 +1087,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				// each).
 				var saveFailure *gotato.RuntimeError
 				if !errors.As(saveErr, &saveFailure) {
-					saveFailure = gotato.ErrorOf(gotato.ErrStoreFailure, saveErr.Error())
+					saveFailure = gotato.ErrorOf(gotato.CodeStoreFailure, saveErr.Error())
 					saveFailure.Cause = saveErr
 					saveErr = saveFailure
 				}
@@ -1131,7 +1131,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			if errors.As(runErr, &runtimeErr) {
 				out.Result.Error = runtimeErr
 			} else {
-				out.Result.Error = gotato.ErrorOf(gotato.ErrInternalInvariant, runErr.Error())
+				out.Result.Error = gotato.ErrorOf(gotato.CodeInternalInvariant, runErr.Error())
 			}
 			if out.Result.Status == "" {
 				out.Result.Status = runStatusForError(runErr)
@@ -1172,17 +1172,17 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	switch {
 	case errors.Is(err, session.ErrConflict):
 		r.notice(gotato.SessionFenced{Header: header, Instance: r.instance}, agent)
-	case gotato.IsCode(err, gotato.ErrStoreFailure):
-		r.notice(gotato.StoreWriteFailed{Header: header, Code: gotato.ErrStoreFailure}, agent)
+	case gotato.IsCode(err, gotato.CodeStoreFailure):
+		r.notice(gotato.StoreWriteFailed{Header: header, Code: gotato.CodeStoreFailure}, agent)
 	}
 }
 
 // canceledRunResult reports a Run canceled before its Agent started as a
 // settled canceled Run.
 func canceledRunResult(sessionID, agent string, err error) RunResult {
-	code := gotato.ErrCanceled
+	code := gotato.CodeCanceled
 	if errors.Is(err, context.DeadlineExceeded) {
-		code = gotato.ErrDeadlineExceeded
+		code = gotato.CodeDeadlineExceeded
 	}
 	return RunResult{
 		SessionID: sessionID,
@@ -1227,9 +1227,9 @@ func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bo
 // failure, and the Session's Run record says the same.
 func runStatusForError(err error) gotato.RunStatus {
 	switch {
-	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.ErrCanceled):
+	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.CodeCanceled):
 		return gotato.RunCanceled
-	case errors.Is(err, context.DeadlineExceeded), gotato.IsCode(err, gotato.ErrDeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded), gotato.IsCode(err, gotato.CodeDeadlineExceeded):
 		return gotato.RunDeadlineExceeded
 	default:
 		return gotato.RunFailed
@@ -1545,7 +1545,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		}
 		if found == nil {
 			_ = writer.Release(ctx)
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown tool "+toolID)
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown tool "+toolID)
 		}
 		if active {
 			s.Set(MetaToolPrefix+toolID, "")
@@ -1577,7 +1577,7 @@ func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record,
 	defer func() { _ = live.Close(context.Background()) }()
 	for _, set := range live.ToolSets() {
 		if set.Unavailable && strings.HasPrefix(toolID, set.Name+".") {
-			return nil, "", false, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: tool set "+set.Name+" is unavailable now; "+toolID+" cannot be checked")
+			return nil, "", false, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: tool set "+set.Name+" is unavailable now; "+toolID+" cannot be checked")
 		}
 		for _, tool := range set.Tools {
 			if tool.Spec.ID == toolID {
@@ -1745,7 +1745,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	childAgent, _ := child.Get(MetaAgent)
 	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
 		if errors.Is(err, ErrSessionExists) {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session "+child.ID()+" already exists")
+			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session "+child.ID()+" already exists")
 		}
 		return nil, err
 	}

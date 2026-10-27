@@ -22,10 +22,10 @@ func TestModelErrorThatSaysOverflowEndsTheRunWithContextOverflow(t *testing.T) {
 		err  error
 		want ErrorCode
 	}{
-		{"overflow", overflowError{overflow: true}, ErrContextOverflow},
-		{"wrapped overflow", fmt.Errorf("model: %w", overflowError{overflow: true}), ErrContextOverflow},
-		{"refused for another reason", overflowError{}, ErrModelFailure},
-		{"plain failure", errors.New("boom"), ErrModelFailure},
+		{"overflow", overflowError{overflow: true}, CodeContextOverflow},
+		{"wrapped overflow", fmt.Errorf("model: %w", overflowError{overflow: true}), CodeContextOverflow},
+		{"refused for another reason", overflowError{}, CodeModelFailure},
+		{"plain failure", errors.New("boom"), CodeModelFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			session, err := NewSession(WithModel(failingModel{err: tc.err}))

@@ -89,7 +89,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 			Update: map[string]string{service.MetaCompactCeiling: "1"}})
 		// A ceiling of one token can never be met, so the Run ends after its
 		// compaction; the compaction is what this checks.
-		if !gotato.IsCode(err, gotato.ErrLimitExceeded) || !third.Compacted {
+		if !gotato.IsCode(err, gotato.CodeLimitExceeded) || !third.Compacted {
 			t.Fatalf("round=%v: the third Run did not compact first: %+v, %v", round, third, err)
 		}
 		// The kept tail is u2 and its reply.

@@ -293,10 +293,10 @@ func Load(doc Document) (*Record, error) {
 		doc.SchemaVersion = SchemaVersion
 	}
 	if doc.SchemaVersion > SchemaVersion {
-		return nil, gotato.ErrorOf(gotato.ErrNotSupported, "session: unsupported schema_version")
+		return nil, gotato.ErrorOf(gotato.CodeNotSupported, "session: unsupported schema_version")
 	}
 	if doc.ID == "" {
-		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: document has no id")
+		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: document has no id")
 	}
 	s := &Record{
 		id:          doc.ID,

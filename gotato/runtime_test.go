@@ -147,7 +147,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("hi"))
-	if !IsCode(err, ErrExtensionFailure) || result.Status != RunFailed {
+	if !IsCode(err, CodeExtensionFailure) || result.Status != RunFailed {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
@@ -236,7 +236,7 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	for _, message := range []Message{UserMessage(""), UserMessage("   "), {Role: RoleUser}} {
-		if _, err := agent.Prompt(context.Background(), message); !IsCode(err, ErrInvalidArgument) {
+		if _, err := agent.Prompt(context.Background(), message); !IsCode(err, CodeInvalidArgument) {
 			t.Fatalf("Prompt(%+v) err = %v, want invalid_argument", message, err)
 		}
 	}
@@ -354,7 +354,7 @@ func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	for i := 0; i < 10 && lastErr == nil; i++ {
 		_, lastErr = agent.Prompt(context.Background(), UserMessage("hi"))
 	}
-	if !IsCode(lastErr, ErrLimitExceeded) {
+	if !IsCode(lastErr, CodeLimitExceeded) {
 		t.Fatalf("expected limit_exceeded, got %v", lastErr)
 	}
 }

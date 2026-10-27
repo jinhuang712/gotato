@@ -199,8 +199,8 @@ func TestASecondRefusalAsTooLongEndsTheRunWithContextOverflow(t *testing.T) {
 	})
 	session := newPreparedSession(t, model, nil, preparer)
 	result, err := session.Prompt(context.Background(), UserMessage("go"))
-	if !IsCode(err, ErrContextOverflow) || result.Status != RunFailed {
-		t.Fatalf("result = %+v, err = %v; want %s", result, err, ErrContextOverflow)
+	if !IsCode(err, CodeContextOverflow) || result.Status != RunFailed {
+		t.Fatalf("result = %+v, err = %v; want %s", result, err, CodeContextOverflow)
 	}
 	if model.calls() != 2 || overflows != 1 {
 		t.Fatalf("%d model calls and %d overflow chances, want 2 and 1", model.calls(), overflows)
@@ -225,7 +225,7 @@ func TestARefusalNoPreparerCanMendEndsTheRun(t *testing.T) {
 			}
 			defer func() { _ = session.Close(context.Background()) }()
 			result, err := session.Prompt(context.Background(), UserMessage("go"))
-			if !IsCode(err, ErrContextOverflow) || result.Status != RunFailed || model.calls() != 1 {
+			if !IsCode(err, CodeContextOverflow) || result.Status != RunFailed || model.calls() != 1 {
 				t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 			}
 		})
@@ -239,9 +239,9 @@ func TestATurnPreparerEndsTheRunWithItsError(t *testing.T) {
 		err  error
 		want ErrorCode
 	}{
-		"limit":    {ErrorOf(ErrLimitExceeded, "past the ceiling"), ErrLimitExceeded},
-		"plain":    {errors.New("boom"), ErrExtensionFailure},
-		"canceled": {context.Canceled, ErrExtensionFailure},
+		"limit":    {ErrorOf(CodeLimitExceeded, "past the ceiling"), CodeLimitExceeded},
+		"plain":    {errors.New("boom"), CodeExtensionFailure},
+		"canceled": {context.Canceled, CodeExtensionFailure},
 	} {
 		t.Run(name, func(t *testing.T) {
 			model := &callModel{steps: []any{finalScript("never")}}
@@ -274,7 +274,7 @@ func TestAPreparerStoppedWithTheRunEndsItCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Prompt(ctx, UserMessage("go")); !IsCode(err, ErrCanceled) {
+	if _, err := session.Prompt(ctx, UserMessage("go")); !IsCode(err, CodeCanceled) {
 		t.Fatalf("Prompt: %v", err)
 	}
 	wait, done := context.WithTimeout(context.Background(), 5*time.Second)
@@ -285,7 +285,7 @@ func TestAPreparerStoppedWithTheRunEndsItCanceled(t *testing.T) {
 			t.Fatalf("no RunEnded: %v", err)
 		}
 		if ended, ok := event.(RunEnded); ok {
-			if ended.Status != RunCanceled || ended.Cause != ErrCanceled || model.calls() != 0 {
+			if ended.Status != RunCanceled || ended.Cause != CodeCanceled || model.calls() != 0 {
 				t.Fatalf("RunEnded = %+v, %d calls; want canceled by the stop", ended, model.calls())
 			}
 			return

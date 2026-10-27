@@ -7,11 +7,11 @@ import (
 )
 
 func TestRuntimeErrorMatchesByCode(t *testing.T) {
-	base := ErrorOf(ErrBusy, "service: session has a run in flight")
-	if !errors.Is(ErrorOf(ErrBusy, "different message"), base) {
+	base := ErrorOf(CodeBusy, "service: session has a run in flight")
+	if !errors.Is(ErrorOf(CodeBusy, "different message"), base) {
 		t.Fatal("errors.Is did not match two errors with the same code")
 	}
-	if errors.Is(ErrorOf(ErrInvalidState, "x"), base) {
+	if errors.Is(ErrorOf(CodeInvalidState, "x"), base) {
 		t.Fatal("errors.Is matched a different code")
 	}
 }
@@ -69,7 +69,7 @@ func TestToolResultCloneIsolatesSignature(t *testing.T) {
 func TestRunResultCloneIsolatesErrorDetails(t *testing.T) {
 	result := RunResult{
 		Status: RunFailed,
-		Error:  &RuntimeError{Code: ErrToolExecutionFailure, Message: "boom", Details: map[string]string{"tool": "echo"}},
+		Error:  &RuntimeError{Code: CodeToolExecutionFailure, Message: "boom", Details: map[string]string{"tool": "echo"}},
 	}
 	clone := result.Clone()
 	clone.Error.Details["tool"] = "changed"

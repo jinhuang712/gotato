@@ -107,7 +107,7 @@ func TestInspectContextIsRefusedDuringARun(t *testing.T) {
 		done <- err
 	}()
 	<-called
-	if _, err := agent.InspectContext(context.Background()); !gotato.IsCode(err, gotato.ErrBusy) {
+	if _, err := agent.InspectContext(context.Background()); !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("InspectContext during a Run: err = %v, want busy", err)
 	}
 	close(release)

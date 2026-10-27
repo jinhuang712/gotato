@@ -137,7 +137,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 			accepted[gotato.MessageID(r.result.MessageID)] = r.text
 		default:
 			address, ok := service.WriterOf(r.err)
-			if !gotato.IsCode(r.err, gotato.ErrNotWriter) || !gotato.NotRun(r.err) || !gotato.Retryable(r.err) || !ok || address != "http://instance-0.example:8080" {
+			if !gotato.IsCode(r.err, gotato.CodeNotWriter) || !gotato.NotRun(r.err) || !gotato.Retryable(r.err) || !ok || address != "http://instance-0.example:8080" {
 				t.Fatalf("a message to instance-%d: %v; want not_writer with instance-0's address", r.runner, r.err)
 			}
 			refused[r.text] = true

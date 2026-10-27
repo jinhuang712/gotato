@@ -76,7 +76,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 	for _, refusal := range refusals {
 		result, err := runner.Run(ctx, refusal.request)
-		if !errors.Is(err, service.ErrOverloaded) || !gotato.IsCode(err, gotato.ErrOverloaded) {
+		if !errors.Is(err, service.ErrOverloaded) || !gotato.IsCode(err, gotato.CodeOverloaded) {
 			t.Fatalf("%s: err = %v, want ErrOverloaded", refusal.name, err)
 		}
 		if result.SessionID != "" || result.Result.RunID != "" {

@@ -194,7 +194,7 @@ func TestFakeMidstreamOverflowEndsTheRunWithContextOverflowAndKeepsTheText(t *te
 			fake, client := newFake(t, wire)
 			session, recorder := newFakeSession(t, client)
 			result, err := session.Prompt(context.Background(), gotato.UserMessage("an answer that runs out [quirk:overflow-midstream]"))
-			if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if len(recorder.OfKind(gotato.KindReplyCutOff)) != 1 {

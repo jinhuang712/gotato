@@ -131,7 +131,7 @@ func (s *Record) closeSegmentLocked(segment gotato.Segment) (gotato.Segment, err
 		segment.Number = s.maxSegment + 1
 	}
 	if _, taken := s.closed[segment.Number]; taken || segment.Number < 0 {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is already closed", segment.Number))
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is already closed", segment.Number))
 	}
 	segment = segment.Clone()
 	segment.Rendered = len(segment.Messages)
@@ -173,10 +173,10 @@ func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment got
 		number = s.maxSegment + 1
 	}
 	if _, taken := s.closed[number]; taken || number < 0 {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is already closed", number))
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is already closed", number))
 	}
 	if len(segment.Merged) > 0 {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a merged Segment is closed with MergeSegments")
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a merged Segment is closed with MergeSegments")
 	}
 	numbers := append(slices.Clone(earlier), number)
 	if err := s.checkNumbersLocked(numbers, number); err != nil {
@@ -201,10 +201,10 @@ func (s *Record) checkNumbersLocked(numbers []int, pending int) error {
 	for i, number := range numbers {
 		segment, ok := s.closed[number]
 		if !ok && number != pending {
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is not closed", number))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is not closed", number))
 		}
 		if len(segment.Merged) > 0 && i > 0 {
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is merged; a merged segment comes first", number))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is merged; a merged segment comes first", number))
 		}
 		if i == 0 {
 			continue
@@ -214,9 +214,9 @@ func (s *Record) checkNumbersLocked(numbers []int, pending int) error {
 		}
 		switch previous := numbers[i-1]; {
 		case number == previous:
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is listed twice", number))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is listed twice", number))
 		case number < previous:
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is listed after segment %d; list them in ascending order", number, previous))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is listed after segment %d; list them in ascending order", number, previous))
 		}
 	}
 	return nil
@@ -238,16 +238,16 @@ func (s *Record) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(merged.Merged) == 0 || len(replaces) == 0 {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a merge names the Segments it stands for and the ones it replaces")
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a merge names the Segments it stands for and the ones it replaces")
 	}
 	if len(replaces) > len(s.used) || !slices.Equal(replaces, s.used[:len(replaces)]) {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: a merge replaces the first Segments of the Context %v, not %v", s.used, replaces))
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: a merge replaces the first Segments of the Context %v, not %v", s.used, replaces))
 	}
 	if merged.Number == 0 {
 		merged.Number = s.maxSegment + 1
 	}
 	if _, taken := s.closed[merged.Number]; taken || merged.Number < 0 {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: segment %d is already closed", merged.Number))
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: segment %d is already closed", merged.Number))
 	}
 	numbers := append([]int{merged.Number}, s.used[len(replaces):]...)
 	// Checked as it will be listed: the merged Segment first.
@@ -351,7 +351,7 @@ func (s *Record) resolveSegments() error {
 	for _, number := range s.used {
 		segment, ok := s.closed[number]
 		if !ok {
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: the checkpoint uses segment %d, which the log does not hold", number))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: the checkpoint uses segment %d, which the log does not hold", number))
 		}
 		prefix = append(prefix, segment.Messages...)
 	}

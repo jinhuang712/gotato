@@ -214,7 +214,7 @@ func TestUnknownKindIsRefused(t *testing.T) {
 	entries = append(entries, session.Entry{Seq: uint64(len(entries) + 1), Kind: "from_the_future", Layer: session.LayerFact, Data: json.RawMessage(`{"kind":"from_the_future"}`)})
 	_, err := session.FromEntries(entries)
 	var runtimeErr *gotato.RuntimeError
-	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.ErrNotSupported {
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.CodeNotSupported {
 		t.Fatalf("FromEntries = %v, want not_supported", err)
 	}
 }

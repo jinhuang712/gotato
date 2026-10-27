@@ -16,11 +16,11 @@ func TestErrNotFoundIsTheNotFoundCode(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Load of a missing Record = %v, want ErrNotFound", err)
 	}
-	if !gotato.IsCode(err, gotato.ErrNotFound) || !gotato.NotRun(err) || gotato.Retryable(err) {
+	if !gotato.IsCode(err, gotato.CodeNotFound) || !gotato.NotRun(err) || gotato.Retryable(err) {
 		t.Fatalf("Load of a missing Record = %v, want not_found, not run, not retryable", err)
 	}
 	wrapped := fmt.Errorf("opening: %w", ErrNotFound)
-	if !errors.Is(wrapped, ErrNotFound) || !gotato.IsCode(wrapped, gotato.ErrNotFound) {
+	if !errors.Is(wrapped, ErrNotFound) || !gotato.IsCode(wrapped, gotato.CodeNotFound) {
 		t.Fatal("a wrapped ErrNotFound stops matching")
 	}
 	if errors.Is(ErrConflict, ErrNotFound) {

@@ -159,7 +159,7 @@ func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	_, err = session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if !gotato.IsCode(err, gotato.ErrModelFailure) || !gotato.Retryable(err) || gotato.NotRun(err) {
+	if !gotato.IsCode(err, gotato.CodeModelFailure) || !gotato.Retryable(err) || gotato.NotRun(err) {
 		t.Fatalf("err = %v, want a retryable model_failure that ran", err)
 	}
 }
@@ -242,7 +242,7 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.ErrContextOverflow {
+	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.CodeContextOverflow {
 		t.Fatalf("result = %+v, err = %v; want a failed Run with context_overflow", result, err)
 	}
 	if calls.Load() != 1 {

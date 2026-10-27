@@ -24,7 +24,7 @@ import (
 // Result.
 func NewFuncTool[In any, Out any](name, description string, fn func(context.Context, In) (Out, error)) (Tool, error) {
 	if fn == nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "function is nil", nil)
+		return nil, runtimeError(CodeInvalidArgument, "NewFuncTool", "function is nil", nil)
 	}
 	return NewFuncToolWithProgress(name, description, func(ctx context.Context, in In, _ ToolProgressFunc) (Out, error) {
 		return fn(ctx, in)
@@ -35,18 +35,18 @@ func NewFuncTool[In any, Out any](name, description string, fn func(context.Cont
 // progress while it runs.
 func NewFuncToolWithProgress[In any, Out any](name, description string, fn func(context.Context, In, ToolProgressFunc) (Out, error)) (Tool, error) {
 	if strings.TrimSpace(name) == "" {
-		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "Tool name is empty", nil)
+		return nil, runtimeError(CodeInvalidArgument, "NewFuncTool", "Tool name is empty", nil)
 	}
 	if fn == nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "function is nil", nil)
+		return nil, runtimeError(CodeInvalidArgument, "NewFuncTool", "function is nil", nil)
 	}
 	schema, err := inputSchemaFor(reflect.TypeFor[In]())
 	if err != nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "cannot derive InputSchema for "+name+": "+err.Error(), err)
+		return nil, runtimeError(CodeInvalidArgument, "NewFuncTool", "cannot derive InputSchema for "+name+": "+err.Error(), err)
 	}
 	encoded, err := json.Marshal(schema)
 	if err != nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewFuncTool", "cannot encode InputSchema for "+name, err)
+		return nil, runtimeError(CodeInvalidArgument, "NewFuncTool", "cannot encode InputSchema for "+name, err)
 	}
 	return &funcTool[In, Out]{
 		spec: ToolSpec{ID: name, Name: name, Description: description, InputSchema: encoded},
@@ -65,7 +65,7 @@ func (t *funcTool[In, Out]) Execute(ctx context.Context, use ToolUse, progress T
 	var input In
 	if len(use.ArgumentsJSON) > 0 {
 		if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
-			return ToolResult{}, runtimeError(ErrToolArgumentFailure, "Tool", "cannot decode arguments for "+t.spec.ID, err)
+			return ToolResult{}, runtimeError(CodeToolArgumentFailure, "Tool", "cannot decode arguments for "+t.spec.ID, err)
 		}
 	}
 	output, err := t.fn(ctx, input, progress)
@@ -91,7 +91,7 @@ func toolResultFor(output any) (ToolResult, error) {
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {
-		return ToolResult{}, runtimeError(ErrToolExecutionFailure, "Tool", "cannot encode Tool output", err)
+		return ToolResult{}, runtimeError(CodeToolExecutionFailure, "Tool", "cannot encode Tool output", err)
 	}
 	return ToolResult{Status: ToolResultOK, Content: []ContentPart{{Kind: ContentJSON, Text: string(encoded)}}}, nil
 }

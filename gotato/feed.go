@@ -35,7 +35,7 @@ type EventSource interface {
 
 // ErrEventsLost ends a Subscription that needs Events its source no longer
 // holds.
-var ErrEventsLost = errors.New("gotato: the Events this subscriber missed are no longer available")
+var ErrEventsLost = ErrorOf(CodeCannotResume, "gotato: the Events this subscriber missed are no longer available")
 
 const (
 	defaultSubscriptionBuffer = 256

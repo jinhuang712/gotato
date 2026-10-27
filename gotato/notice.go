@@ -95,7 +95,7 @@ func renderNotice(message Message) string {
 // reserved and refused. The queue is bounded by CoreLimits.MaxNotices.
 func (a *Session) Notice(ctx context.Context, kind, text string) (uint64, error) {
 	if ReservedNoticeKind(kind) {
-		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice kind "+kind+" is reserved", nil)
+		return 0, runtimeError(CodeInvalidArgument, "Notice", "notice kind "+kind+" is reserved", nil)
 	}
 	return a.QueueNotice(ctx, NewNotice(NoticeFromService, kind, text))
 }
@@ -108,13 +108,13 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		ctx = context.Background()
 	}
 	if message.Role != RoleNotice || message.Notice == nil {
-		return 0, runtimeError(ErrInvalidArgument, "Notice", "a notice needs the role notice and its info", nil)
+		return 0, runtimeError(CodeInvalidArgument, "Notice", "a notice needs the role notice and its info", nil)
 	}
 	if strings.TrimSpace(message.Notice.Kind) == "" {
-		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice kind is empty", nil)
+		return 0, runtimeError(CodeInvalidArgument, "Notice", "notice kind is empty", nil)
 	}
 	if !hasContent(message) {
-		return 0, runtimeError(ErrInvalidArgument, "Notice", "notice is empty", nil)
+		return 0, runtimeError(CodeInvalidArgument, "Notice", "notice is empty", nil)
 	}
 	if err := a.admissionError("Notice"); err != nil {
 		return 0, err
@@ -128,7 +128,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		return 0, err
 	}
 	if a.noticeLen() >= a.noticeLimit {
-		return reject("queue_full", runtimeError(ErrLimitExceeded, "Notice", "notice queue is full", nil))
+		return reject("queue_full", runtimeError(CodeLimitExceeded, "Notice", "notice queue is full", nil))
 	}
 	written, werr := a.writeEvents(ctx, []Event{NoticeQueued{
 		Header: a.nowHeader(), MessageID: message.ID, NoticeKind: message.Notice.Kind,

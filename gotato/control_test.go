@@ -100,7 +100,7 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agent.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
+	if _, err := agent.Continue(context.Background()); !IsCode(err, CodeInvalidState) {
 		t.Fatalf("Continue after an assistant Message = %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("more")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agent.Continue(context.Background()); !IsCode(err, ErrInvalidState) {
+	if _, err := agent.Continue(context.Background()); !IsCode(err, CodeInvalidState) {
 		t.Fatalf("Continue after a follow-up Run = %v", err)
 	}
 }
@@ -292,16 +292,16 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	if err := controllable.FollowUp(UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.FollowUp(UserMessage("two")); !IsCode(err, ErrLimitExceeded) {
+	if err := controllable.FollowUp(UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full follow-up buffer = %v", err)
 	}
 	if err := controllable.Steer(UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.Steer(UserMessage("nope")); !IsCode(err, ErrLimitExceeded) {
+	if err := controllable.Steer(UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full Steer buffer = %v", err)
 	}
-	if err := controllable.Steer(Message{Role: RoleAssistant}); !IsCode(err, ErrInvalidArgument) {
+	if err := controllable.Steer(Message{Role: RoleAssistant}); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("non-user control message = %v", err)
 	}
 }
@@ -316,13 +316,13 @@ func TestControlCommandsRejectedAfterClose(t *testing.T) {
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.Steer(UserMessage("late")); !IsCode(err, ErrSessionClosed) {
+	if err := controllable.Steer(UserMessage("late")); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("Steer after Close = %v", err)
 	}
-	if err := controllable.FollowUp(UserMessage("late")); !IsCode(err, ErrSessionClosed) {
+	if err := controllable.FollowUp(UserMessage("late")); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("FollowUp after Close = %v", err)
 	}
-	if _, err := controllable.Continue(context.Background()); !IsCode(err, ErrSessionClosed) {
+	if _, err := controllable.Continue(context.Background()); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("Continue after Close = %v", err)
 	}
 }
@@ -352,7 +352,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	controllable.Abort()
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCanceled) {
+		if !IsCode(err, CodeCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 	case <-time.After(2 * time.Second):
@@ -389,7 +389,7 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 	model.gate <- struct{}{}
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCanceled) {
+		if !IsCode(err, CodeCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 	case <-time.After(2 * time.Second):

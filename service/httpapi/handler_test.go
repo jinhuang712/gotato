@@ -461,7 +461,7 @@ func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
 	// The same error, returned as a call's error, is 422.
-	if got := httpapi.StatusFor(gotato.ErrorOf(gotato.ErrContextOverflow, "prompt is too long")); got != http.StatusUnprocessableEntity {
+	if got := httpapi.StatusFor(gotato.ErrorOf(gotato.CodeContextOverflow, "prompt is too long")); got != http.StatusUnprocessableEntity {
 		t.Fatalf("StatusFor(context_overflow) = %d, want 422", got)
 	}
 }

@@ -102,7 +102,7 @@ func TestMemoryLimitEvictsTheLongestIdleWarmSessionAndRefusesOnlyWhenAllRun(t *t
 	}
 	for _, request := range []service.RunRequest{{Prompt: "four"}, {SessionID: first.SessionID, Prompt: "wake"}} {
 		_, err := runner.Run(ctx, request)
-		if !gotato.IsCode(err, gotato.ErrOverloaded) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+		if !gotato.IsCode(err, gotato.CodeOverloaded) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 			t.Fatalf("Run %+v with every Session running: %v, want overloaded, not run, retryable", request, err)
 		}
 	}

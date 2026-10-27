@@ -309,16 +309,16 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: unknown tool %q; available tools: %s", ErrToolResolutionFailure, call.ToolID, a.visibleToolIDs())))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: unknown tool %q; available tools: %s", CodeToolResolutionFailure, call.ToolID, a.visibleToolIDs())))
 			continue
 		}
 		if !json.Valid(call.Arguments) {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: arguments for %s are not valid JSON", ErrToolArgumentFailure, call.ToolID)))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)))
 			continue
 		}
 		spec := tool.Spec()
 		if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: %s: %v", ErrToolArgumentFailure, call.ToolID, err)))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)))
 			continue
 		}
 		plan := toolPlan{

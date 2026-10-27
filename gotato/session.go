@@ -59,7 +59,7 @@ type sessionConfig struct {
 func WithFeed(feed *Feed) Option {
 	return func(c *sessionConfig) error {
 		if feed == nil {
-			return runtimeError(ErrInvalidArgument, "WithFeed", "feed is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithFeed", "feed is nil", nil)
 		}
 		c.feed = feed
 		return nil
@@ -76,7 +76,7 @@ func WithRunStart(fn func(RunID)) Option {
 func WithModel(model Model) Option {
 	return func(c *sessionConfig) error {
 		if model == nil {
-			return runtimeError(ErrInvalidArgument, "WithModel", "model is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithModel", "model is nil", nil)
 		}
 		c.model = model
 		return nil
@@ -92,7 +92,7 @@ func WithInstruction(instruction string) Option {
 func WithModelOptions(options ModelOptions) Option {
 	return func(c *sessionConfig) error {
 		if options.Temperature != nil && *options.Temperature < 0 {
-			return runtimeError(ErrInvalidArgument, "WithModelOptions", "temperature is negative", nil)
+			return runtimeError(CodeInvalidArgument, "WithModelOptions", "temperature is negative", nil)
 		}
 		if options.Temperature != nil {
 			temperature := *options.Temperature
@@ -120,7 +120,7 @@ func WithCacheKey(key string) Option {
 func WithMaxEffect(effect ToolEffect) Option {
 	return func(c *sessionConfig) error {
 		if !effect.Valid() {
-			return runtimeError(ErrInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
+			return runtimeError(CodeInvalidArgument, "WithMaxEffect", "unknown Effect "+string(effect), nil)
 		}
 		c.maxEffect = effect
 		return nil
@@ -131,7 +131,7 @@ func WithTools(tools ...Tool) Option {
 	return func(c *sessionConfig) error {
 		for _, tool := range tools {
 			if tool == nil {
-				return runtimeError(ErrInvalidArgument, "WithTools", "tool is nil", nil)
+				return runtimeError(CodeInvalidArgument, "WithTools", "tool is nil", nil)
 			}
 		}
 		c.tools = append(c.tools, tools...)
@@ -142,7 +142,7 @@ func WithTools(tools ...Tool) Option {
 func WithLimits(limits CoreLimits) Option {
 	return func(c *sessionConfig) error {
 		if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
-			return runtimeError(ErrInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
+			return runtimeError(CodeInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
 		}
 		c.limits = limits
 		return nil
@@ -182,7 +182,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		}
 	}
 	if cfg.model == nil {
-		return nil, runtimeError(ErrInvalidArgument, "NewSession", "a Model is required", nil)
+		return nil, runtimeError(CodeInvalidArgument, "NewSession", "a Model is required", nil)
 	}
 	if err := validateLimits(cfg.limits); err != nil {
 		return nil, err
@@ -382,13 +382,13 @@ func (a *Session) AbortRun(ctx context.Context, runID RunID) error {
 		return err
 	}
 	if runID == "" {
-		return runtimeError(ErrInvalidArgument, "AbortRun", "Run ID is required", nil)
+		return runtimeError(CodeInvalidArgument, "AbortRun", "Run ID is required", nil)
 	}
 	a.runMu.Lock()
 	currentID := a.currentRunID
 	a.runMu.Unlock()
 	if currentID != runID || !a.abort() {
-		return runtimeError(ErrInvalidState, "AbortRun", "Run is not active", nil)
+		return runtimeError(CodeInvalidState, "AbortRun", "Run is not active", nil)
 	}
 	return nil
 }
@@ -437,7 +437,7 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	select {
 	case a.admission <- struct{}{}:
 	default:
-		return RunResult{}, runtimeError(ErrBusy, operation, "Session is already processing a Run", nil)
+		return RunResult{}, runtimeError(CodeBusy, operation, "Session is already processing a Run", nil)
 	}
 	releaseAdmission := true
 	defer func() {
@@ -483,7 +483,7 @@ func (a *Session) Steer(message Message) error {
 // SourceInterrupt. It fails with invalid_state when no Run is in flight.
 func (a *Session) Interrupt(message Message) error {
 	if !a.inRun.Load() {
-		return runtimeError(ErrInvalidState, "Interrupt", "no Run is in flight", nil)
+		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
 	if err := a.enqueueControl(a.steer, message, "Interrupt", SourceInterrupt); err != nil {
 		return err
@@ -549,7 +549,7 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 		return err
 	}
 	if len(target) >= cap(target) {
-		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
+		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}
 	// The message is written as queued before it can be committed, so the
 	// Record never shows a commit with no queueing.
@@ -560,7 +560,7 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 	case target <- control{message: message, source: source, seq: a.ctlSeq.Add(1)}:
 		return nil
 	default:
-		return reject("queue_full", runtimeError(ErrLimitExceeded, operation, operation+" buffer is full", nil))
+		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}
 }
 
@@ -610,9 +610,9 @@ func (a *Session) waitForAborts() {
 func (a *Session) admissionError(operation string) error {
 	switch a.Status() {
 	case SessionStatusClosing:
-		return runtimeError(ErrSessionClosing, operation, "Session is closing", nil)
+		return runtimeError(CodeSessionClosing, operation, "Session is closing", nil)
 	case SessionStatusClosed:
-		return runtimeError(ErrSessionClosed, operation, "Session is closed", nil)
+		return runtimeError(CodeSessionClosed, operation, "Session is closed", nil)
 	default:
 		return nil
 	}
@@ -804,13 +804,13 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	message = message.Clone()
 	bytes, err := json.Marshal(message)
 	if err != nil {
-		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot encode Message", err)
+		return runtimeError(CodeInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
 	if enforce && limitExceededUint32(a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
-		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
+		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
 	if enforce && limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(bytes))) {
-		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
+		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
 	}
 	// The transcript bound is tracked incrementally: one JSON array of n
 	// elements costs the elements plus n-1 separators and two brackets.
@@ -819,10 +819,10 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 		candidate++
 	}
 	if enforce && limitExceededUint64(a.limits.MaxTranscriptBytes, candidate+2) {
-		return runtimeError(ErrLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
+		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	if err := a.transcript.Append(message); err != nil {
-		return runtimeError(ErrInternalInvariant, "commitMessage", "cannot append to transcript: "+err.Error(), err)
+		return runtimeError(CodeInternalInvariant, "commitMessage", "cannot append to transcript: "+err.Error(), err)
 	}
 	a.transcriptBytes = candidate
 	return nil
@@ -839,7 +839,7 @@ func (a *Session) measureTranscript() error {
 	}
 	encoded, err := json.Marshal(messages)
 	if err != nil {
-		return runtimeError(ErrInternalInvariant, "Run", "cannot encode transcript", err)
+		return runtimeError(CodeInternalInvariant, "Run", "cannot encode transcript", err)
 	}
 	// Exclude the surrounding brackets; commitMessage adds them back.
 	a.transcriptBytes = uint64(len(encoded)) - 2
@@ -931,7 +931,7 @@ func executeToolSafely(tool Tool, ctx context.Context, use ToolUse, progress Too
 		if recovered := recover(); recovered != nil {
 			// Match the Extension guard: a short, client-safe Message with the
 			// captured stack attached to the Cause for logs.
-			err = runtimeError(ErrToolExecutionFailure, "Tool",
+			err = runtimeError(CodeToolExecutionFailure, "Tool",
 				fmt.Sprintf("tool panic: %v", recovered),
 				fmt.Errorf("tool panic: %v\n%s", recovered, debug.Stack()))
 		}
@@ -955,16 +955,16 @@ func contextFailure(ctx context.Context, operation string) *RuntimeError {
 
 func classifyModelError(err error) *RuntimeError {
 	if err == nil {
-		return runtimeError(ErrModelFailure, "Model", "unknown Model failure", nil)
+		return runtimeError(CodeModelFailure, "Model", "unknown Model failure", nil)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return runtimeError(codeForContext(err), "Model", err.Error(), err)
 	}
 	var overflow interface{ ContextOverflow() bool }
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
-		return runtimeError(ErrContextOverflow, "Model", err.Error(), err)
+		return runtimeError(CodeContextOverflow, "Model", err.Error(), err)
 	}
-	failure := runtimeError(ErrModelFailure, "Model", err.Error(), err)
+	failure := runtimeError(CodeModelFailure, "Model", err.Error(), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
 	// a broken stream) says so with `Retryable() bool`, as the gateway's
 	// Error does. The Model was called, so the request is not "not run".
@@ -977,27 +977,27 @@ func classifyModelError(err error) *RuntimeError {
 
 func validateLimits(limits CoreLimits) error {
 	if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
-		return runtimeError(ErrInvalidArgument, "CoreLimits", "deadlines cannot be negative", nil)
+		return runtimeError(CodeInvalidArgument, "CoreLimits", "deadlines cannot be negative", nil)
 	}
 	return nil
 }
 
 func validatePrompt(message Message) error {
 	if message.Role != RoleUser {
-		return runtimeError(ErrInvalidArgument, "Prompt", "Prompt message must have role user", nil)
+		return runtimeError(CodeInvalidArgument, "Prompt", "Prompt message must have role user", nil)
 	}
 	if !hasContent(message) {
-		return runtimeError(ErrInvalidArgument, "Prompt", "Prompt message is empty", nil)
+		return runtimeError(CodeInvalidArgument, "Prompt", "Prompt message is empty", nil)
 	}
 	return nil
 }
 
 func validateControlMessage(message Message, operation string) error {
 	if message.Role != RoleUser {
-		return runtimeError(ErrInvalidArgument, operation, operation+" message must have role user", nil)
+		return runtimeError(CodeInvalidArgument, operation, operation+" message must have role user", nil)
 	}
 	if !hasContent(message) {
-		return runtimeError(ErrInvalidArgument, operation, operation+" message is empty", nil)
+		return runtimeError(CodeInvalidArgument, operation, operation+" message is empty", nil)
 	}
 	return nil
 }
@@ -1076,7 +1076,7 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 // Turn runs: the Tool sources are read again, the ContextBuilder builds the
 // Context, the ContextTransformer and MessageConverter Extensions shape it,
 // and the request carries the visible Tools and the model options. It runs no
-// TurnPreparer and emits no Event. It fails with ErrBusy while a Run is in
+// TurnPreparer and emits no Event. It fails with CodeBusy while a Run is in
 // flight.
 //
 // The snapshot it builds from has no RunID and is Turn 1, as at the start of
@@ -1097,7 +1097,7 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 	select {
 	case a.admission <- struct{}{}:
 	default:
-		return ContextInspection{}, runtimeError(ErrBusy, "InspectContext", "Session is processing a Run", nil)
+		return ContextInspection{}, runtimeError(CodeBusy, "InspectContext", "Session is processing a Run", nil)
 	}
 	defer func() { <-a.admission }()
 	if err := a.refreshTools(); err != nil {
@@ -1143,7 +1143,7 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 		return asRuntimeError(err)
 	}
 	for _, name := range report.unavailable {
-		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: ErrToolResolutionFailure})
+		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: CodeToolResolutionFailure})
 	}
 	for _, id := range report.gone {
 		a.stage(ToolUnloaded{Header: header, Tool: id, Why: ToolUnloadedGone})
@@ -1166,7 +1166,7 @@ func (a *Session) refreshTools() error {
 // transcript must already end where a Model can pick up.
 func validateContinuable(messages []Message) error {
 	if len(messages) == 0 {
-		return runtimeError(ErrInvalidState, "Continue", "transcript is empty", nil)
+		return runtimeError(CodeInvalidState, "Continue", "transcript is empty", nil)
 	}
 	// A reply cut off mid-stream is never sent again, so Continue asks the
 	// Model again from the Message before it.
@@ -1175,13 +1175,13 @@ func validateContinuable(messages []Message) error {
 		last--
 	}
 	if last < 0 {
-		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
+		return runtimeError(CodeInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
 	}
 	switch messages[last].Role {
 	case RoleUser, RoleToolResult, RoleNotice:
 		return nil
 	default:
-		return runtimeError(ErrInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
+		return runtimeError(CodeInvalidState, "Continue", "transcript does not end in a Model-continuable state", nil)
 	}
 }
 
@@ -1198,18 +1198,18 @@ const maxControlCapacity = 1024
 
 func validateToolSpec(spec ToolSpec) error {
 	if strings.TrimSpace(spec.ID) == "" {
-		return runtimeError(ErrInvalidArgument, "ToolSpec", "Tool ID is empty", nil)
+		return runtimeError(CodeInvalidArgument, "ToolSpec", "Tool ID is empty", nil)
 	}
 	if !spec.Effect.Valid() {
-		return runtimeError(ErrInvalidArgument, "ToolSpec", "unknown Effect "+string(spec.Effect), nil)
+		return runtimeError(CodeInvalidArgument, "ToolSpec", "unknown Effect "+string(spec.Effect), nil)
 	}
 	if spec.InputSchema != nil {
 		var schema map[string]any
 		if err := json.Unmarshal(spec.InputSchema, &schema); err != nil {
-			return runtimeError(ErrInvalidArgument, "ToolSpec", "invalid InputSchema", err)
+			return runtimeError(CodeInvalidArgument, "ToolSpec", "invalid InputSchema", err)
 		}
 		if schema == nil {
-			return runtimeError(ErrInvalidArgument, "ToolSpec", "InputSchema must be an object", nil)
+			return runtimeError(CodeInvalidArgument, "ToolSpec", "InputSchema must be an object", nil)
 		}
 	}
 	return nil
@@ -1377,7 +1377,7 @@ func asRuntimeError(err error) *RuntimeError {
 	if errors.As(err, &runtimeErr) {
 		return runtimeErr
 	}
-	return runtimeError(ErrInternalInvariant, "Core", err.Error(), err)
+	return runtimeError(CodeInternalInvariant, "Core", err.Error(), err)
 }
 
 func cloneMessages(messages []Message) []Message {

@@ -222,7 +222,7 @@ func TestASecondRefusalEndsTheRunWithContextOverflow(t *testing.T) {
 	}
 	model := &stepModel{steps: []any{refusal{}, refusal{}, answering("never")}}
 	result, err := l.run(model, "four", "ok")
-	if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionOverflow {
@@ -237,7 +237,7 @@ func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *test
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 9000, 1000), refusal{}, answering("never")}}
 	result, err := l.run(model, "investigate", "ok")
-	if !gotato.IsCode(err, gotato.ErrContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionPastCeiling {
@@ -253,7 +253,7 @@ func TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded(t *testi
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), answering("never")}}
 	result, err := l.run(model, strings.Repeat("a very large prompt ", 2000), "ok")
-	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || result.Status != gotato.RunFailed || model.calls() != 0 {
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunFailed || model.calls() != 0 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if !strings.Contains(err.Error(), "past the ceiling") {

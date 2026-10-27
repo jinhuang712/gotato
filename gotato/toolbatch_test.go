@@ -64,7 +64,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 	agent.Abort()
 	select {
 	case promptErr := <-resultCh:
-		if !IsCode(promptErr, ErrCanceled) {
+		if !IsCode(promptErr, CodeCanceled) {
 			t.Fatalf("prompt error = %v", promptErr)
 		}
 	case <-time.After(2 * time.Second):
@@ -233,7 +233,7 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 			t.Fatal(err)
 		}
 		log := recordAll(t, agent)
-		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrCanceled) {
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, CodeCanceled) {
 			t.Fatalf("aborted Run error = %v", err)
 		}
 		_ = agent.Close(context.Background())
@@ -285,7 +285,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	agent.Abort()
-	if err := <-done; !IsCode(err, ErrCanceled) {
+	if err := <-done; !IsCode(err, CodeCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	result, ok := resultsByCall(agent.Transcript().Messages())["c1"]
@@ -326,13 +326,13 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = agent.Close(context.Background()) }()
-		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrExtensionFailure) {
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, CodeExtensionFailure) {
 			t.Fatalf("first Run error = %v", err)
 		}
 		results := resultsByCall(agent.Transcript().Messages())
 		for _, id := range []ToolCallID{"c1", "c2"} {
 			result, ok := results[id]
-			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(ErrExtensionFailure)) {
+			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(CodeExtensionFailure)) {
 				t.Fatalf("closing result of %s = %+v (found %v)", id, result, ok)
 			}
 		}
@@ -363,7 +363,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = agent.Close(context.Background()) }()
-		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, ErrExtensionFailure) {
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); !IsCode(err, CodeExtensionFailure) {
 			t.Fatalf("Run error = %v", err)
 		}
 		result, ok := resultsByCall(agent.Transcript().Messages())["c1"]

@@ -40,8 +40,8 @@ func TestStatusForTranslatesTheCode(t *testing.T) {
 		{service.ErrBusy, http.StatusConflict},
 		{session.ErrNotFound, http.StatusNotFound},
 		{fmt.Errorf("opening: %w", session.ErrNotFound), http.StatusNotFound},
-		{gotato.ErrorOf(gotato.ErrStoreFailure, "x"), http.StatusServiceUnavailable},
-		{gotato.ErrorOf(gotato.ErrInvalidState, "x"), http.StatusConflict},
+		{gotato.ErrorOf(gotato.CodeStoreFailure, "x"), http.StatusServiceUnavailable},
+		{gotato.ErrorOf(gotato.CodeInvalidState, "x"), http.StatusConflict},
 	} {
 		if got := httpapi.StatusFor(tc.err); got != tc.want {
 			t.Errorf("StatusFor(%v) = %d, want %d", tc.err, got, tc.want)

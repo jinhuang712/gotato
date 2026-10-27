@@ -286,7 +286,7 @@ func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	defer func() { _ = agent.Close(context.Background()) }()
 	seen := recordAll(t, agent)
 	result, err := agent.Prompt(context.Background(), UserMessage("hello"))
-	if !IsCode(err, ErrExtensionFailure) {
+	if !IsCode(err, CodeExtensionFailure) {
 		t.Fatalf("blocking extension failure = %v", err)
 	}
 	if result.Status != RunFailed {
@@ -299,7 +299,7 @@ func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	for _, event := range seen.events() {
 		if ended, ok := event.(RunEnded); ok {
 			terminal++
-			if ended.Status != RunFailed || ended.Cause != ErrExtensionFailure {
+			if ended.Status != RunFailed || ended.Cause != CodeExtensionFailure {
 				t.Fatalf("RunEnded = %+v", ended)
 			}
 		}
@@ -338,7 +338,7 @@ func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	if len(failed) != 1 {
 		t.Fatalf("ExtensionFailed Events = %+v", failed)
 	}
-	if failed[0].Stage != "ContextTransformer" || failed[0].Code != ErrExtensionFailure || failed[0].Number == 0 {
+	if failed[0].Stage != "ContextTransformer" || failed[0].Code != CodeExtensionFailure || failed[0].Number == 0 {
 		t.Fatalf("ExtensionFailed = %+v", failed[0])
 	}
 	if failed[0].Kind().Class() != ClassStored {
@@ -353,7 +353,7 @@ func TestExtensionPanicIsRecovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, ErrExtensionFailure) {
+	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, CodeExtensionFailure) {
 		t.Fatalf("panicking extension = %v", err)
 	}
 	if got := agent.Status(); got != SessionStatusIdle {
@@ -482,16 +482,16 @@ func TestExtensionCannotReenterTheSameSession(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	if !IsCode(extension.err, ErrBusy) {
+	if !IsCode(extension.err, CodeBusy) {
 		t.Fatalf("reentrant Prompt = %v", extension.err)
 	}
 }
 
 func TestWithExtensionRejectsUnknownValues(t *testing.T) {
-	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("value implementing no Extension interface = %v", err)
 	}
-	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil extension = %v", err)
 	}
 }

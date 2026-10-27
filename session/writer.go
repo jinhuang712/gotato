@@ -114,7 +114,7 @@ type WriteStats struct {
 func Create(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	if r.Head() > 0 {
-		return nil, gotato.ErrorOf(gotato.ErrInvalidState, "session: the Record is stored already")
+		return nil, gotato.ErrorOf(gotato.CodeInvalidState, "session: the Record is stored already")
 	}
 	r.mu.Lock()
 	r.instance = instance
@@ -524,7 +524,7 @@ func (w *Writer) count(entries []Entry, elapsed time.Duration, err error) {
 // storeFailure reports a write that failed for another reason than a
 // conflict, keeping the store's error as its cause.
 func storeFailure(err error) error {
-	failure := gotato.ErrorOf(gotato.ErrStoreFailure, "the store could not write the Session's Record")
+	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "the store could not write the Session's Record")
 	failure.Operation, failure.Cause = "session.Writer", err
 	return failure
 }

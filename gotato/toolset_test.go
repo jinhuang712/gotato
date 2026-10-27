@@ -121,12 +121,12 @@ func TestToolSetConstructionValidation(t *testing.T) {
 	if _, err := NewSession(WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "write"}}}),
-	); !IsCode(err, ErrInvalidArgument) {
+	); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("duplicate ToolSet name = %v", err)
 	}
 	if _, err := NewSession(WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files.deep", tools: []Tool{&namedTool{id: "read"}}}),
-	); !IsCode(err, ErrInvalidArgument) {
+	); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("dotted ToolSet name = %v", err)
 	}
 	// A ToolSet that returns a duplicate local Tool name is unavailable.
@@ -139,7 +139,7 @@ func TestToolSetConstructionValidation(t *testing.T) {
 		}
 		_ = agent.Close(context.Background())
 	}
-	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil ToolSet = %v", err)
 	}
 }
@@ -340,7 +340,7 @@ func TestToolSetSpecPanicBecomesRuntimeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("a panicking ToolSet.Spec did not fail NewSession")
 	}
-	if !IsCode(err, ErrExtensionFailure) {
+	if !IsCode(err, CodeExtensionFailure) {
 		t.Fatalf("ToolSet.Spec panic = %v, want extension_failure", err)
 	}
 }

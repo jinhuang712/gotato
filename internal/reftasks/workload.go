@@ -328,8 +328,8 @@ func askedOrders(messages []gotato.Message) []string {
 // model sees only what a provider receives, which leaves out
 // ToolResult.Executed, so it reads the error code the refusal starts with.
 func refused(result gotato.ToolResult) bool {
-	return strings.HasPrefix(result.SafeError, string(gotato.ErrToolArgumentFailure)) ||
-		strings.HasPrefix(result.SafeError, string(gotato.ErrToolResolutionFailure))
+	return strings.HasPrefix(result.SafeError, string(gotato.CodeToolArgumentFailure)) ||
+		strings.HasPrefix(result.SafeError, string(gotato.CodeToolResolutionFailure))
 }
 
 func lookupCall(n int, arguments string) testkit.Script {

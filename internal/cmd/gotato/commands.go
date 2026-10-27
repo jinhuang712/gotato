@@ -702,7 +702,7 @@ func (c *cli) cmdTools(args []string) int {
 		}
 		entry, err := rt.runner.SetToolActive(ctx, *sessionID, positionals[0], sub == "activate")
 		if err != nil {
-			if gotato.IsCode(err, gotato.ErrInvalidArgument) {
+			if gotato.IsCode(err, gotato.CodeInvalidArgument) {
 				return c.fail(ExitNotFound, err.Error())
 			}
 			return c.failErr(err)

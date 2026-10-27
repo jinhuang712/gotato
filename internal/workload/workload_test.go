@@ -68,7 +68,7 @@ func TestReferenceWorkload(t *testing.T) {
 	// arguments, once in the tool.
 	failures := taskReport(t, report, "tool_error").Failures
 	if len(failures) != 2 ||
-		failures[0].Cause != workload.CauseModel || failures[0].Code != string(gotato.ErrToolArgumentFailure) ||
+		failures[0].Cause != workload.CauseModel || failures[0].Code != string(gotato.CodeToolArgumentFailure) ||
 		failures[1].Cause != workload.CauseTool || failures[1].Example != "order 7 not found" {
 		t.Fatalf("tool_error failures = %+v", failures)
 	}
@@ -166,7 +166,7 @@ func TestCostAndCacheHitRate(t *testing.T) {
 type failingModel struct{}
 
 func (failingModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
-	return nil, gotato.ErrorOf(gotato.ErrModelFailure, "provider unavailable")
+	return nil, gotato.ErrorOf(gotato.CodeModelFailure, "provider unavailable")
 }
 
 func TestFailedRunsAreAttributed(t *testing.T) {
@@ -179,7 +179,7 @@ func TestFailedRunsAreAttributed(t *testing.T) {
 		t.Fatalf("report = %+v", report)
 	}
 	if failures[0].Kind != workload.KindCheck || failures[0].Cause != workload.CauseModel ||
-		failures[1].Kind != workload.KindRun || failures[1].Cause != workload.CauseProvider || failures[1].Code != string(gotato.ErrModelFailure) {
+		failures[1].Kind != workload.KindRun || failures[1].Cause != workload.CauseProvider || failures[1].Code != string(gotato.CodeModelFailure) {
 		t.Fatalf("failures = %+v", failures)
 	}
 }

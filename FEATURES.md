@@ -280,7 +280,8 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 | `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `IsRetryable() bool` |
 | `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
 
-- `errors.Is` still matches by code, and both functions look through wrapped and joined errors.
+- A code is a `gotato.Code…` constant of type `ErrorCode`, and its name matches its string: `gotato.CodeBusy` is `busy`. A sentinel error is an `Err…` variable that carries a code: `service.ErrBusy` has `busy`, and `session.ErrExists`, `session.ErrExpired`, `service.ErrNotPersisted`, `modelctx.ErrBadRecap` and the other sentinels carry a code too.
+- `errors.Is` matches by code, so a sentinel also matches every other error of its code, and both functions look through wrapped and joined errors.
 - `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
 - `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP maps it and carries the address (*A message for a Run that another instance writes*, in G-F26).
 - HTTP only translates ([G-F14](#g-f14--http-and-streaming-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:
@@ -1568,7 +1569,7 @@ for {
 - `Runner.StreamRun` runs the Run on its own goroutine and calls its sink from the caller's, reading a Subscription, so a slow HTTP client slows its own stream and never the Run.
 - An Instance Event is not in a Run's stream: `session_loaded` and `session_saved` are read from the Instance's stream.
 - A Run that is not saved (`SkipSave`) has only its Run's stream; its Events are in no Record, so they are numbered from 1 on that stream and are not Record positions.
-- A stream that needs Events its source cannot read again, as a Session over a Record that is not stored can after the Record's window (the last 1000 Events), ends with `gotato.ErrEventsLost`.
+- A stream that needs Events its source cannot read again, as a Session over a Record that is not stored can after the Record's window (the last 1000 Events), ends with `gotato.ErrEventsLost` (code `cannot_resume`).
 - `Runner.StreamSession` opens a Session's stream for a client that reconnects: it checks the Record's epoch and the number first, and follows the Record when another instance writes it. HTTP (`GET /v1/sessions/{id}/stream`) serves it ([G-F14](#g-f14--http-and-streaming-)).
 
 **What it replaced.** It was one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):

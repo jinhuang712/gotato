@@ -298,7 +298,7 @@ func (c *cli) writeErrorObject(code int, message string, err error) {
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		object.Code = runtimeErr.Code
-		if runtimeErr.Code == gotato.ErrNotWriter {
+		if runtimeErr.Code == gotato.CodeNotWriter {
 			object.Writer = runtimeErr.Details["writer"]
 		}
 	}
@@ -322,7 +322,7 @@ func (c *cli) usageError(message string) int {
 	fmt.Fprintln(c.stderr, "gotato: "+message)
 	fmt.Fprintln(c.stderr, "run 'gotato help' for usage")
 	if c.machine() {
-		c.writeErrorObject(ExitUsage, message, gotato.ErrorOf(gotato.ErrInvalidArgument, message))
+		c.writeErrorObject(ExitUsage, message, gotato.ErrorOf(gotato.CodeInvalidArgument, message))
 	}
 	return ExitUsage
 }
@@ -342,30 +342,30 @@ func (c *cli) parseError(err error) int {
 // gotato.ErrorCodes fails when one is missing. A failure that is not a
 // RuntimeError exits 1.
 var exitOfCode = map[gotato.ErrorCode]int{
-	gotato.ErrInvalidArgument:       ExitUsage,
-	gotato.ErrNotFound:              ExitNotFound,
-	gotato.ErrInvalidState:          ExitError,
-	gotato.ErrBusy:                  ExitError,
-	gotato.ErrSessionClosed:         ExitError,
-	gotato.ErrSessionClosing:        ExitError,
-	gotato.ErrModelFailure:          ExitError,
-	gotato.ErrContextOverflow:       ExitError,
-	gotato.ErrModelProtocolFailure:  ExitError,
-	gotato.ErrToolResolutionFailure: ExitError,
-	gotato.ErrToolArgumentFailure:   ExitError,
-	gotato.ErrToolExecutionFailure:  ExitError,
-	gotato.ErrExtensionFailure:      ExitError,
-	gotato.ErrLimitExceeded:         ExitError,
-	gotato.ErrCanceled:              ExitError,
-	gotato.ErrDeadlineExceeded:      ExitError,
-	gotato.ErrInternalInvariant:     ExitError,
-	gotato.ErrNotSupported:          ExitError,
-	gotato.ErrConflict:              ExitError,
-	gotato.ErrStoreFailure:          ExitError,
-	gotato.ErrOverloaded:            ExitError,
-	gotato.ErrDraining:              ExitError,
-	gotato.ErrCannotResume:          ExitError,
-	gotato.ErrNotWriter:             ExitError,
+	gotato.CodeInvalidArgument:       ExitUsage,
+	gotato.CodeNotFound:              ExitNotFound,
+	gotato.CodeInvalidState:          ExitError,
+	gotato.CodeBusy:                  ExitError,
+	gotato.CodeSessionClosed:         ExitError,
+	gotato.CodeSessionClosing:        ExitError,
+	gotato.CodeModelFailure:          ExitError,
+	gotato.CodeContextOverflow:       ExitError,
+	gotato.CodeModelProtocolFailure:  ExitError,
+	gotato.CodeToolResolutionFailure: ExitError,
+	gotato.CodeToolArgumentFailure:   ExitError,
+	gotato.CodeToolExecutionFailure:  ExitError,
+	gotato.CodeExtensionFailure:      ExitError,
+	gotato.CodeLimitExceeded:         ExitError,
+	gotato.CodeCanceled:              ExitError,
+	gotato.CodeDeadlineExceeded:      ExitError,
+	gotato.CodeInternalInvariant:     ExitError,
+	gotato.CodeNotSupported:          ExitError,
+	gotato.CodeConflict:              ExitError,
+	gotato.CodeStoreFailure:          ExitError,
+	gotato.CodeOverloaded:            ExitError,
+	gotato.CodeDraining:              ExitError,
+	gotato.CodeCannotResume:          ExitError,
+	gotato.CodeNotWriter:             ExitError,
 }
 
 // failErr reports an error and returns the exit code of its code.

@@ -16,7 +16,7 @@ func failWrites(t *testing.T) {
 	t.Helper()
 	original := closeSegment
 	closeSegment = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *session.Compaction) (gotato.Segment, error) {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrStoreFailure, "disk gone")
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
 	}
 	t.Cleanup(func() { closeSegment = original })
 }
@@ -48,7 +48,7 @@ func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 	failWrites(t)
 	record := conversation(t)
 	_, err := Compact(context.Background(), record, CompactOptions{Keep: 2})
-	if !gotato.IsCode(err, gotato.ErrStoreFailure) {
+	if !gotato.IsCode(err, gotato.CodeStoreFailure) {
 		t.Fatalf("err = %v", err)
 	}
 	if record.Len() != 4 || len(record.Segments()) != 0 || len(record.Compactions()) != 0 || len(record.LoadedTools()) != 1 {
@@ -63,7 +63,7 @@ func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 		}
 	}
 	n := len(kinds)
-	if n < 2 || kinds[n-2] != gotato.KindCompactionStarted || kinds[n-1] != gotato.KindCompactionFailed || failed.Cause != gotato.ErrStoreFailure {
+	if n < 2 || kinds[n-2] != gotato.KindCompactionStarted || kinds[n-1] != gotato.KindCompactionFailed || failed.Cause != gotato.CodeStoreFailure {
 		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
 	}
 }
@@ -127,7 +127,7 @@ func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t 
 	record := conversation(t)
 	auto := AutoCompact(record, CompactPolicy{Ceiling: 1})
 	result, model, err := runOnce(t, record, auto)
-	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || result.Status != gotato.RunFailed || !strings.Contains(err.Error(), "compaction failed") {
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunFailed || !strings.Contains(err.Error(), "compaction failed") {
 		t.Fatalf("result = %+v, err = %v; want limit_exceeded naming the failed compaction", result, err)
 	}
 	if model.Calls() != 0 {
@@ -183,7 +183,7 @@ func failMerges(t *testing.T) {
 	t.Helper()
 	original := mergeSegments
 	mergeSegments = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *session.Compaction) (gotato.Segment, error) {
-		return gotato.Segment{}, gotato.ErrorOf(gotato.ErrStoreFailure, "disk gone")
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
 	}
 	t.Cleanup(func() { mergeSegments = original })
 }
@@ -230,7 +230,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 			failed = e
 		}
 	}
-	if len(kinds) != 2 || kinds[0] != gotato.KindCompactionStarted || kinds[1] != gotato.KindCompactionFailed || failed.Cause != gotato.ErrStoreFailure || failed.Why != gotato.CompactionPastBudget {
+	if len(kinds) != 2 || kinds[0] != gotato.KindCompactionStarted || kinds[1] != gotato.KindCompactionFailed || failed.Cause != gotato.CodeStoreFailure || failed.Why != gotato.CompactionPastBudget {
 		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
 	}
 
@@ -269,7 +269,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(ctx, gotato.UserMessage("investigate"))
-	if !gotato.IsCode(err, gotato.ErrCanceled) || model.Calls() != 1 || len(record.Segments()) != 0 {
+	if !gotato.IsCode(err, gotato.CodeCanceled) || model.Calls() != 1 || len(record.Segments()) != 0 {
 		t.Fatalf("result = %+v, err = %v, %d calls, %d Segments", result, err, model.Calls(), len(record.Segments()))
 	}
 }

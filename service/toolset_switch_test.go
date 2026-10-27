@@ -99,7 +99,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 	}
 	// Unknown names and names in a ToolSet that is down are refused.
 	for _, bad := range []string{"files.nope", "crm.lookup"} {
-		if _, err := runner.SetToolActive(ctx, id, bad, false); !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		if _, err := runner.SetToolActive(ctx, id, bad, false); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Fatalf("SetToolActive(%s) = %v, want invalid argument", bad, err)
 		}
 	}

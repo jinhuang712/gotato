@@ -324,11 +324,11 @@ func TestSendRefusesWhatItCannotUse(t *testing.T) {
 		"bad kind":   {SessionID: s.ID(), Kind: "shout", Text: "hi"},
 	} {
 		_, err := runner.Send(ctx, request)
-		if !gotato.IsCode(err, gotato.ErrInvalidArgument) || !gotato.NotRun(err) {
+		if !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
 			t.Fatalf("%s: Send = %v, want invalid_argument, not run", name, err)
 		}
 	}
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: "missing", Text: "hi"}); !gotato.IsCode(err, gotato.ErrNotFound) {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: "missing", Text: "hi"}); !gotato.IsCode(err, gotato.CodeNotFound) {
 		t.Fatalf("Send to a missing Session = %v, want not_found", err)
 	}
 }
@@ -346,7 +346,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 
 	for _, kind := range []service.MessageKind{service.MessageSteer, service.MessageFollowUp, service.MessageInterrupt} {
 		result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: kind, Text: "from b"})
-		if !gotato.IsCode(err, gotato.ErrNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+		if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 			t.Fatalf("%s: Send = %+v, %v; want not_writer, not run, retryable", kind, result, err)
 		}
 		if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {
@@ -354,7 +354,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 		}
 	}
 	// A Stop is a message too.
-	if err := b.AbortSession(ctx, s.ID()); !gotato.IsCode(err, gotato.ErrNotWriter) {
+	if err := b.AbortSession(ctx, s.ID()); !gotato.IsCode(err, gotato.CodeNotWriter) {
 		t.Fatalf("AbortSession on the other instance = %v, want not_writer", err)
 	}
 
@@ -406,7 +406,7 @@ func TestNotWriterWithoutAnAdvertisedAddress(t *testing.T) {
 		t.Fatalf("no run_rejected with why not_writer; got %v", seen.Kinds())
 	}
 	address, ok := service.WriterOf(err)
-	if !gotato.IsCode(err, gotato.ErrNotWriter) || !ok || address != "" {
+	if !gotato.IsCode(err, gotato.CodeNotWriter) || !ok || address != "" {
 		t.Fatalf("Send = %v (writer %q, %v); want not_writer without an address", err, address, ok)
 	}
 	close(model.release[0])
@@ -457,7 +457,7 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 			go func() {
 				defer senders.Done()
 				// A message sent after the Run ended starts a Run of its own.
-				if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "steer"}); err != nil && !gotato.IsCode(err, gotato.ErrBusy) {
+				if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "steer"}); err != nil && !gotato.IsCode(err, gotato.CodeBusy) {
 					t.Errorf("Send: %v", err)
 				}
 			}()

@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -498,6 +497,10 @@ func DemoEchoTool() gotato.Tool {
 
 // ErrScriptExhausted is returned by ReplayModel when the recording runs out.
 // It wraps io.ErrUnexpectedEOF, so errors.Is matches either sentinel.
-var ErrScriptExhausted = fmt.Errorf("testkit: script exhausted: %w", io.ErrUnexpectedEOF)
+var ErrScriptExhausted = func() *gotato.RuntimeError {
+	e := gotato.ErrorOf(gotato.CodeModelFailure, "testkit: script exhausted")
+	e.Cause = io.ErrUnexpectedEOF
+	return e
+}()
 
 func itoa(n int) string { return strconv.Itoa(n) }

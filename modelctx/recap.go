@@ -132,7 +132,7 @@ func (m ModelRecap) Name() string {
 
 // ErrNoRecapContext is what a ModelRecap returns when the compaction gave it
 // no Context to build its request from.
-var ErrNoRecapContext = errors.New("modelctx: ModelRecap needs the Context the next call would send (CompactOptions.Context)")
+var ErrNoRecapContext = gotato.ErrorOf(gotato.CodeInvalidArgument, "modelctx: ModelRecap needs the Context the next call would send (CompactOptions.Context)")
 
 // RecapModelRequest returns the request that asks for a Recap: the Context of
 // request, unchanged, and one user message after it. It is a copy; request is
@@ -254,7 +254,7 @@ Start with the first heading.
 
 // ErrBadRecap is what ValidateRecap and ModelRecap return for a reply that is
 // not a Recap.
-var ErrBadRecap = errors.New("modelctx: the reply is not a valid Recap")
+var ErrBadRecap = gotato.ErrorOf(gotato.CodeModelProtocolFailure, "modelctx: the reply is not a valid Recap")
 
 // ValidateRecap checks a Recap's text: it starts with one of the five
 // headings, uses no other `## ` heading, and has `## What happened`. A heading

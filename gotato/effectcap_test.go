@@ -192,7 +192,7 @@ func TestNoEffectCapOffersEveryTool(t *testing.T) {
 
 func TestWithMaxEffectRejectsAnUnknownEffect(t *testing.T) {
 	_, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel()), gotato.WithMaxEffect("mutate"))
-	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
-		t.Fatalf("WithMaxEffect(mutate) = %v, want ErrInvalidArgument", err)
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("WithMaxEffect(mutate) = %v, want CodeInvalidArgument", err)
 	}
 }

@@ -48,7 +48,7 @@ func (c *cli) timeAwayAfter(flags modelFlags) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil || d <= 0 {
-		return 0, gotato.ErrorOf(gotato.ErrInvalidArgument, "--time-away takes a positive duration such as 2h, or off")
+		return 0, gotato.ErrorOf(gotato.CodeInvalidArgument, "--time-away takes a positive duration such as 2h, or off")
 	}
 	return d, nil
 }
@@ -142,7 +142,7 @@ func (rt *cliRuntime) resolveAgent(name string, env func(string) string) (string
 	if name == "gateway" && rt.gatewayErr != nil {
 		return "", fmt.Errorf("gateway config %s: %w", rt.gatewayCfg, rt.gatewayErr)
 	}
-	return "", gotato.ErrorOf(gotato.ErrInvalidArgument, "unknown model "+name+" (use echo, demo, or gateway)")
+	return "", gotato.ErrorOf(gotato.CodeInvalidArgument, "unknown model "+name+" (use echo, demo, or gateway)")
 }
 
 // runOutcome is the JSON shape of the run command.

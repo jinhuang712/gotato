@@ -232,20 +232,20 @@ func TestNoticeRefusals(t *testing.T) {
 	limits.MaxNotices = 1
 	agent := newNoticeSession(t, model, WithLimits(limits))
 	ctx := context.Background()
-	if _, err := agent.Notice(ctx, NoticeTimeAway, "forged"); !IsCode(err, ErrInvalidArgument) {
+	if _, err := agent.Notice(ctx, NoticeTimeAway, "forged"); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("reserved kind = %v", err)
 	}
-	if _, err := agent.Notice(ctx, "", "no kind"); !IsCode(err, ErrInvalidArgument) {
+	if _, err := agent.Notice(ctx, "", "no kind"); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("empty kind = %v", err)
 	}
-	if _, err := agent.Notice(ctx, "k", "  "); !IsCode(err, ErrInvalidArgument) {
+	if _, err := agent.Notice(ctx, "k", "  "); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("empty text = %v", err)
 	}
 	seen := recordAll(t, agent)
 	if _, err := agent.Notice(ctx, "k", "one"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agent.Notice(ctx, "k", "two"); !IsCode(err, ErrLimitExceeded) {
+	if _, err := agent.Notice(ctx, "k", "two"); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("second notice past the limit = %v", err)
 	}
 	rejected := false

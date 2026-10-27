@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -16,25 +15,25 @@ import (
 const summaryTime = "2006-01-02T15:04:05.000Z07:00"
 
 // ErrNotFound is returned by stores for an unknown Session ID.
-var ErrNotFound = gotato.ErrorOf(gotato.ErrNotFound, "session: not found")
+var ErrNotFound = gotato.ErrorOf(gotato.CodeNotFound, "session: not found")
 
 // ErrExists is returned by Store.Create for an ID the store already holds.
-var ErrExists = errors.New("session: already exists")
+var ErrExists = gotato.ErrorOf(gotato.CodeInvalidState, "session: already exists")
 
 // ErrOldLayout is returned by the file store for an ID held in a layout of an
 // earlier version, which it refuses to read. Gotato does not migrate it: the
 // error names the path, and the team moves it away or deletes it.
-var ErrOldLayout = errors.New("session: the file store holds this Record in an earlier layout, which is not read")
+var ErrOldLayout = gotato.ErrorOf(gotato.CodeNotSupported, "session: the file store holds this Record in an earlier layout, which is not read")
 
 // ErrConflict is returned by Store.Append when the position after its head is
 // already taken, or the head is not where the writer read it: another writer
-// wrote first. It carries gotato.ErrConflict.
-var ErrConflict = gotato.ErrorOf(gotato.ErrConflict, "session: another writer wrote to this Record first")
+// wrote first. It carries gotato.CodeConflict.
+var ErrConflict = gotato.ErrorOf(gotato.CodeConflict, "session: another writer wrote to this Record first")
 
 // ErrExpired is returned by Store.Beat for a Liveness row that has expired.
 // An expired row never comes back to life: its Instance must start again
 // with a new identity.
-var ErrExpired = errors.New("session: liveness row expired")
+var ErrExpired = gotato.ErrorOf(gotato.CodeInvalidState, "session: liveness row expired")
 
 // Summary is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
@@ -156,15 +155,15 @@ type Store interface {
 // that a new Record starts with a Checkpoint.
 func checkBatch(after uint64, entries []Entry) error {
 	if len(entries) == 0 {
-		return gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a write has no entries")
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a write has no entries")
 	}
 	for i, entry := range entries {
 		if entry.Seq != after+uint64(i)+1 {
-			return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d of a write after %d has Seq %d", i, after, entry.Seq))
+			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d of a write after %d has Seq %d", i, after, entry.Seq))
 		}
 	}
 	if after == 0 && (!entries[0].IsCheckpoint() || entries[0].Layer != LayerFact) {
-		return gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a Record must start with a checkpoint")
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a Record must start with a checkpoint")
 	}
 	return nil
 }

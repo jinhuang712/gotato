@@ -9,59 +9,59 @@ import (
 type ErrorCode string
 
 const (
-	ErrInvalidArgument ErrorCode = "invalid_argument"
-	ErrInvalidState    ErrorCode = "invalid_state"
-	// ErrBusy means the Session has a Run in flight, here or on another
+	CodeInvalidArgument ErrorCode = "invalid_argument"
+	CodeInvalidState    ErrorCode = "invalid_state"
+	// CodeBusy means the Session has a Run in flight, here or on another
 	// Instance. The request did not run; it may succeed once that Run ends.
-	ErrBusy           ErrorCode = "busy"
-	ErrSessionClosed  ErrorCode = "session_closed"
-	ErrSessionClosing ErrorCode = "session_closing"
-	ErrModelFailure   ErrorCode = "model_failure"
-	// ErrContextOverflow means the Model refused a request as longer than its
+	CodeBusy           ErrorCode = "busy"
+	CodeSessionClosed  ErrorCode = "session_closed"
+	CodeSessionClosing ErrorCode = "session_closing"
+	CodeModelFailure   ErrorCode = "model_failure"
+	// CodeContextOverflow means the Model refused a request as longer than its
 	// context window. A Model reports it by returning an error with a
 	// `ContextOverflow() bool` method that answers true, as the gateway's
-	// Error does; any other Model failure is ErrModelFailure. A request
+	// Error does; any other Model failure is CodeModelFailure. A request
 	// refused before any output is compacted and sent again once. A reply
 	// that overflows after some text ends the Run with this code and keeps the
 	// text as a Cut-off reply: the compaction before every model call leaves
 	// room for a reply, so the next message compacts first and the Session
 	// goes on.
-	ErrContextOverflow       ErrorCode = "context_overflow"
-	ErrModelProtocolFailure  ErrorCode = "model_protocol_failure"
-	ErrToolResolutionFailure ErrorCode = "tool_resolution_failure"
-	ErrToolArgumentFailure   ErrorCode = "tool_argument_validation_failure"
-	ErrToolExecutionFailure  ErrorCode = "tool_execution_failure"
-	ErrExtensionFailure      ErrorCode = "extension_failure"
-	ErrLimitExceeded         ErrorCode = "limit_exceeded"
-	ErrCanceled              ErrorCode = "canceled"
-	ErrDeadlineExceeded      ErrorCode = "deadline_exceeded"
-	ErrInternalInvariant     ErrorCode = "internal_invariant_failure"
-	ErrNotSupported          ErrorCode = "not_supported"
-	// ErrConflict means another writer wrote to the Session's Record first:
+	CodeContextOverflow       ErrorCode = "context_overflow"
+	CodeModelProtocolFailure  ErrorCode = "model_protocol_failure"
+	CodeToolResolutionFailure ErrorCode = "tool_resolution_failure"
+	CodeToolArgumentFailure   ErrorCode = "tool_argument_failure"
+	CodeToolExecutionFailure  ErrorCode = "tool_execution_failure"
+	CodeExtensionFailure      ErrorCode = "extension_failure"
+	CodeLimitExceeded         ErrorCode = "limit_exceeded"
+	CodeCanceled              ErrorCode = "canceled"
+	CodeDeadlineExceeded      ErrorCode = "deadline_exceeded"
+	CodeInternalInvariant     ErrorCode = "internal_invariant"
+	CodeNotSupported          ErrorCode = "not_supported"
+	// CodeConflict means another writer wrote to the Session's Record first:
 	// a stale copy can never overwrite a newer one.
-	ErrConflict ErrorCode = "conflict"
-	// ErrStoreFailure means the store could not write a Session's Record.
-	ErrStoreFailure ErrorCode = "store_failure"
-	// ErrOverloaded means an Instance is past its hard limit and refused to
+	CodeConflict ErrorCode = "conflict"
+	// CodeStoreFailure means the store could not write a Session's Record.
+	CodeStoreFailure ErrorCode = "store_failure"
+	// CodeOverloaded means an Instance is past its hard limit and refused to
 	// activate a new Session. The request did not run, so sending it to
 	// another Instance cannot run it twice.
-	ErrOverloaded ErrorCode = "overloaded"
-	// ErrDraining means the Instance is draining and takes no new Run. The
+	CodeOverloaded ErrorCode = "overloaded"
+	// CodeDraining means the Instance is draining and takes no new Run. The
 	// request did not run, so another Instance can serve it.
-	ErrDraining ErrorCode = "draining"
-	// ErrNotFound means the Session (or the Record it names) does not exist.
+	CodeDraining ErrorCode = "draining"
+	// CodeNotFound means the Session (or the Record it names) does not exist.
 	// The request did not run, and sending it again changes nothing.
 	// session.ErrNotFound matches it.
-	ErrNotFound ErrorCode = "not_found"
-	// ErrCannotResume means a stream cannot go on from the position a client
+	CodeNotFound ErrorCode = "not_found"
+	// CodeCannotResume means a stream cannot go on from the position a client
 	// holds: the Record is not the one it saw, or the number is past its last
 	// Event. The client starts over from the first Event.
-	ErrCannotResume ErrorCode = "cannot_resume"
-	// ErrNotWriter means a message for a Run reached an Instance that is not
+	CodeCannotResume ErrorCode = "cannot_resume"
+	// CodeNotWriter means a message for a Run reached an Instance that is not
 	// the Run's writer. The message did not run, and sent again to the
 	// writer, whose advertised address is in Details["writer"] when it has
 	// one, it may succeed.
-	ErrNotWriter ErrorCode = "not_writer"
+	CodeNotWriter ErrorCode = "not_writer"
 )
 
 // ErrorCodes lists every ErrorCode, so a layer that maps codes (a transport, a
@@ -69,12 +69,12 @@ const (
 // fails when it is not.
 func ErrorCodes() []ErrorCode {
 	return []ErrorCode{
-		ErrInvalidArgument, ErrInvalidState, ErrBusy, ErrSessionClosed, ErrSessionClosing,
-		ErrModelFailure, ErrContextOverflow, ErrModelProtocolFailure,
-		ErrToolResolutionFailure, ErrToolArgumentFailure, ErrToolExecutionFailure,
-		ErrExtensionFailure, ErrLimitExceeded, ErrCanceled, ErrDeadlineExceeded,
-		ErrInternalInvariant, ErrNotSupported, ErrConflict, ErrStoreFailure,
-		ErrOverloaded, ErrDraining, ErrNotFound, ErrCannotResume, ErrNotWriter,
+		CodeInvalidArgument, CodeInvalidState, CodeBusy, CodeSessionClosed, CodeSessionClosing,
+		CodeModelFailure, CodeContextOverflow, CodeModelProtocolFailure,
+		CodeToolResolutionFailure, CodeToolArgumentFailure, CodeToolExecutionFailure,
+		CodeExtensionFailure, CodeLimitExceeded, CodeCanceled, CodeDeadlineExceeded,
+		CodeInternalInvariant, CodeNotSupported, CodeConflict, CodeStoreFailure,
+		CodeOverloaded, CodeDraining, CodeNotFound, CodeCannotResume, CodeNotWriter,
 	}
 }
 
@@ -156,11 +156,11 @@ func runtimeError(code ErrorCode, operation, message string, cause error) *Runti
 // as a model failure the provider calls retryable.
 func (e *RuntimeError) applyDefaults() {
 	switch e.Code {
-	case ErrDraining, ErrOverloaded, ErrBusy, ErrNotWriter:
+	case CodeDraining, CodeOverloaded, CodeBusy, CodeNotWriter:
 		e.NotRun, e.Retryable = true, true
-	case ErrNotFound, ErrSessionClosing, ErrSessionClosed:
+	case CodeNotFound, CodeSessionClosing, CodeSessionClosed:
 		e.NotRun = true
-	case ErrStoreFailure:
+	case CodeStoreFailure:
 		e.Retryable = true
 	}
 }
@@ -192,9 +192,9 @@ func ErrorOf(code ErrorCode, message string) *RuntimeError {
 
 func codeForContext(err error) ErrorCode {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return ErrDeadlineExceeded
+		return CodeDeadlineExceeded
 	}
-	return ErrCanceled
+	return CodeCanceled
 }
 
 func IsCode(err error, code ErrorCode) bool {

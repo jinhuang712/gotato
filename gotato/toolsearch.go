@@ -38,7 +38,7 @@ type ToolSearcher interface {
 func WithToolSearcher(searcher ToolSearcher) Option {
 	return func(c *sessionConfig) error {
 		if searcher == nil {
-			return runtimeError(ErrInvalidArgument, "WithToolSearcher", "ToolSearcher is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithToolSearcher", "ToolSearcher is nil", nil)
 		}
 		c.toolSearcher = searcher
 		return nil
@@ -93,10 +93,10 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		Toolset string   `json:"toolset"`
 	}
 	if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
-		return ToolResult{}, runtimeError(ErrToolArgumentFailure, SearchToolName, "cannot decode search arguments", err)
+		return ToolResult{}, runtimeError(CodeToolArgumentFailure, SearchToolName, "cannot decode search arguments", err)
 	}
 	if len(input.Names) == 0 && len(input.Queries) == 0 && strings.TrimSpace(input.Toolset) == "" {
-		return ToolResult{}, runtimeError(ErrToolArgumentFailure, SearchToolName, "pass names, queries or toolset", nil)
+		return ToolResult{}, runtimeError(CodeToolArgumentFailure, SearchToolName, "pass names, queries or toolset", nil)
 	}
 	var loaded, already, notFound, found []string
 	add := func(list *[]string, id string) {
@@ -172,12 +172,12 @@ func (r *toolRegistry) rank(ctx context.Context, query string) (ids []string, er
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(ErrExtensionFailure, SearchToolName, fmt.Sprintf("ToolSearcher panicked: %v", recovered), nil)
+			err = runtimeError(CodeExtensionFailure, SearchToolName, fmt.Sprintf("ToolSearcher panicked: %v", recovered), nil)
 		}
 	}()
 	ranked, searchErr := r.searcher.Search(ctx, query, candidates)
 	if searchErr != nil {
-		return nil, runtimeError(ErrExtensionFailure, SearchToolName, "ToolSearcher failed: "+searchErr.Error(), searchErr)
+		return nil, runtimeError(CodeExtensionFailure, SearchToolName, "ToolSearcher failed: "+searchErr.Error(), searchErr)
 	}
 	known := make(map[string]bool, len(candidates))
 	for _, spec := range candidates {

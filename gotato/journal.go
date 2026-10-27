@@ -66,8 +66,8 @@ func (j *memoryJournal) Write(_ context.Context, events []Event) ([]Event, error
 // store failure keep their code; anything else is a store failure.
 func journalError(err error) *RuntimeError {
 	var runtimeErr *RuntimeError
-	if errors.As(err, &runtimeErr) && (runtimeErr.Code == ErrConflict || runtimeErr.Code == ErrStoreFailure) {
+	if errors.As(err, &runtimeErr) && (runtimeErr.Code == CodeConflict || runtimeErr.Code == CodeStoreFailure) {
 		return runtimeErr
 	}
-	return runtimeError(ErrStoreFailure, "Journal", "cannot write the Run's Events: "+err.Error(), err)
+	return runtimeError(CodeStoreFailure, "Journal", "cannot write the Run's Events: "+err.Error(), err)
 }

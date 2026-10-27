@@ -6,6 +6,56 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
+### Names follow one set of rules (batch 1)
+
+[AGENTS.md → Naming](AGENTS.md#naming) fixes the rules exported names follow. This batch applies three of them. **Breaking**: nothing keeps an old name, and no old wire string is accepted.
+
+**American spelling, in Go names and in wire strings.** `cancelled` is `canceled`, as in `context.Canceled`.
+
+```text
+before  "cancelled"   stop reason, Run status, Tool Result status, error code,
+                      cause, HTTP and CLI JSON, replay fixtures
+after   "canceled"
+
+before  gotato.ErrCancelled, workload.CauseCancelled
+after   gotato.CodeCanceled (see the error codes below), workload.CauseCanceled
+```
+
+`gotato.RunCanceled`, `StopCanceled` and `ToolResultCanceled` keep their names; only their strings changed.
+
+**A Run is stopped with Abort,** the glossary's one verb.
+
+| Before | After |
+|---|---|
+| `Session.CancelRun(ctx, runID)` | `Session.AbortRun(ctx, runID)` |
+| `service.Runner.CancelSession(ctx, id)` | `service.Runner.AbortSession(ctx, id)` |
+| `POST /v1/sessions/{id}/cancel` | `POST /v1/sessions/{id}/abort` |
+| response `{"status": "cancel_requested"}` | `{"status": "abort_requested"}` |
+
+`Interrupt` stays: it is a Steer that cuts a model call short, not a stop.
+
+**An error code is `Code…`, a sentinel error is `Err…` and carries a code, and a code's name matches its string.** The constants of type `gotato.ErrorCode` are renamed; the sentinel variables (`service.ErrBusy`, `session.ErrNotFound`, …) keep their names.
+
+| Before | After |
+|---|---|
+| `gotato.ErrInvalidArgument`, `ErrInvalidState`, `ErrBusy`, `ErrSessionClosed`, `ErrSessionClosing`, `ErrModelFailure`, `ErrContextOverflow`, `ErrModelProtocolFailure`, `ErrToolResolutionFailure`, `ErrToolArgumentFailure`, `ErrToolExecutionFailure`, `ErrExtensionFailure`, `ErrLimitExceeded`, `ErrDeadlineExceeded`, `ErrNotSupported`, `ErrConflict`, `ErrStoreFailure`, `ErrOverloaded`, `ErrDraining`, `ErrNotFound`, `ErrCannotResume`, `ErrNotWriter` | the same names with `Code` for `Err`: `gotato.CodeInvalidArgument`, `CodeBusy`, … |
+| `gotato.ErrCancelled` (`"cancelled"`) | `gotato.CodeCanceled` (`"canceled"`) |
+| `gotato.ErrToolArgumentFailure` (`"tool_argument_validation_failure"`) | `gotato.CodeToolArgumentFailure` (`"tool_argument_failure"`) |
+| `gotato.ErrInternalInvariant` (`"internal_invariant_failure"`) | `gotato.CodeInternalInvariant` (`"internal_invariant"`) |
+
+Sentinels that had no code gain one. `errors.Is` matches a sentinel by code, as it does for every coded sentinel, so each also matches any other error of its code.
+
+| Sentinel | Before | After |
+|---|---|---|
+| `session.ErrExists` | no code | `invalid_state` |
+| `session.ErrExpired` | no code | `invalid_state` |
+| `session.ErrOldLayout` | no code | `not_supported` |
+| `service.ErrNotPersisted` | no code | `store_failure` (retryable) |
+| `modelctx.ErrBadRecap` | no code | `model_protocol_failure` |
+| `modelctx.ErrNoRecapContext` | no code | `invalid_argument` |
+| `testkit.ErrScriptExhausted` | no code (wraps `io.ErrUnexpectedEOF`) | `model_failure` (still wraps `io.ErrUnexpectedEOF`) |
+| `gotato.ErrEventsLost` | no code | `cannot_resume` |
+
 ### Implementation helpers leave the public API
 
 These exports were steps used only inside their own package. They are unexported. **Breaking** for code that called them; none has a replacement, because none is part of a contract.

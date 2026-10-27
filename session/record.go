@@ -64,7 +64,7 @@ func (s *Record) takePending() ([]Entry, []gotato.Event, Summary, error) {
 			return nil, nil, Summary{}, err
 		}
 		if entry.Seq != s.head+uint64(i)+1 {
-			return nil, nil, Summary{}, gotato.ErrorOf(gotato.ErrInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
+			return nil, nil, Summary{}, gotato.ErrorOf(gotato.CodeInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
 		}
 		entries[i] = entry
 	}
@@ -119,12 +119,12 @@ func fromEntries(entries []Entry) (*Record, error) {
 // it may list.
 func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, error) {
 	if len(entries) == 0 || !entries[0].IsCheckpoint() {
-		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a log must start at a checkpoint")
+		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: a log must start at a checkpoint")
 	}
 	s := &Record{eventLimit: defaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, entry := range segments {
 		if entry.Kind != gotato.KindSegmentClosed {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
+			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
 		}
 		if err := s.apply(entry); err != nil {
 			return nil, err
@@ -132,7 +132,7 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 	}
 	for i, entry := range entries {
 		if i > 0 && entry.Seq <= entries[i-1].Seq {
-			return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d follows entry %d", entry.Seq, entries[i-1].Seq))
+			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d follows entry %d", entry.Seq, entries[i-1].Seq))
 		}
 		if err := s.apply(entry); err != nil {
 			return nil, err
@@ -140,7 +140,7 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 		s.updatedAt = entry.At
 	}
 	if s.id == "" {
-		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: checkpoint has no id")
+		return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "session: checkpoint has no id")
 	}
 	if err := s.resolveSegments(); err != nil {
 		return nil, err
@@ -161,10 +161,10 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 func (s *Record) apply(entry Entry) error {
 	event, err := gotato.UnmarshalEvent(entry.Data)
 	if err != nil {
-		return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d (%s): %v", entry.Seq, entry.Kind, err))
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d (%s): %v", entry.Seq, entry.Kind, err))
 	}
 	if _, unknown := event.(gotato.UnknownEvent); unknown {
-		return gotato.ErrorOf(gotato.ErrNotSupported, fmt.Sprintf("session: entry %d has unknown kind %q", entry.Seq, entry.Kind))
+		return gotato.ErrorOf(gotato.CodeNotSupported, fmt.Sprintf("session: entry %d has unknown kind %q", entry.Seq, entry.Kind))
 	}
 	event = gotato.WithNumber(event, entry.Seq)
 	switch e := event.(type) {

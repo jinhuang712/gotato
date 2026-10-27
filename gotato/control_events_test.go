@@ -114,7 +114,7 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 	}
 	agent.Abort()
 	model.gate <- struct{}{}
-	if err := <-done; !IsCode(err, ErrCanceled) {
+	if err := <-done; !IsCode(err, CodeCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 
@@ -160,13 +160,13 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	if err := agent.FollowUp(UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.FollowUp(UserMessage("two")); !IsCode(err, ErrLimitExceeded) {
+	if err := agent.FollowUp(UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full follow-up queue = %v", err)
 	}
 	if err := agent.Steer(UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.Steer(UserMessage("nope")); !IsCode(err, ErrLimitExceeded) {
+	if err := agent.Steer(UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full Steer queue = %v", err)
 	}
 	var rejected []MessageRejected
@@ -216,7 +216,7 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 		t.Fatal("Model was not called")
 	}
 	agent.Abort()
-	if err := <-done; !IsCode(err, ErrCanceled) {
+	if err := <-done; !IsCode(err, CodeCanceled) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	events := seen.events()

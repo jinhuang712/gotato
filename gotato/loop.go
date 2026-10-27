@@ -227,13 +227,13 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	}
 	fail := func(err *RuntimeError) (RunResult, error) {
 		if err == nil {
-			err = runtimeError(ErrInternalInvariant, "Run", "nil terminal error", nil)
+			err = runtimeError(CodeInternalInvariant, "Run", "nil terminal error", nil)
 		}
 		result := RunResult{RunID: runID, Status: RunFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
-		if errors.Is(err.Cause, context.Canceled) || err.Code == ErrCanceled {
+		if errors.Is(err.Cause, context.Canceled) || err.Code == CodeCanceled {
 			result.Status = RunCanceled
 		}
-		if err.Code == ErrDeadlineExceeded {
+		if err.Code == CodeDeadlineExceeded {
 			result.Status = RunDeadlineExceeded
 		}
 		turn := currentTurn()
@@ -373,7 +373,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			totalUsage = addUsage(totalUsage, callUsage)
 			// A refusal before any output is the one failure a shorter request
 			// can mend, once per Turn.
-			if modelErr != nil && modelErr.Code == ErrContextOverflow && refused == nil &&
+			if modelErr != nil && modelErr.Code == CodeContextOverflow && refused == nil &&
 				len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
 				refused = modelErr
 				continue
@@ -383,7 +383,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		turnText, turnReasoning := replyBytes(assistant)
 		textBytes += turnText
 		reasoningBytes += turnReasoning
-		if modelErr != nil && modelErr.Code == ErrCanceled && runCtx.Err() == nil && a.interrupting() {
+		if modelErr != nil && modelErr.Code == CodeCanceled && runCtx.Err() == nil && a.interrupting() {
 			// An Interrupt cut the call short: the text it had sent is kept as
 			// a Cut-off reply, and the Interrupt starts the next Turn.
 			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
@@ -773,7 +773,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		// its own, so a reader that saw model_retried drops the old one.
 		a.stage(retried)
 		if partial := cutOffReply(assistant); partial.ID != "" && a.commitMessage(partial) == nil {
-			a.stage(ReplyCutOff{Header: NewHeader(a.id, runID, turn), Message: partial.Clone(), Cause: ErrModelFailure})
+			a.stage(ReplyCutOff{Header: NewHeader(a.id, runID, turn), Message: partial.Clone(), Cause: CodeModelFailure})
 		}
 		assistant = Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleAssistant, Model: assistant.Model}
 		usage = Usage{}
@@ -788,7 +788,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		return Message{}, Usage{}, classifyModelError(err)
 	}
 	if stream == nil {
-		return Message{}, Usage{}, runtimeError(ErrModelFailure, "Model.Stream", "Model returned a nil stream", nil)
+		return Message{}, Usage{}, runtimeError(CodeModelFailure, "Model.Stream", "Model returned a nil stream", nil)
 	}
 	defer func() { _ = stream.Close() }()
 
@@ -820,12 +820,12 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 				break
 			}
 			if errors.Is(recvErr, io.EOF) {
-				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
+				return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
 			}
 			return broken(classifyModelError(recvErr))
 		}
 		if complete {
-			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
+			return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
 		}
 		if modelEvent.Model != "" {
 			assistant.Model = modelEvent.Model
@@ -868,11 +868,11 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 			assistant.Parts[partIndex].Signature = slices.Clone(modelEvent.ReasoningArtifact)
 		case ModelToolCall:
 			if modelEvent.ToolCall == nil || modelEvent.ToolCall.ID == "" || modelEvent.ToolCall.ToolID == "" {
-				return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
+				return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
 			}
 			for _, existing := range assistant.ToolCalls {
 				if existing.ID == modelEvent.ToolCall.ID {
-					return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil))
+					return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil))
 				}
 			}
 			call := *modelEvent.ToolCall
@@ -891,14 +891,14 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 				usage = modelEvent.Usage
 			}
 		default:
-			return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "unknown Model event", nil))
+			return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "unknown Model event", nil))
 		}
 		if complete {
 			break
 		}
 	}
 	if !complete {
-		return broken(runtimeError(ErrModelProtocolFailure, "ModelStream", "missing completion", nil))
+		return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "missing completion", nil))
 	}
 	assistant.Parts = coalesceDeltas(assistant.Parts)
 	assistant.Usage = usage

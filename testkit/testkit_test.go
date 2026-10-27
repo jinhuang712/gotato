@@ -43,7 +43,7 @@ func TestReplayModelFailsWhenExhausted(t *testing.T) {
 		t.Fatalf("remaining = %d", model.Remaining())
 	}
 	result, err := agent.Prompt(context.Background(), gotato.UserMessage("2"))
-	if result.Status != gotato.RunFailed || !errors.Is(err, io.ErrUnexpectedEOF) && !gotato.IsCode(err, gotato.ErrModelFailure) {
+	if result.Status != gotato.RunFailed || !errors.Is(err, io.ErrUnexpectedEOF) && !gotato.IsCode(err, gotato.CodeModelFailure) {
 		t.Fatalf("exhausted replay: %+v %v", result, err)
 	}
 }

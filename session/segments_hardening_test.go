@@ -30,7 +30,7 @@ func TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed(t *testing.T) {
 	}
 	for _, c := range cases {
 		err := record.CheckpointSegments(gotato.CompactionOnDemand, c.numbers, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), c.want) || !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		if err == nil || !strings.Contains(err.Error(), c.want) || !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Fatalf("%s: CheckpointSegments(%v) = %v, want invalid_argument naming %q", c.name, c.numbers, err, c.want)
 		}
 		if len(record.Segments()) != 0 || record.Len() != 0 {

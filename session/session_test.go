@@ -233,7 +233,7 @@ func TestEventLimitZeroKeepsDefault(t *testing.T) {
 
 func TestLoadRejectsFutureSchema(t *testing.T) {
 	_, err := session.Load(session.Document{ID: "x", SchemaVersion: session.SchemaVersion + 1})
-	if !gotato.IsCode(err, gotato.ErrNotSupported) {
+	if !gotato.IsCode(err, gotato.CodeNotSupported) {
 		t.Fatalf("err = %v", err)
 	}
 }

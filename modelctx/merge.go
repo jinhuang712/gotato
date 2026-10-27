@@ -199,9 +199,9 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 			text, err = ValidateRecap(gotato.TextOf(message))
 		}
 		if err != nil {
-			cause := gotato.ErrModelFailure
+			cause := gotato.CodeModelFailure
 			if errors.Is(err, ErrBadRecap) {
-				cause = gotato.ErrModelProtocolFailure
+				cause = gotato.CodeModelProtocolFailure
 			}
 			return fail(MergeRecapFailed, cause, err), nil
 		}

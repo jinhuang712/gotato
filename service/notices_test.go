@@ -133,11 +133,11 @@ func TestNoticeRefusals(t *testing.T) {
 		"reserved":   {SessionID: s.ID(), Kind: gotato.NoticeTimeAway, Text: "t"},
 		"no text":    {SessionID: s.ID(), Kind: "k", Text: " "},
 	} {
-		if _, err := runner.Notice(ctx, request); !gotato.IsCode(err, gotato.ErrInvalidArgument) || !gotato.NotRun(err) {
+		if _, err := runner.Notice(ctx, request); !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
 			t.Errorf("%s: Notice = %v, want invalid_argument, not run", name, err)
 		}
 	}
-	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: "missing", Kind: "k", Text: "t"}); !gotato.IsCode(err, gotato.ErrNotFound) {
+	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: "missing", Kind: "k", Text: "t"}); !gotato.IsCode(err, gotato.CodeNotFound) {
 		t.Errorf("Notice to a missing Session = %v, want not_found", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestANoticeForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	done := startRun(t, a, s.ID(), "hello")
 	waitCall(t, model, 0)
 	_, err := b.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "from b"})
-	if !gotato.IsCode(err, gotato.ErrNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
+	if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 		t.Fatalf("Notice = %v; want not_writer, not run, retryable", err)
 	}
 	if address, ok := service.WriterOf(err); !ok || address != "http://instance-a.example:8080" {

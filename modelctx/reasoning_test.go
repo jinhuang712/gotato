@@ -102,7 +102,7 @@ func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 	// A ceiling of one token is never met again, so the Run would end; the
 	// compaction itself is what this checks.
 	prepared, err := auto.PrepareTurn(context.Background(), gotato.PendingTurn{RunID: "r", Turn: 2})
-	if !gotato.IsCode(err, gotato.ErrLimitExceeded) || !prepared.Changed {
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || !prepared.Changed {
 		t.Fatalf("prepared = %+v, err = %v", prepared, err)
 	}
 	if _, runs := auto.Last(); runs != 1 {

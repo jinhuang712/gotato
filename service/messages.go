@@ -56,13 +56,13 @@ type MessageResult struct {
 
 // ErrNoRun is returned by AbortSession when no Run is going on the Session,
 // here or on the Instance that writes it: a Stop finds nothing to stop.
-var ErrNoRun = gotato.ErrorOf(gotato.ErrInvalidState, "service: session has no active run")
+var ErrNoRun = gotato.ErrorOf(gotato.CodeInvalidState, "service: session has no active run")
 
 // notWriter answers a message for a Run that another Instance writes. It was
 // not run, and a retry at the writer may succeed. The address is the writer's
 // advertised one, absent when it advertises none.
 func notWriter(instance, address string) *gotato.RuntimeError {
-	e := gotato.ErrorOf(gotato.ErrNotWriter, "service: the session's run is going on another instance")
+	e := gotato.ErrorOf(gotato.CodeNotWriter, "service: the session's run is going on another instance")
 	e.Details = map[string]string{"writer_instance": instance}
 	if address != "" {
 		e.Details["writer"] = address
@@ -75,7 +75,7 @@ func notWriter(instance, address string) *gotato.RuntimeError {
 // err is one. The address is empty when the writer advertises none.
 func WriterOf(err error) (address string, ok bool) {
 	var runtimeErr *gotato.RuntimeError
-	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.ErrNotWriter {
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != gotato.CodeNotWriter {
 		return "", false
 	}
 	return runtimeErr.Details["writer"], true
@@ -121,11 +121,11 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	}
 	switch {
 	case strings.TrimSpace(request.SessionID) == "":
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required"))
+		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required"))
 	case !request.Kind.Valid():
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown message kind "+string(request.Kind)))
+		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown message kind "+string(request.Kind)))
 	case strings.TrimSpace(request.Text) == "":
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: message text is required"))
+		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: message text is required"))
 	}
 	result := MessageResult{SessionID: request.SessionID}
 	message := gotato.UserMessage(request.Text)
@@ -268,7 +268,7 @@ func (h *runHandle) send(kind MessageKind, message gotato.Message) error {
 	defer h.liveMu.Unlock()
 	live := h.live
 	if live == nil {
-		return gotato.ErrorOf(gotato.ErrInvalidState, "service: the run is over")
+		return gotato.ErrorOf(gotato.CodeInvalidState, "service: the run is over")
 	}
 	switch kind {
 	case MessageFollowUp:
@@ -282,7 +282,7 @@ func (h *runHandle) send(kind MessageKind, message gotato.Message) error {
 
 // gone reports a live Session that has no Run to take a message any more.
 func gone(err error) bool {
-	return gotato.IsCode(err, gotato.ErrSessionClosing) || gotato.IsCode(err, gotato.ErrSessionClosed) || gotato.IsCode(err, gotato.ErrInvalidState)
+	return gotato.IsCode(err, gotato.CodeSessionClosing) || gotato.IsCode(err, gotato.CodeSessionClosed) || gotato.IsCode(err, gotato.CodeInvalidState)
 }
 
 func newMessageID() gotato.MessageID {

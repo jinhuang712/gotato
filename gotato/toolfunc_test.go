@@ -93,31 +93,31 @@ func TestFuncToolDerivesInputSchema(t *testing.T) {
 }
 
 func TestFuncToolRejectsUnsupportedInput(t *testing.T) {
-	if _, err := NewFuncTool("bad", "", func(ctx context.Context, in string) (string, error) { return in, nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("bad", "", func(ctx context.Context, in string) (string, error) { return in, nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for non-struct input, got %v", err)
 	}
 	type cyclic struct {
 		Next *cyclic `json:"next,omitempty"`
 	}
-	if _, err := NewFuncTool("cycle", "", func(ctx context.Context, in cyclic) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("cycle", "", func(ctx context.Context, in cyclic) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for recursive input, got %v", err)
 	}
 	type EmbeddedCycle struct {
 		*EmbeddedCycle
 	}
-	if _, err := NewFuncTool("embedded-cycle", "", func(ctx context.Context, in EmbeddedCycle) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("embedded-cycle", "", func(ctx context.Context, in EmbeddedCycle) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for embedded recursive input, got %v", err)
 	}
 	type channels struct {
 		Ch chan int `json:"ch"`
 	}
-	if _, err := NewFuncTool("chan", "", func(ctx context.Context, in channels) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("chan", "", func(ctx context.Context, in channels) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for channel field, got %v", err)
 	}
-	if _, err := NewFuncTool[weatherInput, string]("nil", "", nil); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool[weatherInput, string]("nil", "", nil); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for nil function, got %v", err)
 	}
-	if _, err := NewFuncTool(" ", "", func(ctx context.Context, in weatherInput) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool(" ", "", func(ctx context.Context, in weatherInput) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("expected invalid argument for empty name, got %v", err)
 	}
 }
@@ -129,13 +129,13 @@ func TestFuncToolRejectsRecursiveSliceAndMap(t *testing.T) {
 	type withList struct {
 		Items recursiveList `json:"items"`
 	}
-	if _, err := NewFuncTool("list", "", func(ctx context.Context, in withList) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("list", "", func(ctx context.Context, in withList) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("recursive slice = %v, want invalid_argument", err)
 	}
 	type withMap struct {
 		Items recursiveMap `json:"items"`
 	}
-	if _, err := NewFuncTool("map", "", func(ctx context.Context, in withMap) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("map", "", func(ctx context.Context, in withMap) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("recursive map = %v, want invalid_argument", err)
 	}
 }
@@ -144,7 +144,7 @@ func TestFuncToolRejectsUnsupportedJSONOptions(t *testing.T) {
 	type stringly struct {
 		Count int `json:"count,string"`
 	}
-	if _, err := NewFuncTool("stringly", "", func(ctx context.Context, in stringly) (string, error) { return "", nil }); !IsCode(err, ErrInvalidArgument) {
+	if _, err := NewFuncTool("stringly", "", func(ctx context.Context, in stringly) (string, error) { return "", nil }); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf(`json:",string" = %v, want invalid_argument`, err)
 	}
 }
@@ -219,7 +219,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 			failed = m.ToolResult
 		}
 	}
-	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, "city is required") || !strings.Contains(failed.SafeError, string(ErrToolArgumentFailure)) {
+	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, "city is required") || !strings.Contains(failed.SafeError, string(CodeToolArgumentFailure)) {
 		t.Fatalf("tool result = %+v", failed)
 	}
 }

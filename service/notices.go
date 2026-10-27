@@ -62,16 +62,16 @@ func (r *Runner) Notice(ctx context.Context, request NoticeRequest) (NoticeResul
 	}
 	switch {
 	case strings.TrimSpace(request.SessionID) == "":
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: session ID is required"))
+		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required"))
 	case strings.TrimSpace(request.Kind) == "":
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: notice kind is required"))
+		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: notice kind is required"))
 	case gotato.ReservedNoticeKind(request.Kind):
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: notice kind "+request.Kind+" is reserved"))
+		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: notice kind "+request.Kind+" is reserved"))
 	case strings.TrimSpace(request.Text) == "":
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: notice text is required"))
+		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: notice text is required"))
 	}
 	if r.Draining() {
-		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.ErrDraining, "service: draining"))
+		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeDraining, "service: draining"))
 	}
 	result := NoticeResult{SessionID: request.SessionID, Queued: true}
 	handle, err := r.liveRun(ctx, request.SessionID)
@@ -106,7 +106,7 @@ func (h *runHandle) notice(ctx context.Context, kind, text string) (uint64, gota
 	h.liveMu.Lock()
 	defer h.liveMu.Unlock()
 	if h.live == nil {
-		return 0, "", gotato.ErrorOf(gotato.ErrInvalidState, "service: the run is over")
+		return 0, "", gotato.ErrorOf(gotato.CodeInvalidState, "service: the run is over")
 	}
 	message := gotato.NewNotice(gotato.NoticeFromService, kind, text)
 	message.ID = newMessageID()
@@ -135,7 +135,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		var written []gotato.Event
 		switch {
 		case len(writer.Record().PendingNotices()) >= limit:
-			err = notRunError(gotato.ErrorOf(gotato.ErrLimitExceeded, "service: the notice queue is full"))
+			err = notRunError(gotato.ErrorOf(gotato.CodeLimitExceeded, "service: the notice queue is full"))
 		default:
 			written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
 				Header:    gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0),

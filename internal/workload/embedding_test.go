@@ -27,7 +27,7 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 		if !gotato.NotRun(err) {
 			t.Fatalf("Run on a draining instance = %v, want an error that says not run", err)
 		}
-		if !gotato.Retryable(err) || !gotato.IsCode(err, gotato.ErrDraining) {
+		if !gotato.Retryable(err) || !gotato.IsCode(err, gotato.CodeDraining) {
 			t.Fatalf("Run on a draining instance = %v, want draining and retryable", err)
 		}
 		if res.Result.Status != "" {
@@ -38,7 +38,7 @@ func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {
 	t.Run("a Session that does not exist", func(t *testing.T) {
 		r, _ := newRig(t)
 		res, err := r.runner.Run(ctx, service.RunRequest{SessionID: "missing", Prompt: "hello"})
-		if !gotato.IsCode(err, gotato.ErrNotFound) || !errors.Is(err, session.ErrNotFound) {
+		if !gotato.IsCode(err, gotato.CodeNotFound) || !errors.Is(err, session.ErrNotFound) {
 			t.Fatalf("Run on a missing Session = %v, want not_found", err)
 		}
 		if !gotato.NotRun(err) || gotato.Retryable(err) || res.Result.Status != "" {
@@ -66,7 +66,7 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 		if res.Result.Status != gotato.RunFailed {
 			t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunFailed)
 		}
-		if res.Result.Error == nil || !gotato.IsCode(res.Result.Error, gotato.ErrStoreFailure) {
+		if res.Result.Error == nil || !gotato.IsCode(res.Result.Error, gotato.CodeStoreFailure) {
 			t.Fatalf("result error = %v, want store_failure", res.Result.Error)
 		}
 		if !errors.Is(err, service.ErrNotPersisted) {

@@ -35,7 +35,7 @@ func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		if !IsCode(err, ErrCanceled) {
+		if !IsCode(err, CodeCanceled) {
 			t.Fatalf("err = %v, want canceled", err)
 		}
 	case <-time.After(3 * time.Second):
@@ -46,7 +46,7 @@ func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
 func TestNewSessionContextRefusesAnEndedContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, ErrCanceled) {
+	if _, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, CodeCanceled) {
 		t.Fatalf("err = %v, want canceled", err)
 	}
 }

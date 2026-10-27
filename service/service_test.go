@@ -134,7 +134,7 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 	waitFor(t, func() bool { return model.Calls() == 1 })
 	// The Run holds the Session lock; a second Run is rejected, not queued.
 	_, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
-	if !errors.Is(err, service.ErrBusy) && !gotato.IsCode(err, gotato.ErrBusy) {
+	if !errors.Is(err, service.ErrBusy) && !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("second run err = %v, want busy", err)
 	}
 	close(block)
@@ -460,7 +460,7 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	if !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
-	if result.Result.Status != gotato.RunFailed || !gotato.IsCode(result.Result.Error, gotato.ErrStoreFailure) || result.FinalText != "echo: hi" {
+	if result.Result.Status != gotato.RunFailed || !gotato.IsCode(result.Result.Error, gotato.CodeStoreFailure) || result.FinalText != "echo: hi" {
 		t.Fatalf("run outcome lost: %+v", result)
 	}
 }
@@ -730,7 +730,7 @@ func unbuildableSpec() service.Agent {
 func TestFailedOneShotLeavesNoSession(t *testing.T) {
 	runner, store := newRunner(t, unbuildableSpec())
 	_, err := runner.Run(context.Background(), service.RunRequest{Prompt: "x"})
-	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}
 	list, err := store.List(context.Background())
@@ -758,7 +758,7 @@ func TestFailedOneShotCleanupIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = runner.Run(context.Background(), service.RunRequest{Prompt: "x"})
-	if !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}
 	if !errors.Is(err, delErr) {
@@ -855,7 +855,7 @@ func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 		}
 		// A loser either finds the ID taken or is rejected while the winner
 		// holds the lock; neither may overwrite the winner.
-		if !gotato.IsCode(err, gotato.ErrInvalidArgument) && !gotato.IsCode(err, gotato.ErrBusy) {
+		if !gotato.IsCode(err, gotato.CodeInvalidArgument) && !gotato.IsCode(err, gotato.CodeBusy) {
 			t.Fatalf("unexpected fork err = %v", err)
 		}
 	}
@@ -880,10 +880,10 @@ func TestSessionMutationsRespectTheLock(t *testing.T) {
 	// Calls() > 0 means the Run holds the Session lock and is talking to the Model.
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
-	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); !gotato.IsCode(err, gotato.ErrBusy) {
+	if _, err := runner.SetToolActive(ctx, s.ID(), testkit.DemoToolID, false); !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("SetToolActive during a run err = %v, want busy", err)
 	}
-	if err := runner.DeleteSession(ctx, s.ID()); !gotato.IsCode(err, gotato.ErrBusy) {
+	if err := runner.DeleteSession(ctx, s.ID()); !gotato.IsCode(err, gotato.CodeBusy) {
 		t.Fatalf("DeleteSession during a run err = %v, want busy", err)
 	}
 	close(block)

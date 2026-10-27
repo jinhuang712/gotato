@@ -432,7 +432,7 @@ func TestAMergeWhoseRecapFailsMergesNothing(t *testing.T) {
 					failed = &e
 				}
 			}
-			if failed == nil || failed.Why != gotato.CompactionPastBudget || failed.Cause != gotato.ErrModelProtocolFailure {
+			if failed == nil || failed.Why != gotato.CompactionPastBudget || failed.Cause != gotato.CodeModelProtocolFailure {
 				t.Errorf("failure Event = %+v", failed)
 			}
 		})

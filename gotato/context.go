@@ -49,7 +49,7 @@ func (t *memoryTranscript) Append(message Message) error {
 func WithTranscript(transcript Transcript) Option {
 	return func(c *sessionConfig) error {
 		if transcript == nil {
-			return runtimeError(ErrInvalidArgument, "WithTranscript", "transcript is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithTranscript", "transcript is nil", nil)
 		}
 		c.transcript = transcript
 		return nil
@@ -215,7 +215,7 @@ func FullHistoryContext() ContextBuilder {
 func WithContextBuilder(builder ContextBuilder) Option {
 	return func(c *sessionConfig) error {
 		if builder == nil {
-			return runtimeError(ErrInvalidArgument, "WithContextBuilder", "builder is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithContextBuilder", "builder is nil", nil)
 		}
 		c.contextBuilder = builder
 		return nil
@@ -233,7 +233,7 @@ func WithContextBuilder(builder ContextBuilder) Option {
 // A preparer that rewrote the Transcript returns TurnPrepared{Changed: true},
 // and the Loop builds the request again from it. An error ends the Run; one
 // that is a *RuntimeError ends it with that code, any other is an
-// ErrExtensionFailure.
+// CodeExtensionFailure.
 type TurnPreparer interface {
 	PrepareTurn(context.Context, PendingTurn) (TurnPrepared, error)
 }
@@ -257,7 +257,7 @@ type PendingTurn struct {
 	// Overflow is true when the Model refused Request as longer than its
 	// window before any output, and this is the one chance to shorten it. A
 	// preparer that cannot returns Changed false, and the Run ends with
-	// ErrContextOverflow.
+	// CodeContextOverflow.
 	Overflow bool
 	// Refusal is the error the Model refused Request with, when Overflow is
 	// true, so a preparer can read what the refusal names, such as the limit
@@ -291,7 +291,7 @@ type ToolSource interface {
 func WithToolSource(source ToolSource) Option {
 	return func(c *sessionConfig) error {
 		if source == nil {
-			return runtimeError(ErrInvalidArgument, "WithToolSource", "source is nil", nil)
+			return runtimeError(CodeInvalidArgument, "WithToolSource", "source is nil", nil)
 		}
 		c.toolSources = append(c.toolSources, source)
 		return nil

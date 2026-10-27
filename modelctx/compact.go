@@ -126,11 +126,11 @@ func causeOf(err error) gotato.ErrorCode {
 	case errors.As(err, &runtime) && runtime != nil:
 		return runtime.Code
 	case errors.Is(err, context.DeadlineExceeded):
-		return gotato.ErrDeadlineExceeded
+		return gotato.CodeDeadlineExceeded
 	case errors.Is(err, context.Canceled):
-		return gotato.ErrCanceled
+		return gotato.CodeCanceled
 	}
-	return gotato.ErrStoreFailure
+	return gotato.CodeStoreFailure
 }
 
 // Compact closes everything since the last Checkpoint, less a kept tail, into
@@ -428,7 +428,7 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		case !prepared.Changed:
 			why = "the Context is past the ceiling and there is nothing to compact"
 		}
-		return prepared, gotato.ErrorOf(gotato.ErrLimitExceeded, fmt.Sprintf("%s (about %d tokens, ceiling %d)", why, fresh, ceiling))
+		return prepared, gotato.ErrorOf(gotato.CodeLimitExceeded, fmt.Sprintf("%s (about %d tokens, ceiling %d)", why, fresh, ceiling))
 	}
 	return prepared, nil
 }
@@ -489,7 +489,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	if why == gotato.CompactionOverflow && merge != nil && merge.Error != "" {
 		// A merge that could not be written leaves the far past as it was:
 		// the caller is told, not left with a request that is refused again.
-		return prepared, false, gotato.ErrorOf(gotato.ErrContextOverflow,
+		return prepared, false, gotato.ErrorOf(gotato.CodeContextOverflow,
 			fmt.Sprintf("the provider refused the request as too long, the Segments alone pass their limit (about %d tokens, limit %d), and merging the oldest failed, so nothing was merged: %s",
 				merge.SegmentTokens, merge.Budget, merge.Error))
 	}

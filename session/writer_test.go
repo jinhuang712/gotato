@@ -30,7 +30,7 @@ func TestStaleCopyCannotOverwriteANewerRecord(t *testing.T) {
 	commit(t, second, gotato.UserMessage("from b"))
 	_ = first.Record().Append(gotato.UserMessage("from a, stale"))
 	_, err = first.Write(ctx, []gotato.Event{messageEvent(gotato.UserMessage("from a, stale"))})
-	if !errors.Is(err, session.ErrConflict) || !gotato.IsCode(err, gotato.ErrConflict) {
+	if !errors.Is(err, session.ErrConflict) || !gotato.IsCode(err, gotato.CodeConflict) {
 		t.Fatalf("stale Flush = %v, want a conflict", err)
 	}
 	if again := first.Flush(ctx); !errors.Is(again, session.ErrConflict) {
@@ -345,7 +345,7 @@ func TestPublisherReceivesNothingOfAFailedWrite(t *testing.T) {
 	published = nil
 	store.fail = true
 	writer.Record().Set("agent", "support")
-	if err := writer.Flush(ctx); err == nil || !gotato.IsCode(err, gotato.ErrStoreFailure) {
+	if err := writer.Flush(ctx); err == nil || !gotato.IsCode(err, gotato.CodeStoreFailure) {
 		t.Fatalf("Flush = %v, want a store failure", err)
 	}
 	if len(published) != 0 {

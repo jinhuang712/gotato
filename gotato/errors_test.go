@@ -51,18 +51,18 @@ func TestErrorsSayWhetherTheyRanAndWhetherARetryMaySucceed(t *testing.T) {
 		code              ErrorCode
 		notRun, retryable bool
 	}{
-		{ErrDraining, true, true},
-		{ErrOverloaded, true, true},
-		{ErrBusy, true, true},
-		{ErrNotWriter, true, true},
-		{ErrNotFound, true, false},
-		{ErrSessionClosing, true, false},
-		{ErrSessionClosed, true, false},
-		{ErrStoreFailure, false, true},
-		{ErrInvalidArgument, false, false},
-		{ErrContextOverflow, false, false},
-		{ErrModelFailure, false, false},
-		{ErrConflict, false, false},
+		{CodeDraining, true, true},
+		{CodeOverloaded, true, true},
+		{CodeBusy, true, true},
+		{CodeNotWriter, true, true},
+		{CodeNotFound, true, false},
+		{CodeSessionClosing, true, false},
+		{CodeSessionClosed, true, false},
+		{CodeStoreFailure, false, true},
+		{CodeInvalidArgument, false, false},
+		{CodeContextOverflow, false, false},
+		{CodeModelFailure, false, false},
+		{CodeConflict, false, false},
 	} {
 		t.Run(string(tc.code), func(t *testing.T) {
 			err := fmt.Errorf("wrapped: %w", ErrorOf(tc.code, "x"))
@@ -82,7 +82,7 @@ func TestErrorsSayWhetherTheyRanAndWhetherARetryMaySucceed(t *testing.T) {
 		t.Error("nil and plain errors say neither")
 	}
 	// A joined error answers for the first RuntimeError in it.
-	if joined := errors.Join(ErrorOf(ErrBusy, "x"), errors.New("y")); !NotRun(joined) {
+	if joined := errors.Join(ErrorOf(CodeBusy, "x"), errors.New("y")); !NotRun(joined) {
 		t.Error("a joined error hides its RuntimeError")
 	}
 }
@@ -110,7 +110,7 @@ func TestModelFailureIsRetryableWhenTheModelSaysSo(t *testing.T) {
 			}
 			defer func() { _ = session.Close(context.Background()) }()
 			result, err := session.Prompt(context.Background(), UserMessage("hi"))
-			if result.Status != RunFailed || !IsCode(err, ErrModelFailure) {
+			if result.Status != RunFailed || !IsCode(err, CodeModelFailure) {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if Retryable(err) != tc.want || result.Error.Retryable != tc.want {

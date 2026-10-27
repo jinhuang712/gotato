@@ -124,7 +124,7 @@ func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 		"a number already closed":  {func() gotato.Segment { s := mergedOf(1, 2); s.Number = 3; return s }(), []int{1, 2}},
 		"out of order replacement": {mergedOf(1, 2), []int{2, 1}},
 	} {
-		if _, err := record.MergeSegments(gotato.CompactionPastBudget, tc.merged, tc.replaces, record.Tail(), nil); !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		if _, err := record.MergeSegments(gotato.CompactionPastBudget, tc.merged, tc.replaces, record.Tail(), nil); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Errorf("%s: error = %v, want invalid_argument", name, err)
 		}
 	}

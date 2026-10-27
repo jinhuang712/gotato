@@ -48,7 +48,7 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	}
 	// A Session cannot switch on a tool its Agent hides.
 	for _, id := range []string{"refund", "purge"} {
-		if _, err := runner.SetToolActive(ctx, s.ID(), id, true); !gotato.IsCode(err, gotato.ErrInvalidArgument) {
+		if _, err := runner.SetToolActive(ctx, s.ID(), id, true); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Fatalf("SetToolActive(%s) = %v, want an unknown tool", id, err)
 		}
 	}

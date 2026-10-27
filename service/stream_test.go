@@ -104,7 +104,7 @@ func TestStreamSessionRefusesAPositionItCannotResume(t *testing.T) {
 	}
 	// The epoch of another Record.
 	_, err = runner.StreamSession(ctx, id, service.StreamFrom{After: 2, RecordEpoch: "another"})
-	if !errors.Is(err, service.ErrCannotResume) || !gotato.IsCode(err, gotato.ErrCannotResume) {
+	if !errors.Is(err, service.ErrCannotResume) || !gotato.IsCode(err, gotato.CodeCannotResume) {
 		t.Fatalf("a wrong epoch: %v, want ErrCannotResume", err)
 	}
 	// A position the Record has not reached.
