@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jinhuang712/gotato/examples/larkbot/internal/lookup"
 )
 
 // killWriter finds the pod that writes ts[0], waits until ready holds for every thread that pod writes (a
@@ -64,106 +62,6 @@ func printTakeover(t *thread, r record, victimInst string, killAt time.Time) {
 	} else {
 		fmt.Printf("    no takeover claim in the Record of %s\n", t.session())
 	}
-}
-
-// s6: the bash tool. A Run calls a tool whose result is spilled by the core; the writer is killed in that Run;
-// the next message goes to another pod, which has the model read the spilled result with bash.
-func (e *env) s6(ctx context.Context) bool {
-	fmt.Println("== s6: bash reads a spilled result from the pod that took the Session over")
-	const delay = "[quirk:delay=10s]"
-	want := lookup.Expected()
-	fmt.Printf("expected answer of every lookup: %q\n", want)
-	st := newStamper()
-	ts := chats("s6", 6)
-	for i, t := range ts {
-		m := e.say(ctx, t, fmt.Sprintf("s6-%02d-a", i+1), "[script:export] "+delay)
-		fmt.Printf("%s new thread %d: %s\n", st.at(), i+1, shortDeliveries(m))
-	}
-	// The export is called after the first model call (10 s) and its result is committed at once; the Run
-	// would answer after the second (10 s more). Cut it in between.
-	inFlightSpilled := func(r record) bool {
-		return inFlight(r) > 0 && r.hasEvent("tool_result_spilled", exportTool) && r.hasEvent("tool_result_committed", "")
-	}
-	victimInst, onVictim, killAt, err := e.killWriter(ctx, st, ts, inFlightSpilled, 40*time.Second)
-	if err != nil {
-		return verdict("s6", false, err.Error())
-	}
-	// Inside the Liveness TTL (10 s), as s2's mid reply: the pod that gets the message cannot take the Session
-	// yet, so the bot retries until the writer's Liveness row has expired. A message sent at the very moment of
-	// the kill can still reach the dying pod's memory (s2 shows that, KNOWN-BOT-GAP).
-	sleep(ctx, time.Until(killAt.Add(3*time.Second)))
-	for _, t := range onVictim {
-		m := e.say(ctx, t, fmt.Sprintf("s6-%02d-b", t.n), "[script:lookup]")
-		fmt.Printf("%s lookup after the kill in %s: %s\n", st.at(), t.session(), shortDeliveries(m))
-	}
-	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
-	e.waitQuiet(ctx, ts, 15*time.Second, 100*time.Second)
-	onV := map[*thread]bool{}
-	for _, t := range onVictim {
-		onV[t] = true
-	}
-	for _, t := range ts { // the pods that were not killed: the same lookup, as the control
-		if !onV[t] {
-			m := e.say(ctx, t, fmt.Sprintf("s6-%02d-b", t.n), "[script:lookup]")
-			fmt.Printf("%s lookup in %s (writer alive): %s\n", st.at(), t.session(), shortDeliveries(m))
-		}
-	}
-	e.waitQuiet(ctx, ts, 10*time.Second, 60*time.Second)
-
-	fmt.Printf("\n%s results\n", st.at())
-	faults := 0
-	var spilled, bashOK, bashFailed, answers, correct, victimCorrect, survivorCorrect, dups, noTakeover int
-	for _, t := range ts {
-		r, err := e.record(ctx, t.session())
-		if err != nil {
-			faults++
-			fmt.Printf("  %s %s: cannot read the Record: %v\n", fault, t.session(), err)
-			continue
-		}
-		c := checkLookup(r, want)
-		bIn := r.count(t.msgs[len(t.msgs)-1].tag) == 1 // a message that is not in the Transcript is classified by report below
-		role := "survivor"
-		if onV[t] {
-			role = "victim"
-			if _, ok := takeoverOf(r, victimInst); !ok {
-				noTakeover++
-			}
-		}
-		fmt.Printf("  %s (%s): spilled results %d (%d bytes), bash ok %d failed %d, lookup answers %d correct %d, Runs %s\n",
-			t.session(), role, c.Spilled, c.SpilledBytes, c.BashOK, c.BashFailed, c.Answers, c.Correct, runStatuses(r))
-		if onV[t] {
-			printTakeover(t, r, victimInst, killAt)
-		}
-		spilled += c.Spilled
-		bashOK += c.BashOK
-		bashFailed += c.BashFailed
-		answers += c.Answers
-		correct += c.Correct
-		dups += c.DupCalls
-		if onV[t] {
-			victimCorrect += c.Correct
-		} else {
-			survivorCorrect += c.Correct
-		}
-		if c.Spilled == 0 {
-			faults++
-			fmt.Printf("  %s %s: the export result is not spilled in the Record\n", fault, t.session())
-		}
-		if bIn && (c.Correct != 1 || c.BashFailed > 0 || c.DupCalls > 0) {
-			faults++
-			fmt.Printf("  %s %s: lookup correct %d (want 1), bash failed %d, duplicate call IDs %d, wrong answers %q\n", fault, t.session(), c.Correct, c.BashFailed, c.DupCalls, c.Wrong)
-		}
-	}
-	fmt.Println()
-	faults += e.report(ctx, ts)
-	for _, s := range storeErrors(e.readLogs()) {
-		faults++
-		fmt.Printf("  %s store error in a bot log: %s\n", fault, s)
-	}
-	fmt.Printf("  threads %d (the killed pod wrote %d, no takeover claim in %d), spilled export results %d\n", len(ts), len(onVictim), noTakeover, spilled)
-	fmt.Printf("  bash results: ok %d, failed %d; lookup answers %d, equal to the expected one %d (victims %d, survivors %d); duplicate call IDs %d\n",
-		bashOK, bashFailed, answers, correct, victimCorrect, survivorCorrect, dups)
-	return verdict("s6", faults == 0, fmt.Sprintf("%d GOTATO-FAULT", faults))
 }
 
 // s7: MCP tools in flight while the MCP server restarts, and while the bot is deployed.
@@ -368,7 +266,7 @@ func (e *env) s8(ctx context.Context) bool {
 		return verdict("s8", false, err.Error())
 	}
 	onV := map[*thread]bool{}
-	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL, as in s6
+	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL
 	for _, t := range onVictim {
 		onV[t] = true
 		m := e.say(ctx, t, fmt.Sprintf("s8-%02d-b", t.n), "[script:loaded]")

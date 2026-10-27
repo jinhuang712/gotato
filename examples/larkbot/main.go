@@ -47,7 +47,7 @@ func run() error {
 	larkEvents := flag.String("lark-events", "ws", "how events arrive: ws (long connection) or http (POST /lark/event on -addr, for cmd/fakelark)")
 	retryBudget := flag.Duration("retry-budget", defaultRetryBudget, "how long a message that was not run (not_writer, busy, draining, not connected) is retried; 0 turns retrying off")
 	ackDelay := flag.Duration("ack-delay", 0, "test only: answer each event this long late, so a sender with an ack timeout (Lark: 3 s) delivers it again")
-	toolList := flag.String("tools", "", "extra tools, comma-separated: bash (read-only bash over spilled results), export (test tool with a 1 MB result), mcp (the -mcp-url server, always visible), mcp-search (the same, in the tool-search catalog)")
+	toolList := flag.String("tools", "", "extra tools, comma-separated: export (test tool with a 1 MB result), mcp (the -mcp-url server, always visible), mcp-search (the same, in the tool-search catalog)")
 	mcpURL := flag.String("mcp-url", "", "streamable HTTP endpoint of the MCP server for -tools mcp / mcp-search")
 	script := flag.Bool("script", false, "test only: play [script:NAME] directives in a message with a scripted model (script.go); other messages go to -model")
 	recap := flag.String("recap", "none", "test only: the Recap writer of a compaction: none (Gotato's default) or truncate (a deterministic Recap, so a cluster scenario can check one)")

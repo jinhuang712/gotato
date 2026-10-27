@@ -7,7 +7,6 @@ ENV CGO_ENABLED=0 GOFLAGS=-trimpath GOPROXY=https://proxy.golang.org,direct
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY adapter/mcp/go.mod adapter/mcp/go.sum adapter/mcp/
-COPY adapter/bash/go.mod adapter/bash/go.sum adapter/bash/
 COPY examples/larkbot/go.mod examples/larkbot/go.sum examples/larkbot/
 WORKDIR /src/examples/larkbot
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

@@ -1,14 +1,14 @@
 // Command driver plays the cluster scenarios against the local kind cluster that cluster/run.sh builds:
 // smoke, s1 (rolling deploy with Runs in flight), s2 (kill the pod that writes a Run), s3 (scale the bot
-// 3 -> 1 -> 5), s4 (pods contend for one Session), s5 (late acks, so events are redelivered), s6 (bash reads a
-// spilled result after a takeover), s7 (MCP calls while the server restarts and the bot is deployed), s8 (a
+// 3 -> 1 -> 5), s4 (pods contend for one Session), s5 (late acks, so events are redelivered),
+// s7 (MCP calls while the server restarts and the bot is deployed), s8 (a
 // tool loaded with search_tools, after a takeover), s9 (a compaction after a takeover) and s10 (a graceful
 // roll of the MCP server).
 //
 // It talks to the fake Lark's driver API and to the bots' Gotato HTTP API through `kubectl proxy`
 // (the API server's service proxy, so any ready bot pod answers a read), follows the bot pods' logs
 // into files, and checks each Session's Record. It exits 1 only for a GOTATO-FAULT, 2 on a usage or
-// setup error. Standard library only, besides internal/lookup (the answer s6 expects).
+// setup error. Standard library only.
 package main
 
 import (
@@ -46,7 +46,7 @@ func main() {
 	kubeconfig := flag.String("kubeconfig", "", "kubeconfig of the kind cluster")
 	kctx := flag.String("context", "kind-gotato", "kubectl context")
 	ns := flag.String("namespace", "gotato", "namespace")
-	kill := flag.String("kill", "delete", "s2, s6, s8, s9: how to kill the writer: delete (kubectl delete pod --grace-period=0 --force) or crash (SIGKILL the container, no SIGTERM)")
+	kill := flag.String("kill", "delete", "s2, s8, s9: how to kill the writer: delete (kubectl delete pod --grace-period=0 --force) or crash (SIGKILL the container, no SIGTERM)")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: driver -kubeconfig FILE [-context C] [-namespace N] smoke|s1|...|s10")
 		flag.PrintDefaults()
@@ -108,8 +108,6 @@ func run(ctx context.Context, e *env, scenario string) bool {
 		ok = e.s4(ctx)
 	case "s5":
 		ok = e.s5(ctx)
-	case "s6":
-		ok = e.s6(ctx)
 	case "s7":
 		ok = e.s7(ctx)
 	case "s8":

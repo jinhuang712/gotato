@@ -13,17 +13,14 @@ import (
 	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/testkit"
-
-	"github.com/jinhuang712/gotato/examples/larkbot/internal/lookup"
 )
 
 // scriptModel is for the cluster scenarios (-script, test only). The fake gateway calls only the first tool,
-// with one string argument, so it cannot ask bash for a grep or load one tool of a catalog. A user message
+// with one string argument, so it cannot load one tool of a catalog. A user message
 // that carries [script:NAME] is played here, from the request alone (the Messages of the Run say what it has
 // done, so any instance continues a Run the same way); every other message goes to the wrapped model.
 //
 //	[script:export]       call orders.export (a result of 1 MB, spilled), then say it is done
-//	[script:lookup]       grep and jq the export of an earlier call in the Session with bash, then answer
 //	[script:mcp=6s]       call crm.get_order, held 6 s by the server, and report what came back
 //	[script:search]       load crm.get_invoice with search_tools, call it, and report what came back
 //	[script:load]         load crm.get_invoice with search_tools and call nothing else
@@ -89,14 +86,13 @@ func currentRun(r gotato.ModelRequest) (string, []gotato.Message) {
 	return "", nil
 }
 
-// Names the scripts use. A call ID must be new in the Session, so the ones of bash and tool calls carry the
+// Names the scripts use. A call ID must be new in the Session, so the ones of tool calls carry the
 // number of Tool Results the history holds.
 const (
-	exportCall    = "export-1"
-	exportToolID  = testkit.BashLookupExportID
-	scriptOrderID = testkit.BashLookupOrder
-	mcpOrderTool  = "crm.get_order"
-	mcpInvoice    = "crm.get_invoice"
+	exportCall   = "export-1"
+	exportToolID = testkit.LargeExportID
+	mcpOrderTool = "crm.get_order"
+	mcpInvoice   = "crm.get_invoice"
 )
 
 // Answers the scenarios look for in the Transcript.
@@ -137,18 +133,6 @@ func playScript(name, arg string, r gotato.ModelRequest, run []gotato.Message) (
 			return toolCall(exportCall, exportToolID, map[string]string{}), nil
 		}
 		return testkit.Text(ansExported), nil
-	case "lookup":
-		switch len(texts) {
-		case 0:
-			return toolCall("grep-"+next, "bash", map[string]string{"command": fmt.Sprintf("grep -n '\"id\": \"%s\"' /results/%s", scriptOrderID, exportCall)}), nil
-		case 1:
-			return toolCall("jq-"+next, "bash", map[string]string{"command": fmt.Sprintf("jq -r '.orders[] | select(.id == \"%s\") | .total' /results/%s", scriptOrderID, exportCall)}), nil
-		}
-		if last.Status != gotato.ToolResultOK {
-			return testkit.Text("bash-error: " + last.SafeError), nil
-		}
-		line, _, _ := strings.Cut(strings.TrimSpace(texts[0]), ":")
-		return testkit.Text(lookup.Answer(line, strings.TrimSpace(texts[1]))), nil
 	case "mcp":
 		if last == nil {
 			return toolCall("order-"+next, mcpOrderTool, map[string]string{"id": "ord-" + next, "delay": arg}), nil

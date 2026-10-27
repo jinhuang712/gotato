@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jinhuang712/gotato/adapter/bash/bashtool"
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/service"
@@ -18,11 +17,10 @@ import (
 const mcpToolSet = "crm"
 
 // toolKinds are the values of -tools.
-var toolKinds = []string{"bash", "export", "mcp", "mcp-search"}
+var toolKinds = []string{"export", "mcp", "mcp-search"}
 
 // toolSpec is -tools, parsed: what the Agent gets on top of its model.
 type toolSpec struct {
-	bash      bool   // the bash tool, over the Session's spilled results (bashtool, SessionTools)
 	export    bool   // test only: orders.export, a tool whose result of 1 MB the core spills
 	mcpActive bool   // the MCP server's tools, always visible (WithActiveToolSet)
 	mcpSearch bool   // the MCP server's tools in the catalog, loaded with search_tools (WithToolSet)
@@ -35,8 +33,6 @@ func parseTools(list, mcpURL string) (toolSpec, error) {
 	for kind := range strings.SplitSeq(list, ",") {
 		switch kind = strings.TrimSpace(kind); kind {
 		case "":
-		case "bash":
-			t.bash = true
 		case "export":
 			t.export = true
 		case "mcp":
@@ -59,11 +55,8 @@ func parseTools(list, mcpURL string) (toolSpec, error) {
 
 // apply adds the tools to the Agent. The returned close func ends the MCP connection (nil when there is none).
 func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, error) {
-	if t.bash {
-		agent.SessionTools = append(agent.SessionTools, bashtool.Tools())
-	}
 	if t.export {
-		agent.Tools = append(agent.Tools, testkit.BashLookupExport())
+		agent.Tools = append(agent.Tools, testkit.LargeExport())
 	}
 	if !t.mcpActive && !t.mcpSearch {
 		return nil, nil
@@ -99,7 +92,7 @@ func (s loggedToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 // names lists what -tools turned on, for the startup log.
 func (t toolSpec) names() []string {
 	var out []string
-	for kind, on := range map[string]bool{"bash": t.bash, "export": t.export, "mcp": t.mcpActive, "mcp-search": t.mcpSearch} {
+	for kind, on := range map[string]bool{"export": t.export, "mcp": t.mcpActive, "mcp-search": t.mcpSearch} {
 		if on {
 			out = append(out, kind)
 		}

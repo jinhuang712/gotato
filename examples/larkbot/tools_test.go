@@ -17,12 +17,11 @@ import (
 	"github.com/jinhuang712/gotato/session"
 
 	"github.com/jinhuang712/gotato/examples/larkbot/internal/fakemcp"
-	"github.com/jinhuang712/gotato/examples/larkbot/internal/lookup"
 )
 
 func TestParseTools(t *testing.T) {
-	got, err := parseTools("bash, export,mcp", "http://x/mcp")
-	if err != nil || !got.bash || !got.export || !got.mcpActive || got.mcpSearch {
+	got, err := parseTools("export,mcp", "http://x/mcp")
+	if err != nil || !got.export || !got.mcpActive || got.mcpSearch {
 		t.Fatalf("parseTools = %+v, %v", got, err)
 	}
 	if got, err := parseTools("", ""); err != nil || got != (toolSpec{}) {
@@ -79,28 +78,19 @@ func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
 	return gotato.TextOf(msgs[len(msgs)-1])
 }
 
-// A result the core spilled is read with bash by another Runner on the same store, and the answer is the
-// one the testkit task computes.
-func TestScriptExportThenLookupOnAnotherInstance(t *testing.T) {
+// The export script calls the 1 MB export tool, whose result the core spills, and says it is done; a message
+// with no directive goes to the wrapped model.
+func TestScriptExport(t *testing.T) {
 	store, err := session.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := scriptedRunner(t, store, "pod-a", "bash,export", "")
-	b := scriptedRunner(t, store, "pod-b", "bash,export", "")
-	ctx := context.Background()
-	if _, err := a.CreateSessionExclusive(ctx, "echo", "s1", nil); err != nil {
+	a := scriptedRunner(t, store, "pod-a", "export", "")
+	if _, err := a.CreateSessionExclusive(context.Background(), "echo", "s1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := lastReply(t, a, "s1", "T[a] [script:export]"); got != ansExported {
 		t.Fatalf("export reply = %q", got)
-	}
-	want := lookup.Expected()
-	if got := lastReply(t, b, "s1", "T[b] [script:lookup]"); got != want {
-		t.Fatalf("lookup reply = %q, want %q", got, want)
-	}
-	if got := lastReply(t, a, "s1", "T[c] [script:lookup]"); got != want { // new call IDs: a second lookup works too
-		t.Fatalf("second lookup reply = %q, want %q", got, want)
 	}
 	if got := lastReply(t, a, "s1", "just talk"); !strings.Contains(got, "just talk") {
 		t.Fatalf("a message with no directive goes to the wrapped model: %q", got)

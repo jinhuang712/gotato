@@ -58,7 +58,7 @@ func (e *env) s9(ctx context.Context) bool {
 		return verdict("s9", false, err.Error())
 	}
 	onV := map[*thread]bool{}
-	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL, as in s6 and s8
+	sleep(ctx, time.Until(killAt.Add(3*time.Second))) // inside the Liveness TTL, as in s8
 	for _, t := range onVictim {
 		onV[t] = true
 		m := e.say(ctx, t, tag(t, "b"), "[script:loaded]")

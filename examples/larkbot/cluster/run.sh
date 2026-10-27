@@ -9,14 +9,13 @@
 #   ACK_DELAY=4s cluster/run.sh up; cluster/run.sh s5   bots ack late (> fakelark's 3 s), so events are redelivered
 #   RETRY_BUDGET=0 cluster/run.sh up   the bot's -retry-budget (default 20s; 0 = no retry); `up` again re-applies it
 #   ACK_DELAY=4s cluster/run.sh up     the bot's test-only -ack-delay (default 0s); `up` again re-applies it
-#   cluster/run.sh s6       bash tool: a spilled result is read with bash by the pod that takes the Session over (writer killed mid-Run)
 #   cluster/run.sh s7       MCP tools in flight during a rolling deploy of the bot and a restart of the MCP server
 #   MCP_STATELESS=true cluster/run.sh s7   the MCP server answers statelessly (no Mcp-Session-Id); default false = the SDK's default
 #   cluster/run.sh s8       tool search: is a tool the model loaded still loaded on the pod that takes the Session over?
 #   cluster/run.sh s9       compaction after a takeover: the loaded tool is unloaded, read_segment works from the other pod (bot -recap truncate)
 #   cluster/run.sh s10      graceful roll of the MCP server (SIGTERM, fakemcp -drain 20s) with calls in flight, next to a SIGKILL of the container (MCP_STATELESS=true for a stateless server)
-#   cluster/run.sh tools LIST   restart the bot with -tools LIST (bash,export,mcp,mcp-search) and the scripted model; no list = the defaults
-#   (s6-s8 restart the bot with their own -tools and -script flags; `up` again restores the defaults for smoke and s1-s5)
+#   cluster/run.sh tools LIST   restart the bot with -tools LIST (export,mcp,mcp-search) and the scripted model; no list = the defaults
+#   (s7-s10 restart the bot with their own -tools and -script flags; `up` again restores the defaults for smoke and s1-s5)
 #   cluster/run.sh status | logs [larkbot|fakelark|fakemcp|fakegateway] | down
 # Run it from a clean clone of Gotato: the image build takes the repo root as its context, because go.mod replaces Gotato
 # and its adapters with the local checkout. Nothing connects to the real Lark. Your own kubectl context is never touched: the cluster has its own
@@ -125,7 +124,6 @@ logs) shift; cmd_logs "$@" ;;
 smoke | s1 | s3 | s4 | s5) driver "$1" ;;
 s2) driver -kill "${2:-delete}" s2 ;;
 tools) with_tools "${2:-}" ;;
-s6) with_tools bash,export; driver s6 ;;
 s7) with_tools mcp; driver s7 ;;
 s8) with_tools mcp-search; driver s8 ;;
 s9) RECAP=truncate with_tools mcp-search; driver s9 ;;

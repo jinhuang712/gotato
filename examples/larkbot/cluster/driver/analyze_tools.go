@@ -13,9 +13,7 @@ const (
 	ansMCPOK    = "mcp-ok:"
 	ansMCPError = "mcp-error:"
 	ansLoaded   = "loaded:"
-	ansBashErr  = "bash-error:"
 	exportTool  = "orders.export"
-	exportCall  = "export-1"
 	catalogTool = "crm.get_invoice"
 )
 
@@ -56,67 +54,6 @@ func takeoverOf(r record, victim string) (recordEvent, bool) {
 		}
 	}
 	return recordEvent{}, false
-}
-
-// lookupCheck is what a Transcript says about s6: the spilled export, and bash reading it.
-type lookupCheck struct {
-	Spilled      int      // tool results the core spilled
-	SpilledBytes int      // size of the biggest
-	BashOK       int      // bash results with status ok
-	BashFailed   int      // bash results with another status
-	Answers      int      // lookup answers: the sentence, or a bash-error
-	Correct      int      // answers equal to want
-	Wrong        []string // the others
-	DupCalls     int      // call IDs that appear in more than one tool call or tool result
-}
-
-// checkLookup reads a Record for s6. want is the sentence a correct lookup ends with.
-func checkLookup(r record, want string) lookupCheck {
-	var c lookupCheck
-	toolOf := map[string]string{}
-	calls, results := map[string]int{}, map[string]int{}
-	for _, m := range r.Messages {
-		for _, tc := range m.ToolCalls {
-			toolOf[tc.ID] = tc.ToolID
-			calls[tc.ID]++
-		}
-		if m.ToolResult == nil {
-			continue
-		}
-		results[m.ToolResult.CallID]++
-		if len(m.ToolResult.Spilled) > 0 && string(m.ToolResult.Spilled) != "null" {
-			c.Spilled++
-		}
-		if toolOf[m.ToolResult.CallID] == "bash" {
-			if m.ToolResult.Status == "ok" {
-				c.BashOK++
-			} else {
-				c.BashFailed++
-			}
-		}
-	}
-	for _, ev := range r.Events {
-		if ev.Kind == "tool_result_spilled" {
-			c.SpilledBytes = max(c.SpilledBytes, ev.Bytes)
-		}
-	}
-	for id, n := range calls {
-		if n > 1 || results[id] > 1 {
-			c.DupCalls++
-		}
-	}
-	for _, text := range r.assistantTexts() {
-		switch {
-		case strings.HasPrefix(text, ansBashErr), strings.Contains(text, "is on line"):
-			c.Answers++
-			if text == want {
-				c.Correct++
-			} else {
-				c.Wrong = append(c.Wrong, text)
-			}
-		}
-	}
-	return c
 }
 
 // mcpAnswers are the model's reports on its MCP calls in a Transcript, by the tag of the user message they
