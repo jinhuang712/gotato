@@ -1,6 +1,7 @@
 package modelctx
 
 import (
+	"slices"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -66,15 +67,15 @@ func withinBudget(messages []gotato.Message, budget, floor int) int {
 // last user Message.
 func runStart(messages []gotato.Message, skip gotato.RunID) int {
 	var latest gotato.RunID
-	for i := len(messages) - 1; i >= 0; i-- {
-		if id := messages[i].RunID; id != "" && id != skip {
+	for _, message := range slices.Backward(messages) {
+		if id := message.RunID; id != "" && id != skip {
 			latest = id
 			break
 		}
 	}
 	if latest == "" {
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == gotato.RoleUser {
+		for i, message := range slices.Backward(messages) {
+			if message.Role == gotato.RoleUser {
 				return i
 			}
 		}
@@ -83,8 +84,8 @@ func runStart(messages []gotato.Message, skip gotato.RunID) int {
 	// Messages with no Run after the Run's last stay in the tail; one before
 	// its first is not part of it.
 	start := len(messages)
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].RunID == latest {
+	for i, message := range slices.Backward(messages) {
+		if message.RunID == latest {
 			start = i
 		} else if start < len(messages) {
 			break

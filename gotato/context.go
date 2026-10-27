@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -138,9 +139,7 @@ func (c ModelContext) Clone() ModelContext {
 	out.System = cloneBlocks(c.System)
 	if c.Metadata != nil {
 		out.Metadata = make(map[string]string, len(c.Metadata))
-		for k, v := range c.Metadata {
-			out.Metadata[k] = v
-		}
+		maps.Copy(out.Metadata, c.Metadata)
 	}
 	return out
 }
@@ -154,9 +153,7 @@ func cloneBlocks(blocks []Block) []Block {
 		out[i] = block
 		if block.Attrs != nil {
 			out[i].Attrs = make(map[string]string, len(block.Attrs))
-			for k, v := range block.Attrs {
-				out[i].Attrs[k] = v
-			}
+			maps.Copy(out[i].Attrs, block.Attrs)
 		}
 	}
 	return out

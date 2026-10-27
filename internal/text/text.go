@@ -28,7 +28,7 @@ func SplitLines(text string, limit int) []string {
 		return nil
 	}
 	var out []string
-	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(text, "\n"), "\n") {
 		for len(line) > limit {
 			cut := limit
 			for cut > 0 && !utf8.RuneStart(line[cut]) {

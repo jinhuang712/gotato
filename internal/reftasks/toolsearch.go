@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -115,9 +116,7 @@ func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.
 		return gotato.ToolResult{}, err
 	}
 	out := map[string]string{"result": t.fact}
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	if t.spec.ID == "invoice" {
 		out["number"] = "INV-" + in["order"]
 	}
@@ -236,8 +235,8 @@ func playToolSearch(request gotato.ModelRequest) testkit.Script {
 	// What the Run has done so far: the calls after the last prompt, with
 	// the results they got.
 	var run []gotato.Message
-	for i := len(request.Messages) - 1; i >= 0; i-- {
-		if request.Messages[i].Role == gotato.RoleUser {
+	for i, v := range slices.Backward(request.Messages) {
+		if v.Role == gotato.RoleUser {
 			run = request.Messages[i+1:]
 			break
 		}

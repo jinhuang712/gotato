@@ -263,7 +263,7 @@ func ValidateRecap(text string) (string, error) {
 		return "", fmt.Errorf("%w: it does not start with one of the five headings", ErrBadRecap)
 	}
 	happened := false
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		name, ok := heading(line)
 		if !ok {
 			continue

@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -15,9 +16,9 @@ type EchoModel struct{}
 // Stream implements gotato.Model.
 func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	text := ""
-	for i := len(request.Messages) - 1; i >= 0; i-- {
-		if request.Messages[i].Role == gotato.RoleUser {
-			text = promptText(request.Messages[i])
+	for _, v := range slices.Backward(request.Messages) {
+		if v.Role == gotato.RoleUser {
+			text = promptText(v)
 			break
 		}
 	}
@@ -47,8 +48,8 @@ const DemoToolID = "demo.echo"
 func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	lastUser := ""
 	hasToolResult := false
-	for i := len(request.Messages) - 1; i >= 0; i-- {
-		message := request.Messages[i]
+	for _, message := range slices.Backward(request.Messages) {
+
 		if message.Role == gotato.RoleToolResult {
 			hasToolResult = true
 		}

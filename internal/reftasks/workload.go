@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -284,14 +285,14 @@ func (m ordersModel) play(request gotato.ModelRequest) testkit.Script {
 // that follow it.
 func lastPrompt(messages []gotato.Message) (string, []gotato.ToolResult) {
 	var results []gotato.ToolResult
-	for i := len(messages) - 1; i >= 0; i-- {
-		switch messages[i].Role {
+	for _, message := range slices.Backward(messages) {
+		switch message.Role {
 		case gotato.RoleToolResult:
-			if messages[i].ToolResult != nil {
-				results = append([]gotato.ToolResult{*messages[i].ToolResult}, results...)
+			if message.ToolResult != nil {
+				results = append([]gotato.ToolResult{*message.ToolResult}, results...)
 			}
 		case gotato.RoleUser:
-			return promptText(messages[i]), results
+			return promptText(message), results
 		}
 	}
 	return "", results

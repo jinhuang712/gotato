@@ -3,6 +3,7 @@ package fakegateway
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 )
@@ -195,9 +196,7 @@ func (chatWire) stream(s *sseWriter, p *parsed, pl *plan, q *quirks) {
 		finish = "tool_calls"
 		call := func(fn map[string]any, extra map[string]any) {
 			tc := map[string]any{"index": 0, "function": fn}
-			for k, v := range extra {
-				tc[k] = v
-			}
+			maps.Copy(tc, extra)
 			chunk(map[string]any{"tool_calls": []any{tc}}, nil)
 		}
 		call(map[string]any{"name": pl.call.name, "arguments": ""}, map[string]any{"id": "call_" + pl.id, "type": "function"})

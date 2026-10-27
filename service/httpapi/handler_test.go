@@ -147,8 +147,8 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if trimmed == "" {
 		t.Fatalf("no events returned: %q", body)
 	}
-	lines := strings.Split(trimmed, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(trimmed, "\n")
+	for line := range lines {
 		filtered, err := gotato.UnmarshalEvent([]byte(line))
 		if err != nil {
 			t.Fatal(err)

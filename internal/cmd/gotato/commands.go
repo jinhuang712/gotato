@@ -163,7 +163,7 @@ func parseMeta(spec string) (map[string]string, error) {
 	if strings.TrimSpace(spec) == "" {
 		return out, nil
 	}
-	for _, pair := range strings.Split(spec, ",") {
+	for pair := range strings.SplitSeq(spec, ",") {
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok || strings.TrimSpace(key) == "" {
 			return nil, errors.New("metadata must be key=value pairs")

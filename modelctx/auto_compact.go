@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -211,9 +212,9 @@ func (a *AutoCompactor) CeilingTokens() int { return a.policy.EffectiveCeilingTo
 // tools, which a reported input count already holds. A compaction clears the
 // usage of the Messages it keeps, so after it the size is estimated afresh.
 func (a *AutoCompactor) size(messages []gotato.Message, overhead int) int {
-	for i := len(messages) - 1; i >= 0; i-- {
-		usage := messages[i].Usage
-		if messages[i].Role == gotato.RoleAssistant && usage.InputTokens+usage.OutputTokens > 0 {
+	for i, message := range slices.Backward(messages) {
+		usage := message.Usage
+		if message.Role == gotato.RoleAssistant && usage.InputTokens+usage.OutputTokens > 0 {
 			return int(usage.InputTokens+usage.OutputTokens) + EstimateTokens(messages[i+1:])
 		}
 	}

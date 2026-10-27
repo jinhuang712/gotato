@@ -374,7 +374,7 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 // withoutHeading returns a Recap on one line, without the `## ` headings.
 func withoutHeading(recap string) string {
 	var kept []string
-	for _, line := range strings.Split(recap, "\n") {
+	for line := range strings.SplitSeq(recap, "\n") {
 		if strings.HasPrefix(line, "## ") {
 			continue
 		}

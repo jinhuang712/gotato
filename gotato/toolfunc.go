@@ -136,7 +136,7 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 			continue
 		}
 		name, options, _ := strings.Cut(tag, ",")
-		for _, option := range strings.Split(options, ",") {
+		for option := range strings.SplitSeq(options, ",") {
 			switch option {
 			case "", "omitempty":
 			default:
@@ -186,7 +186,7 @@ func collectFields(typ reflect.Type, visiting map[reflect.Type]bool, properties 
 		}
 		if enum := field.Tag.Get("enum"); enum != "" {
 			values := make([]any, 0)
-			for _, value := range strings.Split(enum, ",") {
+			for value := range strings.SplitSeq(enum, ",") {
 				value = strings.TrimSpace(value)
 				if value != "" {
 					values = append(values, value)

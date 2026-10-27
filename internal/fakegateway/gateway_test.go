@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,23 +99,17 @@ var apis = []struct {
 }{
 	{fakegateway.APIAnthropic, "/v1/messages", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "claude-sonnet-5-5", "max_tokens": 1000, "stream": true, "messages": []any{user(text)}}
-		for k, v := range extra {
-			b[k] = v
-		}
+		maps.Copy(b, extra)
 		return b
 	}},
 	{fakegateway.APIResponses, "/v1/responses", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "gpt-6", "stream": true, "store": false, "input": []any{user(text)}}
-		for k, v := range extra {
-			b[k] = v
-		}
+		maps.Copy(b, extra)
 		return b
 	}},
 	{fakegateway.APIChat, "/v1/chat/completions", func(text string, extra map[string]any) map[string]any {
 		b := map[string]any{"model": "gpt-6", "stream": true, "stream_options": map[string]any{"include_usage": true}, "messages": []any{user(text)}}
-		for k, v := range extra {
-			b[k] = v
-		}
+		maps.Copy(b, extra)
 		return b
 	}},
 }

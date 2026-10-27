@@ -418,9 +418,7 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 		completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
 		// A canceled group still reports what it knows, so the closing
 		// results of the failed Run keep Executed true for started Tools.
-		for index, result := range completed {
-			outcomes[index] = result
-		}
+		maps.Copy(outcomes, completed)
 		if err := commitUpTo(group[len(group)-1] + 1); err != nil {
 			return nil, nil, err
 		}
@@ -930,8 +928,8 @@ func newTurnEnded(header Header, stop StopReason, usage Usage, started time.Time
 // Part of its own instead of overwriting that signature.
 func signReasoning(parts []ContentPart, artifact []byte) []ContentPart {
 	index := -1
-	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i].Kind == ContentKindReasoning {
+	for i, part := range slices.Backward(parts) {
+		if part.Kind == ContentKindReasoning {
 			index = i
 			break
 		}

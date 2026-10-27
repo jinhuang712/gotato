@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -179,8 +180,8 @@ func takesPromptCacheOptions(model string) bool {
 // Claude's check of the prefix a thinking block was written under still holds
 // for every block that is sent.
 func roundStart(messages []gotato.Message) int {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == gotato.RoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role == gotato.RoleUser {
 			return i
 		}
 	}

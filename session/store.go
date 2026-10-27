@@ -150,8 +150,8 @@ func cloneEntries(entries []Entry) []Entry {
 // may list. It is the whole of what a Store reads of an Entry's kind.
 func loadedFrom(entries []Entry) (facts, segments []Entry) {
 	start := 0
-	for i := len(entries) - 1; i >= 0; i-- {
-		if entries[i].IsCheckpoint() {
+	for i, entrie := range slices.Backward(entries) {
+		if entrie.IsCheckpoint() {
 			start = i
 			break
 		}

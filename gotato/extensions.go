@@ -287,9 +287,9 @@ func (s extensionSet) beforeTool(ctx context.Context, use ToolUse) (PreToolDecis
 func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolResult, *RuntimeError) {
 	identity := result.CallID
 	executed := result.Executed
-	for i := len(s.post) - 1; i >= 0; i-- {
+	for _, current := range slices.Backward(s.post) {
 		var produced ToolResult
-		current := s.post[i]
+
 		input := result.Clone()
 		if err := guard("PostToolUse", func() error {
 			out, failure := current.After(ctx, input)

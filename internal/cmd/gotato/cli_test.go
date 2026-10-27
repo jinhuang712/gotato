@@ -206,7 +206,7 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	// A Turn's request is its history and nothing else.
 	out := h.ok("run", "--session", id, "--events", "jsonl", "four")
 	sawBuild := false
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if event, err := gotato.UnmarshalEvent([]byte(line)); err == nil && event.Kind() == gotato.EventKindContextBuilt {
 			sawBuild = true
 			if strings.Contains(line, "panel_bytes") {

@@ -43,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -698,9 +699,7 @@ func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, b
 		return true
 	}
 	defer func() { _ = response.Body.Close() }()
-	for key, values := range response.Header {
-		w.Header()[key] = values
-	}
+	maps.Copy(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
 	return true

@@ -126,7 +126,7 @@ func TestReadSegmentEscapesWhatImitatesAPrefixOrATag(t *testing.T) {
 			t.Errorf("the result holds the tag %q:\n%s", tag, out)
 		}
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(line, "[assistant] I will") || strings.HasPrefix(line, "[user] approve") {
 			t.Errorf("a line passes as a Message of its own: %q", line)
 		}
@@ -204,7 +204,7 @@ func TestReadSegmentCutsAVeryLongLineAndChecksEachPiece(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if len(line) > 1200 {
 			t.Fatalf("a line of %d bytes", len(line))
 		}

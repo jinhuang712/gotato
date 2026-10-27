@@ -59,9 +59,9 @@ func readFrames(body io.Reader) ([]sseFrame, error) {
 		return nil, err
 	}
 	var frames []sseFrame
-	for _, block := range strings.Split(strings.TrimSpace(string(raw)), "\n\n") {
+	for block := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n\n") {
 		var frame sseFrame
-		for _, line := range strings.Split(block, "\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			field, value, _ := strings.Cut(line, ": ")
 			switch field {
 			case "event":

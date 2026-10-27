@@ -346,8 +346,8 @@ func isRuntimeText(text string) bool {
 
 // lastUser returns the index of the last user text the user wrote.
 func (p *parsed) lastUser() int {
-	for i := len(p.events) - 1; i >= 0; i-- {
-		if !p.events[i].toolResult && !isRuntimeText(p.events[i].text) && strings.TrimSpace(p.events[i].text) != "" {
+	for i, v := range slices.Backward(p.events) {
+		if !v.toolResult && !isRuntimeText(v.text) && strings.TrimSpace(v.text) != "" {
 			return i
 		}
 	}
@@ -389,7 +389,7 @@ func extractQuirks(p *parsed, h http.Header, api string) (*quirks, string, error
 		text = strings.TrimSpace(directive.ReplaceAllString(raw, ""))
 		q.key = api + "|" + raw
 	}
-	for _, field := range strings.Split(h.Get(QuirkHeader), ",") {
+	for field := range strings.SplitSeq(h.Get(QuirkHeader), ",") {
 		field = strings.TrimSpace(field)
 		if field == "" {
 			continue

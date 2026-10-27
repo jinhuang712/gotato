@@ -228,7 +228,7 @@ func selectTasks(names string) ([]reftasks.Task, error) {
 		known = append(known, task.Name)
 	}
 	var tasks []reftasks.Task
-	for _, name := range strings.Split(names, ",") {
+	for name := range strings.SplitSeq(names, ",") {
 		task, ok := byName[strings.TrimSpace(name)]
 		if !ok {
 			return nil, fmt.Errorf("unknown task %q (known: %s)", name, strings.Join(known, ", "))
