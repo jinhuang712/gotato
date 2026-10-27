@@ -315,11 +315,6 @@ func eventOf(event gotato.Event) (*gotatov2.Event, error) {
 			MessageJson: message,
 			Queued:      e.Queued,
 		}}
-	case gotato.MessageWithdrawn:
-		wire.Event = &gotatov2.Event_MessageWithdrawn{MessageWithdrawn: &gotatov2.MessageWithdrawn{
-			MessageId: string(e.MessageID),
-			Source:    string(e.Source),
-		}}
 	case gotato.MessageRejected:
 		wire.Event = &gotatov2.Event_MessageRejected{MessageRejected: &gotatov2.MessageRejected{
 			MessageId: string(e.MessageID),

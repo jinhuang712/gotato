@@ -558,13 +558,6 @@ type MessageDropped struct {
 	Why       string        `json:"why"`
 }
 
-// MessageWithdrawn: a waiting message is withdrawn by its caller.
-type MessageWithdrawn struct {
-	Header
-	MessageID MessageID     `json:"message_id"`
-	Source    MessageSource `json:"source"`
-}
-
 // MessageRejected: a message is refused because the queue is full, or is
 // disabled by a limit.
 type MessageRejected struct {

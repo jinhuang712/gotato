@@ -261,7 +261,6 @@ message Event {
     MessageQueued message_queued = 30;
     MessageCommitted message_committed = 31;
     MessageDropped message_dropped = 32;
-    MessageWithdrawn message_withdrawn = 33;
     MessageRejected message_rejected = 34;
     AbortRequested abort_requested = 35;
     SessionClaimed session_claimed = 36;
@@ -571,12 +570,6 @@ message NoticeCommitted {
   // queued is the number of the notice_queued it came from, 0 for a notice of
   // Gotato's own.
   uint64 queued = 2;
-}
-
-// MessageWithdrawn: see the Event type of the same name in the Go API.
-message MessageWithdrawn {
-  string message_id = 1;
-  string source = 2;
 }
 
 // MessageRejected: see the Event type of the same name in the Go API.

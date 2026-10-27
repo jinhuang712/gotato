@@ -22,10 +22,6 @@ const (
 	// NoticeContinue: the last reply did not finish, because it hit the
 	// output limit, so go on.
 	NoticeContinue = "continue"
-	// NoticeSettingsChanged: the instruction changed, or a tool came or went.
-	NoticeSettingsChanged = "settings_changed"
-	// NoticeRunInterrupted: the last Run was stopped before it finished.
-	NoticeRunInterrupted = "run_interrupted"
 	// NoticeTimeAway: the user was away; how long it has been, and the time now.
 	NoticeTimeAway = "time_away"
 )
@@ -33,7 +29,7 @@ const (
 // ReservedNoticeKind reports whether kind is one of Gotato's own.
 func ReservedNoticeKind(kind string) bool {
 	switch kind {
-	case NoticeContinue, NoticeSettingsChanged, NoticeRunInterrupted, NoticeTimeAway:
+	case NoticeContinue, NoticeTimeAway:
 		return true
 	}
 	return false

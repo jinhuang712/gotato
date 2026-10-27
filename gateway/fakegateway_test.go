@@ -286,9 +286,8 @@ func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.
 	}
 }
 
-// Gotato sends a notice as a user turn on every wire API (the native forms
-// are not built), so the fake sees no system or developer message in the
-// middle, and accepts the user turns, two in a row on the way.
+// Gotato sends a notice as a user turn on every wire API, so the fake sees
+// no system or developer message in the middle, and accepts the user turns, two in a row on the way.
 func TestFakeNoticeGoesAsAUserTurnOnEachWireAPI(t *testing.T) {
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
