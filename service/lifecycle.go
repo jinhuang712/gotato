@@ -64,7 +64,8 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 }
 
 // Fork creates a new Session from an existing one. An explicit newID must be
-// free: a fork never overwrites an existing Session.
+// free: a fork never overwrites an existing Session, and a taken ID is
+// ErrSessionExists, as CreateSessionExclusive reports it.
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
 	parent, err := session.View(ctx, r.store, sessionID)
 	if err != nil {
@@ -82,9 +83,6 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	// the same explicit newID cannot both succeed.
 	childAgent, _ := child.Get(MetaAgent)
 	if _, err := r.create(ctx, child, childAgent, session.WithIdle()); err != nil {
-		if errors.Is(err, ErrSessionExists) {
-			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session "+child.ID()+" already exists")
-		}
 		return nil, err
 	}
 	return child, nil

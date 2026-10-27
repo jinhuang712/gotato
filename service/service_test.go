@@ -855,7 +855,7 @@ func TestForkWithExplicitIDIsExclusive(t *testing.T) {
 		}
 		// A loser either finds the ID taken or is rejected while the winner
 		// holds the lock; neither may overwrite the winner.
-		if !gotato.IsCode(err, gotato.CodeInvalidArgument) && !gotato.IsCode(err, gotato.CodeBusy) {
+		if !errors.Is(err, service.ErrSessionExists) && !gotato.IsCode(err, gotato.CodeBusy) {
 			t.Fatalf("unexpected fork err = %v", err)
 		}
 	}
@@ -1140,5 +1140,25 @@ func TestRunContinueWithAPromptIsRefused(t *testing.T) {
 	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hi", Continue: true})
 	if !gotato.IsCode(err, gotato.CodeInvalidArgument) || !gotato.NotRun(err) {
 		t.Fatalf("err = %v, want invalid_argument that did not run", err)
+	}
+}
+
+// A Fork whose ID is taken reports ErrSessionExists, as CreateSessionExclusive
+// does, and leaves the Session that holds the ID as it was.
+func TestForkWithATakenIDIsErrSessionExists(t *testing.T) {
+	runner, _ := newRunner(t)
+	ctx := context.Background()
+	parent, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Fork(ctx, parent.ID(), "taken"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Fork(ctx, parent.ID(), "taken"); !errors.Is(err, service.ErrSessionExists) {
+		t.Fatalf("second Fork = %v, want ErrSessionExists", err)
+	}
+	if _, err := runner.CreateSessionExclusive(ctx, "echo", "taken", nil); !errors.Is(err, service.ErrSessionExists) {
+		t.Fatalf("CreateSessionExclusive = %v, want ErrSessionExists", err)
 	}
 }

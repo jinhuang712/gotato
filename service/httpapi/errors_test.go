@@ -38,6 +38,7 @@ func TestStatusForTranslatesTheCode(t *testing.T) {
 		{service.ErrDraining, http.StatusServiceUnavailable},
 		{service.ErrOverloaded, http.StatusServiceUnavailable},
 		{service.ErrBusy, http.StatusConflict},
+		{service.ErrSessionExists, http.StatusConflict},
 		{session.ErrNotFound, http.StatusNotFound},
 		{fmt.Errorf("opening: %w", session.ErrNotFound), http.StatusNotFound},
 		{gotato.ErrorOf(gotato.CodeStoreFailure, "x"), http.StatusServiceUnavailable},

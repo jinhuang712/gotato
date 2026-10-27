@@ -53,10 +53,10 @@ func TestForkNeverOverwritesASession(t *testing.T) {
 	h.mustJSON(h.ok("run", "--json", "first"), &first)
 	h.mustJSON(h.ok("run", "--json", "second"), &second)
 
-	if code, out, _ := h.run("session", "fork", first.SessionID, "--id", second.SessionID, "--json"); code != ExitUsage {
+	if code, out, _ := h.run("session", "fork", first.SessionID, "--id", second.SessionID, "--json"); code != ExitError {
 		t.Fatalf("fork onto an existing id exit=%d out=%s", code, out)
 	}
-	if code, _, _ := h.run("session", "fork", first.SessionID, "--id", first.SessionID, "--json"); code != ExitUsage {
+	if code, _, _ := h.run("session", "fork", first.SessionID, "--id", first.SessionID, "--json"); code != ExitError {
 		t.Fatalf("self fork exit = %d", code)
 	}
 	// The victim kept its history.

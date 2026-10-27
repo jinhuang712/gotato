@@ -4,6 +4,15 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A Fork whose ID is taken is `ErrSessionExists`
+
+**Breaking**: `Runner.Fork` with an explicit ID that a Session already holds answered `invalid_argument`, while `CreateSessionExclusive` answers `ErrSessionExists` for the same fault. Both answer `ErrSessionExists` now (`invalid_state`, HTTP 409).
+
+| Before | After |
+|---|---|
+| `Fork(ctx, id, "taken")` returns `invalid_argument` ("session taken already exists") | it returns `service.ErrSessionExists` (`invalid_state`) |
+| a caller tests `gotato.IsCode(err, gotato.CodeInvalidArgument)` | it tests `errors.Is(err, service.ErrSessionExists)` |
+
 ### A Continue with a Prompt is refused
 
 **Breaking**: `RunRequest.Continue` resumes a Session without a new Message, and a `Prompt` set beside it was dropped without a word. The request is refused now, before any Run, as `invalid_argument` (`NotRun`); over HTTP it is a 400.
