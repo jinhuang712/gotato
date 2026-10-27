@@ -4,7 +4,10 @@
 // The adapter is a Go module of its own, on the official MCP Go SDK, so a
 // service that does not use MCP carries none of it. It builds tools only:
 // resources, prompts, sampling, elicitation, OAuth and Gotato as an MCP
-// server are not built (FEATURES.md, G-N20).
+// server are not built (FEATURES.md, G-N20). A tool that asks for input in
+// the middle of a call gets no answer, and the call ends with a failed Tool
+// Result. Progress notifications are the Tool's progress, and the server's
+// instructions are the description when WithDescription is not set.
 //
 // Lifecycle. NewToolSet connects to nothing. The first resolution connects,
 // and every Session that installs the same *ToolSet shares that one
@@ -143,6 +146,13 @@ type ToolSet struct {
 	client    *sdk.Client
 	// changed is set by the server's list_changed and cleared by a listing.
 	changed atomic.Bool
+	// progress maps the progress token of a call in flight to the Tool's
+	// progress function; tokens counts them.
+	progress sync.Map
+	tokens   atomic.Uint64
+	// instructions is what the server said at initialize, kept after the
+	// connection is dropped.
+	instructions atomic.Pointer[string]
 
 	connMu  sync.Mutex
 	session *sdk.ClientSession
@@ -182,13 +192,56 @@ func NewToolSet(name string, transport Transport, options ...Option) (*ToolSet, 
 	}
 	s.client = sdk.NewClient(&sdk.Implementation{Name: s.cfg.clientName, Version: s.cfg.clientVer}, &sdk.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.changed.Store(true) },
+		// A server that asks for input in the middle of a call gets no answer:
+		// there is no user and no model to ask. The SDK's automatic answer is
+		// off, and the call ends with a failed Tool Result (see Execute).
+		MultiRoundTrip:              &sdk.MultiRoundTripOptions{Disabled: true},
+		ProgressNotificationHandler: s.forwardProgress,
 	})
 	return s, nil
 }
 
 // Spec implements gotato.ToolSet.
 func (s *ToolSet) Spec() gotato.ToolSetSpec {
-	return gotato.ToolSetSpec{Name: s.name, Description: s.cfg.description}
+	description := s.cfg.description
+	if description == "" {
+		if text := s.instructions.Load(); text != nil {
+			description = firstParagraph(*text)
+		}
+	}
+	return gotato.ToolSetSpec{Name: s.name, Description: description}
+}
+
+// firstParagraph is the first paragraph of a server's instructions on one
+// line: the catalog shows a description as one line, and what follows the
+// first paragraph is for a model that already uses the tools.
+func firstParagraph(text string) string {
+	text = strings.ReplaceAll(strings.TrimSpace(text), "\r\n", "\n")
+	first, _, _ := strings.Cut(text, "\n\n")
+	return strings.Join(strings.Fields(first), " ")
+}
+
+// forwardProgress hands a progress notification to the call it belongs to.
+func (s *ToolSet) forwardProgress(_ context.Context, req *sdk.ProgressNotificationClientRequest) {
+	if req == nil || req.Params == nil {
+		return
+	}
+	token, ok := req.Params.ProgressToken.(string)
+	if !ok {
+		return
+	}
+	report, ok := s.progress.Load(token)
+	if !ok {
+		return
+	}
+	text := strings.TrimSpace(req.Params.Message)
+	if text == "" {
+		text = fmt.Sprintf("%g", req.Params.Progress)
+		if req.Params.Total > 0 {
+			text += fmt.Sprintf("/%g", req.Params.Total)
+		}
+	}
+	report.(gotato.ToolProgressFunc)(text)
 }
 
 // Tools implements gotato.ToolSet: it lists the server's tools. A failure
@@ -270,6 +323,10 @@ func (s *ToolSet) connect(ctx context.Context) (*sdk.ClientSession, error) {
 		return nil, fmt.Errorf("mcp %s: connect: %w", s.name, err)
 	}
 	s.session = session
+	if init := session.InitializeResult(); init != nil {
+		instructions := init.Instructions
+		s.instructions.Store(&instructions)
+	}
 	return session, nil
 }
 

@@ -41,10 +41,17 @@ func (t *tool) Spec() gotato.ToolSpec { return t.spec }
 // Execute calls the tool on the server. The Run's ctx cancels the call. A
 // protocol or transport failure is an error; a result the server marks
 // isError is a failed Tool Result the model reads.
-func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolProgressFunc) (gotato.ToolResult, error) {
+func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	params := &sdk.CallToolParams{Name: t.name}
 	if len(bytes.TrimSpace(use.ArgumentsJSON)) > 0 {
 		params.Arguments = json.RawMessage(use.ArgumentsJSON)
+	}
+	if progress != nil {
+		// A server sends progress only to a call that carries a token.
+		token := fmt.Sprintf("gotato-%d", t.set.tokens.Add(1))
+		params.SetProgressToken(token)
+		t.set.progress.Store(token, progress)
+		defer t.set.progress.Delete(token)
 	}
 	// A server that forgot the session (it restarted) answers 404 before it
 	// runs anything, so the call is sent once more on a new session, even for
@@ -57,6 +64,10 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolPro
 		}
 		result, err := session.CallTool(ctx, params)
 		if err == nil {
+			if result.NeedsInput() {
+				return gotato.ToolResult{Status: gotato.ToolResultFailed, SafeError: needsInput,
+					Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: needsInput}}}, nil
+			}
 			return ConvertResult(result), nil
 		}
 		t.set.drop(session, err)
@@ -66,6 +77,10 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, _ gotato.ToolPro
 		return gotato.ToolResult{}, fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err)
 	}
 }
+
+// needsInput is what the model reads when a tool asks, in the middle of its
+// call, for input that Gotato cannot give (elicitation, sampling, roots).
+const needsInput = "the MCP tool asked for input in the middle of the call (elicitation or sampling), which this client cannot give, so the call ended; call it again with everything it needs in the arguments"
 
 // EffectOf maps a tool's annotations to its Effect, with the defaults of the
 // MCP specification for a hint the server left out: not read-only, destructive

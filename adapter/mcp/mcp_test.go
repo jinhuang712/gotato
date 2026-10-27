@@ -25,8 +25,12 @@ const serverEnv = "GOTATO_MCP_TEST_SERVER"
 
 // TestMain lets the test binary be the stdio MCP server of the stdio test.
 func TestMain(m *testing.M) {
-	if os.Getenv(serverEnv) == "1" {
-		if err := newServer().Run(context.Background(), &sdk.StdioTransport{}); err != nil {
+	if mode := os.Getenv(serverEnv); mode != "" {
+		server := newServer()
+		if mode == "asking" {
+			server = askingServer()
+		}
+		if err := server.Run(context.Background(), &sdk.StdioTransport{}); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -715,4 +719,162 @@ func TestACustomHTTPClientCarriesItsHeaderOnEveryRequest(t *testing.T) {
 	if seen == 0 || missing != 0 {
 		t.Fatalf("requests with the header = %d, without = %d", seen, missing)
 	}
+}
+
+// askingServer has tools that ask the client for input in the middle of a
+// call, as a multi round-trip server does: a tool answers with the requests it
+// needs filled, and the client is to call again with the replies. It also has
+// the instructions the ToolSet reads, and a tool that reports progress.
+func askingServer() *sdk.Server {
+	server := sdk.NewServer(&sdk.Implementation{Name: "asking", Version: "1"}, &sdk.ServerOptions{
+		Instructions: "Asks things for the user.\r\nStill the first paragraph.\n\nSecond paragraph, for the model.",
+	})
+	schema := map[string]any{"type": "object", "properties": map[string]any{}}
+	asks := func(request sdk.InputRequest) sdk.ToolHandler {
+		return func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return &sdk.CallToolResult{InputRequests: sdk.InputRequestMap{"q": request}}, nil
+		}
+	}
+	server.AddTool(&sdk.Tool{Name: "elicit", InputSchema: schema},
+		asks(&sdk.ElicitParams{Message: "pick one", RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}}}))
+	server.AddTool(&sdk.Tool{Name: "sample", InputSchema: schema},
+		//nolint:staticcheck // sampling is deprecated, and a server may still ask
+		asks(&sdk.CreateMessageParams{MaxTokens: 5, Messages: []*sdk.SamplingMessage{{Role: "user", Content: &sdk.TextContent{Text: "hi"}}}}))
+	server.AddTool(&sdk.Tool{Name: "slow", InputSchema: schema}, func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		token := req.Params.GetProgressToken()
+		if token == nil {
+			return textResult("no token"), nil
+		}
+		for _, step := range []sdk.ProgressNotificationParams{{Progress: 1, Total: 3, Message: "reading"}, {Progress: 2, Total: 3}} {
+			step.ProgressToken = token
+			if err := req.Session.NotifyProgress(ctx, &step); err != nil {
+				return nil, err
+			}
+		}
+		// The SDK queues incoming notifications, and a response can overtake
+		// them; one that trails the result is dropped, as the call is over.
+		time.Sleep(200 * time.Millisecond)
+		return textResult("done"), nil
+	})
+	return server
+}
+
+func TestAToolThatAsksForInputEndsWithAFailedResult(t *testing.T) {
+	for _, tc := range allTransports {
+		for _, name := range []string{"elicit", "sample"} {
+			t.Run(tc.name+"/"+name, func(t *testing.T) {
+				set := newSet(t, askingTransport(t, tc))
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				tools, err := set.Tools(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, tool := range tools {
+					if tool.Spec().ID != name {
+						continue
+					}
+					// The call ends at once: with a failed Tool Result the model
+					// reads, or with an error; never with a success or a wait.
+					result, err := tool.Execute(ctx, gotato.ToolUse{}, nil)
+					if err == nil && (result.Status != gotato.ToolResultFailed || !strings.Contains(result.SafeError, "asked for input")) {
+						t.Fatalf("not a clear failed result: %+v", result)
+					}
+					if ctx.Err() != nil {
+						t.Fatal("the call waited")
+					}
+					return
+				}
+				t.Fatal("tool not found")
+			})
+		}
+	}
+}
+
+func TestProgressNotificationsAreForwarded(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newSet(t, askingTransport(t, tc))
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			tools, err := set.Tools(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, tool := range tools {
+				if tool.Spec().ID != "slow" {
+					continue
+				}
+				var mu sync.Mutex
+				var got []string
+				result, err := tool.Execute(ctx, gotato.ToolUse{}, func(text string) {
+					mu.Lock()
+					got = append(got, text)
+					mu.Unlock()
+				})
+				if err != nil || result.Status != gotato.ToolResultOK {
+					t.Fatalf("%v %+v", err, result)
+				}
+				// A notification may arrive just after the result: wait for both.
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					mu.Lock()
+					n := len(got)
+					mu.Unlock()
+					if n >= 2 || time.Now().After(deadline) {
+						break
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if !slices.Equal(got, []string{"reading", "2/3"}) {
+					t.Fatalf("progress = %q", got)
+				}
+				return
+			}
+			t.Fatal("tool not found")
+		})
+	}
+}
+
+func TestACallWithoutAProgressFunctionSendsNoToken(t *testing.T) {
+	set := newSet(t, inMemory(t, askingServer()))
+	result := execute(t, set, "slow", "{}")
+	if len(result.Content) != 1 || result.Content[0].Text != "no token" {
+		t.Fatalf("%+v", result)
+	}
+}
+
+func TestInstructionsDescribeTheToolSetUnlessTheTeamDid(t *testing.T) {
+	for _, tc := range allTransports {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newSet(t, askingTransport(t, tc))
+			if got := set.Spec().Description; got != "" {
+				t.Fatalf("before connecting: %q", got)
+			}
+			specs(t, set)
+			if got, want := set.Spec().Description, "Asks things for the user. Still the first paragraph."; got != want {
+				t.Fatalf("description = %q, want %q", got, want)
+			}
+			own := newSet(t, askingTransport(t, tc), gmcp.WithDescription("Customer records"))
+			specs(t, own)
+			if got := own.Spec().Description; got != "Customer records" {
+				t.Fatalf("WithDescription lost: %q", got)
+			}
+		})
+	}
+}
+
+// askingTransport reaches askingServer; over stdio the test binary is that
+// server.
+func askingTransport(t *testing.T, tc transportCase) gmcp.Transport {
+	if tc.name != "stdio" {
+		return tc.make(t, askingServer())
+	}
+	return gmcp.StdioCommand(func() *exec.Cmd {
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), serverEnv+"=asking")
+		return cmd
+	})
 }
