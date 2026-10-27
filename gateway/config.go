@@ -64,10 +64,7 @@ func parseYAML(data []byte) (Config, error) {
 	// Expand after decoding: a substituted value is then a plain scalar and
 	// can never change the document structure, and only the documented
 	// ${NAME} form is recognized.
-	expanded, err := expandBraceEnvDocument(data)
-	if err != nil {
-		return Config{}, err
-	}
+	expanded := expandBraceEnvDocument(data)
 	var fileConfig yAMLConfig
 	decoder := yaml.NewDecoder(bytes.NewReader(expanded))
 	decoder.KnownFields(true)
@@ -120,18 +117,20 @@ func parseYAML(data []byte) (Config, error) {
 // environment value that contains YAML metacharacters stays a single string and
 // cannot add keys, change nesting, or retag a scalar. Only scalars are visited:
 // keys, comments, and anchors keep whatever they contained.
-func expandBraceEnvDocument(data []byte) ([]byte, error) {
+//
+// A document that does not parse is returned as it is: the decoder that
+// follows reports the error.
+func expandBraceEnvDocument(data []byte) []byte {
 	var document yaml.Node
 	if err := yaml.Unmarshal(data, &document); err != nil {
-		// Return the original text: the caller reports the parse error.
-		return data, nil
+		return data
 	}
 	expandEnvScalars(&document)
 	expanded, err := yaml.Marshal(&document)
 	if err != nil {
-		return data, nil
+		return data
 	}
-	return expanded, nil
+	return expanded
 }
 
 func expandEnvScalars(node *yaml.Node) {
