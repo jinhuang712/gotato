@@ -176,6 +176,7 @@ A breaking change to the public Go API, CLI contract, or event kinds must:
 ### Generated Files
 
 - Do not commit build output, coverage files, `go.work`, or local credentials (see `.gitignore`; `gateway.yaml` is ignored on purpose).
+- Work notes (inventories, decision logs, research, drafts) go in `notes/` at the repository root, which `.gitignore` ignores. They are never committed, and no project document links to them; a document records only the result.
 
 ### Coding-Agent Checklist Before Committing
 

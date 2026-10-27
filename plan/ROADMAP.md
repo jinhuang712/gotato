@@ -229,9 +229,9 @@ Exit:
 
 ## Phase 10 — Pruning
 
-Before the first release, what Gotato ships is cut to what a service embedding an agent needs, and then the code that is left is made clear. No feature is added during the phase. Each step takes the same course: a read-only inventory, a list the maintainer approves item by item, small branches that carry it out, and the full checks. A step starts once the one before it has landed, because it looks only at what is left. Each step's list, its decisions and their reasons are kept in [PRUNING.md](PRUNING.md).
+Before the first release, what Gotato ships is cut to what a service embedding an agent needs, and then the code that is left is made clear. No feature is added during the phase. Each step takes the same course: a read-only inventory, a list the maintainer approves item by item, small branches that carry it out, and the full checks. A step starts once the one before it has landed, because it looks only at what is left. A step's results are what the repository records: the [CHANGELOG.md](../CHANGELOG.md) entry of each break, and the rows of [FEATURES.md](../FEATURES.md) it changes.
 
-- ⬜ **1. Surfaces.** Every package, module and binary outside the core is sorted into one of four kinds: the product, which a service imports or runs; our own tests; support for an example; or removed. A test tool that the product needs moves out of the test kit, and one that only we use leaves the public surface. The step also settles whether the core's directory, `gotato-core`, keeps a name that differs from its package, `gotato`.
+- ✅ **1. Surfaces.** Every package, module and binary outside the core is sorted into one of four kinds: the product, which a service imports or runs; our own tests; support for an example; or removed. What ships is the core in `gotato/`, `session` with `session/storetest`, `modelctx`, `gateway`, `service` with `service/httpapi`, `testkit`, the CLI and `adapter/mcp`. Our own test tools live in `internal/`, and the example keeps its cluster. A directory's name is its package's name, so no import needs an alias. There is no gRPC adapter ([G-N27](../FEATURES.md#g-n27--no-grpc-adapter)) and no separate tool registry.
 - ⬜ **2. Code with no gain.** In the product that is left: an abstraction with one implementation, an option that only tests set, a layer that only forwards, a feature that only tests use, and anything whose upkeep outweighs what it gives.
 - ⬜ **3. The exported API.** An export used only inside its package becomes unexported, and two ways to do one thing become one. Every module that uses Gotato still builds, and each break has its entry in [CHANGELOG.md](../CHANGELOG.md).
 - ⬜ **4. Leftovers.** Dead code, stale comments and stray directories, and every document checked against the code, so that none names what was removed.
@@ -240,7 +240,7 @@ Before the first release, what Gotato ships is cut to what a service embedding a
 
 Exit:
 
-- Every step's list in [PRUNING.md](PRUNING.md) is approved and carried out.
+- Every step's list is approved by the maintainer and carried out.
 - `deadcode` and the linters report nothing unused, and no document names a removed package, type or feature.
 - The module outside the repository builds and runs against the tagged versions.
 

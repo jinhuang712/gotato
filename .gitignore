@@ -34,3 +34,6 @@ gateway.yaml
 
 # Benchmark binary built by bench/refservice/footprint.sh
 /bench/refservice/refservice
+
+# Work notes: never committed (AGENTS.md → Generated Files)
+/notes/
