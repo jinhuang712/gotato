@@ -58,14 +58,14 @@ func (r MergeRequest) Numbers() []int { return numbersOf(r.Segments) }
 type MergeReason string
 
 const (
-	// MergeReasonUnderBudget: the Segments together fit their budget.
+	// MergeReasonUnderBudget means the Segments together fit their budget.
 	MergeReasonUnderBudget MergeReason = "under_budget"
-	// MergeReasonNothingToMerge: fewer than two Segments, so none can be merged.
+	// MergeReasonNothingToMerge means fewer than two Segments, so none can be merged.
 	MergeReasonNothingToMerge MergeReason = "nothing_to_merge"
-	// MergeReasonRecapFailed: the Recap of the merge could not be written, and
+	// MergeReasonRecapFailed means the Recap of the merge could not be written, and
 	// nothing was merged.
 	MergeReasonRecapFailed MergeReason = "recap_failed"
-	// MergeReasonWriteFailed: the Record could not be written, and nothing was
+	// MergeReasonWriteFailed means the Record could not be written, and nothing was
 	// merged.
 	MergeReasonWriteFailed MergeReason = "write_failed"
 )

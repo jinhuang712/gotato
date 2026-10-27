@@ -183,13 +183,13 @@ func (e UnknownEvent) MarshalJSON() ([]byte, error) {
 type ClaimWhy string
 
 const (
-	// ClaimWhyNewSession: the Instance created the Session.
+	// ClaimWhyNewSession means the Instance created the Session.
 	ClaimWhyNewSession ClaimWhy = "new_session"
-	// ClaimWhyIdle: the Session was idle, released by its last Writer.
+	// ClaimWhyIdle means the Session was idle, released by its last Writer.
 	ClaimWhyIdle ClaimWhy = "idle"
-	// ClaimWhyWriterGone: its Writer's Liveness row was no longer alive.
+	// ClaimWhyWriterGone means its Writer's Liveness row was no longer alive.
 	ClaimWhyWriterGone ClaimWhy = "writer_gone"
-	// ClaimWhyWaited: the Instance waited for its Writer to finish first.
+	// ClaimWhyWaited means the Instance waited for its Writer to finish first.
 	ClaimWhyWaited ClaimWhy = "waited"
 )
 
@@ -202,12 +202,12 @@ const (
 	CompactionWhyOnDemand     CompactionWhy = "on_demand"
 	CompactionWhyPastCeiling  CompactionWhy = "past_ceiling"
 	CompactionWhyBeforeUnload CompactionWhy = "before_unload"
-	// CompactionWhyBeforeCacheExpires: the Session was idle, and was compacted
+	// CompactionWhyBeforeCacheExpires means the Session was idle, and was compacted
 	// shortly before the provider's prompt cache expired.
 	CompactionWhyBeforeCacheExpires CompactionWhy = "before_cache_expires"
-	// CompactionWhyOverflow: the provider refused a request as too long.
+	// CompactionWhyOverflow means the provider refused a request as too long.
 	CompactionWhyOverflow CompactionWhy = "overflow"
-	// CompactionWhyPastBudget: the Segments together passed their budget, and
+	// CompactionWhyPastBudget means the Segments together passed their budget, and
 	// the oldest were merged with no Segment closed.
 	CompactionWhyPastBudget CompactionWhy = "past_budget"
 )
@@ -277,10 +277,10 @@ type ToolOutcome struct {
 
 // ---- Runs and replies -------------------------------------------------------
 
-// RunStarted: a Run starts.
+// RunStarted is published when a Run starts.
 type RunStarted struct{ Header }
 
-// RunEnded: a Run settles, with its status, its cause and its stop reason. It
+// RunEnded is published when a Run settles, with its status, its cause and its stop reason. It
 // does not carry the final text, which can be long: read it from the Run's
 // result (service.RunResponse.FinalText), or from the Transcript.
 type RunEnded struct {
@@ -300,10 +300,10 @@ type RunEnded struct {
 	ReasoningBytes     uint64  `json:"reasoning_bytes,omitempty"`
 }
 
-// TurnStarted: a Turn starts.
+// TurnStarted is published when a Turn starts.
 type TurnStarted struct{ Header }
 
-// TurnEnded: a Turn ends, with its usage.
+// TurnEnded is published when a Turn ends, with its usage.
 type TurnEnded struct {
 	Header
 	StopReason     StopReason    `json:"stop_reason"`
@@ -315,7 +315,7 @@ type TurnEnded struct {
 	Tools          []ToolOutcome `json:"tools,omitempty"`
 }
 
-// ContextBuilt: a Turn's Context is built, with its prefix hash and sizes.
+// ContextBuilt is published when a Turn's Context is built, with its prefix hash and sizes.
 type ContextBuilt struct {
 	Header
 	Strategy         string            `json:"strategy,omitempty"`
@@ -329,7 +329,7 @@ type ContextBuilt struct {
 	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
-// ReplyStarted: the model's reply starts. It is stored before the Model is
+// ReplyStarted is published when the model's reply starts. It is stored before the Model is
 // called, so a Writer that can no longer write keeps the Model from being
 // called. A reply ends at the first of reply_ended, reply_cut_off, the Turn's
 // next reply_started, turn_ended or run_ended: a call that fails or is refused
@@ -339,7 +339,7 @@ type ReplyStarted struct {
 	MessageID MessageID `json:"message_id"`
 }
 
-// ReplyEnded: the model's reply ends, with the Message it committed, the model
+// ReplyEnded is published when the model's reply ends, with the Message it committed, the model
 // that answered and why it stopped.
 type ReplyEnded struct {
 	Header
@@ -349,21 +349,21 @@ type ReplyEnded struct {
 	ToolCalls  int        `json:"tool_calls"`
 }
 
-// TextDelta: a piece of the reply's text. A delta is sent and never stored.
+// TextDelta is published for a piece of the reply's text. A delta is sent and never stored.
 type TextDelta struct {
 	Header
 	MessageID MessageID `json:"message_id"`
 	Text      string    `json:"text"`
 }
 
-// ReasoningDelta: a piece of the reply's reasoning.
+// ReasoningDelta is published for a piece of the reply's reasoning.
 type ReasoningDelta struct {
 	Header
 	MessageID MessageID `json:"message_id"`
 	Text      string    `json:"text"`
 }
 
-// ReplyCutOff: the reply's stream broke, and the text so far is kept as a
+// ReplyCutOff is published when the reply's stream breaks, and the text so far is kept as a
 // Cut-off reply.
 type ReplyCutOff struct {
 	Header
@@ -371,7 +371,7 @@ type ReplyCutOff struct {
 	Cause   ErrorCode `json:"cause,omitempty"`
 }
 
-// ReplyPartKept: the text and reasoning a streaming reply has produced since
+// ReplyPartKept is published with the text and reasoning a streaming reply has produced since
 // the previous part, kept in the Record every second or few KiB so that a
 // crash loses at most the last part.
 type ReplyPartKept struct {
@@ -381,7 +381,7 @@ type ReplyPartKept struct {
 	Reasoning string    `json:"reasoning,omitempty"`
 }
 
-// ModelRetried: the gateway calls the model again.
+// ModelRetried is published when the gateway calls the model again.
 type ModelRetried struct {
 	Header
 	Attempt int     `json:"attempt"`
@@ -391,7 +391,7 @@ type ModelRetried struct {
 
 // ---- Tools ------------------------------------------------------------------
 
-// ToolStarted: a Tool starts. It is stored before the Tool runs, so a call
+// ToolStarted is published when a Tool starts. It is stored before the Tool runs, so a call
 // that started is known to have started.
 type ToolStarted struct {
 	Header
@@ -400,7 +400,7 @@ type ToolStarted struct {
 	ToolID    string     `json:"tool_id"`
 }
 
-// ToolEnded: a Tool ends, with its status and how long it ran.
+// ToolEnded is published when a Tool ends, with its status and how long it ran.
 type ToolEnded struct {
 	Header
 	CallID    ToolCallID       `json:"call_id"`
@@ -410,14 +410,14 @@ type ToolEnded struct {
 	ElapsedMS float64          `json:"elapsed_ms"`
 }
 
-// ToolProgress: a Tool reports its own progress. It is sent and never stored.
+// ToolProgress is published when a Tool reports its own progress. It is sent and never stored.
 type ToolProgress struct {
 	Header
 	CallID ToolCallID `json:"call_id"`
 	Text   string     `json:"text"`
 }
 
-// ToolResultCommitted: a Tool Result enters the Transcript, in the order the
+// ToolResultCommitted is published when a Tool Result enters the Transcript, in the order the
 // model asked.
 type ToolResultCommitted struct {
 	Header
@@ -426,7 +426,7 @@ type ToolResultCommitted struct {
 	Status  ToolResultStatus `json:"status"`
 }
 
-// ToolResultSpilled: a Tool Result over one page is stored in full, as an
+// ToolResultSpilled is published when a Tool Result over one page is stored in full, as an
 // Entry of its own, before the Tool Result Message that holds its preview
 // and its ref is committed. It is a log entry: a load never reads it, and
 // read_result reads its Body when the model asks. Subscribers, and the Events
@@ -457,15 +457,15 @@ type ToolLoadedWhy string
 
 // Why a Tool is loaded.
 const (
-	// ToolLoadedWhyNames: search_tools was given the Tool's name.
+	// ToolLoadedWhyNames means search_tools was given the Tool's name.
 	ToolLoadedWhyNames ToolLoadedWhy = "names"
-	// ToolLoadedWhyQuery: a search of search_tools found the Tool among its top matches.
+	// ToolLoadedWhyQuery means a search of search_tools found the Tool among its top matches.
 	ToolLoadedWhyQuery ToolLoadedWhy = "query"
-	// ToolLoadedWhyCall: the model called a catalog Tool it had not loaded.
+	// ToolLoadedWhyCall means the model called a catalog Tool it had not loaded.
 	ToolLoadedWhyCall ToolLoadedWhy = "call"
 )
 
-// ToolLoaded: a catalog Tool is loaded, so the model is offered it. It is a
+// ToolLoaded is published when a catalog Tool is loaded, so the model is offered it. It is a
 // fact of the Session: later Runs on any instance, forks and Checkpoints keep
 // the Tool loaded until a compaction unloads it.
 type ToolLoaded struct {
@@ -478,15 +478,15 @@ type ToolLoaded struct {
 // ToolUnloadedWhy says why a Tool was unloaded.
 type ToolUnloadedWhy string
 
-// ToolUnloadedWhyCompaction: a compaction closed a Segment that did not call the
+// ToolUnloadedWhyCompaction means a compaction closed a Segment that did not call the
 // Tool, and the kept tail does not call it either.
 const ToolUnloadedWhyCompaction ToolUnloadedWhy = "compaction"
 
-// ToolUnloadedWhyGone: the Tool's ToolSet answered at the start of a Run and no
+// ToolUnloadedWhyGone means the Tool's ToolSet answered at the start of a Run and no
 // longer carries the Tool.
 const ToolUnloadedWhyGone ToolUnloadedWhy = "gone"
 
-// ToolUnloaded: a loaded Tool is no longer offered. It is a fact of the
+// ToolUnloaded is published when a loaded Tool is no longer offered. It is a fact of the
 // Session, like ToolLoaded.
 type ToolUnloaded struct {
 	Header
@@ -496,19 +496,19 @@ type ToolUnloaded struct {
 
 // ---- Messages into a Session ------------------------------------------------
 
-// RunRequested: a request for a new Run arrives. An Instance Event.
+// RunRequested is published when a request for a new Run arrives. An Instance Event.
 type RunRequested struct {
 	Header
 	Agent string `json:"agent,omitempty"`
 }
 
-// RunWaiting: a request waits for a busy Session. An Instance Event.
+// RunWaiting is published when a request waits for a busy Session. An Instance Event.
 type RunWaiting struct {
 	Header
 	Why string `json:"why,omitempty"`
 }
 
-// RunRejected: a request is refused, with why: "busy", "at_capacity",
+// RunRejected is published when a request is refused, with why: "busy", "at_capacity",
 // "draining", or "activation_limit" when the Instance is past its hard limit of
 // active Sessions. An Instance Event.
 type RunRejected struct {
@@ -516,14 +516,14 @@ type RunRejected struct {
 	Why string `json:"why"`
 }
 
-// MessageQueued: a Steer, FollowUp or Interrupt waits for its point in the Run.
+// MessageQueued is published when a Steer, FollowUp or Interrupt waits for its point in the Run.
 type MessageQueued struct {
 	Header
 	MessageID MessageID     `json:"message_id"`
 	Source    MessageSource `json:"source"`
 }
 
-// MessageCommitted: a user Message enters the Transcript, with where it came
+// MessageCommitted is published when a user Message enters the Transcript, with where it came
 // from: the prompt, a Steer, a FollowUp or an Interrupt.
 type MessageCommitted struct {
 	Header
@@ -531,7 +531,7 @@ type MessageCommitted struct {
 	Source  MessageSource `json:"source"`
 }
 
-// NoticeQueued: a notice from a service or an extension waits for the next
+// NoticeQueued is published when a notice from a service or an extension waits for the next
 // model call (G-F29). Text is kept so that the notice can be rebuilt from the
 // Event.
 type NoticeQueued struct {
@@ -544,7 +544,7 @@ type NoticeQueued struct {
 	Text       string       `json:"text"`
 }
 
-// NoticeCommitted: a notice enters the Transcript, right before a model call.
+// NoticeCommitted is published when a notice enters the Transcript, right before a model call.
 // Queued is the number of the notice_queued it came from, absent for a notice
 // of Gotato's own, which is committed at once; its cause is in
 // Message.Notice.CausedBy.
@@ -554,7 +554,7 @@ type NoticeCommitted struct {
 	Queued  uint64  `json:"queued,omitempty"`
 }
 
-// MessageDropped: a waiting message is dropped because the Run ended first.
+// MessageDropped is published when a waiting message is dropped because the Run ended first.
 type MessageDropped struct {
 	Header
 	MessageID MessageID     `json:"message_id"`
@@ -562,7 +562,7 @@ type MessageDropped struct {
 	Why       string        `json:"why"`
 }
 
-// MessageRejected: a message is refused because the queue is full.
+// MessageRejected is published when a message is refused because the queue is full.
 type MessageRejected struct {
 	Header
 	MessageID MessageID     `json:"message_id"`
@@ -570,13 +570,13 @@ type MessageRejected struct {
 	Why       string        `json:"why"`
 }
 
-// AbortRequested: an Abort arrives. The Run's RunEnded follows, and the time
+// AbortRequested is published when an Abort arrives. The Run's RunEnded follows, and the time
 // between the two is how long the Abort took.
 type AbortRequested struct{ Header }
 
 // ---- Claims -----------------------------------------------------------------
 
-// SessionClaimed: an Instance claims the Session, with why, and which Instance
+// SessionClaimed is published when an Instance claims the Session, with why, and which Instance
 // held it before. A Writer that opens a Session it holds already writes it
 // again, with the same Epoch.
 type SessionClaimed struct {
@@ -587,14 +587,14 @@ type SessionClaimed struct {
 	From     string   `json:"from,omitempty"`
 }
 
-// SessionReleased: the Writer lets the Session go.
+// SessionReleased is published when the Writer lets the Session go.
 type SessionReleased struct {
 	Header
 	Instance string `json:"instance"`
 	Epoch    uint64 `json:"epoch"`
 }
 
-// SessionFenced: a write is refused because another Instance holds the Claim.
+// SessionFenced is published when a write is refused because another Instance holds the Claim.
 // An Instance Event.
 type SessionFenced struct {
 	Header
@@ -603,7 +603,7 @@ type SessionFenced struct {
 	Position uint64 `json:"position,omitempty"`
 }
 
-// LivenessLapsed: this Instance's Liveness row was not renewed in time, so it
+// LivenessLapsed is published when this Instance's Liveness row is not renewed in time, so it
 // writes nothing more. An Instance Event.
 type LivenessLapsed struct {
 	Header
@@ -612,7 +612,7 @@ type LivenessLapsed struct {
 
 // ---- The Session ------------------------------------------------------------
 
-// SessionCreated: a Session is created, with the Messages and metadata its
+// SessionCreated is published when a Session is created, with the Messages and metadata its
 // Record starts with. It is the first Entry of every Record, and a Checkpoint.
 type SessionCreated struct {
 	Header
@@ -638,7 +638,7 @@ type SessionCreated struct {
 	Tail []MessagePosition `json:"tail,omitempty"`
 }
 
-// MetadataChanged: a setting in the Session's metadata changes. An empty Value
+// MetadataChanged is published when a setting in the Session's metadata changes. An empty Value
 // deletes the key.
 type MetadataChanged struct {
 	Header
@@ -646,13 +646,13 @@ type MetadataChanged struct {
 	Value string `json:"value,omitempty"`
 }
 
-// CompactionStarted: a compaction starts.
+// CompactionStarted is published when a compaction starts.
 type CompactionStarted struct {
 	Header
 	Why CompactionWhy `json:"why"`
 }
 
-// CompactionEnded: a compaction appends its Checkpoint: the Segments by
+// CompactionEnded is published when a compaction appends its Checkpoint: the Segments by
 // number, the Messages and metadata the Session continues with, every compaction so far, and the Claim
 // in force, so that a load that starts here still knows the Writer and its
 // Epoch.
@@ -677,7 +677,7 @@ type CompactionEnded struct {
 	Tail []MessagePosition `json:"tail,omitempty"`
 }
 
-// SegmentClosed: a compaction closed a Segment. It is written once, before
+// SegmentClosed is published when a compaction closes a Segment. It is written once, before
 // the Checkpoint (CompactionEnded) that lists its number, and holds the
 // Messages that render the Segment, which are never rewritten. The Entries it
 // covers stay in the Record.
@@ -686,14 +686,14 @@ type SegmentClosed struct {
 	Segment Segment `json:"segment"`
 }
 
-// CompactionFailed: a compaction failed.
+// CompactionFailed is published when a compaction fails.
 type CompactionFailed struct {
 	Header
 	Why   CompactionWhy `json:"why"`
 	Cause ErrorCode     `json:"cause,omitempty"`
 }
 
-// SessionUnloaded: the Session leaves this Instance's memory, with why. A live
+// SessionUnloaded is published when the Session leaves this Instance's memory, with why. A live
 // Session that closes says "close". The Runner's warm copy of an idle Session
 // says "ttl" when its time in memory ended, "taken_over" when another Instance
 // wrote the Record (or deleted it) so the copy was out of date, "deleted" when
@@ -706,12 +706,12 @@ type SessionUnloaded struct {
 	Why string `json:"why"`
 }
 
-// SessionDeleted: the Session's Record is deleted. An Instance Event.
+// SessionDeleted is published when the Session's Record is deleted. An Instance Event.
 type SessionDeleted struct{ Header }
 
 // ---- The store and extensions -----------------------------------------------
 
-// SessionLoaded: how long the store took to load the Session. An Instance
+// SessionLoaded is published with how long the store took to load the Session. An Instance
 // Event.
 type SessionLoaded struct {
 	Header
@@ -720,7 +720,7 @@ type SessionLoaded struct {
 	Failed    bool    `json:"failed,omitempty"`
 }
 
-// SessionSaved: how long the store took to write a Run's steps, summed, and
+// SessionSaved is published with how long the store took to write a Run's steps, summed, and
 // how many writes that was. An Instance Event.
 type SessionSaved struct {
 	Header
@@ -730,7 +730,7 @@ type SessionSaved struct {
 	Failed    bool    `json:"failed,omitempty"`
 }
 
-// StoreWriteFailed: a write failed, for another reason than a taken position.
+// StoreWriteFailed is published when a write fails, for another reason than a taken position.
 // An Instance Event; the store's own error text stays out, because Events
 // reach clients.
 type StoreWriteFailed struct {
@@ -738,7 +738,7 @@ type StoreWriteFailed struct {
 	Code ErrorCode `json:"code,omitempty"`
 }
 
-// ExtensionFailed: an advisory extension failed, and the Run went on. It is
+// ExtensionFailed is published when an advisory extension fails, and the Run goes on. It is
 // also the warning for a ToolSet that did not resolve at the start of a Run:
 // Stage is "toolset:<name>" and Code is tool_resolution_failure.
 type ExtensionFailed struct {
@@ -747,7 +747,7 @@ type ExtensionFailed struct {
 	Code  ErrorCode `json:"code,omitempty"`
 }
 
-// EventsSkipped: an Instance's stream fell behind and skipped Events. Each
+// EventsSkipped is published when an Instance's stream falls behind and skips Events. Each
 // stored Event names its Session and number, so the subscriber can read what
 // it missed from the Record. An Instance Event.
 type EventsSkipped struct {

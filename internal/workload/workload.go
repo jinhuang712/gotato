@@ -173,23 +173,23 @@ const (
 type Cause string
 
 const (
-	// CauseModel: the model got a tool call wrong, or its answers missed the
+	// CauseModel means the model got a tool call wrong, or its answers missed the
 	// task's goal.
 	CauseModel Cause = "model"
-	// CauseProvider: a model call failed after the gateway's retries, or its
+	// CauseProvider means a model call failed after the gateway's retries, or its
 	// reply could not be read.
 	CauseProvider Cause = "provider"
-	// CauseTool: the tool ran and failed.
+	// CauseTool means the tool ran and failed.
 	CauseTool Cause = "tool"
-	// CauseStore: the store could not load or save the Session.
+	// CauseStore means the store could not load or save the Session.
 	CauseStore Cause = "store"
-	// CauseLimit: a Run reached a limit or its deadline.
+	// CauseLimit means a Run reached a limit or its deadline.
 	CauseLimit Cause = "limit"
-	// CauseExtension: an Extension failed or refused a tool call.
+	// CauseExtension means an Extension failed or refused a tool call.
 	CauseExtension Cause = "extension"
-	// CauseCanceled: the caller canceled.
+	// CauseCanceled means the caller canceled.
 	CauseCanceled Cause = "canceled"
-	// CauseGotato: everything else. GOALS.md G-G04 wants none.
+	// CauseGotato means everything else. GOALS.md G-G04 wants none.
 	CauseGotato Cause = "gotato"
 )
 

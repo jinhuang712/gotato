@@ -87,10 +87,10 @@ func DropsReasoning(model gotato.Model) bool {
 type CompactReason string
 
 const (
-	// CompactReasonBelowMinTokens: the stretch since the last Checkpoint is below
+	// CompactReasonBelowMinTokens means the stretch since the last Checkpoint is below
 	// CompactConfig.MinTokens.
 	CompactReasonBelowMinTokens CompactReason = "below_min_tokens"
-	// CompactReasonNothingToClose: the kept tail covers the whole stretch.
+	// CompactReasonNothingToClose means the kept tail covers the whole stretch.
 	CompactReasonNothingToClose CompactReason = "nothing_to_close"
 )
 
