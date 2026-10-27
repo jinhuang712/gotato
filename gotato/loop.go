@@ -124,6 +124,129 @@ func replyBytes(message Message) (text, reasoning uint64) {
 	return text, reasoning
 }
 
+// runState is what one Run counts as it goes, with the methods that end it.
+// It lives for the one executeRun call and is used from its goroutine only.
+type runState struct {
+	a       *Session
+	ctx     context.Context // the caller's, which the Run's last write uses
+	runCtx  context.Context // the Run's own, canceled by Abort
+	runID   RunID
+	started time.Time
+
+	usage                  Usage
+	toolCalls              uint32
+	turns                  uint32
+	truncatedContinuations uint32
+	textBytes              uint64
+	reasoningBytes         uint64
+	// batch is the Tool batch of the last committed assistant Message, while
+	// some of its calls still have no committed result.
+	batch openBatch
+}
+
+func (st *runState) metrics() RunMetrics {
+	return RunMetrics{
+		ElapsedMS:      millis(time.Since(st.started)),
+		Turns:          st.turns,
+		ToolCalls:      st.toolCalls,
+		TextBytes:      st.textBytes,
+		ReasoningBytes: st.reasoningBytes,
+	}
+}
+
+func (st *runState) setTurn(turn TurnNumber) {
+	st.a.runMu.Lock()
+	st.a.currentTurn = turn
+	st.a.runMu.Unlock()
+}
+
+func (st *runState) currentTurn() TurnNumber {
+	st.a.runMu.Lock()
+	defer st.a.runMu.Unlock()
+	return st.a.currentTurn
+}
+
+func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.id, st.runID, turn) }
+
+// end stores the Run's last Events, RunEnded among them. A Run may not
+// end without exactly one RunEnded, so it is staged even when the Run
+// failed on a write: a Journal that has stopped refuses it too, and then
+// nothing was stored, and nothing is sent.
+func (st *runState) end(turn TurnNumber, result RunResult, extra func(*RunEnded)) *RuntimeError {
+	a := st.a
+	if !a.keepsQueued(result.Status) {
+		a.discardControl(st.runID, turn)
+	}
+	// No Abort can start a write from here on, and the ones that did
+	// have finished: an abort_requested never follows run_ended.
+	a.runMu.Lock()
+	a.runEnding = true
+	a.runMu.Unlock()
+	a.waitForAborts()
+	if a.endingHook != nil {
+		a.endingHook()
+	}
+	metrics := st.metrics()
+	ended := RunEnded{
+		Header:         st.header(turn),
+		Status:         result.Status,
+		Turns:          metrics.Turns,
+		ToolCalls:      metrics.ToolCalls,
+		Usage:          result.Usage,
+		ElapsedMS:      metrics.ElapsedMS,
+		TextBytes:      metrics.TextBytes,
+		ReasoningBytes: metrics.ReasoningBytes,
+	}
+	if result.Error != nil {
+		ended.Cause = result.Error.Code
+	}
+	if extra != nil {
+		extra(&ended)
+	}
+	a.stage(ended)
+	return a.flush(st.ctx)
+}
+
+// fail ends the Run with err: it closes the Tool calls left open, writes
+// RunEnded, and returns the failed result with err.
+func (st *runState) fail(err *RuntimeError) (RunResult, error) {
+	if err == nil {
+		err = runtimeError(CodeInternalInvariant, "Run", "nil terminal error", nil)
+	}
+	result := RunResult{RunID: st.runID, Status: RunStatusFailed, Usage: st.usage, Metrics: st.metrics(), Error: err}
+	if errors.Is(err.Cause, context.Canceled) || err.Code == CodeCanceled {
+		result.Status = RunStatusCanceled
+	}
+	if err.Code == CodeDeadlineExceeded {
+		result.Status = RunStatusDeadlineExceeded
+	}
+	turn := st.currentTurn()
+	st.a.closeOpenCalls(st.runID, &st.batch, err, result.Status)
+	_ = st.end(turn, result, nil)
+	return result, err
+}
+
+// settle ends the Run as completed with assistant as its final Message. When
+// the write that ends it fails, the Run failed instead.
+func (st *runState) settle(turn TurnNumber, assistant Message, stopped bool, reason string) (RunResult, error) {
+	final := assistant.Clone()
+	result := RunResult{RunID: st.runID, Status: RunStatusCompleted, FinalMessage: &final, Usage: st.usage, Metrics: st.metrics()}
+	writeErr := st.end(turn, result, func(e *RunEnded) {
+		if stopped {
+			e.StoppedByExtension = true
+			e.StopReason = reason
+		}
+	})
+	if writeErr != nil {
+		// The write that ends the Run failed, so the Record does not
+		// say the Run ended: the Run failed, whatever the reply was.
+		result.Status = RunStatusFailed
+		result.Error = writeErr
+		return result, writeErr
+	}
+	return result, nil
+}
+
 // executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
 // appends no user Message and picks up the committed transcript as it stands.
 func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
@@ -158,98 +281,16 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		a.onRunStart(runID)
 	}
 
-	var totalUsage Usage
-	var final *Message
-	var toolCalls uint32
-	var turns uint32
-	var truncatedContinuations uint32
-	var textBytes, reasoningBytes uint64
-	runStarted := time.Now()
-	runMetrics := func() RunMetrics {
-		return RunMetrics{
-			ElapsedMS:      millis(time.Since(runStarted)),
-			Turns:          turns,
-			ToolCalls:      toolCalls,
-			TextBytes:      textBytes,
-			ReasoningBytes: reasoningBytes,
-		}
-	}
-	setTurn := func(turn TurnNumber) {
-		a.runMu.Lock()
-		a.currentTurn = turn
-		a.runMu.Unlock()
-	}
-	hd := func(turn TurnNumber) Header { return NewHeader(a.id, runID, turn) }
-	// batch is the Tool batch of the last committed assistant Message, while
-	// some of its calls still have no committed result.
-	var batch openBatch
-
-	// end stores the Run's last Events, RunEnded among them. A Run may not
-	// end without exactly one RunEnded, so it is staged even when the Run
-	// failed on a write: a Journal that has stopped refuses it too, and then
-	// nothing was stored, and nothing is sent.
-	end := func(turn TurnNumber, result RunResult, extra func(*RunEnded)) *RuntimeError {
-		if !a.keepsQueued(result.Status) {
-			a.discardControl(runID, turn)
-		}
-		// No Abort can start a write from here on, and the ones that did
-		// have finished: an abort_requested never follows run_ended.
-		a.runMu.Lock()
-		a.runEnding = true
-		a.runMu.Unlock()
-		a.waitForAborts()
-		if a.endingHook != nil {
-			a.endingHook()
-		}
-		metrics := runMetrics()
-		ended := RunEnded{
-			Header:         hd(turn),
-			Status:         result.Status,
-			Turns:          metrics.Turns,
-			ToolCalls:      metrics.ToolCalls,
-			Usage:          result.Usage,
-			ElapsedMS:      metrics.ElapsedMS,
-			TextBytes:      metrics.TextBytes,
-			ReasoningBytes: metrics.ReasoningBytes,
-		}
-		if result.Error != nil {
-			ended.Cause = result.Error.Code
-		}
-		if extra != nil {
-			extra(&ended)
-		}
-		a.stage(ended)
-		return a.flush(ctx)
-	}
-	currentTurn := func() TurnNumber {
-		a.runMu.Lock()
-		defer a.runMu.Unlock()
-		return a.currentTurn
-	}
-	fail := func(err *RuntimeError) (RunResult, error) {
-		if err == nil {
-			err = runtimeError(CodeInternalInvariant, "Run", "nil terminal error", nil)
-		}
-		result := RunResult{RunID: runID, Status: RunStatusFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
-		if errors.Is(err.Cause, context.Canceled) || err.Code == CodeCanceled {
-			result.Status = RunStatusCanceled
-		}
-		if err.Code == CodeDeadlineExceeded {
-			result.Status = RunStatusDeadlineExceeded
-		}
-		turn := currentTurn()
-		a.closeOpenCalls(runID, &batch, err, result.Status)
-		_ = end(turn, result, nil)
-		return result, err
-	}
+	st := &runState{a: a, ctx: ctx, runCtx: runCtx, runID: runID, started: time.Now()}
+	hd := st.header
 
 	a.stage(RunStarted{Header: hd(0)})
 	if err := a.refreshToolSets(runCtx, hd(0)); err != nil {
-		return fail(err)
+		return st.fail(err)
 	}
 	runStart := a.transcript.Len()
 	if err := a.measureTranscript(); err != nil {
-		return fail(asRuntimeError(err))
+		return st.fail(asRuntimeError(err))
 	}
 
 	if prompt != nil {
@@ -258,32 +299,32 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		prompt.RunID = runID
 		if err := a.commitMessage(*prompt); err != nil {
-			return fail(asRuntimeError(err))
+			return st.fail(asRuntimeError(err))
 		}
 		a.stage(MessageCommitted{Header: hd(0), Message: prompt.Clone(), Source: MessageSourcePrompt})
 		if err := a.flush(runCtx); err != nil {
-			return fail(err)
+			return st.fail(err)
 		}
 	}
 
 	for turn := TurnNumber(1); ; turn++ {
 		if err := contextFailure(runCtx, "turn"); err != nil {
-			return fail(err)
+			return st.fail(err)
 		}
-		turns++
-		setTurn(turn)
+		st.turns++
+		st.setTurn(turn)
 		a.stage(TurnStarted{Header: hd(turn)})
 		turnStarted := time.Now()
 
 		// The Tool surface is refreshed at the Turn boundary so every Tool the
 		// Model is shown in this request resolves for the whole Turn.
 		if err := a.refreshTools(); err != nil {
-			return fail(asRuntimeError(err))
+			return st.fail(asRuntimeError(err))
 		}
 		// A notice that waits goes in now, right before this model call: after
 		// the prompt, or after the Tool Results of the last Turn.
 		if err := a.commitQueuedNotices(runCtx, runID, turn); err != nil {
-			return fail(err)
+			return st.fail(err)
 		}
 
 		// build makes the request of this Turn from the Transcript as it
@@ -301,7 +342,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		current, assembleErr := build()
 		if assembleErr != nil {
-			return fail(assembleErr)
+			return st.fail(assembleErr)
 		}
 
 		// The Model is called here, once, and once more when it refuses the
@@ -320,7 +361,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 			changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refusal)
 			if prepareErr != nil {
-				return fail(prepareErr)
+				return st.fail(prepareErr)
 			}
 			if refused != nil && !changed {
 				// Nothing shortened the request: the refusal stands.
@@ -329,16 +370,16 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 			if changed {
 				if err := a.measureTranscript(); err != nil {
-					return fail(asRuntimeError(err))
+					return st.fail(asRuntimeError(err))
 				}
 				if err := a.syncLoadedTools(); err != nil {
-					return fail(asRuntimeError(err))
+					return st.fail(asRuntimeError(err))
 				}
 				if err := a.refreshTools(); err != nil {
-					return fail(asRuntimeError(err))
+					return st.fail(asRuntimeError(err))
 				}
 				if current, assembleErr = build(); assembleErr != nil {
-					return fail(assembleErr)
+					return st.fail(assembleErr)
 				}
 			}
 			contextBuilt := ContextBuilt{
@@ -363,12 +404,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			assistantID = MessageID(nextID("message"))
 			a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
 			if err := a.flush(runCtx); err != nil {
-				return fail(err)
+				return st.fail(err)
 			}
 			var callUsage Usage
 			assistant, callUsage, modelErr = a.readAssistant(runCtx, runID, turn, assistantID, current.request)
 			usage = callUsage
-			totalUsage = addUsage(totalUsage, callUsage)
+			st.usage = addUsage(st.usage, callUsage)
 			// A refusal before any output is the one failure a shorter request
 			// can mend, once per Turn.
 			if modelErr != nil && modelErr.Code == CodeContextOverflow && refused == nil &&
@@ -379,8 +420,8 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			break
 		}
 		turnText, turnReasoning := replyBytes(assistant)
-		textBytes += turnText
-		reasoningBytes += turnReasoning
+		st.textBytes += turnText
+		st.reasoningBytes += turnReasoning
 		if modelErr != nil && modelErr.Code == CodeCanceled && runCtx.Err() == nil && a.interrupting() {
 			// An Interrupt cut the call short: the text it had sent is kept as
 			// a Cut-off reply, and the Interrupt starts the next Turn.
@@ -389,7 +430,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 			a.stage(newTurnEnded(hd(turn), StopReasonCutOff, usage, turnStarted, turnText, turnReasoning))
 			if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
-				return fail(controlErr)
+				return st.fail(controlErr)
 			}
 			continue
 		}
@@ -402,7 +443,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				a.stage(ReplyCutOff{Header: hd(turn), Message: assistant.Clone(), Cause: modelErr.Code})
 				_ = a.flush(runCtx)
 			}
-			return fail(modelErr)
+			return st.fail(modelErr)
 		}
 		// A Message with Tool calls stopped for them, unless the output limit
 		// cut it off: StopReasonMaxTokens stays, so a TurnStopper sees the cut-off.
@@ -410,35 +451,15 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			assistant.StopReason = StopReasonToolCalls
 		}
 		if err := a.commitMessage(assistant); err != nil {
-			return fail(asRuntimeError(err))
+			return st.fail(asRuntimeError(err))
 		}
 		if len(assistant.ToolCalls) > 0 {
-			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
+			st.batch = openBatch{turn: turn, calls: assistant.ToolCalls}
 		}
 		a.stage(ReplyEnded{Header: hd(turn), Message: assistant.Clone(), Model: assistant.Model, StopReason: assistant.StopReason, ToolCalls: len(assistant.ToolCalls)})
 		replyNumber, err := a.flushNumbered(runCtx, EventKindReplyEnded)
 		if err != nil {
-			return fail(err)
-		}
-
-		settle := func(stopped bool, reason string) (RunResult, error) {
-			finalCopy := assistant.Clone()
-			final = &finalCopy
-			result := RunResult{RunID: runID, Status: RunStatusCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
-			writeErr := end(turn, result, func(e *RunEnded) {
-				if stopped {
-					e.StoppedByExtension = true
-					e.StopReason = reason
-				}
-			})
-			if writeErr != nil {
-				// The write that ends the Run failed, so the Record does not
-				// say the Run ended: the Run failed, whatever the reply was.
-				result.Status = RunStatusFailed
-				result.Error = writeErr
-				return result, writeErr
-			}
-			return result, nil
+			return st.fail(err)
 		}
 
 		if len(assistant.ToolCalls) == 0 {
@@ -449,20 +470,20 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
 			})
 			if stopErr != nil {
-				return fail(stopErr)
+				return st.fail(stopErr)
 			}
 			if decision.Stop {
-				return settle(true, decision.Reason)
+				return st.settle(turn, assistant, true, decision.Reason)
 			}
 			// Safe boundary at settlement: Steer and FollowUp both apply here.
 			// Cancellation is checked first so a queued continuation is never
 			// committed to a Run that is already ending.
 			if err := contextFailure(runCtx, "continuation"); err != nil {
-				return fail(err)
+				return st.fail(err)
 			}
 			injected, controlErr := a.consumeControl(runCtx, runID, turn, true)
 			if controlErr != nil {
-				return fail(controlErr)
+				return st.fail(controlErr)
 			}
 			if injected {
 				continue
@@ -471,28 +492,28 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// an answer: the Model ran out of room, often while reasoning.
 			// Within the configured bound the Run continues instead of
 			// settling on it.
-			if assistant.StopReason == StopReasonMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
-				truncatedContinuations++
+			if assistant.StopReason == StopReasonMaxTokens && st.truncatedContinuations < a.limits.MaxTruncatedContinuations {
+				st.truncatedContinuations++
 				// A notice, not a user Message: it starts no Round, so the
 				// reasoning of the cut reply stays in the request.
 				if err := a.commitNotice(runCtx, runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber); err != nil {
-					return fail(err)
+					return st.fail(err)
 				}
 				continue
 			}
-			return settle(false, "")
+			return st.settle(turn, assistant, false, "")
 		}
 
 		// Preflight is source ordered: resolve, validate, and run the Pre
 		// chain before any executor starts.
-		plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &toolCalls)
+		plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &st.toolCalls)
 		if planErr != nil {
-			return fail(planErr)
+			return st.fail(planErr)
 		}
 		// A blocked Tool is already settled at preflight: it ends without
 		// having started.
 		outcomes := make(map[int]ToolResult, len(plans))
-		batch.outcomes = outcomes
+		st.batch.outcomes = outcomes
 		for i := range plans {
 			if plans[i].blocked {
 				outcomes[i] = plans[i].result
@@ -526,7 +547,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				if err := a.commitMessage(resultMessage); err != nil {
 					return asRuntimeError(err)
 				}
-				batch.next = committed + 1
+				st.batch.next = committed + 1
 				a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
 				for _, load := range a.registry.announce(toolResult.LoadedTools) {
 					a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
@@ -549,7 +570,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				a.stage(ToolStarted{Header: hd(turn), MessageID: assistant.ID, CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID})
 			}
 			if err := a.flush(runCtx); err != nil {
-				return fail(err)
+				return st.fail(err)
 			}
 			completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
 			// A canceled group still reports what it knows, so the closing
@@ -558,13 +579,13 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				outcomes[index] = result
 			}
 			if err := commitUpTo(group[len(group)-1] + 1); err != nil {
-				return fail(err)
+				return st.fail(err)
 			}
 		}
 		if err := commitUpTo(len(plans)); err != nil {
-			return fail(err)
+			return st.fail(err)
 		}
-		batch = openBatch{}
+		st.batch = openBatch{}
 
 		// A load commits at the batch boundary, so a loaded Tool appears only
 		// in the next Model request. registryMu serializes the visibility
@@ -573,7 +594,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		loads, loadErr := a.registry.commitPending()
 		a.registryMu.Unlock()
 		if loadErr != nil {
-			return fail(asRuntimeError(loadErr))
+			return st.fail(asRuntimeError(loadErr))
 		}
 		for _, load := range loads {
 			if load.announced {
@@ -589,18 +610,18 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopReasonToolCalls,
 		})
 		if stopErr != nil {
-			return fail(stopErr)
+			return st.fail(stopErr)
 		}
 		if decision.Stop {
-			return settle(true, decision.Reason)
+			return st.settle(turn, assistant, true, decision.Reason)
 		}
 		// Safe boundary between Turns: Steer applies, FollowUp waits for
 		// settlement.
 		if err := contextFailure(runCtx, "continuation"); err != nil {
-			return fail(err)
+			return st.fail(err)
 		}
 		if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
-			return fail(controlErr)
+			return st.fail(controlErr)
 		}
 	}
 }
