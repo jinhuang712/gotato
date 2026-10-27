@@ -182,7 +182,7 @@ func TestGatewayDoesNotRetryTerminalQuota(t *testing.T) {
 	if !errors.As(err, &gatewayErr) {
 		t.Fatalf("err = %v", err)
 	}
-	if gatewayErr.Retryable {
+	if gatewayErr.Retryable() {
 		t.Fatalf("terminal quota 429 marked retryable: %+v", gatewayErr)
 	}
 	if calls.Load() != 1 {

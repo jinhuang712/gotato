@@ -76,7 +76,7 @@ func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, 
 				}
 				continue
 			}
-			return nil, &Error{Retryable: true, Message: requestErr.Error()}
+			return nil, &Error{retryable: true, Message: requestErr.Error()}
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			return response, nil

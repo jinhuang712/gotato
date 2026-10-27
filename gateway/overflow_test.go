@@ -60,7 +60,7 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 			if gatewayErr.Overflow != tc.want || gatewayErr.ContextOverflow() != tc.want {
 				t.Fatalf("Overflow = %v, want %v (%+v)", gatewayErr.Overflow, tc.want, gatewayErr)
 			}
-			if tc.want && gatewayErr.Retryable {
+			if tc.want && gatewayErr.Retryable() {
 				t.Fatalf("an overflow must not be retried: %+v", gatewayErr)
 			}
 			if calls.Load() != 1 {

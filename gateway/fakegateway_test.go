@@ -149,7 +149,7 @@ func TestFakeRefusalAsTooLongIsContextOverflowOnEachWireAPI(t *testing.T) {
 			fake, client := newFake(t, wire)
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi [quirk:overflow]")}})
 			gerr := asGatewayError(t, err)
-			if !gerr.ContextOverflow() || gerr.Retryable || gerr.StatusCode != 400 {
+			if !gerr.ContextOverflow() || gerr.Retryable() || gerr.StatusCode != 400 {
 				t.Fatalf("error = %+v", gerr)
 			}
 			if gerr.ContextLimit() != limits[wire.name] {

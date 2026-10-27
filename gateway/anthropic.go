@@ -561,7 +561,7 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 			message, kind = event.Error.Message, event.Error.Type
 		}
 		return &Error{
-			Retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
+			retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
 			Message:   message,
 			Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
 		}

@@ -100,5 +100,5 @@ func (m overflowMatcher) mentions(texts ...string) bool {
 
 // httpError is the Error for a refused request.
 func (m overflowMatcher) httpError(status int, retryable bool, body errorBody) *Error {
-	return &Error{StatusCode: status, Retryable: retryable, Message: body.Message, Overflow: m.isContextOverflow(status, body)}
+	return &Error{StatusCode: status, retryable: retryable, Message: body.Message, Overflow: m.isContextOverflow(status, body)}
 }

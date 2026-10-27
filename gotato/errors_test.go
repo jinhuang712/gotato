@@ -89,8 +89,8 @@ func TestErrorsSayWhetherTheyRanAndWhetherARetryMaySucceed(t *testing.T) {
 
 type transientError struct{ transient bool }
 
-func (e transientError) Error() string     { return "provider: slow down" }
-func (e transientError) IsRetryable() bool { return e.transient }
+func (e transientError) Error() string   { return "provider: slow down" }
+func (e transientError) Retryable() bool { return e.transient }
 
 func TestModelFailureIsRetryableWhenTheModelSaysSo(t *testing.T) {
 	for _, tc := range []struct {

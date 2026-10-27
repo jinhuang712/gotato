@@ -289,11 +289,11 @@ func TestAnthropicStreamErrorEventAndTruncation(t *testing.T) {
 			var gatewayErr *Error
 			switch name {
 			case "error event":
-				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable {
+				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() {
 					t.Fatalf("err = %v", err)
 				}
 			case "truncated":
-				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable || !strings.Contains(gatewayErr.Message, "before message_stop") {
+				if !errors.As(err, &gatewayErr) || !gatewayErr.Retryable() || !strings.Contains(gatewayErr.Message, "before message_stop") {
 					t.Fatalf("err = %v", err)
 				}
 			}

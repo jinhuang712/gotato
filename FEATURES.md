@@ -277,7 +277,7 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 | `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` carries it. |
 | `session_closing`, `session_closed` | yes | no | the live Session takes no more calls |
 | `store_failure` | not known | yes | the store could not write or read |
-| `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `IsRetryable() bool` |
+| `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `Retryable() bool` |
 | `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
 
 - A code is a `gotato.Code…` constant of type `ErrorCode`, and its name matches its string: `gotato.CodeBusy` is `busy`. A sentinel error is an `Err…` variable that carries a code: `service.ErrBusy` has `busy`, and `session.ErrExists`, `session.ErrExpired`, `service.ErrNotPersisted`, `modelctx.ErrBadRecap` and the other sentinels carry a code too.

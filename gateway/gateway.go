@@ -347,7 +347,7 @@ func (c *Client) Stream(ctx context.Context, request gotato.ModelRequest) (gotat
 
 type Error struct {
 	StatusCode int
-	Retryable  bool
+	retryable  bool
 	Message    string
 	// Overflow is set when the provider refused the request, with a 400 or
 	// 413, because it was longer than the model's context window.
@@ -370,10 +370,10 @@ func (e *Error) ContextLimit() int {
 	return limitIn(e.Message)
 }
 
-// IsRetryable reports whether the same request may succeed when sent again
+// Retryable reports whether the same request may succeed when sent again
 // (a rate limit, an overload, a broken stream). The runtime reads it by this
 // method, and sets Retryable on the Run's model_failure.
-func (e *Error) IsRetryable() bool { return e != nil && e.Retryable }
+func (e *Error) Retryable() bool { return e != nil && e.retryable }
 
 func (e *Error) Error() string {
 	if e == nil {
@@ -425,7 +425,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 				}
 				continue
 			}
-			return nil, &Error{Retryable: true, Message: err.Error()}
+			return nil, &Error{retryable: true, Message: err.Error()}
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			return response, nil

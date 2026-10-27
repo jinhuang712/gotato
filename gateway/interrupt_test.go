@@ -130,7 +130,7 @@ func TestStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 		t.Fatalf("delivered text = %q; output must not be duplicated or dropped", textOf(events))
 	}
 	var gerr *Error
-	if !errors.As(err, &gerr) || !gerr.Retryable || !strings.Contains(gerr.Message, "interrupted") {
+	if !errors.As(err, &gerr) || !gerr.Retryable() || !strings.Contains(gerr.Message, "interrupted") {
 		t.Fatalf("error = %v, want a retryable interruption", err)
 	}
 	if calls.Load() != 1 {
@@ -156,7 +156,7 @@ func TestStreamRestartsAreBounded(t *testing.T) {
 	defer func() { _ = stream.Close() }()
 	_, err = recvAll(t, stream)
 	var gerr *Error
-	if !errors.As(err, &gerr) || !gerr.Retryable {
+	if !errors.As(err, &gerr) || !gerr.Retryable() {
 		t.Fatalf("error = %v, want a retryable interruption", err)
 	}
 	if calls.Load() != 3 {
@@ -279,7 +279,7 @@ func TestResponsesStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 	defer func() { _ = stream.Close() }()
 	events, err := recvAll(t, stream)
 	var gerr *Error
-	if textOf(events) != "partial" || !errors.As(err, &gerr) || !gerr.Retryable {
+	if textOf(events) != "partial" || !errors.As(err, &gerr) || !gerr.Retryable() {
 		t.Fatalf("events = %+v, err = %v", events, err)
 	}
 	if calls.Load() != 1 {
@@ -349,7 +349,7 @@ func TestAnthropicStreamIsNotReplayedAfterOutputBegan(t *testing.T) {
 	defer func() { _ = stream.Close() }()
 	events, err := recvAll(t, stream)
 	var gerr *Error
-	if textOf(events) != "partial" || !errors.As(err, &gerr) || !gerr.Retryable {
+	if textOf(events) != "partial" || !errors.As(err, &gerr) || !gerr.Retryable() {
 		t.Fatalf("events = %+v, err = %v", events, err)
 	}
 	if calls.Load() != 1 {
