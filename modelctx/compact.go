@@ -87,8 +87,8 @@ func DropsReasoning(model gotato.Model) bool {
 type CompactReason string
 
 const (
-	// CompactReasonBelowMinTokens means the stretch since the last Checkpoint is below
-	// CompactConfig.MinTokens.
+	// CompactReasonBelowMinTokens means the stretch since the last Checkpoint is
+	// below CompactConfig.MinTokens.
 	CompactReasonBelowMinTokens CompactReason = "below_min_tokens"
 	// CompactReasonNothingToClose means the kept tail covers the whole stretch.
 	CompactReasonNothingToClose CompactReason = "nothing_to_close"
@@ -105,9 +105,9 @@ type Result struct {
 	TokensBefore   int                 `json:"tokens_before"`
 	TokensAfter    int                 `json:"tokens_after"`
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
-	// Merge reports the merge of the oldest Segments that followed the
-	// Segment's closing, when the Segments passed their budget: merged, or
-	// why not (MergeReasonRecapFailed, MergeReasonWriteFailed). It is absent when the
+	// Merge reports the merge of the oldest Segments that followed the Segment's
+	// closing, when the Segments passed their budget: merged, or why not
+	// (MergeReasonRecapFailed, MergeReasonWriteFailed). It is absent when the
 	// Segments fit their budget.
 	Merge *MergeResult `json:"merge,omitempty"`
 }
@@ -141,13 +141,14 @@ func causeOf(err error) gotato.ErrorCode {
 // sanctioned point).
 //
 // The kept tail starts at a Turn boundary, so a tool call is never separated
-// from its result (see CompactConfig). The loaded Tools the Segment called and the
-// kept tail calls stay loaded; the others are unloaded, each with a
+// from its result (see CompactConfig). The loaded Tools the Segment called and
+// the kept tail calls stay loaded; the others are unloaded, each with a
 // tool_unloaded Event (why: compaction).
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
-// "none"; the usage of a model call that was made is still recorded). A stretch below cfg.MinTokens, or one the tail covers whole, is
-// left as it is and returns a Result with Replaced false and a Reason.
+// "none"; the usage of a model call that was made is still recorded). A stretch
+// below cfg.MinTokens, or one the tail covers whole, is left as it is and
+// returns a Result with Replaced false and a Reason.
 func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")

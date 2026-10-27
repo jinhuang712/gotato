@@ -14,10 +14,10 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// DefaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most the
-// Segments together may hold, in estimated tokens (bytes ÷ 4), when the model
-// has no known window and neither the Agent nor the Session sets a ceiling.
-// With a ceiling, the budget is half of it (SegmentsBudget).
+// DefaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most
+// the Segments together may hold, in estimated tokens (bytes ÷ 4), when the
+// model has no known window and neither the Agent nor the Session sets a
+// ceiling. With a ceiling, the budget is half of it (SegmentsBudget).
 const DefaultSegmentsBudgetTokens = 32000
 
 // SegmentsBudget returns the most the Segments of a Context may hold, in
@@ -60,13 +60,14 @@ type MergeReason string
 const (
 	// MergeReasonUnderBudget means the Segments together fit their budget.
 	MergeReasonUnderBudget MergeReason = "under_budget"
-	// MergeReasonNothingToMerge means fewer than two Segments, so none can be merged.
-	MergeReasonNothingToMerge MergeReason = "nothing_to_merge"
-	// MergeReasonRecapFailed means the Recap of the merge could not be written, and
-	// nothing was merged.
-	MergeReasonRecapFailed MergeReason = "recap_failed"
-	// MergeReasonWriteFailed means the Record could not be written, and nothing was
+	// MergeReasonNothingToMerge means fewer than two Segments, so none can be
 	// merged.
+	MergeReasonNothingToMerge MergeReason = "nothing_to_merge"
+	// MergeReasonRecapFailed means the Recap of the merge could not be written,
+	// and nothing was merged.
+	MergeReasonRecapFailed MergeReason = "recap_failed"
+	// MergeReasonWriteFailed means the Record could not be written, and nothing
+	// was merged.
 	MergeReasonWriteFailed MergeReason = "write_failed"
 )
 
@@ -120,12 +121,12 @@ type MergeResult struct {
 var mergeSegments = (*session.Record).MergeSegments
 
 // MergeSegments merges the oldest Segments of the Context into one merged
-// Segment when the Segments together pass their budget (cfg.BudgetTokens). It takes
-// the oldest until the Segments left fit in half the budget, and at least two,
-// and the merged Segment, which keeps their numbers in <segment n="1-3">, holds
-// one Recap and opens the Context. If the Context already opens with a merged
-// Segment, it is the first to merge, and its Recap goes into the new one. The
-// Segments it replaces stay in the log, readable by their own numbers
+// Segment when the Segments together pass their budget (cfg.BudgetTokens). It
+// takes the oldest until the Segments left fit in half the budget, and at least
+// two, and the merged Segment, which keeps their numbers in <segment n="1-3">,
+// holds one Recap and opens the Context. If the Context already opens with a
+// merged Segment, it is the first to merge, and its Recap goes into the new
+// one. The Segments it replaces stay in the log, readable by their own numbers
 // (ReadSegmentTool). The Segments left, and the tail, keep their bytes.
 //
 // The Recap comes from cfg.Recap when it is a MergeRecapWriter (ModelRecap

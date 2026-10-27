@@ -152,8 +152,8 @@ type ToolCall struct {
 // ToolResultStatus says how a Tool call ended.
 type ToolResultStatus string
 
-// The statuses of a ToolResult. ToolResultStatusBlocked means an Extension refused
-// the call, so the Tool did not run (Executed is false).
+// The statuses of a ToolResult. ToolResultStatusBlocked means an Extension
+// refused the call, so the Tool did not run (Executed is false).
 const (
 	ToolResultStatusOK       ToolResultStatus = "ok"
 	ToolResultStatusBlocked  ToolResultStatus = "blocked"
@@ -213,8 +213,9 @@ type Usage struct {
 }
 
 // StopReason is why a model call or a Turn stopped. A Message's StopReason is
-// the Model's: StopReasonToolCalls when it called Tools, and StopReasonMaxTokens when the
-// output limit cut it off, even next to Tool calls.
+// the Model's: StopReasonToolCalls when it called Tools, and
+// StopReasonMaxTokens when the output limit cut it off, even next to Tool
+// calls.
 type StopReason string
 
 // The stop reasons. StopReasonNone means no model call ended the Message.
@@ -263,7 +264,8 @@ type RunResult struct {
 	Error        *RuntimeError `json:"error,omitempty"`
 }
 
-// Clone returns a deep copy of r: its FinalMessage and Error are not shared with r.
+// Clone returns a deep copy of r: its FinalMessage and Error are not shared
+// with r.
 func (r RunResult) Clone() RunResult {
 	out := r
 	if r.FinalMessage != nil {

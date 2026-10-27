@@ -313,8 +313,8 @@ func (c *Client) DeferredTools() DeferredForm {
 	return DeferredFormList
 }
 
-// ContextWindowTokens returns the model's context window in tokens as configured,
-// or 0 when it is not. The gateway keeps no table of windows.
+// ContextWindowTokens returns the model's context window in tokens as
+// configured, or 0 when it is not. The gateway keeps no table of windows.
 func (c *Client) ContextWindowTokens() int { return c.contextWindow }
 
 // CacheRetention returns how long the provider keeps the prompt cache after a

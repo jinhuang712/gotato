@@ -71,7 +71,8 @@ func WithRunStart(fn func(RunID)) SessionOption {
 	return func(c *sessionConfig) error { c.onRunStart = fn; return nil }
 }
 
-// WithModel sets the Model the Session calls. NewSession fails when none is set.
+// WithModel sets the Model the Session calls. NewSession fails when none is
+// set.
 func WithModel(model Model) SessionOption {
 	return func(c *sessionConfig) error {
 		if model == nil {
@@ -113,11 +114,11 @@ func WithCacheKey(key string) SessionOption {
 }
 
 // WithMaxEffect caps the Effect of the Tools the Session offers. A Tool above
-// the cap, including one in a ToolSet, is never in the catalog, never found by a
-// search, never loaded and never shown to the
-// Model, and a call to it fails as a call to an unknown Tool. A Tool that
-// declares no Effect ranks as ToolEffectDestructive, so any lower cap hides it.
-// ToolEffectUnspecified means no cap, which is the default.
+// the cap, including one in a ToolSet, is never in the catalog, never found by
+// a search, never loaded and never shown to the Model, and a call to it fails
+// as a call to an unknown Tool. A Tool that declares no Effect ranks as
+// ToolEffectDestructive, so any lower cap hides it. ToolEffectUnspecified means
+// no cap, which is the default.
 func WithMaxEffect(effect ToolEffect) SessionOption {
 	return func(c *sessionConfig) error {
 		if !effect.Valid() {
@@ -815,8 +816,9 @@ func cutOffReply(partial Message) Message {
 // coalesceDeltas merges the Parts that streamed deltas produced into one Part
 // per contiguous block of text or of reasoning, so a reply is stored and
 // replayed as the blocks the provider sent rather than as its fragments. A
-// Reasoning block closes when its signature arrives (ModelEventKindReasoningDone), so
-// a following Reasoning delta starts a new block. Other Parts are kept as is.
+// Reasoning block closes when its signature arrives
+// (ModelEventKindReasoningDone), so a following Reasoning delta starts a new
+// block. Other Parts are kept as is.
 func coalesceDeltas(parts []ContentPart) []ContentPart {
 	if len(parts) < 2 {
 		return parts

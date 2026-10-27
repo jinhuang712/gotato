@@ -85,8 +85,8 @@ type ModelEventKind string
 const (
 	ModelEventKindTextDelta      ModelEventKind = "text_delta"
 	ModelEventKindReasoningDelta ModelEventKind = "reasoning_delta"
-	// ModelEventKindReasoningDone carries an opaque provider reasoning artifact. Core
-	// stores it with the reasoning part but never interprets it.
+	// ModelEventKindReasoningDone carries an opaque provider reasoning artifact.
+	// Core stores it with the reasoning part but never interprets it.
 	ModelEventKindReasoningDone ModelEventKind = "reasoning_done"
 	ModelEventKindToolCall      ModelEventKind = "tool_call"
 	ModelEventKindUsage         ModelEventKind = "usage"

@@ -201,8 +201,8 @@ func (a *AutoCompactor) PendingFor(request gotato.ModelRequest) bool {
 	return a.session != nil && ceiling > 0 && a.size(a.session.Messages(), requestOverhead(request)) > ceiling
 }
 
-// CeilingTokens returns the estimated-token size past which a Session compacts first
-// (CompactPolicy.EffectiveCeilingTokens); 0 means this trigger is off.
+// CeilingTokens returns the estimated-token size past which a Session compacts
+// first (CompactPolicy.EffectiveCeilingTokens); 0 means this trigger is off.
 func (a *AutoCompactor) CeilingTokens() int { return a.policy.EffectiveCeilingTokens() }
 
 // size is the Context's size in tokens: the input and output tokens the last

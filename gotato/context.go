@@ -403,8 +403,8 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 // ForModel reduces Messages to the fields a provider needs: role, parts
 // (without runtime metadata), tool calls, and tool results. Runtime fields
 // (IDs, usage, stop reasons) are dropped so they can never perturb the prompt
-// bytes between Turns. A reply cut off mid-stream (StopReasonCutOff) is left out:
-// the Model sees what it saw before that reply started.
+// bytes between Turns. A reply cut off mid-stream (StopReasonCutOff) is left
+// out: the Model sees what it saw before that reply started.
 //
 // Text that imitates one of Gotato's four tags (see EscapeTags) is escaped in
 // user and assistant text, json Parts (with the JSON escape for "<", so the
