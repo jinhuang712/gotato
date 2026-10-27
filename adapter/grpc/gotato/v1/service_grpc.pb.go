@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             (unknown)
-// source: gotato/v2/service.proto
+// source: gotato/v1/service.proto
 
-package gotatov2
+package gotatov1
 
 import (
 	context "context"
@@ -19,22 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SessionService_Contract_FullMethodName      = "/gotato.v2.SessionService/Contract"
-	SessionService_Agents_FullMethodName        = "/gotato.v2.SessionService/Agents"
-	SessionService_CreateSession_FullMethodName = "/gotato.v2.SessionService/CreateSession"
-	SessionService_GetSession_FullMethodName    = "/gotato.v2.SessionService/GetSession"
-	SessionService_ListSessions_FullMethodName  = "/gotato.v2.SessionService/ListSessions"
-	SessionService_DeleteSession_FullMethodName = "/gotato.v2.SessionService/DeleteSession"
-	SessionService_ForkSession_FullMethodName   = "/gotato.v2.SessionService/ForkSession"
-	SessionService_Run_FullMethodName           = "/gotato.v2.SessionService/Run"
-	SessionService_StreamRun_FullMethodName     = "/gotato.v2.SessionService/StreamRun"
-	SessionService_StreamSession_FullMethodName = "/gotato.v2.SessionService/StreamSession"
-	SessionService_CancelRun_FullMethodName     = "/gotato.v2.SessionService/CancelRun"
-	SessionService_SendMessage_FullMethodName   = "/gotato.v2.SessionService/SendMessage"
-	SessionService_Notice_FullMethodName        = "/gotato.v2.SessionService/Notice"
-	SessionService_Events_FullMethodName        = "/gotato.v2.SessionService/Events"
-	SessionService_Context_FullMethodName       = "/gotato.v2.SessionService/Context"
-	SessionService_Compact_FullMethodName       = "/gotato.v2.SessionService/Compact"
+	SessionService_Contract_FullMethodName      = "/gotato.v1.SessionService/Contract"
+	SessionService_Agents_FullMethodName        = "/gotato.v1.SessionService/Agents"
+	SessionService_CreateSession_FullMethodName = "/gotato.v1.SessionService/CreateSession"
+	SessionService_GetSession_FullMethodName    = "/gotato.v1.SessionService/GetSession"
+	SessionService_ListSessions_FullMethodName  = "/gotato.v1.SessionService/ListSessions"
+	SessionService_DeleteSession_FullMethodName = "/gotato.v1.SessionService/DeleteSession"
+	SessionService_ForkSession_FullMethodName   = "/gotato.v1.SessionService/ForkSession"
+	SessionService_Run_FullMethodName           = "/gotato.v1.SessionService/Run"
+	SessionService_StreamRun_FullMethodName     = "/gotato.v1.SessionService/StreamRun"
+	SessionService_StreamSession_FullMethodName = "/gotato.v1.SessionService/StreamSession"
+	SessionService_CancelRun_FullMethodName     = "/gotato.v1.SessionService/CancelRun"
+	SessionService_SendMessage_FullMethodName   = "/gotato.v1.SessionService/SendMessage"
+	SessionService_Notice_FullMethodName        = "/gotato.v1.SessionService/Notice"
+	SessionService_Events_FullMethodName        = "/gotato.v1.SessionService/Events"
+	SessionService_Context_FullMethodName       = "/gotato.v1.SessionService/Context"
+	SessionService_Compact_FullMethodName       = "/gotato.v1.SessionService/Compact"
 )
 
 // SessionServiceClient is the client API for SessionService service.
@@ -748,7 +748,7 @@ func _SessionService_Compact_Handler(srv interface{}, ctx context.Context, dec f
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var SessionService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "gotato.v2.SessionService",
+	ServiceName: "gotato.v1.SessionService",
 	HandlerType: (*SessionServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -821,5 +821,5 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "gotato/v2/service.proto",
+	Metadata: "gotato/v1/service.proto",
 }

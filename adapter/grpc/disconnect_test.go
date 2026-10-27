@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // hangingModel streams nothing until its call ends, as a slow provider does.
@@ -54,7 +54,7 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 		_ = connection.Close()
 		grpcServer.Stop()
 	})
-	client := gotatov2.NewSessionServiceClient(connection)
+	client := gotatov1.NewSessionServiceClient(connection)
 
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "slow", nil)
@@ -63,7 +63,7 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 	}
 	clientCtx, disconnect := context.WithCancel(ctx)
 	defer disconnect()
-	stream, err := client.StreamRun(clientCtx, &gotatov2.RunRequest{SessionId: s.ID(), Input: &gotatov2.RunRequest_Prompt{Prompt: "hello?"}})
+	stream, err := client.StreamRun(clientCtx, &gotatov1.RunRequest{SessionId: s.ID(), Input: &gotatov1.RunRequest_Prompt{Prompt: "hello?"}})
 	if err != nil {
 		t.Fatal(err)
 	}

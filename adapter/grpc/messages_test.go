@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // gate holds the first reply of a Run until released.
@@ -59,7 +59,7 @@ func (p *peers) dial(_ context.Context, address string) (net.Conn, error) {
 type node struct {
 	runner *service.Runner
 	server *Server
-	client gotatov2.SessionServiceClient
+	client gotatov1.SessionServiceClient
 	calls  atomic.Int64
 }
 
@@ -106,7 +106,7 @@ func newNode(t *testing.T, store session.Store, mesh *peers, name string, model 
 		_ = n.server.Close()
 		_ = n.runner.Close(context.Background())
 	})
-	n.client = gotatov2.NewSessionServiceClient(connection)
+	n.client = gotatov1.NewSessionServiceClient(connection)
 	return n
 }
 
@@ -157,7 +157,7 @@ func TestSendMessageQueuesForTheRunInFlight(t *testing.T) {
 	a := newNode(t, store, mesh, "instance-a", g, false)
 	id, wait := running(t, a, g)
 
-	response, err := a.client.SendMessage(context.Background(), &gotatov2.SendMessageRequest{SessionId: id, Kind: "interrupt", Text: "change course"})
+	response, err := a.client.SendMessage(context.Background(), &gotatov1.SendMessageRequest{SessionId: id, Kind: "interrupt", Text: "change course"})
 	if err != nil || !response.GetQueued() || response.GetMessageId() == "" || response.GetRun() != nil {
 		t.Fatalf("SendMessage = %v, %v; want queued with an ID", response, err)
 	}
@@ -168,7 +168,7 @@ func TestSendMessageQueuesForTheRunInFlight(t *testing.T) {
 	}
 
 	// An invalid message is refused before it runs.
-	_, err = a.client.SendMessage(context.Background(), &gotatov2.SendMessageRequest{SessionId: id, Kind: "shout", Text: "x"})
+	_, err = a.client.SendMessage(context.Background(), &gotatov1.SendMessageRequest{SessionId: id, Kind: "shout", Text: "x"})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("a bad kind = %v, want INVALID_ARGUMENT", err)
 	}
@@ -194,10 +194,10 @@ func TestSendMessageForARunElsewhereIsNotWriter(t *testing.T) {
 		}
 	}
 	var trailer metadata.MD
-	_, err := b.client.SendMessage(context.Background(), &gotatov2.SendMessageRequest{SessionId: id, Text: "from b"}, grpc.Trailer(&trailer))
+	_, err := b.client.SendMessage(context.Background(), &gotatov1.SendMessageRequest{SessionId: id, Text: "from b"}, grpc.Trailer(&trailer))
 	check("SendMessage", trailer, err)
 	trailer = nil
-	_, err = b.client.CancelRun(context.Background(), &gotatov2.CancelRunRequest{Target: &gotatov2.CancelRunRequest_SessionId{SessionId: id}}, grpc.Trailer(&trailer))
+	_, err = b.client.CancelRun(context.Background(), &gotatov1.CancelRunRequest{Target: &gotatov1.CancelRunRequest_SessionId{SessionId: id}}, grpc.Trailer(&trailer))
 	check("CancelRun", trailer, err)
 
 	close(g.release)
@@ -206,7 +206,7 @@ func TestSendMessageForARunElsewhereIsNotWriter(t *testing.T) {
 		t.Fatalf("transcript = %q; the refused messages must leave nothing", got)
 	}
 	// With no Run going, b takes the Session over and runs the message.
-	response, err := b.client.SendMessage(context.Background(), &gotatov2.SendMessageRequest{SessionId: id, Text: "now from b"})
+	response, err := b.client.SendMessage(context.Background(), &gotatov1.SendMessageRequest{SessionId: id, Text: "now from b"})
 	if err != nil || response.GetQueued() || response.GetRun().GetStatus() != "completed" {
 		t.Fatalf("SendMessage with no Run going = %v, %v; want a new Run", response, err)
 	}
@@ -220,7 +220,7 @@ func TestForwardingSendsTheCallToTheWriter(t *testing.T) {
 	id, wait := running(t, a, g)
 	before := a.calls.Load()
 
-	response, err := b.client.SendMessage(context.Background(), &gotatov2.SendMessageRequest{SessionId: id, Text: "via b"})
+	response, err := b.client.SendMessage(context.Background(), &gotatov1.SendMessageRequest{SessionId: id, Text: "via b"})
 	if err != nil || !response.GetQueued() {
 		t.Fatalf("forwarded SendMessage = %v, %v; want the writer's queued answer", response, err)
 	}
@@ -228,7 +228,7 @@ func TestForwardingSendsTheCallToTheWriter(t *testing.T) {
 		t.Fatalf("the writer saw %d calls, want 1 forwarded", a.calls.Load()-before)
 	}
 	// A Stop is forwarded too.
-	if _, err := b.client.CancelRun(context.Background(), &gotatov2.CancelRunRequest{Target: &gotatov2.CancelRunRequest_SessionId{SessionId: id}}); err != nil {
+	if _, err := b.client.CancelRun(context.Background(), &gotatov1.CancelRunRequest{Target: &gotatov1.CancelRunRequest_SessionId{SessionId: id}}); err != nil {
 		t.Fatalf("forwarded CancelRun = %v", err)
 	}
 	wait()
@@ -258,7 +258,7 @@ func TestAForwardedCallIsNeverForwardedAgain(t *testing.T) {
 
 	ctx := metadata.AppendToOutgoingContext(context.Background(), ForwardedKey, "true")
 	var trailer metadata.MD
-	_, err := b.client.SendMessage(ctx, &gotatov2.SendMessageRequest{SessionId: id, Text: "again"}, grpc.Trailer(&trailer))
+	_, err := b.client.SendMessage(ctx, &gotatov1.SendMessageRequest{SessionId: id, Text: "again"}, grpc.Trailer(&trailer))
 	if status.Code(err) != codes.FailedPrecondition || len(trailer.Get(WriterKey)) != 1 {
 		t.Fatalf("a forwarded call = %v, trailer %v; want not_writer", err, trailer)
 	}

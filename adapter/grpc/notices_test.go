@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // A notice is queued for the Run in flight and answered at once with the
@@ -25,7 +25,7 @@ func TestNoticeIsQueuedAndReportedAsAnEvent(t *testing.T) {
 	a := newNode(t, store, mesh, "instance-a", g, false)
 	id, wait := running(t, a, g)
 
-	response, err := a.client.Notice(context.Background(), &gotatov2.NoticeRequest{SessionId: id, Kind: "order_update", Text: "Order 42 was delivered."})
+	response, err := a.client.Notice(context.Background(), &gotatov1.NoticeRequest{SessionId: id, Kind: "order_update", Text: "Order 42 was delivered."})
 	if err != nil || !response.GetQueued() || response.GetNumber() == 0 || response.GetMessageId() == "" || response.GetSessionId() != id {
 		t.Fatalf("Notice = %v, %v; want queued with a number", response, err)
 	}
@@ -42,12 +42,12 @@ func TestNoticeIsQueuedAndReportedAsAnEvent(t *testing.T) {
 	}
 
 	// Both steps are on the wire as Events of their own.
-	stream, err := a.client.Events(context.Background(), &gotatov2.EventsRequest{SessionId: id})
+	stream, err := a.client.Events(context.Background(), &gotatov1.EventsRequest{SessionId: id})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var queued *gotatov2.NoticeQueued
-	var committed *gotatov2.NoticeCommitted
+	var queued *gotatov1.NoticeQueued
+	var committed *gotatov1.NoticeCommitted
 	var queuedNumber uint64
 	for {
 		event, err := stream.Recv()
@@ -69,7 +69,7 @@ func TestNoticeIsQueuedAndReportedAsAnEvent(t *testing.T) {
 	}
 
 	// A refused notice is refused before it queues.
-	for name, request := range map[string]*gotatov2.NoticeRequest{
+	for name, request := range map[string]*gotatov1.NoticeRequest{
 		"reserved": {SessionId: id, Kind: "time_away", Text: "x"},
 		"no text":  {SessionId: id, Kind: "k"},
 	} {
@@ -77,7 +77,7 @@ func TestNoticeIsQueuedAndReportedAsAnEvent(t *testing.T) {
 			t.Fatalf("%s = %v, want INVALID_ARGUMENT", name, err)
 		}
 	}
-	if _, err := a.client.Notice(context.Background(), &gotatov2.NoticeRequest{SessionId: "missing", Kind: "k", Text: "x"}); status.Code(err) != codes.NotFound {
+	if _, err := a.client.Notice(context.Background(), &gotatov1.NoticeRequest{SessionId: "missing", Kind: "k", Text: "x"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("a notice for a missing Session = %v, want NOT_FOUND", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestNoticeForARunElsewhereIsNotWriterOrIsForwarded(t *testing.T) {
 	id, wait := running(t, a, g)
 
 	var trailer metadata.MD
-	_, err := plain.client.Notice(context.Background(), &gotatov2.NoticeRequest{SessionId: id, Kind: "k", Text: "from b"}, grpc.Trailer(&trailer))
+	_, err := plain.client.Notice(context.Background(), &gotatov1.NoticeRequest{SessionId: id, Kind: "k", Text: "from b"}, grpc.Trailer(&trailer))
 	if status.Code(err) != codes.FailedPrecondition || trailer.Get(NotRunKey)[0] != "true" || trailer.Get(RetryableKey)[0] != "true" {
 		t.Fatalf("Notice = %v, trailer %v; want FAILED_PRECONDITION, not run, retryable", err, trailer)
 	}
@@ -99,7 +99,7 @@ func TestNoticeForARunElsewhereIsNotWriterOrIsForwarded(t *testing.T) {
 		t.Fatalf("trailer = %v, want the writer's address", trailer)
 	}
 	before := a.calls.Load()
-	response, err := forwarding.client.Notice(context.Background(), &gotatov2.NoticeRequest{SessionId: id, Kind: "k", Text: "via c"})
+	response, err := forwarding.client.Notice(context.Background(), &gotatov1.NoticeRequest{SessionId: id, Kind: "k", Text: "via c"})
 	if err != nil || !response.GetQueued() || a.calls.Load() != before+1 {
 		t.Fatalf("forwarded Notice = %v, %v (%d calls at the writer)", response, err, a.calls.Load()-before)
 	}

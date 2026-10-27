@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // A new ErrorCode must be given a gRPC code on purpose: this fails until the
@@ -66,13 +66,13 @@ func TestRefusalsCarryNotRunAndRetryable(t *testing.T) {
 	ctx := context.Background()
 
 	var trailer metadata.MD
-	_, err = client.Run(ctx, &gotatov2.RunRequest{SessionId: "missing", Input: &gotatov2.RunRequest_Prompt{Prompt: "hi"}}, grpc.Trailer(&trailer))
+	_, err = client.Run(ctx, &gotatov1.RunRequest{SessionId: "missing", Input: &gotatov1.RunRequest_Prompt{Prompt: "hi"}}, grpc.Trailer(&trailer))
 	if status.Code(err) != codes.NotFound || len(trailer.Get(NotRunKey)) != 1 || len(trailer.Get(RetryableKey)) != 0 {
 		t.Fatalf("Run on a missing Session = %v, trailer %v; want NOT_FOUND, not run, not retryable", err, trailer)
 	}
 
 	trailer = nil
-	_, err = client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: "missing"}, grpc.Trailer(&trailer))
+	_, err = client.GetSession(ctx, &gotatov1.SessionRequest{SessionId: "missing"}, grpc.Trailer(&trailer))
 	if status.Code(err) != codes.NotFound || len(trailer.Get(NotRunKey)) != 1 {
 		t.Fatalf("GetSession of a missing Session = %v, trailer %v; want NOT_FOUND, not run", err, trailer)
 	}
@@ -81,7 +81,7 @@ func TestRefusalsCarryNotRunAndRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	trailer = nil
-	_, err = client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "hi"}}, grpc.Trailer(&trailer))
+	_, err = client.Run(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "hi"}}, grpc.Trailer(&trailer))
 	if status.Code(err) != codes.Unavailable || len(trailer.Get(NotRunKey)) != 1 || len(trailer.Get(RetryableKey)) != 1 {
 		t.Fatalf("Run on a draining instance = %v, trailer %v; want UNAVAILABLE, not run, retryable", err, trailer)
 	}

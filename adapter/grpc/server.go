@@ -24,13 +24,13 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // ContractVersion is the gRPC contract version. It counts breaking changes to
 // what the service returns, JSON payloads included; the protobuf package
-// stays gotato.v2 until its schema itself breaks.
-const ContractVersion = "4"
+// stays gotato.v1 until its schema itself breaks.
+const ContractVersion = "1"
 
 // SessionIDKey is the metadata key that names the Session an RPC is about. A
 // load balancer hashes on it to send every call for a Session to one instance,
@@ -107,9 +107,9 @@ func streamFailed(stream grpc.ServerStream, err error) error {
 	return statusOf(err)
 }
 
-// Server implements gotatov2.SessionServiceServer.
+// Server implements gotatov1.SessionServiceServer.
 type Server struct {
-	gotatov2.UnimplementedSessionServiceServer
+	gotatov1.UnimplementedSessionServiceServer
 	runner  *service.Runner
 	forward *forwarder
 }
@@ -127,14 +127,14 @@ func New(runner *service.Runner, options ...Option) *Server {
 
 // Register registers the service on a gRPC server.
 func (s *Server) Register(registrar grpc.ServiceRegistrar) {
-	gotatov2.RegisterSessionServiceServer(registrar, s)
+	gotatov1.RegisterSessionServiceServer(registrar, s)
 }
 
-func (s *Server) Contract(context.Context, *gotatov2.ContractRequest) (*gotatov2.ContractResponse, error) {
-	return &gotatov2.ContractResponse{Version: ContractVersion}, nil
+func (s *Server) Contract(context.Context, *gotatov1.ContractRequest) (*gotatov1.ContractResponse, error) {
+	return &gotatov1.ContractResponse{Version: ContractVersion}, nil
 }
 
-func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.AgentsResponse, error) {
+func (s *Server) Agents(context.Context, *gotatov1.AgentsRequest) (*gotatov1.AgentsResponse, error) {
 	names := s.runner.Agents()
 	caps := map[string]string{}
 	for _, name := range names {
@@ -142,10 +142,10 @@ func (s *Server) Agents(context.Context, *gotatov2.AgentsRequest) (*gotatov2.Age
 			caps[name] = string(spec.MaxEffect)
 		}
 	}
-	return &gotatov2.AgentsResponse{Agents: names, MaxEffect: caps}, nil
+	return &gotatov1.AgentsResponse{Agents: names, MaxEffect: caps}, nil
 }
 
-func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSessionRequest) (*gotatov2.SessionSummary, error) {
+func (s *Server) CreateSession(ctx context.Context, request *gotatov1.CreateSessionRequest) (*gotatov1.SessionSummary, error) {
 	if err := checkSessionID(ctx, request.GetId()); err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (s *Server) CreateSession(ctx context.Context, request *gotatov2.CreateSess
 	return summaryOf(session.SummaryOf(created)), nil
 }
 
-func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionDocument, error) {
+func (s *Server) GetSession(ctx context.Context, request *gotatov1.SessionRequest) (*gotatov1.SessionDocument, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -180,32 +180,32 @@ func (s *Server) GetSession(ctx context.Context, request *gotatov2.SessionReques
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &gotatov2.SessionDocument{DocumentJson: data}, nil
+	return &gotatov1.SessionDocument{DocumentJson: data}, nil
 }
 
-func (s *Server) ListSessions(ctx context.Context, _ *gotatov2.ListSessionsRequest) (*gotatov2.ListSessionsResponse, error) {
+func (s *Server) ListSessions(ctx context.Context, _ *gotatov1.ListSessionsRequest) (*gotatov1.ListSessionsResponse, error) {
 	list, err := s.runner.Sessions(ctx)
 	if err != nil {
 		return nil, failed(ctx, err)
 	}
-	out := &gotatov2.ListSessionsResponse{}
+	out := &gotatov1.ListSessionsResponse{}
 	for _, summary := range list {
 		out.Sessions = append(out.Sessions, summaryOf(summary))
 	}
 	return out, nil
 }
 
-func (s *Server) DeleteSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.DeleteSessionResponse, error) {
+func (s *Server) DeleteSession(ctx context.Context, request *gotatov1.SessionRequest) (*gotatov1.DeleteSessionResponse, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
 	if err := s.runner.DeleteSession(ctx, request.GetSessionId()); err != nil {
 		return nil, failed(ctx, err)
 	}
-	return &gotatov2.DeleteSessionResponse{Deleted: true}, nil
+	return &gotatov1.DeleteSessionResponse{Deleted: true}, nil
 }
 
-func (s *Server) ForkSession(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.SessionSummary, error) {
+func (s *Server) ForkSession(ctx context.Context, request *gotatov1.SessionRequest) (*gotatov1.SessionSummary, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Server) ForkSession(ctx context.Context, request *gotatov2.SessionReque
 	return summaryOf(session.SummaryOf(child)), nil
 }
 
-func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotatov2.RunResult, error) {
+func (s *Server) Run(ctx context.Context, request *gotatov1.RunRequest) (*gotatov1.RunResult, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (s *Server) Run(ctx context.Context, request *gotatov2.RunRequest) (*gotato
 	return resultOf(result), nil
 }
 
-func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.SessionService_StreamRunServer) error {
+func (s *Server) StreamRun(request *gotatov1.RunRequest, stream gotatov1.SessionService_StreamRunServer) error {
 	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 		if err != nil {
 			return err
 		}
-		return stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Event{Event: converted}})
+		return stream.Send(&gotatov1.RunUpdate{Update: &gotatov1.RunUpdate_Event{Event: converted}})
 	}
 	result, err := s.runner.StreamRun(stream.Context(), runRequestOf(request), sink)
 	var end error
@@ -257,7 +257,7 @@ func (s *Server) StreamRun(request *gotatov2.RunRequest, stream gotatov2.Session
 		stream.SetTrailer(trailerOf(err))
 		end = notPersisted(err)
 	default:
-		end = stream.Send(&gotatov2.RunUpdate{Update: &gotatov2.RunUpdate_Result{Result: resultOf(result)}})
+		end = stream.Send(&gotatov1.RunUpdate{Update: &gotatov1.RunUpdate_Result{Result: resultOf(result)}})
 	}
 	if result.Reconnect == nil {
 		return end
@@ -276,7 +276,7 @@ const RecordEpochKey = "record-epoch"
 // read from the Record, and then the live ones. The first message is the
 // start, with the Record's epoch; a drain ends the stream with UNAVAILABLE and
 // a retry-after-ms trailer, like StreamRun.
-func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream gotatov2.SessionService_StreamSessionServer) error {
+func (s *Server) StreamSession(request *gotatov1.StreamSessionRequest, stream gotatov1.SessionService_StreamSessionServer) error {
 	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
 		return err
 	}
@@ -292,8 +292,8 @@ func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream go
 	if err := stream.SendHeader(metadata.Pairs(RecordEpochKey, opened.RecordEpoch)); err != nil {
 		return err
 	}
-	start := &gotatov2.StreamStart{SessionId: request.GetSessionId(), RecordEpoch: opened.RecordEpoch, After: request.GetAfter(), Head: opened.Head}
-	if err := stream.Send(&gotatov2.SessionUpdate{Update: &gotatov2.SessionUpdate_Start{Start: start}}); err != nil {
+	start := &gotatov1.StreamStart{SessionId: request.GetSessionId(), RecordEpoch: opened.RecordEpoch, After: request.GetAfter(), Head: opened.Head}
+	if err := stream.Send(&gotatov1.SessionUpdate{Update: &gotatov1.SessionUpdate_Start{Start: start}}); err != nil {
 		return err
 	}
 	for {
@@ -304,7 +304,7 @@ func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream go
 			if err != nil {
 				return err
 			}
-			if err := stream.Send(&gotatov2.SessionUpdate{Update: &gotatov2.SessionUpdate_Event{Event: converted}}); err != nil {
+			if err := stream.Send(&gotatov1.SessionUpdate{Update: &gotatov1.SessionUpdate_Event{Event: converted}}); err != nil {
 				return err
 			}
 		case stream.Context().Err() != nil:
@@ -322,7 +322,7 @@ func (s *Server) StreamSession(request *gotatov2.StreamSessionRequest, stream go
 	}
 }
 
-func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunRequest) (*gotatov2.CancelRunResponse, error) {
+func (s *Server) CancelRun(ctx context.Context, request *gotatov1.CancelRunRequest) (*gotatov1.CancelRunResponse, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -330,15 +330,15 @@ func (s *Server) CancelRun(ctx context.Context, request *gotatov2.CancelRunReque
 		if err := s.cancelSession(ctx, request, id); err != nil {
 			return nil, err
 		}
-		return &gotatov2.CancelRunResponse{}, nil
+		return &gotatov1.CancelRunResponse{}, nil
 	}
 	if err := s.runner.CancelRun(ctx, gotato.RunID(request.GetRunId())); err != nil {
 		return nil, failed(ctx, err)
 	}
-	return &gotatov2.CancelRunResponse{}, nil
+	return &gotatov1.CancelRunResponse{}, nil
 }
 
-func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.SessionService_EventsServer) error {
+func (s *Server) Events(request *gotatov1.EventsRequest, stream gotatov1.SessionService_EventsServer) error {
 	if err := checkSessionID(stream.Context(), request.GetSessionId()); err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (s *Server) Events(request *gotatov2.EventsRequest, stream gotatov2.Session
 	return nil
 }
 
-func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) (*gotatov2.ContextReport, error) {
+func (s *Server) Context(ctx context.Context, request *gotatov1.SessionRequest) (*gotatov1.ContextReport, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -373,7 +373,7 @@ func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) 
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &gotatov2.ContextReport{
+	return &gotatov1.ContextReport{
 		SessionId:        report.SessionID,
 		PrefixHash:       report.PrefixHash,
 		ApproxTokens:     int32(report.ApproxTokens),
@@ -382,7 +382,7 @@ func (s *Server) Context(ctx context.Context, request *gotatov2.SessionRequest) 
 	}, nil
 }
 
-func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) (*gotatov2.CompactResult, error) {
+func (s *Server) Compact(ctx context.Context, request *gotatov1.CompactRequest) (*gotatov1.CompactResult, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -406,7 +406,7 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	}
-	return &gotatov2.CompactResult{
+	return &gotatov1.CompactResult{
 		SessionId:      result.SessionID,
 		Replaced:       result.Replaced,
 		MessagesBefore: int32(result.MessagesBefore),
@@ -421,7 +421,7 @@ func (s *Server) Compact(ctx context.Context, request *gotatov2.CompactRequest) 
 
 // ---- mapping ----------------------------------------------------------------
 
-func runRequestOf(request *gotatov2.RunRequest) service.RunRequest {
+func runRequestOf(request *gotatov1.RunRequest) service.RunRequest {
 	out := service.RunRequest{SessionID: request.GetSessionId(), Agent: request.GetAgent(), Metadata: request.GetMetadata()}
 	if request.GetContinueInput() != nil {
 		out.Continue = true
@@ -431,8 +431,8 @@ func runRequestOf(request *gotatov2.RunRequest) service.RunRequest {
 	return out
 }
 
-func resultOf(result service.RunResult) *gotatov2.RunResult {
-	wire := &gotatov2.RunResult{
+func resultOf(result service.RunResult) *gotatov1.RunResult {
+	wire := &gotatov1.RunResult{
 		SessionId: result.SessionID,
 		Agent:     result.Agent,
 		Model:     result.Model,
@@ -440,7 +440,7 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 		Status:    string(result.Result.Status),
 		FinalText: result.FinalText,
 		Usage:     usageOf(result.Result.Usage),
-		Metrics: &gotatov2.RunMetrics{
+		Metrics: &gotatov1.RunMetrics{
 			ElapsedMs:      result.Result.Metrics.ElapsedMS,
 			Turns:          result.Result.Metrics.Turns,
 			ToolCalls:      result.Result.Metrics.ToolCalls,
@@ -453,7 +453,7 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 		RecordEpoch: result.RecordEpoch,
 	}
 	if result.Result.Error != nil {
-		wire.Error = &gotatov2.RuntimeError{
+		wire.Error = &gotatov1.RuntimeError{
 			Code:      string(result.Result.Error.Code),
 			Operation: result.Result.Error.Operation,
 			Message:   result.Result.Error.Message,
@@ -464,8 +464,8 @@ func resultOf(result service.RunResult) *gotatov2.RunResult {
 	return wire
 }
 
-func summaryOf(summary session.Summary) *gotatov2.SessionSummary {
-	return &gotatov2.SessionSummary{
+func summaryOf(summary session.Summary) *gotatov1.SessionSummary {
+	return &gotatov1.SessionSummary{
 		Id:        summary.ID,
 		ParentId:  summary.ParentID,
 		CreatedAt: summary.CreatedAt,

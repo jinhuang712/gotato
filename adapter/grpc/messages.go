@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // WriterKey is the trailer metadata of a not_writer failure: the address the
@@ -48,7 +48,7 @@ type forwarder struct {
 	closed  bool
 }
 
-func (f *forwarder) client(address string) (gotatov2.SessionServiceClient, error) {
+func (f *forwarder) client(address string) (gotatov1.SessionServiceClient, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
@@ -62,7 +62,7 @@ func (f *forwarder) client(address string) (gotatov2.SessionServiceClient, error
 		}
 		f.conns[address] = conn
 	}
-	return gotatov2.NewSessionServiceClient(conn), nil
+	return gotatov1.NewSessionServiceClient(conn), nil
 }
 
 // Close ends the connections that forwarding opened. It does not stop a gRPC
@@ -115,7 +115,7 @@ func (s *Server) forwardable(ctx context.Context, err error) (address string, ok
 // forwardCall sends a call to the writer at address, and returns the writer's
 // error with its trailer carried over. The callback makes the call with the
 // context and the options it is given.
-func (s *Server) forwardCall(ctx context.Context, address string, call func(ctx context.Context, client gotatov2.SessionServiceClient, options ...grpc.CallOption) error) error {
+func (s *Server) forwardCall(ctx context.Context, address string, call func(ctx context.Context, client gotatov1.SessionServiceClient, options ...grpc.CallOption) error) error {
 	client, err := s.forward.client(address)
 	if err != nil {
 		return failed(ctx, err)
@@ -133,8 +133,8 @@ func (s *Server) forwardCall(ctx context.Context, address string, call func(ctx 
 	return nil
 }
 
-// SendMessage implements gotatov2.SessionServiceServer.
-func (s *Server) SendMessage(ctx context.Context, request *gotatov2.SendMessageRequest) (*gotatov2.SendMessageResponse, error) {
+// SendMessage implements gotatov1.SessionServiceServer.
+func (s *Server) SendMessage(ctx context.Context, request *gotatov1.SendMessageRequest) (*gotatov1.SendMessageResponse, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -145,8 +145,8 @@ func (s *Server) SendMessage(ctx context.Context, request *gotatov2.SendMessageR
 	})
 	if err != nil && (result.Run == nil || result.Run.SessionID == "") {
 		if address, ok := s.forwardable(ctx, err); ok {
-			var response *gotatov2.SendMessageResponse
-			forwardErr := s.forwardCall(ctx, address, func(ctx context.Context, client gotatov2.SessionServiceClient, options ...grpc.CallOption) error {
+			var response *gotatov1.SendMessageResponse
+			forwardErr := s.forwardCall(ctx, address, func(ctx context.Context, client gotatov1.SessionServiceClient, options ...grpc.CallOption) error {
 				var callErr error
 				response, callErr = client.SendMessage(ctx, request, options...)
 				return callErr
@@ -159,15 +159,15 @@ func (s *Server) SendMessage(ctx context.Context, request *gotatov2.SendMessageR
 		_ = grpc.SetTrailer(ctx, trailerOf(err))
 		return nil, notPersisted(err)
 	}
-	response := &gotatov2.SendMessageResponse{SessionId: result.SessionID, MessageId: result.MessageID, Queued: result.Queued}
+	response := &gotatov1.SendMessageResponse{SessionId: result.SessionID, MessageId: result.MessageID, Queued: result.Queued}
 	if result.Run != nil {
 		response.Run = resultOf(*result.Run)
 	}
 	return response, nil
 }
 
-// Notice implements gotatov2.SessionServiceServer.
-func (s *Server) Notice(ctx context.Context, request *gotatov2.NoticeRequest) (*gotatov2.NoticeResponse, error) {
+// Notice implements gotatov1.SessionServiceServer.
+func (s *Server) Notice(ctx context.Context, request *gotatov1.NoticeRequest) (*gotatov1.NoticeResponse, error) {
 	if err := checkSessionID(ctx, request.GetSessionId()); err != nil {
 		return nil, err
 	}
@@ -178,8 +178,8 @@ func (s *Server) Notice(ctx context.Context, request *gotatov2.NoticeRequest) (*
 	})
 	if err != nil {
 		if address, ok := s.forwardable(ctx, err); ok {
-			var response *gotatov2.NoticeResponse
-			forwardErr := s.forwardCall(ctx, address, func(ctx context.Context, client gotatov2.SessionServiceClient, options ...grpc.CallOption) error {
+			var response *gotatov1.NoticeResponse
+			forwardErr := s.forwardCall(ctx, address, func(ctx context.Context, client gotatov1.SessionServiceClient, options ...grpc.CallOption) error {
 				var callErr error
 				response, callErr = client.Notice(ctx, request, options...)
 				return callErr
@@ -188,18 +188,18 @@ func (s *Server) Notice(ctx context.Context, request *gotatov2.NoticeRequest) (*
 		}
 		return nil, failed(ctx, err)
 	}
-	return &gotatov2.NoticeResponse{SessionId: result.SessionID, Queued: result.Queued, Number: result.Number, MessageId: result.MessageID}, nil
+	return &gotatov1.NoticeResponse{SessionId: result.SessionID, Queued: result.Queued, Number: result.Number, MessageId: result.MessageID}, nil
 }
 
 // cancelSession stops the Run of a Session, forwarding the call to the writer
 // when forwarding is on and another instance writes it.
-func (s *Server) cancelSession(ctx context.Context, request *gotatov2.CancelRunRequest, id string) error {
+func (s *Server) cancelSession(ctx context.Context, request *gotatov1.CancelRunRequest, id string) error {
 	err := s.runner.CancelSession(ctx, id)
 	if err == nil {
 		return nil
 	}
 	if address, ok := s.forwardable(ctx, err); ok {
-		return s.forwardCall(ctx, address, func(ctx context.Context, client gotatov2.SessionServiceClient, options ...grpc.CallOption) error {
+		return s.forwardCall(ctx, address, func(ctx context.Context, client gotatov1.SessionServiceClient, options ...grpc.CallOption) error {
 			_, callErr := client.CancelRun(ctx, request, options...)
 			return callErr
 		})

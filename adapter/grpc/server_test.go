@@ -17,10 +17,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
-func newTestClient(t *testing.T) gotatov2.SessionServiceClient {
+func newTestClient(t *testing.T) gotatov1.SessionServiceClient {
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
@@ -48,16 +48,16 @@ func newTestClient(t *testing.T) gotatov2.SessionServiceClient {
 		_ = connection.Close()
 		grpcServer.Stop()
 	})
-	return gotatov2.NewSessionServiceClient(connection)
+	return gotatov1.NewSessionServiceClient(connection)
 }
 
 func TestContractAndAgents(t *testing.T) {
 	client := newTestClient(t)
-	contract, err := client.Contract(context.Background(), &gotatov2.ContractRequest{})
+	contract, err := client.Contract(context.Background(), &gotatov1.ContractRequest{})
 	if err != nil || contract.GetVersion() != ContractVersion {
 		t.Fatalf("contract = %v err=%v", contract, err)
 	}
-	agents, err := client.Agents(context.Background(), &gotatov2.AgentsRequest{})
+	agents, err := client.Agents(context.Background(), &gotatov1.AgentsRequest{})
 	if err != nil || len(agents.GetAgents()) != 2 || agents.GetAgents()[0] != "echo" {
 		t.Fatalf("agents = %v err=%v", agents, err)
 	}
@@ -69,18 +69,18 @@ func TestContractAndAgents(t *testing.T) {
 func TestRunOverGRPC(t *testing.T) {
 	client := newTestClient(t)
 	ctx := context.Background()
-	created, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "demo", Metadata: map[string]string{"k": "v"}})
+	created, err := client.CreateSession(ctx, &gotatov1.CreateSessionRequest{Agent: "demo", Metadata: map[string]string{"k": "v"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.Run(ctx, &gotatov2.RunRequest{SessionId: created.GetId(), Input: &gotatov2.RunRequest_Prompt{Prompt: "use-tool"}})
+	result, err := client.Run(ctx, &gotatov1.RunRequest{SessionId: created.GetId(), Input: &gotatov1.RunRequest_Prompt{Prompt: "use-tool"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.GetStatus() != "completed" || result.GetMetrics().GetToolCalls() != 1 || result.GetMessages() != 4 || result.GetFinalText() != "demo response: use-tool" {
 		t.Fatalf("result = %v", result)
 	}
-	doc, err := client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: created.GetId()})
+	doc, err := client.GetSession(ctx, &gotatov1.SessionRequest{SessionId: created.GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,15 +88,15 @@ func TestRunOverGRPC(t *testing.T) {
 	if err := json.Unmarshal(doc.GetDocumentJson(), &document); err != nil || len(document.Messages) != 4 || document.Metadata["k"] != "v" {
 		t.Fatalf("document = %+v err=%v", document, err)
 	}
-	report, err := client.Context(ctx, &gotatov2.SessionRequest{SessionId: created.GetId()})
+	report, err := client.Context(ctx, &gotatov1.SessionRequest{SessionId: created.GetId()})
 	if err != nil || report.GetPrefixHash() == "" || report.GetSelectedMessages() != 4 {
 		t.Fatalf("context = %v err=%v", report, err)
 	}
-	oneShot, err := client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "hi"}})
+	oneShot, err := client.Run(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "hi"}})
 	if err != nil || oneShot.GetSessionId() == "" || oneShot.GetAgent() != "echo" {
 		t.Fatalf("one-shot = %v err=%v", oneShot, err)
 	}
-	list, err := client.ListSessions(ctx, &gotatov2.ListSessionsRequest{})
+	list, err := client.ListSessions(ctx, &gotatov1.ListSessionsRequest{})
 	if err != nil || len(list.GetSessions()) != 2 {
 		t.Fatalf("list = %v err=%v", list, err)
 	}
@@ -105,12 +105,12 @@ func TestRunOverGRPC(t *testing.T) {
 func TestStreamRunEventsAndCompactFork(t *testing.T) {
 	client := newTestClient(t)
 	ctx := context.Background()
-	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{Agent: "demo", Input: &gotatov2.RunRequest_Prompt{Prompt: "use-tool"}})
+	stream, err := client.StreamRun(ctx, &gotatov1.RunRequest{Agent: "demo", Input: &gotatov1.RunRequest_Prompt{Prompt: "use-tool"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var kinds []string
-	var result *gotatov2.RunResult
+	var result *gotatov1.RunResult
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
@@ -140,11 +140,11 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 	}
 	id := result.GetSessionId()
 	for _, prompt := range []string{"a", "b"} {
-		if _, err := client.Run(ctx, &gotatov2.RunRequest{SessionId: id, Input: &gotatov2.RunRequest_Prompt{Prompt: prompt}}); err != nil {
+		if _, err := client.Run(ctx, &gotatov1.RunRequest{SessionId: id, Input: &gotatov1.RunRequest_Prompt{Prompt: prompt}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	events, err := client.Events(ctx, &gotatov2.EventsRequest{SessionId: id, Kind: "context_built"})
+	events, err := client.Events(ctx, &gotatov1.EventsRequest{SessionId: id, Kind: "context_built"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,15 +158,15 @@ func TestStreamRunEventsAndCompactFork(t *testing.T) {
 	if count != 4 {
 		t.Fatalf("context_built events = %d, want 4 (2 turns + 1 + 1)", count)
 	}
-	compact, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, Keep: 2})
+	compact, err := client.Compact(ctx, &gotatov1.CompactRequest{SessionId: id, Keep: 2})
 	if err != nil || !compact.GetReplaced() || compact.GetMessagesAfter() != 6 {
 		t.Fatalf("compact = %v err=%v", compact, err)
 	}
-	fork, err := client.ForkSession(ctx, &gotatov2.SessionRequest{SessionId: id})
+	fork, err := client.ForkSession(ctx, &gotatov1.SessionRequest{SessionId: id})
 	if err != nil || fork.GetParentId() != id || fork.GetMessages() != 6 {
 		t.Fatalf("fork = %v err=%v", fork, err)
 	}
-	if _, err := client.DeleteSession(ctx, &gotatov2.SessionRequest{SessionId: fork.GetId()}); err != nil {
+	if _, err := client.DeleteSession(ctx, &gotatov1.SessionRequest{SessionId: fork.GetId()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -180,26 +180,26 @@ func TestErrorMapping(t *testing.T) {
 		code codes.Code
 	}{
 		{"missing session", func() error {
-			_, err := client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: "missing"})
+			_, err := client.GetSession(ctx, &gotatov1.SessionRequest{SessionId: "missing"})
 			return err
 		}, codes.NotFound},
 		{"unknown agent", func() error {
-			_, err := client.Run(ctx, &gotatov2.RunRequest{Agent: "nope", Input: &gotatov2.RunRequest_Prompt{Prompt: "x"}})
+			_, err := client.Run(ctx, &gotatov1.RunRequest{Agent: "nope", Input: &gotatov1.RunRequest_Prompt{Prompt: "x"}})
 			return err
 		}, codes.InvalidArgument},
 		{"empty prompt", func() error {
-			_, err := client.Run(ctx, &gotatov2.RunRequest{})
+			_, err := client.Run(ctx, &gotatov1.RunRequest{})
 			return err
 		}, codes.InvalidArgument},
 		{"cancel inactive", func() error {
-			_, err := client.CancelRun(ctx, &gotatov2.CancelRunRequest{Target: &gotatov2.CancelRunRequest_RunId{RunId: "nope"}})
+			_, err := client.CancelRun(ctx, &gotatov1.CancelRunRequest{Target: &gotatov1.CancelRunRequest_RunId{RunId: "nope"}})
 			return err
 		}, codes.FailedPrecondition},
 		{"session already exists", func() error {
-			if _, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"}); err != nil {
+			if _, err := client.CreateSession(ctx, &gotatov1.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"}); err != nil {
 				return err
 			}
-			_, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"})
+			_, err := client.CreateSession(ctx, &gotatov1.CreateSessionRequest{Agent: "echo", Id: "grpc-dup"})
 			return err
 		}, codes.AlreadyExists},
 	}
@@ -231,7 +231,7 @@ func TestStreamRunCanceledContextMapsToCanceled(t *testing.T) {
 	client := newTestClient(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "x"}})
+	stream, err := client.StreamRun(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "x"}})
 	if err == nil {
 		_, err = stream.Recv()
 	}

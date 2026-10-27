@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: gotato/v2/service.proto
+// source: gotato/v1/service.proto
 
-package gotatov2
+package gotatov1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -29,7 +29,7 @@ type ContractRequest struct {
 
 func (x *ContractRequest) Reset() {
 	*x = ContractRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[0]
+	mi := &file_gotato_v1_service_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -41,7 +41,7 @@ func (x *ContractRequest) String() string {
 func (*ContractRequest) ProtoMessage() {}
 
 func (x *ContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[0]
+	mi := &file_gotato_v1_service_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -54,7 +54,7 @@ func (x *ContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractRequest.ProtoReflect.Descriptor instead.
 func (*ContractRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{0}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{0}
 }
 
 type ContractResponse struct {
@@ -66,7 +66,7 @@ type ContractResponse struct {
 
 func (x *ContractResponse) Reset() {
 	*x = ContractResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[1]
+	mi := &file_gotato_v1_service_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -78,7 +78,7 @@ func (x *ContractResponse) String() string {
 func (*ContractResponse) ProtoMessage() {}
 
 func (x *ContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[1]
+	mi := &file_gotato_v1_service_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -91,7 +91,7 @@ func (x *ContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractResponse.ProtoReflect.Descriptor instead.
 func (*ContractResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{1}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ContractResponse) GetVersion() string {
@@ -109,7 +109,7 @@ type AgentsRequest struct {
 
 func (x *AgentsRequest) Reset() {
 	*x = AgentsRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[2]
+	mi := &file_gotato_v1_service_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -121,7 +121,7 @@ func (x *AgentsRequest) String() string {
 func (*AgentsRequest) ProtoMessage() {}
 
 func (x *AgentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[2]
+	mi := &file_gotato_v1_service_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -134,7 +134,7 @@ func (x *AgentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentsRequest.ProtoReflect.Descriptor instead.
 func (*AgentsRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{2}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{2}
 }
 
 type AgentsResponse struct {
@@ -149,7 +149,7 @@ type AgentsResponse struct {
 
 func (x *AgentsResponse) Reset() {
 	*x = AgentsResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[3]
+	mi := &file_gotato_v1_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -161,7 +161,7 @@ func (x *AgentsResponse) String() string {
 func (*AgentsResponse) ProtoMessage() {}
 
 func (x *AgentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[3]
+	mi := &file_gotato_v1_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -174,7 +174,7 @@ func (x *AgentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentsResponse.ProtoReflect.Descriptor instead.
 func (*AgentsResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{3}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AgentsResponse) GetAgents() []string {
@@ -202,7 +202,7 @@ type CreateSessionRequest struct {
 
 func (x *CreateSessionRequest) Reset() {
 	*x = CreateSessionRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[4]
+	mi := &file_gotato_v1_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -214,7 +214,7 @@ func (x *CreateSessionRequest) String() string {
 func (*CreateSessionRequest) ProtoMessage() {}
 
 func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[4]
+	mi := &file_gotato_v1_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -227,7 +227,7 @@ func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{4}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateSessionRequest) GetAgent() string {
@@ -260,7 +260,7 @@ type SessionRequest struct {
 
 func (x *SessionRequest) Reset() {
 	*x = SessionRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[5]
+	mi := &file_gotato_v1_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -272,7 +272,7 @@ func (x *SessionRequest) String() string {
 func (*SessionRequest) ProtoMessage() {}
 
 func (x *SessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[5]
+	mi := &file_gotato_v1_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -285,7 +285,7 @@ func (x *SessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionRequest.ProtoReflect.Descriptor instead.
 func (*SessionRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{5}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SessionRequest) GetSessionId() string {
@@ -314,7 +314,7 @@ type SessionSummary struct {
 
 func (x *SessionSummary) Reset() {
 	*x = SessionSummary{}
-	mi := &file_gotato_v2_service_proto_msgTypes[6]
+	mi := &file_gotato_v1_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -326,7 +326,7 @@ func (x *SessionSummary) String() string {
 func (*SessionSummary) ProtoMessage() {}
 
 func (x *SessionSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[6]
+	mi := &file_gotato_v1_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -339,7 +339,7 @@ func (x *SessionSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionSummary.ProtoReflect.Descriptor instead.
 func (*SessionSummary) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{6}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SessionSummary) GetId() string {
@@ -416,7 +416,7 @@ type SessionDocument struct {
 
 func (x *SessionDocument) Reset() {
 	*x = SessionDocument{}
-	mi := &file_gotato_v2_service_proto_msgTypes[7]
+	mi := &file_gotato_v1_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -428,7 +428,7 @@ func (x *SessionDocument) String() string {
 func (*SessionDocument) ProtoMessage() {}
 
 func (x *SessionDocument) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[7]
+	mi := &file_gotato_v1_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -441,7 +441,7 @@ func (x *SessionDocument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionDocument.ProtoReflect.Descriptor instead.
 func (*SessionDocument) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{7}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SessionDocument) GetDocumentJson() []byte {
@@ -459,7 +459,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[8]
+	mi := &file_gotato_v1_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -471,7 +471,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[8]
+	mi := &file_gotato_v1_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -484,7 +484,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{8}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{8}
 }
 
 type ListSessionsResponse struct {
@@ -496,7 +496,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[9]
+	mi := &file_gotato_v1_service_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -508,7 +508,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[9]
+	mi := &file_gotato_v1_service_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -521,7 +521,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{9}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionSummary {
@@ -540,7 +540,7 @@ type DeleteSessionResponse struct {
 
 func (x *DeleteSessionResponse) Reset() {
 	*x = DeleteSessionResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[10]
+	mi := &file_gotato_v1_service_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -552,7 +552,7 @@ func (x *DeleteSessionResponse) String() string {
 func (*DeleteSessionResponse) ProtoMessage() {}
 
 func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[10]
+	mi := &file_gotato_v1_service_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -565,7 +565,7 @@ func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{10}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DeleteSessionResponse) GetDeleted() bool {
@@ -593,7 +593,7 @@ type RunRequest struct {
 
 func (x *RunRequest) Reset() {
 	*x = RunRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[11]
+	mi := &file_gotato_v1_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -605,7 +605,7 @@ func (x *RunRequest) String() string {
 func (*RunRequest) ProtoMessage() {}
 
 func (x *RunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[11]
+	mi := &file_gotato_v1_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -618,7 +618,7 @@ func (x *RunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
 func (*RunRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{11}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RunRequest) GetSessionId() string {
@@ -691,7 +691,7 @@ type ContinueInput struct {
 
 func (x *ContinueInput) Reset() {
 	*x = ContinueInput{}
-	mi := &file_gotato_v2_service_proto_msgTypes[12]
+	mi := &file_gotato_v1_service_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -703,7 +703,7 @@ func (x *ContinueInput) String() string {
 func (*ContinueInput) ProtoMessage() {}
 
 func (x *ContinueInput) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[12]
+	mi := &file_gotato_v1_service_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -716,7 +716,7 @@ func (x *ContinueInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContinueInput.ProtoReflect.Descriptor instead.
 func (*ContinueInput) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{12}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{12}
 }
 
 type RunResult struct {
@@ -742,7 +742,7 @@ type RunResult struct {
 
 func (x *RunResult) Reset() {
 	*x = RunResult{}
-	mi := &file_gotato_v2_service_proto_msgTypes[13]
+	mi := &file_gotato_v1_service_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -754,7 +754,7 @@ func (x *RunResult) String() string {
 func (*RunResult) ProtoMessage() {}
 
 func (x *RunResult) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[13]
+	mi := &file_gotato_v1_service_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -767,7 +767,7 @@ func (x *RunResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResult.ProtoReflect.Descriptor instead.
 func (*RunResult) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{13}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RunResult) GetSessionId() string {
@@ -874,7 +874,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_gotato_v2_service_proto_msgTypes[14]
+	mi := &file_gotato_v1_service_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -886,7 +886,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[14]
+	mi := &file_gotato_v1_service_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -899,7 +899,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{14}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Usage) GetInputTokens() uint64 {
@@ -950,7 +950,7 @@ type RunMetrics struct {
 
 func (x *RunMetrics) Reset() {
 	*x = RunMetrics{}
-	mi := &file_gotato_v2_service_proto_msgTypes[15]
+	mi := &file_gotato_v1_service_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -962,7 +962,7 @@ func (x *RunMetrics) String() string {
 func (*RunMetrics) ProtoMessage() {}
 
 func (x *RunMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[15]
+	mi := &file_gotato_v1_service_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -975,7 +975,7 @@ func (x *RunMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunMetrics.ProtoReflect.Descriptor instead.
 func (*RunMetrics) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{15}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RunMetrics) GetElapsedMs() int64 {
@@ -1029,7 +1029,7 @@ type RuntimeError struct {
 
 func (x *RuntimeError) Reset() {
 	*x = RuntimeError{}
-	mi := &file_gotato_v2_service_proto_msgTypes[16]
+	mi := &file_gotato_v1_service_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1041,7 @@ func (x *RuntimeError) String() string {
 func (*RuntimeError) ProtoMessage() {}
 
 func (x *RuntimeError) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[16]
+	mi := &file_gotato_v1_service_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1054,7 @@ func (x *RuntimeError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeError.ProtoReflect.Descriptor instead.
 func (*RuntimeError) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{16}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RuntimeError) GetCode() string {
@@ -1105,7 +1105,7 @@ type RunUpdate struct {
 
 func (x *RunUpdate) Reset() {
 	*x = RunUpdate{}
-	mi := &file_gotato_v2_service_proto_msgTypes[17]
+	mi := &file_gotato_v1_service_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1117,7 @@ func (x *RunUpdate) String() string {
 func (*RunUpdate) ProtoMessage() {}
 
 func (x *RunUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[17]
+	mi := &file_gotato_v1_service_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,7 +1130,7 @@ func (x *RunUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunUpdate.ProtoReflect.Descriptor instead.
 func (*RunUpdate) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{17}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunUpdate) GetUpdate() isRunUpdate_Update {
@@ -1188,7 +1188,7 @@ type StreamSessionRequest struct {
 
 func (x *StreamSessionRequest) Reset() {
 	*x = StreamSessionRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[18]
+	mi := &file_gotato_v1_service_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1200,7 @@ func (x *StreamSessionRequest) String() string {
 func (*StreamSessionRequest) ProtoMessage() {}
 
 func (x *StreamSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[18]
+	mi := &file_gotato_v1_service_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1213,7 @@ func (x *StreamSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamSessionRequest.ProtoReflect.Descriptor instead.
 func (*StreamSessionRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{18}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StreamSessionRequest) GetSessionId() string {
@@ -1252,7 +1252,7 @@ type StreamStart struct {
 
 func (x *StreamStart) Reset() {
 	*x = StreamStart{}
-	mi := &file_gotato_v2_service_proto_msgTypes[19]
+	mi := &file_gotato_v1_service_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1264,7 +1264,7 @@ func (x *StreamStart) String() string {
 func (*StreamStart) ProtoMessage() {}
 
 func (x *StreamStart) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[19]
+	mi := &file_gotato_v1_service_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1277,7 +1277,7 @@ func (x *StreamStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamStart.ProtoReflect.Descriptor instead.
 func (*StreamStart) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{19}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StreamStart) GetSessionId() string {
@@ -1321,7 +1321,7 @@ type SessionUpdate struct {
 
 func (x *SessionUpdate) Reset() {
 	*x = SessionUpdate{}
-	mi := &file_gotato_v2_service_proto_msgTypes[20]
+	mi := &file_gotato_v1_service_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1333,7 @@ func (x *SessionUpdate) String() string {
 func (*SessionUpdate) ProtoMessage() {}
 
 func (x *SessionUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[20]
+	mi := &file_gotato_v1_service_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1346,7 @@ func (x *SessionUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionUpdate.ProtoReflect.Descriptor instead.
 func (*SessionUpdate) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{20}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SessionUpdate) GetUpdate() isSessionUpdate_Update {
@@ -1407,7 +1407,7 @@ type EventHeader struct {
 
 func (x *EventHeader) Reset() {
 	*x = EventHeader{}
-	mi := &file_gotato_v2_service_proto_msgTypes[21]
+	mi := &file_gotato_v1_service_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +1419,7 @@ func (x *EventHeader) String() string {
 func (*EventHeader) ProtoMessage() {}
 
 func (x *EventHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[21]
+	mi := &file_gotato_v1_service_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +1432,7 @@ func (x *EventHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventHeader.ProtoReflect.Descriptor instead.
 func (*EventHeader) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{21}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EventHeader) GetTime() string {
@@ -1532,7 +1532,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_gotato_v2_service_proto_msgTypes[22]
+	mi := &file_gotato_v1_service_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1544,7 +1544,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[22]
+	mi := &file_gotato_v1_service_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1557,7 +1557,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{22}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Event) GetHeader() *EventHeader {
@@ -2294,7 +2294,7 @@ type UnknownEvent struct {
 
 func (x *UnknownEvent) Reset() {
 	*x = UnknownEvent{}
-	mi := &file_gotato_v2_service_proto_msgTypes[23]
+	mi := &file_gotato_v1_service_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2306,7 +2306,7 @@ func (x *UnknownEvent) String() string {
 func (*UnknownEvent) ProtoMessage() {}
 
 func (x *UnknownEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[23]
+	mi := &file_gotato_v1_service_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2319,7 +2319,7 @@ func (x *UnknownEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnknownEvent.ProtoReflect.Descriptor instead.
 func (*UnknownEvent) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{23}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *UnknownEvent) GetKind() string {
@@ -2348,7 +2348,7 @@ type ToolOutcome struct {
 
 func (x *ToolOutcome) Reset() {
 	*x = ToolOutcome{}
-	mi := &file_gotato_v2_service_proto_msgTypes[24]
+	mi := &file_gotato_v1_service_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2360,7 +2360,7 @@ func (x *ToolOutcome) String() string {
 func (*ToolOutcome) ProtoMessage() {}
 
 func (x *ToolOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[24]
+	mi := &file_gotato_v1_service_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2373,7 +2373,7 @@ func (x *ToolOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolOutcome.ProtoReflect.Descriptor instead.
 func (*ToolOutcome) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{24}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ToolOutcome) GetToolId() string {
@@ -2414,7 +2414,7 @@ type ForkedFrom struct {
 
 func (x *ForkedFrom) Reset() {
 	*x = ForkedFrom{}
-	mi := &file_gotato_v2_service_proto_msgTypes[25]
+	mi := &file_gotato_v1_service_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2426,7 +2426,7 @@ func (x *ForkedFrom) String() string {
 func (*ForkedFrom) ProtoMessage() {}
 
 func (x *ForkedFrom) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[25]
+	mi := &file_gotato_v1_service_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2439,7 +2439,7 @@ func (x *ForkedFrom) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForkedFrom.ProtoReflect.Descriptor instead.
 func (*ForkedFrom) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{25}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ForkedFrom) GetSessionId() string {
@@ -2484,7 +2484,7 @@ type Compaction struct {
 
 func (x *Compaction) Reset() {
 	*x = Compaction{}
-	mi := &file_gotato_v2_service_proto_msgTypes[26]
+	mi := &file_gotato_v1_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2496,7 +2496,7 @@ func (x *Compaction) String() string {
 func (*Compaction) ProtoMessage() {}
 
 func (x *Compaction) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[26]
+	mi := &file_gotato_v1_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2509,7 +2509,7 @@ func (x *Compaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Compaction.ProtoReflect.Descriptor instead.
 func (*Compaction) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{26}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Compaction) GetAt() string {
@@ -2640,7 +2640,7 @@ type Segment struct {
 
 func (x *Segment) Reset() {
 	*x = Segment{}
-	mi := &file_gotato_v2_service_proto_msgTypes[27]
+	mi := &file_gotato_v1_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2652,7 +2652,7 @@ func (x *Segment) String() string {
 func (*Segment) ProtoMessage() {}
 
 func (x *Segment) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[27]
+	mi := &file_gotato_v1_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2665,7 +2665,7 @@ func (x *Segment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Segment.ProtoReflect.Descriptor instead.
 func (*Segment) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{27}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Segment) GetNumber() int32 {
@@ -2751,7 +2751,7 @@ type MergedSegment struct {
 
 func (x *MergedSegment) Reset() {
 	*x = MergedSegment{}
-	mi := &file_gotato_v2_service_proto_msgTypes[28]
+	mi := &file_gotato_v1_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2763,7 +2763,7 @@ func (x *MergedSegment) String() string {
 func (*MergedSegment) ProtoMessage() {}
 
 func (x *MergedSegment) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[28]
+	mi := &file_gotato_v1_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2776,7 +2776,7 @@ func (x *MergedSegment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MergedSegment.ProtoReflect.Descriptor instead.
 func (*MergedSegment) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{28}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *MergedSegment) GetNumber() int32 {
@@ -2820,7 +2820,7 @@ type SegmentSource struct {
 
 func (x *SegmentSource) Reset() {
 	*x = SegmentSource{}
-	mi := &file_gotato_v2_service_proto_msgTypes[29]
+	mi := &file_gotato_v1_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2832,7 +2832,7 @@ func (x *SegmentSource) String() string {
 func (*SegmentSource) ProtoMessage() {}
 
 func (x *SegmentSource) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[29]
+	mi := &file_gotato_v1_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2845,7 +2845,7 @@ func (x *SegmentSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentSource.ProtoReflect.Descriptor instead.
 func (*SegmentSource) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{29}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SegmentSource) GetSessionId() string {
@@ -2883,7 +2883,7 @@ type ToolCallLine struct {
 
 func (x *ToolCallLine) Reset() {
 	*x = ToolCallLine{}
-	mi := &file_gotato_v2_service_proto_msgTypes[30]
+	mi := &file_gotato_v1_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2895,7 +2895,7 @@ func (x *ToolCallLine) String() string {
 func (*ToolCallLine) ProtoMessage() {}
 
 func (x *ToolCallLine) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[30]
+	mi := &file_gotato_v1_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2908,7 +2908,7 @@ func (x *ToolCallLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCallLine.ProtoReflect.Descriptor instead.
 func (*ToolCallLine) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{30}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ToolCallLine) GetAt() string {
@@ -2965,7 +2965,7 @@ type MessagePosition struct {
 
 func (x *MessagePosition) Reset() {
 	*x = MessagePosition{}
-	mi := &file_gotato_v2_service_proto_msgTypes[31]
+	mi := &file_gotato_v1_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2977,7 +2977,7 @@ func (x *MessagePosition) String() string {
 func (*MessagePosition) ProtoMessage() {}
 
 func (x *MessagePosition) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[31]
+	mi := &file_gotato_v1_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2990,7 +2990,7 @@ func (x *MessagePosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessagePosition.ProtoReflect.Descriptor instead.
 func (*MessagePosition) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{31}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *MessagePosition) GetId() string {
@@ -3023,7 +3023,7 @@ type RunStarted struct {
 
 func (x *RunStarted) Reset() {
 	*x = RunStarted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[32]
+	mi := &file_gotato_v1_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3035,7 +3035,7 @@ func (x *RunStarted) String() string {
 func (*RunStarted) ProtoMessage() {}
 
 func (x *RunStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[32]
+	mi := &file_gotato_v1_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3048,7 +3048,7 @@ func (x *RunStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStarted.ProtoReflect.Descriptor instead.
 func (*RunStarted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{32}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{32}
 }
 
 // RunEnded: see the Event type of the same name in the Go API.
@@ -3070,7 +3070,7 @@ type RunEnded struct {
 
 func (x *RunEnded) Reset() {
 	*x = RunEnded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[33]
+	mi := &file_gotato_v1_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3082,7 +3082,7 @@ func (x *RunEnded) String() string {
 func (*RunEnded) ProtoMessage() {}
 
 func (x *RunEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[33]
+	mi := &file_gotato_v1_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3095,7 +3095,7 @@ func (x *RunEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunEnded.ProtoReflect.Descriptor instead.
 func (*RunEnded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{33}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RunEnded) GetStatus() string {
@@ -3177,7 +3177,7 @@ type TurnStarted struct {
 
 func (x *TurnStarted) Reset() {
 	*x = TurnStarted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[34]
+	mi := &file_gotato_v1_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3189,7 +3189,7 @@ func (x *TurnStarted) String() string {
 func (*TurnStarted) ProtoMessage() {}
 
 func (x *TurnStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[34]
+	mi := &file_gotato_v1_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3202,7 +3202,7 @@ func (x *TurnStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnStarted.ProtoReflect.Descriptor instead.
 func (*TurnStarted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{34}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{34}
 }
 
 // TurnEnded: see the Event type of the same name in the Go API.
@@ -3221,7 +3221,7 @@ type TurnEnded struct {
 
 func (x *TurnEnded) Reset() {
 	*x = TurnEnded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[35]
+	mi := &file_gotato_v1_service_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3233,7 +3233,7 @@ func (x *TurnEnded) String() string {
 func (*TurnEnded) ProtoMessage() {}
 
 func (x *TurnEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[35]
+	mi := &file_gotato_v1_service_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3246,7 +3246,7 @@ func (x *TurnEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnEnded.ProtoReflect.Descriptor instead.
 func (*TurnEnded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{35}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *TurnEnded) GetStopReason() string {
@@ -3316,7 +3316,7 @@ type ContextBuilt struct {
 
 func (x *ContextBuilt) Reset() {
 	*x = ContextBuilt{}
-	mi := &file_gotato_v2_service_proto_msgTypes[36]
+	mi := &file_gotato_v1_service_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3328,7 +3328,7 @@ func (x *ContextBuilt) String() string {
 func (*ContextBuilt) ProtoMessage() {}
 
 func (x *ContextBuilt) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[36]
+	mi := &file_gotato_v1_service_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3341,7 +3341,7 @@ func (x *ContextBuilt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextBuilt.ProtoReflect.Descriptor instead.
 func (*ContextBuilt) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{36}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ContextBuilt) GetStrategy() string {
@@ -3417,7 +3417,7 @@ type ReplyStarted struct {
 
 func (x *ReplyStarted) Reset() {
 	*x = ReplyStarted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[37]
+	mi := &file_gotato_v1_service_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3429,7 +3429,7 @@ func (x *ReplyStarted) String() string {
 func (*ReplyStarted) ProtoMessage() {}
 
 func (x *ReplyStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[37]
+	mi := &file_gotato_v1_service_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3442,7 +3442,7 @@ func (x *ReplyStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplyStarted.ProtoReflect.Descriptor instead.
 func (*ReplyStarted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{37}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ReplyStarted) GetMessageId() string {
@@ -3465,7 +3465,7 @@ type ReplyEnded struct {
 
 func (x *ReplyEnded) Reset() {
 	*x = ReplyEnded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[38]
+	mi := &file_gotato_v1_service_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3477,7 +3477,7 @@ func (x *ReplyEnded) String() string {
 func (*ReplyEnded) ProtoMessage() {}
 
 func (x *ReplyEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[38]
+	mi := &file_gotato_v1_service_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3490,7 +3490,7 @@ func (x *ReplyEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplyEnded.ProtoReflect.Descriptor instead.
 func (*ReplyEnded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{38}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ReplyEnded) GetMessageJson() []byte {
@@ -3532,7 +3532,7 @@ type TextDelta struct {
 
 func (x *TextDelta) Reset() {
 	*x = TextDelta{}
-	mi := &file_gotato_v2_service_proto_msgTypes[39]
+	mi := &file_gotato_v1_service_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3544,7 +3544,7 @@ func (x *TextDelta) String() string {
 func (*TextDelta) ProtoMessage() {}
 
 func (x *TextDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[39]
+	mi := &file_gotato_v1_service_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3557,7 +3557,7 @@ func (x *TextDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TextDelta.ProtoReflect.Descriptor instead.
 func (*TextDelta) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{39}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *TextDelta) GetMessageId() string {
@@ -3585,7 +3585,7 @@ type ReasoningDelta struct {
 
 func (x *ReasoningDelta) Reset() {
 	*x = ReasoningDelta{}
-	mi := &file_gotato_v2_service_proto_msgTypes[40]
+	mi := &file_gotato_v1_service_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3597,7 +3597,7 @@ func (x *ReasoningDelta) String() string {
 func (*ReasoningDelta) ProtoMessage() {}
 
 func (x *ReasoningDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[40]
+	mi := &file_gotato_v1_service_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3610,7 +3610,7 @@ func (x *ReasoningDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReasoningDelta.ProtoReflect.Descriptor instead.
 func (*ReasoningDelta) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{40}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ReasoningDelta) GetMessageId() string {
@@ -3638,7 +3638,7 @@ type ReplyCutOff struct {
 
 func (x *ReplyCutOff) Reset() {
 	*x = ReplyCutOff{}
-	mi := &file_gotato_v2_service_proto_msgTypes[41]
+	mi := &file_gotato_v1_service_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3650,7 +3650,7 @@ func (x *ReplyCutOff) String() string {
 func (*ReplyCutOff) ProtoMessage() {}
 
 func (x *ReplyCutOff) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[41]
+	mi := &file_gotato_v1_service_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3663,7 +3663,7 @@ func (x *ReplyCutOff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplyCutOff.ProtoReflect.Descriptor instead.
 func (*ReplyCutOff) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{41}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ReplyCutOff) GetMessageJson() []byte {
@@ -3692,7 +3692,7 @@ type ReplyPartKept struct {
 
 func (x *ReplyPartKept) Reset() {
 	*x = ReplyPartKept{}
-	mi := &file_gotato_v2_service_proto_msgTypes[42]
+	mi := &file_gotato_v1_service_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3704,7 +3704,7 @@ func (x *ReplyPartKept) String() string {
 func (*ReplyPartKept) ProtoMessage() {}
 
 func (x *ReplyPartKept) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[42]
+	mi := &file_gotato_v1_service_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3717,7 +3717,7 @@ func (x *ReplyPartKept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplyPartKept.ProtoReflect.Descriptor instead.
 func (*ReplyPartKept) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{42}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ReplyPartKept) GetMessageId() string {
@@ -3753,7 +3753,7 @@ type ModelRetried struct {
 
 func (x *ModelRetried) Reset() {
 	*x = ModelRetried{}
-	mi := &file_gotato_v2_service_proto_msgTypes[43]
+	mi := &file_gotato_v1_service_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3765,7 +3765,7 @@ func (x *ModelRetried) String() string {
 func (*ModelRetried) ProtoMessage() {}
 
 func (x *ModelRetried) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[43]
+	mi := &file_gotato_v1_service_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3778,7 +3778,7 @@ func (x *ModelRetried) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelRetried.ProtoReflect.Descriptor instead.
 func (*ModelRetried) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{43}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ModelRetried) GetAttempt() int32 {
@@ -3814,7 +3814,7 @@ type ToolStarted struct {
 
 func (x *ToolStarted) Reset() {
 	*x = ToolStarted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[44]
+	mi := &file_gotato_v1_service_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3826,7 +3826,7 @@ func (x *ToolStarted) String() string {
 func (*ToolStarted) ProtoMessage() {}
 
 func (x *ToolStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[44]
+	mi := &file_gotato_v1_service_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3839,7 +3839,7 @@ func (x *ToolStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolStarted.ProtoReflect.Descriptor instead.
 func (*ToolStarted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{44}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ToolStarted) GetMessageId() string {
@@ -3877,7 +3877,7 @@ type ToolEnded struct {
 
 func (x *ToolEnded) Reset() {
 	*x = ToolEnded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[45]
+	mi := &file_gotato_v1_service_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3889,7 +3889,7 @@ func (x *ToolEnded) String() string {
 func (*ToolEnded) ProtoMessage() {}
 
 func (x *ToolEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[45]
+	mi := &file_gotato_v1_service_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3902,7 +3902,7 @@ func (x *ToolEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolEnded.ProtoReflect.Descriptor instead.
 func (*ToolEnded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{45}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ToolEnded) GetCallId() string {
@@ -3951,7 +3951,7 @@ type ToolProgress struct {
 
 func (x *ToolProgress) Reset() {
 	*x = ToolProgress{}
-	mi := &file_gotato_v2_service_proto_msgTypes[46]
+	mi := &file_gotato_v1_service_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3963,7 +3963,7 @@ func (x *ToolProgress) String() string {
 func (*ToolProgress) ProtoMessage() {}
 
 func (x *ToolProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[46]
+	mi := &file_gotato_v1_service_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3976,7 +3976,7 @@ func (x *ToolProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolProgress.ProtoReflect.Descriptor instead.
 func (*ToolProgress) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{46}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ToolProgress) GetCallId() string {
@@ -4005,7 +4005,7 @@ type ToolResultCommitted struct {
 
 func (x *ToolResultCommitted) Reset() {
 	*x = ToolResultCommitted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[47]
+	mi := &file_gotato_v1_service_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4017,7 +4017,7 @@ func (x *ToolResultCommitted) String() string {
 func (*ToolResultCommitted) ProtoMessage() {}
 
 func (x *ToolResultCommitted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[47]
+	mi := &file_gotato_v1_service_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4030,7 +4030,7 @@ func (x *ToolResultCommitted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolResultCommitted.ProtoReflect.Descriptor instead.
 func (*ToolResultCommitted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{47}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ToolResultCommitted) GetMessageJson() []byte {
@@ -4068,7 +4068,7 @@ type ToolResultSpilled struct {
 
 func (x *ToolResultSpilled) Reset() {
 	*x = ToolResultSpilled{}
-	mi := &file_gotato_v2_service_proto_msgTypes[48]
+	mi := &file_gotato_v1_service_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4080,7 +4080,7 @@ func (x *ToolResultSpilled) String() string {
 func (*ToolResultSpilled) ProtoMessage() {}
 
 func (x *ToolResultSpilled) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[48]
+	mi := &file_gotato_v1_service_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4093,7 +4093,7 @@ func (x *ToolResultSpilled) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolResultSpilled.ProtoReflect.Descriptor instead.
 func (*ToolResultSpilled) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{48}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ToolResultSpilled) GetCallId() string {
@@ -4136,7 +4136,7 @@ type ToolLoaded struct {
 
 func (x *ToolLoaded) Reset() {
 	*x = ToolLoaded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[49]
+	mi := &file_gotato_v1_service_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4148,7 +4148,7 @@ func (x *ToolLoaded) String() string {
 func (*ToolLoaded) ProtoMessage() {}
 
 func (x *ToolLoaded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[49]
+	mi := &file_gotato_v1_service_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4161,7 +4161,7 @@ func (x *ToolLoaded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolLoaded.ProtoReflect.Descriptor instead.
 func (*ToolLoaded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{49}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ToolLoaded) GetTool() string {
@@ -4190,7 +4190,7 @@ type ToolUnloaded struct {
 
 func (x *ToolUnloaded) Reset() {
 	*x = ToolUnloaded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[50]
+	mi := &file_gotato_v1_service_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4202,7 +4202,7 @@ func (x *ToolUnloaded) String() string {
 func (*ToolUnloaded) ProtoMessage() {}
 
 func (x *ToolUnloaded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[50]
+	mi := &file_gotato_v1_service_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4215,7 +4215,7 @@ func (x *ToolUnloaded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolUnloaded.ProtoReflect.Descriptor instead.
 func (*ToolUnloaded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{50}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ToolUnloaded) GetTool() string {
@@ -4242,7 +4242,7 @@ type RunRequested struct {
 
 func (x *RunRequested) Reset() {
 	*x = RunRequested{}
-	mi := &file_gotato_v2_service_proto_msgTypes[51]
+	mi := &file_gotato_v1_service_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4254,7 +4254,7 @@ func (x *RunRequested) String() string {
 func (*RunRequested) ProtoMessage() {}
 
 func (x *RunRequested) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[51]
+	mi := &file_gotato_v1_service_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4267,7 +4267,7 @@ func (x *RunRequested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequested.ProtoReflect.Descriptor instead.
 func (*RunRequested) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{51}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *RunRequested) GetAgent() string {
@@ -4287,7 +4287,7 @@ type RunWaiting struct {
 
 func (x *RunWaiting) Reset() {
 	*x = RunWaiting{}
-	mi := &file_gotato_v2_service_proto_msgTypes[52]
+	mi := &file_gotato_v1_service_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4299,7 +4299,7 @@ func (x *RunWaiting) String() string {
 func (*RunWaiting) ProtoMessage() {}
 
 func (x *RunWaiting) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[52]
+	mi := &file_gotato_v1_service_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4312,7 +4312,7 @@ func (x *RunWaiting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunWaiting.ProtoReflect.Descriptor instead.
 func (*RunWaiting) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{52}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *RunWaiting) GetWhy() string {
@@ -4332,7 +4332,7 @@ type RunRejected struct {
 
 func (x *RunRejected) Reset() {
 	*x = RunRejected{}
-	mi := &file_gotato_v2_service_proto_msgTypes[53]
+	mi := &file_gotato_v1_service_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4344,7 +4344,7 @@ func (x *RunRejected) String() string {
 func (*RunRejected) ProtoMessage() {}
 
 func (x *RunRejected) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[53]
+	mi := &file_gotato_v1_service_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4357,7 +4357,7 @@ func (x *RunRejected) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRejected.ProtoReflect.Descriptor instead.
 func (*RunRejected) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{53}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *RunRejected) GetWhy() string {
@@ -4378,7 +4378,7 @@ type MessageQueued struct {
 
 func (x *MessageQueued) Reset() {
 	*x = MessageQueued{}
-	mi := &file_gotato_v2_service_proto_msgTypes[54]
+	mi := &file_gotato_v1_service_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4390,7 +4390,7 @@ func (x *MessageQueued) String() string {
 func (*MessageQueued) ProtoMessage() {}
 
 func (x *MessageQueued) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[54]
+	mi := &file_gotato_v1_service_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4403,7 +4403,7 @@ func (x *MessageQueued) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageQueued.ProtoReflect.Descriptor instead.
 func (*MessageQueued) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{54}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *MessageQueued) GetMessageId() string {
@@ -4431,7 +4431,7 @@ type MessageCommitted struct {
 
 func (x *MessageCommitted) Reset() {
 	*x = MessageCommitted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[55]
+	mi := &file_gotato_v1_service_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4443,7 +4443,7 @@ func (x *MessageCommitted) String() string {
 func (*MessageCommitted) ProtoMessage() {}
 
 func (x *MessageCommitted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[55]
+	mi := &file_gotato_v1_service_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4456,7 +4456,7 @@ func (x *MessageCommitted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageCommitted.ProtoReflect.Descriptor instead.
 func (*MessageCommitted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{55}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *MessageCommitted) GetMessageJson() []byte {
@@ -4485,7 +4485,7 @@ type MessageDropped struct {
 
 func (x *MessageDropped) Reset() {
 	*x = MessageDropped{}
-	mi := &file_gotato_v2_service_proto_msgTypes[56]
+	mi := &file_gotato_v1_service_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4497,7 +4497,7 @@ func (x *MessageDropped) String() string {
 func (*MessageDropped) ProtoMessage() {}
 
 func (x *MessageDropped) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[56]
+	mi := &file_gotato_v1_service_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4510,7 +4510,7 @@ func (x *MessageDropped) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageDropped.ProtoReflect.Descriptor instead.
 func (*MessageDropped) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{56}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *MessageDropped) GetMessageId() string {
@@ -4547,7 +4547,7 @@ type NoticeQueued struct {
 
 func (x *NoticeQueued) Reset() {
 	*x = NoticeQueued{}
-	mi := &file_gotato_v2_service_proto_msgTypes[57]
+	mi := &file_gotato_v1_service_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4559,7 +4559,7 @@ func (x *NoticeQueued) String() string {
 func (*NoticeQueued) ProtoMessage() {}
 
 func (x *NoticeQueued) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[57]
+	mi := &file_gotato_v1_service_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4572,7 +4572,7 @@ func (x *NoticeQueued) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticeQueued.ProtoReflect.Descriptor instead.
 func (*NoticeQueued) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{57}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *NoticeQueued) GetMessageId() string {
@@ -4616,7 +4616,7 @@ type NoticeCommitted struct {
 
 func (x *NoticeCommitted) Reset() {
 	*x = NoticeCommitted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[58]
+	mi := &file_gotato_v1_service_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4628,7 +4628,7 @@ func (x *NoticeCommitted) String() string {
 func (*NoticeCommitted) ProtoMessage() {}
 
 func (x *NoticeCommitted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[58]
+	mi := &file_gotato_v1_service_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4641,7 +4641,7 @@ func (x *NoticeCommitted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticeCommitted.ProtoReflect.Descriptor instead.
 func (*NoticeCommitted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{58}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *NoticeCommitted) GetMessageJson() []byte {
@@ -4670,7 +4670,7 @@ type MessageRejected struct {
 
 func (x *MessageRejected) Reset() {
 	*x = MessageRejected{}
-	mi := &file_gotato_v2_service_proto_msgTypes[59]
+	mi := &file_gotato_v1_service_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4682,7 +4682,7 @@ func (x *MessageRejected) String() string {
 func (*MessageRejected) ProtoMessage() {}
 
 func (x *MessageRejected) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[59]
+	mi := &file_gotato_v1_service_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4695,7 +4695,7 @@ func (x *MessageRejected) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageRejected.ProtoReflect.Descriptor instead.
 func (*MessageRejected) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{59}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *MessageRejected) GetMessageId() string {
@@ -4728,7 +4728,7 @@ type AbortRequested struct {
 
 func (x *AbortRequested) Reset() {
 	*x = AbortRequested{}
-	mi := &file_gotato_v2_service_proto_msgTypes[60]
+	mi := &file_gotato_v1_service_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4740,7 +4740,7 @@ func (x *AbortRequested) String() string {
 func (*AbortRequested) ProtoMessage() {}
 
 func (x *AbortRequested) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[60]
+	mi := &file_gotato_v1_service_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4753,7 +4753,7 @@ func (x *AbortRequested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbortRequested.ProtoReflect.Descriptor instead.
 func (*AbortRequested) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{60}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{60}
 }
 
 // SessionClaimed: see the Event type of the same name in the Go API.
@@ -4769,7 +4769,7 @@ type SessionClaimed struct {
 
 func (x *SessionClaimed) Reset() {
 	*x = SessionClaimed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[61]
+	mi := &file_gotato_v1_service_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4781,7 +4781,7 @@ func (x *SessionClaimed) String() string {
 func (*SessionClaimed) ProtoMessage() {}
 
 func (x *SessionClaimed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[61]
+	mi := &file_gotato_v1_service_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4794,7 +4794,7 @@ func (x *SessionClaimed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionClaimed.ProtoReflect.Descriptor instead.
 func (*SessionClaimed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{61}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *SessionClaimed) GetInstance() string {
@@ -4836,7 +4836,7 @@ type SessionReleased struct {
 
 func (x *SessionReleased) Reset() {
 	*x = SessionReleased{}
-	mi := &file_gotato_v2_service_proto_msgTypes[62]
+	mi := &file_gotato_v1_service_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4848,7 +4848,7 @@ func (x *SessionReleased) String() string {
 func (*SessionReleased) ProtoMessage() {}
 
 func (x *SessionReleased) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[62]
+	mi := &file_gotato_v1_service_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4861,7 +4861,7 @@ func (x *SessionReleased) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionReleased.ProtoReflect.Descriptor instead.
 func (*SessionReleased) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{62}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *SessionReleased) GetInstance() string {
@@ -4889,7 +4889,7 @@ type SessionFenced struct {
 
 func (x *SessionFenced) Reset() {
 	*x = SessionFenced{}
-	mi := &file_gotato_v2_service_proto_msgTypes[63]
+	mi := &file_gotato_v1_service_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4901,7 +4901,7 @@ func (x *SessionFenced) String() string {
 func (*SessionFenced) ProtoMessage() {}
 
 func (x *SessionFenced) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[63]
+	mi := &file_gotato_v1_service_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4914,7 +4914,7 @@ func (x *SessionFenced) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionFenced.ProtoReflect.Descriptor instead.
 func (*SessionFenced) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{63}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *SessionFenced) GetInstance() string {
@@ -4941,7 +4941,7 @@ type LivenessLapsed struct {
 
 func (x *LivenessLapsed) Reset() {
 	*x = LivenessLapsed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[64]
+	mi := &file_gotato_v1_service_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4953,7 +4953,7 @@ func (x *LivenessLapsed) String() string {
 func (*LivenessLapsed) ProtoMessage() {}
 
 func (x *LivenessLapsed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[64]
+	mi := &file_gotato_v1_service_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4966,7 +4966,7 @@ func (x *LivenessLapsed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LivenessLapsed.ProtoReflect.Descriptor instead.
 func (*LivenessLapsed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{64}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *LivenessLapsed) GetInstance() string {
@@ -4996,7 +4996,7 @@ type SessionCreated struct {
 
 func (x *SessionCreated) Reset() {
 	*x = SessionCreated{}
-	mi := &file_gotato_v2_service_proto_msgTypes[65]
+	mi := &file_gotato_v1_service_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5008,7 +5008,7 @@ func (x *SessionCreated) String() string {
 func (*SessionCreated) ProtoMessage() {}
 
 func (x *SessionCreated) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[65]
+	mi := &file_gotato_v1_service_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5021,7 +5021,7 @@ func (x *SessionCreated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionCreated.ProtoReflect.Descriptor instead.
 func (*SessionCreated) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{65}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *SessionCreated) GetRecordEpoch() string {
@@ -5098,7 +5098,7 @@ type MetadataChanged struct {
 
 func (x *MetadataChanged) Reset() {
 	*x = MetadataChanged{}
-	mi := &file_gotato_v2_service_proto_msgTypes[66]
+	mi := &file_gotato_v1_service_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5110,7 +5110,7 @@ func (x *MetadataChanged) String() string {
 func (*MetadataChanged) ProtoMessage() {}
 
 func (x *MetadataChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[66]
+	mi := &file_gotato_v1_service_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5123,7 +5123,7 @@ func (x *MetadataChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataChanged.ProtoReflect.Descriptor instead.
 func (*MetadataChanged) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{66}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *MetadataChanged) GetKey() string {
@@ -5150,7 +5150,7 @@ type CompactionStarted struct {
 
 func (x *CompactionStarted) Reset() {
 	*x = CompactionStarted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[67]
+	mi := &file_gotato_v1_service_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5162,7 +5162,7 @@ func (x *CompactionStarted) String() string {
 func (*CompactionStarted) ProtoMessage() {}
 
 func (x *CompactionStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[67]
+	mi := &file_gotato_v1_service_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5175,7 +5175,7 @@ func (x *CompactionStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactionStarted.ProtoReflect.Descriptor instead.
 func (*CompactionStarted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{67}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *CompactionStarted) GetWhy() string {
@@ -5204,7 +5204,7 @@ type CompactionEnded struct {
 
 func (x *CompactionEnded) Reset() {
 	*x = CompactionEnded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[68]
+	mi := &file_gotato_v1_service_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5216,7 +5216,7 @@ func (x *CompactionEnded) String() string {
 func (*CompactionEnded) ProtoMessage() {}
 
 func (x *CompactionEnded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[68]
+	mi := &file_gotato_v1_service_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5229,7 +5229,7 @@ func (x *CompactionEnded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactionEnded.ProtoReflect.Descriptor instead.
 func (*CompactionEnded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{68}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *CompactionEnded) GetWhy() string {
@@ -5298,7 +5298,7 @@ type SegmentClosed struct {
 
 func (x *SegmentClosed) Reset() {
 	*x = SegmentClosed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[69]
+	mi := &file_gotato_v1_service_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5310,7 +5310,7 @@ func (x *SegmentClosed) String() string {
 func (*SegmentClosed) ProtoMessage() {}
 
 func (x *SegmentClosed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[69]
+	mi := &file_gotato_v1_service_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5323,7 +5323,7 @@ func (x *SegmentClosed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentClosed.ProtoReflect.Descriptor instead.
 func (*SegmentClosed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{69}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *SegmentClosed) GetSegment() *Segment {
@@ -5344,7 +5344,7 @@ type CompactionFailed struct {
 
 func (x *CompactionFailed) Reset() {
 	*x = CompactionFailed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[70]
+	mi := &file_gotato_v1_service_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5356,7 +5356,7 @@ func (x *CompactionFailed) String() string {
 func (*CompactionFailed) ProtoMessage() {}
 
 func (x *CompactionFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[70]
+	mi := &file_gotato_v1_service_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5369,7 +5369,7 @@ func (x *CompactionFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactionFailed.ProtoReflect.Descriptor instead.
 func (*CompactionFailed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{70}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *CompactionFailed) GetWhy() string {
@@ -5396,7 +5396,7 @@ type SessionUnloaded struct {
 
 func (x *SessionUnloaded) Reset() {
 	*x = SessionUnloaded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[71]
+	mi := &file_gotato_v1_service_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5408,7 +5408,7 @@ func (x *SessionUnloaded) String() string {
 func (*SessionUnloaded) ProtoMessage() {}
 
 func (x *SessionUnloaded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[71]
+	mi := &file_gotato_v1_service_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5421,7 +5421,7 @@ func (x *SessionUnloaded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionUnloaded.ProtoReflect.Descriptor instead.
 func (*SessionUnloaded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{71}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *SessionUnloaded) GetWhy() string {
@@ -5440,7 +5440,7 @@ type SessionDeleted struct {
 
 func (x *SessionDeleted) Reset() {
 	*x = SessionDeleted{}
-	mi := &file_gotato_v2_service_proto_msgTypes[72]
+	mi := &file_gotato_v1_service_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5452,7 +5452,7 @@ func (x *SessionDeleted) String() string {
 func (*SessionDeleted) ProtoMessage() {}
 
 func (x *SessionDeleted) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[72]
+	mi := &file_gotato_v1_service_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5465,7 +5465,7 @@ func (x *SessionDeleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionDeleted.ProtoReflect.Descriptor instead.
 func (*SessionDeleted) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{72}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{72}
 }
 
 // SessionLoaded: see the Event type of the same name in the Go API.
@@ -5480,7 +5480,7 @@ type SessionLoaded struct {
 
 func (x *SessionLoaded) Reset() {
 	*x = SessionLoaded{}
-	mi := &file_gotato_v2_service_proto_msgTypes[73]
+	mi := &file_gotato_v1_service_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5492,7 +5492,7 @@ func (x *SessionLoaded) String() string {
 func (*SessionLoaded) ProtoMessage() {}
 
 func (x *SessionLoaded) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[73]
+	mi := &file_gotato_v1_service_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5505,7 +5505,7 @@ func (x *SessionLoaded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionLoaded.ProtoReflect.Descriptor instead.
 func (*SessionLoaded) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{73}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *SessionLoaded) GetMessages() int32 {
@@ -5542,7 +5542,7 @@ type SessionSaved struct {
 
 func (x *SessionSaved) Reset() {
 	*x = SessionSaved{}
-	mi := &file_gotato_v2_service_proto_msgTypes[74]
+	mi := &file_gotato_v1_service_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5554,7 +5554,7 @@ func (x *SessionSaved) String() string {
 func (*SessionSaved) ProtoMessage() {}
 
 func (x *SessionSaved) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[74]
+	mi := &file_gotato_v1_service_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5567,7 +5567,7 @@ func (x *SessionSaved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionSaved.ProtoReflect.Descriptor instead.
 func (*SessionSaved) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{74}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *SessionSaved) GetMessages() int32 {
@@ -5608,7 +5608,7 @@ type StoreWriteFailed struct {
 
 func (x *StoreWriteFailed) Reset() {
 	*x = StoreWriteFailed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[75]
+	mi := &file_gotato_v1_service_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5620,7 +5620,7 @@ func (x *StoreWriteFailed) String() string {
 func (*StoreWriteFailed) ProtoMessage() {}
 
 func (x *StoreWriteFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[75]
+	mi := &file_gotato_v1_service_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5633,7 +5633,7 @@ func (x *StoreWriteFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreWriteFailed.ProtoReflect.Descriptor instead.
 func (*StoreWriteFailed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{75}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *StoreWriteFailed) GetCode() string {
@@ -5654,7 +5654,7 @@ type ExtensionFailed struct {
 
 func (x *ExtensionFailed) Reset() {
 	*x = ExtensionFailed{}
-	mi := &file_gotato_v2_service_proto_msgTypes[76]
+	mi := &file_gotato_v1_service_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5666,7 +5666,7 @@ func (x *ExtensionFailed) String() string {
 func (*ExtensionFailed) ProtoMessage() {}
 
 func (x *ExtensionFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[76]
+	mi := &file_gotato_v1_service_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5679,7 +5679,7 @@ func (x *ExtensionFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExtensionFailed.ProtoReflect.Descriptor instead.
 func (*ExtensionFailed) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{76}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ExtensionFailed) GetStage() string {
@@ -5706,7 +5706,7 @@ type EventsSkipped struct {
 
 func (x *EventsSkipped) Reset() {
 	*x = EventsSkipped{}
-	mi := &file_gotato_v2_service_proto_msgTypes[77]
+	mi := &file_gotato_v1_service_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5718,7 +5718,7 @@ func (x *EventsSkipped) String() string {
 func (*EventsSkipped) ProtoMessage() {}
 
 func (x *EventsSkipped) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[77]
+	mi := &file_gotato_v1_service_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5731,7 +5731,7 @@ func (x *EventsSkipped) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsSkipped.ProtoReflect.Descriptor instead.
 func (*EventsSkipped) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{77}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *EventsSkipped) GetSkipped() uint64 {
@@ -5754,7 +5754,7 @@ type CancelRunRequest struct {
 
 func (x *CancelRunRequest) Reset() {
 	*x = CancelRunRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[78]
+	mi := &file_gotato_v1_service_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5766,7 +5766,7 @@ func (x *CancelRunRequest) String() string {
 func (*CancelRunRequest) ProtoMessage() {}
 
 func (x *CancelRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[78]
+	mi := &file_gotato_v1_service_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5779,7 +5779,7 @@ func (x *CancelRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelRunRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{78}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *CancelRunRequest) GetTarget() isCancelRunRequest_Target {
@@ -5831,7 +5831,7 @@ type CancelRunResponse struct {
 
 func (x *CancelRunResponse) Reset() {
 	*x = CancelRunResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[79]
+	mi := &file_gotato_v1_service_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5843,7 +5843,7 @@ func (x *CancelRunResponse) String() string {
 func (*CancelRunResponse) ProtoMessage() {}
 
 func (x *CancelRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[79]
+	mi := &file_gotato_v1_service_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5856,7 +5856,7 @@ func (x *CancelRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRunResponse.ProtoReflect.Descriptor instead.
 func (*CancelRunResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{79}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{79}
 }
 
 type SendMessageRequest struct {
@@ -5871,7 +5871,7 @@ type SendMessageRequest struct {
 
 func (x *SendMessageRequest) Reset() {
 	*x = SendMessageRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[80]
+	mi := &file_gotato_v1_service_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5883,7 +5883,7 @@ func (x *SendMessageRequest) String() string {
 func (*SendMessageRequest) ProtoMessage() {}
 
 func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[80]
+	mi := &file_gotato_v1_service_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5896,7 +5896,7 @@ func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendMessageRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{80}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *SendMessageRequest) GetSessionId() string {
@@ -5936,7 +5936,7 @@ type SendMessageResponse struct {
 
 func (x *SendMessageResponse) Reset() {
 	*x = SendMessageResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[81]
+	mi := &file_gotato_v1_service_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5948,7 +5948,7 @@ func (x *SendMessageResponse) String() string {
 func (*SendMessageResponse) ProtoMessage() {}
 
 func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[81]
+	mi := &file_gotato_v1_service_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5961,7 +5961,7 @@ func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendMessageResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{81}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *SendMessageResponse) GetSessionId() string {
@@ -6004,7 +6004,7 @@ type NoticeRequest struct {
 
 func (x *NoticeRequest) Reset() {
 	*x = NoticeRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[82]
+	mi := &file_gotato_v1_service_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6016,7 +6016,7 @@ func (x *NoticeRequest) String() string {
 func (*NoticeRequest) ProtoMessage() {}
 
 func (x *NoticeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[82]
+	mi := &file_gotato_v1_service_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6029,7 +6029,7 @@ func (x *NoticeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticeRequest.ProtoReflect.Descriptor instead.
 func (*NoticeRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{82}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *NoticeRequest) GetSessionId() string {
@@ -6068,7 +6068,7 @@ type NoticeResponse struct {
 
 func (x *NoticeResponse) Reset() {
 	*x = NoticeResponse{}
-	mi := &file_gotato_v2_service_proto_msgTypes[83]
+	mi := &file_gotato_v1_service_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6080,7 +6080,7 @@ func (x *NoticeResponse) String() string {
 func (*NoticeResponse) ProtoMessage() {}
 
 func (x *NoticeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[83]
+	mi := &file_gotato_v1_service_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6093,7 +6093,7 @@ func (x *NoticeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticeResponse.ProtoReflect.Descriptor instead.
 func (*NoticeResponse) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{83}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *NoticeResponse) GetSessionId() string {
@@ -6134,7 +6134,7 @@ type EventsRequest struct {
 
 func (x *EventsRequest) Reset() {
 	*x = EventsRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[84]
+	mi := &file_gotato_v1_service_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6146,7 +6146,7 @@ func (x *EventsRequest) String() string {
 func (*EventsRequest) ProtoMessage() {}
 
 func (x *EventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[84]
+	mi := &file_gotato_v1_service_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6159,7 +6159,7 @@ func (x *EventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsRequest.ProtoReflect.Descriptor instead.
 func (*EventsRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{84}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *EventsRequest) GetSessionId() string {
@@ -6191,7 +6191,7 @@ type ContextReport struct {
 
 func (x *ContextReport) Reset() {
 	*x = ContextReport{}
-	mi := &file_gotato_v2_service_proto_msgTypes[85]
+	mi := &file_gotato_v1_service_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6203,7 +6203,7 @@ func (x *ContextReport) String() string {
 func (*ContextReport) ProtoMessage() {}
 
 func (x *ContextReport) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[85]
+	mi := &file_gotato_v1_service_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6216,7 +6216,7 @@ func (x *ContextReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextReport.ProtoReflect.Descriptor instead.
 func (*ContextReport) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{85}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *ContextReport) GetSessionId() string {
@@ -6269,7 +6269,7 @@ type CompactRequest struct {
 
 func (x *CompactRequest) Reset() {
 	*x = CompactRequest{}
-	mi := &file_gotato_v2_service_proto_msgTypes[86]
+	mi := &file_gotato_v1_service_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6281,7 +6281,7 @@ func (x *CompactRequest) String() string {
 func (*CompactRequest) ProtoMessage() {}
 
 func (x *CompactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[86]
+	mi := &file_gotato_v1_service_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6294,7 +6294,7 @@ func (x *CompactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactRequest.ProtoReflect.Descriptor instead.
 func (*CompactRequest) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{86}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *CompactRequest) GetSessionId() string {
@@ -6340,7 +6340,7 @@ type CompactResult struct {
 
 func (x *CompactResult) Reset() {
 	*x = CompactResult{}
-	mi := &file_gotato_v2_service_proto_msgTypes[87]
+	mi := &file_gotato_v1_service_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6352,7 +6352,7 @@ func (x *CompactResult) String() string {
 func (*CompactResult) ProtoMessage() {}
 
 func (x *CompactResult) ProtoReflect() protoreflect.Message {
-	mi := &file_gotato_v2_service_proto_msgTypes[87]
+	mi := &file_gotato_v1_service_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6365,7 +6365,7 @@ func (x *CompactResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactResult.ProtoReflect.Descriptor instead.
 func (*CompactResult) Descriptor() ([]byte, []int) {
-	return file_gotato_v2_service_proto_rawDescGZIP(), []int{87}
+	return file_gotato_v1_service_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *CompactResult) GetSessionId() string {
@@ -6431,11 +6431,11 @@ func (x *CompactResult) GetMergeJson() []byte {
 	return nil
 }
 
-var File_gotato_v2_service_proto protoreflect.FileDescriptor
+var File_gotato_v1_service_proto protoreflect.FileDescriptor
 
-const file_gotato_v2_service_proto_rawDesc = "" +
+const file_gotato_v1_service_proto_rawDesc = "" +
 	"\n" +
-	"\x17gotato/v2/service.proto\x12\tgotato.v2\"\x11\n" +
+	"\x17gotato/v1/service.proto\x12\tgotato.v1\"\x11\n" +
 	"\x0fContractRequest\",\n" +
 	"\x10ContractResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\"\x0f\n" +
@@ -6443,14 +6443,14 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0eAgentsResponse\x12\x16\n" +
 	"\x06agents\x18\x01 \x03(\tR\x06agents\x12G\n" +
 	"\n" +
-	"max_effect\x18\x02 \x03(\v2(.gotato.v2.AgentsResponse.MaxEffectEntryR\tmaxEffect\x1a<\n" +
+	"max_effect\x18\x02 \x03(\v2(.gotato.v1.AgentsResponse.MaxEffectEntryR\tmaxEffect\x1a<\n" +
 	"\x0eMaxEffectEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x01\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12I\n" +
-	"\bmetadata\x18\x03 \x03(\v2-.gotato.v2.CreateSessionRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\x03 \x03(\v2-.gotato.v1.CreateSessionRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"/\n" +
@@ -6466,8 +6466,8 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"updated_at\x18\x04 \x01(\tR\tupdatedAt\x12\x1a\n" +
 	"\bmessages\x18\x05 \x01(\x05R\bmessages\x12\x12\n" +
 	"\x04runs\x18\x06 \x01(\x05R\x04runs\x12&\n" +
-	"\x05usage\x18\a \x01(\v2\x10.gotato.v2.UsageR\x05usage\x12C\n" +
-	"\bmetadata\x18\b \x03(\v2'.gotato.v2.SessionSummary.MetadataEntryR\bmetadata\x12!\n" +
+	"\x05usage\x18\a \x01(\v2\x10.gotato.v1.UsageR\x05usage\x12C\n" +
+	"\bmetadata\x18\b \x03(\v2'.gotato.v1.SessionSummary.MetadataEntryR\bmetadata\x12!\n" +
 	"\frecord_epoch\x18\t \x01(\tR\vrecordEpoch\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -6476,7 +6476,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\rdocument_json\x18\x01 \x01(\fR\fdocumentJson\"\x15\n" +
 	"\x13ListSessionsRequest\"M\n" +
 	"\x14ListSessionsResponse\x125\n" +
-	"\bsessions\x18\x01 \x03(\v2\x19.gotato.v2.SessionSummaryR\bsessions\"1\n" +
+	"\bsessions\x18\x01 \x03(\v2\x19.gotato.v1.SessionSummaryR\bsessions\"1\n" +
 	"\x15DeleteSessionResponse\x12\x18\n" +
 	"\adeleted\x18\x01 \x01(\bR\adeleted\"\xa5\x02\n" +
 	"\n" +
@@ -6485,8 +6485,8 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x18\n" +
 	"\x06prompt\x18\x03 \x01(\tH\x00R\x06prompt\x12A\n" +
-	"\x0econtinue_input\x18\x04 \x01(\v2\x18.gotato.v2.ContinueInputH\x00R\rcontinueInput\x12?\n" +
-	"\bmetadata\x18\x05 \x03(\v2#.gotato.v2.RunRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\x0econtinue_input\x18\x04 \x01(\v2\x18.gotato.v1.ContinueInputH\x00R\rcontinueInput\x12?\n" +
+	"\bmetadata\x18\x05 \x03(\v2#.gotato.v1.RunRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\a\n" +
@@ -6501,9 +6501,9 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
 	"final_text\x18\x06 \x01(\tR\tfinalText\x12&\n" +
-	"\x05usage\x18\a \x01(\v2\x10.gotato.v2.UsageR\x05usage\x12/\n" +
-	"\ametrics\x18\b \x01(\v2\x15.gotato.v2.RunMetricsR\ametrics\x12-\n" +
-	"\x05error\x18\t \x01(\v2\x17.gotato.v2.RuntimeErrorR\x05error\x12\x1c\n" +
+	"\x05usage\x18\a \x01(\v2\x10.gotato.v1.UsageR\x05usage\x12/\n" +
+	"\ametrics\x18\b \x01(\v2\x15.gotato.v1.RunMetricsR\ametrics\x12-\n" +
+	"\x05error\x18\t \x01(\v2\x17.gotato.v1.RuntimeErrorR\x05error\x12\x1c\n" +
 	"\tcompacted\x18\n" +
 	" \x01(\bR\tcompacted\x12\x1a\n" +
 	"\bmessages\x18\v \x01(\x05R\bmessages\x12\x16\n" +
@@ -6532,8 +6532,8 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\tretryable\x18\x04 \x01(\bR\tretryable\x12\x17\n" +
 	"\anot_run\x18\x05 \x01(\bR\x06notRun\"o\n" +
 	"\tRunUpdate\x12(\n" +
-	"\x05event\x18\x01 \x01(\v2\x10.gotato.v2.EventH\x00R\x05event\x12.\n" +
-	"\x06result\x18\x02 \x01(\v2\x14.gotato.v2.RunResultH\x00R\x06resultB\b\n" +
+	"\x05event\x18\x01 \x01(\v2\x10.gotato.v1.EventH\x00R\x05event\x12.\n" +
+	"\x06result\x18\x02 \x01(\v2\x14.gotato.v1.RunResultH\x00R\x06resultB\b\n" +
 	"\x06update\"n\n" +
 	"\x14StreamSessionRequest\x12\x1d\n" +
 	"\n" +
@@ -6547,8 +6547,8 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x05after\x18\x03 \x01(\x04R\x05after\x12\x12\n" +
 	"\x04head\x18\x04 \x01(\x04R\x04head\"s\n" +
 	"\rSessionUpdate\x12.\n" +
-	"\x05start\x18\x01 \x01(\v2\x16.gotato.v2.StreamStartH\x00R\x05start\x12(\n" +
-	"\x05event\x18\x02 \x01(\v2\x10.gotato.v2.EventH\x00R\x05eventB\b\n" +
+	"\x05start\x18\x01 \x01(\v2\x16.gotato.v1.StreamStartH\x00R\x05start\x12(\n" +
+	"\x05event\x18\x02 \x01(\v2\x10.gotato.v1.EventH\x00R\x05eventB\b\n" +
 	"\x06update\"\x83\x01\n" +
 	"\vEventHeader\x12\x12\n" +
 	"\x04time\x18\x01 \x01(\tR\x04time\x12\x1d\n" +
@@ -6558,62 +6558,62 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04turn\x18\x05 \x01(\rR\x04turn\"\x81\x19\n" +
 	"\x05Event\x12.\n" +
-	"\x06header\x18\x01 \x01(\v2\x16.gotato.v2.EventHeaderR\x06header\x128\n" +
+	"\x06header\x18\x01 \x01(\v2\x16.gotato.v1.EventHeaderR\x06header\x128\n" +
 	"\vrun_started\x18\n" +
-	" \x01(\v2\x15.gotato.v2.RunStartedH\x00R\n" +
+	" \x01(\v2\x15.gotato.v1.RunStartedH\x00R\n" +
 	"runStarted\x122\n" +
-	"\trun_ended\x18\v \x01(\v2\x13.gotato.v2.RunEndedH\x00R\brunEnded\x12;\n" +
-	"\fturn_started\x18\f \x01(\v2\x16.gotato.v2.TurnStartedH\x00R\vturnStarted\x125\n" +
+	"\trun_ended\x18\v \x01(\v2\x13.gotato.v1.RunEndedH\x00R\brunEnded\x12;\n" +
+	"\fturn_started\x18\f \x01(\v2\x16.gotato.v1.TurnStartedH\x00R\vturnStarted\x125\n" +
 	"\n" +
-	"turn_ended\x18\r \x01(\v2\x14.gotato.v2.TurnEndedH\x00R\tturnEnded\x12>\n" +
-	"\rcontext_built\x18\x0e \x01(\v2\x17.gotato.v2.ContextBuiltH\x00R\fcontextBuilt\x12>\n" +
-	"\rreply_started\x18\x0f \x01(\v2\x17.gotato.v2.ReplyStartedH\x00R\freplyStarted\x128\n" +
-	"\vreply_ended\x18\x10 \x01(\v2\x15.gotato.v2.ReplyEndedH\x00R\n" +
+	"turn_ended\x18\r \x01(\v2\x14.gotato.v1.TurnEndedH\x00R\tturnEnded\x12>\n" +
+	"\rcontext_built\x18\x0e \x01(\v2\x17.gotato.v1.ContextBuiltH\x00R\fcontextBuilt\x12>\n" +
+	"\rreply_started\x18\x0f \x01(\v2\x17.gotato.v1.ReplyStartedH\x00R\freplyStarted\x128\n" +
+	"\vreply_ended\x18\x10 \x01(\v2\x15.gotato.v1.ReplyEndedH\x00R\n" +
 	"replyEnded\x125\n" +
 	"\n" +
-	"text_delta\x18\x11 \x01(\v2\x14.gotato.v2.TextDeltaH\x00R\ttextDelta\x12D\n" +
-	"\x0freasoning_delta\x18\x12 \x01(\v2\x19.gotato.v2.ReasoningDeltaH\x00R\x0ereasoningDelta\x12<\n" +
-	"\rreply_cut_off\x18\x13 \x01(\v2\x16.gotato.v2.ReplyCutOffH\x00R\vreplyCutOff\x12B\n" +
-	"\x0freply_part_kept\x18\x14 \x01(\v2\x18.gotato.v2.ReplyPartKeptH\x00R\rreplyPartKept\x12>\n" +
-	"\rmodel_retried\x18\x15 \x01(\v2\x17.gotato.v2.ModelRetriedH\x00R\fmodelRetried\x12;\n" +
-	"\ftool_started\x18\x16 \x01(\v2\x16.gotato.v2.ToolStartedH\x00R\vtoolStarted\x125\n" +
+	"text_delta\x18\x11 \x01(\v2\x14.gotato.v1.TextDeltaH\x00R\ttextDelta\x12D\n" +
+	"\x0freasoning_delta\x18\x12 \x01(\v2\x19.gotato.v1.ReasoningDeltaH\x00R\x0ereasoningDelta\x12<\n" +
+	"\rreply_cut_off\x18\x13 \x01(\v2\x16.gotato.v1.ReplyCutOffH\x00R\vreplyCutOff\x12B\n" +
+	"\x0freply_part_kept\x18\x14 \x01(\v2\x18.gotato.v1.ReplyPartKeptH\x00R\rreplyPartKept\x12>\n" +
+	"\rmodel_retried\x18\x15 \x01(\v2\x17.gotato.v1.ModelRetriedH\x00R\fmodelRetried\x12;\n" +
+	"\ftool_started\x18\x16 \x01(\v2\x16.gotato.v1.ToolStartedH\x00R\vtoolStarted\x125\n" +
 	"\n" +
-	"tool_ended\x18\x17 \x01(\v2\x14.gotato.v2.ToolEndedH\x00R\ttoolEnded\x12>\n" +
-	"\rtool_progress\x18\x18 \x01(\v2\x17.gotato.v2.ToolProgressH\x00R\ftoolProgress\x12T\n" +
-	"\x15tool_result_committed\x18\x19 \x01(\v2\x1e.gotato.v2.ToolResultCommittedH\x00R\x13toolResultCommitted\x128\n" +
-	"\vtool_loaded\x18\x1a \x01(\v2\x15.gotato.v2.ToolLoadedH\x00R\n" +
+	"tool_ended\x18\x17 \x01(\v2\x14.gotato.v1.ToolEndedH\x00R\ttoolEnded\x12>\n" +
+	"\rtool_progress\x18\x18 \x01(\v2\x17.gotato.v1.ToolProgressH\x00R\ftoolProgress\x12T\n" +
+	"\x15tool_result_committed\x18\x19 \x01(\v2\x1e.gotato.v1.ToolResultCommittedH\x00R\x13toolResultCommitted\x128\n" +
+	"\vtool_loaded\x18\x1a \x01(\v2\x15.gotato.v1.ToolLoadedH\x00R\n" +
 	"toolLoaded\x12>\n" +
-	"\rrun_requested\x18\x1b \x01(\v2\x17.gotato.v2.RunRequestedH\x00R\frunRequested\x128\n" +
-	"\vrun_waiting\x18\x1c \x01(\v2\x15.gotato.v2.RunWaitingH\x00R\n" +
+	"\rrun_requested\x18\x1b \x01(\v2\x17.gotato.v1.RunRequestedH\x00R\frunRequested\x128\n" +
+	"\vrun_waiting\x18\x1c \x01(\v2\x15.gotato.v1.RunWaitingH\x00R\n" +
 	"runWaiting\x12;\n" +
-	"\frun_rejected\x18\x1d \x01(\v2\x16.gotato.v2.RunRejectedH\x00R\vrunRejected\x12A\n" +
-	"\x0emessage_queued\x18\x1e \x01(\v2\x18.gotato.v2.MessageQueuedH\x00R\rmessageQueued\x12J\n" +
-	"\x11message_committed\x18\x1f \x01(\v2\x1b.gotato.v2.MessageCommittedH\x00R\x10messageCommitted\x12D\n" +
-	"\x0fmessage_dropped\x18  \x01(\v2\x19.gotato.v2.MessageDroppedH\x00R\x0emessageDropped\x12G\n" +
-	"\x10message_rejected\x18\" \x01(\v2\x1a.gotato.v2.MessageRejectedH\x00R\x0fmessageRejected\x12D\n" +
-	"\x0fabort_requested\x18# \x01(\v2\x19.gotato.v2.AbortRequestedH\x00R\x0eabortRequested\x12D\n" +
-	"\x0fsession_claimed\x18$ \x01(\v2\x19.gotato.v2.SessionClaimedH\x00R\x0esessionClaimed\x12G\n" +
-	"\x10session_released\x18% \x01(\v2\x1a.gotato.v2.SessionReleasedH\x00R\x0fsessionReleased\x12A\n" +
-	"\x0esession_fenced\x18& \x01(\v2\x18.gotato.v2.SessionFencedH\x00R\rsessionFenced\x12D\n" +
-	"\x0fliveness_lapsed\x18' \x01(\v2\x19.gotato.v2.LivenessLapsedH\x00R\x0elivenessLapsed\x12D\n" +
-	"\x0fsession_created\x18( \x01(\v2\x19.gotato.v2.SessionCreatedH\x00R\x0esessionCreated\x12G\n" +
-	"\x10metadata_changed\x18) \x01(\v2\x1a.gotato.v2.MetadataChangedH\x00R\x0fmetadataChanged\x12M\n" +
-	"\x12compaction_started\x18* \x01(\v2\x1c.gotato.v2.CompactionStartedH\x00R\x11compactionStarted\x12G\n" +
-	"\x10compaction_ended\x18+ \x01(\v2\x1a.gotato.v2.CompactionEndedH\x00R\x0fcompactionEnded\x12J\n" +
-	"\x11compaction_failed\x18, \x01(\v2\x1b.gotato.v2.CompactionFailedH\x00R\x10compactionFailed\x12G\n" +
-	"\x10session_unloaded\x18- \x01(\v2\x1a.gotato.v2.SessionUnloadedH\x00R\x0fsessionUnloaded\x12D\n" +
-	"\x0fsession_deleted\x18. \x01(\v2\x19.gotato.v2.SessionDeletedH\x00R\x0esessionDeleted\x12A\n" +
-	"\x0esession_loaded\x18/ \x01(\v2\x18.gotato.v2.SessionLoadedH\x00R\rsessionLoaded\x12>\n" +
-	"\rsession_saved\x180 \x01(\v2\x17.gotato.v2.SessionSavedH\x00R\fsessionSaved\x12K\n" +
-	"\x12store_write_failed\x181 \x01(\v2\x1b.gotato.v2.StoreWriteFailedH\x00R\x10storeWriteFailed\x12G\n" +
-	"\x10extension_failed\x182 \x01(\v2\x1a.gotato.v2.ExtensionFailedH\x00R\x0fextensionFailed\x12A\n" +
-	"\x0eevents_skipped\x183 \x01(\v2\x18.gotato.v2.EventsSkippedH\x00R\reventsSkipped\x123\n" +
-	"\aunknown\x184 \x01(\v2\x17.gotato.v2.UnknownEventH\x00R\aunknown\x12A\n" +
-	"\x0esegment_closed\x185 \x01(\v2\x18.gotato.v2.SegmentClosedH\x00R\rsegmentClosed\x12N\n" +
-	"\x13tool_result_spilled\x186 \x01(\v2\x1c.gotato.v2.ToolResultSpilledH\x00R\x11toolResultSpilled\x12>\n" +
-	"\rtool_unloaded\x187 \x01(\v2\x17.gotato.v2.ToolUnloadedH\x00R\ftoolUnloaded\x12>\n" +
-	"\rnotice_queued\x188 \x01(\v2\x17.gotato.v2.NoticeQueuedH\x00R\fnoticeQueued\x12G\n" +
-	"\x10notice_committed\x189 \x01(\v2\x1a.gotato.v2.NoticeCommittedH\x00R\x0fnoticeCommittedB\a\n" +
+	"\frun_rejected\x18\x1d \x01(\v2\x16.gotato.v1.RunRejectedH\x00R\vrunRejected\x12A\n" +
+	"\x0emessage_queued\x18\x1e \x01(\v2\x18.gotato.v1.MessageQueuedH\x00R\rmessageQueued\x12J\n" +
+	"\x11message_committed\x18\x1f \x01(\v2\x1b.gotato.v1.MessageCommittedH\x00R\x10messageCommitted\x12D\n" +
+	"\x0fmessage_dropped\x18  \x01(\v2\x19.gotato.v1.MessageDroppedH\x00R\x0emessageDropped\x12G\n" +
+	"\x10message_rejected\x18\" \x01(\v2\x1a.gotato.v1.MessageRejectedH\x00R\x0fmessageRejected\x12D\n" +
+	"\x0fabort_requested\x18# \x01(\v2\x19.gotato.v1.AbortRequestedH\x00R\x0eabortRequested\x12D\n" +
+	"\x0fsession_claimed\x18$ \x01(\v2\x19.gotato.v1.SessionClaimedH\x00R\x0esessionClaimed\x12G\n" +
+	"\x10session_released\x18% \x01(\v2\x1a.gotato.v1.SessionReleasedH\x00R\x0fsessionReleased\x12A\n" +
+	"\x0esession_fenced\x18& \x01(\v2\x18.gotato.v1.SessionFencedH\x00R\rsessionFenced\x12D\n" +
+	"\x0fliveness_lapsed\x18' \x01(\v2\x19.gotato.v1.LivenessLapsedH\x00R\x0elivenessLapsed\x12D\n" +
+	"\x0fsession_created\x18( \x01(\v2\x19.gotato.v1.SessionCreatedH\x00R\x0esessionCreated\x12G\n" +
+	"\x10metadata_changed\x18) \x01(\v2\x1a.gotato.v1.MetadataChangedH\x00R\x0fmetadataChanged\x12M\n" +
+	"\x12compaction_started\x18* \x01(\v2\x1c.gotato.v1.CompactionStartedH\x00R\x11compactionStarted\x12G\n" +
+	"\x10compaction_ended\x18+ \x01(\v2\x1a.gotato.v1.CompactionEndedH\x00R\x0fcompactionEnded\x12J\n" +
+	"\x11compaction_failed\x18, \x01(\v2\x1b.gotato.v1.CompactionFailedH\x00R\x10compactionFailed\x12G\n" +
+	"\x10session_unloaded\x18- \x01(\v2\x1a.gotato.v1.SessionUnloadedH\x00R\x0fsessionUnloaded\x12D\n" +
+	"\x0fsession_deleted\x18. \x01(\v2\x19.gotato.v1.SessionDeletedH\x00R\x0esessionDeleted\x12A\n" +
+	"\x0esession_loaded\x18/ \x01(\v2\x18.gotato.v1.SessionLoadedH\x00R\rsessionLoaded\x12>\n" +
+	"\rsession_saved\x180 \x01(\v2\x17.gotato.v1.SessionSavedH\x00R\fsessionSaved\x12K\n" +
+	"\x12store_write_failed\x181 \x01(\v2\x1b.gotato.v1.StoreWriteFailedH\x00R\x10storeWriteFailed\x12G\n" +
+	"\x10extension_failed\x182 \x01(\v2\x1a.gotato.v1.ExtensionFailedH\x00R\x0fextensionFailed\x12A\n" +
+	"\x0eevents_skipped\x183 \x01(\v2\x18.gotato.v1.EventsSkippedH\x00R\reventsSkipped\x123\n" +
+	"\aunknown\x184 \x01(\v2\x17.gotato.v1.UnknownEventH\x00R\aunknown\x12A\n" +
+	"\x0esegment_closed\x185 \x01(\v2\x18.gotato.v1.SegmentClosedH\x00R\rsegmentClosed\x12N\n" +
+	"\x13tool_result_spilled\x186 \x01(\v2\x1c.gotato.v1.ToolResultSpilledH\x00R\x11toolResultSpilled\x12>\n" +
+	"\rtool_unloaded\x187 \x01(\v2\x17.gotato.v1.ToolUnloadedH\x00R\ftoolUnloaded\x12>\n" +
+	"\rnotice_queued\x188 \x01(\v2\x17.gotato.v1.NoticeQueuedH\x00R\fnoticeQueued\x12G\n" +
+	"\x10notice_committed\x189 \x01(\v2\x1a.gotato.v1.NoticeCommittedH\x00R\x0fnoticeCommittedB\a\n" +
 	"\x05event\"=\n" +
 	"\fUnknownEvent\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x19\n" +
@@ -6644,7 +6644,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	" \x01(\x05R\ftokensBefore\x12!\n" +
 	"\ftokens_after\x18\v \x01(\x05R\vtokensAfter\x12\x18\n" +
 	"\aceiling\x18\f \x01(\x05R\aceiling\x121\n" +
-	"\vrecap_usage\x18\r \x01(\v2\x10.gotato.v2.UsageR\n" +
+	"\vrecap_usage\x18\r \x01(\v2\x10.gotato.v1.UsageR\n" +
 	"recapUsage\x12\x14\n" +
 	"\x05tools\x18\x0e \x03(\tR\x05tools\x12\x16\n" +
 	"\x06merged\x18\x0f \x03(\x05R\x06merged\"\xce\x02\n" +
@@ -6652,20 +6652,20 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x06number\x18\x01 \x01(\x05R\x06number\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
 	"\x02to\x18\x03 \x01(\tR\x02to\x120\n" +
-	"\x06source\x18\x04 \x01(\v2\x18.gotato.v2.SegmentSourceR\x06source\x12#\n" +
+	"\x06source\x18\x04 \x01(\v2\x18.gotato.v1.SegmentSourceR\x06source\x12#\n" +
 	"\rmessages_json\x18\x05 \x03(\fR\fmessagesJson\x12\x1a\n" +
 	"\brendered\x18\x06 \x01(\x05R\brendered\x126\n" +
 	"\n" +
-	"tool_calls\x18\a \x03(\v2\x17.gotato.v2.ToolCallLineR\ttoolCalls\x12\x14\n" +
+	"tool_calls\x18\a \x03(\v2\x17.gotato.v1.ToolCallLineR\ttoolCalls\x12\x14\n" +
 	"\x05recap\x18\b \x01(\tR\x05recap\x12\x14\n" +
 	"\x05tools\x18\t \x03(\tR\x05tools\x120\n" +
 	"\x06merged\x18\n" +
-	" \x03(\v2\x18.gotato.v2.MergedSegmentR\x06merged\"}\n" +
+	" \x03(\v2\x18.gotato.v1.MergedSegmentR\x06merged\"}\n" +
 	"\rMergedSegment\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\x05R\x06number\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
 	"\x02to\x18\x03 \x01(\tR\x02to\x120\n" +
-	"\x06source\x18\x04 \x01(\v2\x18.gotato.v2.SegmentSourceR\x06source\"l\n" +
+	"\x06source\x18\x04 \x01(\v2\x18.gotato.v1.SegmentSourceR\x06source\"l\n" +
 	"\rSegmentSource\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1f\n" +
@@ -6694,7 +6694,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x05turns\x18\x05 \x01(\rR\x05turns\x12\x1d\n" +
 	"\n" +
 	"tool_calls\x18\x06 \x01(\rR\ttoolCalls\x12&\n" +
-	"\x05usage\x18\a \x01(\v2\x10.gotato.v2.UsageR\x05usage\x12\x1d\n" +
+	"\x05usage\x18\a \x01(\v2\x10.gotato.v1.UsageR\x05usage\x12\x1d\n" +
 	"\n" +
 	"elapsed_ms\x18\b \x01(\x03R\telapsedMs\x12\x1d\n" +
 	"\n" +
@@ -6705,7 +6705,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\tTurnEnded\x12\x1f\n" +
 	"\vstop_reason\x18\x01 \x01(\tR\n" +
 	"stopReason\x12&\n" +
-	"\x05usage\x18\x02 \x01(\v2\x10.gotato.v2.UsageR\x05usage\x12\x1d\n" +
+	"\x05usage\x18\x02 \x01(\v2\x10.gotato.v1.UsageR\x05usage\x12\x1d\n" +
 	"\n" +
 	"elapsed_ms\x18\x03 \x01(\x03R\telapsedMs\x12\x1d\n" +
 	"\n" +
@@ -6713,7 +6713,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0freasoning_bytes\x18\x05 \x01(\x04R\x0ereasoningBytes\x12\x1d\n" +
 	"\n" +
 	"tool_calls\x18\x06 \x01(\x05R\ttoolCalls\x12,\n" +
-	"\x05tools\x18\a \x03(\v2\x16.gotato.v2.ToolOutcomeR\x05tools\"\x9f\x03\n" +
+	"\x05tools\x18\a \x03(\v2\x16.gotato.v1.ToolOutcomeR\x05tools\"\x9f\x03\n" +
 	"\fContextBuilt\x12\x1a\n" +
 	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x1a\n" +
 	"\bmessages\x18\x02 \x01(\x05R\bmessages\x12'\n" +
@@ -6724,7 +6724,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0fprefix_messages\x18\x06 \x01(\x05R\x0eprefixMessages\x12!\n" +
 	"\fsystem_bytes\x18\a \x01(\x05R\vsystemBytes\x12\x14\n" +
 	"\x05tools\x18\b \x01(\x05R\x05tools\x12A\n" +
-	"\bmetadata\x18\t \x03(\v2%.gotato.v2.ContextBuilt.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\t \x03(\v2%.gotato.v1.ContextBuilt.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"-\n" +
@@ -6842,14 +6842,14 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\frecord_epoch\x18\x06 \x01(\tR\vrecordEpoch\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x01 \x01(\tR\tcreatedAt\x126\n" +
-	"\vforked_from\x18\x02 \x01(\v2\x15.gotato.v2.ForkedFromR\n" +
+	"\vforked_from\x18\x02 \x01(\v2\x15.gotato.v1.ForkedFromR\n" +
 	"forkedFrom\x12#\n" +
 	"\rmessages_json\x18\x03 \x03(\fR\fmessagesJson\x12C\n" +
-	"\bmetadata\x18\x04 \x03(\v2'.gotato.v2.SessionCreated.MetadataEntryR\bmetadata\x127\n" +
-	"\vcompactions\x18\x05 \x03(\v2\x15.gotato.v2.CompactionR\vcompactions\x12\x14\n" +
+	"\bmetadata\x18\x04 \x03(\v2'.gotato.v1.SessionCreated.MetadataEntryR\bmetadata\x127\n" +
+	"\vcompactions\x18\x05 \x03(\v2\x15.gotato.v1.CompactionR\vcompactions\x12\x14\n" +
 	"\x05tools\x18\a \x03(\tR\x05tools\x12\x1a\n" +
 	"\bsegments\x18\b \x03(\x05R\bsegments\x12.\n" +
-	"\x04tail\x18\t \x03(\v2\x1a.gotato.v2.MessagePositionR\x04tail\x1a;\n" +
+	"\x04tail\x18\t \x03(\v2\x1a.gotato.v1.MessagePositionR\x04tail\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"9\n" +
@@ -6861,19 +6861,19 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\x0fCompactionEnded\x12\x10\n" +
 	"\x03why\x18\x01 \x01(\tR\x03why\x125\n" +
 	"\n" +
-	"compaction\x18\x02 \x01(\v2\x15.gotato.v2.CompactionR\n" +
+	"compaction\x18\x02 \x01(\v2\x15.gotato.v1.CompactionR\n" +
 	"compaction\x12/\n" +
-	"\ahistory\x18\x03 \x03(\v2\x15.gotato.v2.CompactionR\ahistory\x12#\n" +
+	"\ahistory\x18\x03 \x03(\v2\x15.gotato.v1.CompactionR\ahistory\x12#\n" +
 	"\rmessages_json\x18\x04 \x03(\fR\fmessagesJson\x12D\n" +
-	"\bmetadata\x18\x05 \x03(\v2(.gotato.v2.CompactionEnded.MetadataEntryR\bmetadata\x12\x14\n" +
+	"\bmetadata\x18\x05 \x03(\v2(.gotato.v1.CompactionEnded.MetadataEntryR\bmetadata\x12\x14\n" +
 	"\x05tools\x18\x06 \x03(\tR\x05tools\x12\x1a\n" +
 	"\bsegments\x18\a \x03(\x05R\bsegments\x12.\n" +
-	"\x04tail\x18\b \x03(\v2\x1a.gotato.v2.MessagePositionR\x04tail\x1a;\n" +
+	"\x04tail\x18\b \x03(\v2\x1a.gotato.v1.MessagePositionR\x04tail\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"=\n" +
 	"\rSegmentClosed\x12,\n" +
-	"\asegment\x18\x01 \x01(\v2\x12.gotato.v2.SegmentR\asegment\":\n" +
+	"\asegment\x18\x01 \x01(\v2\x12.gotato.v1.SegmentR\asegment\":\n" +
 	"\x10CompactionFailed\x12\x10\n" +
 	"\x03why\x18\x01 \x01(\tR\x03why\x12\x14\n" +
 	"\x05cause\x18\x02 \x01(\tR\x05cause\"#\n" +
@@ -6915,7 +6915,7 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\n" +
 	"message_id\x18\x02 \x01(\tR\tmessageId\x12\x16\n" +
 	"\x06queued\x18\x03 \x01(\bR\x06queued\x12&\n" +
-	"\x03run\x18\x04 \x01(\v2\x14.gotato.v2.RunResultR\x03run\"V\n" +
+	"\x03run\x18\x04 \x01(\v2\x14.gotato.v1.RunResultR\x03run\"V\n" +
 	"\rNoticeRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
@@ -6960,248 +6960,248 @@ const file_gotato_v2_service_proto_rawDesc = "" +
 	"\n" +
 	"merge_json\x18\t \x01(\fR\tmergeJson2\xd5\b\n" +
 	"\x0eSessionService\x12C\n" +
-	"\bContract\x12\x1a.gotato.v2.ContractRequest\x1a\x1b.gotato.v2.ContractResponse\x12=\n" +
-	"\x06Agents\x12\x18.gotato.v2.AgentsRequest\x1a\x19.gotato.v2.AgentsResponse\x12K\n" +
-	"\rCreateSession\x12\x1f.gotato.v2.CreateSessionRequest\x1a\x19.gotato.v2.SessionSummary\x12C\n" +
+	"\bContract\x12\x1a.gotato.v1.ContractRequest\x1a\x1b.gotato.v1.ContractResponse\x12=\n" +
+	"\x06Agents\x12\x18.gotato.v1.AgentsRequest\x1a\x19.gotato.v1.AgentsResponse\x12K\n" +
+	"\rCreateSession\x12\x1f.gotato.v1.CreateSessionRequest\x1a\x19.gotato.v1.SessionSummary\x12C\n" +
 	"\n" +
-	"GetSession\x12\x19.gotato.v2.SessionRequest\x1a\x1a.gotato.v2.SessionDocument\x12O\n" +
-	"\fListSessions\x12\x1e.gotato.v2.ListSessionsRequest\x1a\x1f.gotato.v2.ListSessionsResponse\x12L\n" +
-	"\rDeleteSession\x12\x19.gotato.v2.SessionRequest\x1a .gotato.v2.DeleteSessionResponse\x12C\n" +
-	"\vForkSession\x12\x19.gotato.v2.SessionRequest\x1a\x19.gotato.v2.SessionSummary\x122\n" +
-	"\x03Run\x12\x15.gotato.v2.RunRequest\x1a\x14.gotato.v2.RunResult\x12:\n" +
-	"\tStreamRun\x12\x15.gotato.v2.RunRequest\x1a\x14.gotato.v2.RunUpdate0\x01\x12L\n" +
-	"\rStreamSession\x12\x1f.gotato.v2.StreamSessionRequest\x1a\x18.gotato.v2.SessionUpdate0\x01\x12F\n" +
-	"\tCancelRun\x12\x1b.gotato.v2.CancelRunRequest\x1a\x1c.gotato.v2.CancelRunResponse\x12L\n" +
-	"\vSendMessage\x12\x1d.gotato.v2.SendMessageRequest\x1a\x1e.gotato.v2.SendMessageResponse\x12=\n" +
-	"\x06Notice\x12\x18.gotato.v2.NoticeRequest\x1a\x19.gotato.v2.NoticeResponse\x126\n" +
-	"\x06Events\x12\x18.gotato.v2.EventsRequest\x1a\x10.gotato.v2.Event0\x01\x12>\n" +
-	"\aContext\x12\x19.gotato.v2.SessionRequest\x1a\x18.gotato.v2.ContextReport\x12>\n" +
-	"\aCompact\x12\x19.gotato.v2.CompactRequest\x1a\x18.gotato.v2.CompactResultB?Z=github.com/jinhuang712/gotato/adapter/grpc/gotato/v2;gotatov2b\x06proto3"
+	"GetSession\x12\x19.gotato.v1.SessionRequest\x1a\x1a.gotato.v1.SessionDocument\x12O\n" +
+	"\fListSessions\x12\x1e.gotato.v1.ListSessionsRequest\x1a\x1f.gotato.v1.ListSessionsResponse\x12L\n" +
+	"\rDeleteSession\x12\x19.gotato.v1.SessionRequest\x1a .gotato.v1.DeleteSessionResponse\x12C\n" +
+	"\vForkSession\x12\x19.gotato.v1.SessionRequest\x1a\x19.gotato.v1.SessionSummary\x122\n" +
+	"\x03Run\x12\x15.gotato.v1.RunRequest\x1a\x14.gotato.v1.RunResult\x12:\n" +
+	"\tStreamRun\x12\x15.gotato.v1.RunRequest\x1a\x14.gotato.v1.RunUpdate0\x01\x12L\n" +
+	"\rStreamSession\x12\x1f.gotato.v1.StreamSessionRequest\x1a\x18.gotato.v1.SessionUpdate0\x01\x12F\n" +
+	"\tCancelRun\x12\x1b.gotato.v1.CancelRunRequest\x1a\x1c.gotato.v1.CancelRunResponse\x12L\n" +
+	"\vSendMessage\x12\x1d.gotato.v1.SendMessageRequest\x1a\x1e.gotato.v1.SendMessageResponse\x12=\n" +
+	"\x06Notice\x12\x18.gotato.v1.NoticeRequest\x1a\x19.gotato.v1.NoticeResponse\x126\n" +
+	"\x06Events\x12\x18.gotato.v1.EventsRequest\x1a\x10.gotato.v1.Event0\x01\x12>\n" +
+	"\aContext\x12\x19.gotato.v1.SessionRequest\x1a\x18.gotato.v1.ContextReport\x12>\n" +
+	"\aCompact\x12\x19.gotato.v1.CompactRequest\x1a\x18.gotato.v1.CompactResultB?Z=github.com/jinhuang712/gotato/adapter/grpc/gotato/v1;gotatov1b\x06proto3"
 
 var (
-	file_gotato_v2_service_proto_rawDescOnce sync.Once
-	file_gotato_v2_service_proto_rawDescData []byte
+	file_gotato_v1_service_proto_rawDescOnce sync.Once
+	file_gotato_v1_service_proto_rawDescData []byte
 )
 
-func file_gotato_v2_service_proto_rawDescGZIP() []byte {
-	file_gotato_v2_service_proto_rawDescOnce.Do(func() {
-		file_gotato_v2_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_gotato_v2_service_proto_rawDesc), len(file_gotato_v2_service_proto_rawDesc)))
+func file_gotato_v1_service_proto_rawDescGZIP() []byte {
+	file_gotato_v1_service_proto_rawDescOnce.Do(func() {
+		file_gotato_v1_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_gotato_v1_service_proto_rawDesc), len(file_gotato_v1_service_proto_rawDesc)))
 	})
-	return file_gotato_v2_service_proto_rawDescData
+	return file_gotato_v1_service_proto_rawDescData
 }
 
-var file_gotato_v2_service_proto_msgTypes = make([]protoimpl.MessageInfo, 95)
-var file_gotato_v2_service_proto_goTypes = []any{
-	(*ContractRequest)(nil),       // 0: gotato.v2.ContractRequest
-	(*ContractResponse)(nil),      // 1: gotato.v2.ContractResponse
-	(*AgentsRequest)(nil),         // 2: gotato.v2.AgentsRequest
-	(*AgentsResponse)(nil),        // 3: gotato.v2.AgentsResponse
-	(*CreateSessionRequest)(nil),  // 4: gotato.v2.CreateSessionRequest
-	(*SessionRequest)(nil),        // 5: gotato.v2.SessionRequest
-	(*SessionSummary)(nil),        // 6: gotato.v2.SessionSummary
-	(*SessionDocument)(nil),       // 7: gotato.v2.SessionDocument
-	(*ListSessionsRequest)(nil),   // 8: gotato.v2.ListSessionsRequest
-	(*ListSessionsResponse)(nil),  // 9: gotato.v2.ListSessionsResponse
-	(*DeleteSessionResponse)(nil), // 10: gotato.v2.DeleteSessionResponse
-	(*RunRequest)(nil),            // 11: gotato.v2.RunRequest
-	(*ContinueInput)(nil),         // 12: gotato.v2.ContinueInput
-	(*RunResult)(nil),             // 13: gotato.v2.RunResult
-	(*Usage)(nil),                 // 14: gotato.v2.Usage
-	(*RunMetrics)(nil),            // 15: gotato.v2.RunMetrics
-	(*RuntimeError)(nil),          // 16: gotato.v2.RuntimeError
-	(*RunUpdate)(nil),             // 17: gotato.v2.RunUpdate
-	(*StreamSessionRequest)(nil),  // 18: gotato.v2.StreamSessionRequest
-	(*StreamStart)(nil),           // 19: gotato.v2.StreamStart
-	(*SessionUpdate)(nil),         // 20: gotato.v2.SessionUpdate
-	(*EventHeader)(nil),           // 21: gotato.v2.EventHeader
-	(*Event)(nil),                 // 22: gotato.v2.Event
-	(*UnknownEvent)(nil),          // 23: gotato.v2.UnknownEvent
-	(*ToolOutcome)(nil),           // 24: gotato.v2.ToolOutcome
-	(*ForkedFrom)(nil),            // 25: gotato.v2.ForkedFrom
-	(*Compaction)(nil),            // 26: gotato.v2.Compaction
-	(*Segment)(nil),               // 27: gotato.v2.Segment
-	(*MergedSegment)(nil),         // 28: gotato.v2.MergedSegment
-	(*SegmentSource)(nil),         // 29: gotato.v2.SegmentSource
-	(*ToolCallLine)(nil),          // 30: gotato.v2.ToolCallLine
-	(*MessagePosition)(nil),       // 31: gotato.v2.MessagePosition
-	(*RunStarted)(nil),            // 32: gotato.v2.RunStarted
-	(*RunEnded)(nil),              // 33: gotato.v2.RunEnded
-	(*TurnStarted)(nil),           // 34: gotato.v2.TurnStarted
-	(*TurnEnded)(nil),             // 35: gotato.v2.TurnEnded
-	(*ContextBuilt)(nil),          // 36: gotato.v2.ContextBuilt
-	(*ReplyStarted)(nil),          // 37: gotato.v2.ReplyStarted
-	(*ReplyEnded)(nil),            // 38: gotato.v2.ReplyEnded
-	(*TextDelta)(nil),             // 39: gotato.v2.TextDelta
-	(*ReasoningDelta)(nil),        // 40: gotato.v2.ReasoningDelta
-	(*ReplyCutOff)(nil),           // 41: gotato.v2.ReplyCutOff
-	(*ReplyPartKept)(nil),         // 42: gotato.v2.ReplyPartKept
-	(*ModelRetried)(nil),          // 43: gotato.v2.ModelRetried
-	(*ToolStarted)(nil),           // 44: gotato.v2.ToolStarted
-	(*ToolEnded)(nil),             // 45: gotato.v2.ToolEnded
-	(*ToolProgress)(nil),          // 46: gotato.v2.ToolProgress
-	(*ToolResultCommitted)(nil),   // 47: gotato.v2.ToolResultCommitted
-	(*ToolResultSpilled)(nil),     // 48: gotato.v2.ToolResultSpilled
-	(*ToolLoaded)(nil),            // 49: gotato.v2.ToolLoaded
-	(*ToolUnloaded)(nil),          // 50: gotato.v2.ToolUnloaded
-	(*RunRequested)(nil),          // 51: gotato.v2.RunRequested
-	(*RunWaiting)(nil),            // 52: gotato.v2.RunWaiting
-	(*RunRejected)(nil),           // 53: gotato.v2.RunRejected
-	(*MessageQueued)(nil),         // 54: gotato.v2.MessageQueued
-	(*MessageCommitted)(nil),      // 55: gotato.v2.MessageCommitted
-	(*MessageDropped)(nil),        // 56: gotato.v2.MessageDropped
-	(*NoticeQueued)(nil),          // 57: gotato.v2.NoticeQueued
-	(*NoticeCommitted)(nil),       // 58: gotato.v2.NoticeCommitted
-	(*MessageRejected)(nil),       // 59: gotato.v2.MessageRejected
-	(*AbortRequested)(nil),        // 60: gotato.v2.AbortRequested
-	(*SessionClaimed)(nil),        // 61: gotato.v2.SessionClaimed
-	(*SessionReleased)(nil),       // 62: gotato.v2.SessionReleased
-	(*SessionFenced)(nil),         // 63: gotato.v2.SessionFenced
-	(*LivenessLapsed)(nil),        // 64: gotato.v2.LivenessLapsed
-	(*SessionCreated)(nil),        // 65: gotato.v2.SessionCreated
-	(*MetadataChanged)(nil),       // 66: gotato.v2.MetadataChanged
-	(*CompactionStarted)(nil),     // 67: gotato.v2.CompactionStarted
-	(*CompactionEnded)(nil),       // 68: gotato.v2.CompactionEnded
-	(*SegmentClosed)(nil),         // 69: gotato.v2.SegmentClosed
-	(*CompactionFailed)(nil),      // 70: gotato.v2.CompactionFailed
-	(*SessionUnloaded)(nil),       // 71: gotato.v2.SessionUnloaded
-	(*SessionDeleted)(nil),        // 72: gotato.v2.SessionDeleted
-	(*SessionLoaded)(nil),         // 73: gotato.v2.SessionLoaded
-	(*SessionSaved)(nil),          // 74: gotato.v2.SessionSaved
-	(*StoreWriteFailed)(nil),      // 75: gotato.v2.StoreWriteFailed
-	(*ExtensionFailed)(nil),       // 76: gotato.v2.ExtensionFailed
-	(*EventsSkipped)(nil),         // 77: gotato.v2.EventsSkipped
-	(*CancelRunRequest)(nil),      // 78: gotato.v2.CancelRunRequest
-	(*CancelRunResponse)(nil),     // 79: gotato.v2.CancelRunResponse
-	(*SendMessageRequest)(nil),    // 80: gotato.v2.SendMessageRequest
-	(*SendMessageResponse)(nil),   // 81: gotato.v2.SendMessageResponse
-	(*NoticeRequest)(nil),         // 82: gotato.v2.NoticeRequest
-	(*NoticeResponse)(nil),        // 83: gotato.v2.NoticeResponse
-	(*EventsRequest)(nil),         // 84: gotato.v2.EventsRequest
-	(*ContextReport)(nil),         // 85: gotato.v2.ContextReport
-	(*CompactRequest)(nil),        // 86: gotato.v2.CompactRequest
-	(*CompactResult)(nil),         // 87: gotato.v2.CompactResult
-	nil,                           // 88: gotato.v2.AgentsResponse.MaxEffectEntry
-	nil,                           // 89: gotato.v2.CreateSessionRequest.MetadataEntry
-	nil,                           // 90: gotato.v2.SessionSummary.MetadataEntry
-	nil,                           // 91: gotato.v2.RunRequest.MetadataEntry
-	nil,                           // 92: gotato.v2.ContextBuilt.MetadataEntry
-	nil,                           // 93: gotato.v2.SessionCreated.MetadataEntry
-	nil,                           // 94: gotato.v2.CompactionEnded.MetadataEntry
+var file_gotato_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 95)
+var file_gotato_v1_service_proto_goTypes = []any{
+	(*ContractRequest)(nil),       // 0: gotato.v1.ContractRequest
+	(*ContractResponse)(nil),      // 1: gotato.v1.ContractResponse
+	(*AgentsRequest)(nil),         // 2: gotato.v1.AgentsRequest
+	(*AgentsResponse)(nil),        // 3: gotato.v1.AgentsResponse
+	(*CreateSessionRequest)(nil),  // 4: gotato.v1.CreateSessionRequest
+	(*SessionRequest)(nil),        // 5: gotato.v1.SessionRequest
+	(*SessionSummary)(nil),        // 6: gotato.v1.SessionSummary
+	(*SessionDocument)(nil),       // 7: gotato.v1.SessionDocument
+	(*ListSessionsRequest)(nil),   // 8: gotato.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),  // 9: gotato.v1.ListSessionsResponse
+	(*DeleteSessionResponse)(nil), // 10: gotato.v1.DeleteSessionResponse
+	(*RunRequest)(nil),            // 11: gotato.v1.RunRequest
+	(*ContinueInput)(nil),         // 12: gotato.v1.ContinueInput
+	(*RunResult)(nil),             // 13: gotato.v1.RunResult
+	(*Usage)(nil),                 // 14: gotato.v1.Usage
+	(*RunMetrics)(nil),            // 15: gotato.v1.RunMetrics
+	(*RuntimeError)(nil),          // 16: gotato.v1.RuntimeError
+	(*RunUpdate)(nil),             // 17: gotato.v1.RunUpdate
+	(*StreamSessionRequest)(nil),  // 18: gotato.v1.StreamSessionRequest
+	(*StreamStart)(nil),           // 19: gotato.v1.StreamStart
+	(*SessionUpdate)(nil),         // 20: gotato.v1.SessionUpdate
+	(*EventHeader)(nil),           // 21: gotato.v1.EventHeader
+	(*Event)(nil),                 // 22: gotato.v1.Event
+	(*UnknownEvent)(nil),          // 23: gotato.v1.UnknownEvent
+	(*ToolOutcome)(nil),           // 24: gotato.v1.ToolOutcome
+	(*ForkedFrom)(nil),            // 25: gotato.v1.ForkedFrom
+	(*Compaction)(nil),            // 26: gotato.v1.Compaction
+	(*Segment)(nil),               // 27: gotato.v1.Segment
+	(*MergedSegment)(nil),         // 28: gotato.v1.MergedSegment
+	(*SegmentSource)(nil),         // 29: gotato.v1.SegmentSource
+	(*ToolCallLine)(nil),          // 30: gotato.v1.ToolCallLine
+	(*MessagePosition)(nil),       // 31: gotato.v1.MessagePosition
+	(*RunStarted)(nil),            // 32: gotato.v1.RunStarted
+	(*RunEnded)(nil),              // 33: gotato.v1.RunEnded
+	(*TurnStarted)(nil),           // 34: gotato.v1.TurnStarted
+	(*TurnEnded)(nil),             // 35: gotato.v1.TurnEnded
+	(*ContextBuilt)(nil),          // 36: gotato.v1.ContextBuilt
+	(*ReplyStarted)(nil),          // 37: gotato.v1.ReplyStarted
+	(*ReplyEnded)(nil),            // 38: gotato.v1.ReplyEnded
+	(*TextDelta)(nil),             // 39: gotato.v1.TextDelta
+	(*ReasoningDelta)(nil),        // 40: gotato.v1.ReasoningDelta
+	(*ReplyCutOff)(nil),           // 41: gotato.v1.ReplyCutOff
+	(*ReplyPartKept)(nil),         // 42: gotato.v1.ReplyPartKept
+	(*ModelRetried)(nil),          // 43: gotato.v1.ModelRetried
+	(*ToolStarted)(nil),           // 44: gotato.v1.ToolStarted
+	(*ToolEnded)(nil),             // 45: gotato.v1.ToolEnded
+	(*ToolProgress)(nil),          // 46: gotato.v1.ToolProgress
+	(*ToolResultCommitted)(nil),   // 47: gotato.v1.ToolResultCommitted
+	(*ToolResultSpilled)(nil),     // 48: gotato.v1.ToolResultSpilled
+	(*ToolLoaded)(nil),            // 49: gotato.v1.ToolLoaded
+	(*ToolUnloaded)(nil),          // 50: gotato.v1.ToolUnloaded
+	(*RunRequested)(nil),          // 51: gotato.v1.RunRequested
+	(*RunWaiting)(nil),            // 52: gotato.v1.RunWaiting
+	(*RunRejected)(nil),           // 53: gotato.v1.RunRejected
+	(*MessageQueued)(nil),         // 54: gotato.v1.MessageQueued
+	(*MessageCommitted)(nil),      // 55: gotato.v1.MessageCommitted
+	(*MessageDropped)(nil),        // 56: gotato.v1.MessageDropped
+	(*NoticeQueued)(nil),          // 57: gotato.v1.NoticeQueued
+	(*NoticeCommitted)(nil),       // 58: gotato.v1.NoticeCommitted
+	(*MessageRejected)(nil),       // 59: gotato.v1.MessageRejected
+	(*AbortRequested)(nil),        // 60: gotato.v1.AbortRequested
+	(*SessionClaimed)(nil),        // 61: gotato.v1.SessionClaimed
+	(*SessionReleased)(nil),       // 62: gotato.v1.SessionReleased
+	(*SessionFenced)(nil),         // 63: gotato.v1.SessionFenced
+	(*LivenessLapsed)(nil),        // 64: gotato.v1.LivenessLapsed
+	(*SessionCreated)(nil),        // 65: gotato.v1.SessionCreated
+	(*MetadataChanged)(nil),       // 66: gotato.v1.MetadataChanged
+	(*CompactionStarted)(nil),     // 67: gotato.v1.CompactionStarted
+	(*CompactionEnded)(nil),       // 68: gotato.v1.CompactionEnded
+	(*SegmentClosed)(nil),         // 69: gotato.v1.SegmentClosed
+	(*CompactionFailed)(nil),      // 70: gotato.v1.CompactionFailed
+	(*SessionUnloaded)(nil),       // 71: gotato.v1.SessionUnloaded
+	(*SessionDeleted)(nil),        // 72: gotato.v1.SessionDeleted
+	(*SessionLoaded)(nil),         // 73: gotato.v1.SessionLoaded
+	(*SessionSaved)(nil),          // 74: gotato.v1.SessionSaved
+	(*StoreWriteFailed)(nil),      // 75: gotato.v1.StoreWriteFailed
+	(*ExtensionFailed)(nil),       // 76: gotato.v1.ExtensionFailed
+	(*EventsSkipped)(nil),         // 77: gotato.v1.EventsSkipped
+	(*CancelRunRequest)(nil),      // 78: gotato.v1.CancelRunRequest
+	(*CancelRunResponse)(nil),     // 79: gotato.v1.CancelRunResponse
+	(*SendMessageRequest)(nil),    // 80: gotato.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),   // 81: gotato.v1.SendMessageResponse
+	(*NoticeRequest)(nil),         // 82: gotato.v1.NoticeRequest
+	(*NoticeResponse)(nil),        // 83: gotato.v1.NoticeResponse
+	(*EventsRequest)(nil),         // 84: gotato.v1.EventsRequest
+	(*ContextReport)(nil),         // 85: gotato.v1.ContextReport
+	(*CompactRequest)(nil),        // 86: gotato.v1.CompactRequest
+	(*CompactResult)(nil),         // 87: gotato.v1.CompactResult
+	nil,                           // 88: gotato.v1.AgentsResponse.MaxEffectEntry
+	nil,                           // 89: gotato.v1.CreateSessionRequest.MetadataEntry
+	nil,                           // 90: gotato.v1.SessionSummary.MetadataEntry
+	nil,                           // 91: gotato.v1.RunRequest.MetadataEntry
+	nil,                           // 92: gotato.v1.ContextBuilt.MetadataEntry
+	nil,                           // 93: gotato.v1.SessionCreated.MetadataEntry
+	nil,                           // 94: gotato.v1.CompactionEnded.MetadataEntry
 }
-var file_gotato_v2_service_proto_depIdxs = []int32{
-	88, // 0: gotato.v2.AgentsResponse.max_effect:type_name -> gotato.v2.AgentsResponse.MaxEffectEntry
-	89, // 1: gotato.v2.CreateSessionRequest.metadata:type_name -> gotato.v2.CreateSessionRequest.MetadataEntry
-	14, // 2: gotato.v2.SessionSummary.usage:type_name -> gotato.v2.Usage
-	90, // 3: gotato.v2.SessionSummary.metadata:type_name -> gotato.v2.SessionSummary.MetadataEntry
-	6,  // 4: gotato.v2.ListSessionsResponse.sessions:type_name -> gotato.v2.SessionSummary
-	12, // 5: gotato.v2.RunRequest.continue_input:type_name -> gotato.v2.ContinueInput
-	91, // 6: gotato.v2.RunRequest.metadata:type_name -> gotato.v2.RunRequest.MetadataEntry
-	14, // 7: gotato.v2.RunResult.usage:type_name -> gotato.v2.Usage
-	15, // 8: gotato.v2.RunResult.metrics:type_name -> gotato.v2.RunMetrics
-	16, // 9: gotato.v2.RunResult.error:type_name -> gotato.v2.RuntimeError
-	22, // 10: gotato.v2.RunUpdate.event:type_name -> gotato.v2.Event
-	13, // 11: gotato.v2.RunUpdate.result:type_name -> gotato.v2.RunResult
-	19, // 12: gotato.v2.SessionUpdate.start:type_name -> gotato.v2.StreamStart
-	22, // 13: gotato.v2.SessionUpdate.event:type_name -> gotato.v2.Event
-	21, // 14: gotato.v2.Event.header:type_name -> gotato.v2.EventHeader
-	32, // 15: gotato.v2.Event.run_started:type_name -> gotato.v2.RunStarted
-	33, // 16: gotato.v2.Event.run_ended:type_name -> gotato.v2.RunEnded
-	34, // 17: gotato.v2.Event.turn_started:type_name -> gotato.v2.TurnStarted
-	35, // 18: gotato.v2.Event.turn_ended:type_name -> gotato.v2.TurnEnded
-	36, // 19: gotato.v2.Event.context_built:type_name -> gotato.v2.ContextBuilt
-	37, // 20: gotato.v2.Event.reply_started:type_name -> gotato.v2.ReplyStarted
-	38, // 21: gotato.v2.Event.reply_ended:type_name -> gotato.v2.ReplyEnded
-	39, // 22: gotato.v2.Event.text_delta:type_name -> gotato.v2.TextDelta
-	40, // 23: gotato.v2.Event.reasoning_delta:type_name -> gotato.v2.ReasoningDelta
-	41, // 24: gotato.v2.Event.reply_cut_off:type_name -> gotato.v2.ReplyCutOff
-	42, // 25: gotato.v2.Event.reply_part_kept:type_name -> gotato.v2.ReplyPartKept
-	43, // 26: gotato.v2.Event.model_retried:type_name -> gotato.v2.ModelRetried
-	44, // 27: gotato.v2.Event.tool_started:type_name -> gotato.v2.ToolStarted
-	45, // 28: gotato.v2.Event.tool_ended:type_name -> gotato.v2.ToolEnded
-	46, // 29: gotato.v2.Event.tool_progress:type_name -> gotato.v2.ToolProgress
-	47, // 30: gotato.v2.Event.tool_result_committed:type_name -> gotato.v2.ToolResultCommitted
-	49, // 31: gotato.v2.Event.tool_loaded:type_name -> gotato.v2.ToolLoaded
-	51, // 32: gotato.v2.Event.run_requested:type_name -> gotato.v2.RunRequested
-	52, // 33: gotato.v2.Event.run_waiting:type_name -> gotato.v2.RunWaiting
-	53, // 34: gotato.v2.Event.run_rejected:type_name -> gotato.v2.RunRejected
-	54, // 35: gotato.v2.Event.message_queued:type_name -> gotato.v2.MessageQueued
-	55, // 36: gotato.v2.Event.message_committed:type_name -> gotato.v2.MessageCommitted
-	56, // 37: gotato.v2.Event.message_dropped:type_name -> gotato.v2.MessageDropped
-	59, // 38: gotato.v2.Event.message_rejected:type_name -> gotato.v2.MessageRejected
-	60, // 39: gotato.v2.Event.abort_requested:type_name -> gotato.v2.AbortRequested
-	61, // 40: gotato.v2.Event.session_claimed:type_name -> gotato.v2.SessionClaimed
-	62, // 41: gotato.v2.Event.session_released:type_name -> gotato.v2.SessionReleased
-	63, // 42: gotato.v2.Event.session_fenced:type_name -> gotato.v2.SessionFenced
-	64, // 43: gotato.v2.Event.liveness_lapsed:type_name -> gotato.v2.LivenessLapsed
-	65, // 44: gotato.v2.Event.session_created:type_name -> gotato.v2.SessionCreated
-	66, // 45: gotato.v2.Event.metadata_changed:type_name -> gotato.v2.MetadataChanged
-	67, // 46: gotato.v2.Event.compaction_started:type_name -> gotato.v2.CompactionStarted
-	68, // 47: gotato.v2.Event.compaction_ended:type_name -> gotato.v2.CompactionEnded
-	70, // 48: gotato.v2.Event.compaction_failed:type_name -> gotato.v2.CompactionFailed
-	71, // 49: gotato.v2.Event.session_unloaded:type_name -> gotato.v2.SessionUnloaded
-	72, // 50: gotato.v2.Event.session_deleted:type_name -> gotato.v2.SessionDeleted
-	73, // 51: gotato.v2.Event.session_loaded:type_name -> gotato.v2.SessionLoaded
-	74, // 52: gotato.v2.Event.session_saved:type_name -> gotato.v2.SessionSaved
-	75, // 53: gotato.v2.Event.store_write_failed:type_name -> gotato.v2.StoreWriteFailed
-	76, // 54: gotato.v2.Event.extension_failed:type_name -> gotato.v2.ExtensionFailed
-	77, // 55: gotato.v2.Event.events_skipped:type_name -> gotato.v2.EventsSkipped
-	23, // 56: gotato.v2.Event.unknown:type_name -> gotato.v2.UnknownEvent
-	69, // 57: gotato.v2.Event.segment_closed:type_name -> gotato.v2.SegmentClosed
-	48, // 58: gotato.v2.Event.tool_result_spilled:type_name -> gotato.v2.ToolResultSpilled
-	50, // 59: gotato.v2.Event.tool_unloaded:type_name -> gotato.v2.ToolUnloaded
-	57, // 60: gotato.v2.Event.notice_queued:type_name -> gotato.v2.NoticeQueued
-	58, // 61: gotato.v2.Event.notice_committed:type_name -> gotato.v2.NoticeCommitted
-	14, // 62: gotato.v2.Compaction.recap_usage:type_name -> gotato.v2.Usage
-	29, // 63: gotato.v2.Segment.source:type_name -> gotato.v2.SegmentSource
-	30, // 64: gotato.v2.Segment.tool_calls:type_name -> gotato.v2.ToolCallLine
-	28, // 65: gotato.v2.Segment.merged:type_name -> gotato.v2.MergedSegment
-	29, // 66: gotato.v2.MergedSegment.source:type_name -> gotato.v2.SegmentSource
-	14, // 67: gotato.v2.RunEnded.usage:type_name -> gotato.v2.Usage
-	14, // 68: gotato.v2.TurnEnded.usage:type_name -> gotato.v2.Usage
-	24, // 69: gotato.v2.TurnEnded.tools:type_name -> gotato.v2.ToolOutcome
-	92, // 70: gotato.v2.ContextBuilt.metadata:type_name -> gotato.v2.ContextBuilt.MetadataEntry
-	25, // 71: gotato.v2.SessionCreated.forked_from:type_name -> gotato.v2.ForkedFrom
-	93, // 72: gotato.v2.SessionCreated.metadata:type_name -> gotato.v2.SessionCreated.MetadataEntry
-	26, // 73: gotato.v2.SessionCreated.compactions:type_name -> gotato.v2.Compaction
-	31, // 74: gotato.v2.SessionCreated.tail:type_name -> gotato.v2.MessagePosition
-	26, // 75: gotato.v2.CompactionEnded.compaction:type_name -> gotato.v2.Compaction
-	26, // 76: gotato.v2.CompactionEnded.history:type_name -> gotato.v2.Compaction
-	94, // 77: gotato.v2.CompactionEnded.metadata:type_name -> gotato.v2.CompactionEnded.MetadataEntry
-	31, // 78: gotato.v2.CompactionEnded.tail:type_name -> gotato.v2.MessagePosition
-	27, // 79: gotato.v2.SegmentClosed.segment:type_name -> gotato.v2.Segment
-	13, // 80: gotato.v2.SendMessageResponse.run:type_name -> gotato.v2.RunResult
-	0,  // 81: gotato.v2.SessionService.Contract:input_type -> gotato.v2.ContractRequest
-	2,  // 82: gotato.v2.SessionService.Agents:input_type -> gotato.v2.AgentsRequest
-	4,  // 83: gotato.v2.SessionService.CreateSession:input_type -> gotato.v2.CreateSessionRequest
-	5,  // 84: gotato.v2.SessionService.GetSession:input_type -> gotato.v2.SessionRequest
-	8,  // 85: gotato.v2.SessionService.ListSessions:input_type -> gotato.v2.ListSessionsRequest
-	5,  // 86: gotato.v2.SessionService.DeleteSession:input_type -> gotato.v2.SessionRequest
-	5,  // 87: gotato.v2.SessionService.ForkSession:input_type -> gotato.v2.SessionRequest
-	11, // 88: gotato.v2.SessionService.Run:input_type -> gotato.v2.RunRequest
-	11, // 89: gotato.v2.SessionService.StreamRun:input_type -> gotato.v2.RunRequest
-	18, // 90: gotato.v2.SessionService.StreamSession:input_type -> gotato.v2.StreamSessionRequest
-	78, // 91: gotato.v2.SessionService.CancelRun:input_type -> gotato.v2.CancelRunRequest
-	80, // 92: gotato.v2.SessionService.SendMessage:input_type -> gotato.v2.SendMessageRequest
-	82, // 93: gotato.v2.SessionService.Notice:input_type -> gotato.v2.NoticeRequest
-	84, // 94: gotato.v2.SessionService.Events:input_type -> gotato.v2.EventsRequest
-	5,  // 95: gotato.v2.SessionService.Context:input_type -> gotato.v2.SessionRequest
-	86, // 96: gotato.v2.SessionService.Compact:input_type -> gotato.v2.CompactRequest
-	1,  // 97: gotato.v2.SessionService.Contract:output_type -> gotato.v2.ContractResponse
-	3,  // 98: gotato.v2.SessionService.Agents:output_type -> gotato.v2.AgentsResponse
-	6,  // 99: gotato.v2.SessionService.CreateSession:output_type -> gotato.v2.SessionSummary
-	7,  // 100: gotato.v2.SessionService.GetSession:output_type -> gotato.v2.SessionDocument
-	9,  // 101: gotato.v2.SessionService.ListSessions:output_type -> gotato.v2.ListSessionsResponse
-	10, // 102: gotato.v2.SessionService.DeleteSession:output_type -> gotato.v2.DeleteSessionResponse
-	6,  // 103: gotato.v2.SessionService.ForkSession:output_type -> gotato.v2.SessionSummary
-	13, // 104: gotato.v2.SessionService.Run:output_type -> gotato.v2.RunResult
-	17, // 105: gotato.v2.SessionService.StreamRun:output_type -> gotato.v2.RunUpdate
-	20, // 106: gotato.v2.SessionService.StreamSession:output_type -> gotato.v2.SessionUpdate
-	79, // 107: gotato.v2.SessionService.CancelRun:output_type -> gotato.v2.CancelRunResponse
-	81, // 108: gotato.v2.SessionService.SendMessage:output_type -> gotato.v2.SendMessageResponse
-	83, // 109: gotato.v2.SessionService.Notice:output_type -> gotato.v2.NoticeResponse
-	22, // 110: gotato.v2.SessionService.Events:output_type -> gotato.v2.Event
-	85, // 111: gotato.v2.SessionService.Context:output_type -> gotato.v2.ContextReport
-	87, // 112: gotato.v2.SessionService.Compact:output_type -> gotato.v2.CompactResult
+var file_gotato_v1_service_proto_depIdxs = []int32{
+	88, // 0: gotato.v1.AgentsResponse.max_effect:type_name -> gotato.v1.AgentsResponse.MaxEffectEntry
+	89, // 1: gotato.v1.CreateSessionRequest.metadata:type_name -> gotato.v1.CreateSessionRequest.MetadataEntry
+	14, // 2: gotato.v1.SessionSummary.usage:type_name -> gotato.v1.Usage
+	90, // 3: gotato.v1.SessionSummary.metadata:type_name -> gotato.v1.SessionSummary.MetadataEntry
+	6,  // 4: gotato.v1.ListSessionsResponse.sessions:type_name -> gotato.v1.SessionSummary
+	12, // 5: gotato.v1.RunRequest.continue_input:type_name -> gotato.v1.ContinueInput
+	91, // 6: gotato.v1.RunRequest.metadata:type_name -> gotato.v1.RunRequest.MetadataEntry
+	14, // 7: gotato.v1.RunResult.usage:type_name -> gotato.v1.Usage
+	15, // 8: gotato.v1.RunResult.metrics:type_name -> gotato.v1.RunMetrics
+	16, // 9: gotato.v1.RunResult.error:type_name -> gotato.v1.RuntimeError
+	22, // 10: gotato.v1.RunUpdate.event:type_name -> gotato.v1.Event
+	13, // 11: gotato.v1.RunUpdate.result:type_name -> gotato.v1.RunResult
+	19, // 12: gotato.v1.SessionUpdate.start:type_name -> gotato.v1.StreamStart
+	22, // 13: gotato.v1.SessionUpdate.event:type_name -> gotato.v1.Event
+	21, // 14: gotato.v1.Event.header:type_name -> gotato.v1.EventHeader
+	32, // 15: gotato.v1.Event.run_started:type_name -> gotato.v1.RunStarted
+	33, // 16: gotato.v1.Event.run_ended:type_name -> gotato.v1.RunEnded
+	34, // 17: gotato.v1.Event.turn_started:type_name -> gotato.v1.TurnStarted
+	35, // 18: gotato.v1.Event.turn_ended:type_name -> gotato.v1.TurnEnded
+	36, // 19: gotato.v1.Event.context_built:type_name -> gotato.v1.ContextBuilt
+	37, // 20: gotato.v1.Event.reply_started:type_name -> gotato.v1.ReplyStarted
+	38, // 21: gotato.v1.Event.reply_ended:type_name -> gotato.v1.ReplyEnded
+	39, // 22: gotato.v1.Event.text_delta:type_name -> gotato.v1.TextDelta
+	40, // 23: gotato.v1.Event.reasoning_delta:type_name -> gotato.v1.ReasoningDelta
+	41, // 24: gotato.v1.Event.reply_cut_off:type_name -> gotato.v1.ReplyCutOff
+	42, // 25: gotato.v1.Event.reply_part_kept:type_name -> gotato.v1.ReplyPartKept
+	43, // 26: gotato.v1.Event.model_retried:type_name -> gotato.v1.ModelRetried
+	44, // 27: gotato.v1.Event.tool_started:type_name -> gotato.v1.ToolStarted
+	45, // 28: gotato.v1.Event.tool_ended:type_name -> gotato.v1.ToolEnded
+	46, // 29: gotato.v1.Event.tool_progress:type_name -> gotato.v1.ToolProgress
+	47, // 30: gotato.v1.Event.tool_result_committed:type_name -> gotato.v1.ToolResultCommitted
+	49, // 31: gotato.v1.Event.tool_loaded:type_name -> gotato.v1.ToolLoaded
+	51, // 32: gotato.v1.Event.run_requested:type_name -> gotato.v1.RunRequested
+	52, // 33: gotato.v1.Event.run_waiting:type_name -> gotato.v1.RunWaiting
+	53, // 34: gotato.v1.Event.run_rejected:type_name -> gotato.v1.RunRejected
+	54, // 35: gotato.v1.Event.message_queued:type_name -> gotato.v1.MessageQueued
+	55, // 36: gotato.v1.Event.message_committed:type_name -> gotato.v1.MessageCommitted
+	56, // 37: gotato.v1.Event.message_dropped:type_name -> gotato.v1.MessageDropped
+	59, // 38: gotato.v1.Event.message_rejected:type_name -> gotato.v1.MessageRejected
+	60, // 39: gotato.v1.Event.abort_requested:type_name -> gotato.v1.AbortRequested
+	61, // 40: gotato.v1.Event.session_claimed:type_name -> gotato.v1.SessionClaimed
+	62, // 41: gotato.v1.Event.session_released:type_name -> gotato.v1.SessionReleased
+	63, // 42: gotato.v1.Event.session_fenced:type_name -> gotato.v1.SessionFenced
+	64, // 43: gotato.v1.Event.liveness_lapsed:type_name -> gotato.v1.LivenessLapsed
+	65, // 44: gotato.v1.Event.session_created:type_name -> gotato.v1.SessionCreated
+	66, // 45: gotato.v1.Event.metadata_changed:type_name -> gotato.v1.MetadataChanged
+	67, // 46: gotato.v1.Event.compaction_started:type_name -> gotato.v1.CompactionStarted
+	68, // 47: gotato.v1.Event.compaction_ended:type_name -> gotato.v1.CompactionEnded
+	70, // 48: gotato.v1.Event.compaction_failed:type_name -> gotato.v1.CompactionFailed
+	71, // 49: gotato.v1.Event.session_unloaded:type_name -> gotato.v1.SessionUnloaded
+	72, // 50: gotato.v1.Event.session_deleted:type_name -> gotato.v1.SessionDeleted
+	73, // 51: gotato.v1.Event.session_loaded:type_name -> gotato.v1.SessionLoaded
+	74, // 52: gotato.v1.Event.session_saved:type_name -> gotato.v1.SessionSaved
+	75, // 53: gotato.v1.Event.store_write_failed:type_name -> gotato.v1.StoreWriteFailed
+	76, // 54: gotato.v1.Event.extension_failed:type_name -> gotato.v1.ExtensionFailed
+	77, // 55: gotato.v1.Event.events_skipped:type_name -> gotato.v1.EventsSkipped
+	23, // 56: gotato.v1.Event.unknown:type_name -> gotato.v1.UnknownEvent
+	69, // 57: gotato.v1.Event.segment_closed:type_name -> gotato.v1.SegmentClosed
+	48, // 58: gotato.v1.Event.tool_result_spilled:type_name -> gotato.v1.ToolResultSpilled
+	50, // 59: gotato.v1.Event.tool_unloaded:type_name -> gotato.v1.ToolUnloaded
+	57, // 60: gotato.v1.Event.notice_queued:type_name -> gotato.v1.NoticeQueued
+	58, // 61: gotato.v1.Event.notice_committed:type_name -> gotato.v1.NoticeCommitted
+	14, // 62: gotato.v1.Compaction.recap_usage:type_name -> gotato.v1.Usage
+	29, // 63: gotato.v1.Segment.source:type_name -> gotato.v1.SegmentSource
+	30, // 64: gotato.v1.Segment.tool_calls:type_name -> gotato.v1.ToolCallLine
+	28, // 65: gotato.v1.Segment.merged:type_name -> gotato.v1.MergedSegment
+	29, // 66: gotato.v1.MergedSegment.source:type_name -> gotato.v1.SegmentSource
+	14, // 67: gotato.v1.RunEnded.usage:type_name -> gotato.v1.Usage
+	14, // 68: gotato.v1.TurnEnded.usage:type_name -> gotato.v1.Usage
+	24, // 69: gotato.v1.TurnEnded.tools:type_name -> gotato.v1.ToolOutcome
+	92, // 70: gotato.v1.ContextBuilt.metadata:type_name -> gotato.v1.ContextBuilt.MetadataEntry
+	25, // 71: gotato.v1.SessionCreated.forked_from:type_name -> gotato.v1.ForkedFrom
+	93, // 72: gotato.v1.SessionCreated.metadata:type_name -> gotato.v1.SessionCreated.MetadataEntry
+	26, // 73: gotato.v1.SessionCreated.compactions:type_name -> gotato.v1.Compaction
+	31, // 74: gotato.v1.SessionCreated.tail:type_name -> gotato.v1.MessagePosition
+	26, // 75: gotato.v1.CompactionEnded.compaction:type_name -> gotato.v1.Compaction
+	26, // 76: gotato.v1.CompactionEnded.history:type_name -> gotato.v1.Compaction
+	94, // 77: gotato.v1.CompactionEnded.metadata:type_name -> gotato.v1.CompactionEnded.MetadataEntry
+	31, // 78: gotato.v1.CompactionEnded.tail:type_name -> gotato.v1.MessagePosition
+	27, // 79: gotato.v1.SegmentClosed.segment:type_name -> gotato.v1.Segment
+	13, // 80: gotato.v1.SendMessageResponse.run:type_name -> gotato.v1.RunResult
+	0,  // 81: gotato.v1.SessionService.Contract:input_type -> gotato.v1.ContractRequest
+	2,  // 82: gotato.v1.SessionService.Agents:input_type -> gotato.v1.AgentsRequest
+	4,  // 83: gotato.v1.SessionService.CreateSession:input_type -> gotato.v1.CreateSessionRequest
+	5,  // 84: gotato.v1.SessionService.GetSession:input_type -> gotato.v1.SessionRequest
+	8,  // 85: gotato.v1.SessionService.ListSessions:input_type -> gotato.v1.ListSessionsRequest
+	5,  // 86: gotato.v1.SessionService.DeleteSession:input_type -> gotato.v1.SessionRequest
+	5,  // 87: gotato.v1.SessionService.ForkSession:input_type -> gotato.v1.SessionRequest
+	11, // 88: gotato.v1.SessionService.Run:input_type -> gotato.v1.RunRequest
+	11, // 89: gotato.v1.SessionService.StreamRun:input_type -> gotato.v1.RunRequest
+	18, // 90: gotato.v1.SessionService.StreamSession:input_type -> gotato.v1.StreamSessionRequest
+	78, // 91: gotato.v1.SessionService.CancelRun:input_type -> gotato.v1.CancelRunRequest
+	80, // 92: gotato.v1.SessionService.SendMessage:input_type -> gotato.v1.SendMessageRequest
+	82, // 93: gotato.v1.SessionService.Notice:input_type -> gotato.v1.NoticeRequest
+	84, // 94: gotato.v1.SessionService.Events:input_type -> gotato.v1.EventsRequest
+	5,  // 95: gotato.v1.SessionService.Context:input_type -> gotato.v1.SessionRequest
+	86, // 96: gotato.v1.SessionService.Compact:input_type -> gotato.v1.CompactRequest
+	1,  // 97: gotato.v1.SessionService.Contract:output_type -> gotato.v1.ContractResponse
+	3,  // 98: gotato.v1.SessionService.Agents:output_type -> gotato.v1.AgentsResponse
+	6,  // 99: gotato.v1.SessionService.CreateSession:output_type -> gotato.v1.SessionSummary
+	7,  // 100: gotato.v1.SessionService.GetSession:output_type -> gotato.v1.SessionDocument
+	9,  // 101: gotato.v1.SessionService.ListSessions:output_type -> gotato.v1.ListSessionsResponse
+	10, // 102: gotato.v1.SessionService.DeleteSession:output_type -> gotato.v1.DeleteSessionResponse
+	6,  // 103: gotato.v1.SessionService.ForkSession:output_type -> gotato.v1.SessionSummary
+	13, // 104: gotato.v1.SessionService.Run:output_type -> gotato.v1.RunResult
+	17, // 105: gotato.v1.SessionService.StreamRun:output_type -> gotato.v1.RunUpdate
+	20, // 106: gotato.v1.SessionService.StreamSession:output_type -> gotato.v1.SessionUpdate
+	79, // 107: gotato.v1.SessionService.CancelRun:output_type -> gotato.v1.CancelRunResponse
+	81, // 108: gotato.v1.SessionService.SendMessage:output_type -> gotato.v1.SendMessageResponse
+	83, // 109: gotato.v1.SessionService.Notice:output_type -> gotato.v1.NoticeResponse
+	22, // 110: gotato.v1.SessionService.Events:output_type -> gotato.v1.Event
+	85, // 111: gotato.v1.SessionService.Context:output_type -> gotato.v1.ContextReport
+	87, // 112: gotato.v1.SessionService.Compact:output_type -> gotato.v1.CompactResult
 	97, // [97:113] is the sub-list for method output_type
 	81, // [81:97] is the sub-list for method input_type
 	81, // [81:81] is the sub-list for extension type_name
@@ -7209,24 +7209,24 @@ var file_gotato_v2_service_proto_depIdxs = []int32{
 	0,  // [0:81] is the sub-list for field type_name
 }
 
-func init() { file_gotato_v2_service_proto_init() }
-func file_gotato_v2_service_proto_init() {
-	if File_gotato_v2_service_proto != nil {
+func init() { file_gotato_v1_service_proto_init() }
+func file_gotato_v1_service_proto_init() {
+	if File_gotato_v1_service_proto != nil {
 		return
 	}
-	file_gotato_v2_service_proto_msgTypes[11].OneofWrappers = []any{
+	file_gotato_v1_service_proto_msgTypes[11].OneofWrappers = []any{
 		(*RunRequest_Prompt)(nil),
 		(*RunRequest_ContinueInput)(nil),
 	}
-	file_gotato_v2_service_proto_msgTypes[17].OneofWrappers = []any{
+	file_gotato_v1_service_proto_msgTypes[17].OneofWrappers = []any{
 		(*RunUpdate_Event)(nil),
 		(*RunUpdate_Result)(nil),
 	}
-	file_gotato_v2_service_proto_msgTypes[20].OneofWrappers = []any{
+	file_gotato_v1_service_proto_msgTypes[20].OneofWrappers = []any{
 		(*SessionUpdate_Start)(nil),
 		(*SessionUpdate_Event)(nil),
 	}
-	file_gotato_v2_service_proto_msgTypes[22].OneofWrappers = []any{
+	file_gotato_v1_service_proto_msgTypes[22].OneofWrappers = []any{
 		(*Event_RunStarted)(nil),
 		(*Event_RunEnded)(nil),
 		(*Event_TurnStarted)(nil),
@@ -7275,7 +7275,7 @@ func file_gotato_v2_service_proto_init() {
 		(*Event_NoticeQueued)(nil),
 		(*Event_NoticeCommitted)(nil),
 	}
-	file_gotato_v2_service_proto_msgTypes[78].OneofWrappers = []any{
+	file_gotato_v1_service_proto_msgTypes[78].OneofWrappers = []any{
 		(*CancelRunRequest_RunId)(nil),
 		(*CancelRunRequest_SessionId)(nil),
 	}
@@ -7283,17 +7283,17 @@ func file_gotato_v2_service_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gotato_v2_service_proto_rawDesc), len(file_gotato_v2_service_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gotato_v1_service_proto_rawDesc), len(file_gotato_v1_service_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   95,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_gotato_v2_service_proto_goTypes,
-		DependencyIndexes: file_gotato_v2_service_proto_depIdxs,
-		MessageInfos:      file_gotato_v2_service_proto_msgTypes,
+		GoTypes:           file_gotato_v1_service_proto_goTypes,
+		DependencyIndexes: file_gotato_v1_service_proto_depIdxs,
+		MessageInfos:      file_gotato_v1_service_proto_msgTypes,
 	}.Build()
-	File_gotato_v2_service_proto = out.File
-	file_gotato_v2_service_proto_goTypes = nil
-	file_gotato_v2_service_proto_depIdxs = nil
+	File_gotato_v1_service_proto = out.File
+	file_gotato_v1_service_proto_goTypes = nil
+	file_gotato_v1_service_proto_depIdxs = nil
 }

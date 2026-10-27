@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package gotato.v2;
+package gotato.v1;
 
-option go_package = "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2;gotatov2";
+option go_package = "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1;gotatov1";
 
 // SessionService is one protocol adapter over service.Runner: a store of
 // Session Records, and live Sessions built per Run. It defines no Agent or Session

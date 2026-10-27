@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // A Run the drain stops at its deadline sends its result, and its stream
@@ -42,14 +42,14 @@ func TestDrainEndsAStoppedStreamWithUnavailable(t *testing.T) {
 		_ = connection.Close()
 		grpcServer.Stop()
 	})
-	client := gotatov2.NewSessionServiceClient(connection)
+	client := gotatov1.NewSessionServiceClient(connection)
 
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "slow", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{SessionId: s.ID(), Input: &gotatov2.RunRequest_Prompt{Prompt: "wait"}})
+	stream, err := client.StreamRun(ctx, &gotatov1.RunRequest{SessionId: s.ID(), Input: &gotatov1.RunRequest_Prompt{Prompt: "wait"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,10 +66,10 @@ func TestDrainEndsAStoppedStreamWithUnavailable(t *testing.T) {
 	defer cancel()
 	go func() { _ = runner.Drain(drainCtx) }()
 
-	var result *gotatov2.RunResult
+	var result *gotatov1.RunResult
 	var end error
 	for end == nil {
-		var update *gotatov2.RunUpdate
+		var update *gotatov1.RunUpdate
 		update, end = stream.Recv()
 		if r := update.GetResult(); r != nil {
 			result = r

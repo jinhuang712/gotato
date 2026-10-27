@@ -12,7 +12,7 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // A merged Segment and the merge's compaction record keep what they list on
@@ -60,9 +60,9 @@ func TestCompactReportsTheMergeOverGRPC(t *testing.T) {
 	}
 	client := clientFor(t, runner)
 	var id string
-	compact := func() *gotatov2.CompactResult {
+	compact := func() *gotatov1.CompactResult {
 		t.Helper()
-		result, err := client.Compact(withSessionID(ctx, id), &gotatov2.CompactRequest{SessionId: id})
+		result, err := client.Compact(withSessionID(ctx, id), &gotatov1.CompactRequest{SessionId: id})
 		if err != nil {
 			t.Fatal(err)
 		}

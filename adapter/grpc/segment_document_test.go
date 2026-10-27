@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // A Session that holds Segments: GetSession carries the largest Segment number
@@ -47,7 +47,7 @@ func TestSegmentedSessionOverGRPC(t *testing.T) {
 	}
 	client := clientFor(t, runner)
 
-	got, err := client.GetSession(ctx, &gotatov2.SessionRequest{SessionId: "with-segments"})
+	got, err := client.GetSession(ctx, &gotatov1.SessionRequest{SessionId: "with-segments"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestSegmentedSessionOverGRPC(t *testing.T) {
 
 	// Nothing came since the Checkpoint, so there is nothing to close, and the
 	// answer says so.
-	compact, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: "with-segments"})
+	compact, err := client.Compact(ctx, &gotatov1.CompactRequest{SessionId: "with-segments"})
 	if err != nil || compact.GetReplaced() || compact.GetReason() != "nothing_to_close" {
 		t.Fatalf("Compact = %v, %v", compact, err)
 	}
@@ -83,14 +83,14 @@ func TestCompactTakesMinTokens(t *testing.T) {
 		id = result.SessionID
 	}
 	client := clientFor(t, runner)
-	skipped, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, MinTokens: 100000})
+	skipped, err := client.Compact(ctx, &gotatov1.CompactRequest{SessionId: id, MinTokens: 100000})
 	if err != nil || skipped.GetReplaced() || skipped.GetReason() != "below_min_tokens" || skipped.GetMessagesAfter() != 6 {
 		t.Fatalf("below min_tokens = %v, %v", skipped, err)
 	}
-	if _, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, MinTokens: -1}); status.Code(err) != codes.InvalidArgument {
+	if _, err := client.Compact(ctx, &gotatov1.CompactRequest{SessionId: id, MinTokens: -1}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("a negative min_tokens = %v, want InvalidArgument", err)
 	}
-	done, err := client.Compact(ctx, &gotatov2.CompactRequest{SessionId: id, MinTokens: 1})
+	done, err := client.Compact(ctx, &gotatov1.CompactRequest{SessionId: id, MinTokens: 1})
 	if err != nil || !done.GetReplaced() || done.GetReason() != "" || !strings.Contains(string(done.GetCompactionJson()), `"segment":1`) {
 		t.Fatalf("compact = %v, %v", done, err)
 	}
@@ -117,7 +117,7 @@ func TestCompactRefusesASessionWithOneOldSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = clientFor(t, runner).Compact(ctx, &gotatov2.CompactRequest{SessionId: "old-summary", Keep: 1})
+	_, err = clientFor(t, runner).Compact(ctx, &gotatov1.CompactRequest{SessionId: "old-summary", Keep: 1})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("Compact = %v, want FailedPrecondition", err)
 	}

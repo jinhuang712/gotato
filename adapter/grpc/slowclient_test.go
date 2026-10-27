@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 // chattyModel streams far more text than a gRPC stream's flow-control window
@@ -70,14 +70,14 @@ func TestSlowStreamClientNeverSlowsTheRun(t *testing.T) {
 		_ = connection.Close()
 		grpcServer.Stop()
 	})
-	client := gotatov2.NewSessionServiceClient(connection)
+	client := gotatov1.NewSessionServiceClient(connection)
 
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "chatty", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := client.StreamRun(ctx, &gotatov2.RunRequest{SessionId: s.ID(), Input: &gotatov2.RunRequest_Prompt{Prompt: "talk"}})
+	stream, err := client.StreamRun(ctx, &gotatov1.RunRequest{SessionId: s.ID(), Input: &gotatov1.RunRequest_Prompt{Prompt: "talk"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestSlowStreamClientNeverSlowsTheRun(t *testing.T) {
 	// Now the client reads: every stored Event of the Run arrives once, in
 	// order, although its stream fell behind; only deltas may be missing.
 	var numbers []uint64
-	var result *gotatov2.RunResult
+	var result *gotatov1.RunResult
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {

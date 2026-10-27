@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	gotatov2 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v2"
+	gotatov1 "github.com/jinhuang712/gotato/adapter/grpc/gotato/v1"
 )
 
 func echoRunner(t *testing.T) *service.Runner {
@@ -31,7 +31,7 @@ func echoRunner(t *testing.T) *service.Runner {
 }
 
 // numberOf returns an Event's number when it is a stored Event.
-func storedNumber(event *gotatov2.Event) (uint64, bool) {
+func storedNumber(event *gotatov1.Event) (uint64, bool) {
 	if gotato.EventKind(KindOf(event)).Class() != gotato.ClassStored {
 		return 0, false
 	}
@@ -39,9 +39,9 @@ func storedNumber(event *gotatov2.Event) (uint64, bool) {
 }
 
 // readSession reads a stream until count stored Events came.
-func readSession(t *testing.T, stream gotatov2.SessionService_StreamSessionClient, count int) []*gotatov2.Event {
+func readSession(t *testing.T, stream gotatov1.SessionService_StreamSessionClient, count int) []*gotatov1.Event {
 	t.Helper()
-	var out []*gotatov2.Event
+	var out []*gotatov1.Event
 	for len(out) < count {
 		update, err := stream.Recv()
 		if err != nil {
@@ -62,7 +62,7 @@ func TestStreamSessionResumesAfterANumber(t *testing.T) {
 	runner := echoRunner(t)
 	client := clientFor(t, runner)
 	ctx := context.Background()
-	first, err := client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "one"}})
+	first, err := client.Run(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "one"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestStreamSessionResumesAfterANumber(t *testing.T) {
 	}
 	head := int(record.Head())
 
-	stream, err := client.StreamSession(ctx, &gotatov2.StreamSessionRequest{SessionId: id, After: 3, RecordEpoch: first.GetRecordEpoch()})
+	stream, err := client.StreamSession(ctx, &gotatov1.StreamSessionRequest{SessionId: id, After: 3, RecordEpoch: first.GetRecordEpoch()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,14 +108,14 @@ func TestStreamSessionRefusesWhatItCannotResume(t *testing.T) {
 	runner := echoRunner(t)
 	client := clientFor(t, runner)
 	ctx := context.Background()
-	first, err := client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "one"}})
+	first, err := client.Run(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "one"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := first.GetSessionId()
 	record, _ := runner.Session(ctx, id)
 
-	recv := func(request *gotatov2.StreamSessionRequest) ([]string, error) {
+	recv := func(request *gotatov1.StreamSessionRequest) ([]string, error) {
 		stream, err := client.StreamSession(ctx, request)
 		if err != nil {
 			t.Fatal(err)
@@ -123,14 +123,14 @@ func TestStreamSessionRefusesWhatItCannotResume(t *testing.T) {
 		_, err = stream.Recv()
 		return stream.Trailer().Get(RecordEpochKey), err
 	}
-	trailer, err := recv(&gotatov2.StreamSessionRequest{SessionId: id, After: 2, RecordEpoch: "other"})
+	trailer, err := recv(&gotatov1.StreamSessionRequest{SessionId: id, After: 2, RecordEpoch: "other"})
 	if status.Code(err) != codes.FailedPrecondition || len(trailer) != 1 || trailer[0] != first.GetRecordEpoch() {
 		t.Fatalf("another epoch: %v, trailer %v; want FAILED_PRECONDITION naming %q", err, trailer, first.GetRecordEpoch())
 	}
-	if _, err := recv(&gotatov2.StreamSessionRequest{SessionId: id, After: record.Head() + 1}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := recv(&gotatov1.StreamSessionRequest{SessionId: id, After: record.Head() + 1}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("past the head: %v", err)
 	}
-	if _, err := recv(&gotatov2.StreamSessionRequest{SessionId: "missing"}); status.Code(err) != codes.NotFound {
+	if _, err := recv(&gotatov1.StreamSessionRequest{SessionId: "missing"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("a missing Session: %v", err)
 	}
 	if err := withSessionIDErr(t, client, id); status.Code(err) != codes.InvalidArgument {
@@ -138,20 +138,20 @@ func TestStreamSessionRefusesWhatItCannotResume(t *testing.T) {
 	}
 
 	// Created again under the same ID.
-	if _, err := client.DeleteSession(ctx, &gotatov2.SessionRequest{SessionId: id}); err != nil {
+	if _, err := client.DeleteSession(ctx, &gotatov1.SessionRequest{SessionId: id}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CreateSession(ctx, &gotatov2.CreateSessionRequest{Id: id}); err != nil {
+	if _, err := client.CreateSession(ctx, &gotatov1.CreateSessionRequest{Id: id}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := recv(&gotatov2.StreamSessionRequest{SessionId: id, After: 1, RecordEpoch: first.GetRecordEpoch()}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := recv(&gotatov1.StreamSessionRequest{SessionId: id, After: 1, RecordEpoch: first.GetRecordEpoch()}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("a Record created again: %v", err)
 	}
 }
 
-func withSessionIDErr(t *testing.T, client gotatov2.SessionServiceClient, id string) error {
+func withSessionIDErr(t *testing.T, client gotatov1.SessionServiceClient, id string) error {
 	t.Helper()
-	stream, err := client.StreamSession(withSessionID(context.Background(), "other"), &gotatov2.StreamSessionRequest{SessionId: id})
+	stream, err := client.StreamSession(withSessionID(context.Background(), "other"), &gotatov1.StreamSessionRequest{SessionId: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +165,11 @@ func TestDrainEndsASessionStreamWithUnavailable(t *testing.T) {
 	runner := echoRunner(t)
 	client := clientFor(t, runner)
 	ctx := context.Background()
-	first, err := client.Run(ctx, &gotatov2.RunRequest{Input: &gotatov2.RunRequest_Prompt{Prompt: "one"}})
+	first, err := client.Run(ctx, &gotatov1.RunRequest{Input: &gotatov1.RunRequest_Prompt{Prompt: "one"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := client.StreamSession(ctx, &gotatov2.StreamSessionRequest{SessionId: first.GetSessionId()})
+	stream, err := client.StreamSession(ctx, &gotatov1.StreamSessionRequest{SessionId: first.GetSessionId()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestDrainEndsASessionStreamWithUnavailable(t *testing.T) {
 
 // normalized writes an Event as JSON with every time as a UTC instant, since a
 // live Event and one read from the Record write them in different zones.
-func normalized(event *gotatov2.Event) string {
+func normalized(event *gotatov1.Event) string {
 	raw, _ := protojson.Marshal(event)
 	var tree any
 	_ = json.Unmarshal(raw, &tree)
@@ -226,12 +226,12 @@ func utc(v any) any {
 
 type follower struct {
 	mu     sync.Mutex
-	stored []*gotatov2.Event
-	deltas []*gotatov2.Event
+	stored []*gotatov1.Event
+	deltas []*gotatov1.Event
 	done   chan struct{}
 }
 
-func follow(stream gotatov2.SessionService_StreamSessionClient) *follower {
+func follow(stream gotatov1.SessionService_StreamSessionClient) *follower {
 	f := &follower{done: make(chan struct{})}
 	go func() {
 		defer close(f.done)
@@ -256,14 +256,14 @@ func follow(stream gotatov2.SessionService_StreamSessionClient) *follower {
 	return f
 }
 
-func (f *follower) reached(t *testing.T, n uint64) []*gotatov2.Event {
+func (f *follower) reached(t *testing.T, n uint64) []*gotatov1.Event {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		f.mu.Lock()
 		if len(f.stored) > 0 {
 			if number, _ := storedNumber(f.stored[len(f.stored)-1]); number >= n {
-				out := append([]*gotatov2.Event(nil), f.stored...)
+				out := append([]*gotatov1.Event(nil), f.stored...)
 				f.mu.Unlock()
 				return out
 			}
@@ -279,7 +279,7 @@ func (f *follower) reached(t *testing.T, n uint64) []*gotatov2.Event {
 	return nil
 }
 
-func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*gotatov2.Event) {
+func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*gotatov1.Event) {
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
 		Agents: []service.Agent{{
@@ -299,7 +299,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 
 	wholeCtx, stopWhole := context.WithCancel(ctx)
 	defer stopWhole()
-	ws, err := client.StreamSession(wholeCtx, &gotatov2.StreamSessionRequest{SessionId: id})
+	ws, err := client.StreamSession(wholeCtx, &gotatov1.StreamSessionRequest{SessionId: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 
 	cutCtx, cut := context.WithCancel(ctx)
 	defer cut()
-	cs, err := client.StreamSession(cutCtx, &gotatov2.StreamSessionRequest{SessionId: id})
+	cs, err := client.StreamSession(cutCtx, &gotatov1.StreamSessionRequest{SessionId: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 	final := make(chan uint64, 1)
 	go func() {
 		for _, prompt := range task.Prompts {
-			if _, err := client.Run(ctx, &gotatov2.RunRequest{SessionId: id, Input: &gotatov2.RunRequest_Prompt{Prompt: prompt}}); err != nil {
+			if _, err := client.Run(ctx, &gotatov1.RunRequest{SessionId: id, Input: &gotatov1.RunRequest_Prompt{Prompt: prompt}}); err != nil {
 				t.Error(err)
 				final <- 0
 				return
@@ -337,7 +337,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 
 	firstPart := readSession(t, cs, k)
 	cut() // the connection is cut here
-	rs, err := client.StreamSession(ctx, &gotatov2.StreamSessionRequest{SessionId: id, After: uint64(k), RecordEpoch: epoch})
+	rs, err := client.StreamSession(ctx, &gotatov1.StreamSessionRequest{SessionId: id, After: uint64(k), RecordEpoch: epoch})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,11 +348,11 @@ func cutAndResume(t *testing.T, task testkit.Task, k int) (uncut, resumed []*got
 		t.FailNow()
 	}
 	uncut = whole.reached(t, last)
-	var secondPart []*gotatov2.Event
+	var secondPart []*gotatov1.Event
 	if uint64(k) < last {
 		secondPart = again.reached(t, last)
 	}
-	resumed = append(append([]*gotatov2.Event(nil), firstPart...), secondPart...)
+	resumed = append(append([]*gotatov1.Event(nil), firstPart...), secondPart...)
 
 	again.mu.Lock()
 	for _, d := range again.deltas {
