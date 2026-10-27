@@ -614,8 +614,7 @@ type SessionCreated struct {
 	// RecordEpoch is the Record's identity as a log. It is chosen when the
 	// Record is created and changes only if the Record is deleted and created
 	// again under the same ID, so a client that holds a number knows whether
-	// the number still means the Event it saw. A Record written before it
-	// has none.
+	// the number still means the Event it saw.
 	RecordEpoch string            `json:"record_epoch,omitempty"`
 	ForkedFrom  *ForkedFrom       `json:"forked_from,omitempty"`
 	Messages    []Message         `json:"messages,omitempty"`

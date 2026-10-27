@@ -57,8 +57,7 @@ type RunInfo struct {
 }
 
 // Document is the serializable form of a Record. Snapshot and FromDocument convert to
-// and from a Record. A document of an earlier version holds the Events of its
-// time; they are not read again.
+// and from a Record.
 type Document struct {
 	SchemaVersion int    `json:"schema_version"`
 	ID            string `json:"id"`

@@ -421,9 +421,7 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record,
 }
 
 // Events reads a Session's stored Events from the store: every Entry of its
-// Record that is an Event, in the order of their numbers, as typed Events. A
-// Record written before the Event design shows gaps in the numbers where an
-// Entry has no Event.
+// Record that is an Event, in the order of their numbers, as typed Events.
 func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
 	return session.StoredEvents(ctx, r.store, sessionID, 0)
 }
