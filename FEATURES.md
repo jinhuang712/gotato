@@ -46,7 +46,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Recap writers | a Recap from the Agent's model on the cached prefix (off by default, a team turns it on), from truncation, or none; none when no writer is set | G-F06 | ✅ |
 | Compaction records | what was replaced, with what, and the sizes before and after | G-F06 | ✅ |
 | Segments in the Record | a Segment is stored once, as an entry of its own; a Checkpoint lists the Segments it uses and the kept tail; every Message carries the Run that committed it | G-F06 | ✅ |
-| Closing Segments | each compaction closes the history since the last one into a Segment that is never rewritten: the conversation word for word and a line per tool call, built by code (built), and a Recap the Agent's model writes (step 2, built, off by default) | G-F06 | 🚧 |
+| Closing Segments | each compaction closes the history since the last one into a Segment that is never rewritten: the conversation word for word and a line per tool call, built by code (built), and a Recap the Agent's model writes (step 2, built, off by default) | G-F06 | ✅ |
 | Compaction before a model call | the `TurnPreparer` hook, called before every model call, gives compaction the chance to run | G-F06 | ✅ |
 | Compaction before the cache goes cold | an idle Session is compacted shortly before its prompt cache expires | G-F06 | ✅ |
 | Compaction at the window | before any model call past the ceiling, mid-Run included, and once when the provider refuses a request as too long; a Turn compacts at most once | G-F06 | ✅ |
@@ -72,7 +72,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Tool search | `search_tools` holds the catalog in its description, loads tools by name or by a BM25 search, and lists more candidates | G-F34 | ✅ |
 | Your own search | `ToolSearcher`, an interface a team implements to plug in its own search | G-F34 | ✅ |
 | Loaded tools | a loaded tool stays until the next compaction, which keeps the tools called in the closed Segment or the kept tail; `tool_loaded` and `tool_unloaded` are facts | G-F34 | ✅ |
-| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | 🚧 |
+| Native deferred loading | the tool list keeps the same bytes while tools load, on Anthropic Messages and OpenAI's Responses API (`deferred_tools`) | G-F34 | ✅ |
 | MCP adapter | `adapter/mcp`, a module of its own: MCP servers as ToolSets over streamable HTTP or stdio, with the Effect taken from their annotations, their progress as `tool_progress`, and their instructions as the description | G-F12 | ✅ |
 | Large Tool Results | a Tool Result over one page is spilled into the Record as an Entry of its own; the Context holds a preview and a ref | G-F35 | ✅ |
 
@@ -568,7 +568,7 @@ report := modelctx.ReportOf(inspection)
 
 **Limits:** inspection builds as a Run's first Turn does. It cannot know a tool the model loads later in a Run, or a `ContextTransformer` whose output depends on the Run or the Turn. The extensions and tool sources run during inspection too, so they must not have side effects.
 
-### G-F06 — Compaction 🚧
+### G-F06 — Compaction ✅
 
 A Session can live for weeks, its user often comes back long after the provider's cache has expired, and a long Run can outgrow the model's window. Compaction keeps what the model is sent within its window, keeps as much of the conversation as it can, and makes the first request after a long pause cheap. It appends a Checkpoint (G-F03) and never rewrites the Record, so nothing a Session said is lost, unless the team prunes the entries before a Checkpoint ([DESIGNS.md → Compaction closes a Segment, before the cache goes cold](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
 
@@ -917,7 +917,7 @@ The tools a Session offers can change while it runs.
 
 **Gap:** listing without a Session (`Runner.Tools` with no Session ID, `gotato tools list` without `--session`) shows the Agent's own tools only, because a ToolSet lives in the Agent's Options and resolving it is a Session's work (an MCP server may be asked over the network). The HTTP and gRPC surfaces have no tool listing or switch today; a service that wants one calls `Runner.Tools` and `Runner.SetToolActive`, or writes `gotato.tool.<id>` with `RunRequest.Update`. The CLI's own agents install no ToolSet, so the ToolSet fields of `tools list` are tested through the Runner, not through the CLI.
 
-### G-F34 — Tool search 🚧
+### G-F34 — Tool search ✅
 
 A service that connects MCP servers can offer hundreds of tools, and their definitions come before the Transcript in every request. Tool search keeps the model's tool list short: the model reads a catalog, and loads the tools it needs, one by one. Designed on 2026-10-25 ([DESIGNS.md → Tools load one by one from a catalog](DESIGNS.md#tools-load-one-by-one-from-a-catalog--2026-10-25)); built in Phase 7, steps 3 and 4: the catalog, the search, the facts, the list form and the native form.
 
@@ -1668,7 +1668,7 @@ gotato run --session "$id" --model demo --json "use-tool"
 
 ## Testing
 
-### G-F22 — Test kit and measurement 🚧
+### G-F22 — Test kit and measurement ✅
 
 You test agents without a network or a paid model, and measure Gotato on a fixed workload.
 
