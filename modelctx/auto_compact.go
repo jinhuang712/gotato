@@ -17,8 +17,8 @@ import (
 // ceiling (why: past_ceiling), and when the provider refused the request as too
 // long (why: overflow). A Turn compacts at most once, whatever the trigger. A
 // Turn that is still past the ceiling after it ends the Run with
-// ErrLimitExceeded; a Turn whose request is still refused ends it with
-// ErrContextOverflow.
+// an error of CodeLimitExceeded; a Turn whose request is still refused ends
+// it with CodeContextOverflow.
 type AutoCompactor struct {
 	session *session.Record
 	policy  CompactPolicy

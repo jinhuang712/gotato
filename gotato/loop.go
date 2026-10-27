@@ -432,7 +432,7 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 
 	// A load commits at the batch boundary, so a loaded Tool appears only
 	// in the next Model request. registryMu serializes the visibility
-	// write with ToolInspector.Tools on other goroutines.
+	// write with Session.Tools on other goroutines.
 	a.registryMu.Lock()
 	loads, loadErr := a.registry.commitPending()
 	a.registryMu.Unlock()
@@ -882,10 +882,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 				}
 			}
 		case ModelEventKindReasoningDone:
-			// The Done signs the block its deltas opened. A block that
-			// streamed no deltas (redacted, or with its display omitted)
-			// finds the last reasoning Part already signed, and gets a Part
-			// of its own instead of overwriting that signature.
+			// The Done signs the block its deltas opened (see signReasoning).
 			assistant.Parts = signReasoning(assistant.Parts, modelEvent.ReasoningArtifact)
 		case ModelEventKindToolCall:
 			calls, callErr := appendToolCall(assistant.ToolCalls, modelEvent.ToolCall)

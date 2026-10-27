@@ -234,8 +234,8 @@ func WithContextBuilder(builder ContextBuilder) SessionOption {
 //
 // A preparer that rewrote the Transcript returns TurnPrepared{Changed: true},
 // and the Loop builds the request again from it. An error ends the Run; one
-// that is a *RuntimeError ends it with that code, any other is an
-// CodeExtensionFailure.
+// that is a *RuntimeError ends it with that code, any other ends it
+// with CodeExtensionFailure.
 type TurnPreparer interface {
 	PrepareTurn(context.Context, PendingTurn) (TurnPrepared, error)
 }

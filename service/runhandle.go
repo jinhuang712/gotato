@@ -51,8 +51,8 @@ func (h *runHandle) attachAbort(abort func()) {
 }
 
 // abortIfStopped aborts a Run that was stopped before its live Session had a
-// Run to abort: Session.Abort is a no-op until the Run starts. The runTracker
-// calls it at run_start.
+// Run to abort: Session.Abort is a no-op until the Run starts. The run-start
+// hook that startRun installs calls it.
 func (h *runHandle) abortIfStopped() {
 	h.mu.Lock()
 	stopped, abort := h.stopped, h.abort

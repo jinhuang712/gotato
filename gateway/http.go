@@ -118,7 +118,7 @@ func withJitter(delay time.Duration) time.Duration {
 	return delay + time.Duration(rand.Int63n(int64(span)+1))
 }
 
-// retryableStatus is the shared retry policy for both wire protocols. A 429
+// retryableStatus is the shared retry policy for every wire API. A 429
 // that names a terminal quota is not retryable; transient 429/5xx responses
 // and known overload phrasing are.
 func retryableStatus(status int, message string) bool {
