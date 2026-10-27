@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-27 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Proposal
 
 > **Agent-as-a-Service for Go.**
@@ -52,6 +52,8 @@ next message ──► pod B ──► "never seen this conversation"
 ```
 
 Pinning each conversation to one pod sends the next message to the right place, until that pod goes away. It also gives up much of what scaling is for.
+
+Katelyn Lesse makes the same point from the infrastructure side: Kubernetes was built for stateless applications, while an agent holds state and spends much of its time idle, waiting on a tool, a model or a person (Lesse, *The new set of problems for engineers to solve*).
 
 ### 4. A simple task carries a coding agent's weight
 
@@ -208,3 +210,4 @@ The full list, with reasons: [FEATURES.md → Not planned](FEATURES.md#not-plann
 - Anthropic, *Hosting the Agent SDK* — https://code.claude.com/docs/en/agent-sdk/hosting
 - OpenAI, *Agents API: architecture* — https://developers.openai.com/api/docs/guides/agents-api/architecture
 - kagent, *Go vs Python runtime* — https://kagent.dev/blog/go-vs-python-runtime
+- Katelyn Lesse, *The new set of problems for engineers to solve* — https://x.com/katelyn_lesse/status/2114542280535318557
