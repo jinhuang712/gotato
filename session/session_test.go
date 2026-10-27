@@ -241,11 +241,14 @@ func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{not json"), 0o600); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken", "stray.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.List(context.Background()); err == nil {
-		t.Fatal("List hid an unreadable session file")
+		t.Fatal("List hid an unreadable session")
 	}
 }
 

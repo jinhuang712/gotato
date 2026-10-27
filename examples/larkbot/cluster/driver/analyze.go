@@ -259,9 +259,9 @@ func (e *env) report(ctx context.Context, ts []*thread) int {
 	return faults
 }
 
-var storeErrRe = regexp.MustCompile(`(?i)earlier layout|old.?layout|epoch|fenc|corrupt|checksum`)
+var storeErrRe = regexp.MustCompile(`(?i)epoch|fenc|corrupt|checksum`)
 
-// storeErrors returns the bots' WARN and ERROR lines that point at the store: an old layout, an epoch or
+// storeErrors returns the bots' WARN and ERROR lines that point at the store: an epoch or
 // fencing complaint, a corrupt file. Each is a GOTATO-FAULT until read.
 func storeErrors(logs []logLine) []string {
 	var out []string

@@ -98,7 +98,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Capability | What it does | Feature | Status |
 |---|---|---|---|
 | Memory store | for tests and short-lived programs | G-F03 | ✅ |
-| File store | a directory per Record and epoch, one file per write, linked into place; a Record of an earlier layout is refused | G-F03 | ✅ |
+| File store | a directory per Record and epoch, one file per write, linked into place | G-F03 | ✅ |
 | Your own store | an adapter with eight calls onto the database you run, each an ordinary conditional write | G-F03 | ✅ |
 | Versioned shape | an Entry of an unknown kind, or a document from a newer `schema_version`, is refused, never misread | G-F03 | ✅ |
 | Append-only Record | every step is appended as it happens, as facts and a log; compaction appends a Checkpoint; a load reads the facts from the last Checkpoint | G-F03 | ✅ |
@@ -1180,7 +1180,7 @@ The Record is an append-only log ([DESIGNS.md → The Record is an append-only l
 - Each Entry is a fact, which a rebuild reads, or a log entry, which records what happened and is never read to rebuild. A metadata change, such as a new instruction or a switched-off tool, is a fact.
 - A compaction appends a Checkpoint, and a load reads the facts from the last one.
 - A Claim is a fact at the position after the head its instance read, so a writer that lost its Claim can never write (G-F27).
-- An Entry of an unknown kind is refused, never misread. The file store does not read a directory of an earlier layout, nor a session document `<id>.json`: it refuses them with `session.ErrOldLayout`, which names the path, and does not migrate them.
+- An Entry of an unknown kind is refused, never misread. The file store has one layout. A file it did not write, inside a Record's directory, is an error that names the path.
 - The Record grows with every step. A team that wants to bound its storage deletes the entries before a Checkpoint itself.
 
 The file store writes each batch of Entries to a file of its own, named by its first position, in a directory named by the Record's epoch (`<id>/<epoch>/<position>.json`), and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write. The epoch is in the path, so a Record that another process, or another goroutine, deletes and creates again under the same ID has another directory, and an old writer finds none to write into, however late: it gets `ErrNotFound`, with no window between its check and its write. The memory store checks and writes under one lock.

@@ -9,11 +9,6 @@ var (
 	// ErrExists is returned by Store.Create for an ID the store already holds.
 	ErrExists = gotato.ErrorOf(gotato.CodeInvalidState, "session: already exists")
 
-	// ErrOldLayout is returned by the file store for an ID held in a layout of an
-	// earlier version, which it refuses to read. Gotato does not migrate it: the
-	// error names the path, and the team moves it away or deletes it.
-	ErrOldLayout = gotato.ErrorOf(gotato.CodeNotSupported, "session: the file store holds this Record in an earlier layout, which is not read")
-
 	// ErrConflict is returned by Store.Append when the position after its head is
 	// already taken, or the head is not where the writer read it: another writer
 	// wrote first. It carries gotato.CodeConflict.

@@ -32,9 +32,6 @@ import (
 // late it checks. Create builds the Record's directory under a temporary name
 // and renames it to <id>, which fails when the ID is taken. Liveness rows are
 // timed by this machine's clock.
-//
-// A directory of an earlier layout, <id>/<position>.json, or a document
-// <id>.json, is refused with ErrOldLayout, never read.
 type FileStore struct {
 	dir string
 	now func() time.Time
@@ -95,8 +92,6 @@ func validID(id string) bool {
 
 func (f *FileStore) recordDir(id string) string { return filepath.Join(f.dir, id) }
 
-func (f *FileStore) legacyPath(id string) string { return filepath.Join(f.dir, id+".json") }
-
 // epochDir is the directory of the Record created under id with this epoch.
 func (f *FileStore) epochDir(id, epoch string) string {
 	sum := sha256.Sum256([]byte(epoch))
@@ -104,14 +99,10 @@ func (f *FileStore) epochDir(id, epoch string) string {
 }
 
 // currentDir finds the epoch directory of the Record under id: ErrNotFound
-// when there is none, ErrOldLayout when the ID holds a Record of the earlier
-// layout.
+// when there is none.
 func (f *FileStore) currentDir(id string) (string, error) {
 	names, err := os.ReadDir(f.recordDir(id))
 	if errors.Is(err, os.ErrNotExist) {
-		if _, statErr := os.Stat(f.legacyPath(id)); statErr == nil {
-			return "", fmt.Errorf("%w: %s", ErrOldLayout, f.legacyPath(id))
-		}
 		return "", ErrNotFound
 	}
 	if err != nil {
@@ -122,7 +113,7 @@ func (f *FileStore) currentDir(id string) (string, error) {
 		switch {
 		case strings.HasPrefix(name.Name(), "."):
 		case !name.IsDir():
-			return "", fmt.Errorf("%w: %s", ErrOldLayout, f.recordDir(id))
+			return "", fmt.Errorf("session: unexpected file %s in the file store", filepath.Join(f.recordDir(id), name.Name()))
 		case current != "":
 			return "", fmt.Errorf("session: %s holds more than one Record", f.recordDir(id))
 		default:
@@ -448,7 +439,6 @@ func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
 	out := make([]RecordInfo, 0, len(names))
 	var unreadable []string
 	for _, name := range names {
@@ -457,16 +447,8 @@ func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 			continue
 		}
 		if !name.IsDir() {
-			legacy, ok := strings.CutSuffix(id, ".json")
-			if !ok {
-				continue
-			}
-			id = legacy
-		}
-		if seen[id] {
 			continue
 		}
-		seen[id] = true
 		summary, err := f.info(id)
 		if errors.Is(err, ErrNotFound) {
 			continue
@@ -511,11 +493,6 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 		if err := os.RemoveAll(tomb); err != nil {
 			return err
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Remove(f.legacyPath(id)); err == nil {
-		found = true
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

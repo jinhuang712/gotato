@@ -74,7 +74,7 @@ func TestUnansweredAndInversions(t *testing.T) {
 
 func TestStoreErrors(t *testing.T) {
 	logs := []logLine{
-		{Pod: "p1", Msg: "send", KV: map[string]string{"level": "ERROR", "err": "session: the file store holds this Record in an earlier layout, which is not read"}},
+		{Pod: "p1", Msg: "send", KV: map[string]string{"level": "ERROR", "err": "stale fence 7"}},
 		{Pod: "p2", Msg: "send", KV: map[string]string{"level": "ERROR", "err": "stale epoch 3"}},
 		{Pod: "p3", Msg: "send", KV: map[string]string{"level": "ERROR", "err": "busy"}},
 		{Pod: "p4", Msg: "message received", KV: map[string]string{"level": "INFO", "err": "epoch"}}, // INFO is not read

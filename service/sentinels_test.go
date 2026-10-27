@@ -23,7 +23,6 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 		{session.ErrExists, gotato.CodeInvalidState},
 		{session.ErrConflict, gotato.CodeConflict},
 		{session.ErrExpired, gotato.CodeInvalidState},
-		{session.ErrOldLayout, gotato.CodeNotSupported},
 		{service.ErrNotPersisted, gotato.CodeStoreFailure},
 		{service.ErrBusy, gotato.CodeBusy},
 		{modelctx.ErrBadRecap, gotato.CodeModelProtocolFailure},

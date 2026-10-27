@@ -4,6 +4,16 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### The file store has one layout and no `ErrOldLayout`
+
+**Breaking**: before the first release nothing keeps an old layout. The file store no longer recognizes a directory `<id>/<position>.json` or a session document `<id>.json`.
+
+| Before | After |
+|---|---|
+| an ID held in an earlier layout fails with `session.ErrOldLayout` (`not_supported`), naming the path | `session.ErrOldLayout` is gone; an ID with no Record directory is `ErrNotFound` |
+| a file directly in a Record's directory is `ErrOldLayout` | a plain error that names the path (`session: unexpected file ... in the file store`) |
+| `FileStore.Delete` also removes `<id>.json` | it removes the Record's directory only |
+
 ### Report fields that count tokens end in `Tokens`
 
 **Breaking**: before the first release nothing keeps an old name. Three fields held a count of tokens without saying so. Each now ends in `Tokens`, in Go and in JSON alike: the merge result of `gotato context compact`, the context report (`context inspect`, `GET /v1/sessions/{id}/context`), and the `Compaction` that Events carry and the Record stores. A Record written before this change reads `ceiling` as unknown.
