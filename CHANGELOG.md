@@ -4,6 +4,16 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### The gateway takes the three wire protocols by their own names
+
+**Breaking**: before the first release nothing keeps an old spelling. `Config.API` and the `api:` key of the YAML file accepted three aliases. They are refused now, with the error that names the supported values.
+
+| Before | After |
+|---|---|
+| `api: openai-completions` | `api: openai-chat-completions` (or leave `api:` empty) |
+| `api: openai-codex-responses` | `api: openai-responses` |
+| `api: anthropic` | `api: anthropic-messages` |
+
 ### A Record's epoch is always its own
 
 **Breaking**: before the first release nothing keeps an old form. Every Record gets an epoch when it is created, so the epoch made of the creation time (`created-<time>`), which stood in for a Record written before epochs, is gone. `RecordInfo.Epoch()` was only a getter after that, so it goes too.

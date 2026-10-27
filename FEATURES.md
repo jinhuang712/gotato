@@ -1066,11 +1066,11 @@ O-88501,paid,41.20,…
 
 A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can always bring your own client by implementing `gotato.Model`.
 
-| Wire API (`api:`) | Also accepted as |
-|---|---|
-| `openai-chat-completions` (the default) | `openai-completions` |
-| `openai-responses` | `openai-codex-responses` |
-| `anthropic-messages` | `anthropic` |
+| Wire API (`api:`) |
+|---|
+| `openai-chat-completions` (the default) |
+| `openai-responses` |
+| `anthropic-messages` |
 
 A provider is a few lines in the gateway's YAML file, which `gateway.LoadYAML(path)` reads:
 

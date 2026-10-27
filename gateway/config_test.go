@@ -51,8 +51,21 @@ api_key: secret
 	if _, err := parseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: api_key\n")); err == nil || !strings.Contains(err.Error(), "auth") {
 		t.Fatalf("an auth key must be rejected by name, err = %v", err)
 	}
-	if _, err := New(Config{API: "openai-codex-responses", Model: "m", BaseURL: "https://gw.example.com"}); err != nil {
-		t.Fatalf("legacy alias rejected: %v", err)
+}
+
+// A spelling that is not a wire protocol is refused, and the error names the
+// supported values.
+func TestAnAPIAliasIsRefused(t *testing.T) {
+	for _, api := range []API{"openai-completions", "openai-codex-responses", "anthropic"} {
+		_, err := New(Config{API: api, Model: "m", BaseURL: "https://gw.example.com"})
+		if err == nil {
+			t.Fatalf("api %q accepted", api)
+		}
+		for _, want := range []API{APIChatCompletions, APIResponses, APIAnthropicMessages} {
+			if !strings.Contains(err.Error(), string(want)) {
+				t.Errorf("api %q: error %q does not name %q", api, err, want)
+			}
+		}
 	}
 }
 

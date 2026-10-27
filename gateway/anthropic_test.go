@@ -249,7 +249,7 @@ func TestAnthropicRetriesOverloadedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(Config{API: "anthropic", BaseURL: server.URL, Model: "m", RetryBackoff: time.Millisecond})
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, Model: "m", RetryBackoff: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}

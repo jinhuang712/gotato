@@ -37,9 +37,8 @@ const (
 
 type Config struct {
 	// API selects the wire protocol: APIChatCompletions (the default when
-	// empty), APIResponses, or APIAnthropicMessages. The aliases
-	// openai-completions, openai-codex-responses, and anthropic are also
-	// accepted.
+	// empty), APIResponses, or APIAnthropicMessages. Any other
+	// value is refused.
 	API API
 	// Endpoint is the complete provider URL. When empty, BaseURL is used.
 	Endpoint string
@@ -297,8 +296,8 @@ func (c *Client) CacheRetention() time.Duration {
 	return 0
 }
 
-// Supported wire protocols. Legacy spellings are accepted as aliases.
-// API is a wire protocol (Config.API).
+// API is a wire protocol (Config.API): APIChatCompletions, APIResponses or
+// APIAnthropicMessages.
 type API string
 
 const (
@@ -308,11 +307,11 @@ const (
 
 func normalizeAPI(api API) (API, error) {
 	switch API(strings.TrimSpace(string(api))) {
-	case "", APIChatCompletions, "openai-completions":
+	case "", APIChatCompletions:
 		return APIChatCompletions, nil
-	case APIResponses, "openai-codex-responses":
+	case APIResponses:
 		return APIResponses, nil
-	case APIAnthropicMessages, "anthropic":
+	case APIAnthropicMessages:
 		return APIAnthropicMessages, nil
 	default:
 		return "", fmt.Errorf("gateway: unsupported API %q (use %s, %s, or %s)", api, APIChatCompletions, APIResponses, APIAnthropicMessages)
