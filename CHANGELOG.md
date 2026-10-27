@@ -552,6 +552,19 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
   A Run's stream starts with the Event that claimed, or created, its Session and ends with `run_ended`. `GET …/events` lists every stored Event of the Session, read from its Record, messages included; it listed the retained window of protected Events, 1000 at most, before.
 - **gRPC.** `Event` is an `EventHeader` and a `oneof event` with one message for each type; `payload_json`, `event_class`, `sequence`, `kind` and `message_id` are gone. A Message that an Event carries travels as JSON bytes (`message_json`). `Usage` adds `cache_read_tokens` and `cache_write_tokens`. **Breaking**, within the version change above. `adapter/grpc` has `KindOf(event)` for the kind of an Event on the wire. The generated code is regenerated with `buf generate`.
 - **CLI.** `events` and `run --events jsonl` print the flat objects above, where they printed `payload`; the Run's stream begins with `session_created` and `session_claimed` for a new session, and has no `session_loaded` or `session_saved`. **Breaking**, within the version change above.
+- **Field-level moves that the entries above imply.** The Event design renames the fields inside the kinds as well as the kinds. These are the ones the tables above do not name one by one. **Breaking**, within the version change above:
+
+  | Before | After |
+  |---|---|
+  | `agent_end` payload `error` (the error code of a Run that did not complete) | `run_ended.cause` |
+  | `turn_end` payload `summary` (`elapsed_ms`, `text_bytes`, `reasoning_bytes`, `tool_calls`, `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `tool_results[]`) | `turn_ended` carries `elapsed_ms`, `text_bytes`, `reasoning_bytes` and `tool_calls` at the top, the token counts in `usage`, and `tools[]` (`tool_id`, `call_id`, `status`, `executed`) in place of `tool_results[]`; there is no `summary` |
+  | the top-level `tool_call_id` of an Event (HTTP, gRPC, `gotato events`) | `call_id`, a field of `tool_started`, `tool_ended`, `tool_progress` and `tool_result_committed` |
+  | the top-level `message_id` of an Event | a field only of the kinds that declare it, such as `reply_started`, `text_delta` and `tool_started`; a Message that an Event carries is in its `message` field (gRPC `message_json`) |
+  | `message_start` payload `role` | none; the kind says what started (`reply_started`) |
+  | gRPC `Event.agent_id`, `Event.tool_call_id`, `Event.timestamp` | `EventHeader.session_id` and `EventHeader.time`; the call ID is inside each tool message |
+  | `gotato.ContextSnapshot.AgentID`, `gotato.TurnSnapshot.AgentID` (given to a `ContextTransformer` and a `TurnStopper`) | `SessionID` |
+  | `gotato.LifecycleKind`, the kind of a `LifecycleEvent` | removed with `LifecycleEvent`; `session_created` and `session_unloaded` are Events |
+  | `gotato.EventSource`, with `Subscribe(ctx) (EventStream, error)` | the name now belongs to a source of stored Events, `EventsAfter(ctx, after, limit) ([]Event, error)`, which `gotato.Feed` reads; the old method is gone: call `Session.Subscribe` |
 
 ### Many instances
 
