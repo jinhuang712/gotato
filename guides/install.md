@@ -4,7 +4,7 @@ By the end of this page you have Gotato in your `go.mod`. Gotato has no release 
 
 ## The runtime
 
-The root module holds the core, the store, the Runner, and the providers. It needs Go 1.22.
+The root module holds the core, the store, the Runner, and the providers. It needs Go 1.24.
 
 ```sh
 go get github.com/jinhuang712/gotato@<commit>

@@ -1,6 +1,6 @@
 module github.com/jinhuang712/gotato/bench/refservice
 
-go 1.22
+go 1.24
 
 require github.com/jinhuang712/gotato v0.0.0
 

@@ -132,7 +132,7 @@ Gotato should behave like any other library in the service: easy to add, safe to
 ### It fits into your service
 
 - **A library, not a new stack.** Gotato arrives with `go get`. It builds, tests and deploys with the service, on the CI/CD the team already runs.
-- **A small footprint.** The core uses only the Go standard library. Gotato adds a few modules and a few megabytes to a service, and runs on Go 1.22.
+- **A small footprint.** The core uses only the Go standard library. Gotato adds a few modules and a few megabytes to a service, and runs on Go 1.24.
 - **Your storage and your telemetry.** Gotato defines stable shapes for a Session and for its Events, the facts it reports as it works. Your adapter maps them onto the database you run, such as MySQL, Postgres or Mongo, and onto the telemetry stack you run.
 - **Any model provider.** A provider is configuration: an endpoint, a key, a wire API (the request format it speaks) and its models. Any vendor that speaks a supported wire API works without new code.
 - **Common endpoints.** Gotato provides an HTTP handler and a Go API. A bot, a job or another service talks to a Session like any other API.
@@ -177,7 +177,7 @@ The footprint follows from that choice. A program that imports each library's ag
 modules in the build graph         3         128
 non-standard-library packages      23        370
 binary, stripped                   3.8 MB    14.8 MB
-minimum Go version                 1.22      1.26.6
+minimum Go version                 1.24      1.26.6
 ```
 
 Measured 2026-10-15 on an Apple M3, with ADK for Go v2.6.0.
