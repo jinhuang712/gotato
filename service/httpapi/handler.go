@@ -108,9 +108,7 @@ func New(runner *service.Runner, options ...Option) *Handler {
 			option(h)
 		}
 	}
-	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contract": ContractVersion})
-	})
+	h.mux.HandleFunc("GET /healthz", h.healthy)
 	h.mux.HandleFunc("GET /readyz", h.ready)
 	h.mux.HandleFunc("GET /v1/agents", h.agents)
 	h.mux.HandleFunc("POST /v1/sessions", h.createSession)
@@ -221,12 +219,24 @@ type noticeRequest struct {
 
 // ---- handlers ---------------------------------------------------------------
 
+// healthy answers the liveness probe: the process is up. It stays 200 while
+// the Runner drains, so an orchestrator does not restart an instance that is
+// finishing its Runs.
+func (h *Handler) healthy(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contract": ContractVersion})
+}
+
+// ready answers the readiness probe. While the Runner drains it answers 503, so
+// the load balancer stops sending new work to this instance.
 func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
+	status := http.StatusOK
+	body := map[string]any{"ok": true, "active_runs": h.runner.ActiveRuns(), "active_sessions": h.runner.ActiveSessions()}
 	if h.runner.Draining() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "draining": true, "active_runs": h.runner.ActiveRuns(), "active_sessions": h.runner.ActiveSessions()})
-		return
+		status = http.StatusServiceUnavailable
+		body["ok"] = false
+		body["draining"] = true
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "active_runs": h.runner.ActiveRuns(), "active_sessions": h.runner.ActiveSessions()})
+	writeJSON(w, status, body)
 }
 
 func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {

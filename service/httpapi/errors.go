@@ -11,6 +11,7 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
+// errorResponse is the JSON body of every error answer.
 type errorResponse struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
@@ -74,12 +75,25 @@ func StatusFor(err error) int {
 	return http.StatusInternalServerError
 }
 
-func failureOf(err error) errorResponse {
-	status := StatusFor(err)
-	out := errorResponse{NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
-	var runtimeErr *gotato.RuntimeError
+// codedBody is the part of an error body that both a failure and a Run that
+// was not saved carry: the code and whether a retry may succeed. It returns
+// the error's RuntimeError too, when it has one, for the fields that only a
+// failure adds.
+func codedBody(err error) (out errorResponse, runtimeErr *gotato.RuntimeError) {
+	out.Retryable = gotato.Retryable(err)
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
+	}
+	return out, runtimeErr
+}
+
+// failureOf is the body of a failed request. A 5xx keeps the error's text in
+// the server log and sends the status text, unless the request did not run.
+func failureOf(err error) errorResponse {
+	status := StatusFor(err)
+	out, runtimeErr := codedBody(err)
+	out.NotRun = gotato.NotRun(err)
+	if runtimeErr != nil {
 		out.RecordEpoch = runtimeErr.Details["record_epoch"]
 		out.Writer = runtimeErr.Details["writer"]
 	}
@@ -107,15 +121,13 @@ func notSavedStatus(err error) int {
 // and whether a retry may succeed, and keeps the store's own message in the
 // log.
 func notSaved(err error) errorResponse {
-	out := internalError(err)
-	out.Retryable = gotato.Retryable(err)
-	var runtimeErr *gotato.RuntimeError
-	if errors.As(err, &runtimeErr) {
-		out.Code = string(runtimeErr.Code)
-	}
+	out, _ := codedBody(err)
+	out.Message = internalError(err).Message
 	return out
 }
 
+// writeFailure answers a failed Run or request: the status and body of the
+// error, and the headers a client or load balancer acts on.
 func writeFailure(w http.ResponseWriter, err error) {
 	if gotato.NotRun(err) {
 		w.Header().Set(NotRunHeader, "true")
@@ -133,6 +145,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 	writeJSON(w, StatusFor(err), failureOf(err))
 }
 
+// writeError answers with a plain message and the status the caller chose.
 func writeError(w http.ResponseWriter, status int, err error) {
 	var resp errorResponse
 	if status >= http.StatusInternalServerError {
