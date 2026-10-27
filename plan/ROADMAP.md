@@ -1,9 +1,9 @@
-<!-- what-we-build: approved 2026-10-28 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them. The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).
 
-Gotato has made no release yet. The first release is named 0.1.0, and it is cut when every phase below is done, so there are no point releases before it. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names. No phase has a date.
+Gotato has made no release yet. The first release is named 0.2.0 (versions 0.1.0 and 0.1.1 of the module path were published by mistake before it, hold other code, and are retracted), and it is cut when every phase below is done, so there are no point releases before it. A phase is done when its exit criteria hold: goals that pass, benchmarks that have a number, decisions written down, and the checks the phase names. No phase has a date.
 
 ## The order
 
@@ -22,7 +22,8 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
 Phase 9  Before release      fake gateways, a local cluster with a chat bot on it
-Phase 10 Pruning             what 0.1.0 ships is cut to what a service needs, then the code is made clear
+Phase 10 Pruning             what 0.2.0 ships is cut to what a service needs, then the code is made clear
+Phase 11 Before 0.2.0        a second code review, the binary's footprint, the last refactors, then the release
 ```
 
 Why this order:
@@ -236,13 +237,29 @@ Before the first release, what Gotato ships is cut to what a service embedding a
 - ✅ **3. The exported API.** An export used only inside its package becomes unexported, and two ways to do one thing become one. Every module that uses Gotato still builds, and each break has its entry in [CHANGELOG.md](../CHANGELOG.md). Exported names follow one set of rules, written in [AGENTS.md → Naming](../AGENTS.md#naming): one spelling, one verb per action, a constant prefixed with its type, a count that names its unit, sentinel errors in each package's `errors.go` and their codes in `gotato/errors.go`, shared helpers in `internal/text`. A field that carried nothing is gone, the kept tail is sized one way (`KeepMessages` or `TailTokens`), times are `time.Time`, and an HTTP error body carries `code` and `message`.
 - ✅ **4. Leftovers.** Dead code, stale comments and stray directories, and every document checked against the code, so that none names what was removed. `deadcode` finds nothing dead. What went is compatibility with data no release ever wrote: the epoch made of a creation time, the file store's earlier layouts and `ErrOldLayout`, the continuation stored as a user Message, and the gateway's old API spellings. The gateway's example file names every setting, and a test loads it.
 - ✅ **5. Clear code.** Structure (files split, code in the right package), refactoring (duplicate logic, long functions) and doc comments that say why. A change inside a package changes no behavior and no test; one that touches the exported API is handled as in step 3. Tests are pruned with the code they cover. Large files are split by concern (`service.go`, `gateway.go`, `session.go`, `compact.go`, `testkit.go`, the CLI's commands); a Run (`executeRun`), a served Run (`Runner.serve`) and a compaction (`Compact`, `MergeSegments`) read as named phases; the three wire APIs share one retry loop, one stream base and their encoder helpers; the core's exported types say what they promise. The one fix it found ships with its test: a Responses retry is reported as `model_retried`.
-- ✅ **6. The release.** The maintainer approves the reviewed documents. The MCP adapter is a module of its own that reaches the root through `replace`, which `go get` ignores, so the root is tagged `v0.1.0` first, the adapter then requires that version and is tagged with its directory (`adapter/mcp/v0.1.0`). A module outside the repository, with no `replace`, follows the README from nothing to a running agent with an MCP ToolSet. Release notes name what was never checked against a real provider. Released as `v0.1.0` and `adapter/mcp/v0.1.0` on 2026-10-28.
+- ⬜ **6. The release.** Moved to the end of [Phase 11](#phase-11--before-020): the release is cut once Phase 11 is done.
 
 Exit:
 
 - Every step's list is approved by the maintainer and carried out.
 - `deadcode` and the linters report nothing unused, and no document names a removed package, type or feature.
-- The module outside the repository builds and runs against the tagged versions.
+
+## Phase 11 — Before 0.2.0
+
+Phase 10 left the code clear, and the maintainer wants one more pass before the first release: a review of the files the first review did not read, the size of the binary, the two refactors Phase 10 left, and a few small inconsistencies. No feature is added unless step 5 decides one. The release, which Phase 10 held as its last step, is the last step here.
+
+- ⬜ **1. A second code review.** Read what the first review did not: `gateway/chat.go`, `service/inspect.go`, `service/streams.go`, `gotato/feed.go`, the merge code of `modelctx`, and the Session Store code (the file and memory stores). Each finding is verified, then fixed with a test of its own, as in the first review.
+- ⬜ **2. The footprint.** Find why the reference service's binary went from 7.6 MB (2026-10-16) to 8.7 MB (2026-10-28), the toolchain or the code, and remove what is not needed ([G-B12](GOALS.md#g-b12--footprint)).
+- ⬜ **3. The two refactors Phase 10 step 5 left.** `readAssistant` is built around a small state type, and `executeToolGroup` is split around its goroutines. No behavior changes and no test changes.
+- ⬜ **4. Small inconsistencies.** The Responses encoder falls back silently on an invalid deferred-tool schema, where the other sites refuse it. The comments of `gotato/session.go`, `gotato/toolbatch.go` and the rest of `session/` are checked against the code.
+- ⬜ **5. Whether a Run names who it acts for.** The idea is in [FEATURES.md → Later](../FEATURES.md#later). Whether it ships in 0.2.0 is decided with the maintainer before anything is built.
+- ⬜ **6. The release.** Moved from Phase 10. The maintainer approves the reviewed documents. The MCP adapter is a module of its own that reaches the root through `replace`, which `go get` ignores, so the root is tagged `v0.2.0` first, the adapter then requires that version and is tagged with its directory (`adapter/mcp/v0.2.0`). The `retract` directives in both `go.mod` files keep the stray 0.1.x versions from being chosen. A module outside the repository, with no `replace`, follows the README from nothing to a running agent with an MCP ToolSet. Release notes name what was never checked against a real provider.
+
+Exit:
+
+- Each step is done or decided.
+- The outside-module check passes against proxy.golang.org with the real tags.
+- `go get github.com/jinhuang712/gotato@latest` resolves to v0.2.0.
 
 ## Every release, from the first on
 
