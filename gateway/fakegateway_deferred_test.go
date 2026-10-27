@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
-	"github.com/jinhuang712/gotato/test/fakegateway"
-	"github.com/jinhuang712/gotato/testkit"
+	"github.com/jinhuang712/gotato/internal/fakegateway"
+	"github.com/jinhuang712/gotato/internal/reftasks"
 )
 
 // toolsField returns the bytes of the tools array of a request body.
@@ -44,7 +44,7 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 			if client.DeferredTools() != DeferredNative {
 				t.Fatalf("form = %q", client.DeferredTools())
 			}
-			options := append([]gotato.Option{gotato.WithModel(client), gotato.WithTools(testkit.OrdersLookup())}, testkit.ToolSearchOptions()...)
+			options := append([]gotato.Option{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)
 			session, err := gotato.NewSession(options...)
 			if err != nil {
 				t.Fatal(err)

@@ -1,4 +1,4 @@
-# The model: Gotato's test/fakegateway (Anthropic Messages wire API), and the gateway YAML the bot reads.
+# The model: Gotato's internal/fakegateway (Anthropic Messages wire API), and the gateway YAML the bot reads.
 apiVersion: v1
 kind: ConfigMap
 metadata:

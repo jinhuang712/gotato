@@ -9,8 +9,8 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/testkit"
 )
 
 // mcpToolSet is the name of the MCP server's ToolSet; its tools are crm.<tool>.
@@ -56,7 +56,7 @@ func parseTools(list, mcpURL string) (toolSpec, error) {
 // apply adds the tools to the Agent. The returned close func ends the MCP connection (nil when there is none).
 func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, error) {
 	if t.export {
-		agent.Tools = append(agent.Tools, testkit.LargeExport())
+		agent.Tools = append(agent.Tools, reftasks.LargeExport())
 	}
 	if !t.mcpActive && !t.mcpSearch {
 		return nil, nil

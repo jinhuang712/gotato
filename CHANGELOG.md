@@ -6,6 +6,20 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Our test tools leave the public surface
+
+The reference tasks, the workload driver and the fake gateway are tools for testing Gotato itself. They moved under `internal/`, so they promise nothing to a team. `testkit` keeps the fakes and recorders: `FakeModel`, `ReplayModel`, `FuncModel`, `FakeTool`, `EventRecorder`, `NewRecord`, and the echo and demo models. `examples/larkbot` and `bench/refservice` still build, since Go's `internal/` rule is by import path and larkbot's path sits under the root module's.
+
+| | before | after |
+|---|---|---|
+| reference tasks (`Task`, `ReferenceTasks`, `LongSession`, `ToolSearchTask`, `PaymentsRecapCheck`, `LargeExport`, `WithLoadedToolsOf`, ...) | `github.com/jinhuang712/gotato/testkit` | `github.com/jinhuang712/gotato/internal/reftasks` |
+| workload driver | `github.com/jinhuang712/gotato/service/workload` | `github.com/jinhuang712/gotato/internal/workload` |
+| workload command | `go run ./cmd/gotato-workload` | `go run ./internal/cmd/gotato-workload` |
+| fake gateway | `github.com/jinhuang712/gotato/test/fakegateway` | `github.com/jinhuang712/gotato/internal/fakegateway` |
+| fake gateway command | `.../test/fakegateway/cmd/fakegateway` | `.../internal/fakegateway/cmd/fakegateway` |
+
+`LogsRead`, `RecapQuestion`, `DemoRecap`, `DemoBigBytes`, `PaymentsInstruction`, `SupportInstruction`, `SupportCasePrompt`, `ToolSearchInstruction`, `WorkloadInstruction` and `OrdersLookupID` are no longer exported: nothing outside their own package used them. `gotato-core/layering_test.go` now also fails when a shipped package imports `internal/`.
+
 ### Contract versions
 
 Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (the HTTP `ContractVersion` `"2"` to `"4"` and the CLI's `"2"`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.

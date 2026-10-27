@@ -36,13 +36,15 @@ func TestLayering(t *testing.T) {
 		}
 	}
 	forbiddenForInner := []string{modulePath + "/service"}
-	forbiddenForAll := []string{modulePath + "/adapter", modulePath + "/cmd"}
+	// internal/ holds our own test tools (the reference tasks, the workload
+	// driver, the fake gateway): no shipped package may depend on them.
+	forbiddenForAll := []string{modulePath + "/adapter", modulePath + "/cmd", modulePath + "/internal"}
 
 	// Standard runtime and provider-adapter packages depend inward only: they
 	// may use the service layer only through the root contract, never import it.
 	// The checked set is derived from the module tree so a new standard-runtime
 	// package is covered without editing this test; cmd/ and adapter/ are the
-	// layers that are allowed to reach outward.
+	// layers that are allowed to reach outward, and internal/ is our test tools.
 	for _, dir := range modulePackageDirs(t, root) {
 		rel, err := filepath.Rel(root, dir)
 		if err != nil {
@@ -66,8 +68,8 @@ func TestLayering(t *testing.T) {
 	}
 }
 
-// modulePackageDirs returns every package directory under root except the CLI
-// and adapter layers, which are allowed to import outward. A nested module
+// modulePackageDirs returns every package directory under root except the CLI,
+// adapter and internal layers, which are allowed to import outward. A nested module
 // (adapter/mcp, bench/refservice) is not part of this module and is skipped:
 // it stands where a team's own service would, outside the layers.
 func modulePackageDirs(t *testing.T, root string) []string {
@@ -89,10 +91,10 @@ func modulePackageDirs(t *testing.T, root string) []string {
 				}
 			}
 			rel, _ := filepath.Rel(root, path)
-			if rel == "cmd" || rel == "adapter" ||
-				strings.HasPrefix(rel, "cmd"+string(filepath.Separator)) ||
-				strings.HasPrefix(rel, "adapter"+string(filepath.Separator)) {
-				return fs.SkipDir
+			for _, outer := range []string{"cmd", "adapter", "internal"} {
+				if rel == outer || strings.HasPrefix(rel, outer+string(filepath.Separator)) {
+					return fs.SkipDir
+				}
 			}
 			return nil
 		}

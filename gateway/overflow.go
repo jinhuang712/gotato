@@ -11,7 +11,7 @@ import (
 // body says the request was longer than the model's context window. They are
 // the only place the gateway reads that out of prose: providers publish no
 // stable code for it on every wire API. They are matched against an error's
-// message, code and type. The list is short on purpose. test/fakegateway plays
+// message, code and type. The list is short on purpose. internal/fakegateway plays
 // each provider's wording, which is the providers' documentation and wording
 // reports, not a live provider; a provider that words it differently is
 // reported as an ordinary failure, unless the team adds its wording in

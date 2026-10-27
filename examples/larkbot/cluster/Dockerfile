@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -ldflags=-s -o /out/larkbot . && \
     go build -ldflags=-s -o /out/fakelark ./cmd/fakelark && \
     go build -ldflags=-s -o /out/fakemcp ./cmd/fakemcp && \
-    go build -ldflags=-s -o /out/fakegateway github.com/jinhuang712/gotato/test/fakegateway/cmd/fakegateway
+    go build -ldflags=-s -o /out/fakegateway github.com/jinhuang712/gotato/internal/fakegateway/cmd/fakegateway
 
 # No shell, no package manager: a static binary and CA certificates, run as 65532 (non-root).
 FROM scratch AS base

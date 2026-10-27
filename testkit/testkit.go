@@ -1,8 +1,7 @@
 // Package testkit provides deterministic doubles for testing Gotato runtimes
 // without a network provider: scripted and replayed Models, a recording
 // FakeTool, an EventRecorder over a Subscription, Session fixtures, the echo/demo
-// Models used by the CLI and the reference service, and the tasks of the
-// reference workload (ReferenceTasks).
+// Models used by the CLI and the reference service.
 package testkit
 
 import (
@@ -430,18 +429,18 @@ func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 // DemoModel exercises the Tool loop deterministically: when the last user
 // text is "use-tool" and no tool result follows it, it calls demo.echo with
 // {"value":"from-tool"}; when it is "use-big-tool" it calls demo.echo with a
-// value of DemoBigBytes bytes, which the Session spills; otherwise it answers
+// value of demoBigBytes bytes, which the Session spills; otherwise it answers
 // "demo response: <text>".
 type DemoModel struct{}
 
-// DemoRecap is what DemoModel answers when it is asked for a Recap (a last
+// demoRecap is what DemoModel answers when it is asked for a Recap (a last
 // user message that starts "Write a recap"), so a compaction with the model's
 // Recap can run in the CLI without a provider.
-const DemoRecap = "## What happened\n- the user talked with the demo model\n## Key facts\n- the demo tool returned from-tool"
+const demoRecap = "## What happened\n- the user talked with the demo model\n## Key facts\n- the demo tool returned from-tool"
 
-// DemoBigBytes is the size of the value DemoModel passes to demo.echo for the
+// demoBigBytes is the size of the value DemoModel passes to demo.echo for the
 // prompt "use-big-tool": past one page, so the result is spilled.
-const DemoBigBytes = 48 << 10
+const demoBigBytes = 48 << 10
 
 // DemoToolID is the Tool DemoModel calls.
 const DemoToolID = "demo.echo"
@@ -461,13 +460,13 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 		}
 	}
 	if strings.HasPrefix(lastUser, "Write a recap") {
-		return &stream{events: Text(DemoRecap)}, nil
+		return &stream{events: Text(demoRecap)}, nil
 	}
 	if strings.TrimSpace(lastUser) == "use-tool" && !hasToolResult {
 		return &stream{events: ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: DemoToolID, Arguments: []byte(`{"value":"from-tool"}`)})}, nil
 	}
 	if strings.TrimSpace(lastUser) == "use-big-tool" && !hasToolResult {
-		value := strings.Repeat("demo line of a large tool result\n", DemoBigBytes/33+1)
+		value := strings.Repeat("demo line of a large tool result\n", demoBigBytes/33+1)
 		arguments, _ := json.Marshal(map[string]string{"value": value})
 		return &stream{events: ToolCalls(gotato.ToolCall{ID: "call-big", ToolID: DemoToolID, Arguments: arguments})}, nil
 	}

@@ -12,11 +12,11 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
-	"github.com/jinhuang712/gotato/test/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// These tests point the gateway at test/fakegateway, which speaks each wire
+// These tests point the gateway at internal/fakegateway, which speaks each wire
 // API from the providers' public documentation, so they check the gateway's
 // adaptation against the format and not against its own decoder.
 

@@ -16,7 +16,7 @@ By the end of this page you know which Gotato packages your program needs, and w
 | Call MCP servers | `adapter/mcp` (a module of its own) |
 | Serve it over HTTP | `service/httpapi` |
 | Register tools in code, without a Runner | `toolregistry` |
-| Write tests with a fake model | `testkit`, `test/fakegateway` |
+| Write tests with a fake model | `testkit` |
 
 ## What leaving one out costs
 

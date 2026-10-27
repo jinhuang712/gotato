@@ -10,13 +10,13 @@ import (
 
 	"github.com/jinhuang712/gotato/gateway"
 	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
-	"github.com/jinhuang712/gotato/test/fakegateway"
 )
 
-// These tests run a Runner with a gateway Agent against test/fakegateway: the
+// These tests run a Runner with a gateway Agent against internal/fakegateway: the
 // Phase 10 exit item "an overflow in each provider's form compacts and sends
 // again", and the same for a Session past its ceiling. The fake refuses a
 // request past its window in each provider's own words and status.

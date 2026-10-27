@@ -16,6 +16,7 @@ import (
 	"time"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -472,7 +473,7 @@ func (fl *follower) reached(t *testing.T, n uint64) []storedFrame {
 
 // playTask plays a reference task's prompts on a new Session, one Run each,
 // through the HTTP handler, and reports the Session's last number.
-func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, task testkit.Task, id string) uint64 {
+func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, task reftasks.Task, id string) uint64 {
 	t.Helper()
 	for _, prompt := range task.Prompts {
 		body := fmt.Sprintf(`{"prompt":%q}`, prompt)
@@ -496,7 +497,7 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 	return record.Head()
 }
 
-func taskRunner(t *testing.T, task testkit.Task) (*httptest.Server, *service.Runner) {
+func taskRunner(t *testing.T, task reftasks.Task) (*httptest.Server, *service.Runner) {
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: session.NewMemoryStore(),
@@ -516,7 +517,7 @@ func taskRunner(t *testing.T, task testkit.Task) (*httptest.Server, *service.Run
 // that is cut after its k-th stored Event and reconnects after k, with the
 // epoch it was told, by Last-Event-ID or by the after parameter. It returns the
 // Events of the uncut reader and of the cut one, the two parts joined.
-func cutAndResume(t *testing.T, task testkit.Task, k int, viaHeader bool) (uncut, resumed []storedFrame) {
+func cutAndResume(t *testing.T, task reftasks.Task, k int, viaHeader bool) (uncut, resumed []storedFrame) {
 	server, runner := taskRunner(t, task)
 	created, err := runner.CreateSession(context.Background(), task.Name, nil, session.WithMessages(task.History...))
 	if err != nil {
@@ -582,7 +583,7 @@ func cutAndResume(t *testing.T, task testkit.Task, k int, viaHeader bool) (uncut
 // was never cut read: the same stored Events, in the same order, numbered from
 // 1 with no gap and no repeat.
 func TestStreamCutAtEveryEventResumesEqualToAnUncutOne(t *testing.T) {
-	for _, task := range testkit.ReferenceTasks() {
+	for _, task := range reftasks.ReferenceTasks() {
 		t.Run(task.Name, func(t *testing.T) {
 			calibration, _ := cutAndResume(t, task, 1, true)
 			total := len(calibration)

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
-	"github.com/jinhuang712/gotato/test/fakegateway"
+	"github.com/jinhuang712/gotato/internal/fakegateway"
 )
 
 // wireElements returns the elements of a request's conversation as JSON, one
