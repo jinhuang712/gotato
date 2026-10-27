@@ -262,6 +262,12 @@ func (p *hashProxy) owner(key string) string {
 	return ""
 }
 
+// proxyTransport opens a connection for every request. A pooled connection to
+// an instance that was just killed looks alive until the next write fails, and
+// that failure comes after the request may have been sent, so it is not
+// retried; a new connection is refused instead, which the proxy retries.
+var proxyTransport = &http.Transport{DisableKeepAlives: true}
+
 // RoundTrip sends a request to the instance its session-id hashes to, and once
 // more to the next one when the first is gone or refused it as not run.
 func (p *hashProxy) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -285,7 +291,7 @@ func (p *hashProxy) RoundTrip(req *http.Request) (*http.Response, error) {
 		out.URL.Scheme, out.URL.Host = "http", b.host
 		out.Body = io.NopCloser(bytes.NewReader(body))
 		out.ContentLength = int64(len(body))
-		resp, err := http.DefaultTransport.RoundTrip(out)
+		resp, err := proxyTransport.RoundTrip(out)
 		if err != nil {
 			var opErr *net.OpError
 			if req.Context().Err() != nil || !errors.As(err, &opErr) || opErr.Op != "dial" {

@@ -391,7 +391,7 @@ func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.S
 // and the end of that Run writes session_released.
 func TestRunWritesClaimAndRelease(t *testing.T) {
 	store := session.NewMemoryStore()
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

@@ -180,7 +180,7 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Name, agent.Model = "echo", model
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(), Instance: "a", Clock: clock, Liveness: fastLiveness,
+		Store: session.NewMemoryStore(), Instance: "a", Clock: clock, Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.WaitWhileBusy}, Agents: []service.Agent{agent},
 	})
 	if err != nil {
@@ -310,7 +310,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 	for name, newStore := range stores {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			first, err := service.New(service.Config{Store: store, Instance: "first", Liveness: fastLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+			first, err := service.New(service.Config{Store: store, Instance: "first", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -324,7 +324,7 @@ func TestANoticeBetweenRunsOutlivesItsInstance(t *testing.T) {
 			}
 
 			model := testkit.NewFakeModel(testkit.Text("one"), testkit.Text("two"))
-			second, err := service.New(service.Config{Store: store, Instance: "second", Liveness: fastLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
+			second, err := service.New(service.Config{Store: store, Instance: "second", Liveness: steadyLiveness, Agents: []service.Agent{{Name: "echo", Model: model}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -423,7 +423,7 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Clock: clock, Liveness: fastLiveness,
+		Store: store, Instance: name, Clock: clock, Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.WaitWhileBusy},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	})

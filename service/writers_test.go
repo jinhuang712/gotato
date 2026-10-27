@@ -19,6 +19,14 @@ import (
 
 var fastLiveness = service.Liveness{TTL: 150 * time.Millisecond, Wait: 3 * time.Second}
 
+// steadyLiveness is for a test that is not about a row expiring. A Runner
+// refuses a write once its last renewal is older than 4/5 of the TTL
+// (Runner.guard), so with fastLiveness's 150 ms a renewal tick that a loaded
+// machine runs 40 ms late fails a Run with "liveness row may have expired".
+// Only a test that waits for a row to expire, or pauses the renewals, uses
+// fastLiveness.
+var steadyLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second}
+
 // isInstance reports whether got is the name of the Instance that was
 // configured with label: the label and the per-start suffix.
 func isInstance(got, label string) bool {

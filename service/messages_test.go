@@ -168,7 +168,7 @@ func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Liveness: fastLiveness, Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.WaitWhileBusy},
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -435,6 +435,8 @@ func TestMessageEventsReachTheInstanceStream(t *testing.T) {
 	settled(t, done)
 
 	for _, kind := range []gotato.EventKind{gotato.KindMessageQueued, gotato.KindMessageCommitted} {
+		// The Instance stream is delivered after the Run settles.
+		seen.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == kind })
 		if len(seen.OfKind(kind)) == 0 {
 			t.Fatalf("the Instance stream carried no %s; got %v", kind, seen.Kinds())
 		}

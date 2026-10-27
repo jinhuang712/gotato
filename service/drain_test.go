@@ -87,9 +87,9 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			open := sharedStores(t, kind)
 			model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 			openGate := sync.OnceFunc(func() { close(model.gate) })
-			a := instanceRunner(t, open(), "instance-a", model, fastLiveness)
+			a := instanceRunner(t, open(), "instance-a", model, steadyLiveness)
 			t.Cleanup(openGate)
-			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, service.Liveness{TTL: fastLiveness.TTL, Wait: 100 * time.Millisecond})
+			b := instanceRunner(t, open(), "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 100 * time.Millisecond})
 
 			const runs = 3
 			ids := make([]string, runs)
@@ -203,7 +203,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	store := session.NewMemoryStore()
 	model := &gatedEcho{gate: make(chan struct{}), started: make(chan string, 8)}
 	defer close(model.gate)
-	a := instanceRunner(t, store, "instance-a", model, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", model, steadyLiveness)
 
 	const runs = 2
 	ids := make([]string, runs)

@@ -17,16 +17,31 @@ import (
 
 // faultStore counts the writes made through it. Once crashAfter writes have
 // succeeded, every later write fails, and so does every renewal of the
-// instance's Liveness row, as if the instance died there. When record is set,
-// it keeps the Transcript the store held after each write.
+// instance's Liveness row, as if the instance died there, and the row is
+// removed at that moment, as if it had expired, so the next instance takes the
+// Sessions over without waiting for a TTL. When record is set, it keeps the
+// Transcript the store held after each write.
 type faultStore struct {
 	session.Store
 	crashAfter int
 	record     bool
 
-	mu     sync.Mutex
-	writes int
-	states [][]gotato.Message
+	mu       sync.Mutex
+	writes   int
+	states   [][]gotato.Message
+	instance string // the ID of the Liveness row the Runner renews
+	buried   bool
+}
+
+// bury removes the dead instance's row once, as its expiry would.
+func (s *faultStore) bury(ctx context.Context) {
+	s.mu.Lock()
+	row, buried := s.instance, s.buried
+	s.buried = true
+	s.mu.Unlock()
+	if row != "" && !buried {
+		_ = s.Store.Beat(ctx, session.InstanceRow{ID: row}, 0)
+	}
 }
 
 var errCrashed = errors.New("the instance died")
@@ -35,6 +50,7 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 	s.mu.Lock()
 	if s.crashAfter > 0 && s.writes >= s.crashAfter {
 		s.mu.Unlock()
+		s.bury(ctx)
 		return errCrashed
 	}
 	s.mu.Unlock()
@@ -56,9 +72,11 @@ func (s *faultStore) write(ctx context.Context, id string, do func() error) erro
 
 func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
 	s.mu.Lock()
+	s.instance = row.ID
 	dead := s.crashAfter > 0 && s.writes >= s.crashAfter
 	s.mu.Unlock()
 	if dead {
+		s.bury(ctx)
 		return errCrashed
 	}
 	return s.Store.Beat(ctx, row, ttl)
@@ -72,11 +90,13 @@ func (s *faultStore) Append(ctx context.Context, id string, after uint64, entrie
 	return s.write(ctx, id, func() error { return s.Store.Append(ctx, id, after, entries, summary) })
 }
 
+// taskRunner runs a task with a Liveness TTL that a loaded machine does not
+// outrun: a Runner refuses a write once its last renewal is older than 4/5 of
+// the TTL. A test that kills an instance does it through faultStore, which
+// removes the dead instance's row, so no short TTL is needed to wait it out.
 func taskRunner(t *testing.T, store session.Store, task testkit.Task, instance string) *service.Runner {
 	t.Helper()
-	// A short TTL lets a dead instance's row expire quickly, so the next
-	// instance takes its Sessions over without a long wait.
-	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}, Agents: []service.Agent{{
+	runner, err := service.New(service.Config{Store: store, Instance: instance, Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 2 * time.Second}, Agents: []service.Agent{{
 		Name: task.Name, Model: task.Model, Instruction: task.Instruction, Tools: task.Tools, Options: task.Options, Limits: task.Limits,
 	}}})
 	if err != nil {

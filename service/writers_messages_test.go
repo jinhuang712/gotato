@@ -37,7 +37,7 @@ func (m *holdingOwner) Stream(ctx context.Context, request gotato.ModelRequest) 
 func addressedRunner(t *testing.T, store session.Store, instance string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Liveness: fastLiveness,
+		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Liveness: steadyLiveness,
 		Admission: service.Admission{Queue: service.WaitWhileBusy},
 		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})
