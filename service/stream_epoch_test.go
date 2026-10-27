@@ -65,7 +65,7 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			// Each try leaked the claim about half the time before the fix.
 			for try := range 20 {
-				store := session.NewMemoryStore()
+				store := &watchedStore{Store: session.NewMemoryStore()}
 				a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
 				id := fmt.Sprintf("session-%d", try)
 				shape := func(runner *service.Runner) {
@@ -77,13 +77,14 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 					}
 				}
 				shape(a)
+				emptyBefore := store.emptyReads.Load()
 				stream, err := a.StreamSession(ctx, id, service.StreamFrom{})
 				if err != nil {
 					t.Fatal(err)
 				}
 				readNumbers(t, stream, int(stream.Head))
 				// The catch-up's last, empty read, before the delete.
-				time.Sleep(20 * time.Millisecond)
+				store.waitLive(t, emptyBefore)
 				ended := readUntilEnd(stream)
 				if err := b.DeleteSession(ctx, id); err != nil {
 					t.Fatal(err)
@@ -134,7 +135,7 @@ func waitEnd(t *testing.T, ended <-chan streamEnd) {
 // not at the old one's. Opening it also ends the old stream, which this
 // instance now knows to be of a Record that was created again.
 func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := &watchedStore{Store: session.NewMemoryStore()}
 	// No looks: one that fell between the delete and the create would end the
 	// old stream with not found, by chance.
 	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
@@ -144,6 +145,7 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.SessionID
+	emptyBefore := store.emptyReads.Load()
 	old, err := a.StreamSession(ctx, id, service.StreamFrom{})
 	if err != nil {
 		t.Fatal(err)
@@ -160,9 +162,9 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	}
 	oldHead := loaded.Head
 	readNumbers(t, old, int(oldHead))
-	// Give the old stream's catch-up its last, empty read, so it is live
+	// Wait for the old stream's catch-up to read its last, empty page, so it is live
 	// before the delete: a read during the delete would end it with not found.
-	time.Sleep(50 * time.Millisecond)
+	store.waitLive(t, emptyBefore)
 	oldEnded := readUntilEnd(old)
 
 	if err := b.DeleteSession(ctx, id); err != nil {
@@ -341,20 +343,21 @@ func TestStreamThatReadTheOldRecordDoesNotFollowTheNewOne(t *testing.T) {
 // A stream that is cut ends at once: the Events queued for it, which the
 // client has not read, are not delivered after the cut.
 func TestACutStreamEndsAtOnce(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := &watchedStore{Store: session.NewMemoryStore()}
 	a := recreatedRunner(t, "a", store, -1)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	batchesBefore := store.batches.Load()
 	stream, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = stream.Close() }()
 	// Let the catch-up read the Record, so its Events wait for the client.
-	time.Sleep(50 * time.Millisecond)
+	store.waitBatchRead(t, batchesBefore)
 	if err := a.DeleteSession(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +373,7 @@ func TestACutStreamEndsAtOnce(t *testing.T) {
 // Record on its instance at once, with cannot_resume, and before any later
 // write of this instance does.
 func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
-	store := session.NewMemoryStore()
+	store := &watchedStore{Store: session.NewMemoryStore()}
 	// No looks: one that fell between the delete and the create would end the
 	// old stream with not found, by chance.
 	a, b := recreatedRunner(t, "a", store, -1), recreatedRunner(t, "b", store, -1)
@@ -380,15 +383,16 @@ func TestOpeningAStreamOfARecordCreatedAgainEndsTheOldStreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.SessionID
+	emptyBefore := store.emptyReads.Load()
 	old, err := a.StreamSession(ctx, id, service.StreamFrom{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = old.Close() }()
 	readNumbers(t, old, int(old.Head))
-	// Give the old stream's catch-up its last, empty read, so it is live
+	// Wait for the old stream's catch-up to read its last, empty page, so it is live
 	// before the delete.
-	time.Sleep(50 * time.Millisecond)
+	store.waitLive(t, emptyBefore)
 	oldEnded := readUntilEnd(old)
 
 	if err := b.DeleteSession(ctx, id); err != nil {

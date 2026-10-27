@@ -16,7 +16,7 @@ import (
 // a stream never misses a stored Event, whoever wrote it.
 func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 	ctx := context.Background()
-	store := session.NewMemoryStore()
+	store := &watchedStore{Store: session.NewMemoryStore()}
 	liveness := service.Liveness{TTL: 2 * time.Second, Wait: 3 * time.Second}
 	a := instanceRunner(t, store, "a", testkit.EchoModel{}, liveness)
 	b := instanceRunner(t, store, "b", testkit.EchoModel{}, liveness)
@@ -32,12 +32,13 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := before[len(before)-1].Head().Number
+	emptyBefore := store.emptyReads.Load()
 	sub, err := a.SubscribeSession(ctx, s.ID(), head)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
-	time.Sleep(100 * time.Millisecond) // the subscriber catches up and goes live
+	store.waitLive(t, emptyBefore) // the subscriber catches up and goes live
 	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "p1"}); err != nil {
 		t.Fatal(err)
 	}
