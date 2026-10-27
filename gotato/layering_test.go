@@ -38,13 +38,13 @@ func TestLayering(t *testing.T) {
 	forbiddenForInner := []string{modulePath + "/service"}
 	// internal/ holds our own test tools (the reference tasks, the workload
 	// driver, the fake gateway): no shipped package may depend on them.
-	forbiddenForAll := []string{modulePath + "/adapter", modulePath + "/cmd", modulePath + "/internal"}
+	forbiddenForAll := []string{modulePath + "/adapter", modulePath + "/internal"}
 
 	// Standard runtime and provider-adapter packages depend inward only: they
 	// may use the service layer only through the root contract, never import it.
 	// The checked set is derived from the module tree so a new standard-runtime
-	// package is covered without editing this test; cmd/ and adapter/ are the
-	// layers that are allowed to reach outward, and internal/ is our test tools.
+	// package is covered without editing this test; adapter/ is the
+	// layer that is allowed to reach outward, and internal/ is our test tools.
 	for _, dir := range modulePackageDirs(t, root) {
 		rel, err := filepath.Rel(root, dir)
 		if err != nil {
@@ -91,7 +91,7 @@ func modulePackageDirs(t *testing.T, root string) []string {
 				}
 			}
 			rel, _ := filepath.Rel(root, path)
-			for _, outer := range []string{"cmd", "adapter", "internal"} {
+			for _, outer := range []string{"adapter", "internal"} {
 				if rel == outer || strings.HasPrefix(rel, outer+string(filepath.Separator)) {
 					return fs.SkipDir
 				}

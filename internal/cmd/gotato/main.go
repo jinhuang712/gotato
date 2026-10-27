@@ -1,5 +1,5 @@
-// Command gotato is the official Gotato CLI: a thin client over the runtime
-// packages for humans, shell automation, and coding agents.
+// Command gotato is the test tool of this repository: a thin client over the runtime
+// packages. It is not shipped and promises no contract.
 //
 //	gotato run [--session ID] [--model echo|demo|gateway] [--json|--events jsonl] "prompt"
 //	gotato session create|list|show|fork|events|resume|message|cancel
@@ -11,7 +11,7 @@
 //
 // Stdout carries requested data; diagnostics go to stderr. Exit codes:
 // 0 ok, 1 runtime error, 2 usage error, 3 not found, 4 run did not complete.
-// See README.md next to this file for the contract.
+// See README.md next to this file.
 package main
 
 import (
@@ -32,7 +32,7 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// Exit codes are part of the CLI contract.
+// Exit codes of the test tool.
 const (
 	ExitOK            = 0
 	ExitError         = 1
@@ -41,7 +41,7 @@ const (
 	ExitRunIncomplete = 4
 )
 
-// Version is the CLI contract version reported by doctor.
+// Version is the version reported by doctor.
 const Version = "1"
 
 func main() {
