@@ -1476,7 +1476,7 @@ The same thing is written the same way on every Event. A duration is a number of
 | `run_started`, `run_ended` | a Run starts, and settles with its status, its cause and its stop reason | Record |
 | `turn_started`, `turn_ended` | a Turn starts, and ends with its usage | Record |
 | `context_built` | a Turn's Context is built, with its prefix hash and sizes | Record |
-| `reply_started`, `reply_ended` | the model's reply starts, and ends with the Message, the model that answered and why it stopped | Record |
+| `reply_started`, `reply_ended` | the model's reply starts, and ends with the Message, the model that answered and why it stopped; a call that fails or is refused before any output ends at the next `reply_started`, `turn_ended` or `run_ended`, with no `reply_ended` | Record |
 | `text_delta`, `reasoning_delta` | a piece of the reply's text or reasoning | sent only |
 | `reply_part_kept` | the text and reasoning streamed since the last part, kept every second or few KiB so that a crash loses at most the last part | Record |
 | `reply_cut_off` | the reply's stream broke, and the text so far is kept as a Cut-off reply | Record |

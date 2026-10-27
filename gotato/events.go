@@ -327,7 +327,9 @@ type ContextBuilt struct {
 
 // ReplyStarted: the model's reply starts. It is stored before the Model is
 // called, so a Writer that can no longer write keeps the Model from being
-// called.
+// called. A reply ends at the first of reply_ended, reply_cut_off, the Turn's
+// next reply_started, turn_ended or run_ended: a call that fails or is refused
+// before any output has no reply_ended of its own.
 type ReplyStarted struct {
 	Header
 	MessageID MessageID `json:"message_id"`
