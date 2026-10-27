@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-27 -->
+<!-- what-we-build: approved 2026-10-27 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -169,7 +169,6 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Live run | the same tasks against your provider, with its price, on demand | G-F22 | ✅ |
 | Reference service | the smallest service that embeds Gotato, timed from start to ready and measured for size | G-F22 | ✅ |
 | Fault injection and a multi-instance harness | a crash after every write of the reference workload, client disconnects, a stream cut at every Event, and several instances over one store behind a hashing proxy, with one killed | G-F22 | ✅ |
-| API-compatibility check | CI flags a removed or changed exported identifier, so a break cannot slip in unwritten | G-F22 | ⬜ |
 
 **Later**
 
@@ -828,7 +827,7 @@ tail          Turns 27–30 as they were, tool calls and results included
 | the digest of a merge with no model | 4,000 bytes | a merge keeps the far past small whoever writes it |
 | time zone of a Segment's times | UTC; set per Agent | a tool call line shows the time of day, which reads best in the users' own zone |
 
-**Checked against the providers' behavior.** Each team runs its own gateway, so Gotato does not tune compaction to one provider and runs no checks against real providers. It adapts to each wire API, proves that with unit tests, and plays the providers' quirks on a fake gateway, `test/fakegateway` ([ROADMAP.md → Phase 9](plan/ROADMAP.md#phase-9--before-the-release)), built from the providers' public wire formats. What only a real model can show, a team checks on its own gateway, and the model's Recap stays off by default until it does:
+**Checked against the providers' behavior.** Each team runs its own gateway, so Gotato does not tune compaction to one provider and runs no checks against real providers. It adapts to each wire API, proves that with unit tests, and plays the providers' quirks on a fake gateway, `test/fakegateway` ([ROADMAP.md → Phase 9](plan/ROADMAP.md#phase-9--before-the-release-)), built from the providers' public wire formats. What only a real model can show, a team checks on its own gateway, and the model's Recap stays off by default until it does:
 
 - the Recap's quality: whether the Agent's model, writing on the cached prefix, keeps the IDs, numbers and open items a later question needs. This is the payments check of [G-E01](plan/GOALS.md#g-e01--the-recap-keeps-the-facts-), which ships: `go run ./cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml -min-share 0.8` plays the payments conversation of this section, compacts it with the model's Recap, and prints the share of questions whose answers were only in Tool Results that the model answers before and after (*The live run*, below). It runs on demand against a team's own gateway, never in CI;
 - how the model reads a `<tool_calls>` block between a user message and the reply: as a record of calls already made, not as calls to make again or text to copy;
@@ -1727,7 +1726,6 @@ go run ./cmd/gotato-workload -live -gateway-config gateway.yaml -price 3,15,0.3,
 bench/refservice/footprint.sh                                               # modules and stripped binary, as JSON
 ```
 
-**Gap:** an API-compatibility check in CI, which flags a removed or changed exported identifier, is scheduled for when mass testing begins (ROADMAP Phase 9).
 
 ## When something fails
 

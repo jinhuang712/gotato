@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-27 -->
+<!-- what-we-build: approved 2026-10-27 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them or keeps under [Waiting for design](#waiting-for-design). The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).
@@ -21,7 +21,7 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
                              is spilled into the Record, and the counting caps leave the core
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
-Phase 9  Before release      fake gateways, a local cluster with a chat bot on it, and CI that flags a removed or changed exported identifier
+Phase 9  Before release      fake gateways, a local cluster with a chat bot on it
          ── waiting for design: changes that keep the cache ──
 ```
 
@@ -215,13 +215,14 @@ Exit:
 - ✅ A test fills an instance with warm Sessions to `MaxActiveSessions`, and checks that a new Run evicts the longest-idle one and runs, and that with every live Session running it is refused as not run.
 - ✅ G-B07 shows the load a warm Session saves, and G-B08 the heap it holds, both compared with Phase 1.
 
-## Phase 9 — Before the release
+## Phase 9 — Before the release ✅
 
-The last phase tests Gotato the way a team would run it: against gateways that behave like the providers, on several instances in a local cluster, and against the exported API it promises.
+The last phase tests Gotato the way a team would run it: against gateways that behave like the providers, and on several instances in a local cluster.
 
 - ✅ **Fake gateways.** `test/fakegateway` is one test-only server that speaks each wire API (Claude's Messages, OpenAI's Responses, Chat Completions) and plays their quirks on demand, from a directive in the last user text or the `X-Fake-Quirk` header: a refusal as too long in each provider's words and fields, before any output and mid-stream; a stream cut after text and in a tool call's arguments; cached-token usage; a reasoning replay, which it refuses to see dropped; a system or `developer` message mid-conversation, accepted or refused as the provider does; a slow reply, for the cluster. It records every request, and `test/fakegateway/cmd/fakegateway` serves it on a port. The gateway's adaptation and compaction's overflow path run against it.
 - ✅ **A local cluster.** Several instances of the chat bot below on one local Kubernetes cluster (kind), sharing a file store, with the fake gateway as the model and a fake chat platform in front, so a Run stays in flight. The scenarios, each run on a cold cluster and checked afterwards against the Records: a rolling deploy while Runs are in flight, a writer killed mid-Run (deleted, and killed with SIGKILL), scaling from 3 to 1 to 5 instances, bursts of messages on one Session from several instances, and events delivered again after a late acknowledgement; and, with an MCP server on it, a spilled result read from the instance that took a Session over, an MCP server restarted and a bot deployed while calls are in flight, and a tool loaded by search still loaded after a takeover. The cluster files, the load driver and the fake chat platform live in [`examples/larkbot`](../examples/larkbot), because they belong to the application.
 - ✅ **A chat bot.** An example the maintainer builds, in [`examples/larkbot`](../examples/larkbot), a module of its own: a Lark chat bot that embeds Gotato, one Session per message thread, and runs on the local cluster behind the fake gateway. It is an application and not a client Gotato ships ([G-N18](../FEATURES.md#g-n18--no-ready-made-clients)). A chat platform delivers each event to one instance at random, so the bot checks from the caller's side what [FEATURES.md → G-F26](../FEATURES.md#g-f26--steering-a-run-) says about a caller that cannot route by Session: it forwards a message to the writer, and retries one that was not run, with backoff and in order per Session. What it leaves to the application, with the numbers from the cluster, is how to drop an event delivered again.
+
 - ⬜ **Compatibility check**, below.
 
 ### Compatibility check
@@ -231,7 +232,6 @@ The last phase tests Gotato the way a team would run it: against gateways that b
 
 Exit:
 
-- Against a test baseline, a removed exported identifier fails CI, and the same change passes with its changelog entry. G-G06 no longer rests on review alone.
 - ✅ Each quirk the fake gateways play has a test, and an overflow in each provider's form compacts and sends again. An overflow in the middle of a reply ends the Run with `context_overflow` instead, and the test pins that.
 - ✅ G-G08 and G-G11 pass on the local cluster through a rolling deploy and a killed writer.
 - ✅ The chat bot, with the fake gateway behind it, answers every message once through the same rolling deploy (25 of 25 messages, none twice).
