@@ -51,8 +51,8 @@ func instanceRunner(t *testing.T, store session.Store, instance string, model go
 func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, fastLiveness)
-	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The holder is alive but idle, so nothing waits.
-		if waited := time.Since(began); waited > fastLiveness.TTL {
+		if waited := time.Since(began); waited > steadyLiveness.Wait/2 {
 			t.Fatalf("Run %d waited %v for an idle Session", i, waited)
 		}
 	}
@@ -100,8 +100,8 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
-	a := instanceRunner(t, store, "instance-a", held, fastLiveness)
-	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: fastLiveness.TTL, Wait: 200 * time.Millisecond})
+	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		close(held.gate)
 	}()
-	b2 := instanceRunner(t, store, "instance-c", testkit.EchoModel{}, fastLiveness)
+	b2 := instanceRunner(t, store, "instance-c", testkit.EchoModel{}, steadyLiveness)
 	if _, err := b2.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "after"}); err != nil {
 		t.Fatalf("a Run that waited for the holder's Run = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 		t.Fatalf("the model was called %d times after the row lapsed", len(model.Requests()))
 	}
 	// Its row has expired, so another instance takes the Session at once.
-	b := instanceRunner(t, backing, "instance-b", testkit.EchoModel{}, fastLiveness)
+	b := instanceRunner(t, backing, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "taken over"}); err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,13 @@ func TestManyInstancesOneWriter(t *testing.T) {
 			for i := range instances {
 				stores[i] = &killableStore{Store: open()}
 				model := ownerModel{instance: fmt.Sprintf("instance-%d", i), store: open(), dead: &stores[i].dead, violations: &violations, calls: &calls}
-				runners[i] = instanceRunner(t, stores[i], model.instance, model, fastLiveness)
+				// Only the instance that is killed has a row that must expire;
+				// the others must not lapse on a late renewal.
+				liveness := steadyLiveness
+				if i == instances-1 {
+					liveness = fastLiveness
+				}
+				runners[i] = instanceRunner(t, stores[i], model.instance, model, liveness)
 			}
 			var ids []string
 			for range 2 {
@@ -379,7 +385,7 @@ func TestManyInstancesOneWriter(t *testing.T) {
 func TestClosedRunnerNeverBeatsAgain(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -465,7 +471,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
-	a := instanceRunner(t, store, "instance-a", held, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", held, steadyLiveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)

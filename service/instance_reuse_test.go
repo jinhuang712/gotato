@@ -40,7 +40,7 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	ctx := context.Background()
 	clock := &reuseClock{now: time.Now()}
 	store := session.NewMemoryStore(session.WithStoreClock(clock.Now))
-	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, fastLiveness)
+	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	s, err := old.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	// The old process is gone without Close; its row lapses.
 	clock.Advance(time.Hour)
 
-	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, fastLiveness)
+	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	if !isInstance(old.Instance(), "pod-0") || !isInstance(restarted.Instance(), "pod-0") || old.Instance() == restarted.Instance() {
 		t.Fatalf("instances = %q and %q, want pod-0 and a different suffix each", old.Instance(), restarted.Instance())
 	}
@@ -74,7 +74,7 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
-	old := instanceRunner(t, store, "pod-0", held, fastLiveness)
+	old := instanceRunner(t, store, "pod-0", held, steadyLiveness)
 	s, err := old.CreateSession(ctx, "echo", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	}()
 	<-held.started
 
-	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, service.Liveness{TTL: fastLiveness.TTL, Wait: 200 * time.Millisecond})
+	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, service.Liveness{TTL: steadyLiveness.TTL, Wait: 200 * time.Millisecond})
 	began := time.Now()
 	_, err = restarted.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"})
 	if !errors.Is(err, service.ErrBusy) {
@@ -113,11 +113,11 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 func TestLateCloseOfReusedInstanceLabelKeepsTheNewRow(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, fastLiveness)
+	old := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	if _, err := old.CreateSession(ctx, "echo", nil); err != nil {
 		t.Fatal(err)
 	}
-	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, fastLiveness)
+	restarted := instanceRunner(t, store, "pod-0", testkit.EchoModel{}, steadyLiveness)
 	if _, err := restarted.CreateSession(ctx, "echo", nil); err != nil {
 		t.Fatal(err)
 	}

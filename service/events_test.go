@@ -450,8 +450,8 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 // the next Epoch and names the Instance it took the Session from.
 func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
 	store := session.NewMemoryStore()
-	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, fastLiveness)
-	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, fastLiveness)
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	ctx := context.Background()
 	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -493,8 +493,8 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	ctx := context.Background()
 	backing := session.NewMemoryStore()
 	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
-	a := instanceRunner(t, backing, "instance-a", held, fastLiveness)
-	b := instanceRunner(t, deadHolders{Store: backing, self: "instance-b"}, "instance-b", testkit.EchoModel{}, fastLiveness)
+	a := instanceRunner(t, backing, "instance-a", held, steadyLiveness)
+	b := instanceRunner(t, deadHolders{Store: backing, self: "instance-b"}, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
 		return event.Kind() == gotato.KindSessionFenced
 	}))

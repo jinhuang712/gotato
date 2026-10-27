@@ -105,9 +105,10 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	agent := func(model gotato.Model) service.Agent {
 		return service.Agent{Name: "lookup", Model: model, Tools: []gotato.Tool{testkit.NewFakeTool("lookup", "found")}}
 	}
-	// A short TTL lets the crashed instance's row expire quickly.
-	liveness := service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}
-	crashing, err := service.New(service.Config{Store: &crashingStore{Store: backing}, Liveness: liveness, Agents: []service.Agent{
+	// A short TTL lets the crashed instance's row expire quickly. The instance
+	// that takes over is alive, so its TTL is long.
+	crashLiveness := service.Liveness{TTL: 100 * time.Millisecond, Wait: 2 * time.Second}
+	crashing, err := service.New(service.Config{Store: &crashingStore{Store: backing}, Liveness: crashLiveness, Agents: []service.Agent{
 		agent(testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "call-1", ToolID: "lookup", Arguments: []byte(`{}`)}))),
 	}})
 	if err != nil {
@@ -124,7 +125,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 
 	// Another instance takes the Session over.
 	model := testkit.NewFakeModel(testkit.Text("sorry, let me retry"))
-	next, err := service.New(service.Config{Store: backing, Liveness: liveness, Agents: []service.Agent{agent(model)}})
+	next, err := service.New(service.Config{Store: backing, Liveness: service.Liveness{TTL: steadyLiveness.TTL, Wait: 2 * time.Second}, Agents: []service.Agent{agent(model)}})
 	if err != nil {
 		t.Fatal(err)
 	}

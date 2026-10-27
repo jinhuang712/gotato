@@ -17,7 +17,7 @@ import (
 func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 	ctx := context.Background()
 	store := &watchedStore{Store: session.NewMemoryStore()}
-	liveness := service.Liveness{TTL: 2 * time.Second, Wait: 3 * time.Second}
+	liveness := steadyLiveness
 	a := instanceRunner(t, store, "a", testkit.EchoModel{}, liveness)
 	b := instanceRunner(t, store, "b", testkit.EchoModel{}, liveness)
 	s, err := a.CreateSession(ctx, "echo", nil)
