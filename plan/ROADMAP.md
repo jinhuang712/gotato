@@ -22,6 +22,7 @@ Phase 7  MCP, tool search    tools load one by one from a catalog, MCP servers s
 Phase 8  Warm Session        a Session stays in memory while in use, is told runtime facts,
                              and takes Steer, Interrupt and Stop from any endpoint
 Phase 9  Before release      fake gateways, a local cluster with a chat bot on it
+Phase 10 Pruning             what 0.1.0 ships is cut to what a service needs, then the code is made clear
 ```
 
 Why this order:
@@ -35,7 +36,8 @@ Why this order:
 - **The Event design is built in Phase 5,** because a stream that resumes on any instance needs an Event number that every instance shares, and the Claim Events are Events of that design.
 - **Fault injection and the multi-instance harness come with the phases whose goals they check.** The store conformance suite comes with Phase 4, because it is written against the contract that phase ships.
 - **Tools at scale come before the warm Session.** Tool search, the MCP adapter and the spilled results do not need it: while a Run is live the Session already holds a spilled body in memory, a later Run reads it from the Record, and the warm Session (next phase) keeps it across Runs. They also take the counting caps out of the core, which the compaction ceiling and the Run's `ctx` replace, so Compaction has to be built first.
-- **The tests a team's own setup would run come last:** fake gateways, a local cluster with a chat bot on it, and the compatibility check. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in. The compatibility check waits for mass testing, when many callers depend on the exported API.
+- **The tests a team's own setup would run come after the features:** fake gateways and a local cluster with a chat bot on it. Each team runs its own gateway, so Gotato adapts to the wire APIs and proves it with unit tests along the way, and the fake gateways and the cluster test the whole once the features are in.
+- **Pruning comes last,** once every feature is in, and before the release, because until then a removed or renamed export breaks no one. Afterwards each one is a breaking change.
 
 ## Phase 1 — Measure ✅
 
@@ -219,18 +221,28 @@ The last phase tests Gotato the way a team would run it: against gateways that b
 - ✅ **A local cluster.** Several instances of the chat bot below on one local Kubernetes cluster (kind), sharing a file store, with the fake gateway as the model and a fake chat platform in front, so a Run stays in flight. The scenarios, each run on a cold cluster and checked afterwards against the Records: a rolling deploy while Runs are in flight, a writer killed mid-Run (deleted, and killed with SIGKILL), scaling from 3 to 1 to 5 instances, bursts of messages on one Session from several instances, and events delivered again after a late acknowledgement; and, with an MCP server on it, a spilled result read from the instance that took a Session over, an MCP server restarted and a bot deployed while calls are in flight, and a tool loaded by search still loaded after a takeover. The cluster files, the load driver and the fake chat platform live in [`examples/larkbot`](../examples/larkbot), because they belong to the application.
 - ✅ **A chat bot.** An example the maintainer builds, in [`examples/larkbot`](../examples/larkbot), a module of its own: a Lark chat bot that embeds Gotato, one Session per message thread, and runs on the local cluster behind the fake gateway. It is an application and not a client Gotato ships ([G-N18](../FEATURES.md#g-n18--no-ready-made-clients)). A chat platform delivers each event to one instance at random, so the bot checks from the caller's side what [FEATURES.md → G-F26](../FEATURES.md#g-f26--steering-a-run-) says about a caller that cannot route by Session: it forwards a message to the writer, and retries one that was not run, with backoff and in order per Session. What it leaves to the application, with the numbers from the cluster, is how to drop an event delivered again.
 
-- ⬜ **Compatibility check**, below.
-
-### Compatibility check
-
-- CI compares the exported identifiers of the core package and the standard runtime packages with those of the last tagged release, and flags a removed or changed one that no [CHANGELOG.md](../CHANGELOG.md) entry names ([DESIGNS.md → A named, versioned contract](../DESIGNS.md#a-named-versioned-contract)).
-- It starts when mass testing begins, and the maintainer sets the date. Until the first release is tagged there is nothing to compare with, so CI does not run the check, and its tests use a baseline of their own.
-
 Exit:
 
 - ✅ Each quirk the fake gateways play has a test, and an overflow in each provider's form compacts and sends again. An overflow in the middle of a reply ends the Run with `context_overflow` instead, and the test pins that.
 - ✅ G-G08 and G-G11 pass on the local cluster through a rolling deploy and a killed writer.
 - ✅ The chat bot, with the fake gateway behind it, answers every message once through the same rolling deploy (25 of 25 messages, none twice).
+
+## Phase 10 — Pruning
+
+Before the first release, what Gotato ships is cut to what a service embedding an agent needs, and then the code that is left is made clear. No feature is added during the phase. Each step takes the same course: a read-only inventory, a list the maintainer approves item by item, small branches that carry it out, and the full checks. A step starts once the one before it has landed, because it looks only at what is left. Each step's list, its decisions and their reasons are kept in [PRUNING.md](PRUNING.md).
+
+- ⬜ **1. Surfaces.** Every package, module and binary outside the core is sorted into one of four kinds: the product, which a service imports or runs; our own tests; support for an example; or removed. A test tool that the product needs moves out of the test kit, and one that only we use leaves the public surface. The step also settles whether the core's directory, `gotato-core`, keeps a name that differs from its package, `gotato`.
+- ⬜ **2. Code with no gain.** In the product that is left: an abstraction with one implementation, an option that only tests set, a layer that only forwards, a feature that only tests use, and anything whose upkeep outweighs what it gives.
+- ⬜ **3. The exported API.** An export used only inside its package becomes unexported, and two ways to do one thing become one. Every module that uses Gotato still builds, and each break has its entry in [CHANGELOG.md](../CHANGELOG.md).
+- ⬜ **4. Leftovers.** Dead code, stale comments and stray directories, and every document checked against the code, so that none names what was removed.
+- ⬜ **5. Clear code.** Structure (files split, code in the right package), refactoring (duplicate logic, long functions) and doc comments that say why. A change inside a package changes no behavior and no test; one that touches the exported API is handled as in step 3. Tests are pruned with the code they cover.
+- ⬜ **6. The release.** The maintainer approves the reviewed documents. The adapters are modules of their own that reach the root through `replace`, which `go get` ignores, so the root is tagged `v0.1.0` first, each adapter then requires that version and is tagged with its directory (`adapter/grpc/v0.1.0`). A module outside the repository, with no `replace`, follows the README from nothing to a running agent with an MCP ToolSet. Release notes name what was never checked against a real provider.
+
+Exit:
+
+- Every step's list in [PRUNING.md](PRUNING.md) is approved and carried out.
+- `deadcode` and the linters report nothing unused, and no document names a removed package, type or feature.
+- The module outside the repository builds and runs against the tagged versions.
 
 ## Every release, from the first on
 
