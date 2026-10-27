@@ -53,7 +53,6 @@ var checks = []check{
 	{"append continues the log", checkAppend},
 	{"load starts at the last checkpoint", checkLastCheckpoint},
 	{"a load returns the segments stored before the last checkpoint", checkSegments},
-	{"a checkpoint of the earlier format still starts a load", checkLegacyCheckpoint},
 	{"a large log entry is kept whole, read at its position, and not loaded", checkSpilledEntry},
 	{"a stale writer is refused", checkStaleWriter},
 	{"a write must continue the head", checkContinuesHead},
@@ -375,31 +374,6 @@ func checkSegments(ctx context.Context, open Open) error {
 		return fmt.Errorf("segments before the last Checkpoint: %w", err)
 	}
 	return sameEntries(loaded.Facts, []session.Entry{more[1], more[2], more[3]})
-}
-
-// checkLegacyCheckpoint checks that a Record written before the Event design,
-// whose Entries have the kinds of its time, is still stored and loaded: its
-// first Entry is a "checkpoint" fact.
-func checkLegacyCheckpoint(ctx context.Context, open Open) error {
-	store := open()
-	old := []session.Entry{
-		entry(1, "checkpoint", session.LayerFact, "a"),
-		entry(2, "message", session.LayerFact, "a"),
-		entry(3, "events", session.LayerLog, "a"),
-		entry(4, "checkpoint", session.LayerFact, "a"),
-		entry(5, "message", session.LayerFact, "a"),
-	}
-	if err := store.Create(ctx, "old", old[:3], summary("old", 3, "2026-10-17T00:00:03.000Z")); err != nil {
-		return fmt.Errorf("create: %w", err)
-	}
-	if err := store.Append(ctx, "old", 3, old[3:], summary("old", 5, "2026-10-17T00:00:05.000Z")); err != nil {
-		return fmt.Errorf("append: %w", err)
-	}
-	loaded, err := open().Load(ctx, "old")
-	if err != nil {
-		return fmt.Errorf("load: %w", err)
-	}
-	return sameEntries(loaded.Facts, []session.Entry{old[3], old[4]})
 }
 
 func checkStaleWriter(ctx context.Context, open Open) error {

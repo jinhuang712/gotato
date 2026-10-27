@@ -159,9 +159,6 @@ func fromEntries(entries []Entry, retain bool, segments []Entry) (*Record, error
 // apply folds one Entry into the Record's state, as a rebuild does. The
 // caller has the Record to itself.
 func (s *Record) apply(entry Entry) error {
-	if isLegacy(entry.Kind) {
-		return s.applyLegacy(entry)
-	}
 	event, err := gotato.UnmarshalEvent(entry.Data)
 	if err != nil {
 		return gotato.ErrorOf(gotato.ErrInvalidArgument, fmt.Sprintf("session: entry %d (%s): %v", entry.Seq, entry.Kind, err))

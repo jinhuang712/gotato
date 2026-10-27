@@ -22,9 +22,7 @@ const (
 )
 
 // EntryKind names what an Entry holds. Every Entry is a stored Event, so its
-// kind is the Event's kind, such as "message_committed". A Record written
-// before the Event design also holds Entries of the kinds it used then, which
-// are still read (see legacy.go).
+// kind is the Event's kind, such as "message_committed".
 type EntryKind = gotato.EventKind
 
 // factKinds are the Events a rebuild reads.
@@ -47,7 +45,7 @@ var factKinds = map[gotato.EventKind]bool{
 // LayerOf returns the Layer of Entries of a kind: the Events a rebuild reads
 // are facts, and every other Event is a log Entry.
 func LayerOf(kind EntryKind) Layer {
-	if factKinds[kind] || legacyFacts[kind] {
+	if factKinds[kind] {
 		return LayerFact
 	}
 	return LayerLog
@@ -72,7 +70,7 @@ type Entry struct {
 // starts at the last one.
 func (e Entry) IsCheckpoint() bool {
 	switch e.Kind {
-	case gotato.KindSessionCreated, gotato.KindCompactionEnded, legacyKindCheckpoint:
+	case gotato.KindSessionCreated, gotato.KindCompactionEnded:
 		return true
 	}
 	return false
@@ -102,13 +100,9 @@ func entryOf(event gotato.Event, instance string) (Entry, error) {
 }
 
 // EventOf decodes an Entry back into the Event it holds, with the Entry's
-// position as its number and sessionID as its Session. Entries that the Event
-// design replaced are mapped onto their Events where one fits; ok is false for
-// an Entry that has no Event, such as a legacy log snapshot.
+// position as its number and sessionID as its Session. ok is true whenever err
+// is nil.
 func EventOf(entry Entry, sessionID gotato.SessionID) (event gotato.Event, ok bool, err error) {
-	if isLegacy(entry.Kind) {
-		return legacyEventOf(entry, sessionID)
-	}
 	event, err = gotato.UnmarshalEvent(entry.Data)
 	if err != nil {
 		return nil, false, fmt.Errorf("session: entry %d (%s): %w", entry.Seq, entry.Kind, err)

@@ -387,8 +387,7 @@ func (w *Writer) EventsAfter(ctx context.Context, after uint64, _ int) ([]gotato
 }
 
 // StoredEvents reads a Record's stored Events after number after from store,
-// in order, as typed Events. An Entry that has no Event is left out, so a
-// legacy Record shows gaps in the numbers. A tool_result_spilled Event comes
+// in order, as typed Events. A tool_result_spilled Event comes
 // without its body, as a subscriber sees it: read_result reads the body.
 func StoredEvents(ctx context.Context, store Store, id string, after uint64) ([]gotato.Event, error) {
 	entries, err := store.Log(ctx, id, after)

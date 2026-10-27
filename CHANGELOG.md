@@ -63,6 +63,8 @@ Gotato has made no release, so no consumer has seen a contract version. The numb
 
 ### Removed
 
+- **The reader of pre-Event Record entries is removed** (`session/legacy.go`). Gotato has made no release, so no Record written before the Event design exists. **Breaking** for a store that still holds one. Before: a Record whose Entries had the old kinds (`checkpoint`, `message`, `log_snapshot`, `run_start`, ...) still loaded, and `session.StoredEvents` mapped them onto Events. After: such an Entry is refused as an unknown kind, never misread. The Store suite in `session/storetest` no longer checks a `checkpoint` Entry. `session.ErrOldLayout` stays: it refuses an older on-disk layout.
+
 - **The gRPC adapter, `adapter/grpc`, and the `gotato-grpc` binary.** Gotato ships HTTP (`service/httpapi`) as its one wire transport ([G-N27](FEATURES.md#g-n27--no-grpc-adapter)). A service that wants gRPC maps `service.Runner` itself, the way `service/httpapi` does. **Breaking:**
 
   | Before | After |

@@ -303,3 +303,18 @@ func TestForkRecordsWhereItBranched(t *testing.T) {
 		t.Fatalf("rebuilt fork = %v, %v", rebuilt, err)
 	}
 }
+
+// An Entry of a kind the Event design replaced is refused as an unknown kind,
+// never misread.
+func TestEntryOfAnOldKindIsRefused(t *testing.T) {
+	old := session.Entry{Seq: 1, Kind: "checkpoint", Layer: session.LayerFact, At: time.Unix(1, 0).UTC(), Data: []byte(`{"id":"x","messages":[]}`)}
+	if _, err := session.FromEntries([]session.Entry{old}); err == nil {
+		t.Fatal("FromEntries accepted an Entry of the kind checkpoint")
+	}
+	if got := session.LayerOf("checkpoint"); got != session.LayerLog {
+		t.Fatalf("LayerOf(checkpoint) = %s, want a log Entry", got)
+	}
+	if old.IsCheckpoint() {
+		t.Fatal("an Entry of the kind checkpoint starts a load")
+	}
+}
