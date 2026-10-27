@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	gotato "github.com/jinhuang712/gotato/gotato-core"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // Task is one task of the reference workload that GOALS.md measures: the
@@ -32,11 +31,6 @@ type Task struct {
 	// Options are added to the Agent after its Tools, such as the ToolSets of
 	// the tool_search task. They keep no state.
 	Options []gotato.Option
-	// SessionTools build the Tools one Session offers from its own Record
-	// and store (service.Agent.SessionTools), such as the bash tool of the
-	// bash_lookup task. The root module cannot link that tool, so the task is
-	// built with it by a module that can (BashLookupTask).
-	SessionTools []func(*session.Record, session.EntryLog) []gotato.Tool
 	// Model plays the task. It keeps no state and no copy of the requests,
 	// so one value serves concurrent plays.
 	Model gotato.Model

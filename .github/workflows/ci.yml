@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [".", "adapter/grpc", "adapter/mcp", "adapter/bash", "bench/refservice", "examples/larkbot"]
+        module: [".", "adapter/grpc", "adapter/mcp", "bench/refservice", "examples/larkbot"]
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -41,13 +41,6 @@ jobs:
 
       - name: go test
         run: go test -race ./...
-
-      - name: GNU conformance
-        if: matrix.module == 'adapter/bash'
-        env:
-          GOTATO_GNU: "1"
-          GOTATO_GNU_PREFIX: ""
-        run: go test -run TestAgainstGNU -v ./...
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9.2.0

@@ -259,9 +259,6 @@ func runTask(ctx context.Context, cfg Config, task testkit.Task) (TaskReport, er
 		Options:     task.Options,
 		Limits:      task.Limits,
 	}
-	for _, build := range task.SessionTools {
-		spec.SessionTools = append(spec.SessionTools, build)
-	}
 	if task.Recap {
 		spec.Compact.Recap = modelctx.ModelRecap{}
 	}

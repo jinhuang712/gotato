@@ -71,13 +71,6 @@ type ToolEntry struct {
 	Active bool            `json:"active"`
 }
 
-// SessionToolsFunc builds the Tools one Session offers from its Record and the
-// store the Record lives in, which is where a result or a Segment that the
-// live Record no longer holds is read from. The Record is the Session's own
-// and is never nil: it is an empty Record when only the tool list is asked for,
-// outside a Session. A func must be safe to call at every Turn.
-type SessionToolsFunc func(record *session.Record, log session.EntryLog) []gotato.Tool
-
 // Agent is a named, reusable definition: the model, instruction, tools and
 // limits its Sessions run. The Runner builds a live Session from it for each
 // Run. Sharing a Model client between Agents and Runs is expected; nothing
@@ -89,14 +82,6 @@ type Agent struct {
 	Instruction string
 	Tools       []gotato.Tool
 	ToolSources []gotato.ToolSource
-	// SessionTools build Tools for one Session from its own Record and the
-	// Runner's store, as the built-in read_result does. Each func runs when a
-	// live Session reads its tools, so a Tool it returns can read this
-	// Session's data and no other Session's. Their Tools are subject to
-	// MaxEffect and to the Session's activation like any other. The Spec of a
-	// Tool must not depend on the Session: it is part of every request, and
-	// the same Agent must offer the same bytes to every Session.
-	SessionTools []SessionToolsFunc
 	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool
 	// above it is hidden from the model and from Runner.Tools, and no Session
 	// can switch it on. Empty means no cap (gotato.WithMaxEffect).
@@ -1292,7 +1277,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		options = append(options, gotato.WithExtensions(extensions...))
 	}
 	filter := &sessionTools{spec: spec, session: s}
-	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s), custom: r.customTools(spec, s)}),
+	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
 		gotato.WithToolFilter(filter.active))
 	if spec.MaxEffect != gotato.EffectUnspecified {
@@ -1388,23 +1373,6 @@ type sessionTools struct {
 	// results gives the built-in read_result tool to a Session whose Agent
 	// has any tool; nil for a surface that is not a Session's.
 	results gotato.ToolSource
-	// custom holds the Tools the Agent's SessionTools built for this Session.
-	custom []gotato.Tool
-}
-
-// customTools runs the Agent's SessionTools for record.
-func (r *Runner) customTools(spec Agent, record *session.Record) []gotato.Tool {
-	var tools []gotato.Tool
-	for _, build := range spec.SessionTools {
-		if build == nil {
-			continue
-		}
-		if record == nil {
-			record = session.New()
-		}
-		tools = append(tools, build(record, r.store)...)
-	}
-	return tools
 }
 
 // segmentTools is the ToolSource that offers read_segment for a Session of the
@@ -1433,11 +1401,6 @@ func (t *sessionTools) Tools() []gotato.Tool {
 			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 				tools = append(tools, tool)
 			}
-		}
-	}
-	for _, tool := range t.custom {
-		if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
-			tools = append(tools, tool)
 		}
 	}
 	// read_result is offered whenever the Agent has a tool, so the tool list
@@ -1492,7 +1455,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	if !ok {
 		return nil, ErrUnknownAgent
 	}
-	all := &sessionTools{spec: spec, custom: r.customTools(spec, s)}
+	all := &sessionTools{spec: spec}
 	filter := &sessionTools{spec: spec, session: s}
 	if s != nil {
 		// A Session that has a Segment offers read_segment too.
@@ -1539,7 +1502,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			_ = writer.Release(ctx)
 			return ErrUnknownAgent
 		}
-		for _, tool := range (&sessionTools{spec: spec, custom: r.customTools(spec, s)}).Tools() {
+		for _, tool := range (&sessionTools{spec: spec}).Tools() {
 			if tool.Spec().ID == toolID {
 				ts := tool.Spec()
 				found = &ts
