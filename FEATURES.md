@@ -63,7 +63,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Effect | every tool declares read, write local, write external or destructive | G-F09 | ✅ |
 | Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
 | Effect cap per Agent | the model never sees a tool above the Agent's highest Effect | G-F09 | ✅ |
-| Tool registry | register, remove, switch on and switch off tools at any time | G-F10 | ✅ |
+| Tools in code | `gotato.WithTools` gives a Session its tools; a `ToolSource` can change them, and the Session asks it again at the start of every Turn | G-F10 | ✅ |
 | Tool sets | a named group of tools from one source; the model loads its tools one by one, never the whole set | G-F10 | ✅ |
 | Tools per Session | switch a tool on or off for one Session | G-F10 | ✅ |
 | Tools that stay loaded | a tool the model loaded is a fact, so the next Run, on any instance, offers it too | G-F10 | ✅ |
@@ -881,11 +881,11 @@ The cap decides which tools a model may use, so two questions came first: what h
 
 There is no cap by default: an Agent that names none behaves as before.
 
-### G-F10 — Tool sets and the registry ✅
+### G-F10 — Tool sets ✅
 
 The tools a Session offers can change while it runs.
 
-- A registry lets you register, remove, switch on and switch off tools at any time. The Session reads its tool sources again at the start of every Turn.
+- Tools are given with `gotato.WithTools`, or by a `ToolSource` that the Session asks again at the start of every Turn, so a source whose tools change is picked up. A tool is switched on or off for one Session with `Runner.SetToolActive`.
 - **A Tool is the unit of loading, and a ToolSet is a grouping with a source.** A ToolSet has a name, a description and the tools of one source, and one MCP server is one ToolSet ([G-F12](#g-f12--the-mcp-adapter-)). A Tool's ID is `<set>.<tool>`, which is how a call is matched to its ToolSet. A team installs a ToolSet in one of three ways, and the model loads its tools one by one with `search_tools` ([G-F34](#g-f34--tool-search-)):
 
 | Install | What the model sees |
@@ -917,7 +917,7 @@ A service that connects MCP servers can offer hundreds of tools, and their defin
 - Anthropic Messages: a load caused by a call to an unloaded tool is a failed Tool Result, and it carries the `tool_reference` too. The documentation shows references only in a successful result.
 - The prefix hash of `context_built` covers the loaded and unloaded tools, so it changes at a load in the native form too, where the provider's cache does not.
 
-**The catalog.** It lives in the description of one discovery tool, `search_tools`. It lists each ToolSet by what its install mode shows ([G-F10](#g-f10--tool-sets-and-the-registry-)):
+**The catalog.** It lives in the description of one discovery tool, `search_tools`. It lists each ToolSet by what its install mode shows ([G-F10](#g-f10--tool-sets-)):
 
 ```text
 Load tools before you call them. Pass names to load tools exactly, queries to search,
@@ -981,7 +981,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 - **Gotato runs no checks against real providers.** A fake gateway plays each form (ROADMAP Phase 9), from the documented shapes, and a team whose gateway refuses `native` sets `list`.
 - This keeps the cache for the tools the model loads itself. A change the service makes, such as a tool it switches on for one Session in the middle of a Session, rewrites the tool list; that case is an idea kept in [Later](#later) (*Changes that keep the cache*).
 
-**Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show every catalog tool, which are loaded and which are switched off ([G-F10](#g-f10--tool-sets-and-the-registry-)).
+**Seen from outside.** `Runner.Tools` with a Session and `gotato tools list --session` show every catalog tool, which are loaded and which are switched off ([G-F10](#g-f10--tool-sets-)).
 
 ### G-F12 — The MCP adapter ✅
 
@@ -1032,7 +1032,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 | audio, resource link, other embedded blobs | one line of text that names the content, its type and its size, or the link |
 
   `isError` becomes a failed Tool Result whose content the model reads. A protocol or transport failure is a failed call. `_meta` of the result and of a content block is copied as strings, and the `gotato.MetaTag` key is dropped, so a server cannot write tagged text as the system ([G-F29](#g-f29--runtime-notices-)).
-- **A server's tool list can change.** The adapter notes the server's `list_changed`, and every Run resolves its ToolSets again before its first Turn ([G-F10](#g-f10--tool-sets-and-the-registry-)), so the change takes effect at the next Run and the tools and the catalog never change in the middle of one. A server that is down at a Run is skipped with a warning, and comes back when it answers.
+- **A server's tool list can change.** The adapter notes the server's `list_changed`, and every Run resolves its ToolSets again before its first Turn ([G-F10](#g-f10--tool-sets-)), so the change takes effect at the next Run and the tools and the catalog never change in the middle of one. A server that is down at a Run is skipped with a warning, and comes back when it answers.
 - **A large result is spilled** like any other ([G-F35](#g-f35--large-tool-results-)).
 - **Tested** against an in-process server of the SDK over an in-memory transport, streamable HTTP on loopback, and stdio (the test binary is the server): the Effect, the slimmed schemas, the content mapping, `isError`, `_meta`, `list_changed`, a server that is down, cancel, one connection shared by many Sessions, a full Run that finds a tool with `search_tools`, progress, instructions, and a tool that asks for input.
 - What the adapter does not build is in [G-N20](#g-n20--mcp-features-gotato-does-not-build).
@@ -1537,7 +1537,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 |---|---|---|
 | `session_loaded`, `session_saved` | how long the store took to load the Session, and to write a Run's steps. A Run on a warm copy loads nothing and sends no `session_loaded`; its `session_saved` counts that Run's writes alone, its Claim included | Instance |
 | `store_write_failed` | a write failed, for another reason than a taken position | Instance |
-| `extension_failed` | an advisory extension failed, or a ToolSet did not resolve at the start of a Run (`stage: "toolset:<name>"`, [G-F10](#g-f10--tool-sets-and-the-registry-)), and the Run went on | Record |
+| `extension_failed` | an advisory extension failed, or a ToolSet did not resolve at the start of a Run (`stage: "toolset:<name>"`, [G-F10](#g-f10--tool-sets-)), and the Run went on | Record |
 | `events_skipped` | an Instance's stream fell behind and skipped Events; it says how many | Instance |
 
 **Facts and log entries.** The Entries a rebuild reads are facts: `session_created`, `compaction_ended` (the two Checkpoints), `tool_loaded` and `tool_unloaded` ([G-F34](#g-f34--tool-search-)), `segment_closed` ([G-F06](#g-f06--compaction-)), `message_committed`, `reply_ended`, `reply_cut_off`, `tool_result_committed`, `tool_started`, `metadata_changed` and `session_claimed`. Every other stored Event is a log entry, which a rebuild never reads. A load starts at the last Checkpoint and reads only the facts after it, with one exception: when the last Run of a Session never ended, the load also reads the log since that Checkpoint, rebuilds the Cut-off reply from the `reply_part_kept` Entries, and the Instance that takes the Session over stores it as a `reply_cut_off`. A crash loses at most the last part of a reply. A Record written before the Event design is still read: its Entries keep their old kinds, and new Events are appended after them.
@@ -1790,7 +1790,7 @@ Gotato defines the store contract and the stable shape of a saved Session, and s
 
 ### G-N09 — Tool Catalogs Belong to MCP Servers and Applications
 
-Gotato provides the tool contract, tool sets, the registry, tool search and the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)). Filesystem, Git, HTTP and other tools, and adapters for skill formats such as SKILL.md (Agent Skills), come from MCP servers or the application.
+Gotato provides the tool contract, tool sets, tool search and the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)). Filesystem, Git, HTTP and other tools, and adapters for skill formats such as SKILL.md (Agent Skills), come from MCP servers or the application.
 
 ### G-N10 — Context Organization Beyond Full History Belongs to Applications
 

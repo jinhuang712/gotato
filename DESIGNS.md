@@ -441,7 +441,7 @@ Gotato does the least it takes to run Sessions in the cloud. Every addition is w
 - **Why:** every behavior lives in the packages first, so the library, the CLI and the service behave the same. Claims, liveness and drain live in the service layer and the store contract, not in the core. `gotato-core/layering_test.go` keeps each layer building only on the layers inside it:
 
 ```text
-cmd/gotato  ──►  service, service/httpapi  ──►  session, modelctx, toolregistry, testkit  ──►  core
+cmd/gotato  ──►  service, service/httpapi  ──►  session, modelctx, testkit  ──►  core
                                            MCP adapter  ──────────────────────────────────────────────────►  core
 ```
 

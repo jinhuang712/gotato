@@ -10,7 +10,6 @@ import (
 	gotato "github.com/jinhuang712/gotato/gotato-core"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/testkit"
-	"github.com/jinhuang712/gotato/toolregistry"
 )
 
 // A Session needs only a Model. Prompt returns when the Run settles.
@@ -45,7 +44,7 @@ func ExampleNewFuncTool() {
 	}
 	s, err := gotato.NewSession(
 		gotato.WithModel(testkit.DemoModel{}), // a scripted model that calls testkit.DemoToolID
-		gotato.WithToolSource(toolregistry.MustNew(weather, testkit.DemoEchoTool())),
+		gotato.WithTools(weather, testkit.DemoEchoTool()),
 	)
 	if err != nil {
 		panic(err)
@@ -125,7 +124,7 @@ func Example_gatewayAndTool() {
 	s, err := gotato.NewSession(
 		gotato.WithModel(model),
 		gotato.WithInstruction("You are a helpful assistant."),
-		gotato.WithToolSource(toolregistry.MustNew(weather)),
+		gotato.WithTools(weather),
 	)
 	if err != nil {
 		panic(err)

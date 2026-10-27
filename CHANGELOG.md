@@ -20,6 +20,21 @@ The reference tasks, the workload driver and the fake gateway are tools for test
 
 `LogsRead`, `RecapQuestion`, `DemoRecap`, `DemoBigBytes`, `PaymentsInstruction`, `SupportInstruction`, `SupportCasePrompt`, `ToolSearchInstruction`, `WorkloadInstruction` and `OrdersLookupID` are no longer exported: nothing outside their own package used them. `gotato-core/layering_test.go` now also fails when a shipped package imports `internal/`.
 
+### `toolregistry` is removed
+
+Nothing used the package besides the README quickstart, the getting-started guide and one example. `gotato.WithTools` gives a Session its tools, a `ToolSource` can change them between Turns, ToolSets group them, and `Runner.SetToolActive` switches one on or off for a Session.
+
+```go
+// before
+import "github.com/jinhuang712/gotato/toolregistry"
+gotato.WithToolSource(toolregistry.MustNew(weather))
+
+// after
+gotato.WithTools(weather)
+```
+
+FEATURES.md renames G-F10 from "Tool sets and the registry" to "Tool sets", and the Glossary drops the Tool Registry term.
+
 ### Contract versions
 
 Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (the HTTP `ContractVersion` `"2"` to `"4"` and the CLI's `"2"`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.

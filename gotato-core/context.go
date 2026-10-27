@@ -282,8 +282,7 @@ type TurnPrepared struct {
 // be resolved when the Model calls it.
 //
 // Tools returned by a ToolSource are qualified under the root namespace like
-// Tools installed with WithTool. Package toolregistry provides a registry
-// with register/unregister/activate/deactivate that implements ToolSource.
+// Tools installed with WithTool.
 type ToolSource interface {
 	Tools() []Tool
 }

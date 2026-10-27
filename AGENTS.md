@@ -33,7 +33,7 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
 - **Keep the module root free of Go files.** It holds the documents and the module files; every package, the core included, lives in a directory. `gotato-core/layering_test.go` fails when a `.go` file appears at the root.
-- **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library: it lives in `gotato-core/` and is named `gotato`, so code reads `gotato.NewSession`. `session`, `modelctx`, `toolregistry`, `testkit` import the core. Providers and the service layer import inward. `gotato-core/layering_test.go` enforces this; keep it passing.
+- **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library: it lives in `gotato-core/` and is named `gotato`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato-core/layering_test.go` enforces this; keep it passing.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
 ## Development Workflow

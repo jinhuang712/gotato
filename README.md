@@ -91,7 +91,6 @@ A real model, one tool, one question:
 import (
     "github.com/jinhuang712/gotato/gateway"
     gotato "github.com/jinhuang712/gotato/gotato-core"
-    "github.com/jinhuang712/gotato/toolregistry"
 )
 
 // 1. A model. A provider is configuration: a wire API, a model and a key.
@@ -112,7 +111,7 @@ weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", fu
 s, _ := gotato.NewSession(
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
-    gotato.WithToolSource(toolregistry.MustNew(weather)),
+    gotato.WithTools(weather),
 )
 defer s.Close(ctx)
 

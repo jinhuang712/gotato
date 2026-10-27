@@ -15,7 +15,6 @@ By the end of this page you know which Gotato packages your program needs, and w
 | Keep long conversations small | `modelctx`; the Runner brings it |
 | Call MCP servers | `adapter/mcp` (a module of its own) |
 | Serve it over HTTP | `service/httpapi` |
-| Register tools in code, without a Runner | `toolregistry` |
 | Write tests with a fake model | `testkit` |
 
 ## What leaving one out costs
@@ -37,8 +36,7 @@ Each package builds only on the ones to its left, and `layering_test.go` keeps i
 gotato-core ◄── session ◄── modelctx
      ▲             ▲            ▲
      │             └──── service ┘       service builds on core, session and modelctx
-     ├── gateway
-     └── toolregistry
+     └── gateway
 ```
 
 `session` and `gateway` depend on the core alone, and not on each other.

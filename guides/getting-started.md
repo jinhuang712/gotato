@@ -44,7 +44,7 @@ weather, err := gotato.NewFuncTool("weather", "Returns the weather of a city.", 
 
 s, err := gotato.NewSession(
     gotato.WithModel(model),
-    gotato.WithToolSource(toolregistry.MustNew(weather)),
+    gotato.WithTools(weather),
 )
 ```
 
