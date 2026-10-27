@@ -86,7 +86,7 @@ func TestSessionIDHeaderMustAgreeWithThePath(t *testing.T) {
 		t.Fatalf("blank header = %d %s", resp.StatusCode, data)
 	}
 	// The refused request did nothing: the Session still has no Run.
-	if loaded, err := runner.Session(context.Background(), created.ID()); err != nil || len(loaded.Snapshot().Runs) != 0 {
+	if loaded, err := runner.Record(context.Background(), created.ID()); err != nil || len(loaded.Snapshot().Runs) != 0 {
 		t.Fatalf("a refused request changed the Session: %v", err)
 	}
 }
@@ -98,14 +98,14 @@ func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 	server, _ := newServer(t)
 
 	resp, data := send(t, server, http.MethodPost, "/v1/sessions", map[string]any{}, nil)
-	var created session.Summary
+	var created session.RecordInfo
 	_ = json.Unmarshal(data, &created)
 	if resp.StatusCode != http.StatusCreated || created.ID == "" || resp.Header.Get("session-id") != created.ID {
 		t.Fatalf("create: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
 	}
 
 	resp, data = send(t, server, http.MethodPost, "/v1/sessions/"+created.ID+"/fork", nil, nil)
-	var fork session.Summary
+	var fork session.RecordInfo
 	_ = json.Unmarshal(data, &fork)
 	if resp.StatusCode != http.StatusCreated || fork.ID == "" || resp.Header.Get("session-id") != fork.ID {
 		t.Fatalf("fork: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)

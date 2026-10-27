@@ -93,13 +93,13 @@ func (in *instance) post(t *testing.T, path string, body any, headers ...string)
 
 // running starts a Run on the instance that the model holds, and returns the
 // Session and a function that waits for the Run.
-func running(t *testing.T, in *instance, g *gate) (string, func() service.RunResult) {
+func running(t *testing.T, in *instance, g *gate) (string, func() service.RunResponse) {
 	t.Helper()
 	s, err := in.runner.CreateSession(context.Background(), "echo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := in.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
 		done <- result
@@ -109,20 +109,20 @@ func running(t *testing.T, in *instance, g *gate) (string, func() service.RunRes
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Run never reached the model")
 	}
-	return s.ID(), func() service.RunResult {
+	return s.ID(), func() service.RunResponse {
 		select {
 		case result := <-done:
 			return result
 		case <-time.After(5 * time.Second):
 			t.Fatal("the Run did not settle")
-			return service.RunResult{}
+			return service.RunResponse{}
 		}
 	}
 }
 
 func transcript(t *testing.T, in *instance, id string) string {
 	t.Helper()
-	record, err := in.runner.Session(context.Background(), id)
+	record, err := in.runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"queued":false`) || !strings.Contains(string(body), "echo: next") {
 		t.Fatalf("message with no Run going = %d %s, want 200 with the new Run", resp.StatusCode, body)
 	}
-	if view, _ := b.runner.Session(context.Background(), id); view.Claim().Instance != b.runner.Instance() {
+	if view, _ := b.runner.Record(context.Background(), id); view.Claim().Instance != b.runner.Instance() {
 		t.Fatalf("claim = %+v, want instance-b", view.Claim())
 	}
 }

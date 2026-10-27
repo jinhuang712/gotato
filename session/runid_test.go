@@ -44,7 +44,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.Create(ctx, store, session.New(session.WithID("run-1")), "instance-a")
+			writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("run-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +81,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 			child := session.Fork(reopened, session.WithID("run-child"))
 			sameRunIDs(t, "fork", child.Messages(), "run-a", "run-a", "run-b", "")
 			sameRunIDs(t, "fork Segment", child.Segments()[0].Messages, "run-a", "run-a")
-			childWriter, err := session.Create(ctx, store, child, "instance-a")
+			childWriter, err := session.CreateWriter(ctx, store, child, "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 			if err := json.Unmarshal(data, &doc); err != nil {
 				t.Fatal(err)
 			}
-			back, err := session.Load(doc)
+			back, err := session.FromDocument(doc)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +128,7 @@ func TestMessageWithoutRunIDLoadsEmpty(t *testing.T) {
 func TestCutOffReplyRebuiltFromPartsKeepsItsRun(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(session.WithID("run-cut")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("run-cut")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -164,7 +164,7 @@ type runOutcome struct {
 	RecordEpoch string `json:"record_epoch,omitempty"`
 }
 
-func outcomeOf(result service.RunResult) runOutcome {
+func outcomeOf(result service.RunResponse) runOutcome {
 	return runOutcome{
 		SessionID:    result.SessionID,
 		RunID:        result.Result.RunID,

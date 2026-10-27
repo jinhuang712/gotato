@@ -31,8 +31,8 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 		}
 		return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
 	}
-	summary := func(epoch string, seq uint64) session.Summary {
-		return session.Summary{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
+	summary := func(epoch string, seq uint64) session.RecordInfo {
+		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
 	}
 	first := []session.Entry{entry(1), entry(2)}
 	if err := a.Create(ctx, "r", first, summary("e1", 2)); err != nil {
@@ -62,7 +62,7 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 		t.Fatalf("the new Record holds %d Entries (%v), want 2", len(entries), err)
 	}
 	loaded, err := b.Load(ctx, "r")
-	if err != nil || loaded.Summary.Epoch() != "e2" || loaded.Head != 2 {
-		t.Fatalf("the new Record = %+v (%v), want epoch e2 at head 2", loaded.Summary, err)
+	if err != nil || loaded.Info.Epoch() != "e2" || loaded.Head != 2 {
+		t.Fatalf("the new Record = %+v (%v), want epoch e2 at head 2", loaded.Info, err)
 	}
 }

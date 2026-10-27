@@ -23,7 +23,7 @@ func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
 	}
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	w, err := session.Create(ctx, store, session.New(), "i1")
+	w, err := session.CreateWriter(ctx, store, session.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
 	}
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	w, err := session.Create(ctx, store, session.New(), "i1")
+	w, err := session.CreateWriter(ctx, store, session.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
 func TestCheckpointKeepsLoadedTools(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	w, err := session.Create(ctx, store, session.New(), "i1")
+	w, err := session.CreateWriter(ctx, store, session.New(), "i1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestDocumentRoundTripKeepsLoadedTools(t *testing.T) {
 	if _, err := r.Write(context.Background(), []gotato.Event{loaded("files.read")}); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Load(r.Snapshot())
+	loaded, err := session.FromDocument(r.Snapshot())
 	if err != nil {
 		t.Fatal(err)
 	}

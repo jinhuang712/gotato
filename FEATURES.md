@@ -284,7 +284,7 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 - `errors.Is(err, sentinel)` matches the sentinel itself or an error that wraps it, so two sentinels that share a code (`session.ErrExists` and `session.ErrExpired` are both `invalid_state`) are told apart. `gotato.IsCode(err, code)` matches any error of a code. A variant of a sentinel with a message of its own sets its `Cause` to the sentinel. Both functions look through wrapped and joined errors.
 - `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
 - `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP maps it and carries the address (*A message for a Run that another instance writes*, in G-F26).
-- HTTP only translates ([G-F14](#g-f14--http-and-streaming-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:
+- HTTP only translates ([G-F14](#g-f14--http-and-streaming-)). A service that embeds the Runner reads the same answers from `err` and `RunResponse`:
 
 ```go
 result, err := runner.Run(ctx, req)
@@ -448,7 +448,7 @@ The names are constants (`gotato.NoticeContinue`, `NoticeTimeAway`), and `gotato
 - A notice that waits when a Run starts goes in after the Run's prompt, before the first model call. One that arrives during a Run goes in after the Tool Results of the Turn in flight, before the next call, together with a Steer that arrived with it, in their order.
 - A notice never starts a Run and never keeps one going. A Run that settles with a notice still waiting does not commit it: the notice waits for the next Run, also after a Stop. A service that wants the model to react at once calls `Continue` after it.
 - `notice_queued` and `notice_committed` report both steps ([G-F13](#g-f13--events-)); `notice_committed` carries `queued`, the number of the `notice_queued` it came from. A notice that is refused because the queue is full (`MaxNotices`, 16 by default; 0 refuses them) is a `message_rejected` with the source `notice`, and a call that gets the error `limit_exceeded`.
-- **A queued notice outlives its writer.** The service was answered with the number of a stored `notice_queued`, so it takes the notice as accepted. The Record keeps the service notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`), in the Summary the store holds with every write, so a Session loaded from its facts knows them. A Run on any instance queues them again when it starts, in order. A Steer is not rebuilt: it is lost with its writer, and the caller sends it again ([G-F26](#g-f26--steering-a-run-)).
+- **A queued notice outlives its writer.** The service was answered with the number of a stored `notice_queued`, so it takes the notice as accepted. The Record keeps the service notices that were queued and neither committed nor dropped (`session.Record.PendingNotices`), in the RecordInfo the store holds with every write, so a Session loaded from its facts knows them. A Run on any instance queues them again when it starts, in order. A Steer is not rebuilt: it is lost with its writer, and the caller sends it again ([G-F26](#g-f26--steering-a-run-)).
 - Only a service's notice is durable: the Record keeps no notice of Gotato's own as pending. One a Run left behind, such as a `time_away` it did not reach, is dropped with the Run (`message_dropped`, source `notice`), and one a crashed Run left is simply not kept; the next Run works out its own `time_away` afresh from the last `run_ended`.
 
 **How long the user was away.** A Segment carries its times, but the model is not told the time a new message arrives, so after days away it could answer as if no time had passed. When a message that starts a Run arrives after the Session was idle longer than a threshold, Gotato adds a `time_away` notice after it:
@@ -458,7 +458,7 @@ The names are constants (`gotato.NoticeContinue`, `NoticeTimeAway`), and `gotato
 ```
 
 - **The threshold is 30 minutes by default,** and an Agent can set another (`service.Agent.TimeAwayAfter`; a negative value turns the notice off).
-- **Idle is read from the Record,** from the Session's last busy time (the last `run_ended`, which the Summary keeps as `last_run_end`) to the new message's arrival, by the Runner's clock. It does not need a warm Session, so a Session that was evicted, or loaded by another instance, gets the notice the same. A Session that has never finished a Run gets none.
+- **Idle is read from the Record,** from the Session's last busy time (the last `run_ended`, which the RecordInfo keeps as `last_run_end`) to the new message's arrival, by the Runner's clock. It does not need a warm Session, so a Session that was evicted, or loaded by another instance, gets the notice the same. A Session that has never finished a Run gets none.
 - **It states two facts and tells the model nothing to do.** The length is whole minutes, hours or days, in the largest unit that fits (`45 minutes`, `1 hour`, `3 days`), or `less than a minute`. The time is RFC 3339 with its zone, in the zone an Agent sets for its Segments' times (`Compact.Location`; UTC by default, [G-F06](#g-f06--compaction-)). What the model should do about a long absence belongs in the instruction.
 - **One per Run at most,** and only for the message that starts it: a prompt, not a `Continue` and not a Run that follows another. A message that reaches a Run already going finds the Session busy, not idle, so it gets none.
 - **It is appended once, at the end of the request,** so the cached prefix holds like it does for any notice. It is queued with a `notice_queued` of the source `gotato`, and committed like any other.
@@ -521,7 +521,7 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | Go API | `Runner.SetToolActive(ctx, sessionID, toolID, active)` | writes only `gotato.tool.<id>`; the ID is a tool of the Agent or of one of its ToolSets |
 | HTTP | none | a run request carries no `metadata`; `POST /v1/sessions` takes it, when the Session is created |
 
-- **There is no call that only changes metadata.** `Runner` and HTTP have no `UpdateSession`, and the `*session.Record` that `CreateSession` and `Runner.Session` return is for reading: calling `Set` on it writes nothing to the store. To change a setting without a model call, the application sets it on the Run that follows (`Update`), or creates the Session with the value.
+- **There is no call that only changes metadata.** `Runner` and HTTP have no `UpdateSession`, and the `*session.Record` that `CreateSession` and `Runner.Record` return is for reading: calling `Set` on it writes nothing to the store. To change a setting without a model call, the application sets it on the Run that follows (`Update`), or creates the Session with the value.
 - **Where to keep the application's own fields.** Anything the application keeps about a Session, such as a chat ID or an owner, is set at creation (`CreateSession`'s `metadata`) and is stable. A value that changes often belongs in the application's own store, keyed by the Session ID.
 
 ## What the model sees
@@ -1190,13 +1190,13 @@ The file store writes each batch of Entries to a file of its own, named by its f
 | Call | What it does |
 |---|---|
 | `Create` | writes a new Record, starting with a Checkpoint; fails when the ID is taken |
-| `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last and the Summary's epoch is the Record's; a writer of a Record deleted and created again gets `ErrNotFound` |
-| `Load` | returns the facts from the last Checkpoint, the `segment_closed` Entries before it (`Loaded.Segments`), the last position, and the Summary |
+| `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last and the RecordInfo's epoch is the Record's; a writer of a Record deleted and created again gets `ErrNotFound` |
+| `Load` | returns the facts from the last Checkpoint, the `segment_closed` Entries before it (`Loaded.Segments`), the last position, and the RecordInfo |
 | `Log` | returns every Entry after a position, facts and log entries |
 | `List`, `Delete` | list the Summaries, and delete a Record; an append to a deleted Record fails |
 | `Beat`, `Instance` | renew, read and remove one Liveness row per instance, timed by the store's clock |
 
-A writer passes the Session's Summary with every write, so `List` never reads a log. `session.Writer` makes the writes, `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included.
+A writer passes the Session's RecordInfo with every write, so `List` never reads a log. `session.Writer` makes the writes, `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included.
 
 #### Adapters prove the store contract with a conformance suite — 2026-10-16
 
@@ -1422,7 +1422,7 @@ POST   /v1/sessions/{id}/abort
 - A Run the drain stopped ends its stream with `event: result` and then `event: reconnect`. Its `retry:` field and `retry_after_ms` give how long to wait before the Session is continued on any instance; when the result has no `run_id`, nothing ran, and the request is sent again.
 - **Stream resume.** `GET /v1/sessions/{id}/stream` sends a Session's stored Events after a number, read from the Record, and then the live ones across Runs, as server-sent events, on any instance. A client that lost a stream reconnects through the load balancer, with the number of the last Event it saw, and the stream goes on without gaps or repeats ([DESIGNS.md → A stream resumes from a position](DESIGNS.md#a-stream-resumes-from-a-position)).
   - **The number.** Every stored Event on a Session's stream and on a Run's stream has its number as the SSE `id:`, which is its Entry's position in the Record ([G-F13](#g-f13--events-)). A browser's `EventSource` sends the last one back by itself as `Last-Event-ID`; the `after` parameter says the same, and wins. 0, or neither, starts at the first Event. A delta has no `id:`: it is not a position, the finished Message holds its text, and deltas sent before a reconnect are not sent again.
-  - **The Record's epoch.** It is an identity chosen when the Record is created, which changes only if the Record is deleted and created again under the same ID. Without it, a client holding number 40 of a deleted Session would read the 41st Event of another. It is the `record_epoch` of `session_created`, of every Session summary, of a Run's result, and of the first frame of a Session's stream, `event: stream` with `{session_id, record_epoch, after, head}`, also sent as the `Record-Epoch` response header. A Record written before epochs names one from its creation time (`created-<time>`), the same on every surface: the summary, the list, a Run's result, `session_created` of a schema v1 document, and the stream. A store adapter keeps `Summary.RecordEpoch` with the rest of the Summary; the store contract test checks it.
+  - **The Record's epoch.** It is an identity chosen when the Record is created, which changes only if the Record is deleted and created again under the same ID. Without it, a client holding number 40 of a deleted Session would read the 41st Event of another. It is the `record_epoch` of `session_created`, of every Session summary, of a Run's result, and of the first frame of a Session's stream, `event: stream` with `{session_id, record_epoch, after, head}`, also sent as the `Record-Epoch` response header. A Record written before epochs names one from its creation time (`created-<time>`), the same on every surface: the summary, the list, a Run's result, `session_created` of a schema v1 document, and the stream. A store adapter keeps `RecordInfo.RecordEpoch` with the rest of the RecordInfo; the store contract test checks it.
   - **When the position cannot be resumed.** A client may send the epoch it saw, as `record_epoch` or the `Record-Epoch` header. If it is not the Record's, or `after` is past the Record's last Event, the request is refused before the stream starts: 409, code `cannot_resume`, and the current `record_epoch` in the body. The client starts over with `after` 0. A browser's `EventSource` cannot send the header, so it compares the epoch in the first frame with the one it kept. An unknown Session is 404.
   - **A Run's stream that is lost.** A Run's stream carries the same ids. A client that loses it reconnects through the Session's stream after the last number it saw, and reads the rest of the Run from there. The client learns the epoch from the response that created the Session, from a Run's result, or from the first frame of the resumed stream.
   - **When a stream ends.** A drain ends a Session's stream, once every Run is saved and released, after the stored Events, with `event: reconnect`: `{"retry_after_ms", "why": "draining"}` and the SSE `retry:` field, the wait spread at random from half a second to one and a half. A Run's stream the drain stopped ends the same way. The first frame also sets `retry:`, a different wait for each client, which a browser uses after a connection that dropped without a word, so a lost instance does not make every client reconnect at the same instant. Any other end is an `event: error` and no reconnect. An idle stream sends a comment every 15 seconds.
@@ -1540,7 +1540,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 **Following one Session.** A chat bot, or any code that answers a person in a Session, follows that Session's stream and reads the reply from it. The shortest correct way is `Runner.StreamSession` from the Session's head as it is now, which reads the Record first and then the live Events, on any instance:
 
 ```go
-record, _ := runner.Session(ctx, id)
+record, _ := runner.Record(ctx, id)
 sub, _ := runner.StreamSession(ctx, id, service.StreamFrom{After: record.Head()}) // only Events after now
 defer sub.Close()
 var reply string
@@ -1558,7 +1558,7 @@ for {
 
 - **Read the head before the message or the Run is sent.** An Event written after the head is never missed, even if the Run starts before the subscription does. From number 0 the stream replays the whole history, which is for a client that shows a conversation, not for one that waits for the next answer.
 - **Why `ToolCalls == 0`.** A Turn that calls tools also ends with a `reply_ended`, whose text is the model's words on the way. The Turn that answers has no tool calls, and the Run ends after it. A FollowUp can add Turns before `run_ended`, so the last one wins. When the Run does not complete, `e.Status` says so and `reply` may be empty.
-- **A caller of `Run` does not need this.** `RunResult.FinalText` is the same text. A stream is for a caller that did not start the Run: it sent a message that was queued (`Queued`), or must not wait for a Run that holds its call ([G-F26](#g-f26--steering-a-run-)).
+- **A caller of `Run` does not need this.** `RunResponse.FinalText` is the same text. A stream is for a caller that did not start the Run: it sent a message that was queued (`Queued`), or must not wait for a Run that holds its call ([G-F26](#g-f26--steering-a-run-)).
 - **A message left over by a Run that was settling is answered by a following Run**, which has its own `run_ended`; a bot that waits for one message reads on to the Run that committed it (`message_committed` names the message's ID).
 - **The other ways.** `Runner.SubscribeInstance(ctx, gotato.SubscribeFilter(func(e gotato.Event) bool { return e.Head().SessionID == gotato.SessionID(id) }))` follows every Run this instance serves for the Session, with deltas, and has no replay and no view of a Run on another instance; `service.ForAgents("name")` keeps the Sessions of some Agents in the same way. A filter runs on the publisher's goroutine, so it must be fast. Over HTTP the same stream is `GET /v1/sessions/{id}/stream`.
 
@@ -1860,7 +1860,7 @@ type ownerStore struct{ session.Store }
 
 func (s ownerStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	loaded, err := s.Store.Load(ctx, id)
-	if caller, ok := ctx.Value(callerKey{}).(string); ok && err == nil && loaded.Summary.Metadata["owner"] != caller {
+	if caller, ok := ctx.Value(callerKey{}).(string); ok && err == nil && loaded.Info.Metadata["owner"] != caller {
 		return session.Loaded{}, session.ErrNotFound // Log, Append and Delete check the same way
 	}
 	return loaded, err

@@ -50,8 +50,8 @@ type MessageResult struct {
 	// Queued says a Run in flight on this Instance took the message. When it
 	// is false, no Run was going: the message started a new Run, whose result
 	// is Run.
-	Queued bool       `json:"queued"`
-	Run    *RunResult `json:"run,omitempty"`
+	Queued bool         `json:"queued"`
+	Run    *RunResponse `json:"run,omitempty"`
 }
 
 // notWriter answers a message for a Run that another Instance writes. It was

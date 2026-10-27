@@ -19,7 +19,7 @@ import (
 // FileStore keeps each Record in a directory of its own epoch, one file per
 // write, named by the write's first position:
 //
-//	<dir>/<id>/<epoch>/00000000000000000001.json   {"entries":[…],"summary":{…}}
+//	<dir>/<id>/<epoch>/00000000000000000001.json   {"entries":[…],"info":{…}}
 //	<dir>/<id>/<epoch>/00000000000000000003.json
 //	<dir>/.instances/<instance>.json               one Liveness row per Instance
 //
@@ -59,10 +59,10 @@ type fileHead struct {
 }
 
 // fileBatch is one file of a Record: the Entries of one write, and the
-// Summary after it.
+// RecordInfo after it.
 type fileBatch struct {
-	Entries []Entry `json:"entries"`
-	Summary Summary `json:"summary"`
+	Entries []Entry    `json:"entries"`
+	Info    RecordInfo `json:"info"`
 }
 
 type fileInstance struct {
@@ -286,7 +286,7 @@ func lastSeq(batches []fileBatch) uint64 {
 }
 
 // Create implements Store.
-func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summary Summary) error {
+func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := os.Mkdir(filepath.Join(building, epochName), 0o755); err != nil {
 		return err
 	}
-	if err := f.writeBatch(filepath.Join(building, epochName), fileBatch{Entries: entries, Summary: summary}); err != nil {
+	if err := f.writeBatch(filepath.Join(building, epochName), fileBatch{Entries: entries, Info: summary}); err != nil {
 		return err
 	}
 	if err := os.Rename(building, f.recordDir(id)); err != nil {
@@ -333,7 +333,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 }
 
 // Append implements Store.
-func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error {
+func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if last.head != after {
 		return ErrConflict
 	}
-	if err := f.writeBatch(dir, fileBatch{Entries: entries, Summary: summary}); err != nil {
+	if err := f.writeBatch(dir, fileBatch{Entries: entries, Info: summary}); err != nil {
 		return err
 	}
 	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
@@ -416,7 +416,7 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	}
 	head := lastSeq(batches)
 	facts, segments := loadedFrom(entries)
-	return Loaded{Facts: facts, Segments: segments, Head: head, Summary: batches[len(batches)-1].Summary}, nil
+	return Loaded{Facts: facts, Segments: segments, Head: head, Info: batches[len(batches)-1].Info}, nil
 }
 
 // Log implements Store.
@@ -440,7 +440,7 @@ func (f *FileStore) Log(ctx context.Context, id string, after uint64) ([]Entry, 
 }
 
 // List implements Store.
-func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
+func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -449,7 +449,7 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	out := make([]Summary, 0, len(names))
+	out := make([]RecordInfo, 0, len(names))
 	var unreadable []string
 	for _, name := range names {
 		id := name.Name()
@@ -467,7 +467,7 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 			continue
 		}
 		seen[id] = true
-		summary, err := f.summary(id)
+		summary, err := f.info(id)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
@@ -480,17 +480,17 @@ func (f *FileStore) List(ctx context.Context) ([]Summary, error) {
 	if len(unreadable) > 0 {
 		return nil, fmt.Errorf("session: %d unreadable session(s): %s", len(unreadable), strings.Join(unreadable, "; "))
 	}
-	sortSummaries(out)
+	sortInfos(out)
 	return out, nil
 }
 
-// summary reads a Record's Summary from its last write.
-func (f *FileStore) summary(id string) (Summary, error) {
+// info reads a Record's RecordInfo from its last write.
+func (f *FileStore) info(id string) (RecordInfo, error) {
 	batches, err := f.readAll(id)
 	if err != nil {
-		return Summary{}, err
+		return RecordInfo{}, err
 	}
-	return batches[len(batches)-1].Summary, nil
+	return batches[len(batches)-1].Info, nil
 }
 
 // Delete implements Store. The Record's directory is renamed away first, so

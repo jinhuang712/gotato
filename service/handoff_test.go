@@ -38,7 +38,7 @@ type handoffRig struct {
 	hold   *holdAtTheEnd
 	id     string
 	ended  *testkit.EventRecorder
-	done   chan service.RunResult
+	done   chan service.RunResponse
 }
 
 // startHeld starts a Run on a Runner with the default busy policy (reject),
@@ -53,7 +53,7 @@ func startHeld(t *testing.T) *handoffRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	rig := &handoffRig{runner: runner, hold: newHold(), done: make(chan service.RunResult, 1)}
+	rig := &handoffRig{runner: runner, hold: newHold(), done: make(chan service.RunResponse, 1)}
 	runner.SetBeforeDetach(rig.hold.hook)
 	s, err := runner.CreateSession(context.Background(), "echo", nil)
 	if err != nil {
@@ -78,7 +78,7 @@ func startHeld(t *testing.T) *handoffRig {
 }
 
 // release lets the held Run go and returns its result.
-func (r *handoffRig) release(t *testing.T) service.RunResult {
+func (r *handoffRig) release(t *testing.T) service.RunResponse {
 	t.Helper()
 	close(r.hold.proceed)
 	select {
@@ -86,7 +86,7 @@ func (r *handoffRig) release(t *testing.T) service.RunResult {
 		return result
 	case <-time.After(5 * time.Second):
 		t.Fatal("the held Run did not return")
-		return service.RunResult{}
+		return service.RunResponse{}
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 // writer that lost its Claim still writes.
 type rebasing struct{ *session.MemoryStore }
 
-func (s rebasing) Append(ctx context.Context, id string, _ uint64, entries []session.Entry, summary session.Summary) error {
+func (s rebasing) Append(ctx context.Context, id string, _ uint64, entries []session.Entry, summary session.RecordInfo) error {
 	loaded, err := s.Load(ctx, id)
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ type overwriting struct {
 	records map[string][]session.Entry
 }
 
-func (s *overwriting) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *overwriting) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if err := s.MemoryStore.Create(ctx, id, entries, summary); err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (s *overwriting) Create(ctx context.Context, id string, entries []session.E
 	return nil
 }
 
-func (s *overwriting) Append(ctx context.Context, id string, after uint64, entries []session.Entry, _ session.Summary) error {
+func (s *overwriting) Append(ctx context.Context, id string, after uint64, entries []session.Entry, _ session.RecordInfo) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -160,15 +160,15 @@ func TestTheSuiteCatchesAStoreThatReadsARemovedRowAsAlive(t *testing.T) {
 	}
 }
 
-// forgettingEpoch maps the Summary to its own columns and loses the epoch.
+// forgettingEpoch maps the RecordInfo to its own columns and loses the epoch.
 type forgettingEpoch struct{ *session.MemoryStore }
 
-func (s forgettingEpoch) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s forgettingEpoch) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	summary.RecordEpoch = ""
 	return s.MemoryStore.Create(ctx, id, entries, summary)
 }
 
-func (s forgettingEpoch) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s forgettingEpoch) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	summary.RecordEpoch = ""
 	return s.MemoryStore.Append(ctx, id, after, entries, summary)
 }
@@ -197,12 +197,12 @@ func mentions(problems []error, check string) bool {
 // created again at the same length.
 type lengthOnly struct{ *session.MemoryStore }
 
-func (s lengthOnly) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s lengthOnly) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	loaded, err := s.Load(ctx, id)
 	if err != nil {
 		return err
 	}
-	summary.RecordEpoch = loaded.Summary.RecordEpoch
+	summary.RecordEpoch = loaded.Info.RecordEpoch
 	return s.MemoryStore.Append(ctx, id, after, entries, summary)
 }
 

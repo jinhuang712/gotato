@@ -39,7 +39,7 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.Create(ctx, store, session.New(session.WithID("merge-1")), "instance-a")
+			writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("merge-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}

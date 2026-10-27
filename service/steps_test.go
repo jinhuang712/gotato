@@ -85,7 +85,7 @@ func (s *crashingStore) Beat(ctx context.Context, row session.InstanceRow, ttl t
 	return s.Store.Beat(ctx, row, ttl)
 }
 
-func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *crashingStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	s.mu.Lock()
 	crashed := s.crashed
 	for _, entry := range entries {
@@ -142,7 +142,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 	if answer == nil || answer.SafeError != session.StoppedToolResult {
 		t.Fatalf("the next request answered call-1 with %+v, want the stopped answer", answer)
 	}
-	view, err := next.Session(ctx, s.ID())
+	view, err := next.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

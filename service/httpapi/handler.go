@@ -278,7 +278,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set(SessionIDHeader, s.ID())
-		writeJSON(w, http.StatusCreated, session.SummaryOf(s))
+		writeJSON(w, http.StatusCreated, session.InfoOf(s))
 		return
 	}
 	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata)
@@ -287,7 +287,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, s.ID())
-	writeJSON(w, http.StatusCreated, session.SummaryOf(s))
+	writeJSON(w, http.StatusCreated, session.InfoOf(s))
 }
 
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +300,7 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
-	s, err := h.runner.Session(r.Context(), r.PathValue("id"))
+	s, err := h.runner.Record(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -323,7 +323,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, child.ID())
-	writeJSON(w, http.StatusCreated, session.SummaryOf(child))
+	writeJSON(w, http.StatusCreated, session.InfoOf(child))
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {

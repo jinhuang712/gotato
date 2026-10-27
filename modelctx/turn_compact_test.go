@@ -73,7 +73,7 @@ type live struct {
 func newLive(t *testing.T, policy modelctx.CompactPolicy) *live {
 	t.Helper()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(context.Background(), store, session.New(session.WithID("long")), "instance-a")
+	writer, err := session.CreateWriter(context.Background(), store, session.New(session.WithID("long")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -49,7 +49,7 @@ func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.Create(ctx, store, session.New(session.WithID("seg-both")), "instance-a")
+			writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("seg-both")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +116,7 @@ func TestLoadKeepsTheLargestSegmentNumber(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Load(back)
+	loaded, err := session.FromDocument(back)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestLoadKeepsTheLargestSegmentNumber(t *testing.T) {
 	// A Document written before the field existed still loads from its Segments.
 	old := record.Snapshot()
 	old.MaxSegment = 0
-	if again, err := session.Load(old); err != nil || again.NextSegment() != 2 {
+	if again, err := session.FromDocument(old); err != nil || again.NextSegment() != 2 {
 		t.Fatalf("a Document with no max_segment: next %d, %v; want 2", again.NextSegment(), err)
 	}
 }

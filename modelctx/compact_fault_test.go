@@ -36,7 +36,7 @@ func conversation(t *testing.T) *session.Record {
 		}
 	}
 	// Store the Record, so that it keeps its Events as a stored Record does.
-	if _, err := session.Create(context.Background(), session.NewMemoryStore(), record, "instance-a"); err != nil {
+	if _, err := session.CreateWriter(context.Background(), session.NewMemoryStore(), record, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
 	return record

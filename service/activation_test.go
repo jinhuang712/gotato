@@ -44,7 +44,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	}
 
 	// Fill the instance: two Runs on two new Sessions, held by the model.
-	results := make(chan service.RunResult, 2)
+	results := make(chan service.RunResponse, 2)
 	for _, prompt := range []string{"one", "two"} {
 		go func() {
 			result, _ := runner.Run(ctx, service.RunRequest{Prompt: prompt})

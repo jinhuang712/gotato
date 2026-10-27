@@ -128,9 +128,9 @@ type ReplayModel struct {
 // NewReplayModel creates a ReplayModel from Scripts.
 func NewReplayModel(scripts ...Script) *ReplayModel { return &ReplayModel{scripts: scripts} }
 
-// LoadReplay decodes a JSON array of Scripts (an array of arrays of
+// ParseReplay decodes a JSON array of Scripts (an array of arrays of
 // gotato.ModelEvent).
-func LoadReplay(data []byte) (*ReplayModel, error) {
+func ParseReplay(data []byte) (*ReplayModel, error) {
 	var scripts []Script
 	if err := json.Unmarshal(data, &scripts); err != nil {
 		return nil, err

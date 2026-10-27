@@ -415,9 +415,9 @@ func (r *Runner) Store() session.Store { return r.store }
 // each start.
 func (r *Runner) Instance() string { return r.instance }
 
-// Session reads a Session's whole Record from the store: its facts, Runs,
+// Record reads a Record's whole Record from the store: its facts, Runs,
 // usage and Events. It changes nothing.
-func (r *Runner) Session(ctx context.Context, sessionID string) (*session.Record, error) {
+func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record, error) {
 	return session.View(ctx, r.store, sessionID)
 }
 
@@ -430,7 +430,7 @@ func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, 
 }
 
 // Sessions lists the stored Sessions, the most recently updated first.
-func (r *Runner) Sessions(ctx context.Context) ([]session.Summary, error) {
+func (r *Runner) Sessions(ctx context.Context) ([]session.RecordInfo, error) {
 	list, err := r.store.List(ctx)
 	for i := range list {
 		// A Record written before epochs names one, as every surface does.
@@ -548,8 +548,8 @@ type RunRequest struct {
 	Timeout time.Duration
 }
 
-// RunResult is the outcome of one Run plus the Session state it left.
-type RunResult struct {
+// RunResponse is the outcome of one Run plus the Session state it left.
+type RunResponse struct {
 	SessionID string           `json:"session_id"`
 	Agent     string           `json:"agent"`
 	Model     string           `json:"model,omitempty"`
@@ -579,7 +579,7 @@ type Reconnect struct {
 }
 
 // Run executes one Run synchronously.
-func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error) {
+func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResponse, error) {
 	return r.run(ctx, request, nil)
 }
 
@@ -591,7 +591,7 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error)
 // the sink falls behind on is read again from the Record. A sink error is
 // advisory: it stops delivery, not the Run. StreamRun returns after the Run
 // settles and its last Event has been delivered.
-func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResult, error) {
+func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResponse, error) {
 	return r.StreamRunAdmitted(ctx, request, nil, sink)
 }
 
@@ -600,7 +600,7 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 // refused at admission (draining, at capacity, past the activation limit)
 // returns its error without the call, so an endpoint can still answer the
 // request with a status of its own before it starts to stream.
-func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResult, error) {
+func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResponse, error) {
 	if sink == nil {
 		return r.run(ctx, request, nil)
 	}
@@ -608,7 +608,7 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 		ctx = context.Background()
 	}
 	type outcome struct {
-		result RunResult
+		result RunResponse
 		err    error
 	}
 	subs := make(chan gotato.Subscription, 1)
@@ -663,18 +663,18 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 	return finished.result, finished.err
 }
 
-func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream) (RunResult, error) {
+func (r *Runner) run(ctx context.Context, request RunRequest, stream *runStream) (RunResponse, error) {
 	return r.runWith(ctx, request, stream, false)
 }
 
 // runWith is run; wait makes the Run wait for a busy Session, as a Run that
 // follows another does.
-func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStream, wait bool) (RunResult, error) {
+func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStream, wait bool) (RunResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if !request.Continue && strings.TrimSpace(request.Prompt) == "" {
-		return RunResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: prompt is required"))
+		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: prompt is required"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still
@@ -691,7 +691,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 			why = "activation_limit"
 		}
 		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
-		return RunResult{}, err
+		return RunResponse{}, err
 	}
 	if stream != nil && stream.admitted != nil {
 		stream.admitted <- struct{}{}
@@ -732,7 +732,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 }
 
 // serve runs one admitted Run.
-func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle, follow *followOn) (RunResult, error) {
+func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *runStream, handle *runHandle, follow *followOn) (RunResponse, error) {
 	// Create the Session, or name the one to load. runCtx carries the
 	// cancellation that Stop/Drain apply, so a stalled Store call does not
 	// outlive them.
@@ -766,19 +766,19 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			feed = gotato.NewFeed(nil)
 			defer feed.Close()
 			if err := r.streamTo(ctx, feed, stream, track); err != nil {
-				return RunResult{}, err
+				return RunResponse{}, err
 			}
 		} else {
 			fresh, spec, err := r.newSession(request.Agent, request.Metadata)
 			if err != nil {
-				return RunResult{}, err
+				return RunResponse{}, err
 			}
 			// The Run's stream starts before the Session is created, so its
 			// first Event is the session_created that the Run caused.
 			acquired = feedKey{fresh.ID(), fresh.RecordEpoch()}
 			feed = r.acquireFeed(acquired, spec.Name)
 			if err := r.streamTo(ctx, feed, stream, track); err != nil {
-				return RunResult{}, err
+				return RunResponse{}, err
 			}
 			writer, err = r.create(runCtx, fresh, spec.Name)
 			stats := session.WriteStats{}
@@ -788,7 +788,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 			r.notice(savedEvent(fresh.ID(), "", fresh.Len(), stats, err), spec.Name)
 			if err != nil {
-				return RunResult{}, err
+				return RunResponse{}, err
 			}
 			s = fresh
 		}
@@ -800,7 +800,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 
 	// One Run per Session at a time. Every Session mutation goes through
 	// withSessionLock; the admission policy decides the busy behavior.
-	var out RunResult
+	var out RunResponse
 	var runErr error
 	started := false
 	created := request.SessionID == "" && !request.SkipSave
@@ -1061,7 +1061,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			}
 		}
 		r.noteFailure(runErr, s.ID(), spec.Name)
-		out = RunResult{
+		out = RunResponse{
 			SessionID: s.ID(),
 			Agent:     spec.Name,
 			Model:     spec.ModelName,
@@ -1110,7 +1110,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			// canceled Run rather than a bare error.
 			return canceledRunResult(sessionID, request.Agent, lockErr), lockErr
 		}
-		return RunResult{}, lockErr
+		return RunResponse{}, lockErr
 	}
 	return out, runErr
 }
@@ -1134,12 +1134,12 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 
 // canceledRunResult reports a Run canceled before its Agent started as a
 // settled canceled Run.
-func canceledRunResult(sessionID, agent string, err error) RunResult {
+func canceledRunResult(sessionID, agent string, err error) RunResponse {
 	code := gotato.CodeCanceled
 	if errors.Is(err, context.DeadlineExceeded) {
 		code = gotato.CodeDeadlineExceeded
 	}
-	return RunResult{
+	return RunResponse{
 		SessionID: sessionID,
 		Agent:     agent,
 		Result:    gotato.RunResult{Status: runStatusForError(err), Error: gotato.ErrorOf(code, err.Error())},

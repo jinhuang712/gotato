@@ -345,7 +345,7 @@ func (b *bot) post(ctx context.Context, sessionID, content string) {
 	t, ok := b.targets[sessionID]
 	b.mu.Unlock()
 	if !ok {
-		rec, err := b.runner.Session(ctx, sessionID)
+		rec, err := b.runner.Record(ctx, sessionID)
 		if err != nil {
 			b.log.Error("read session for chat", "session", sessionID, "err", err)
 			return

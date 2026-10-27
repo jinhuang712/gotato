@@ -126,7 +126,7 @@ func TestMemoryLimitNeverEvictsARunningSession(t *testing.T) {
 	idle := runOn(t, runner, "", "idle")
 	drain(model.started)
 	model.gate = make(chan struct{})
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{Prompt: "busy"})
 		done <- result

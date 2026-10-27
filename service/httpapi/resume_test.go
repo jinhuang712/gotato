@@ -151,7 +151,7 @@ func readStored(t *testing.T, f *frames, count int) (stored []storedFrame, delta
 	return stored, deltas
 }
 
-func runOnce(t *testing.T, runner *service.Runner) service.RunResult {
+func runOnce(t *testing.T, runner *service.Runner) service.RunResponse {
 	t.Helper()
 	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "one"})
 	if err != nil {
@@ -167,7 +167,7 @@ func TestSessionStreamResumesAfterLastEventID(t *testing.T) {
 	server, runner := newServer(t)
 	first := runOnce(t, runner)
 	id := first.SessionID
-	record, err := runner.Session(context.Background(), id)
+	record, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestSessionStreamRefusesWhatItCannotResume(t *testing.T) {
 	server, runner := newServer(t)
 	first := runOnce(t, runner)
 	id := first.SessionID
-	record, _ := runner.Session(context.Background(), id)
+	record, _ := runner.Record(context.Background(), id)
 
 	cases := []struct {
 		name, id, query string
@@ -299,7 +299,7 @@ func TestRunStreamCarriesNumbersAndTheEpoch(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	f := newFrames(resp.Body)
 	var last uint64
-	var result service.RunResult
+	var result service.RunResponse
 	var sessionID string
 	for {
 		fr, err := f.next()
@@ -492,7 +492,7 @@ func playTask(t *testing.T, server *httptest.Server, runner *service.Runner, tas
 			return 0
 		}
 	}
-	record, err := runner.Session(context.Background(), id)
+	record, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Error(err)
 		return 0

@@ -101,8 +101,8 @@ func TestFakeModelRequestsAreIsolated(t *testing.T) {
 	}
 }
 
-func TestLoadReplay(t *testing.T) {
-	model, err := testkit.LoadReplay([]byte(`[[{"kind":"text_delta","text":"hi"},{"kind":"done","stop_reason":"end_turn"}]]`))
+func TestParseReplay(t *testing.T) {
+	model, err := testkit.ParseReplay([]byte(`[[{"kind":"text_delta","text":"hi"},{"kind":"done","stop_reason":"end_turn"}]]`))
 	if err != nil {
 		t.Fatal(err)
 	}

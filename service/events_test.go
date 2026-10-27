@@ -121,7 +121,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	type outcome struct {
-		result service.RunResult
+		result service.RunResponse
 		err    error
 	}
 	gate := make(chan struct{})
@@ -187,7 +187,7 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var firstEnd uint64
-	if record, err := runner.Session(ctx, first.SessionID); err != nil {
+	if record, err := runner.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	} else {
 		for _, event := range record.Events() {
@@ -231,7 +231,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	var after uint64
-	record, err := runner.Session(ctx, first.SessionID)
+	record, err := runner.Record(ctx, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 // claimsOf returns the session_claimed Events of the Record.
 func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.SessionClaimed {
 	t.Helper()
-	record, err := runner.Session(context.Background(), sessionID)
+	record, err := runner.Record(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	}
 	// The first Run of a new Session releases it too: it is busy from its
 	// creation until then.
-	if firstRecord, err := a.Session(ctx, first.SessionID); err != nil {
+	if firstRecord, err := a.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
 	} else if events := firstRecord.Events(); events[len(events)-1].Kind() != gotato.KindSessionReleased {
 		t.Fatalf("the first Run left the Record at %v, want session_released last", numbered(events))
@@ -412,7 +412,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Session(ctx, result.SessionID)
+	record, err := a.Record(ctx, result.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	}
 	// The fenced Instance wrote nothing after the takeover: its reply is not
 	// in the Record.
-	record, err := b.Session(ctx, s.ID())
+	record, err := b.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

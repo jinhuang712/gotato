@@ -46,7 +46,7 @@ func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	// As in the snippet: follow the Session from its head now.
-	record, err := runner.Session(ctx, s.ID())
+	record, err := runner.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

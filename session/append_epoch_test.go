@@ -12,7 +12,7 @@ import (
 
 // A Writer of a Record that was deleted, and created again under the same ID
 // at the same length, must not write into the new Record: its Entries belong
-// to another log, and the new Record's Summary would name the old epoch.
+// to another log, and the new Record's RecordInfo would name the old epoch.
 func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 	stores := map[string]func(t *testing.T) session.Store{
 		"memory": func(*testing.T) session.Store { return session.NewMemoryStore() },
@@ -28,7 +28,7 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			store := newStore(t)
-			old, err := session.Create(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
+			old, err := session.CreateWriter(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -36,7 +36,7 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 			if err := store.Delete(ctx, "same"); err != nil {
 				t.Fatal(err)
 			}
-			fresh, err := session.Create(ctx, store, session.New(session.WithID("same")), "b", session.WithIdle())
+			fresh, err := session.CreateWriter(ctx, store, session.New(session.WithID("same")), "b", session.WithIdle())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,8 +61,8 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 				t.Fatalf("the new Record holds %d Entries after the refused write (%v), want %d", len(after), err, len(before))
 			}
 			loaded, err := store.Load(ctx, "same")
-			if err != nil || loaded.Summary.Epoch() != fresh.Record().RecordEpoch() {
-				t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Summary.Epoch(), err, fresh.Record().RecordEpoch())
+			if err != nil || loaded.Info.Epoch() != fresh.Record().RecordEpoch() {
+				t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.Epoch(), err, fresh.Record().RecordEpoch())
 			}
 		})
 	}
@@ -85,8 +85,8 @@ func TestFileStoreRefusesAPositionAnotherRecordHolds(t *testing.T) {
 	entry := func(seq uint64, kind gotato.EventKind, layer session.Layer) session.Entry {
 		return session.Entry{Seq: seq, Kind: kind, Layer: layer, Data: []byte(`{}`)}
 	}
-	summary := func(epoch string, seq uint64) session.Summary {
-		return session.Summary{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
+	summary := func(epoch string, seq uint64) session.RecordInfo {
+		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
 	}
 	first := []session.Entry{entry(1, gotato.KindSessionCreated, session.LayerFact), entry(2, gotato.KindMessageCommitted, session.LayerFact), entry(3, gotato.KindMessageCommitted, session.LayerFact)}
 	if err := a.Create(ctx, "r", first, summary("e1", 3)); err != nil {

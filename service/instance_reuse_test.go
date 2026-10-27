@@ -63,7 +63,7 @@ func TestReusedInstanceLabelAfterExpiredRowWritesFine(t *testing.T) {
 	if _, err := restarted.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"}); err != nil {
 		t.Fatalf("a Run on the old process's Session = %v, want it taken over", err)
 	}
-	view, err := restarted.Session(ctx, s.ID())
+	view, err := restarted.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestReusedInstanceLabelWhileOldRunIsGoingIsBusy(t *testing.T) {
 	if waited := time.Since(began); waited < 150*time.Millisecond {
 		t.Fatalf("refused after %v, want the wait for the live writer", waited)
 	}
-	view, err := restarted.Session(ctx, s.ID())
+	view, err := restarted.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

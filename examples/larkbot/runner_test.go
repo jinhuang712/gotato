@@ -28,7 +28,7 @@ func TestCreateExclusiveIsIdempotentByError(t *testing.T) {
 	if !errors.Is(err, service.ErrSessionExists) {
 		t.Fatalf("second create: %v", err)
 	}
-	rec, err := runner.Session(context.Background(), id)
+	rec, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}

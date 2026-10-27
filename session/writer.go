@@ -106,12 +106,12 @@ type WriteStats struct {
 	Failed  bool
 }
 
-// Create writes r to store as a new Record, held by instance, and returns its
+// CreateWriter writes r to store as a new Record, held by instance, and returns its
 // Writer. The first write is r's state as a session_created Event, with the
 // first Claim, so r's Messages and metadata are its starting point. The Record
 // is busy until Release, unless WithIdle says nothing runs against it. It fails
 // with ErrExists when the ID is taken.
-func Create(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
+func CreateWriter(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	if r.Head() > 0 {
 		return nil, gotato.ErrorOf(gotato.CodeInvalidState, "session: the Record is stored already")
@@ -282,13 +282,13 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 }
 
 // fromLoaded rebuilds a Record from its facts, with its Run count and usage
-// from the Summary, since its Run records are in the log. When the Summary says
+// from the RecordInfo, since its Run records are in the log. When the RecordInfo says
 // a Run started and never ended, the log since the last Checkpoint is read too,
 // because it holds the parts of a reply that was streaming, which become a
 // Cut-off reply: a crash loses at most the last part.
 func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Record, error) {
 	entries, head := loaded.Facts, loaded.Head
-	if loaded.Summary.Running != "" && len(loaded.Facts) > 0 {
+	if loaded.Info.Running != "" && len(loaded.Facts) > 0 {
 		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1)
 		if err != nil {
 			return nil, err
@@ -304,30 +304,30 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(entries) != len(loaded.Facts) {
-		// The log was read for its parts only: its Runs are in the Summary.
+		// The log was read for its parts only: its Runs are in the RecordInfo.
 		r.runs, r.eventHead = nil, 0
 	}
 	r.head = head
 	r.last = head
 	// A load that starts at a compaction_ended Checkpoint has not read
-	// session_created: what it held comes from the Summary.
+	// session_created: what it held comes from the RecordInfo.
 	if r.createdAt.IsZero() {
-		if at, err := time.Parse("2006-01-02T15:04:05.000Z07:00", loaded.Summary.CreatedAt); err == nil {
+		if at, err := time.Parse("2006-01-02T15:04:05.000Z07:00", loaded.Info.CreatedAt); err == nil {
 			r.createdAt = at
 		}
 	}
 	if r.parentID == "" {
-		r.parentID = loaded.Summary.ParentID
+		r.parentID = loaded.Info.ParentID
 	}
 	if r.epoch == "" {
-		r.epoch = loaded.Summary.RecordEpoch
+		r.epoch = loaded.Info.RecordEpoch
 	}
-	r.baseRuns = loaded.Summary.Runs
-	r.usage = loaded.Summary.Usage
-	r.running = loaded.Summary.Running
-	r.busy = loaded.Summary.Busy
-	r.notices = slices.Clone(loaded.Summary.Notices)
-	if at, err := time.Parse(summaryTime, loaded.Summary.LastRunEnd); err == nil {
+	r.baseRuns = loaded.Info.Runs
+	r.usage = loaded.Info.Usage
+	r.running = loaded.Info.Running
+	r.busy = loaded.Info.Busy
+	r.notices = slices.Clone(loaded.Info.Notices)
+	if at, err := time.Parse(infoTime, loaded.Info.LastRunEnd); err == nil {
 		r.lastRunEnd = at.UTC()
 	}
 	r.logging = false

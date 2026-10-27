@@ -26,7 +26,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	record := session.New()
-	if _, err := session.Create(ctx, store, record, "a", session.WithIdle()); err != nil {
+	if _, err := session.CreateWriter(ctx, store, record, "a", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
 	writer, err := session.OpenWriter(ctx, store, record.ID(), "a")

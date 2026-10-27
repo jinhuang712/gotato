@@ -107,9 +107,9 @@ func equal(a, b []string) bool {
 }
 
 // startRun runs a prompt on the Session in the background.
-func startRun(t *testing.T, runner *service.Runner, id, prompt string) chan service.RunResult {
+func startRun(t *testing.T, runner *service.Runner, id, prompt string) chan service.RunResponse {
 	t.Helper()
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, err := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt})
 		if err != nil {
@@ -120,20 +120,20 @@ func startRun(t *testing.T, runner *service.Runner, id, prompt string) chan serv
 	return done
 }
 
-func settled(t *testing.T, done chan service.RunResult) service.RunResult {
+func settled(t *testing.T, done chan service.RunResponse) service.RunResponse {
 	t.Helper()
 	select {
 	case result := <-done:
 		return result
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Run did not settle")
-		return service.RunResult{}
+		return service.RunResponse{}
 	}
 }
 
 func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
 	t.Helper()
-	record, err := runner.Session(context.Background(), id)
+	record, err := runner.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "do A"})
 		done <- result
@@ -376,7 +376,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	if err != nil || result.Queued || result.Run == nil || result.Run.Result.Status != gotato.RunCompleted {
 		t.Fatalf("Send with no Run going = %+v, %v; want a new Run on b", result, err)
 	}
-	view, _ := b.Session(ctx, s.ID())
+	view, _ := b.Record(ctx, s.ID())
 	if claim := view.Claim(); !isInstance(claim.Instance, "instance-b") {
 		t.Fatalf("claim = %+v, want instance-b", claim)
 	}

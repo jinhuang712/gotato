@@ -231,7 +231,7 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	}
 
 	// The notice is kept in the Record, as Gotato's own, with its Events.
-	record, _ := runner.Session(ctx, s.ID())
+	record, _ := runner.Record(ctx, s.ID())
 	messages := record.Messages()
 	last := messages[len(messages)-2]
 	if last.Role != gotato.RoleNotice || last.Notice.Kind != gotato.NoticeTimeAway || last.Notice.Source != gotato.NoticeFromGotato {
@@ -353,7 +353,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 	runner := messageRunner(t, session.NewMemoryStore(), "instance-a", "", model)
 	s, _ := runner.CreateSession(ctx, "echo", nil)
 
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
 		done <- result
@@ -404,7 +404,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	second, _ := timeAwayRunner2(t, store, "second", clock)
 	_ = model
 	runOn(t, second, s.ID(), "back")
-	record, _ := second.Session(ctx, s.ID())
+	record, _ := second.Record(ctx, s.ID())
 	count := 0
 	for _, m := range record.Messages() {
 		if m.Role == gotato.RoleNotice && m.Notice.Kind == gotato.NoticeTimeAway {

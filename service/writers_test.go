@@ -67,7 +67,7 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 			t.Fatalf("Run %d waited %v for an idle Session", i, waited)
 		}
 	}
-	view, err := b.Session(ctx, s.ID())
+	view, err := b.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	view, err := a.Session(ctx, s.ID())
+	view, err := a.Record(ctx, s.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,14 +201,14 @@ type killableStore struct {
 
 var errKilled = errors.New("the instance was killed")
 
-func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if s.dead.Load() {
 		return errKilled
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
-func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	if s.dead.Load() {
 		return errKilled
 	}
@@ -492,7 +492,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := session.Create(ctx, store, session.New(session.WithID(s.ID())), "other", session.WithIdle())
+	fresh, err := session.CreateWriter(ctx, store, session.New(session.WithID(s.ID())), "other", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,8 +523,8 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}
 	loaded, err := store.Load(ctx, s.ID())
-	if err != nil || loaded.Summary.Epoch() != fresh.Record().RecordEpoch() {
-		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Summary.Epoch(), err, fresh.Record().RecordEpoch())
+	if err != nil || loaded.Info.Epoch() != fresh.Record().RecordEpoch() {
+		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.Epoch(), err, fresh.Record().RecordEpoch())
 	}
 }
 

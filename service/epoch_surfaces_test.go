@@ -13,7 +13,7 @@ import (
 var epochField = regexp.MustCompile(`,?"record_epoch":"[^"]*"`)
 
 // preEpochStore stores Records as the version before epochs did: no epoch in
-// session_created, none in the Summary.
+// session_created, none in the RecordInfo.
 type preEpochStore struct{ session.Store }
 
 func strip(entries []session.Entry) []session.Entry {
@@ -25,12 +25,12 @@ func strip(entries []session.Entry) []session.Entry {
 	return out
 }
 
-func (s preEpochStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s preEpochStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	summary.RecordEpoch = ""
 	return s.Store.Create(ctx, id, strip(entries), summary)
 }
 
-func (s preEpochStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s preEpochStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	summary.RecordEpoch = ""
 	return s.Store.Append(ctx, id, after, strip(entries), summary)
 }

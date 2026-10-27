@@ -70,7 +70,7 @@ func lastReply(t *testing.T, r *service.Runner, id, prompt string) string {
 	if _, err := r.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt}); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := r.Session(context.Background(), id)
+	rec, err := r.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	if got := lastReply(t, a, "s1", "T[e] [script:search]"); !strings.HasPrefix(got, ansMCPOK+" invoice inv-1") {
 		t.Fatalf("loading again: %q", got)
 	}
-	rec, err := a.Session(ctx, "s1")
+	rec, err := a.Record(ctx, "s1")
 	if err != nil {
 		t.Fatal(err)
 	}

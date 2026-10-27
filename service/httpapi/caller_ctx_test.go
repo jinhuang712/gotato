@@ -39,7 +39,7 @@ func (s *ownerStore) note(ctx context.Context, op string) string {
 	return caller
 }
 
-func (s *ownerStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *ownerStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	s.note(ctx, "create")
 	return s.Store.Create(ctx, id, entries, summary)
 }
@@ -47,7 +47,7 @@ func (s *ownerStore) Create(ctx context.Context, id string, entries []session.En
 func (s *ownerStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	caller := s.note(ctx, "load")
 	loaded, err := s.Store.Load(ctx, id)
-	if err == nil && loaded.Summary.Metadata["owner"] != caller {
+	if err == nil && loaded.Info.Metadata["owner"] != caller {
 		return session.Loaded{}, session.ErrNotFound // does not reveal that the Session exists
 	}
 	return loaded, err
@@ -62,7 +62,7 @@ func (s *ownerStore) Log(ctx context.Context, id string, after uint64) ([]sessio
 	return s.Store.Log(ctx, id, after)
 }
 
-func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	s.note(ctx, "append")
 	return s.Store.Append(ctx, id, after, entries, summary)
 }

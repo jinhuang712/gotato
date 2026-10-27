@@ -97,7 +97,7 @@ func slowModel(d time.Duration) *testkit.FuncModel {
 
 func userTexts(t *testing.T, r *service.Runner, id string) []string {
 	t.Helper()
-	rec, err := r.Session(context.Background(), id)
+	rec, err := r.Record(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}

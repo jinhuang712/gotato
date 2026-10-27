@@ -81,7 +81,7 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	var result service.RunResult
+	var result service.RunResponse
 	if *events == "jsonl" {
 		result, err = rt.runner.StreamRun(ctx, request, func(event gotato.Event) error { return c.writeJSONL(event) })
 	} else {
@@ -310,13 +310,13 @@ func (c *cli) sessionCreate(args []string) int {
 		if err != nil {
 			return c.failErr(err)
 		}
-		return c.emit(session.SummaryOf(s), s.ID())
+		return c.emit(session.InfoOf(s), s.ID())
 	}
 	s, err := rt.runner.CreateSession(ctx, agent, metadata)
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(session.SummaryOf(s), s.ID())
+	return c.emit(session.InfoOf(s), s.ID())
 }
 
 func (c *cli) sessionList(args []string) int {
@@ -418,7 +418,7 @@ func (c *cli) sessionFork(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(session.SummaryOf(child), child.ID())
+	return c.emit(session.InfoOf(child), child.ID())
 }
 
 func (c *cli) sessionDelete(args []string) int {
@@ -902,7 +902,7 @@ func (c *cli) cmdDoctor(args []string) int {
 		add(doctorCheck{Name: "store", OK: false, Detail: err.Error()})
 	} else {
 		probe := session.New()
-		if _, err := session.Create(ctx, rt.store, probe, rt.runner.Instance()); err != nil {
+		if _, err := session.CreateWriter(ctx, rt.store, probe, rt.runner.Instance()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": not writable: " + err.Error()})
 		} else if err := rt.store.Delete(ctx, probe.ID()); err != nil {
 			add(doctorCheck{Name: "store", OK: false, Detail: rt.storeDir + ": probe cleanup failed: " + err.Error()})

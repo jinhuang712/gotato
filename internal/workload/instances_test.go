@@ -47,14 +47,14 @@ func (s *killStore) alive() error {
 	return nil
 }
 
-func (s *killStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *killStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if err := s.alive(); err != nil {
 		return err
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
-func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *killStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	if err := s.alive(); err != nil {
 		return err
 	}

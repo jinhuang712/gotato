@@ -32,7 +32,7 @@ func (h *holdStore) hold(release <-chan struct{}) {
 	<-release
 }
 
-func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	err := h.Store.Append(ctx, id, after, entries, summary)
 	if err == nil && h.armAppend.CompareAndSwap(true, false) {
 		h.hold(h.releaseAppend)

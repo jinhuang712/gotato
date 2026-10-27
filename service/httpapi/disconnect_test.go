@@ -69,7 +69,7 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		view, err := runner.Session(ctx, s.ID())
+		view, err := runner.Record(ctx, s.ID())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -13,7 +13,7 @@ import (
 
 // holdBeforeRelease starts a Run and holds it after run_ended, when it takes no
 // message any more and still holds the Session.
-func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResult) {
+func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store:  session.NewMemoryStore(),
@@ -30,7 +30,7 @@ func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *h
 		t.Fatal(err)
 	}
 	id = s.ID()
-	done = make(chan service.RunResult, 1)
+	done = make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "hello"})
 		done <- result

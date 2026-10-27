@@ -60,15 +60,15 @@ func TestRunFailureAttribution(t *testing.T) {
 		gotato.CodeInvalidState:         CauseGotato,
 	}
 	for code, want := range cases {
-		result := service.RunResult{Result: gotato.RunResult{Status: gotato.RunFailed, Error: gotato.ErrorOf(code, "x")}}
+		result := service.RunResponse{Result: gotato.RunResult{Status: gotato.RunFailed, Error: gotato.ErrorOf(code, "x")}}
 		if f, failed := runFailure(result, nil); !failed || f.cause != want {
 			t.Errorf("%s: cause %s, want %s", code, f.cause, want)
 		}
 	}
-	if f, failed := runFailure(service.RunResult{Result: gotato.RunResult{Status: gotato.RunCompleted}}, service.ErrNotPersisted); !failed || f.cause != CauseStore {
+	if f, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunCompleted}}, service.ErrNotPersisted); !failed || f.cause != CauseStore {
 		t.Fatalf("a Run that was not saved is the store's: %+v", f)
 	}
-	if _, failed := runFailure(service.RunResult{Result: gotato.RunResult{Status: gotato.RunCompleted}}, nil); failed {
+	if _, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunCompleted}}, nil); failed {
 		t.Fatal("a completed Run is not a failure")
 	}
 }

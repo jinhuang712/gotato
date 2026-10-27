@@ -15,7 +15,7 @@ func TestCheckpointKeepsTheClaim(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
 	r := session.New(session.WithMessages(gotato.UserMessage("a"), gotato.UserMessage("b")))
-	if _, err := session.Create(ctx, store, r, "instance-a", session.WithIdle()); err != nil {
+	if _, err := session.CreateWriter(ctx, store, r, "instance-a", session.WithIdle()); err != nil {
 		t.Fatal(err)
 	}
 	wa, err := session.OpenWriter(ctx, store, r.ID(), "instance-a")

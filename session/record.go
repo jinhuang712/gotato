@@ -47,29 +47,29 @@ func (s *Record) startLog() {
 }
 
 // takePending returns the Entries of the pending Events, numbered from
-// head+1, the Events themselves, and the Summary the store keeps once they
+// head+1, the Events themselves, and the RecordInfo the store keeps once they
 // are written, and clears them. The Record's head moves only when stored
 // confirms the write.
-func (s *Record) takePending() ([]Entry, []gotato.Event, Summary, error) {
+func (s *Record) takePending() ([]Entry, []gotato.Event, RecordInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pending) == 0 {
-		return nil, nil, Summary{}, nil
+		return nil, nil, RecordInfo{}, nil
 	}
 	events := s.pending
 	entries := make([]Entry, len(events))
 	for i, event := range events {
 		entry, err := entryOf(event, s.instance)
 		if err != nil {
-			return nil, nil, Summary{}, err
+			return nil, nil, RecordInfo{}, err
 		}
 		if entry.Seq != s.head+uint64(i)+1 {
-			return nil, nil, Summary{}, gotato.ErrorOf(gotato.CodeInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
+			return nil, nil, RecordInfo{}, gotato.ErrorOf(gotato.CodeInternalInvariant, fmt.Sprintf("session: Event %d queued at position %d", entry.Seq, s.head+uint64(i)+1))
 		}
 		entries[i] = entry
 	}
 	s.pending = nil
-	summary := s.summaryLocked()
+	summary := s.infoLocked()
 	summary.Seq = entries[len(entries)-1].Seq
 	return entries, events, summary, nil
 }

@@ -33,7 +33,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{t: t, ctx: context.Background(), store: session.NewMemoryStore(), base: time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)}
 	f.rec = session.New(session.WithID("fx"))
-	writer, err := session.Create(f.ctx, f.store, f.rec, "instance-a")
+	writer, err := session.CreateWriter(f.ctx, f.store, f.rec, "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

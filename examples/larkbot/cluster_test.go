@@ -179,7 +179,7 @@ func TestTwoInstancesForwardToTheWriter(t *testing.T) {
 		t.Fatalf("B posted %d messages, want 0", n)
 	}
 	// The forwarded text reached A's Run as a follow-up user message, after "first".
-	rec, err := a.runner.Session(ctx, id)
+	rec, err := a.runner.Record(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}

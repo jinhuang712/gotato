@@ -82,11 +82,11 @@ func (s *faultStore) Beat(ctx context.Context, row session.InstanceRow, ttl time
 	return s.Store.Beat(ctx, row, ttl)
 }
 
-func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *faultStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	return s.write(ctx, id, func() error { return s.Store.Create(ctx, id, entries, summary) })
 }
 
-func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *faultStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	return s.write(ctx, id, func() error { return s.Store.Append(ctx, id, after, entries, summary) })
 }
 

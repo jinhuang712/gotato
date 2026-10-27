@@ -116,7 +116,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create = %d %s", status, body)
 	}
-	var summary session.Summary
+	var summary session.RecordInfo
 	_ = json.Unmarshal(body, &summary)
 	if summary.ID == "" || summary.Metadata[service.MetaAgent] != "demo" || summary.Metadata["tenant"] != "x" {
 		t.Fatalf("summary = %+v", summary)
@@ -126,7 +126,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("run = %d %s", status, body)
 	}
-	var result service.RunResult
+	var result service.RunResponse
 	_ = json.Unmarshal(body, &result)
 	if result.Result.Status != gotato.RunCompleted || result.Result.Metrics.ToolCalls != 1 || result.Messages != 4 {
 		t.Fatalf("result = %+v", result)
@@ -176,14 +176,14 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 
 	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/fork", nil)
-	var fork session.Summary
+	var fork session.RecordInfo
 	_ = json.Unmarshal(body, &fork)
 	if status != http.StatusCreated || fork.ParentID != summary.ID || fork.Messages != 6 {
 		t.Fatalf("fork = %d %+v", status, fork)
 	}
 
 	status, body = call(t, server, http.MethodGet, "/v1/sessions", nil)
-	var list []session.Summary
+	var list []session.RecordInfo
 	_ = json.Unmarshal(body, &list)
 	if status != http.StatusOK || len(list) != 2 {
 		t.Fatalf("list = %d %d", status, len(list))
@@ -203,7 +203,7 @@ func TestRunAndErrors(t *testing.T) {
 	server, _ := newServer(t)
 	id := newSession(t, server, "echo")
 	status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "hi"})
-	var result service.RunResult
+	var result service.RunResponse
 	_ = json.Unmarshal(body, &result)
 	if status != http.StatusOK || result.FinalText != "echo: hi" || result.SessionID != id || result.Agent != "echo" {
 		t.Fatalf("run = %d %+v", status, result)
@@ -271,7 +271,7 @@ func TestStreamRunSSE(t *testing.T) {
 	if slices.Contains(events, "session_saved") || slices.Contains(events, "session_loaded") {
 		t.Fatalf("a Run's stream carries Instance Events: %v", events)
 	}
-	var result service.RunResult
+	var result service.RunResponse
 	if err := json.Unmarshal([]byte(resultLine), &result); err != nil || result.Result.Status != gotato.RunCompleted {
 		t.Fatalf("result = %s err=%v", resultLine, err)
 	}
@@ -382,14 +382,14 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full at /var/secret/path")
 	}

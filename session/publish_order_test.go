@@ -17,7 +17,7 @@ func TestPublisherSeesEventsInWriteOrder(t *testing.T) {
 	store := session.NewMemoryStore()
 	var mu sync.Mutex
 	var numbers []uint64
-	writer, err := session.Create(ctx, store, session.New(session.WithID("order")), "instance-a", session.WithPublisher(func(e gotato.Event) {
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("order")), "instance-a", session.WithPublisher(func(e gotato.Event) {
 		mu.Lock()
 		numbers = append(numbers, e.Head().Number)
 		mu.Unlock()

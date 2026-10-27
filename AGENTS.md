@@ -49,7 +49,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | A constant is prefixed with the name of its type | `RunStatusRunning`, `ToolEffectRead` |
 | A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `session.WriterOption` |
 | `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gateway.LoadYAML(path)`, `session.FromDocument(doc)` |
-| A boolean method is the adjective, with no `Is` | `Retryable()`, `Durable()` |
+| A boolean method is the adjective with no `Is` (`Retryable()`, `Durable()`); a noun keeps `Is` (`IsCheckpoint()`), as the standard library does | `Durable()`, `IsCheckpoint()` |
 | An Event type is a past participle; a stream piece is a `…Delta`, and `ToolProgress` is the one other noun | `RunStarted`, `TextDelta` |
 | A package's main type is built by a bare `New` | `service.New`, `gateway.New` |
 | A package's sentinel errors live in its `errors.go`, in one `var` block; the codes live in `gotato/errors.go` | `service.ErrBusy` in `service/errors.go`, `gotato.CodeBusy` in `gotato/errors.go` |

@@ -129,7 +129,7 @@ func TestACompactionPastTheCeilingWritesTheRecapWithTheModelWhenTheAgentAsks(t *
 	agent := service.Agent{Name: "ops", Model: model, Compact: modelctx.CompactPolicy{Ceiling: 20000, Recap: modelctx.ModelRecap{}}}
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
-	var last service.RunResult
+	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
 		var err error
 		last, err = runner.Run(ctx, service.RunRequest{SessionID: last.SessionID, Prompt: strings.Repeat("word ", 4000)})

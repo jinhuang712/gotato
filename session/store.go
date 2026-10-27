@@ -11,16 +11,16 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// summaryTime is how a Summary writes a time.
-const summaryTime = "2006-01-02T15:04:05.000Z07:00"
+// infoTime is how a RecordInfo writes a time.
+const infoTime = "2006-01-02T15:04:05.000Z07:00"
 
-// Summary is the listing view of a stored Session. A writer passes it with
+// RecordInfo is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
-type Summary struct {
+type RecordInfo struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parent_id,omitempty"`
 	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch). A
-	// store keeps it with the rest of the Summary; Epoch reads it.
+	// store keeps it with the rest of the RecordInfo; Epoch reads it.
 	RecordEpoch string            `json:"record_epoch,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -48,7 +48,7 @@ type Summary struct {
 // Epoch returns the Record's epoch: its own, or for a Record written before
 // epochs, one made of its creation time, which also tells a Record from one
 // created later under the same ID.
-func (s Summary) Epoch() string {
+func (s RecordInfo) Epoch() string {
 	if s.RecordEpoch != "" {
 		return s.RecordEpoch
 	}
@@ -57,7 +57,7 @@ func (s Summary) Epoch() string {
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
 // Checkpoint on, the segment_closed Entries before it, the position of its
-// last Entry, and its Summary.
+// last Entry, and its RecordInfo.
 type Loaded struct {
 	Facts []Entry
 	// Segments are the segment_closed Entries from before the Checkpoint
@@ -65,7 +65,7 @@ type Loaded struct {
 	// number, and these Entries hold their Messages.
 	Segments []Entry
 	Head     uint64
-	Summary  Summary
+	Info     RecordInfo
 }
 
 // InstanceRow is one Instance's Liveness row.
@@ -98,15 +98,15 @@ type InstanceState struct {
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
 	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is taken.
-	Create(ctx context.Context, id string, entries []Entry, summary Summary) error
-	// Append writes entries at after+1 onward and replaces the Summary. The
-	// Summary names the epoch of the Record the writer loaded
-	// (Summary.Epoch). It fails with ErrNotFound for an unknown or deleted
-	// Record, and for a Record whose epoch is not the Summary's: the Record
+	Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error
+	// Append writes entries at after+1 onward and replaces the RecordInfo. The
+	// RecordInfo names the epoch of the Record the writer loaded
+	// (RecordInfo.Epoch). It fails with ErrNotFound for an unknown or deleted
+	// Record, and for a Record whose epoch is not the RecordInfo's: the Record
 	// was deleted and created again under the ID, and its writer is of the
 	// old one. That is checked before the position. It fails with ErrConflict
 	// unless after is the Record's last position.
-	Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error
+	Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error
 	// Load returns the facts from the last Checkpoint on, and the
 	// segment_closed Entries before it (Loaded.Segments), which that
 	// Checkpoint may list by number. An adapter reads the Entry's Kind for
@@ -115,7 +115,7 @@ type Store interface {
 	// Log returns every Entry, facts and log, after position after, in order.
 	Log(ctx context.Context, id string, after uint64) ([]Entry, error)
 	// List returns the Summaries, the most recently updated first.
-	List(ctx context.Context) ([]Summary, error)
+	List(ctx context.Context) ([]RecordInfo, error)
 	// Delete removes a Record. A writer that appends to it afterwards gets
 	// ErrNotFound.
 	Delete(ctx context.Context, id string) error
@@ -182,35 +182,35 @@ func loadedFrom(entries []Entry) (facts, segments []Entry) {
 	return facts, segments
 }
 
-// SummaryOf builds the listing view of a Session.
-func SummaryOf(s *Record) Summary { return s.Summary() }
+// InfoOf builds the listing view of a Session.
+func InfoOf(s *Record) RecordInfo { return s.Info() }
 
-// Summary returns the listing view without copying Messages or Events.
-func (s *Record) Summary() Summary {
+// Info returns the listing view without copying Messages or Events.
+func (s *Record) Info() RecordInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.summaryLocked()
+	return s.infoLocked()
 }
 
-func (s *Record) summaryLocked() Summary {
-	summary := summaryOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
+func (s *Record) infoLocked() RecordInfo {
+	summary := infoOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
 	summary.RecordEpoch = s.epochLocked()
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy
 	summary.Notices = slices.Clone(s.notices)
 	if !s.lastRunEnd.IsZero() {
-		summary.LastRunEnd = s.lastRunEnd.Format(summaryTime)
+		summary.LastRunEnd = s.lastRunEnd.Format(infoTime)
 	}
 	return summary
 }
 
-func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs int, usage gotato.Usage, metadata map[string]string) Summary {
-	return Summary{
+func infoOf(id, parentID string, createdAt, updatedAt time.Time, messages, runs int, usage gotato.Usage, metadata map[string]string) RecordInfo {
+	return RecordInfo{
 		ID:        id,
 		ParentID:  parentID,
-		CreatedAt: createdAt.Format(summaryTime),
-		UpdatedAt: updatedAt.Format(summaryTime),
+		CreatedAt: createdAt.Format(infoTime),
+		UpdatedAt: updatedAt.Format(infoTime),
 		Messages:  messages,
 		Runs:      runs,
 		Usage:     usage,
@@ -218,7 +218,7 @@ func summaryOf(id, parentID string, createdAt, updatedAt time.Time, messages, ru
 	}
 }
 
-func sortSummaries(out []Summary) {
+func sortInfos(out []RecordInfo) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt == out[j].UpdatedAt {
 			return out[i].ID < out[j].ID

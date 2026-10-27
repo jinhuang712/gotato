@@ -49,7 +49,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.Create(ctx, store, session.New(session.WithID("seg-1")), "instance-a")
+			writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("seg-1")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,7 +128,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 	for name, store := range segmentStores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			writer, err := session.Create(ctx, store, session.New(session.WithID("seg-2")), "instance-a")
+			writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("seg-2")), "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,7 +197,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(session.WithID("pos-1")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("pos-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestCheckpointSegmentsRefusesWhatIsNotClosed(t *testing.T) {
 func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(session.WithID("seg-3")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("seg-3")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			if parent.Segments()[0].Source.SessionID != "" {
 				t.Fatal("forking changed the parent's Segment")
 			}
-			writer, err := session.Create(ctx, store, child, "instance-a")
+			writer, err := session.CreateWriter(ctx, store, child, "instance-a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -360,7 +360,7 @@ func TestADocumentKeepsSegments(t *testing.T) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	back, err := session.Load(doc)
+	back, err := session.FromDocument(doc)
 	if err != nil {
 		t.Fatal(err)
 	}

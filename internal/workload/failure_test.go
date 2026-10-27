@@ -181,11 +181,11 @@ func (s *flakyStore) write(ctx context.Context, id string, do func() error) erro
 	return nil
 }
 
-func (s *flakyStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *flakyStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	return s.write(ctx, id, func() error { return s.Store.Create(ctx, id, entries, summary) })
 }
 
-func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *flakyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	return s.write(ctx, id, func() error { return s.Store.Append(ctx, id, after, entries, summary) })
 }
 
@@ -230,12 +230,12 @@ func (r *rig) load(id string) []gotato.Message {
 }
 
 type outcome struct {
-	res service.RunResult
+	res service.RunResponse
 	err error
 }
 
 // settled runs a request and fails the test if the Run does not return.
-func (r *rig) settled(request service.RunRequest) (service.RunResult, error) {
+func (r *rig) settled(request service.RunRequest) (service.RunResponse, error) {
 	r.t.Helper()
 	done := make(chan outcome, 1)
 	go func() {
@@ -247,13 +247,13 @@ func (r *rig) settled(request service.RunRequest) (service.RunResult, error) {
 		return o.res, o.err
 	case <-time.After(10 * time.Second):
 		r.t.Fatal("the Run did not settle")
-		return service.RunResult{}, nil
+		return service.RunResponse{}, nil
 	}
 }
 
 // wantSettled checks that a Run that met a fault ended with a status that is
 // not "running", and with a cause unless it completed.
-func wantSettled(t *testing.T, res service.RunResult, want gotato.RunStatus) {
+func wantSettled(t *testing.T, res service.RunResponse, want gotato.RunStatus) {
 	t.Helper()
 	got := res.Result.Status
 	if got == "" || got == gotato.RunRunning {
@@ -491,7 +491,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		// The sink is stuck; the Run must still settle and be saved.
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			view, err := r.runner.Session(ctx, id)
+			view, err := r.runner.Record(ctx, id)
 			if err != nil {
 				t.Fatal(err)
 			}

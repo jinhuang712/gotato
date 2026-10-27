@@ -217,7 +217,7 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 	mark := r.streamMark()
 	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
 	options = append([]session.WriterOption{session.WithGuard(r.guard), session.WithPublisher(publish)}, options...)
-	writer, err := session.Create(ctx, r.store, s, r.instance, options...)
+	writer, err := session.CreateWriter(ctx, r.store, s, r.instance, options...)
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}

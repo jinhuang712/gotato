@@ -157,7 +157,7 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, "slow", nil)
 
-	firstDone := make(chan service.RunResult, 1)
+	firstDone := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"})
 		firstDone <- result
@@ -270,7 +270,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
 	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 20000}})
 	ctx := context.Background()
-	var last service.RunResult
+	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
 		var err error
 		// A prompt past 2K tokens is cut in a Segment, so a compaction shrinks it.
@@ -303,7 +303,7 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
-	queued := make(chan service.RunResult, 1)
+	queued := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
 		queued <- result
@@ -351,7 +351,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
 	waitFor(t, func() bool { return model.Calls() == 1 })
 
-	queued := make(chan service.RunResult, 1)
+	queued := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
 		queued <- result
@@ -385,7 +385,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	runner, store := newRunner(t, service.Agent{Name: "slow", Model: model})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 		done <- result
@@ -433,14 +433,14 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	return false
 }
 
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
 	return s.Store.Create(ctx, id, entries, summary)
 }
 
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	if s.fail(entries) {
 		return errors.New("store: disk full")
 	}
@@ -797,7 +797,7 @@ type createErrorStore struct {
 	err    error
 }
 
-func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *createErrorStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	if id == s.failID {
 		return s.err
 	}
@@ -1057,7 +1057,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := make(chan gotato.RunID, 1)
-	done := make(chan service.RunResult, 1)
+	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}, func(event gotato.Event) error {
 			if event.Kind() == gotato.KindRunStarted {

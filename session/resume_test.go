@@ -15,7 +15,7 @@ import (
 func TestResumeClaimsAReleasedRecordAgainWhileItsHeadIsCurrent(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +40,8 @@ func TestResumeClaimsAReleasedRecordAgainWhileItsHeadIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Head != writer.Record().Head() || loaded.Summary.Busy {
-		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Head, loaded.Summary.Busy, writer.Record().Head())
+	if loaded.Head != writer.Record().Head() || loaded.Info.Busy {
+		t.Fatalf("store head %d busy %v, want the copy's head %d, idle", loaded.Head, loaded.Info.Busy, writer.Record().Head())
 	}
 
 	other, err := session.OpenWriter(ctx, store, id, "instance-b")
@@ -65,7 +65,7 @@ func TestResumeClaimsAReleasedRecordAgainWhileItsHeadIsCurrent(t *testing.T) {
 func TestStaleOfADeletedRecordIsNotFound(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(), "instance-a", session.WithIdle())
+	writer, err := session.CreateWriter(ctx, store, session.New(), "instance-a", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}

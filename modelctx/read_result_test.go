@@ -38,7 +38,7 @@ type spillFixture struct {
 func newSpillFixture(t *testing.T, id string) *spillFixture {
 	t.Helper()
 	store := &countingStore{Store: session.NewMemoryStore()}
-	writer, err := session.Create(context.Background(), store, session.New(session.WithID(id)), "instance-a")
+	writer, err := session.CreateWriter(context.Background(), store, session.New(session.WithID(id)), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

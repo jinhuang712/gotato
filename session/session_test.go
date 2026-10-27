@@ -104,7 +104,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	}
 	ctx := context.Background()
 	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
-	writer, err := session.Create(ctx, store, s, "instance-a")
+	writer, err := session.CreateWriter(ctx, store, s, "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestMemoryStore(t *testing.T) {
 	store := session.NewMemoryStore()
 	ctx := context.Background()
 	s := testkit.NewRecord("a", "b")
-	if _, err := session.Create(ctx, store, s, "instance-a"); err != nil {
+	if _, err := session.CreateWriter(ctx, store, s, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := session.Open(ctx, store, s.ID())
@@ -232,7 +232,7 @@ func TestEventLimitZeroKeepsDefault(t *testing.T) {
 }
 
 func TestLoadRejectsFutureSchema(t *testing.T) {
-	_, err := session.Load(session.Document{ID: "x", SchemaVersion: session.SchemaVersion + 1})
+	_, err := session.FromDocument(session.Document{ID: "x", SchemaVersion: session.SchemaVersion + 1})
 	if !gotato.IsCode(err, gotato.CodeNotSupported) {
 		t.Fatalf("err = %v", err)
 	}
@@ -302,7 +302,7 @@ func TestLoadNormalizesAnOverfullDocument(t *testing.T) {
 		events = append(events, gotato.TurnStarted{Header: gotato.Header{Number: uint64(i), Turn: gotato.TurnNumber(i)}})
 	}
 	doc := session.Document{ID: "x", SchemaVersion: session.SchemaVersion, EventLimit: 2, Events: events}
-	s, err := session.Load(doc)
+	s, err := session.FromDocument(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestDocumentRoundTripsTypedEvents(t *testing.T) {
 
 func TestSummaryMetadataIsIsolated(t *testing.T) {
 	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
-	summary := session.SummaryOf(s)
+	summary := session.InfoOf(s)
 	summary.Metadata["app"] = "mutated"
 	if value, _ := s.Get("app"); value != "test" {
 		t.Fatalf("summary metadata aliased the Session: %v", s.Metadata())

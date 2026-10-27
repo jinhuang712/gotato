@@ -22,7 +22,7 @@ type releaseGate struct {
 	once    sync.Once
 }
 
-func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	for _, entry := range entries {
 		if entry.Kind == "session_released" {
 			g.once.Do(func() {

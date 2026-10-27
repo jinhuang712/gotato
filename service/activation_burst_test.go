@@ -18,7 +18,7 @@ type gatedCreate struct {
 	gate chan struct{}
 }
 
-func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.Entry, summary session.Summary) error {
+func (s *gatedCreate) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
 	select {
 	case <-s.gate:
 	case <-ctx.Done():

@@ -71,8 +71,8 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
 		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
 	}
-	if loaded, err := store.Load(ctx, id); err != nil || loaded.Summary.Busy || loaded.Summary.Running != "" {
-		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Summary, err)
+	if loaded, err := store.Load(ctx, id); err != nil || loaded.Info.Busy || loaded.Info.Running != "" {
+		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Info, err)
 	}
 }
 
@@ -215,7 +215,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 		ids[i] = s.ID()
 	}
 	type outcome struct {
-		result   service.RunResult
+		result   service.RunResponse
 		busyLeft []string
 	}
 	outcomes := make(chan outcome, runs)
@@ -229,7 +229,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 			// released.
 			var busy []string
 			for _, id := range ids {
-				if loaded, err := store.Load(ctx, id); err != nil || loaded.Summary.Busy {
+				if loaded, err := store.Load(ctx, id); err != nil || loaded.Info.Busy {
 					busy = append(busy, id)
 				}
 			}

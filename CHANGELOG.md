@@ -6,6 +6,24 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
+### Names follow one set of rules (batch 2)
+
+The rules of [AGENTS.md → Naming](AGENTS.md#naming) applied to names that did not yet follow them: a name is the glossary's, `Load` reads from a store, `Parse` from bytes and `From…` builds from a value in memory. **Breaking**: nothing keeps an old name.
+
+| Before | After |
+|---|---|
+| `service.Runner.Session(ctx, id)` (returns a `*session.Record`) | `service.Runner.Record(ctx, id)` |
+| `session.Summary`, `Record.Summary()`, `session.SummaryOf(r)` | `session.RecordInfo`, `Record.Info()`, `session.InfoOf(r)` |
+| `session.Loaded.Summary` | `session.Loaded.Info` |
+| `session.Run` (the stored per-Run struct) | `session.RunInfo` |
+| `service.RunResult` (the Runner's answer: Session ID, Agent, `gotato.RunResult`, final text, counts) | `service.RunResponse`, pairing with `service.RunRequest`; `gotato.RunResult` keeps its name |
+| `session.Load(doc)` | `session.FromDocument(doc)` |
+| `testkit.LoadReplay(data)` | `testkit.ParseReplay(data)` |
+| `session.Create(ctx, store, r, instance)` (returns a `*Writer`) | `session.CreateWriter(ctx, store, r, instance)`, pairing with `OpenWriter` |
+| `FileStore` batch file `{"entries":[…],"summary":{…}}` | `{"entries":[…],"info":{…}}`; a `FileStore` directory written before this change is not read |
+
+`session.Entry.IsCheckpoint()` keeps its name: "checkpoint" is a noun, and the standard library keeps `Is` for a noun (`fs.FileMode.IsDir`).
+
 ### Names follow one set of rules (batch 1)
 
 [AGENTS.md → Naming](AGENTS.md#naming) fixes the rules exported names follow. This batch applies three of them. **Breaking**: nothing keeps an old name, and no old wire string is accepted.

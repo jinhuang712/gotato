@@ -17,7 +17,7 @@ import (
 func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	created, err := session.Create(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
+	created, err := session.CreateWriter(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 		t.Fatal("a new Record has no epoch")
 	}
 
-	// It is in the first Entry, session_created, and in the Summary.
+	// It is in the first Entry, session_created, and in the RecordInfo.
 	entries, err := store.Log(ctx, "same", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -42,8 +42,8 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 		t.Fatalf("session_created JSON = %s", entries[0].Data)
 	}
 	loaded, err := store.Load(ctx, "same")
-	if err != nil || loaded.Summary.RecordEpoch != epoch || loaded.Summary.Epoch() != epoch {
-		t.Fatalf("Summary epoch = %q, %v; want %q", loaded.Summary.RecordEpoch, err, epoch)
+	if err != nil || loaded.Info.RecordEpoch != epoch || loaded.Info.Epoch() != epoch {
+		t.Fatalf("RecordInfo epoch = %q, %v; want %q", loaded.Info.RecordEpoch, err, epoch)
 	}
 
 	// Another Instance opens it, and writes to it: same epoch.
@@ -73,7 +73,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	if err := store.Delete(ctx, "same"); err != nil {
 		t.Fatal(err)
 	}
-	again, err := session.Create(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
+	again, err := session.CreateWriter(ctx, store, session.New(session.WithID("same")), "a", session.WithIdle())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,19 +88,19 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	}
 }
 
-// A Record written before epochs has none of its own. Its Summary still names
+// A Record written before epochs has none of its own. Its RecordInfo still names
 // one, from its creation time, so a client can tell it from a Record created
 // under the same ID later.
 func TestSummaryEpochFallsBackToTheCreationTime(t *testing.T) {
-	legacy := session.Summary{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z"}
+	legacy := session.RecordInfo{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z"}
 	if legacy.Epoch() == "" {
-		t.Fatal("a Summary without an epoch names none")
+		t.Fatal("a RecordInfo without an epoch names none")
 	}
-	later := session.Summary{ID: "x", CreatedAt: "2026-10-02T00:00:00.000Z"}
+	later := session.RecordInfo{ID: "x", CreatedAt: "2026-10-02T00:00:00.000Z"}
 	if legacy.Epoch() == later.Epoch() {
 		t.Fatal("two creation times share an epoch")
 	}
-	own := session.Summary{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z", RecordEpoch: "abc"}
+	own := session.RecordInfo{ID: "x", CreatedAt: "2026-10-01T00:00:00.000Z", RecordEpoch: "abc"}
 	if own.Epoch() != "abc" {
 		t.Fatalf("Epoch = %q, want its own", own.Epoch())
 	}

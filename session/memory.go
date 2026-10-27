@@ -18,7 +18,7 @@ type MemoryStore struct {
 
 type memoryRecord struct {
 	entries []Entry
-	summary Summary
+	summary RecordInfo
 }
 
 type memoryInstance struct {
@@ -32,7 +32,7 @@ func NewMemoryStore() *MemoryStore {
 }
 
 // Create implements Store.
-func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, summary Summary) error {
+func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -44,12 +44,12 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, su
 	if _, ok := m.records[id]; ok {
 		return ErrExists
 	}
-	m.records[id] = &memoryRecord{entries: cloneEntries(entries), summary: cloneSummary(summary)}
+	m.records[id] = &memoryRecord{entries: cloneEntries(entries), summary: cloneInfo(summary)}
 	return nil
 }
 
 // Append implements Store.
-func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary Summary) error {
+func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entri
 		return ErrConflict
 	}
 	record.entries = append(record.entries, cloneEntries(entries)...)
-	record.summary = cloneSummary(summary)
+	record.summary = cloneInfo(summary)
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 		return Loaded{}, ErrNotFound
 	}
 	facts, segments := loadedFrom(record.entries)
-	return Loaded{Facts: cloneEntries(facts), Segments: cloneEntries(segments), Head: uint64(len(record.entries)), Summary: cloneSummary(record.summary)}, nil
+	return Loaded{Facts: cloneEntries(facts), Segments: cloneEntries(segments), Head: uint64(len(record.entries)), Info: cloneInfo(record.summary)}, nil
 }
 
 // Log implements Store.
@@ -106,17 +106,17 @@ func (m *MemoryStore) Log(ctx context.Context, id string, after uint64) ([]Entry
 }
 
 // List implements Store.
-func (m *MemoryStore) List(ctx context.Context) ([]Summary, error) {
+func (m *MemoryStore) List(ctx context.Context) ([]RecordInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	m.mu.Lock()
-	out := make([]Summary, 0, len(m.records))
+	out := make([]RecordInfo, 0, len(m.records))
 	for _, record := range m.records {
-		out = append(out, cloneSummary(record.summary))
+		out = append(out, cloneInfo(record.summary))
 	}
 	m.mu.Unlock()
-	sortSummaries(out)
+	sortInfos(out)
 	return out, nil
 }
 
@@ -167,7 +167,7 @@ func (m *MemoryStore) Instance(ctx context.Context, id string) (InstanceState, e
 	return InstanceState{ID: id, Alive: m.now().Before(current.expires), Draining: current.row.Draining, Address: current.row.Address}, nil
 }
 
-func cloneSummary(summary Summary) Summary {
+func cloneInfo(summary RecordInfo) RecordInfo {
 	out := summary
 	if summary.Metadata != nil {
 		out.Metadata = make(map[string]string, len(summary.Metadata))

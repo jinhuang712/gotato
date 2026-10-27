@@ -191,7 +191,7 @@ func TestStreamSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Session(ctx, first.SessionID)
+	record, err := a.Record(ctx, first.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -60,7 +60,7 @@ func TestCompactLeavesTheReasoningOutOfTheKeptMessagesWhenAsked(t *testing.T) {
 	for _, drop := range []bool{false, true} {
 		store := session.NewMemoryStore()
 		s := reasoningSession(t)
-		writer, err := session.Create(ctx, store, s, "test")
+		writer, err := session.CreateWriter(ctx, store, s, "test")
 		if err != nil {
 			t.Fatal(err)
 		}

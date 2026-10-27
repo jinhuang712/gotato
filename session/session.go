@@ -42,9 +42,9 @@ const SchemaVersion = 1
 // store keeps every Event.
 const defaultEventLimit = 1000
 
-// Run is the per-Run record kept in a Record: what its RunStarted and RunEnded
+// RunInfo is the per-RunInfo record kept in a Record: what its RunStarted and RunEnded
 // Events say.
-type Run struct {
+type RunInfo struct {
 	RunID      gotato.RunID     `json:"run_id"`
 	Status     gotato.RunStatus `json:"status"`
 	Error      string           `json:"error,omitempty"`
@@ -56,7 +56,7 @@ type Run struct {
 	StopReason string           `json:"stop_reason,omitempty"`
 }
 
-// Document is the serializable form of a Record. Snapshot and Load convert to
+// Document is the serializable form of a Record. Snapshot and FromDocument convert to
 // and from a Record. A document of an earlier version holds the Events of its
 // time; they are not read again.
 type Document struct {
@@ -68,7 +68,7 @@ type Document struct {
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	Messages    []gotato.Message  `json:"messages"`
-	Runs        []Run             `json:"runs,omitempty"`
+	Runs        []RunInfo         `json:"runs,omitempty"`
 	Events      []gotato.Event    `json:"events,omitempty"`
 	Usage       gotato.Usage      `json:"usage"`
 	Compactions []Compaction      `json:"compactions,omitempty"`
@@ -135,7 +135,7 @@ type Record struct {
 	createdAt time.Time
 	updatedAt time.Time
 	messages  []gotato.Message
-	runs      []Run
+	runs      []RunInfo
 	// events is the window of stored Events the Record keeps in memory, in a
 	// ring once it is full: eventHead is the position of the oldest Event.
 	events      []gotato.Event
@@ -179,10 +179,10 @@ type Record struct {
 	running gotato.RunID
 	busy    bool
 	// notices are the notices queued and neither committed nor dropped; the
-	// Summary keeps them, so a Record loaded from its facts knows them too.
+	// RecordInfo keeps them, so a Record loaded from its facts knows them too.
 	notices []gotato.PendingNotice
 	// lastRunEnd is when the last Run that ended did; it is kept in the
-	// Summary, so a Record loaded from its facts knows it too.
+	// RecordInfo, so a Record loaded from its facts knows it too.
 	lastRunEnd time.Time
 	baseRuns   int
 	// started and openParts hold, while a log is read, the Tool calls that
@@ -251,7 +251,7 @@ func newEpoch() string {
 // Event's number means the same Event only within one epoch, so a client that
 // resumes a stream from a number sends the epoch it saw. A Record written
 // before epochs has none of its own: it reports one made of its creation
-// time, the same as Summary.Epoch.
+// time, the same as RecordInfo.Epoch.
 func (s *Record) RecordEpoch() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -269,13 +269,13 @@ func (s *Record) Holder() (claim Claim, busy bool) {
 }
 
 // epochLocked is the epoch every surface reports: the Record's own, or for a
-// Record written before epochs the one Summary.Epoch names, made of its
+// Record written before epochs the one RecordInfo.Epoch names, made of its
 // creation time.
 func (s *Record) epochLocked() string {
 	if s.epoch != "" {
 		return s.epoch
 	}
-	return "created-" + s.createdAt.Format(summaryTime)
+	return "created-" + s.createdAt.Format(infoTime)
 }
 
 // NewID returns a random, restart-safe identifier.
@@ -287,8 +287,8 @@ func NewID() string {
 	return hex.EncodeToString(buf[:])
 }
 
-// Load rebuilds a Record from a persisted Document.
-func Load(doc Document) (*Record, error) {
+// FromDocument rebuilds a Record from a persisted Document.
+func FromDocument(doc Document) (*Record, error) {
 	if doc.SchemaVersion == 0 {
 		doc.SchemaVersion = SchemaVersion
 	}
@@ -538,12 +538,12 @@ func (s *Record) SetLoadedTools(ids []string) {
 	s.loaded = slices.Clone(ids)
 }
 
-func runStarted(e gotato.RunStarted) Run {
-	return Run{RunID: e.RunID, Status: gotato.RunRunning, StartedAt: e.Time.UTC()}
+func runStarted(e gotato.RunStarted) RunInfo {
+	return RunInfo{RunID: e.RunID, Status: gotato.RunRunning, StartedAt: e.Time.UTC()}
 }
 
-func runEnded(e gotato.RunEnded) Run {
-	return Run{
+func runEnded(e gotato.RunEnded) RunInfo {
+	return RunInfo{
 		RunID: e.RunID, Status: e.Status, Error: string(e.Cause), StopReason: e.StopReason,
 		EndedAt: e.Time.UTC(), Turns: e.Turns, ToolCalls: e.ToolCalls, Usage: e.Usage,
 	}
@@ -581,7 +581,7 @@ func (s *Record) foldNotice(event gotato.Event) {
 
 // LastRunEnd returns when the last Run that ended did: the Session's last busy
 // time. It is the zero time when no Run has ended. A Record loaded from its
-// facts reads it from the Summary, so it does not need the log.
+// facts reads it from the RecordInfo, so it does not need the log.
 func (s *Record) LastRunEnd() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -589,7 +589,7 @@ func (s *Record) LastRunEnd() time.Time {
 }
 
 // Runs returns the Run records.
-func (s *Record) Runs() []Run {
+func (s *Record) Runs() []RunInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.runs)
@@ -598,7 +598,7 @@ func (s *Record) Runs() []Run {
 // endRun finalizes the Run record with run's RunID, or adds run when there is
 // none, adds its usage to the Record's, and returns the final Run. The caller
 // holds the lock.
-func (s *Record) endRun(run Run) Run {
+func (s *Record) endRun(run RunInfo) RunInfo {
 	found := false
 	for i := len(s.runs) - 1; i >= 0; i-- {
 		if s.runs[i].RunID != run.RunID {

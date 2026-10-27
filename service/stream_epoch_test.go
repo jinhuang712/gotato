@@ -193,7 +193,7 @@ func TestNewStreamIsNotHeldBackByAStreamOfTheOldRecord(t *testing.T) {
 	if _, err := a.Run(ctx, service.RunRequest{SessionID: id, Prompt: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := a.Session(ctx, id)
+	record, err := a.Record(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}

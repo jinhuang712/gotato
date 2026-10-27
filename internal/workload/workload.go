@@ -535,7 +535,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			continue
 		}
 		s := session.New(session.WithMetadata(final.Metadata()), session.WithMessages(messages[:b.messages]...), reftasks.WithLoadedToolsOf(messages[:b.messages]))
-		if _, err := session.Create(ctx, store, s, inspector.Instance()); err != nil {
+		if _, err := session.CreateWriter(ctx, store, s, inspector.Instance()); err != nil {
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}
@@ -551,7 +551,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 }
 
 // runFailure attributes a Run that did not complete.
-func runFailure(result service.RunResult, err error) (failure, bool) {
+func runFailure(result service.RunResponse, err error) (failure, bool) {
 	switch {
 	case errors.Is(err, service.ErrNotPersisted):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_persisted", message: err.Error()}, true

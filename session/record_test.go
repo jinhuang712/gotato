@@ -98,7 +98,7 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(session.WithID("cp-1")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("cp-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.M
 func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
-	writer, err := session.Create(ctx, store, session.New(session.WithID("cmp-1")), "instance-a")
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("cmp-1")), "instance-a")
 	if err != nil {
 		t.Fatal(err)
 	}

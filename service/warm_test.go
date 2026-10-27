@@ -116,7 +116,7 @@ func (s *tallyStore) Load(ctx context.Context, id string) (session.Loaded, error
 	return s.Store.Load(ctx, id)
 }
 
-func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
+func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
 	s.mu.Lock()
 	s.appends++
 	fail := false
@@ -178,7 +178,7 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	return runner
 }
 
-func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunResult {
+func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunResponse {
 	t.Helper()
 	result, err := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt})
 	if err != nil || result.Result.Status != gotato.RunCompleted {
@@ -537,7 +537,7 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 				if count(kinds, gotato.KindCompactionEnded) != 1 || count(kinds, gotato.KindSegmentClosed) != 1 {
 					t.Fatalf("after its idle lead the Session wrote %v, want one compaction with a Segment", kinds)
 				}
-				record, err := runner.Session(context.Background(), first.SessionID)
+				record, err := runner.Record(context.Background(), first.SessionID)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -49,7 +49,7 @@ type check struct {
 var checks = []check{
 	{"create then load", checkCreateLoad},
 	{"create twice", checkCreateTwice},
-	{"the summary keeps pending notices and the last run end", checkSummaryNotices},
+	{"the summary keeps pending notices and the last run end", checkInfoNotices},
 	{"append continues the log", checkAppend},
 	{"load starts at the last checkpoint", checkLastCheckpoint},
 	{"a load returns the segments stored before the last checkpoint", checkSegments},
@@ -133,8 +133,8 @@ func logEntry(seq uint64, writer string) session.Entry {
 	return entry(seq, gotato.KindTurnStarted, session.LayerLog, writer)
 }
 
-func summary(id string, seq uint64, updated string) session.Summary {
-	return session.Summary{ID: id, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: updated, Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
+func summary(id string, seq uint64, updated string) session.RecordInfo {
+	return session.RecordInfo{ID: id, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: updated, Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
 }
 
 func seqs(entries []session.Entry) []uint64 {
@@ -178,8 +178,8 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 	if err := sameEntries(loaded.Facts, entries[:2]); err != nil {
 		return fmt.Errorf("load returns the facts only, unchanged: %w", err)
 	}
-	if loaded.Head != 3 || loaded.Summary.Seq != 3 || loaded.Summary.Metadata["k"] != "v" {
-		return fmt.Errorf("load = head %d, summary %+v; want head 3 and the summary written", loaded.Head, loaded.Summary)
+	if loaded.Head != 3 || loaded.Info.Seq != 3 || loaded.Info.Metadata["k"] != "v" {
+		return fmt.Errorf("load = head %d, summary %+v; want head 3 and the summary written", loaded.Head, loaded.Info)
 	}
 	all, err := open().Log(ctx, "r1", 0)
 	if err != nil {
@@ -188,11 +188,11 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 	return sameEntries(all, entries)
 }
 
-// checkSummaryNotices proves a store keeps the whole Summary: the notices that
+// checkInfoNotices proves a store keeps the whole RecordInfo: the notices that
 // wait for the next Run and the end of the last Run survive Create, Append, Load
-// and List, so an adapter that copies Summary field by field fails here and not
+// and List, so an adapter that copies RecordInfo field by field fails here and not
 // by losing a notice in production.
-func checkSummaryNotices(ctx context.Context, open Open) error {
+func checkInfoNotices(ctx context.Context, open Open) error {
 	store := open()
 	pending := func(n uint64, text string) gotato.PendingNotice {
 		return gotato.PendingNotice{MessageID: gotato.MessageID(fmt.Sprintf("m%d", n)), Kind: "order_update", Source: gotato.NoticeFromService, Text: text, Number: n}
@@ -203,7 +203,7 @@ func checkSummaryNotices(ctx context.Context, open Open) error {
 	if err := store.Create(ctx, "r1", []session.Entry{checkpoint(1, "a"), fact(2, "a"), logEntry(3, "a")}, first); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	same := func(got session.Summary, want session.Summary, step string) error {
+	same := func(got session.RecordInfo, want session.RecordInfo, step string) error {
 		if got.LastRunEnd != want.LastRunEnd || len(got.Notices) != len(want.Notices) {
 			return fmt.Errorf("%s: summary has last_run_end %q and notices %+v, want %q and %+v", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
 		}
@@ -218,7 +218,7 @@ func checkSummaryNotices(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if err := same(loaded.Summary, first, "after Create, Load"); err != nil {
+	if err := same(loaded.Info, first, "after Create, Load"); err != nil {
 		return err
 	}
 	second := summary("r1", 4, "2026-10-17T00:00:04.000Z")
@@ -231,7 +231,7 @@ func checkSummaryNotices(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if err := same(loaded.Summary, second, "after Append, Load"); err != nil {
+	if err := same(loaded.Info, second, "after Append, Load"); err != nil {
 		return err
 	}
 	list, err := open().List(ctx)
@@ -280,8 +280,8 @@ func checkAppend(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if loaded.Head != 5 || loaded.Summary.Seq != 5 {
-		return fmt.Errorf("load after Append = head %d, summary seq %d; want 5", loaded.Head, loaded.Summary.Seq)
+	if loaded.Head != 5 || loaded.Info.Seq != 5 {
+		return fmt.Errorf("load after Append = head %d, summary seq %d; want 5", loaded.Head, loaded.Info.Seq)
 	}
 	return sameEntries(loaded.Facts, []session.Entry{all[0], all[1], all[3]})
 }
@@ -455,10 +455,10 @@ func checkRace(ctx context.Context, open Open) error {
 	return sameEntries(got, []session.Entry{fact(4, writer), fact(5, writer)})
 }
 
-// checkRecordEpoch: a store keeps Summary.RecordEpoch with the rest of the
-// Summary, from Create through Append, and returns it from Load and List. A
+// checkRecordEpoch: a store keeps RecordInfo.RecordEpoch with the rest of the
+// RecordInfo, from Create through Append, and returns it from Load and List. A
 // store that drops it would give a Record one epoch in its Entries and another
-// in its Summary, and every stream resume would be refused.
+// in its RecordInfo, and every stream resume would be refused.
 func checkRecordEpoch(ctx context.Context, open Open) error {
 	store := open()
 	first := summary("epoch", 1, "2026-10-17T00:00:01.000Z")
@@ -470,8 +470,8 @@ func checkRecordEpoch(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if loaded.Summary.RecordEpoch != "epoch-1" {
-		return fmt.Errorf("load after create returns record epoch %q, want %q", loaded.Summary.RecordEpoch, "epoch-1")
+	if loaded.Info.RecordEpoch != "epoch-1" {
+		return fmt.Errorf("load after create returns record epoch %q, want %q", loaded.Info.RecordEpoch, "epoch-1")
 	}
 	next := summary("epoch", 2, "2026-10-17T00:00:02.000Z")
 	next.RecordEpoch = "epoch-1"
@@ -479,8 +479,8 @@ func checkRecordEpoch(ctx context.Context, open Open) error {
 		return fmt.Errorf("append: %w", err)
 	}
 	loaded, err = open().Load(ctx, "epoch")
-	if err != nil || loaded.Summary.RecordEpoch != "epoch-1" {
-		return fmt.Errorf("load after append returns record epoch %q (%v), want %q", loaded.Summary.RecordEpoch, err, "epoch-1")
+	if err != nil || loaded.Info.RecordEpoch != "epoch-1" {
+		return fmt.Errorf("load after append returns record epoch %q (%v), want %q", loaded.Info.RecordEpoch, err, "epoch-1")
 	}
 	list, err := open().List(ctx)
 	if err != nil {
@@ -539,12 +539,12 @@ func checkDelete(ctx context.Context, open Open) error {
 	return nil
 }
 
-// checkDeletedWriter holds a store to the epoch in Append's Summary: a writer
+// checkDeletedWriter holds a store to the epoch in Append's RecordInfo: a writer
 // of a Record that was deleted and created again under the same ID gets
 // ErrNotFound, whether or not the new Record is as long as the old one was,
 // and the new Record is left as it was.
 func checkDeletedWriter(ctx context.Context, open Open) error {
-	withEpoch := func(s session.Summary, epoch string) session.Summary {
+	withEpoch := func(s session.RecordInfo, epoch string) session.RecordInfo {
 		s.RecordEpoch = epoch
 		return s
 	}
@@ -572,8 +572,8 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 		return fmt.Errorf("an append of the deleted record, at the new record's length = %v, want ErrNotFound", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
-	if err != nil || loaded.Head != 4 || loaded.Summary.Epoch() != "epoch-new" {
-		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Summary.Epoch(), err)
+	if err != nil || loaded.Head != 4 || loaded.Info.Epoch() != "epoch-new" {
+		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Info.Epoch(), err)
 	}
 
 	// The new Record is longer, written as one batch that covers the
