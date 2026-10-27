@@ -426,6 +426,8 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 		}
 	}
 	_ = live.Close(context.Background())
+	// End is idempotent: here it lets the stream finish before the save, and
+	// serve's deferred call covers the returns that never get this far.
 	if st.stream != nil && st.stream.sub != nil {
 		st.stream.sub.End()
 	}
@@ -492,7 +494,7 @@ func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, r
 // it opened.
 func (st *runState) abandon(runCtx context.Context, err error) error {
 	if st.writer != nil {
-		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+		releaseCtx, cancelRelease := persistContext(runCtx)
 		_ = st.writer.Release(releaseCtx)
 		cancelRelease()
 	}
@@ -587,7 +589,7 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 	// Bound the write so a stalled Store cannot pin the Run (and Drain)
 	// forever.
 	wroteAll := writer.Failed() == nil
-	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(runCtx), persistTimeout)
+	saveCtx, cancelSave := persistContext(runCtx)
 	saveErr := writer.Release(saveCtx)
 	cancelSave()
 	r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(st.saved), saveErr), spec.Name)
@@ -668,7 +670,7 @@ func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result got
 // so it does not leave an empty Session behind. A failed cleanup is reported,
 // not discarded.
 func (st *runState) cleanupUnstarted(ctx context.Context, lockErr error) error {
-	deleteCtx, cancelDelete := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	deleteCtx, cancelDelete := persistContext(ctx)
 	deleteErr := st.r.store.Delete(deleteCtx, st.sessionID)
 	cancelDelete()
 	if deleteErr != nil {

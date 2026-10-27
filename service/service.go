@@ -43,6 +43,13 @@ import (
 // stalled Store cannot pin a settled Run.
 const persistTimeout = 10 * time.Second
 
+// persistContext returns a context for a write that must happen even when ctx
+// is canceled: it keeps ctx's values, drops its cancellation, and ends after
+// persistTimeout.
+func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+}
+
 // DefaultRunTimeout is how long a Run of an Agent may last when neither the
 // Agent's RunTimeout nor the request's Timeout says otherwise.
 const DefaultRunTimeout = 30 * time.Minute

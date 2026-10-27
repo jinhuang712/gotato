@@ -400,7 +400,7 @@ func (r *Runner) idleCompact(entry *warmEntry, why gotato.CompactionWhy) {
 	}
 	// The result needs no report: the compaction's Events say what it did.
 	_, _ = modelctx.Compact(ctx, record, opts)
-	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := writer.Release(saveCtx)
 	cancelSave()
 	if releaseErr != nil || writer.Failed() != nil {
