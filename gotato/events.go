@@ -43,16 +43,16 @@ func (k EventKind) Class() EventClass { return eventClasses[k] }
 type EventClass string
 
 const (
-	// ClassStored Events are Entries of the Session's Record. Their Number is
+	// EventClassStored Events are Entries of the Session's Record. Their Number is
 	// the Entry's position, so every Instance reads the same number.
-	ClassStored EventClass = "stored"
-	// ClassDelta Events are sent and never stored: text, reasoning and tool
+	EventClassStored EventClass = "stored"
+	// EventClassDelta Events are sent and never stored: text, reasoning and tool
 	// progress. What they carry ends up whole in a Message or a Tool Result.
-	ClassDelta EventClass = "delta"
-	// ClassInstance Events happen where no Record can take them, because the
+	EventClassDelta EventClass = "delta"
+	// EventClassInstance Events happen where no Record can take them, because the
 	// Instance holds no Claim on the Session. They go only to that Instance's
 	// subscribers, and carry no number.
-	ClassInstance EventClass = "instance"
+	EventClassInstance EventClass = "instance"
 )
 
 // Header is what every Event carries: when it happened and the Session it
@@ -183,46 +183,46 @@ func (e UnknownEvent) MarshalJSON() ([]byte, error) {
 type ClaimWhy string
 
 const (
-	// ClaimNewSession: the Instance created the Session.
-	ClaimNewSession ClaimWhy = "new_session"
-	// ClaimIdle: the Session was idle, released by its last Writer.
-	ClaimIdle ClaimWhy = "idle"
-	// ClaimWriterGone: its Writer's Liveness row was no longer alive.
-	ClaimWriterGone ClaimWhy = "writer_gone"
-	// ClaimWaited: the Instance waited for its Writer to finish first.
-	ClaimWaited ClaimWhy = "waited"
+	// ClaimWhyNewSession: the Instance created the Session.
+	ClaimWhyNewSession ClaimWhy = "new_session"
+	// ClaimWhyIdle: the Session was idle, released by its last Writer.
+	ClaimWhyIdle ClaimWhy = "idle"
+	// ClaimWhyWriterGone: its Writer's Liveness row was no longer alive.
+	ClaimWhyWriterGone ClaimWhy = "writer_gone"
+	// ClaimWhyWaited: the Instance waited for its Writer to finish first.
+	ClaimWhyWaited ClaimWhy = "waited"
 )
 
 // CompactionWhy says why a compaction ran.
 type CompactionWhy string
 
 const (
-	CompactionOnDemand     CompactionWhy = "on_demand"
-	CompactionPastCeiling  CompactionWhy = "past_ceiling"
-	CompactionBeforeUnload CompactionWhy = "before_unload"
-	// CompactionBeforeCacheExpires: the Session was idle, and was compacted
+	CompactionWhyOnDemand     CompactionWhy = "on_demand"
+	CompactionWhyPastCeiling  CompactionWhy = "past_ceiling"
+	CompactionWhyBeforeUnload CompactionWhy = "before_unload"
+	// CompactionWhyBeforeCacheExpires: the Session was idle, and was compacted
 	// shortly before the provider's prompt cache expired.
-	CompactionBeforeCacheExpires CompactionWhy = "before_cache_expires"
-	// CompactionOverflow: the provider refused a request as too long.
-	CompactionOverflow CompactionWhy = "overflow"
-	// CompactionPastBudget: the Segments together passed their budget, and
+	CompactionWhyBeforeCacheExpires CompactionWhy = "before_cache_expires"
+	// CompactionWhyOverflow: the provider refused a request as too long.
+	CompactionWhyOverflow CompactionWhy = "overflow"
+	// CompactionWhyPastBudget: the Segments together passed their budget, and
 	// the oldest were merged with no Segment closed.
-	CompactionPastBudget CompactionWhy = "past_budget"
+	CompactionWhyPastBudget CompactionWhy = "past_budget"
 )
 
 // MessageSource says where a user Message came from.
 type MessageSource string
 
 const (
-	SourcePrompt   MessageSource = "prompt"
-	SourceSteer    MessageSource = "steer"
-	SourceFollowUp MessageSource = "follow_up"
-	// SourceInterrupt is a Message that cut the model call in flight short
+	MessageSourcePrompt   MessageSource = "prompt"
+	MessageSourceSteer    MessageSource = "steer"
+	MessageSourceFollowUp MessageSource = "follow_up"
+	// MessageSourceInterrupt is a Message that cut the model call in flight short
 	// and started the next Turn of the same Run.
-	SourceInterrupt MessageSource = "interrupt"
-	// SourceNotice is a notice (G-F29): in message_dropped and
+	MessageSourceInterrupt MessageSource = "interrupt"
+	// MessageSourceNotice is a notice (G-F29): in message_dropped and
 	// message_rejected it says what kind of message was dropped or refused.
-	SourceNotice MessageSource = "notice"
+	MessageSourceNotice MessageSource = "notice"
 )
 
 // Compaction records one replacement of a Message prefix by a summary, so an
@@ -454,12 +454,12 @@ type ToolLoadedWhy string
 
 // Why a Tool is loaded.
 const (
-	// ToolLoadedNames: search_tools was given the Tool's name.
-	ToolLoadedNames ToolLoadedWhy = "names"
-	// ToolLoadedQuery: a search of search_tools found the Tool among its top matches.
-	ToolLoadedQuery ToolLoadedWhy = "query"
-	// ToolLoadedCall: the model called a catalog Tool it had not loaded.
-	ToolLoadedCall ToolLoadedWhy = "call"
+	// ToolLoadedWhyNames: search_tools was given the Tool's name.
+	ToolLoadedWhyNames ToolLoadedWhy = "names"
+	// ToolLoadedWhyQuery: a search of search_tools found the Tool among its top matches.
+	ToolLoadedWhyQuery ToolLoadedWhy = "query"
+	// ToolLoadedWhyCall: the model called a catalog Tool it had not loaded.
+	ToolLoadedWhyCall ToolLoadedWhy = "call"
 )
 
 // ToolLoaded: a catalog Tool is loaded, so the model is offered it. It is a
@@ -475,13 +475,13 @@ type ToolLoaded struct {
 // ToolUnloadedWhy says why a Tool was unloaded.
 type ToolUnloadedWhy string
 
-// ToolUnloadedCompaction: a compaction closed a Segment that did not call the
+// ToolUnloadedWhyCompaction: a compaction closed a Segment that did not call the
 // Tool, and the kept tail does not call it either.
-const ToolUnloadedCompaction ToolUnloadedWhy = "compaction"
+const ToolUnloadedWhyCompaction ToolUnloadedWhy = "compaction"
 
-// ToolUnloadedGone: the Tool's ToolSet answered at the start of a Run and no
+// ToolUnloadedWhyGone: the Tool's ToolSet answered at the start of a Run and no
 // longer carries the Tool.
-const ToolUnloadedGone ToolUnloadedWhy = "gone"
+const ToolUnloadedWhyGone ToolUnloadedWhy = "gone"
 
 // ToolUnloaded: a loaded Tool is no longer offered. It is a fact of the
 // Session, like ToolLoaded.

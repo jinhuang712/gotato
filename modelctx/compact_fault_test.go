@@ -63,7 +63,7 @@ func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 		}
 	}
 	n := len(kinds)
-	if n < 2 || kinds[n-2] != gotato.KindCompactionStarted || kinds[n-1] != gotato.KindCompactionFailed || failed.Cause != gotato.CodeStoreFailure {
+	if n < 2 || kinds[n-2] != gotato.EventKindCompactionStarted || kinds[n-1] != gotato.EventKindCompactionFailed || failed.Cause != gotato.CodeStoreFailure {
 		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
 	}
 }
@@ -100,7 +100,7 @@ func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the Run failed with its compaction: %v", err)
 	}
-	if result.Status != gotato.RunCompleted || result.FinalMessage == nil || gotato.TextOf(*result.FinalMessage) != "still here" {
+	if result.Status != gotato.RunStatusCompleted || result.FinalMessage == nil || gotato.TextOf(*result.FinalMessage) != "still here" {
 		t.Fatalf("result = %+v", result)
 	}
 	if _, runs := auto.Last(); runs != 0 || len(record.Segments()) != 0 {
@@ -127,7 +127,7 @@ func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t 
 	record := conversation(t)
 	auto := AutoCompact(record, CompactPolicy{Ceiling: 1})
 	result, model, err := runOnce(t, record, auto)
-	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunFailed || !strings.Contains(err.Error(), "compaction failed") {
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunStatusFailed || !strings.Contains(err.Error(), "compaction failed") {
 		t.Fatalf("result = %+v, err = %v; want limit_exceeded naming the failed compaction", result, err)
 	}
 	if model.Calls() != 0 {
@@ -162,7 +162,7 @@ func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
 	failWrites(t)
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("all done"))
 	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{Ceiling: 500}) }, model)
-	if err != nil || result.Status != gotato.RunCompleted || model.Calls() != 2 {
+	if err != nil || result.Status != gotato.RunStatusCompleted || model.Calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.Calls())
 	}
 	if len(record.Segments()) != 0 {
@@ -216,7 +216,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	record := threeSegments(t)
 	before := len(record.Events())
 	result, err := MergeSegments(context.Background(), record, MergeOptions{Budget: 1})
-	if err != nil || result.Merged || result.Reason != MergeWriteFailed || !strings.Contains(result.Error, "disk gone") {
+	if err != nil || result.Merged || result.Reason != MergeReasonWriteFailed || !strings.Contains(result.Error, "disk gone") {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	if len(record.Segments()) != 3 || record.Segments()[0].Number != 1 {
@@ -230,7 +230,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 			failed = e
 		}
 	}
-	if len(kinds) != 2 || kinds[0] != gotato.KindCompactionStarted || kinds[1] != gotato.KindCompactionFailed || failed.Cause != gotato.CodeStoreFailure || failed.Why != gotato.CompactionPastBudget {
+	if len(kinds) != 2 || kinds[0] != gotato.EventKindCompactionStarted || kinds[1] != gotato.EventKindCompactionFailed || failed.Cause != gotato.CodeStoreFailure || failed.Why != gotato.CompactionWhyPastBudget {
 		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
 	}
 
@@ -240,7 +240,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 		t.Fatal(err)
 	}
 	compacted, err := Compact(context.Background(), record, CompactOptions{Floor: 1, SegmentBudget: 1})
-	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeWriteFailed || len(record.Segments()) != 4 {
+	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeReasonWriteFailed || len(record.Segments()) != 4 {
 		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
 	}
 }

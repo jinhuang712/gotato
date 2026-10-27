@@ -29,10 +29,10 @@ const (
 type ContentKind string
 
 const (
-	ContentText      ContentKind = "text"
-	ContentReasoning ContentKind = "reasoning"
-	ContentImage     ContentKind = "image"
-	ContentJSON      ContentKind = "json"
+	ContentKindText      ContentKind = "text"
+	ContentKindReasoning ContentKind = "reasoning"
+	ContentKindImage     ContentKind = "image"
+	ContentKindJSON      ContentKind = "json"
 )
 
 type ContentPart struct {
@@ -71,21 +71,21 @@ type Message struct {
 }
 
 func UserMessage(text string) Message {
-	return Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentText, Text: text}}}
+	return Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: text}}}
 }
 
 func AssistantMessage(text string) Message {
-	return Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: text}}}
+	return Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: text}}}
 }
 
 // TextOf returns what a message says: its text Parts, in order. Reasoning is
 // not part of it; ReasoningOf returns that.
-func TextOf(m Message) string { return partsText(m, ContentText) }
+func TextOf(m Message) string { return partsText(m, ContentKindText) }
 
 // ReasoningOf returns a message's reasoning Parts' text, in order: the
 // model's thinking, which a provider may require back (DeepSeek's
 // reasoning_content) but which is never the answer.
-func ReasoningOf(m Message) string { return partsText(m, ContentReasoning) }
+func ReasoningOf(m Message) string { return partsText(m, ContentKindReasoning) }
 
 func partsText(m Message, kind ContentKind) string {
 	var b strings.Builder
@@ -132,10 +132,10 @@ type ToolCall struct {
 type ToolResultStatus string
 
 const (
-	ToolResultOK       ToolResultStatus = "ok"
-	ToolResultBlocked  ToolResultStatus = "blocked"
-	ToolResultFailed   ToolResultStatus = "failed"
-	ToolResultCanceled ToolResultStatus = "canceled"
+	ToolResultStatusOK       ToolResultStatus = "ok"
+	ToolResultStatusBlocked  ToolResultStatus = "blocked"
+	ToolResultStatusFailed   ToolResultStatus = "failed"
+	ToolResultStatusCanceled ToolResultStatus = "canceled"
 )
 
 type ToolResult struct {
@@ -191,31 +191,31 @@ type Usage struct {
 }
 
 // StopReason is why a model call or a Turn stopped. A Message's StopReason is
-// the Model's: StopToolCalls when it called Tools, and StopMaxTokens when the
+// the Model's: StopReasonToolCalls when it called Tools, and StopReasonMaxTokens when the
 // output limit cut it off, even next to Tool calls.
 type StopReason string
 
 const (
-	StopNone      StopReason = "none"
-	StopEndTurn   StopReason = "end_turn"
-	StopToolCalls StopReason = "tool_calls"
-	StopMaxTokens StopReason = "max_tokens"
-	StopCanceled  StopReason = "canceled"
-	StopError     StopReason = "error"
-	// StopCutOff marks a reply whose stream broke before the Model finished:
+	StopReasonNone      StopReason = "none"
+	StopReasonEndTurn   StopReason = "end_turn"
+	StopReasonToolCalls StopReason = "tool_calls"
+	StopReasonMaxTokens StopReason = "max_tokens"
+	StopReasonCanceled  StopReason = "canceled"
+	StopReasonError     StopReason = "error"
+	// StopReasonCutOff marks a reply whose stream broke before the Model finished:
 	// the Message keeps the text received so far. It stays in the Transcript
 	// but is never sent to a Model again (ForModel leaves it out).
-	StopCutOff StopReason = "cut_off"
+	StopReasonCutOff StopReason = "cut_off"
 )
 
 type RunStatus string
 
 const (
-	RunRunning          RunStatus = "running"
-	RunCompleted        RunStatus = "completed"
-	RunCanceled         RunStatus = "canceled"
-	RunDeadlineExceeded RunStatus = "deadline_exceeded"
-	RunFailed           RunStatus = "failed"
+	RunStatusRunning          RunStatus = "running"
+	RunStatusCompleted        RunStatus = "completed"
+	RunStatusCanceled         RunStatus = "canceled"
+	RunStatusDeadlineExceeded RunStatus = "deadline_exceeded"
+	RunStatusFailed           RunStatus = "failed"
 )
 
 type RunMetrics struct {

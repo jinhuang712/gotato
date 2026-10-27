@@ -37,7 +37,7 @@ func TestRunDisposesOfTheLiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Result.Status != gotato.RunCompleted || first.FinalText != "echo: hello" || first.Messages != 2 || first.Agent != "echo" {
+	if first.Result.Status != gotato.RunStatusCompleted || first.FinalText != "echo: hello" || first.Messages != 2 || first.Agent != "echo" {
 		t.Fatalf("first = %+v", first)
 	}
 	// No agent survives the run; the session does.
@@ -149,7 +149,7 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	runner, err := service.New(service.Config{
 		Store:     store,
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 2},
+		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 2},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,12 +170,12 @@ func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	}
 	// Canceling the first run settles it as canceled and frees the lock.
 	first := <-firstDone
-	if first.Result.Status != gotato.RunCanceled {
+	if first.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("first status = %s err=%v", first.Result.Status, first.Result.Error)
 	}
 	close(block)
 	second, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
-	if err != nil || second.Result.Status != gotato.RunCompleted {
+	if err != nil || second.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("second = %+v err=%v", second, err)
 	}
 	// Capacity is exercised in TestCapacityAndDrain; a run on a free session
@@ -231,11 +231,11 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	// run_ended; the store's timings are Instance Events and are not in it.
 	// A new Session's stream opens with the Events that made it.
 	last := len(kinds) - 1
-	if kinds[0] != gotato.KindSessionCreated || !slices.Contains(kinds, gotato.KindRunStarted) || kinds[last] != gotato.KindRunEnded {
+	if kinds[0] != gotato.EventKindSessionCreated || !slices.Contains(kinds, gotato.EventKindRunStarted) || kinds[last] != gotato.EventKindRunEnded {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	for _, kind := range kinds {
-		if kind.Class() == gotato.ClassInstance {
+		if kind.Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries %s: %v", kind, kinds)
 		}
 	}
@@ -295,7 +295,7 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	runner, _ := service.New(service.Config{
 		Store:     session.NewMemoryStore(),
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
+		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, "slow", nil)
@@ -327,7 +327,7 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	waitFor(t, func() bool { return runner.AbortSession(ctx, s.ID()) == nil })
 	select {
 	case result := <-queued:
-		if result.Result.Status != gotato.RunCanceled {
+		if result.Result.Status != gotato.RunStatusCanceled {
 			t.Fatalf("queued status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 		}
 	case <-time.After(2 * time.Second):
@@ -343,7 +343,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	runner, _ := service.New(service.Config{
 		Store:     session.NewMemoryStore(),
 		Agents:    []service.Agent{{Name: "slow", Model: model}},
-		Admission: service.Admission{Queue: service.WaitWhileBusy, MaxActiveRuns: 4},
+		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
 	})
 	ctx := context.Background()
 	s, _ := runner.CreateSession(ctx, "slow", nil)
@@ -369,7 +369,7 @@ func TestDrainCancelsQueuedRun(t *testing.T) {
 	}
 	select {
 	case result := <-queued:
-		if result.Result.Status != gotato.RunCanceled {
+		if result.Result.Status != gotato.RunStatusCanceled {
 			t.Fatalf("queued status = %q, want canceled", result.Result.Status)
 		}
 	case <-time.After(2 * time.Second):
@@ -393,7 +393,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 	waitFor(t, func() bool { return model.Calls() == 1 })
 	cancel()
 	result := <-done
-	if result.Result.Status != gotato.RunCanceled {
+	if result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("caller cancel status = %q err=%v, want canceled", result.Result.Status, result.Result.Error)
 	}
 	stored, err := session.View(context.Background(), store, result.SessionID)
@@ -401,7 +401,7 @@ func TestCallerCancelReportsCanceled(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := stored.Runs()
-	if len(runs) != 1 || runs[0].Status != gotato.RunCanceled {
+	if len(runs) != 1 || runs[0].Status != gotato.RunStatusCanceled {
 		t.Fatalf("session run record = %+v, want canceled", runs)
 	}
 	close(block)
@@ -423,10 +423,10 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	defer s.mu.Unlock()
 	s.saves++
 	for _, entry := range entries {
-		if s.failFinal && entry.Kind == gotato.KindRunEnded {
+		if s.failFinal && entry.Kind == gotato.EventKindRunEnded {
 			return true
 		}
-		if s.failRelease && entry.Kind == gotato.KindSessionReleased {
+		if s.failRelease && entry.Kind == gotato.EventKindSessionReleased {
 			return true
 		}
 	}
@@ -460,7 +460,7 @@ func TestUnpersistedRunIsReported(t *testing.T) {
 	if !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted", err)
 	}
-	if result.Result.Status != gotato.RunFailed || !gotato.IsCode(result.Result.Error, gotato.CodeStoreFailure) || result.FinalText != "echo: hi" {
+	if result.Result.Status != gotato.RunStatusFailed || !gotato.IsCode(result.Result.Error, gotato.CodeStoreFailure) || result.FinalText != "echo: hi" {
 		t.Fatalf("run outcome lost: %+v", result)
 	}
 }
@@ -476,11 +476,11 @@ func TestLostReleaseKeepsTheRunCompletedAndWarns(t *testing.T) {
 	}
 	instance := instanceRecorder(t, runner)
 	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "hi"})
-	if err != nil || result.Result.Status != gotato.RunCompleted || result.Result.Error != nil || result.FinalText != "echo: hi" {
+	if err != nil || result.Result.Status != gotato.RunStatusCompleted || result.Result.Error != nil || result.FinalText != "echo: hi" {
 		t.Fatalf("a Run whose Events are all stored = %+v, %v, want completed without an error", result, err)
 	}
-	instance.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == gotato.KindStoreWriteFailed })
-	if len(instance.OfKind(gotato.KindStoreWriteFailed)) == 0 {
+	instance.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == gotato.EventKindStoreWriteFailed })
+	if len(instance.OfKind(gotato.EventKindStoreWriteFailed)) == 0 {
 		t.Fatalf("no store_write_failed warning among %v", instance.Kinds())
 	}
 }
@@ -625,11 +625,11 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kinds := kindsOf(events); len(kinds) == 0 || !slices.Contains(kinds, gotato.KindRunStarted) || kinds[len(kinds)-1] != gotato.KindRunEnded {
+	if kinds := kindsOf(events); len(kinds) == 0 || !slices.Contains(kinds, gotato.EventKindRunStarted) || kinds[len(kinds)-1] != gotato.EventKindRunEnded {
 		t.Fatalf("the Run's stream = %v, want it to hold run_started and end at run_ended", kinds)
 	}
 	for _, event := range events {
-		if event.Kind().Class() == gotato.ClassInstance {
+		if event.Kind().Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -668,7 +668,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range stored {
-		if event.Kind().Class() == gotato.ClassInstance {
+		if event.Kind().Class() == gotato.EventClassInstance {
 			t.Fatalf("the Record holds %s", event.Kind())
 		}
 	}
@@ -713,7 +713,7 @@ func TestStoreEventsFlagFailuresWithoutTheirText(t *testing.T) {
 			}
 		}
 	}
-	if len(flagged) != 2 || flagged[0] != gotato.KindSessionSaved || flagged[1] != gotato.KindSessionLoaded {
+	if len(flagged) != 2 || flagged[0] != gotato.EventKindSessionSaved || flagged[1] != gotato.EventKindSessionLoaded {
 		t.Fatalf("flagged = %v, want the failed save and the failed load", flagged)
 	}
 }
@@ -784,7 +784,7 @@ func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "model exploded") {
 		t.Fatalf("run error lost from the joined error: %v", err)
 	}
-	if result.Result.Status != gotato.RunFailed {
+	if result.Result.Status != gotato.RunStatusFailed {
 		t.Fatalf("status = %q err=%v, want failed", result.Result.Status, result.Result.Error)
 	}
 }
@@ -1060,7 +1060,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	done := make(chan service.RunResponse, 1)
 	go func() {
 		result, _ := runner.StreamRun(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}, func(event gotato.Event) error {
-			if event.Kind() == gotato.KindRunStarted {
+			if event.Kind() == gotato.EventKindRunStarted {
 				started <- event.Head().RunID
 			}
 			return nil
@@ -1073,7 +1073,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := <-done
-	if result.Result.Status != gotato.RunCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
+	if result.Result.Status != gotato.RunStatusCanceled || result.Result.RunID != runID || result.Result.Metrics.Turns != 1 {
 		t.Fatalf("canceled result = %+v, want status canceled, RunID %s, one Turn", result.Result, runID)
 	}
 	saved, err := session.View(ctx, store, s.ID())
@@ -1081,7 +1081,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := saved.Runs()
-	if len(runs) != 1 || runs[0].RunID != runID || runs[0].Status != gotato.RunCanceled {
+	if len(runs) != 1 || runs[0].RunID != runID || runs[0].Status != gotato.RunStatusCanceled {
 		t.Fatalf("stored Runs = %+v", runs)
 	}
 }

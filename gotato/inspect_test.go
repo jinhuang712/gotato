@@ -75,7 +75,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("the Turn sent a different request\n got: %s\nwant: %s", got, want)
 	}
-	built := recorder.OfKind(gotato.KindContextBuilt)
+	built := recorder.OfKind(gotato.EventKindContextBuilt)
 	if len(built) != 1 {
 		t.Fatalf("context_built = %+v", built)
 	}

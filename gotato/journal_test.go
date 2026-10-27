@@ -84,10 +84,10 @@ func (j *journalTranscript) shape() []string {
 func echoToolModel(calls ...string) *testModel {
 	var first []ModelEvent
 	for _, id := range calls {
-		first = append(first, ModelEvent{Kind: ModelToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}})
+		first = append(first, ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}})
 	}
-	first = append(first, ModelEvent{Kind: ModelDone, StopReason: StopToolCalls})
-	return &testModel{scripts: [][]ModelEvent{first, {{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	first = append(first, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls})
+	return &testModel{scripts: [][]ModelEvent{first, {{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 }
 
 // The Events of a step ride its write: the steps of a Run with two tool calls,
@@ -158,9 +158,9 @@ func TestReplyPartsMergeDeltas(t *testing.T) {
 	delta := strings.Repeat("a", 100)
 	var events []ModelEvent
 	for range 100 {
-		events = append(events, ModelEvent{Kind: ModelTextDelta, Text: delta})
+		events = append(events, ModelEvent{Kind: ModelEventKindTextDelta, Text: delta})
 	}
-	events = append(events, ModelEvent{Kind: ModelDone, StopReason: StopEndTurn})
+	events = append(events, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn})
 	journal := &journalTranscript{}
 	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{events}}), WithTranscript(journal))
 	if err != nil {
@@ -200,8 +200,8 @@ func TestJournalFailureStopsBeforeTheModelCall(t *testing.T) {
 		{name: "other failure", err: errors.New("disk full"), code: CodeStoreFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hi"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
-			journal := &journalTranscript{failAt: KindReplyStarted, failErr: tc.err}
+			model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
+			journal := &journalTranscript{failAt: EventKindReplyStarted, failErr: tc.err}
 			session, err := NewSession(WithModel(model), WithTranscript(journal))
 			if err != nil {
 				t.Fatal(err)
@@ -226,8 +226,8 @@ func TestJournalFailureStopsBeforeTheModelCall(t *testing.T) {
 func TestEventsAreSentAfterTheirWrite(t *testing.T) {
 	hold := make(chan struct{})
 	writing := make(chan struct{}, 1)
-	journal := &journalTranscript{hold: hold, writing: writing, holdKinds: map[EventKind]bool{KindMessageCommitted: true}}
-	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hi"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}), WithTranscript(journal))
+	journal := &journalTranscript{hold: hold, writing: writing, holdKinds: map[EventKind]bool{EventKindMessageCommitted: true}}
+	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,14 +250,14 @@ func TestEventsAreSentAfterTheirWrite(t *testing.T) {
 	}
 	close(hold)
 	<-done
-	if event := next(t, sub); event.Kind() != KindRunStarted || event.Head().Number != 1 {
+	if event := next(t, sub); event.Kind() != EventKindRunStarted || event.Head().Number != 1 {
 		t.Fatalf("first Event after the write = %s numbered %d", event.Kind(), event.Head().Number)
 	}
 }
 
 func TestFailedWriteSendsNothing(t *testing.T) {
-	journal := &journalTranscript{failAt: KindReplyStarted, failErr: errors.New("disk full")}
-	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}), WithTranscript(journal))
+	journal := &journalTranscript{failAt: EventKindReplyStarted, failErr: errors.New("disk full")}
+	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestFailedWriteSendsNothing(t *testing.T) {
 	_, _ = session.Prompt(context.Background(), UserMessage("go"))
 	for _, event := range rec.events() {
 		switch event.Kind() {
-		case KindTurnStarted, KindContextBuilt, KindReplyStarted:
+		case EventKindTurnStarted, EventKindContextBuilt, EventKindReplyStarted:
 			t.Fatalf("%s was sent although its write failed", event.Kind())
 		}
 	}
@@ -277,7 +277,7 @@ func TestFailedWriteSendsNothing(t *testing.T) {
 func TestDeltasCarryTheNumberOfTheEventTheyFollow(t *testing.T) {
 	journal := &journalTranscript{}
 	model := &testModel{scripts: [][]ModelEvent{{
-		{Kind: ModelReasoningDelta, Text: "think"}, {Kind: ModelTextDelta, Text: "a"}, {Kind: ModelTextDelta, Text: "b"}, {Kind: ModelDone, StopReason: StopEndTurn},
+		{Kind: ModelEventKindReasoningDelta, Text: "think"}, {Kind: ModelEventKindTextDelta, Text: "a"}, {Kind: ModelEventKindTextDelta, Text: "b"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 	}}}
 	session, err := NewSession(WithModel(model), WithTranscript(journal))
 	if err != nil {
@@ -305,7 +305,7 @@ func TestDeltasCarryTheNumberOfTheEventTheyFollow(t *testing.T) {
 		t.Fatalf("deltas = %d, want 3", deltas)
 	}
 	for _, kind := range journal.kinds() {
-		if kind.Class() == ClassDelta {
+		if kind.Class() == EventClassDelta {
 			t.Fatalf("%s was stored", kind)
 		}
 	}
@@ -313,7 +313,7 @@ func TestDeltasCarryTheNumberOfTheEventTheyFollow(t *testing.T) {
 
 // A Session without a store still numbers and sends its Events.
 func TestSessionWithoutAStoreNumbersItsEvents(t *testing.T) {
-	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hi"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}))
+	session, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestSessionWithoutAStoreNumbersItsEvents(t *testing.T) {
 	}
 	var number uint64
 	for _, event := range rec.events() {
-		if event.Kind().Class() != ClassStored {
+		if event.Kind().Class() != EventClassStored {
 			continue
 		}
 		number++

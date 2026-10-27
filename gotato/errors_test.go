@@ -110,7 +110,7 @@ func TestModelFailureIsRetryableWhenTheModelSaysSo(t *testing.T) {
 			}
 			defer func() { _ = session.Close(context.Background()) }()
 			result, err := session.Prompt(context.Background(), UserMessage("hi"))
-			if result.Status != RunFailed || !IsCode(err, CodeModelFailure) {
+			if result.Status != RunStatusFailed || !IsCode(err, CodeModelFailure) {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if Retryable(err) != tc.want || result.Error.Retryable != tc.want {

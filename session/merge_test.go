@@ -16,7 +16,7 @@ import (
 // ones, the way a compaction does.
 func closeAndList(t *testing.T, record *session.Record, earlier []int, texts ...string) gotato.Segment {
 	t.Helper()
-	closed, err := record.CloseSegmentAndCheckpoint(gotato.CompactionOnDemand, rendered(0, texts...), earlier, nil, nil)
+	closed, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, rendered(0, texts...), earlier, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 			commit(t, writer, idMessage("tail-1", "user", "the tail"))
 			keptBefore, _ := json.Marshal(record.Segments()[2].Messages)
 
-			merged, err := record.MergeSegments(gotato.CompactionPastBudget, mergedOf(1, 2), []int{1, 2}, record.Tail(), &session.Compaction{Segment: 4, Merged: []int{1, 2}})
+			merged, err := record.MergeSegments(gotato.CompactionWhyPastBudget, mergedOf(1, 2), []int{1, 2}, record.Tail(), &session.Compaction{Segment: 4, Merged: []int{1, 2}})
 			if err != nil || merged.Number != 4 || merged.Rendered != 1 {
 				t.Fatalf("MergeSegments = %+v, %v; want segment 4 rendered by 1 Message", merged, err)
 			}
@@ -94,7 +94,7 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 			}
 
 			// The next merge takes the merged Segment with the oldest after it.
-			if _, err := reopened.MergeSegments(gotato.CompactionPastBudget, mergedOf(1, 2, 3), []int{4, 3}, reopened.Tail(), nil); err != nil {
+			if _, err := reopened.MergeSegments(gotato.CompactionWhyPastBudget, mergedOf(1, 2, 3), []int{4, 3}, reopened.Tail(), nil); err != nil {
 				t.Fatal(err)
 			}
 			if got := numbers(reopened); !reflect.DeepEqual(got, []int{5}) {
@@ -124,7 +124,7 @@ func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 		"a number already closed":  {func() gotato.Segment { s := mergedOf(1, 2); s.Number = 3; return s }(), []int{1, 2}},
 		"out of order replacement": {mergedOf(1, 2), []int{2, 1}},
 	} {
-		if _, err := record.MergeSegments(gotato.CompactionPastBudget, tc.merged, tc.replaces, record.Tail(), nil); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		if _, err := record.MergeSegments(gotato.CompactionWhyPastBudget, tc.merged, tc.replaces, record.Tail(), nil); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 			t.Errorf("%s: error = %v, want invalid_argument", name, err)
 		}
 	}
@@ -133,14 +133,14 @@ func TestMergeSegmentsRefusesWhatIsNotAMerge(t *testing.T) {
 	}
 	// A merged Segment is never closed as an ordinary one, and never listed
 	// after another Segment.
-	if _, err := record.CloseSegmentAndCheckpoint(gotato.CompactionOnDemand, mergedOf(1), []int{1, 2, 3}, nil, nil); err == nil {
+	if _, err := record.CloseSegmentAndCheckpoint(gotato.CompactionWhyOnDemand, mergedOf(1), []int{1, 2, 3}, nil, nil); err == nil {
 		t.Error("CloseSegmentAndCheckpoint accepted a merged Segment")
 	}
 	merged, err := record.CloseSegment(mergedOf(1, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1, merged.Number}, nil, nil); err == nil {
+	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1, merged.Number}, nil, nil); err == nil {
 		t.Error("a merged Segment was listed after another Segment")
 	}
 }
@@ -153,7 +153,7 @@ func TestAForkKeepsWhereTheMergedSegmentsCanBeRead(t *testing.T) {
 	closeAndList(t, record, []int{1}, "two", "r2")
 	merged := mergedOf(1, 2)
 	merged.Merged[0].Source = gotato.SegmentSource{FromNumber: 3, ToNumber: 6}
-	if _, err := record.MergeSegments(gotato.CompactionPastBudget, merged, []int{1, 2}, record.Tail(), nil); err != nil {
+	if _, err := record.MergeSegments(gotato.CompactionWhyPastBudget, merged, []int{1, 2}, record.Tail(), nil); err != nil {
 		t.Fatal(err)
 	}
 	child := session.Fork(record, session.WithID("merge-child"))

@@ -17,8 +17,8 @@ import (
 func toolConversation() []gotato.Message {
 	call := gotato.AssistantMessage("")
 	call.ToolCalls = []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}
-	call.StopReason = gotato.StopToolCalls
-	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK}, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "r"}}}
+	call.StopReason = gotato.StopReasonToolCalls
+	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK}, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "r"}}}
 	messages := []gotato.Message{
 		gotato.UserMessage("u1"), call, result, gotato.AssistantMessage("a1"),
 		gotato.UserMessage("u2"), gotato.AssistantMessage("a2"),
@@ -56,7 +56,7 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	if fourth.PrefixHash != second.PrefixHash {
 		t.Fatal("runtime fields perturbed the prompt bytes")
 	}
-	wantBreakpoints := []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}, {After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: len(next) - 1}}
+	wantBreakpoints := []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}, {After: gotato.CacheAnchorAfterTools}, {After: gotato.CacheAnchorAfterMessage, Index: len(next) - 1}}
 	if len(second.Request.CacheBreakpoints) != 3 {
 		t.Fatalf("breakpoints = %+v", second.Request.CacheBreakpoints)
 	}
@@ -93,14 +93,14 @@ func recapRequest() modelctx.RecapRequest {
 }
 
 func TestModelRecapRejectsIncompleteStream(t *testing.T) {
-	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: "partial"}})
 	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
-		t.Fatal("expected an error when the stream ends before ModelDone")
+		t.Fatal("expected an error when the stream ends before ModelEventKindDone")
 	}
 }
 
 func TestModelRecapRejectsEmptySummary(t *testing.T) {
-	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}})
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}})
 	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
 		t.Fatal("expected an error for an empty summary")
 	}

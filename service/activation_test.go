@@ -97,7 +97,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 		t.Fatalf("want two run_rejected Events, one for the idle Session; got %v", instance.Kinds())
 	}
 	var reasons []string
-	for _, event := range instance.OfKind(gotato.KindRunRejected) {
+	for _, event := range instance.OfKind(gotato.EventKindRunRejected) {
 		reasons = append(reasons, event.(gotato.RunRejected).Why)
 	}
 	if len(reasons) != 2 || reasons[0] != "activation_limit" || reasons[1] != "activation_limit" {
@@ -155,7 +155,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	for range 2 {
 		select {
 		case result := <-results:
-			if result.Result.Status != gotato.RunCompleted {
+			if result.Result.Status != gotato.RunStatusCompleted {
 				t.Fatalf("held run = %+v", result)
 			}
 		case <-time.After(5 * time.Second):
@@ -165,7 +165,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if got := runner.ActiveSessions(); got != 0 {
 		t.Fatalf("ActiveSessions after the Runs ended = %d, want 0", got)
 	}
-	if result, err := runner.Run(ctx, service.RunRequest{SessionID: idle.ID(), Prompt: "now"}); err != nil || result.Result.Status != gotato.RunCompleted {
+	if result, err := runner.Run(ctx, service.RunRequest{SessionID: idle.ID(), Prompt: "now"}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run after the limit eased = %+v, %v", result, err)
 	}
 }

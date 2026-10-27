@@ -39,7 +39,7 @@ func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgr
 			return ToolResult{}, ctx.Err()
 		}
 	}
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: t.id}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: t.id}}}, nil
 }
 
 // awaitArrivals blocks until the named number of Tools are inside their
@@ -147,14 +147,14 @@ func TestToolSetConstructionValidation(t *testing.T) {
 func parallelCallScript(ids ...string) []ModelEvent {
 	events := make([]ModelEvent, 0, len(ids)+1)
 	for i, id := range ids {
-		events = append(events, ModelEvent{Kind: ModelToolCall, ToolCall: &ToolCall{
+		events = append(events, ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{
 			ID:        ToolCallID("call-" + id),
 			ToolID:    id,
 			Arguments: []byte(`{}`),
 		}})
 		_ = i
 	}
-	return append(events, ModelEvent{Kind: ModelDone, StopReason: StopToolCalls})
+	return append(events, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls})
 }
 
 func TestParallelToolsCommitInSourceOrder(t *testing.T) {
@@ -201,7 +201,7 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 				commits = append(commits, e.CallID)
 			}
 			mu.Unlock()
-			if event.Kind() == KindRunEnded {
+			if event.Kind() == EventKindRunEnded {
 				observed <- nil
 				return
 			}

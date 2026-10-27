@@ -34,8 +34,8 @@ func TestModelErrorThatSaysOverflowEndsTheRunWithContextOverflow(t *testing.T) {
 			}
 			defer func() { _ = session.Close(context.Background()) }()
 			result, err := session.Prompt(context.Background(), UserMessage("hi"))
-			if err == nil || result.Status != RunFailed || result.Error == nil || result.Error.Code != tc.want {
-				t.Fatalf("result = %+v, err = %v; want %s with %s", result, err, RunFailed, tc.want)
+			if err == nil || result.Status != RunStatusFailed || result.Error == nil || result.Error.Code != tc.want {
+				t.Fatalf("result = %+v, err = %v; want %s with %s", result, err, RunStatusFailed, tc.want)
 			}
 			if !IsCode(err, tc.want) {
 				t.Fatalf("err = %v, want code %s", err, tc.want)

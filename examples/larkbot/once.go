@@ -35,7 +35,7 @@ func runOnce(model, prompt string) error {
 		return err
 	}
 	start := time.Now()
-	res, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageFollowUp, Text: prompt})
+	res, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: prompt})
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("send: %w", err)

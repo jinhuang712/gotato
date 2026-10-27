@@ -26,7 +26,7 @@ func (t *docTool) Spec() ToolSpec {
 
 func (t *docTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
 	t.runs.Add(1)
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "ran " + t.id}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "ran " + t.id}}}, nil
 }
 
 type describedSet struct {
@@ -41,9 +41,9 @@ func (s *describedSet) Tools(context.Context) ([]Tool, error) { return s.tools, 
 
 func ordersSet() (*describedSet, map[string]*docTool) {
 	tools := map[string]*docTool{
-		"lookup": {id: "lookup", description: "Look up one order by its number", effect: EffectRead},
-		"list":   {id: "list_open", description: "List the open orders of a customer", effect: EffectRead},
-		"refund": {id: "refund", description: "Refund a payment for an order", effect: EffectWriteExternal},
+		"lookup": {id: "lookup", description: "Look up one order by its number", effect: ToolEffectRead},
+		"list":   {id: "list_open", description: "List the open orders of a customer", effect: ToolEffectRead},
+		"refund": {id: "refund", description: "Refund a payment for an order", effect: ToolEffectWriteExternal},
 	}
 	return &describedSet{name: "orders", description: "Order lookup and refunds",
 		tools: []Tool{tools["lookup"], tools["list"], tools["refund"]}}, tools
@@ -52,15 +52,15 @@ func ordersSet() (*describedSet, map[string]*docTool) {
 func searchCall(id string, arguments map[string]any) []ModelEvent {
 	encoded, _ := json.Marshal(arguments)
 	return []ModelEvent{
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: SearchToolName, Arguments: encoded}},
-		{Kind: ModelDone, StopReason: StopToolCalls},
+		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: SearchToolName, Arguments: encoded}},
+		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
 	}
 }
 
 func callTool(id, toolID string) []ModelEvent {
 	return []ModelEvent{
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: toolID, Arguments: []byte(`{}`)}},
-		{Kind: ModelDone, StopReason: StopToolCalls},
+		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: toolID, Arguments: []byte(`{}`)}},
+		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
 	}
 }
 
@@ -112,7 +112,7 @@ func runCollecting(t *testing.T, agent *Session, text string) (loaded []ToolLoad
 		if e, ok := event.(ToolLoaded); ok {
 			loaded = append(loaded, e)
 		}
-		if event.Kind() == KindRunEnded {
+		if event.Kind() == EventKindRunEnded {
 			return loaded
 		}
 	}
@@ -152,7 +152,7 @@ func TestSearchToolLoadsByNameAndKeepsTheCatalogSteady(t *testing.T) {
 	if text := textOfResult(resultOf(t, model, 1, "s")); text != "Loaded: orders.lookup." {
 		t.Fatalf("search result = %q", text)
 	}
-	if len(loads) != 1 || loads[0].Tool != "orders.lookup" || loads[0].Why != ToolLoadedNames || loads[0].Number == 0 {
+	if len(loads) != 1 || loads[0].Tool != "orders.lookup" || loads[0].Why != ToolLoadedWhyNames || loads[0].Number == 0 {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	// The description is the catalog, and it is the same bytes while tools load.
@@ -187,7 +187,7 @@ func TestSearchToolLoadsTheTopThreeOfAQueryAndListsFiveMore(t *testing.T) {
 	if text != want {
 		t.Fatalf("search result = %q, want %q", text, want)
 	}
-	if len(loads) != 3 || loads[0].Why != ToolLoadedQuery {
+	if len(loads) != 3 || loads[0].Why != ToolLoadedWhyQuery {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	if got := model.toolIDs(1); !slices.Equal(got, []string{"ops.t00", "ops.t01", "ops.t02", SearchToolName}) {
@@ -206,13 +206,13 @@ func TestACallToAnUnloadedCatalogToolLoadsItAndDoesNotRunIt(t *testing.T) {
 	loads := runCollecting(t, agent, "refund it")
 
 	result := resultOf(t, model, 1, "c1")
-	if result.Status != ToolResultFailed || result.Executed {
+	if result.Status != ToolResultStatusFailed || result.Executed {
 		t.Fatalf("result = %+v, want a failed result that did not run", result)
 	}
 	if want := "orders.refund was not loaded, so this call did not run. It is loaded now; call it again."; !strings.Contains(textOfResult(result), want) {
 		t.Fatalf("result text = %q", textOfResult(result))
 	}
-	if len(loads) != 1 || loads[0].Tool != "orders.refund" || loads[0].Why != ToolLoadedCall {
+	if len(loads) != 1 || loads[0].Tool != "orders.refund" || loads[0].Why != ToolLoadedWhyCall {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	if !slices.Contains(model.toolIDs(1), "orders.refund") {
@@ -236,10 +236,10 @@ func TestACallToAnUnloadedCatalogToolLoadsItAndDoesNotRunIt(t *testing.T) {
 func TestTwoLoadsOfOneToolInABatchEmitOneFact(t *testing.T) {
 	set, _ := ordersSet()
 	call := func(id string) ModelEvent {
-		return ModelEvent{Kind: ModelToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: SearchToolName, Arguments: []byte(`{"names":["orders.lookup"]}`)}}
+		return ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: SearchToolName, Arguments: []byte(`{"names":["orders.lookup"]}`)}}
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{
-		{call("a"), call("b"), {Kind: ModelDone, StopReason: StopToolCalls}},
+		{call("a"), call("b"), {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
 		finalScript("done"),
 	}}
 	agent := newSearchSession(t, model, WithToolSet(set))

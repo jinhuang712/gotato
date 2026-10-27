@@ -20,8 +20,8 @@ func (twoToolSet) Spec() gotato.ToolSetSpec { return gotato.ToolSetSpec{Name: "f
 
 func (twoToolSet) Tools(context.Context) ([]gotato.Tool, error) {
 	return []gotato.Tool{
-		gotato.ToolWithEffect(testkit.NewFakeTool("read", "contents"), gotato.EffectRead),
-		gotato.ToolWithEffect(testkit.NewFakeTool("write", "done"), gotato.EffectWriteLocal),
+		gotato.ToolWithEffect(testkit.NewFakeTool("read", "contents"), gotato.ToolEffectRead),
+		gotato.ToolWithEffect(testkit.NewFakeTool("write", "done"), gotato.ToolEffectWriteLocal),
 	}, nil
 }
 
@@ -75,7 +75,7 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 			t.Fatalf("%s = %+v, %v; want a files tool, unloaded and active", want, entry, ok)
 		}
 	}
-	if entry, _ := entryOf(entries, "files.write"); entry.Spec.Effect != gotato.EffectWriteLocal {
+	if entry, _ := entryOf(entries, "files.write"); entry.Spec.Effect != gotato.ToolEffectWriteLocal {
 		t.Fatalf("files.write effect = %q", entry.Spec.Effect)
 	}
 	if crm, ok := entryOf(entries, "crm"); !ok || !crm.Unavailable {

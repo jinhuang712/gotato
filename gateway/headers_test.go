@@ -105,7 +105,7 @@ func TestChatCacheReadTokens(t *testing.T) {
 		}
 		var got *gotato.Usage
 		for _, ev := range drain(t, stream) {
-			if ev.Kind == gotato.ModelUsage {
+			if ev.Kind == gotato.ModelEventKindUsage {
 				u := ev.Usage
 				got = &u
 			}

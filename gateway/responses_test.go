@@ -68,19 +68,19 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	if len(events) != 5 {
 		t.Fatalf("events = %+v", events)
 	}
-	if events[0].Kind != gotato.ModelReasoningDelta || events[0].Text != "thinking" {
+	if events[0].Kind != gotato.ModelEventKindReasoningDelta || events[0].Text != "thinking" {
 		t.Fatalf("reasoning event = %+v", events[0])
 	}
-	if events[1].Kind != gotato.ModelReasoningDone || string(events[1].ReasoningArtifact) == "" {
+	if events[1].Kind != gotato.ModelEventKindReasoningDone || string(events[1].ReasoningArtifact) == "" {
 		t.Fatalf("reasoning done event = %+v", events[1])
 	}
-	if events[2].Kind != gotato.ModelTextDelta || events[2].Text != "hello" {
+	if events[2].Kind != gotato.ModelEventKindTextDelta || events[2].Text != "hello" {
 		t.Fatalf("text event = %+v", events[2])
 	}
-	if events[3].Kind != gotato.ModelUsage || events[3].Usage.TotalTokens != 5 || events[3].Usage.CacheReadTokens != 1 {
+	if events[3].Kind != gotato.ModelEventKindUsage || events[3].Usage.TotalTokens != 5 || events[3].Usage.CacheReadTokens != 1 {
 		t.Fatalf("usage event = %+v", events[3])
 	}
-	if events[4].Kind != gotato.ModelDone || events[4].StopReason != gotato.StopEndTurn {
+	if events[4].Kind != gotato.ModelEventKindDone || events[4].StopReason != gotato.StopReasonEndTurn {
 		t.Fatalf("done event = %+v", events[4])
 	}
 	if request.Model != "gpt-test" || request.Store || !request.Stream || request.Instructions != "system" {
@@ -93,7 +93,7 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 
 func TestResponsesReplaysReasoningArtifact(t *testing.T) {
 	artifact := []byte(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`)
-	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Signature: artifact}}}, gotato.UserMessage("next")}}, providerRules{})
+	body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindReasoning, Signature: artifact}}}, gotato.UserMessage("next")}}, providerRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestResponsesReplaysToolCallItemID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.call.ToolID = "demo.echo"
 			tc.call.Arguments = []byte(`{"value":"x"}`)
-			result := gotato.ToolResult{CallID: tc.call.ID, Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "done"}}}
+			result := gotato.ToolResult{CallID: tc.call.ID, Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "done"}}}
 			body, _, err := encodeResponsesRequest("gpt-test", gotato.ModelRequest{Messages: []gotato.Message{
 				gotato.UserMessage("go"),
 				{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{tc.call}},
@@ -178,7 +178,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if toolEvent.Kind != gotato.ModelToolCall || toolEvent.ToolCall == nil {
+	if toolEvent.Kind != gotato.ModelEventKindToolCall || toolEvent.ToolCall == nil {
 		t.Fatalf("tool event = %+v", toolEvent)
 	}
 	if toolEvent.ToolCall.ID != "call_1" || string(toolEvent.ToolCall.Signature) != "fc_1" || toolEvent.ToolCall.ToolID != "demo.echo" || string(toolEvent.ToolCall.Arguments) != `{"value":"x"}` {
@@ -188,7 +188,7 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doneEvent.Kind != gotato.ModelDone || doneEvent.StopReason != gotato.StopToolCalls {
+	if doneEvent.Kind != gotato.ModelEventKindDone || doneEvent.StopReason != gotato.StopReasonToolCalls {
 		t.Fatalf("done event = %+v", doneEvent)
 	}
 }
@@ -198,7 +198,7 @@ func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		// A function_call item with a name but no call_id can never be
-		// delivered; it must not make the terminal StopReason StopToolCalls.
+		// delivered; it must not make the terminal StopReason StopReasonToolCalls.
 		writeSSE(t, w, `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","name":"`+gatewayFunctionName("demo.echo")+`","arguments":"{}"}}`)
 		writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
 	}))
@@ -218,14 +218,14 @@ func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if event.Kind != gotato.ModelDone || event.StopReason != gotato.StopEndTurn {
+	if event.Kind != gotato.ModelEventKindDone || event.StopReason != gotato.StopReasonEndTurn {
 		t.Fatalf("terminal event = %+v", event)
 	}
 }
 
 // A response that the output limit cut off delivers the calls that finished
 // and drops the one cut short: its arguments are incomplete. The stop stays
-// StopMaxTokens, so the agent learns that the reply was cut off.
+// StopReasonMaxTokens, so the agent learns that the reply was cut off.
 func TestResponsesCutOffDropsTheUnfinishedCallAndReportsMaxTokens(t *testing.T) {
 	name := gatewayFunctionName("demo.echo")
 	calls, stop := responsesCallsAndStop(t,
@@ -234,8 +234,8 @@ func TestResponsesCutOffDropsTheUnfinishedCallAndReportsMaxTokens(t *testing.T) 
 		`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_2","call_id":"call_2","name":"`+name+`"}}`,
 		`{"type":"response.function_call_arguments.delta","output_index":1,"delta":"{\"value\":\"a long"}`,
 		`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`)
-	if stop != gotato.StopMaxTokens {
-		t.Fatalf("stop reason = %q, want %q", stop, gotato.StopMaxTokens)
+	if stop != gotato.StopReasonMaxTokens {
+		t.Fatalf("stop reason = %q, want %q", stop, gotato.StopReasonMaxTokens)
 	}
 	if len(calls) != 1 || calls[0].ID != "call_1" || string(calls[0].Arguments) != `{"value":"x"}` {
 		t.Fatalf("calls = %+v, want only the finished call", calls)
@@ -250,8 +250,8 @@ func TestResponsesCutOffDeliversACallWhoseArgumentsFinished(t *testing.T) {
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"`+name+`"}}`,
 		`{"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"value\":\"x\"}"}`,
 		`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`)
-	if stop != gotato.StopMaxTokens || len(calls) != 1 || string(calls[0].Arguments) != `{"value":"x"}` {
-		t.Fatalf("calls %+v, stop %q; want the finished call and %q", calls, stop, gotato.StopMaxTokens)
+	if stop != gotato.StopReasonMaxTokens || len(calls) != 1 || string(calls[0].Arguments) != `{"value":"x"}` {
+		t.Fatalf("calls %+v, stop %q; want the finished call and %q", calls, stop, gotato.StopReasonMaxTokens)
 	}
 }
 
@@ -282,9 +282,9 @@ func responsesCallsAndStop(t *testing.T, events ...string) ([]gotato.ToolCall, g
 			t.Fatal(err)
 		}
 		switch event.Kind {
-		case gotato.ModelToolCall:
+		case gotato.ModelEventKindToolCall:
 			calls = append(calls, *event.ToolCall)
-		case gotato.ModelDone:
+		case gotato.ModelEventKindDone:
 			return calls, event.StopReason
 		}
 	}
@@ -317,7 +317,7 @@ func testToken(accountID string) string {
 // block, not one per fragment.
 func TestConvertResponsesMessageJoinsAdjacentText(t *testing.T) {
 	message := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{
-		{Kind: gotato.ContentText, Text: "hel"}, {Kind: gotato.ContentText, Text: "lo"}, {Kind: gotato.ContentText, Text: " world"},
+		{Kind: gotato.ContentKindText, Text: "hel"}, {Kind: gotato.ContentKindText, Text: "lo"}, {Kind: gotato.ContentKindText, Text: " world"},
 	}}
 	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {
@@ -338,8 +338,8 @@ func TestConvertResponsesMessageJoinsAdjacentText(t *testing.T) {
 func TestConvertResponsesMessageToolResultKeepsJSONContent(t *testing.T) {
 	message := gotato.Message{
 		Role:       gotato.RoleToolResult,
-		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
-		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+		Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"summary":"sunny"}`}},
 	}
 	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {
@@ -357,7 +357,7 @@ func TestConvertResponsesMessageToolResultKeepsJSONContent(t *testing.T) {
 func TestConvertResponsesMessageToolResultFallsBackToSafeError(t *testing.T) {
 	message := gotato.Message{
 		Role:       gotato.RoleToolResult,
-		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusFailed, SafeError: "upstream is down"},
 	}
 	items, err := convertResponsesMessage(message, map[string]string{}, true)
 	if err != nil {

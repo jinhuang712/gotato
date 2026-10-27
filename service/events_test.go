@@ -33,7 +33,7 @@ func bulkAgent(name string, calls int) service.Agent {
 func storedOnly(events []gotato.Event) []gotato.Event {
 	var out []gotato.Event
 	for _, event := range events {
-		if event.Kind().Class() == gotato.ClassStored {
+		if event.Kind().Class() == gotato.EventClassStored {
 			out = append(out, event)
 		}
 	}
@@ -75,7 +75,7 @@ func checkStreamIsRecord(t *testing.T, runner *service.Runner, sessionID string,
 		t.Fatal("the stream carried no stored Event")
 	}
 	last := stored[len(stored)-1]
-	if last.Kind() != gotato.KindRunEnded {
+	if last.Kind() != gotato.EventKindRunEnded {
 		t.Fatalf("the stream ends with %s, want run_ended", last.Kind())
 	}
 	first := stored[0].Head().Number
@@ -85,7 +85,7 @@ func checkStreamIsRecord(t *testing.T, runner *service.Runner, sessionID string,
 		t.Fatalf("the stream's stored Events differ from the Record's\n got: %v\nwant: %v", got, want)
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.ClassInstance {
+		if event.Kind().Class() == gotato.EventClassInstance {
 			t.Fatalf("the Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -99,7 +99,7 @@ func settledInRecord(t *testing.T, runner *service.Runner, sessionID string, tim
 	for time.Now().Before(deadline) {
 		if stored, err := session.StoredEvents(context.Background(), runner.Store(), sessionID, 0); err == nil {
 			for _, event := range stored {
-				if event.Kind() == gotato.KindRunEnded {
+				if event.Kind() == gotato.EventKindRunEnded {
 					return
 				}
 			}
@@ -156,7 +156,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 	for _, event := range stored {
 		counts[event.Kind()]++
 	}
-	if counts[gotato.KindToolStarted] != 400 || counts[gotato.KindToolEnded] != 400 || counts[gotato.KindToolResultCommitted] != 400 || counts[gotato.KindRunEnded] != 1 {
+	if counts[gotato.EventKindToolStarted] != 400 || counts[gotato.EventKindToolEnded] != 400 || counts[gotato.EventKindToolResultCommitted] != 400 || counts[gotato.EventKindRunEnded] != 1 {
 		t.Fatalf("the Record is incomplete: %v", counts)
 	}
 
@@ -167,7 +167,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("StreamRun did not return after its sink went on")
 	}
-	if out.err != nil || out.result.Result.Status != gotato.RunCompleted {
+	if out.err != nil || out.result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("the Run = %+v, %v", out.result.Result, out.err)
 	}
 	if got := len(storedOnly(seen)); got < 1200 {
@@ -191,7 +191,7 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 		t.Fatal(err)
 	} else {
 		for _, event := range record.Events() {
-			if event.Kind() == gotato.KindRunEnded {
+			if event.Kind() == gotato.EventKindRunEnded {
 				firstEnd = event.Head().Number
 			}
 		}
@@ -236,7 +236,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range record.Events() {
-		if event.Kind() == gotato.KindRunEnded {
+		if event.Kind() == gotato.EventKindRunEnded {
 			after = event.Head().Number
 		}
 	}
@@ -268,7 +268,7 @@ func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 	all := recordRange(t, runner, first.SessionID, after+1, 1<<62)
 	end := all[len(all)-1].Head().Number
 	if !recorder.Wait(5*time.Second, func(event gotato.Event) bool {
-		return event.Head().Number == end && event.Kind().Class() == gotato.ClassStored
+		return event.Head().Number == end && event.Kind().Class() == gotato.EventClassStored
 	}) {
 		t.Fatalf("the live Events never reached #%d: %v", end, numbered(recorder.Events()))
 	}
@@ -305,7 +305,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		}
 	}
 	for _, event := range streamed {
-		if event.Kind().Class() == gotato.ClassInstance {
+		if event.Kind().Class() == gotato.EventClassInstance {
 			t.Fatalf("a Run's stream carries the Instance Event %s", event.Kind())
 		}
 	}
@@ -318,9 +318,9 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 					continue
 				}
 				switch event.Kind() {
-				case gotato.KindSessionSaved:
+				case gotato.EventKindSessionSaved:
 					saves++
-				case gotato.KindRunEnded:
+				case gotato.EventKindRunEnded:
 					ended++
 				}
 			}
@@ -335,9 +335,9 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		saves, ended := 0, 0
 		for _, event := range onlyBeta.Events() {
 			switch event.Kind() {
-			case gotato.KindSessionSaved:
+			case gotato.EventKindSessionSaved:
 				saves++
-			case gotato.KindRunEnded:
+			case gotato.EventKindRunEnded:
 				ended++
 			}
 		}
@@ -355,7 +355,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 	}
 	for agent, id := range sessions {
 		counts := kindsOf(all, id)
-		if counts[gotato.KindRunEnded] != 2 || counts[gotato.KindSessionSaved] < 2 || counts[gotato.KindSessionLoaded] < 1 {
+		if counts[gotato.EventKindRunEnded] != 2 || counts[gotato.EventKindSessionSaved] < 2 || counts[gotato.EventKindSessionLoaded] < 1 {
 			t.Fatalf("the Instance stream's Events of %s's Session = %v, want its two Runs and the store's timings", agent, counts)
 		}
 	}
@@ -365,7 +365,7 @@ func TestSubscribeInstanceSeesAllAgentsAndForAgentsFilters(t *testing.T) {
 		}
 	}
 	counts := kindsOf(onlyBeta, sessions["beta"])
-	if counts[gotato.KindRunEnded] != 2 || counts[gotato.KindSessionSaved] < 2 || counts[gotato.KindSessionLoaded] < 1 {
+	if counts[gotato.EventKindRunEnded] != 2 || counts[gotato.EventKindSessionSaved] < 2 || counts[gotato.EventKindSessionLoaded] < 1 {
 		t.Fatalf("ForAgents(beta) = %v, want beta's Runs and its Instance Events", counts)
 	}
 }
@@ -397,7 +397,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims := claimsOf(t, a, first.SessionID); len(claims) != 1 || claims[0].Why != gotato.ClaimNewSession ||
+	if claims := claimsOf(t, a, first.SessionID); len(claims) != 1 || claims[0].Why != gotato.ClaimWhyNewSession ||
 		!isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].From != "" {
 		t.Fatalf("claims = %+v, want one: instance-a at epoch 1 for a new_session", claims)
 	}
@@ -405,7 +405,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	// creation until then.
 	if firstRecord, err := a.Record(ctx, first.SessionID); err != nil {
 		t.Fatal(err)
-	} else if events := firstRecord.Events(); events[len(events)-1].Kind() != gotato.KindSessionReleased {
+	} else if events := firstRecord.Events(); events[len(events)-1].Kind() != gotato.EventKindSessionReleased {
 		t.Fatalf("the first Run left the Record at %v, want session_released last", numbered(events))
 	}
 	result, err := a.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again"})
@@ -420,13 +420,13 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 	claimed, started, ended, released := -1, -1, -1, -1
 	for i, event := range events {
 		switch event.Kind() {
-		case gotato.KindSessionClaimed:
+		case gotato.EventKindSessionClaimed:
 			claimed = i
-		case gotato.KindRunStarted:
+		case gotato.EventKindRunStarted:
 			started = i
-		case gotato.KindRunEnded:
+		case gotato.EventKindRunEnded:
 			ended = i
-		case gotato.KindSessionReleased:
+		case gotato.EventKindSessionReleased:
 			released = i
 		}
 	}
@@ -434,7 +434,7 @@ func TestRunWritesClaimAndRelease(t *testing.T) {
 		t.Fatalf("Events = %v, want session_claimed, run_started, run_ended, session_released in that order", numbered(events))
 	}
 	claim := events[claimed].(gotato.SessionClaimed)
-	if claim.Why != gotato.ClaimIdle || !isInstance(claim.Instance, "instance-a") || claim.Epoch != 1 {
+	if claim.Why != gotato.ClaimWhyIdle || !isInstance(claim.Instance, "instance-a") || claim.Epoch != 1 {
 		t.Fatalf("claim = %+v, want instance-a at epoch 1, why idle", claim)
 	}
 	release := events[released].(gotato.SessionReleased)
@@ -464,10 +464,10 @@ func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
 	if len(claims) != 2 {
 		t.Fatalf("claims = %+v, want two", claims)
 	}
-	if !isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].Why != gotato.ClaimNewSession {
+	if !isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].Why != gotato.ClaimWhyNewSession {
 		t.Fatalf("first claim = %+v", claims[0])
 	}
-	if got := claims[1]; !isInstance(got.Instance, "instance-b") || got.Epoch != 2 || !isInstance(got.From, "instance-a") || got.Why != gotato.ClaimIdle {
+	if got := claims[1]; !isInstance(got.Instance, "instance-b") || got.Epoch != 2 || !isInstance(got.From, "instance-a") || got.Why != gotato.ClaimWhyIdle {
 		t.Fatalf("takeover claim = %+v, want instance-b at epoch 2, from instance-a, why idle", got)
 	}
 }
@@ -496,7 +496,7 @@ func TestFencedWritePublishesSessionFenced(t *testing.T) {
 	a := instanceRunner(t, backing, "instance-a", held, steadyLiveness)
 	b := instanceRunner(t, deadHolders{Store: backing, self: "instance-b"}, "instance-b", testkit.EchoModel{}, steadyLiveness)
 	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
-		return event.Kind() == gotato.KindSessionFenced
+		return event.Kind() == gotato.EventKindSessionFenced
 	}))
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {
@@ -543,7 +543,7 @@ func TestLapsedLivenessPublishesOnce(t *testing.T) {
 	paused := &pausableStore{Store: backing}
 	a := instanceRunner(t, paused, "instance-a", testkit.EchoModel{}, fastLiveness)
 	lapsed := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
-		return event.Kind() == gotato.KindLivenessLapsed
+		return event.Kind() == gotato.EventKindLivenessLapsed
 	}))
 	s, err := a.CreateSession(ctx, "echo", nil)
 	if err != nil {

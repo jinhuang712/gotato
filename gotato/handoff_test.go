@@ -33,7 +33,7 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 	}
 
 	left := first.TakeQueued()
-	if len(left) != 3 || left[0].Source != SourceFollowUp || left[1].Source != SourceSteer || left[2].Source != SourceFollowUp {
+	if len(left) != 3 || left[0].Source != MessageSourceFollowUp || left[1].Source != MessageSourceSteer || left[2].Source != MessageSourceFollowUp {
 		t.Fatalf("TakeQueued = %+v, want the three in the order they were accepted", left)
 	}
 	if again := first.TakeQueued(); len(again) != 0 {
@@ -56,7 +56,7 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 
 // A canceled Run still drops what is queued, as before.
 func TestACanceledRunStillDropsItsQueue(t *testing.T) {
-	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
+	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
 	session, err := NewSession(WithModel(model), WithQueueHandoff())
 	if err != nil {
 		t.Fatal(err)

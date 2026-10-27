@@ -121,8 +121,8 @@ func paymentsTools() []gotato.Tool {
 	})
 	must(err)
 	return []gotato.Tool{
-		gotato.ToolWithEffect(batch, gotato.EffectRead), gotato.ToolWithEffect(logs, gotato.EffectRead),
-		gotato.ToolWithEffect(orders, gotato.EffectRead), gotato.ToolWithEffect(retry, gotato.EffectWriteExternal),
+		gotato.ToolWithEffect(batch, gotato.ToolEffectRead), gotato.ToolWithEffect(logs, gotato.ToolEffectRead),
+		gotato.ToolWithEffect(orders, gotato.ToolEffectRead), gotato.ToolWithEffect(retry, gotato.ToolEffectWriteExternal),
 	}
 }
 

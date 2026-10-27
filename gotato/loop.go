@@ -114,9 +114,9 @@ func (a *Session) reportExtension(stage string, failure *RuntimeError) {
 func replyBytes(message Message) (text, reasoning uint64) {
 	for _, part := range message.Parts {
 		switch part.Kind {
-		case ContentText:
+		case ContentKindText:
 			text += uint64(len(part.Text))
-		case ContentReasoning:
+		case ContentKindReasoning:
 			reasoning += uint64(len(part.Text))
 		}
 	}
@@ -229,12 +229,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err == nil {
 			err = runtimeError(CodeInternalInvariant, "Run", "nil terminal error", nil)
 		}
-		result := RunResult{RunID: runID, Status: RunFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
+		result := RunResult{RunID: runID, Status: RunStatusFailed, Usage: totalUsage, Metrics: runMetrics(), Error: err}
 		if errors.Is(err.Cause, context.Canceled) || err.Code == CodeCanceled {
-			result.Status = RunCanceled
+			result.Status = RunStatusCanceled
 		}
 		if err.Code == CodeDeadlineExceeded {
-			result.Status = RunDeadlineExceeded
+			result.Status = RunStatusDeadlineExceeded
 		}
 		turn := currentTurn()
 		a.closeOpenCalls(runID, &batch, err, result.Status)
@@ -259,7 +259,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if err := a.commitMessage(*prompt); err != nil {
 			return fail(asRuntimeError(err))
 		}
-		a.stage(MessageCommitted{Header: hd(0), Message: prompt.Clone(), Source: SourcePrompt})
+		a.stage(MessageCommitted{Header: hd(0), Message: prompt.Clone(), Source: MessageSourcePrompt})
 		if err := a.flush(runCtx); err != nil {
 			return fail(err)
 		}
@@ -386,11 +386,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if modelErr != nil && modelErr.Code == CodeCanceled && runCtx.Err() == nil && a.interrupting() {
 			// An Interrupt cut the call short: the text it had sent is kept as
 			// a Cut-off reply, and the Interrupt starts the next Turn.
-			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
+			if assistant.StopReason == StopReasonCutOff && a.commitMessage(assistant) == nil {
 				a.stage(ReplyCutOff{Header: hd(turn), Message: assistant.Clone(), Cause: modelErr.Code})
 			}
 			a.stage(TurnEnded{
-				Header: hd(turn), StopReason: StopCutOff, Usage: usage,
+				Header: hd(turn), StopReason: StopReasonCutOff, Usage: usage,
 				ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
 			})
 			if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
@@ -401,7 +401,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if modelErr != nil {
 			// The text the Model sent before its stream broke is committed,
 			// so the Transcript keeps it; the Run still fails as it did.
-			if assistant.StopReason == StopCutOff && a.commitMessage(assistant) == nil {
+			if assistant.StopReason == StopReasonCutOff && a.commitMessage(assistant) == nil {
 				// The Run fails with the model's error either way; a cut-off
 				// reply that cannot be written fails the Run's last write.
 				a.stage(ReplyCutOff{Header: hd(turn), Message: assistant.Clone(), Cause: modelErr.Code})
@@ -410,9 +410,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return fail(modelErr)
 		}
 		// A Message with Tool calls stopped for them, unless the output limit
-		// cut it off: StopMaxTokens stays, so a TurnStopper sees the cut-off.
-		if len(assistant.ToolCalls) > 0 && assistant.StopReason != StopMaxTokens {
-			assistant.StopReason = StopToolCalls
+		// cut it off: StopReasonMaxTokens stays, so a TurnStopper sees the cut-off.
+		if len(assistant.ToolCalls) > 0 && assistant.StopReason != StopReasonMaxTokens {
+			assistant.StopReason = StopReasonToolCalls
 		}
 		if err := a.commitMessage(assistant); err != nil {
 			return fail(asRuntimeError(err))
@@ -421,7 +421,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			batch = openBatch{turn: turn, calls: assistant.ToolCalls}
 		}
 		a.stage(ReplyEnded{Header: hd(turn), Message: assistant.Clone(), Model: assistant.Model, StopReason: assistant.StopReason, ToolCalls: len(assistant.ToolCalls)})
-		replyNumber, err := a.flushNumbered(runCtx, KindReplyEnded)
+		replyNumber, err := a.flushNumbered(runCtx, EventKindReplyEnded)
 		if err != nil {
 			return fail(err)
 		}
@@ -429,7 +429,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		settle := func(stopped bool, reason string) (RunResult, error) {
 			finalCopy := assistant.Clone()
 			final = &finalCopy
-			result := RunResult{RunID: runID, Status: RunCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
+			result := RunResult{RunID: runID, Status: RunStatusCompleted, FinalMessage: final, Usage: totalUsage, Metrics: runMetrics()}
 			writeErr := end(turn, result, func(e *RunEnded) {
 				if stopped {
 					e.StoppedByExtension = true
@@ -439,7 +439,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if writeErr != nil {
 				// The write that ends the Run failed, so the Record does not
 				// say the Run ended: the Run failed, whatever the reply was.
-				result.Status = RunFailed
+				result.Status = RunStatusFailed
 				result.Error = writeErr
 				return result, writeErr
 			}
@@ -479,11 +479,11 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// an answer: the Model ran out of room, often while reasoning.
 			// Within the configured bound the Run continues instead of
 			// settling on it.
-			if assistant.StopReason == StopMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
+			if assistant.StopReason == StopReasonMaxTokens && truncatedContinuations < a.limits.MaxTruncatedContinuations {
 				truncatedContinuations++
 				// A notice, not a user Message: it starts no Round, so the
 				// reasoning of the cut reply stays in the request.
-				if err := a.commitNotice(runCtx, runID, turn, NewNotice(NoticeFromGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber); err != nil {
+				if err := a.commitNotice(runCtx, runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber); err != nil {
 					return fail(err)
 				}
 				continue
@@ -591,12 +591,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 
 		a.stage(TurnEnded{
-			Header: hd(turn), StopReason: StopToolCalls, Usage: usage,
+			Header: hd(turn), StopReason: StopReasonToolCalls, Usage: usage,
 			ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
 			ToolCalls: len(assistant.ToolCalls), Tools: toolOutcomes,
 		})
 		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopToolCalls,
+			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopReasonToolCalls,
 		})
 		if stopErr != nil {
 			return fail(stopErr)
@@ -659,7 +659,7 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	for {
 		select {
 		case queued := <-a.steer:
-			if queued.source == SourceInterrupt {
+			if queued.source == MessageSourceInterrupt {
 				a.interruptTaken()
 			}
 			items = append(items, queued)
@@ -684,7 +684,7 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 	}
 	injected := false
 	for _, item := range items {
-		if item.source == SourceNotice {
+		if item.source == MessageSourceNotice {
 			if err := a.commitNotice(ctx, runID, turn, item.message, item.number, 0); err != nil {
 				return injected, err
 			}
@@ -724,7 +724,7 @@ func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 	for {
 		select {
 		case queued := <-a.steer:
-			if queued.source == SourceInterrupt {
+			if queued.source == MessageSourceInterrupt {
 				a.interruptTaken()
 			}
 			drop(queued.message, queued.source)
@@ -831,42 +831,42 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 			assistant.Model = modelEvent.Model
 		}
 		switch modelEvent.Kind {
-		case ModelTextDelta:
+		case ModelEventKindTextDelta:
 			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentText, Text: modelEvent.Text})
+				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindText, Text: modelEvent.Text})
 				a.send(TextDelta{Header: a.deltaHeader(runID, turn), MessageID: assistant.ID, Text: modelEvent.Text})
 				partText.WriteString(modelEvent.Text)
 				if err := writePart(); err != nil {
 					return broken(err)
 				}
 			}
-		case ModelReasoningDelta:
+		case ModelEventKindReasoningDelta:
 			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning, Text: modelEvent.Text})
+				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: modelEvent.Text})
 				a.send(ReasoningDelta{Header: a.deltaHeader(runID, turn), MessageID: assistant.ID, Text: modelEvent.Text})
 				partReasoning.WriteString(modelEvent.Text)
 				if err := writePart(); err != nil {
 					return broken(err)
 				}
 			}
-		case ModelReasoningDone:
+		case ModelEventKindReasoningDone:
 			// The Done signs the block its deltas opened. A block that
 			// streamed no deltas (redacted, or with its display omitted)
 			// finds the last reasoning Part already signed, and gets a Part
 			// of its own instead of overwriting that signature.
 			partIndex := -1
 			for i := len(assistant.Parts) - 1; i >= 0; i-- {
-				if assistant.Parts[i].Kind == ContentReasoning {
+				if assistant.Parts[i].Kind == ContentKindReasoning {
 					partIndex = i
 					break
 				}
 			}
 			if partIndex == -1 || len(assistant.Parts[partIndex].Signature) > 0 {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentReasoning})
+				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindReasoning})
 				partIndex = len(assistant.Parts) - 1
 			}
 			assistant.Parts[partIndex].Signature = slices.Clone(modelEvent.ReasoningArtifact)
-		case ModelToolCall:
+		case ModelEventKindToolCall:
 			if modelEvent.ToolCall == nil || modelEvent.ToolCall.ID == "" || modelEvent.ToolCall.ToolID == "" {
 				return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
 			}
@@ -879,13 +879,13 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 			call.Arguments = slices.Clone(call.Arguments)
 			call.Signature = slices.Clone(call.Signature)
 			assistant.ToolCalls = append(assistant.ToolCalls, call)
-		case ModelUsage:
+		case ModelEventKindUsage:
 			usage = modelEvent.Usage
-		case ModelDone:
+		case ModelEventKindDone:
 			complete = true
 			assistant.StopReason = modelEvent.StopReason
 			if assistant.StopReason == "" {
-				assistant.StopReason = StopEndTurn
+				assistant.StopReason = StopReasonEndTurn
 			}
 			if modelEvent.Usage.TotalTokens != 0 || modelEvent.Usage.InputTokens != 0 || modelEvent.Usage.OutputTokens != 0 {
 				usage = modelEvent.Usage

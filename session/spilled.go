@@ -113,7 +113,7 @@ func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolC
 		return gotato.SpilledResult{}, false, err
 	}
 	for _, entry := range entries {
-		if entry.Kind != gotato.KindToolResultSpilled {
+		if entry.Kind != gotato.EventKindToolResultSpilled {
 			continue
 		}
 		event, known, err := eventOf(entry, gotato.SessionID(id))
@@ -140,7 +140,7 @@ func readSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body
 	if len(entries) == 0 || entries[0].Seq != seq {
 		return "", true, nil
 	}
-	if entries[0].Kind != gotato.KindToolResultSpilled {
+	if entries[0].Kind != gotato.EventKindToolResultSpilled {
 		return "", false, fmt.Errorf("session: entry %d of %s is a %s Entry, not a tool_result_spilled one", seq, id, entries[0].Kind)
 	}
 	event, ok, err := eventOf(entries[0], gotato.SessionID(id))

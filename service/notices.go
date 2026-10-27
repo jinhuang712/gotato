@@ -108,7 +108,7 @@ func (h *runHandle) notice(ctx context.Context, kind, text string) (uint64, gota
 	if h.live == nil {
 		return 0, "", gotato.ErrorOf(gotato.CodeInvalidState, "service: the run is over")
 	}
-	message := gotato.NewNotice(gotato.NoticeFromService, kind, text)
+	message := gotato.NewNotice(gotato.NoticeSourceService, kind, text)
 	message.ID = newMessageID()
 	number, err := h.live.QueueNotice(ctx, message)
 	return number, message.ID, err
@@ -118,7 +118,7 @@ func (h *runHandle) notice(ctx context.Context, kind, text string) (uint64, gota
 // Run going. The Record keeps it for the Session's next Run.
 func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (uint64, gotato.MessageID, error) {
 	var number uint64
-	message := gotato.NewNotice(gotato.NoticeFromService, request.Kind, request.Text)
+	message := gotato.NewNotice(gotato.NoticeSourceService, request.Kind, request.Text)
 	message.ID = newMessageID()
 	err := r.sessionLock(ctx, request.SessionID, true, func() error {
 		writer, early, _, err := r.acquire(ctx, request.SessionID)
@@ -139,7 +139,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 		default:
 			written, err = writer.Write(ctx, []gotato.Event{gotato.NoticeQueued{
 				Header:    gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0),
-				MessageID: message.ID, NoticeKind: request.Kind, Source: gotato.NoticeFromService, Text: request.Text,
+				MessageID: message.ID, NoticeKind: request.Kind, Source: gotato.NoticeSourceService, Text: request.Text,
 			}})
 		}
 		publish := r.publisher(feedKey{writer.ID(), writer.Record().RecordEpoch()}, agentName)
@@ -167,7 +167,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 // splitNotices separates the notices from the other messages a Run left.
 func splitNotices(left []gotato.Queued) (notices, rest []gotato.Queued) {
 	for _, queued := range left {
-		if queued.Source == gotato.SourceNotice {
+		if queued.Source == gotato.MessageSourceNotice {
 			notices = append(notices, queued)
 		} else {
 			rest = append(rest, queued)
@@ -199,7 +199,7 @@ func (r *Runner) queueTimeAway(ctx context.Context, spec Agent, record *session.
 		location = time.UTC
 	}
 	text := fmt.Sprintf("It has been %s since the last message. It is now %s.", away(now.Sub(last)), now.In(location).Format(time.RFC3339))
-	_, _ = live.QueueNotice(ctx, gotato.NewNotice(gotato.NoticeFromGotato, gotato.NoticeTimeAway, text))
+	_, _ = live.QueueNotice(ctx, gotato.NewNotice(gotato.NoticeSourceGotato, gotato.NoticeTimeAway, text))
 }
 
 // away says how long the user was away in whole minutes, hours or days: the

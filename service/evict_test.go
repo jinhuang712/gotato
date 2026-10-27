@@ -19,7 +19,7 @@ func limitedInstance(t *testing.T, store session.Store, clock service.Clock, mod
 	t.Helper()
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: "a",
-		Admission: service.Admission{MaxActiveSessions: limit, Queue: service.WaitWhileBusy},
+		Admission: service.Admission{MaxActiveSessions: limit, Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {
@@ -40,7 +40,7 @@ func drain(started chan string) {
 // order.
 func evictedIDs(rec *testkit.EventRecorder) []string {
 	var out []string
-	for _, event := range rec.OfKind(gotato.KindSessionUnloaded) {
+	for _, event := range rec.OfKind(gotato.EventKindSessionUnloaded) {
 		if unloaded := event.(gotato.SessionUnloaded); unloaded.Why == "evicted" {
 			out = append(out, string(unloaded.SessionID))
 		}
@@ -143,7 +143,7 @@ func TestMemoryLimitNeverEvictsARunningSession(t *testing.T) {
 	go func() { close(model.gate) }()
 	runOn(t, runner, "", "new")
 	busy := <-done
-	if busy.Result.Status != gotato.RunCompleted {
+	if busy.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("the running Session ended %+v", busy.Result)
 	}
 	// The Instance stream is delivered after the Run returns.
@@ -258,7 +258,7 @@ func TestEvictionCancelsAnIdleCompactionInProgress(t *testing.T) {
 		t.Fatalf("evicted %v, want [%s]", got, first.SessionID)
 	}
 	kinds := storedKinds(t, store, first.SessionID)
-	if count(kinds, gotato.KindCompactionStarted) != 1 || count(kinds, gotato.KindCompactionFailed) != 1 || count(kinds, gotato.KindSegmentClosed) != 0 {
+	if count(kinds, gotato.EventKindCompactionStarted) != 1 || count(kinds, gotato.EventKindCompactionFailed) != 1 || count(kinds, gotato.EventKindSegmentClosed) != 0 {
 		t.Fatalf("stored Events %v, want one canceled compaction and no Segment", kinds)
 	}
 	if runner.WarmSessions() != 1 || clock.Pending() != 2 {

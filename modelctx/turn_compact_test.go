@@ -94,7 +94,7 @@ func (l *live) run(model gotato.Model, prompt, result string) (gotato.RunResult,
 
 func (l *live) must(model gotato.Model, prompt string) {
 	l.t.Helper()
-	if result, err := l.run(model, prompt, "ok"); err != nil || result.Status != gotato.RunCompleted {
+	if result, err := l.run(model, prompt, "ok"); err != nil || result.Status != gotato.RunStatusCompleted {
 		l.t.Fatalf("%q: %+v, %v", prompt, result, err)
 	}
 }
@@ -127,13 +127,13 @@ func TestARunPastTheCeilingIsCompactedBetweenTurnsAndGoesOn(t *testing.T) {
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
-	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "all done" {
+	if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "all done" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	if model.calls() != 3 || result.Metrics.Turns != 3 {
 		t.Fatalf("%d model calls in %d Turns, want 3 and 3", model.calls(), result.Metrics.Turns)
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionPastCeiling {
+	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("compactions = %v, want one past_ceiling", got)
 	}
 	// The two requests before the ceiling were not compacted; the third holds
@@ -181,7 +181,7 @@ func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
 	// Two Runs that read a large result each: a Segment keeps a line per call.
 	for _, prompt := range []string{"four", "five"} {
 		steps := &stepModel{steps: []any{calling(prompt, 300, 10), answering("reply to " + prompt)}}
-		if result, err := l.run(steps, prompt, strings.Repeat("log line ", 350)); err != nil || result.Status != gotato.RunCompleted {
+		if result, err := l.run(steps, prompt, strings.Repeat("log line ", 350)); err != nil || result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("%q: %+v, %v", prompt, result, err)
 		}
 	}
@@ -189,10 +189,10 @@ func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
 
 	model := &stepModel{steps: []any{refusal{}, answering("fits now")}}
 	result, err := l.run(model, "six", "ok")
-	if err != nil || result.Status != gotato.RunCompleted || model.calls() != 2 {
+	if err != nil || result.Status != gotato.RunStatusCompleted || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 2 || got[1] != gotato.CompactionOverflow {
+	if got := whyOf(l.writer.Record()); len(got) != 2 || got[1] != gotato.CompactionWhyOverflow {
 		t.Fatalf("compactions = %v, want on_demand then overflow", got)
 	}
 	refused, sent := model.requests[0].Messages, model.requests[1].Messages
@@ -222,10 +222,10 @@ func TestASecondRefusalEndsTheRunWithContextOverflow(t *testing.T) {
 	}
 	model := &stepModel{steps: []any{refusal{}, refusal{}, answering("never")}}
 	result, err := l.run(model, "four", "ok")
-	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionOverflow {
+	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionWhyOverflow {
 		t.Fatalf("compactions = %v, want one overflow", got)
 	}
 }
@@ -237,10 +237,10 @@ func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *test
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 9000, 1000), refusal{}, answering("never")}}
 	result, err := l.run(model, "investigate", "ok")
-	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 2 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionPastCeiling {
+	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("compactions = %v, want one past_ceiling", got)
 	}
 }
@@ -253,13 +253,13 @@ func TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded(t *testi
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), answering("never")}}
 	result, err := l.run(model, strings.Repeat("a very large prompt ", 2000), "ok")
-	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunFailed || model.calls() != 0 {
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunStatusFailed || model.calls() != 0 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if !strings.Contains(err.Error(), "past the ceiling") {
 		t.Errorf("the error does not say why: %v", err)
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionPastCeiling {
+	if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("compactions = %v, want one past_ceiling", got)
 	}
 }

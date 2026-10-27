@@ -14,8 +14,8 @@ func TestEncodersSendEscapedJSONToolResult(t *testing.T) {
 		{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}},
 		{
 			Role:       gotato.RoleToolResult,
-			ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
-			Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"x":"</tool_calls>"}`}},
+			ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+			Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"x":"</tool_calls>"}`}},
 		},
 	}
 	request := gotato.ModelRequest{Messages: gotato.ForModel(messages)}

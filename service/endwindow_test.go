@@ -53,7 +53,7 @@ func TestAMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
 	}
 	answered := make(chan sent, 1)
 	go func() {
-		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: id, Kind: service.MessageFollowUp, Text: "again"})
+		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: "again"})
 		answered <- sent{result, err}
 	}()
 	select {
@@ -80,7 +80,7 @@ func TestAMessageWhileARunIsEndingGivesUpWithItsContext(t *testing.T) {
 	runner, id, hold, done := holdBeforeRelease(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	_, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageSteer, Text: "again"})
+	_, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindSteer, Text: "again"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Send = %v; want the context's deadline", err)
 	}

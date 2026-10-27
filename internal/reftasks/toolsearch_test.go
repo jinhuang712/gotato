@@ -22,7 +22,7 @@ func TestToolSearchLoadsToolsEveryWay(t *testing.T) {
 			}
 			steps = append(steps, step)
 		}
-		if message.ToolResult != nil && message.ToolResult.Status != gotato.ToolResultOK {
+		if message.ToolResult != nil && message.ToolResult.Status != gotato.ToolResultStatusOK {
 			failed++
 		}
 	}

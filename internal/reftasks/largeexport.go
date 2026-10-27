@@ -46,7 +46,7 @@ var largeExport = sync.OnceValue(func() string {
 // no state. Its Effect is read.
 func LargeExport() gotato.Tool {
 	tool := testkit.NewFakeTool(LargeExportID, largeExport())
-	return gotato.ToolWithEffect(exportTool{tool}, gotato.EffectRead)
+	return gotato.ToolWithEffect(exportTool{tool}, gotato.ToolEffectRead)
 }
 
 // exportTool is a FakeTool with the export's description.

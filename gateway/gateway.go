@@ -594,7 +594,7 @@ func convertMessage(message gotato.Message, names map[string]string, keepReasoni
 		return wireMessage{}, fmt.Errorf("gateway: unsupported Message role %q", role)
 	}
 	for _, part := range message.Parts {
-		if part.Kind != gotato.ContentText && part.Kind != gotato.ContentReasoning && (part.Text != "" || len(part.Data) > 0) {
+		if part.Kind != gotato.ContentKindText && part.Kind != gotato.ContentKindReasoning && (part.Text != "" || len(part.Data) > 0) {
 			return wireMessage{}, fmt.Errorf("gateway: unsupported content kind %q", part.Kind)
 		}
 	}
@@ -639,12 +639,12 @@ func isJSONObject(data []byte) bool {
 
 // toolResultText renders a Tool Result Message as text for a provider. Every
 // text-bearing Part kind counts, because a typed Tool returns its output as a
-// ContentJSON Part; gotato.TextOf would drop it.
+// ContentKindJSON Part; gotato.TextOf would drop it.
 func toolResultText(message gotato.Message) string {
 	var b strings.Builder
 	for _, part := range message.Parts {
 		switch part.Kind {
-		case gotato.ContentText, gotato.ContentReasoning, gotato.ContentJSON:
+		case gotato.ContentKindText, gotato.ContentKindReasoning, gotato.ContentKindJSON:
 			b.WriteString(part.Text)
 		}
 	}
@@ -900,14 +900,14 @@ func (s *stream) processChunk(chunk wireChunk) {
 			cached = d.CachedTokens
 		}
 		s.usage.CacheReadTokens = min(cached, s.usage.InputTokens)
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: s.usage})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: s.usage})
 	}
 	for _, choice := range chunk.Choices {
 		if choice.Delta.ReasoningContent != "" {
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDelta, Text: choice.Delta.ReasoningContent})
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: choice.Delta.ReasoningContent})
 		}
 		if choice.Delta.Content != "" {
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: choice.Delta.Content})
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: choice.Delta.Content})
 		}
 		for _, delta := range choice.Delta.ToolCalls {
 			call := s.callFor(delta.Index, delta.ID)
@@ -963,12 +963,12 @@ func (s *stream) finishStream() {
 		if strings.TrimSpace(arguments) == "" {
 			arguments = "{}"
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(arguments), Signature: call.extra}})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: &gotato.ToolCall{ID: gotato.ToolCallID(call.id), ToolID: name, Arguments: []byte(arguments), Signature: call.extra}})
 	}
 	if s.finish == "" {
-		s.finish = gotato.StopEndTurn
+		s.finish = gotato.StopReasonEndTurn
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.finish, Usage: s.usage, Model: s.model})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.finish, Usage: s.usage, Model: s.model})
 	s.finished = true
 }
 
@@ -984,15 +984,15 @@ func (s *stream) Close() error {
 func mapStopReason(reason string) gotato.StopReason {
 	switch reason {
 	case "tool_calls", "function_call":
-		return gotato.StopToolCalls
+		return gotato.StopReasonToolCalls
 	case "length":
-		return gotato.StopMaxTokens
+		return gotato.StopReasonMaxTokens
 	case "content_filter":
-		return gotato.StopError
+		return gotato.StopReasonError
 	case "stop", "":
-		return gotato.StopEndTurn
+		return gotato.StopReasonEndTurn
 	default:
-		return gotato.StopEndTurn
+		return gotato.StopReasonEndTurn
 	}
 }
 

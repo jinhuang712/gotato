@@ -11,11 +11,11 @@ import (
 type NoticeSource string
 
 const (
-	// NoticeFromGotato is a notice the runtime wrote itself, such as a
+	// NoticeSourceGotato is a notice the runtime wrote itself, such as a
 	// continuation or the time away.
-	NoticeFromGotato NoticeSource = "gotato"
-	// NoticeFromService is a notice a service or an extension wrote.
-	NoticeFromService NoticeSource = "service"
+	NoticeSourceGotato NoticeSource = "gotato"
+	// NoticeSourceService is a notice a service or an extension wrote.
+	NoticeSourceService NoticeSource = "service"
 )
 
 // The kinds of notice Gotato sends itself. They are reserved: a service names
@@ -71,7 +71,7 @@ func (p PendingNotice) Queued() Queued {
 func NewNotice(source NoticeSource, kind, text string) Message {
 	return Message{
 		Role:   RoleNotice,
-		Parts:  []ContentPart{{Kind: ContentText, Text: text}},
+		Parts:  []ContentPart{{Kind: ContentKindText, Text: text}},
 		Notice: &NoticeInfo{Kind: kind, Source: source},
 	}
 }
@@ -99,7 +99,7 @@ func (a *Session) Notice(ctx context.Context, kind, text string) (uint64, error)
 	if ReservedNoticeKind(kind) {
 		return 0, runtimeError(CodeInvalidArgument, "Notice", "notice kind "+kind+" is reserved", nil)
 	}
-	return a.QueueNotice(ctx, NewNotice(NoticeFromService, kind, text))
+	return a.QueueNotice(ctx, NewNotice(NoticeSourceService, kind, text))
 }
 
 // QueueNotice queues a notice Message, of any source and kind, as Notice does.
@@ -126,7 +126,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		message.ID = MessageID(nextID("message"))
 	}
 	reject := func(why string, err error) (uint64, error) {
-		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: SourceNotice, Why: why})
+		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: MessageSourceNotice, Why: why})
 		return 0, err
 	}
 	if a.noticeLen() >= a.noticeLimit {
@@ -141,7 +141,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 	}
 	number := written[0].Head().Number
 	a.noticeMu.Lock()
-	a.notices = append(a.notices, control{message: message, source: SourceNotice, seq: a.ctlSeq.Add(1), number: number})
+	a.notices = append(a.notices, control{message: message, source: MessageSourceNotice, seq: a.ctlSeq.Add(1), number: number})
 	a.noticeMu.Unlock()
 	return number, nil
 }

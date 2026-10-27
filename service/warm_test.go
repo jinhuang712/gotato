@@ -168,7 +168,7 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	}
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name,
-		Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: warm}},
 	}, clock))
 	if err != nil {
@@ -181,7 +181,7 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunResponse {
 	t.Helper()
 	result, err := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt})
-	if err != nil || result.Result.Status != gotato.RunCompleted {
+	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run %q = %+v, %v", prompt, result.Result, err)
 	}
 	return result
@@ -510,11 +510,11 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 		compactAt time.Duration
 		why       gotato.CompactionWhy
 	}{
-		{"cache unknown, before the TTL", testkit.EchoModel{}, service.WarmPolicy{}, time.Hour, 55 * time.Minute, gotato.CompactionBeforeUnload},
-		{"cache expires first", retainingModel{testkit.EchoModel{}, time.Hour}, service.WarmPolicy{TTL: 3 * time.Hour}, 3 * time.Hour, 55 * time.Minute, gotato.CompactionBeforeCacheExpires},
-		{"cache outlasts the TTL", retainingModel{testkit.EchoModel{}, 2 * time.Hour}, service.WarmPolicy{TTL: time.Hour}, time.Hour, 55 * time.Minute, gotato.CompactionBeforeUnload},
-		{"a retention of five minutes is not used", retainingModel{testkit.EchoModel{}, 5 * time.Minute}, service.WarmPolicy{}, time.Hour, 55 * time.Minute, gotato.CompactionBeforeUnload},
-		{"a lead of its own", testkit.EchoModel{}, service.WarmPolicy{IdleLead: 10 * time.Minute}, time.Hour, 50 * time.Minute, gotato.CompactionBeforeUnload},
+		{"cache unknown, before the TTL", testkit.EchoModel{}, service.WarmPolicy{}, time.Hour, 55 * time.Minute, gotato.CompactionWhyBeforeUnload},
+		{"cache expires first", retainingModel{testkit.EchoModel{}, time.Hour}, service.WarmPolicy{TTL: 3 * time.Hour}, 3 * time.Hour, 55 * time.Minute, gotato.CompactionWhyBeforeCacheExpires},
+		{"cache outlasts the TTL", retainingModel{testkit.EchoModel{}, 2 * time.Hour}, service.WarmPolicy{TTL: time.Hour}, time.Hour, 55 * time.Minute, gotato.CompactionWhyBeforeUnload},
+		{"a retention of five minutes is not used", retainingModel{testkit.EchoModel{}, 5 * time.Minute}, service.WarmPolicy{}, time.Hour, 55 * time.Minute, gotato.CompactionWhyBeforeUnload},
+		{"a lead of its own", testkit.EchoModel{}, service.WarmPolicy{IdleLead: 10 * time.Minute}, time.Hour, 50 * time.Minute, gotato.CompactionWhyBeforeUnload},
 	}
 	for _, kind := range storeKinds {
 		for _, c := range cases {
@@ -534,7 +534,7 @@ func TestIdleWarmSessionIsCompactedBeforeItLeaves(t *testing.T) {
 				}
 				clock.Advance(time.Second)
 				kinds := storedKinds(t, store, first.SessionID)[len(before):]
-				if count(kinds, gotato.KindCompactionEnded) != 1 || count(kinds, gotato.KindSegmentClosed) != 1 {
+				if count(kinds, gotato.EventKindCompactionEnded) != 1 || count(kinds, gotato.EventKindSegmentClosed) != 1 {
 					t.Fatalf("after its idle lead the Session wrote %v, want one compaction with a Segment", kinds)
 				}
 				record, err := runner.Record(context.Background(), first.SessionID)
@@ -617,7 +617,7 @@ func TestIdleCompactionCanBeTurnedOff(t *testing.T) {
 	if store.Appends() != writes {
 		t.Fatal("an idle Session was written with idle compaction off")
 	}
-	if kinds := storedKinds(t, store, first.SessionID); count(kinds, gotato.KindCompactionStarted) != 0 {
+	if kinds := storedKinds(t, store, first.SessionID); count(kinds, gotato.EventKindCompactionStarted) != 0 {
 		t.Fatalf("an idle compaction ran with the setting off: %v", kinds)
 	}
 	if runner.WarmSessions() != 0 {
@@ -687,7 +687,7 @@ func TestRunDuringAnIdleCompactionCancelsIt(t *testing.T) {
 		t.Fatalf("the Run ended with %d messages, want 8", result.Messages)
 	}
 	kinds := storedKinds(t, store, first.SessionID)
-	if count(kinds, gotato.KindCompactionStarted) != 1 || count(kinds, gotato.KindCompactionFailed) != 1 || count(kinds, gotato.KindSegmentClosed) != 0 {
+	if count(kinds, gotato.EventKindCompactionStarted) != 1 || count(kinds, gotato.EventKindCompactionFailed) != 1 || count(kinds, gotato.EventKindSegmentClosed) != 0 {
 		t.Fatalf("stored Events %v, want one canceled compaction and no Segment", kinds)
 	}
 	// The Run started the TTL again, and the compaction does not run twice.
@@ -718,7 +718,7 @@ func TestFailedIdleCompactionIsDroppedAndTheSessionStaysUsable(t *testing.T) {
 	if runner.WarmSessions() != 0 {
 		t.Fatal("a copy that is ahead of the store stayed warm")
 	}
-	if kinds := storedKinds(t, store, first.SessionID); count(kinds, gotato.KindCompactionEnded) != 0 {
+	if kinds := storedKinds(t, store, first.SessionID); count(kinds, gotato.EventKindCompactionEnded) != 0 {
 		t.Fatalf("a failed compaction reached the store: %v", kinds)
 	}
 	result := runOn(t, runner, first.SessionID, "four")

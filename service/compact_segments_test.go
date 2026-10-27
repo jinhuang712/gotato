@@ -40,7 +40,7 @@ func TestRunnerCompactTakesTheAgentsCompactionSettings(t *testing.T) {
 		id = result.SessionID
 	}
 	skipped, err := runner.Compact(ctx, id, modelctx.CompactOptions{MinTokens: 1 << 20})
-	if err != nil || skipped.Replaced || skipped.Reason != modelctx.ReasonBelowMinTokens {
+	if err != nil || skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens {
 		t.Fatalf("below min_tokens = %+v, %v", skipped, err)
 	}
 	result, err := runner.Compact(ctx, id, modelctx.CompactOptions{})

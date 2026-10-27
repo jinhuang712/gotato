@@ -40,7 +40,7 @@ func (t *recordingTranscript) Append(message Message) error {
 
 func TestSessionCommitsToExternalTranscript(t *testing.T) {
 	transcript := &recordingTranscript{}
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hello"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hello"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func (m *testModel) lastRequest() ModelRequest {
 }
 
 func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "ok"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	builder := ContextBuilderFunc(func(_ context.Context, snapshot ContextSnapshot) (ModelContext, error) {
 		// Keep only the last Message.
 		return ModelContext{
@@ -137,7 +137,7 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 }
 
 func TestContextBuilderFailureSettlesRun(t *testing.T) {
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	builder := ContextBuilderFunc(func(context.Context, ContextSnapshot) (ModelContext, error) {
 		return ModelContext{}, errors.New("boom")
 	})
@@ -147,7 +147,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("hi"))
-	if !IsCode(err, CodeExtensionFailure) || result.Status != RunFailed {
+	if !IsCode(err, CodeExtensionFailure) || result.Status != RunStatusFailed {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
@@ -171,7 +171,7 @@ func (s *dynamicSource) set(tools ...Tool) {
 
 func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 	source := &dynamicSource{}
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model), WithToolSource(source))
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestToolSourceToolIsCallable(t *testing.T) {
 }
 
 func TestPromptRejectsBlankParts(t *testing.T) {
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -240,14 +240,14 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 			t.Fatalf("Prompt(%+v) err = %v, want invalid_argument", message, err)
 		}
 	}
-	image := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentImage, Data: []byte{1, 2, 3}, MIMEType: "image/png"}}}
+	image := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: []byte{1, 2, 3}, MIMEType: "image/png"}}}
 	if _, err := agent.Prompt(context.Background(), image); err != nil {
 		t.Fatalf("image-only prompt rejected: %v", err)
 	}
 }
 
 func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -294,8 +294,8 @@ func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 func TestZeroLimitFieldsKeepTheirDefaults(t *testing.T) {
 	call := ToolCall{ID: "c1", ToolID: "progress", Arguments: []byte(`{}`)}
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
-		{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
+		{{Kind: ModelEventKindTextDelta, Text: "ok"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: 1, updates: 3}), WithLimits(CoreLimits{MaxParallelTools: 4}))
 	if err != nil {
@@ -308,7 +308,7 @@ func TestZeroLimitFieldsKeepTheirDefaults(t *testing.T) {
 	}
 	progress := 0
 	for _, kind := range seen.kinds() {
-		if kind == KindToolProgress {
+		if kind == EventKindToolProgress {
 			progress++
 		}
 	}
@@ -330,7 +330,7 @@ func TestDefaultMaxMessagesLeavesRoomForSegments(t *testing.T) {
 	for range 1500 {
 		history.messages = append(history.messages, UserMessage("earlier"))
 	}
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "ok"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "ok"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model), WithTranscript(history))
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +344,7 @@ func TestDefaultMaxMessagesLeavesRoomForSegments(t *testing.T) {
 func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTranscriptBytes = 400
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: strings.Repeat("x", 100)}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: strings.Repeat("x", 100)}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)

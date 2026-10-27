@@ -57,7 +57,7 @@ func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 			}
 			for _, prompt := range prompts {
 				result, err := session.Prompt(context.Background(), gotato.UserMessage(prompt.text))
-				if err != nil || result.Status != gotato.RunCompleted {
+				if err != nil || result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("%q: %+v, %v", prompt.text, result, err)
 				}
 				if answer := gotato.TextOf(*result.FinalMessage); !strings.HasPrefix(answer, "tool said: ") || !strings.Contains(answer, prompt.tool+" done") {

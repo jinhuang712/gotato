@@ -25,7 +25,7 @@ func readNumbers(t *testing.T, stream *service.SessionStream, count int) []uint6
 		if err != nil {
 			t.Fatalf("after %v: %v", out, err)
 		}
-		if event.Kind().Class() == gotato.ClassStored {
+		if event.Kind().Class() == gotato.EventClassStored {
 			out = append(out, event.Head().Number)
 		}
 	}

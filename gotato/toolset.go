@@ -154,7 +154,7 @@ type toolRegistry struct {
 	search   *searchTool
 	searcher ToolSearcher
 	filter   func(string) bool
-	// maxEffect hides every Tool above it; EffectUnspecified means no cap.
+	// maxEffect hides every Tool above it; ToolEffectUnspecified means no cap.
 	maxEffect ToolEffect
 	// mu guards sets, pending, loaded, specs, and byQualified. Callers that
 	// run on the Session goroutine hold the Session's registryMu, which is the
@@ -435,7 +435,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 
 // hidden reports whether the Effect cap keeps a Tool from the Model.
 func (r *toolRegistry) hidden(spec ToolSpec) bool {
-	return r.maxEffect != EffectUnspecified && !spec.Effect.Within(r.maxEffect)
+	return r.maxEffect != ToolEffectUnspecified && !spec.Effect.Within(r.maxEffect)
 }
 
 // indexable reports whether the Model may find and load a catalog Tool: the
@@ -646,7 +646,7 @@ func (r *toolRegistry) stageLoad(id string, why ToolLoadedWhy) loadStatus {
 // stageCall handles a call to a Tool that is not visible. It stages the load
 // and reports true when the Tool is a catalog Tool the Session may load.
 func (r *toolRegistry) stageCall(id string) bool {
-	return r.stageLoad(id, ToolLoadedCall) != loadNotFound
+	return r.stageLoad(id, ToolLoadedWhyCall) != loadNotFound
 }
 
 // announce marks the staged loads among ids as announced, and returns them: the

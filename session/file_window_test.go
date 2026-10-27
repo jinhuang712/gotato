@@ -25,9 +25,9 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 	}
 	a, b := open(), open()
 	entry := func(seq uint64) session.Entry {
-		kind := gotato.KindMessageCommitted
+		kind := gotato.EventKindMessageCommitted
 		if seq == 1 {
-			kind = gotato.KindSessionCreated
+			kind = gotato.EventKindSessionCreated
 		}
 		return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
 	}

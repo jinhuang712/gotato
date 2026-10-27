@@ -23,19 +23,19 @@ const (
 
 // factKinds are the Events a rebuild reads.
 var factKinds = map[gotato.EventKind]bool{
-	gotato.KindSessionCreated:      true,
-	gotato.KindCompactionEnded:     true,
-	gotato.KindMessageCommitted:    true,
-	gotato.KindNoticeCommitted:     true,
-	gotato.KindReplyEnded:          true,
-	gotato.KindReplyCutOff:         true,
-	gotato.KindToolResultCommitted: true,
-	gotato.KindToolStarted:         true,
-	gotato.KindMetadataChanged:     true,
-	gotato.KindToolLoaded:          true,
-	gotato.KindToolUnloaded:        true,
-	gotato.KindSegmentClosed:       true,
-	gotato.KindSessionClaimed:      true,
+	gotato.EventKindSessionCreated:      true,
+	gotato.EventKindCompactionEnded:     true,
+	gotato.EventKindMessageCommitted:    true,
+	gotato.EventKindNoticeCommitted:     true,
+	gotato.EventKindReplyEnded:          true,
+	gotato.EventKindReplyCutOff:         true,
+	gotato.EventKindToolResultCommitted: true,
+	gotato.EventKindToolStarted:         true,
+	gotato.EventKindMetadataChanged:     true,
+	gotato.EventKindToolLoaded:          true,
+	gotato.EventKindToolUnloaded:        true,
+	gotato.EventKindSegmentClosed:       true,
+	gotato.EventKindSessionClaimed:      true,
 }
 
 // layerOf returns the Layer of Entries of a kind: the Events a rebuild reads
@@ -66,7 +66,7 @@ type Entry struct {
 // starts at the last one.
 func (e Entry) IsCheckpoint() bool {
 	switch e.Kind {
-	case gotato.KindSessionCreated, gotato.KindCompactionEnded:
+	case gotato.EventKindSessionCreated, gotato.EventKindCompactionEnded:
 		return true
 	}
 	return false

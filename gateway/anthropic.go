@@ -198,11 +198,11 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 		var blocks []anthropicBlock
 		for _, part := range message.Parts {
 			switch part.Kind {
-			case gotato.ContentText, gotato.ContentJSON:
+			case gotato.ContentKindText, gotato.ContentKindJSON:
 				if part.Text != "" {
 					blocks = append(blocks, anthropicBlock{"type": "text", "text": part.Text})
 				}
-			case gotato.ContentImage:
+			case gotato.ContentKindImage:
 				if len(part.Data) == 0 {
 					continue
 				}
@@ -221,7 +221,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 			if content == "" {
 				content = message.ToolResult.SafeError
 			}
-			failed = message.ToolResult.Status != "" && message.ToolResult.Status != gotato.ToolResultOK
+			failed = message.ToolResult.Status != "" && message.ToolResult.Status != gotato.ToolResultStatusOK
 		}
 		if content == "" {
 			content = "(no tool output)"
@@ -235,7 +235,7 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 		var blocks []anthropicBlock
 		for _, part := range message.Parts {
 			switch part.Kind {
-			case gotato.ContentReasoning:
+			case gotato.ContentKindReasoning:
 				// Only a signed provider block can be replayed; plain
 				// reasoning text stays in the transcript.
 				if len(part.Signature) == 0 || !keepReasoning {
@@ -249,11 +249,11 @@ func anthropicBlocks(message gotato.Message, names map[string]string, keepReason
 					return "", nil, fmt.Errorf("gateway: assistant reasoning artifact has type %q, want thinking or redacted_thinking", kind)
 				}
 				blocks = append(blocks, block)
-			case gotato.ContentText:
+			case gotato.ContentKindText:
 				if part.Text != "" {
 					blocks = append(blocks, anthropicBlock{"type": "text", "text": part.Text})
 				}
-			case gotato.ContentImage, gotato.ContentJSON:
+			case gotato.ContentKindImage, gotato.ContentKindJSON:
 				if len(part.Data) > 0 || part.Text != "" {
 					return "", nil, fmt.Errorf("gateway: assistant content kind %q is unsupported", part.Kind)
 				}
@@ -289,11 +289,11 @@ func withRoundBreakpoint(breakpoints []gotato.CacheBreakpoint, messages []gotato
 	if start < 0 {
 		return breakpoints
 	}
-	marker := gotato.CacheBreakpoint{After: gotato.CacheAfterMessage, Index: start}
+	marker := gotato.CacheBreakpoint{After: gotato.CacheAnchorAfterMessage, Index: start}
 	out := make([]gotato.CacheBreakpoint, 0, len(breakpoints)+1)
 	placed := false
 	for _, point := range breakpoints {
-		if !placed && point.After == gotato.CacheAfterMessage && point.Index >= start {
+		if !placed && point.After == gotato.CacheAnchorAfterMessage && point.Index >= start {
 			if point.Index > start {
 				out = append(out, marker)
 			}
@@ -326,15 +326,15 @@ func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []got
 	for _, point := range breakpoints {
 		t := target{anchor: point.After, ref: blockRef{message: -1}}
 		switch point.After {
-		case gotato.CacheAfterSystem:
+		case gotato.CacheAnchorAfterSystem:
 			if len(payload.System) == 0 {
 				continue
 			}
-		case gotato.CacheAfterTools:
+		case gotato.CacheAnchorAfterTools:
 			if len(payload.Tools) == 0 {
 				continue
 			}
-		case gotato.CacheAfterMessage:
+		case gotato.CacheAnchorAfterMessage:
 			if point.Index < 0 || point.Index >= len(ends) || ends[point.Index].message < 0 {
 				continue
 			}
@@ -352,15 +352,15 @@ func applyAnthropicCacheBreakpoints(payload *anthropicRequest, breakpoints []got
 	}
 	for _, t := range targets {
 		switch t.anchor {
-		case gotato.CacheAfterSystem:
+		case gotato.CacheAnchorAfterSystem:
 			payload.System[len(payload.System)-1]["cache_control"] = marker()
-		case gotato.CacheAfterTools:
+		case gotato.CacheAnchorAfterTools:
 			end := len(payload.Tools) - 1
 			for end > 0 && payload.Tools[end].DeferLoading {
 				end--
 			}
 			payload.Tools[end].CacheControl = marker()
-		case gotato.CacheAfterMessage:
+		case gotato.CacheAnchorAfterMessage:
 			payload.Messages[t.ref.message].Content[t.ref.block]["cache_control"] = marker()
 		}
 	}
@@ -498,12 +498,12 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		switch block.kind {
 		case "text":
 			if event.ContentBlock.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: event.ContentBlock.Text})
+				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.ContentBlock.Text})
 			}
 		case "thinking":
 			if event.ContentBlock.Thinking != "" {
 				block.thinking.WriteString(event.ContentBlock.Thinking)
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDelta, Text: event.ContentBlock.Thinking})
+				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.ContentBlock.Thinking})
 			}
 		}
 	case "content_block_delta":
@@ -514,14 +514,14 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		switch event.Delta.Type {
 		case "text_delta":
 			if event.Delta.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: event.Delta.Text})
+				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta.Text})
 			}
 		case "input_json_delta":
 			block.input.WriteString(event.Delta.PartialJSON)
 		case "thinking_delta":
 			if event.Delta.Thinking != "" {
 				block.thinking.WriteString(event.Delta.Thinking)
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDelta, Text: event.Delta.Thinking})
+				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.Delta.Thinking})
 			}
 		case "signature_delta":
 			block.signature += event.Delta.Signature
@@ -549,11 +549,11 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 	case "message_stop":
 		usage := s.gotatoUsage()
 		if s.stop == "" {
-			s.stop = gotato.StopEndTurn
+			s.stop = gotato.StopReasonEndTurn
 		}
 		s.queue = append(s.queue,
-			gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: usage},
-			gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: s.stop, Usage: usage, Model: s.model})
+			gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: usage},
+			gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.stop, Usage: usage, Model: s.model})
 		s.finished = true
 	case "error":
 		message, kind := "stream error", ""
@@ -580,7 +580,7 @@ func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
 		if original, ok := s.nameMap[name]; ok {
 			name = original
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &gotato.ToolCall{
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: &gotato.ToolCall{
 			ID: gotato.ToolCallID(block.id), ToolID: name, Arguments: []byte(arguments),
 		}})
 	case "thinking":
@@ -588,13 +588,13 @@ func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
 		if err != nil {
 			return err
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDone, ReasoningArtifact: artifact})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: artifact})
 	case "redacted_thinking":
 		artifact, err := json.Marshal(anthropicBlock{"type": "redacted_thinking", "data": block.data})
 		if err != nil {
 			return err
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDone, ReasoningArtifact: artifact})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: artifact})
 	}
 	return nil
 }
@@ -642,12 +642,12 @@ func (s *anthropicStream) Close() error {
 func anthropicStopReason(reason string) gotato.StopReason {
 	switch reason {
 	case "tool_use":
-		return gotato.StopToolCalls
+		return gotato.StopReasonToolCalls
 	case "max_tokens":
-		return gotato.StopMaxTokens
+		return gotato.StopReasonMaxTokens
 	case "refusal":
-		return gotato.StopError
+		return gotato.StopReasonError
 	default:
-		return gotato.StopEndTurn
+		return gotato.StopReasonEndTurn
 	}
 }

@@ -135,7 +135,7 @@ func TestCardTruncationAndEmpty(t *testing.T) {
 	if got := parseCard(t, cardContent(testInfo, "")).Elements[0].Content; got == "" {
 		t.Fatal("empty text must say something")
 	}
-	if got := parseCard(t, replyCard(testInfo, gotato.RunFailed, "")).Elements[0].Content; !strings.Contains(got, "failed") {
+	if got := parseCard(t, replyCard(testInfo, gotato.RunStatusFailed, "")).Elements[0].Content; !strings.Contains(got, "failed") {
 		t.Fatalf("failed: %q", got)
 	}
 }

@@ -121,7 +121,7 @@ func CreateWriter(ctx context.Context, store Store, r *Record, instance string, 
 	r.claim = Claim{}
 	r.mu.Unlock()
 	r.startLog()
-	r.claimFor(instance, gotato.ClaimNewSession)
+	r.claimFor(instance, gotato.ClaimWhyNewSession)
 	r.mu.Lock()
 	r.busy = true
 	if config.idle {
@@ -193,12 +193,12 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	r.mu.Lock()
 	r.busy = true
 	r.mu.Unlock()
-	why := gotato.ClaimIdle
+	why := gotato.ClaimWhyIdle
 	switch {
 	case config.waited:
-		why = gotato.ClaimWaited
+		why = gotato.ClaimWhyWaited
 	case busy:
-		why = gotato.ClaimWriterGone
+		why = gotato.ClaimWhyWriterGone
 	}
 	r.claimFor(instance, why)
 	// A reply that was streaming when the last Writer stopped is kept as the
@@ -237,7 +237,7 @@ func (w *Writer) Resume(ctx context.Context) error {
 	r.busy = true
 	instance := r.instance
 	r.mu.Unlock()
-	r.claimFor(instance, gotato.ClaimIdle)
+	r.claimFor(instance, gotato.ClaimWhyIdle)
 	return w.Flush(ctx)
 }
 

@@ -135,7 +135,7 @@ func readStored(t *testing.T, f *frames, count int) (stored []storedFrame, delta
 		if err := json.Unmarshal([]byte(fr.data), &data); err != nil {
 			t.Fatalf("frame %+v: %v", fr, err)
 		}
-		if gotato.EventKind(fr.event).Class() == gotato.ClassStored {
+		if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
 			number, _ := data["number"].(float64)
 			if fr.id != strconv.FormatUint(uint64(number), 10) {
 				t.Fatalf("a stored Event numbered %v has id %q", number, fr.id)
@@ -319,7 +319,7 @@ func TestRunStreamCarriesNumbersAndTheEpoch(t *testing.T) {
 		}
 		_ = json.Unmarshal([]byte(fr.data), &data)
 		sessionID = data.SessionID
-		if gotato.EventKind(fr.event).Class() == gotato.ClassStored {
+		if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
 			if last == 0 {
 				// The stream of a Run on an existing Session starts at the
 				// Run's own first Event.
@@ -434,7 +434,7 @@ func follow(t *testing.T, f *frames) *follower {
 				continue
 			}
 			fl.mu.Lock()
-			if gotato.EventKind(fr.event).Class() == gotato.ClassStored {
+			if gotato.EventKind(fr.event).Class() == gotato.EventClassStored {
 				number, _ := data["number"].(float64)
 				fl.stored = append(fl.stored, storedFrame{number: uint64(number), kind: fr.event, data: data})
 			} else {

@@ -88,7 +88,7 @@ func ReadSegmentTool(record *session.Record, log session.EntryLog, opts ReadSegm
 	if err != nil {
 		panic(err)
 	}
-	return gotato.ToolWithEffect(tool, gotato.EffectRead)
+	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
 // segmentRef says where one Segment's originals are.
@@ -226,7 +226,7 @@ func renderOriginals(messages []gotato.Message, maxLine int) []string {
 			}
 			result := message.ToolResult
 			label := "[tool " + toolLabel(callTool[result.CallID], string(result.CallID))
-			if result.Status != gotato.ToolResultOK {
+			if result.Status != gotato.ToolResultStatusOK {
 				label += " " + oneLine(string(result.Status))
 			}
 			label += "]"
@@ -280,7 +280,7 @@ func toolLabel(toolID, callID string) string {
 // reasoning has none.
 func textOfPart(part gotato.ContentPart) string {
 	switch {
-	case part.Kind == gotato.ContentReasoning:
+	case part.Kind == gotato.ContentKindReasoning:
 		return ""
 	case isText(part):
 		return part.Text

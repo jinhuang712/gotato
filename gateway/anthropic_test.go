@@ -99,7 +99,7 @@ func TestAnthropicStreamNormalizesReasoningTextToolsAndUsage(t *testing.T) {
 	for i, event := range events {
 		kinds[i] = event.Kind
 	}
-	want := []gotato.ModelEventKind{gotato.ModelReasoningDelta, gotato.ModelReasoningDone, gotato.ModelTextDelta, gotato.ModelToolCall, gotato.ModelUsage, gotato.ModelDone}
+	want := []gotato.ModelEventKind{gotato.ModelEventKindReasoningDelta, gotato.ModelEventKindReasoningDone, gotato.ModelEventKindTextDelta, gotato.ModelEventKindToolCall, gotato.ModelEventKindUsage, gotato.ModelEventKindDone}
 	if len(kinds) != len(want) {
 		t.Fatalf("event kinds = %v, want %v", kinds, want)
 	}
@@ -120,7 +120,7 @@ func TestAnthropicStreamNormalizesReasoningTextToolsAndUsage(t *testing.T) {
 	if usage.InputTokens != 125 || usage.CacheReadTokens != 100 || usage.CacheWriteTokens != 20 || usage.OutputTokens != 7 || usage.TotalTokens != 132 {
 		t.Fatalf("usage = %+v", usage)
 	}
-	if events[5].StopReason != gotato.StopToolCalls || events[5].Usage != usage {
+	if events[5].StopReason != gotato.StopReasonToolCalls || events[5].Usage != usage {
 		t.Fatalf("done = %+v", events[5])
 	}
 }
@@ -133,22 +133,22 @@ func TestAnthropicRequestReplaysReasoningMergesToolResultsAndPlacesCacheMarkers(
 		Messages: []gotato.Message{
 			gotato.UserMessage("go"),
 			{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{
-				{Kind: gotato.ContentReasoning, Text: "plan", Signature: thinking},
-				{Kind: gotato.ContentReasoning, Text: "unsigned"},
-				{Kind: gotato.ContentText, Text: "reading"},
+				{Kind: gotato.ContentKindReasoning, Text: "plan", Signature: thinking},
+				{Kind: gotato.ContentKindReasoning, Text: "unsigned"},
+				{Kind: gotato.ContentKindText, Text: "reading"},
 			}, ToolCalls: []gotato.ToolCall{
 				{ID: "c1", ToolID: "fs.read", Arguments: []byte(`{"path":"a"}`)},
 				{ID: "c2", ToolID: "fs.read"},
 			}},
-			{Role: gotato.RoleToolResult, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "A"}},
-				ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK}},
-			{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c2", Status: gotato.ToolResultFailed, SafeError: "missing"}},
+			{Role: gotato.RoleToolResult, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "A"}},
+				ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK}},
+			{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c2", Status: gotato.ToolResultStatusFailed, SafeError: "missing"}},
 			gotato.UserMessage("continue"),
 		},
 		CacheBreakpoints: []gotato.CacheBreakpoint{
-			{After: gotato.CacheAfterSystem},
-			{After: gotato.CacheAfterTools},
-			{After: gotato.CacheAfterMessage, Index: 3},
+			{After: gotato.CacheAnchorAfterSystem},
+			{After: gotato.CacheAnchorAfterTools},
+			{After: gotato.CacheAnchorAfterMessage, Index: 3},
 		},
 		Options: gotato.ModelOptions{MaxTokens: 512},
 	}
@@ -209,9 +209,9 @@ func TestAnthropicCacheBreakpointsKeepTheLastFour(t *testing.T) {
 	request := gotato.ModelRequest{SystemInstructions: "s"}
 	for i := range 6 {
 		request.Messages = append(request.Messages, gotato.UserMessage("u"), gotato.AssistantMessage("a"))
-		request.CacheBreakpoints = append(request.CacheBreakpoints, gotato.CacheBreakpoint{After: gotato.CacheAfterMessage, Index: 2*i + 1})
+		request.CacheBreakpoints = append(request.CacheBreakpoints, gotato.CacheBreakpoint{After: gotato.CacheAnchorAfterMessage, Index: 2*i + 1})
 	}
-	request.CacheBreakpoints = append([]gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}}, request.CacheBreakpoints...)
+	request.CacheBreakpoints = append([]gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}, request.CacheBreakpoints...)
 	body, _, err := encodeAnthropicRequest("m", request, providerRules{})
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +259,7 @@ func TestAnthropicRetriesOverloadedStatus(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 	events, err := collectEvents(t, stream)
-	if err != nil || attempts.Load() != 2 || events[len(events)-1].StopReason != gotato.StopEndTurn {
+	if err != nil || attempts.Load() != 2 || events[len(events)-1].StopReason != gotato.StopReasonEndTurn {
 		t.Fatalf("attempts = %d events = %+v err = %v", attempts.Load(), events, err)
 	}
 }

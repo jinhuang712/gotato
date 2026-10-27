@@ -183,15 +183,15 @@ func execute(t *testing.T, set *gmcp.ToolSet, name, arguments string) gotato.Too
 func TestEffectComesFromAnnotations(t *testing.T) {
 	for _, tc := range allTransports {
 		t.Run(tc.name, func(t *testing.T) {
-			set := newSet(t, tc.make(t, newServer()), gmcp.WithToolEffect("bare", gotato.EffectWriteLocal))
+			set := newSet(t, tc.make(t, newServer()), gmcp.WithToolEffect("bare", gotato.ToolEffectWriteLocal))
 			got := specs(t, set)
 			want := map[string]gotato.ToolEffect{
-				"get_order":   gotato.EffectRead,
-				"update_note": gotato.EffectWriteLocal,
-				"send_mail":   gotato.EffectWriteExternal,
-				"delete_all":  gotato.EffectDestructive, // destructive by default, closed world
-				"bare":        gotato.EffectWriteLocal,  // the override
-				"echo":        gotato.EffectRead,
+				"get_order":   gotato.ToolEffectRead,
+				"update_note": gotato.ToolEffectWriteLocal,
+				"send_mail":   gotato.ToolEffectWriteExternal,
+				"delete_all":  gotato.ToolEffectDestructive, // destructive by default, closed world
+				"bare":        gotato.ToolEffectWriteLocal,  // the override
+				"echo":        gotato.ToolEffectRead,
 			}
 			for name, effect := range want {
 				if got[name].Effect != effect {
@@ -200,13 +200,13 @@ func TestEffectComesFromAnnotations(t *testing.T) {
 			}
 		})
 	}
-	if gmcp.EffectOf(nil) != gotato.EffectDestructive {
+	if gmcp.EffectOf(nil) != gotato.ToolEffectDestructive {
 		t.Error("a tool with no annotations must be destructive")
 	}
-	if gmcp.EffectOf(&sdk.ToolAnnotations{}) != gotato.EffectDestructive {
+	if gmcp.EffectOf(&sdk.ToolAnnotations{}) != gotato.ToolEffectDestructive {
 		t.Error("annotations that declare nothing must be destructive")
 	}
-	if gmcp.EffectOf(&sdk.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(true)}) != gotato.EffectRead {
+	if gmcp.EffectOf(&sdk.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(true)}) != gotato.ToolEffectRead {
 		t.Error("readOnlyHint wins")
 	}
 }
@@ -251,7 +251,7 @@ func TestContentMapsToParts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			set := newSet(t, tc.make(t, newServer()))
 			result := execute(t, set, "mixed", `{}`)
-			if result.Status != gotato.ToolResultOK {
+			if result.Status != gotato.ToolResultStatusOK {
 				t.Fatalf("status = %s", result.Status)
 			}
 			kinds := make([]gotato.ContentKind, len(result.Content))
@@ -259,13 +259,13 @@ func TestContentMapsToParts(t *testing.T) {
 				kinds[i] = part.Kind
 			}
 			want := []gotato.ContentKind{
-				gotato.ContentText,  // hello
-				gotato.ContentImage, // png
-				gotato.ContentText,  // audio placeholder
-				gotato.ContentText,  // resource link
-				gotato.ContentText,  // embedded text resource
-				gotato.ContentText,  // embedded blob placeholder
-				gotato.ContentJSON,  // structuredContent; the text that repeated it is dropped
+				gotato.ContentKindText,  // hello
+				gotato.ContentKindImage, // png
+				gotato.ContentKindText,  // audio placeholder
+				gotato.ContentKindText,  // resource link
+				gotato.ContentKindText,  // embedded text resource
+				gotato.ContentKindText,  // embedded blob placeholder
+				gotato.ContentKindJSON,  // structuredContent; the text that repeated it is dropped
 			}
 			if !slices.Equal(kinds, want) {
 				t.Fatalf("kinds = %v, want %v", kinds, want)
@@ -311,7 +311,7 @@ func TestIsErrorIsAFailedResult(t *testing.T) {
 	for _, tc := range allTransports {
 		t.Run(tc.name, func(t *testing.T) {
 			result := execute(t, newSet(t, tc.make(t, newServer())), "fail", `{}`)
-			if result.Status != gotato.ToolResultFailed {
+			if result.Status != gotato.ToolResultStatusFailed {
 				t.Fatalf("status = %s, want failed", result.Status)
 			}
 			if gotato.TextOf(gotato.Message{Parts: result.Content}) != "no such order" || result.SafeError != "no such order" {
@@ -447,7 +447,7 @@ func TestAServerThatIsDownIsSkippedWithAWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stages []string
-	for _, event := range recorder.OfKind(gotato.KindExtensionFailed) {
+	for _, event := range recorder.OfKind(gotato.EventKindExtensionFailed) {
 		stages = append(stages, event.(gotato.ExtensionFailed).Stage)
 	}
 	if !slices.Equal(stages, []string{"toolset:crm"}) {
@@ -476,7 +476,7 @@ func TestARunCallsAnMCPToolThroughSearch(t *testing.T) {
 				testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "crm.get_order", Arguments: []byte(`{"id":"1"}`)}),
 				testkit.Text("the order is 1"),
 			)
-			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
+			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.ToolEffectRead))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -485,7 +485,7 @@ func TestARunCallsAnMCPToolThroughSearch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Status != gotato.RunCompleted {
+			if result.Status != gotato.RunStatusCompleted {
 				t.Fatalf("status = %s", result.Status)
 			}
 			requests := model.Requests()
@@ -835,7 +835,7 @@ func TestAToolThatAsksForInputEndsWithAFailedResult(t *testing.T) {
 					// The call ends at once: with a failed Tool Result the model
 					// reads, or with an error; never with a success or a wait.
 					result, err := tool.Execute(ctx, gotato.ToolUse{}, nil)
-					if err == nil && (result.Status != gotato.ToolResultFailed || !strings.Contains(result.SafeError, "asked for input")) {
+					if err == nil && (result.Status != gotato.ToolResultStatusFailed || !strings.Contains(result.SafeError, "asked for input")) {
 						t.Fatalf("not a clear failed result: %+v", result)
 					}
 					if ctx.Err() != nil {
@@ -870,7 +870,7 @@ func TestProgressNotificationsAreForwarded(t *testing.T) {
 					got = append(got, text)
 					mu.Unlock()
 				})
-				if err != nil || result.Status != gotato.ToolResultOK {
+				if err != nil || result.Status != gotato.ToolResultStatusOK {
 					t.Fatalf("%v %+v", err, result)
 				}
 				// A notification may arrive just after the result: wait for both.

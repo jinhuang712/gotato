@@ -60,8 +60,8 @@ func readTool(agent int) gotato.Tool {
 		body := []byte(strings.Repeat("x", footprintPayload))
 		copy(body, fmt.Sprintf("agent-%d-call-%d ", agent, calls.Add(1)))
 		return gotato.ToolResult{
-			Status:  gotato.ToolResultOK,
-			Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: string(body)}},
+			Status:  gotato.ToolResultStatusOK,
+			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: string(body)}},
 		}, nil
 	}
 	return tool

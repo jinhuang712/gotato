@@ -54,7 +54,7 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 			t.Fatal(err)
 		}
 		var prefixes []string
-		for _, event := range recorder.OfKind(gotato.KindContextBuilt) {
+		for _, event := range recorder.OfKind(gotato.EventKindContextBuilt) {
 			prefixes = append(prefixes, event.(gotato.ContextBuilt).PrefixHash)
 		}
 		return model.Requests(), prefixes

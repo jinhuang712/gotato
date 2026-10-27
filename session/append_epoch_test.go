@@ -88,18 +88,18 @@ func TestFileStoreRefusesAPositionAnotherRecordHolds(t *testing.T) {
 	summary := func(epoch string, seq uint64) session.RecordInfo {
 		return session.RecordInfo{ID: "r", RecordEpoch: epoch, CreatedAt: "2026-10-17T00:00:00.000Z", UpdatedAt: "2026-10-17T00:00:00.000Z", Seq: seq}
 	}
-	first := []session.Entry{entry(1, gotato.KindSessionCreated, session.LayerFact), entry(2, gotato.KindMessageCommitted, session.LayerFact), entry(3, gotato.KindMessageCommitted, session.LayerFact)}
+	first := []session.Entry{entry(1, gotato.EventKindSessionCreated, session.LayerFact), entry(2, gotato.EventKindMessageCommitted, session.LayerFact), entry(3, gotato.EventKindMessageCommitted, session.LayerFact)}
 	if err := a.Create(ctx, "r", first, summary("e1", 3)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Delete(ctx, "r"); err != nil {
 		t.Fatal(err)
 	}
-	second := append(append([]session.Entry(nil), first...), entry(4, gotato.KindMessageCommitted, session.LayerFact))
+	second := append(append([]session.Entry(nil), first...), entry(4, gotato.EventKindMessageCommitted, session.LayerFact))
 	if err := b.Create(ctx, "r", second, summary("e2", 4)); err != nil {
 		t.Fatal(err)
 	}
-	err := a.Append(ctx, "r", 3, []session.Entry{entry(4, gotato.KindMessageCommitted, session.LayerFact)}, summary("e1", 4))
+	err := a.Append(ctx, "r", 3, []session.Entry{entry(4, gotato.EventKindMessageCommitted, session.LayerFact)}, summary("e1", 4))
 	if !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("an Append of the deleted Record = %v, want ErrNotFound", err)
 	}

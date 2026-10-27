@@ -115,8 +115,8 @@ func WithCacheKey(key string) Option {
 // the cap, including one in a ToolSet, is never in the catalog, never found by a
 // search, never loaded and never shown to the
 // Model, and a call to it fails as a call to an unknown Tool. A Tool that
-// declares no Effect ranks as EffectDestructive, so any lower cap hides it.
-// EffectUnspecified means no cap, which is the default.
+// declares no Effect ranks as ToolEffectDestructive, so any lower cap hides it.
+// ToolEffectUnspecified means no cap, which is the default.
 func WithMaxEffect(effect ToolEffect) Option {
 	return func(c *sessionConfig) error {
 		if !effect.Valid() {
@@ -471,7 +471,7 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 // as Events: MessageQueued, and then MessageCommitted, or MessageDropped when
 // the Run ends first, or MessageRejected when the queue is full.
 func (a *Session) Steer(message Message) error {
-	return a.enqueueControl(a.steer, message, "Steer", SourceSteer)
+	return a.enqueueControl(a.steer, message, "Steer", MessageSourceSteer)
 }
 
 // Interrupt delivers a Message that cuts the model call in flight short. The
@@ -480,12 +480,12 @@ func (a *Session) Steer(message Message) error {
 // canceled: it finishes, and the Message follows its result at the Turn
 // boundary, as a Steer does. It shares the Steer queue and its limit
 // (MaxSteerMessages), and is reported by the same Events, with the source
-// SourceInterrupt. It fails with invalid_state when no Run is in flight.
+// MessageSourceInterrupt. It fails with invalid_state when no Run is in flight.
 func (a *Session) Interrupt(message Message) error {
 	if !a.inRun.Load() {
 		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
-	if err := a.enqueueControl(a.steer, message, "Interrupt", SourceInterrupt); err != nil {
+	if err := a.enqueueControl(a.steer, message, "Interrupt", MessageSourceInterrupt); err != nil {
 		return err
 	}
 	a.intrMu.Lock()
@@ -528,7 +528,7 @@ func (a *Session) interrupting() bool {
 // settle. It is not a general external request queue: the buffer is bounded
 // and belongs to this Session.
 func (a *Session) FollowUp(message Message) error {
-	return a.enqueueControl(a.followUp, message, "FollowUp", SourceFollowUp)
+	return a.enqueueControl(a.followUp, message, "FollowUp", MessageSourceFollowUp)
 }
 
 func (a *Session) enqueueControl(target chan control, message Message, operation string, source MessageSource) error {
@@ -732,7 +732,7 @@ func (a *Session) dropLeftoverControl() {
 		for {
 			select {
 			case queued := <-queue:
-				if queued.source == SourceInterrupt {
+				if queued.source == MessageSourceInterrupt {
 					a.interruptTaken()
 				}
 				_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: queued.source, Why: "session_closed"})
@@ -743,7 +743,7 @@ func (a *Session) dropLeftoverControl() {
 		}
 	}
 	for _, queued := range a.takeNotices() {
-		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: SourceNotice, Why: "session_closed"})
+		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: MessageSourceNotice, Why: "session_closed"})
 	}
 }
 
@@ -870,26 +870,26 @@ func addUsage(total, current Usage) Usage {
 }
 
 // cutOffReply is what a Turn keeps of a reply whose stream broke: the text
-// received so far, marked StopCutOff, or no Message when no text arrived.
+// received so far, marked StopReasonCutOff, or no Message when no text arrived.
 // Reasoning and Tool calls are left out: a provider takes reasoning back only
 // whole and signed, and a Tool call that is never answered cannot be sent.
 func cutOffReply(partial Message) Message {
 	parts := make([]ContentPart, 0, len(partial.Parts))
 	for _, part := range partial.Parts {
-		if part.Kind == ContentText && part.Text != "" {
+		if part.Kind == ContentKindText && part.Text != "" {
 			parts = append(parts, part)
 		}
 	}
 	if len(parts) == 0 {
 		return Message{}
 	}
-	return Message{ID: partial.ID, RunID: partial.RunID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopCutOff, Model: partial.Model}
+	return Message{ID: partial.ID, RunID: partial.RunID, Role: RoleAssistant, Parts: coalesceDeltas(parts), StopReason: StopReasonCutOff, Model: partial.Model}
 }
 
 // coalesceDeltas merges the Parts that streamed deltas produced into one Part
 // per contiguous block of text or of reasoning, so a reply is stored and
 // replayed as the blocks the provider sent rather than as its fragments. A
-// Reasoning block closes when its signature arrives (ModelReasoningDone), so
+// Reasoning block closes when its signature arrives (ModelEventKindReasoningDone), so
 // a following Reasoning delta starts a new block. Other Parts are kept as is.
 func coalesceDeltas(parts []ContentPart) []ContentPart {
 	if len(parts) < 2 {
@@ -906,7 +906,7 @@ func coalesceDeltas(parts []ContentPart) []ContentPart {
 		}
 	}
 	for _, part := range parts {
-		mergeable := (part.Kind == ContentText || part.Kind == ContentReasoning) && part.Data == nil && part.MIMEType == "" && part.Metadata == nil
+		mergeable := (part.Kind == ContentKindText || part.Kind == ContentKindReasoning) && part.Data == nil && part.MIMEType == "" && part.Metadata == nil
 		if open >= 0 && mergeable && part.Kind == out[open].Kind {
 			text.WriteString(part.Text)
 			out[open].Signature = part.Signature
@@ -1007,7 +1007,7 @@ func validateControlMessage(message Message, operation string) error {
 func hasContent(message Message) bool {
 	for _, part := range message.Parts {
 		switch part.Kind {
-		case ContentText, ContentReasoning:
+		case ContentKindText, ContentKindReasoning:
 			if strings.TrimSpace(part.Text) != "" {
 				return true
 			}
@@ -1146,7 +1146,7 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: CodeToolResolutionFailure})
 	}
 	for _, id := range report.gone {
-		a.stage(ToolUnloaded{Header: header, Tool: id, Why: ToolUnloadedGone})
+		a.stage(ToolUnloaded{Header: header, Tool: id, Why: ToolUnloadedWhyGone})
 	}
 	return nil
 }
@@ -1171,7 +1171,7 @@ func validateContinuable(messages []Message) error {
 	// A reply cut off mid-stream is never sent again, so Continue asks the
 	// Model again from the Message before it.
 	last := len(messages) - 1
-	for last >= 0 && messages[last].StopReason == StopCutOff {
+	for last >= 0 && messages[last].StopReason == StopReasonCutOff {
 		last--
 	}
 	if last < 0 {
@@ -1430,7 +1430,7 @@ func WithQueueHandoff() Option {
 // keepsQueued says whether a Run that ends with status leaves its queues for
 // the host.
 func (a *Session) keepsQueued(status RunStatus) bool {
-	return a.handoff && (status == RunCompleted || status == RunFailed)
+	return a.handoff && (status == RunStatusCompleted || status == RunStatusFailed)
 }
 
 // Queued is a message that waited in a queue when a Run ended.
@@ -1445,7 +1445,7 @@ type Queued struct {
 // already, as number, the notice_queued Event that said so. A host that keeps a
 // notice between Runs gives it to the next Session with Requeue.
 func queuedNotice(message Message, number uint64) Queued {
-	return Queued{Message: message, Source: SourceNotice, number: number}
+	return Queued{Message: message, Source: MessageSourceNotice, number: number}
 }
 
 // Number is the notice_queued Event of a queued notice, 0 for any other
@@ -1462,7 +1462,7 @@ func (a *Session) TakeQueued() []Queued {
 		for {
 			select {
 			case queued := <-queue:
-				if queued.source == SourceInterrupt {
+				if queued.source == MessageSourceInterrupt {
 					a.interruptTaken()
 				}
 				out = append(out, Queued{Message: queued.message, Source: queued.source, seq: queued.seq})
@@ -1473,7 +1473,7 @@ func (a *Session) TakeQueued() []Queued {
 		}
 	}
 	for _, queued := range a.takeNotices() {
-		out = append(out, Queued{Message: queued.message, Source: SourceNotice, seq: queued.seq, number: queued.number})
+		out = append(out, Queued{Message: queued.message, Source: MessageSourceNotice, seq: queued.seq, number: queued.number})
 	}
 	slices.SortFunc(out, func(a, b Queued) int { return cmp.Compare(a.seq, b.seq) })
 	return out
@@ -1489,11 +1489,11 @@ func (a *Session) TakeQueued() []Queued {
 func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 	for _, m := range messages {
 		source := m.Source
-		if source == SourceInterrupt {
-			source = SourceSteer
+		if source == MessageSourceInterrupt {
+			source = MessageSourceSteer
 		}
 		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1), number: m.number}
-		if source == SourceNotice {
+		if source == MessageSourceNotice {
 			a.noticeMu.Lock()
 			fits := len(a.notices) < a.noticeLimit
 			if fits {

@@ -539,7 +539,7 @@ func (s *Record) SetLoadedTools(ids []string) {
 }
 
 func runStarted(e gotato.RunStarted) RunInfo {
-	return RunInfo{RunID: e.RunID, Status: gotato.RunRunning, StartedAt: e.Time.UTC()}
+	return RunInfo{RunID: e.RunID, Status: gotato.RunStatusRunning, StartedAt: e.Time.UTC()}
 }
 
 func runEnded(e gotato.RunEnded) RunInfo {
@@ -566,14 +566,14 @@ func (s *Record) foldNotice(event gotato.Event) {
 		// Only a service's notice is durable. Gotato's own, such as time_away,
 		// is worked out afresh at each Run start, so keeping one would only
 		// risk a stale or a duplicate.
-		if e.Source != gotato.NoticeFromService {
+		if e.Source != gotato.NoticeSourceService {
 			return
 		}
 		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.NoticeKind, Source: e.Source, Text: e.Text, Number: e.Number})
 	case gotato.NoticeCommitted:
 		s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.Number == e.Queued && e.Queued != 0 })
 	case gotato.MessageDropped:
-		if e.Source == gotato.SourceNotice {
+		if e.Source == gotato.MessageSourceNotice {
 			s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.MessageID == e.MessageID })
 		}
 	}
@@ -750,7 +750,7 @@ func (s *Record) interruptRun(runID gotato.RunID) {
 	}
 	header := s.header()
 	header.RunID = runID
-	ended := gotato.RunEnded{Header: header, Status: gotato.RunFailed, Cause: "interrupted"}
+	ended := gotato.RunEnded{Header: header, Status: gotato.RunStatusFailed, Cause: "interrupted"}
 	s.endRun(runEnded(ended))
 	s.touch()
 	s.emit(ended)

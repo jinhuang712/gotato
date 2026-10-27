@@ -94,7 +94,7 @@ func (r *handoffRig) release(t *testing.T) service.RunResponse {
 func (r *handoffRig) waitRuns(t *testing.T, n int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
-	for len(r.ended.OfKind(gotato.KindRunEnded)) < n {
+	for len(r.ended.OfKind(gotato.EventKindRunEnded)) < n {
 		if time.Now().After(deadline) {
 			t.Fatalf("fewer than %d Runs ended; got %v", n, r.ended.Kinds())
 		}
@@ -135,7 +135,7 @@ func (r *handoffRig) events(t *testing.T) (committed []gotato.MessageID, dropped
 // one runs in a Run that follows, on the same Session.
 func TestAMessageAcceptedAtTheEndRunsInAFollowingRun(t *testing.T) {
 	rig := startHeld(t)
-	id := rig.send(t, service.MessageSteer, "late")
+	id := rig.send(t, service.MessageKindSteer, "late")
 	first := rig.release(t)
 	if first.FinalText != "echo: hello" {
 		t.Fatalf("the first Run answered %q; its own result is unchanged", first.FinalText)
@@ -163,10 +163,10 @@ func TestAMessageAcceptedAtTheEndRunsInAFollowingRun(t *testing.T) {
 func TestLeftoverMessagesKeepTheirOrder(t *testing.T) {
 	rig := startHeld(t)
 	ids := []gotato.MessageID{
-		rig.send(t, service.MessageSteer, "one"),
-		rig.send(t, service.MessageFollowUp, "two"),
-		rig.send(t, service.MessageSteer, "three"),
-		rig.send(t, service.MessageFollowUp, "four"),
+		rig.send(t, service.MessageKindSteer, "one"),
+		rig.send(t, service.MessageKindFollowUp, "two"),
+		rig.send(t, service.MessageKindSteer, "three"),
+		rig.send(t, service.MessageKindFollowUp, "four"),
 	}
 	rig.release(t)
 	rig.waitRuns(t, 2)
@@ -189,7 +189,7 @@ func TestLeftoverMessagesKeepTheirOrder(t *testing.T) {
 // the Event says why.
 func TestADrainDropsTheLeftoversWithTheReason(t *testing.T) {
 	rig := startHeld(t)
-	id := rig.send(t, service.MessageSteer, "late")
+	id := rig.send(t, service.MessageKindSteer, "late")
 	drained := make(chan error, 1)
 	go func() { drained <- rig.runner.Drain(context.Background()) }()
 	deadline := time.Now().Add(5 * time.Second)
@@ -216,7 +216,7 @@ func TestADrainDropsTheLeftoversWithTheReason(t *testing.T) {
 // A Stop that reaches the Run ends the work the leftovers were meant for.
 func TestAStopDropsTheLeftovers(t *testing.T) {
 	rig := startHeld(t)
-	id := rig.send(t, service.MessageFollowUp, "late")
+	id := rig.send(t, service.MessageKindFollowUp, "late")
 	if err := rig.runner.AbortSession(context.Background(), rig.id); err != nil {
 		t.Fatal(err)
 	}

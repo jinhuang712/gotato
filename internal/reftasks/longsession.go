@@ -104,7 +104,7 @@ func logsRead(resultBytes int) gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
-	return gotato.ToolWithEffect(tool, gotato.EffectRead)
+	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
 // RequestTokens estimates the tokens of a request the way the long_session

@@ -177,10 +177,10 @@ func SupportTools() []gotato.Tool {
 		panic(err)
 	}
 	return []gotato.Tool{
-		gotato.ToolWithEffect(listOrders, gotato.EffectRead),
-		gotato.ToolWithEffect(getOrder, gotato.EffectRead),
-		gotato.ToolWithEffect(searchPolicy, gotato.EffectRead),
-		gotato.ToolWithEffect(refund, gotato.EffectWriteExternal),
+		gotato.ToolWithEffect(listOrders, gotato.ToolEffectRead),
+		gotato.ToolWithEffect(getOrder, gotato.ToolEffectRead),
+		gotato.ToolWithEffect(searchPolicy, gotato.ToolEffectRead),
+		gotato.ToolWithEffect(refund, gotato.ToolEffectWriteExternal),
 	}
 }
 
@@ -233,7 +233,7 @@ func playSupport(request gotato.ModelRequest) testkit.Script {
 		return call(CustomerOrdersID, map[string]string{"customer_id": customerID.FindString(prompt)})
 	}
 	last := results[len(results)-1]
-	if last.Status != gotato.ToolResultOK {
+	if last.Status != gotato.ToolResultStatusOK {
 		return testkit.Text("I could not finish the case: " + last.SafeError)
 	}
 	switch calls[last.CallID].ToolID {

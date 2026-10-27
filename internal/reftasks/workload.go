@@ -83,7 +83,7 @@ func OrdersLookup() gotato.Tool {
 	if err != nil {
 		panic(err)
 	}
-	return gotato.ToolWithEffect(tool, gotato.EffectRead)
+	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
 // historyOrder reports whether id is one of the orders a prepared history
@@ -202,20 +202,20 @@ func OrderHistory(size int) []gotato.Message {
 		question := gotato.UserMessage("Where is order " + id + "? I ordered it a while ago and would like an update.")
 		if len(messages)+4 > size {
 			answer := gotato.AssistantMessage("I can look up order " + id + " for you as soon as you confirm the number.")
-			answer.StopReason = gotato.StopEndTurn
+			answer.StopReason = gotato.StopReasonEndTurn
 			messages = append(messages, question, answer)
 			continue
 		}
 		callID := gotato.ToolCallID("history-call-" + id)
-		call := gotato.Message{Role: gotato.RoleAssistant, StopReason: gotato.StopToolCalls, ToolCalls: []gotato.ToolCall{
+		call := gotato.Message{Role: gotato.RoleAssistant, StopReason: gotato.StopReasonToolCalls, ToolCalls: []gotato.ToolCall{
 			{ID: callID, ToolID: ordersLookupID, Arguments: []byte(`{"id":"` + id + `"}`)},
 		}}
-		content := []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"id":"` + id + `","status":"delivered"}`}}
+		content := []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"id":"` + id + `","status":"delivered"}`}}
 		result := gotato.Message{Role: gotato.RoleToolResult, Parts: content, ToolResult: &gotato.ToolResult{
-			CallID: callID, Status: gotato.ToolResultOK, Content: content, Executed: true,
+			CallID: callID, Status: gotato.ToolResultStatusOK, Content: content, Executed: true,
 		}}
 		answer := gotato.AssistantMessage("Order " + id + " was delivered. Let me know if anything is missing from the package.")
-		answer.StopReason = gotato.StopEndTurn
+		answer.StopReason = gotato.StopReasonEndTurn
 		messages = append(messages, question, call, result, answer)
 	}
 	for i := range messages {
@@ -258,7 +258,7 @@ func (m ordersModel) play(request gotato.ModelRequest) testkit.Script {
 		}
 	}
 	last := results[len(results)-1]
-	if last.Status == gotato.ToolResultOK {
+	if last.Status == gotato.ToolResultStatusOK {
 		var found map[string]string
 		_ = json.Unmarshal([]byte(resultText(last)), &found)
 		return testkit.Text("Order " + found["id"] + " is " + found["status"] + ".")

@@ -34,7 +34,7 @@ func streamedCalls(t *testing.T, chunks ...string) []gotato.ToolCall {
 	}
 	var calls []gotato.ToolCall
 	for _, event := range events {
-		if event.Kind == gotato.ModelToolCall {
+		if event.Kind == gotato.ModelEventKindToolCall {
 			calls = append(calls, *event.ToolCall)
 		}
 	}

@@ -214,7 +214,7 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	}
 	// The Run was not touched.
 	close(g.release)
-	if result := wait(); result.Result.Status != gotato.RunCompleted {
+	if result := wait(); result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("the Run = %+v, want completed", result.Result)
 	}
 	if got := transcript(t, a, id); got != "user:hello|assistant:reply to hello" {
@@ -280,7 +280,7 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("forwarded cancel = %d %s, want 202", resp.StatusCode, body)
 	}
-	if result := wait(); result.Result.Status != gotato.RunCanceled {
+	if result := wait(); result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("the Run = %+v, want canceled", result.Result)
 	}
 }

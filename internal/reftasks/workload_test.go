@@ -90,11 +90,11 @@ func TestSupportRefundRefusesTheExpiredOrder(t *testing.T) {
 			refund = tool
 		}
 	}
-	if refund.Spec().Effect != gotato.EffectWriteExternal {
+	if refund.Spec().Effect != gotato.ToolEffectWriteExternal {
 		t.Fatalf("orders.refund effect = %s", refund.Spec().Effect)
 	}
 	result, err := refund.Execute(context.Background(), gotato.ToolUse{ArgumentsJSON: []byte(`{"order_id":"A-5208","sku":"CT-200","reason":"arrived damaged"}`)}, nil)
-	if err == nil && result.Status == gotato.ToolResultOK {
+	if err == nil && result.Status == gotato.ToolResultStatusOK {
 		t.Fatalf("the teapot of the order delivered 58 days ago was refunded: %+v", result)
 	}
 }

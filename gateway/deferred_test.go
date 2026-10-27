@@ -23,16 +23,16 @@ func loadingTurns() (first, second gotato.ModelRequest) {
 		Tools:         []gotato.ToolSpec{searchSpec},
 		UnloadedTools: []gotato.ToolSpec{lookupSpec, refundSpec},
 		CacheBreakpoints: []gotato.CacheBreakpoint{
-			{After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: 0},
+			{After: gotato.CacheAnchorAfterTools}, {After: gotato.CacheAnchorAfterMessage, Index: 0},
 		},
 	}
 	call := gotato.AssistantMessage("")
 	call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: gotato.SearchToolName, Arguments: []byte(`{"names":["orders.lookup"]}`)}}
 	result := gotato.Message{
 		Role:  gotato.RoleToolResult,
-		Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "Loaded: orders.lookup."}},
+		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "Loaded: orders.lookup."}},
 		ToolResult: &gotato.ToolResult{
-			CallID: "call_1", Status: gotato.ToolResultOK, Loaded: []string{"orders.lookup"},
+			CallID: "call_1", Status: gotato.ToolResultStatusOK, Loaded: []string{"orders.lookup"},
 		},
 	}
 	second = gotato.ModelRequest{
@@ -41,7 +41,7 @@ func loadingTurns() (first, second gotato.ModelRequest) {
 		LoadedTools:   []string{"orders.lookup"},
 		UnloadedTools: []gotato.ToolSpec{refundSpec},
 		CacheBreakpoints: []gotato.CacheBreakpoint{
-			{After: gotato.CacheAfterTools}, {After: gotato.CacheAfterMessage, Index: 2},
+			{After: gotato.CacheAnchorAfterTools}, {After: gotato.CacheAnchorAfterMessage, Index: 2},
 		},
 	}
 	return first, second
@@ -241,7 +241,7 @@ func TestResponsesStreamReadsAToolSearchCall(t *testing.T) {
 	}
 	stream := &responsesStream{calls: map[int]*responsesCall{}, texts: map[int]bool{}, nameMap: map[string]string{"search_tools": gotato.SearchToolName}}
 	stream.finishResponsesItem(0, item, nil)
-	if len(stream.queue) != 1 || stream.queue[0].Kind != gotato.ModelToolCall {
+	if len(stream.queue) != 1 || stream.queue[0].Kind != gotato.ModelEventKindToolCall {
 		t.Fatalf("queue = %+v", stream.queue)
 	}
 	call := stream.queue[0].ToolCall

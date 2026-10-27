@@ -79,7 +79,7 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 			runner = longRunner(t, store, task, model, stages[i%len(stages)])
 		}
 		result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt})
-		if err != nil || result.Result.Status != gotato.RunCompleted {
+		if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d on %s: %v (%s)", i+1, runner.Instance(), err, result.Result.Status)
 		}
 		if afterRun != nil {

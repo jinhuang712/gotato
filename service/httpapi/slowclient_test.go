@@ -46,7 +46,7 @@ func (w *stalledWriter) text() string {
 }
 
 func endedIn(events []gotato.Event) bool {
-	return slices.ContainsFunc(events, func(event gotato.Event) bool { return event.Kind() == gotato.KindRunEnded })
+	return slices.ContainsFunc(events, func(event gotato.Event) bool { return event.Kind() == gotato.EventKindRunEnded })
 }
 
 // An SSE client that stopped reading does not slow the Run: the Run completes
@@ -111,7 +111,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	for _, event := range stored {
 		counts[event.Kind()]++
 	}
-	if counts[gotato.KindToolStarted] != calls || counts[gotato.KindToolEnded] != calls || counts[gotato.KindToolResultCommitted] != calls {
+	if counts[gotato.EventKindToolStarted] != calls || counts[gotato.EventKindToolEnded] != calls || counts[gotato.EventKindToolResultCommitted] != calls {
 		t.Fatalf("the Record is incomplete: %v", counts)
 	}
 
@@ -140,7 +140,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bad event %q: %v", data, err)
 		}
-		if event.Kind().Class() == gotato.ClassStored {
+		if event.Kind().Class() == gotato.EventClassStored {
 			got = append(got, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
 		}
 	}
@@ -159,7 +159,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 			want = append(want, fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number))
 		}
 		// The stream ends at the Run's run_ended.
-		if event.Kind() == gotato.KindRunEnded {
+		if event.Kind() == gotato.EventKindRunEnded {
 			break
 		}
 	}

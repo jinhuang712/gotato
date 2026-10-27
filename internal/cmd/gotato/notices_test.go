@@ -37,12 +37,12 @@ func TestNoticeWaitsForTheNextRunAndStartsNone(t *testing.T) {
 
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", created.ID, "--json", "hello"), &outcome)
-	if outcome.Status != gotato.RunCompleted || outcome.Messages != 3 {
+	if outcome.Status != gotato.RunStatusCompleted || outcome.Messages != 3 {
 		t.Fatalf("outcome = %+v, want user, notice and reply", outcome)
 	}
 	h.mustJSON(h.ok("session", "show", created.ID, "--json"), &shown)
 	notice := shown.Messages[1]
-	if notice.Role != gotato.RoleNotice || notice.Notice == nil || notice.Notice.Kind != "order_update" || notice.Notice.Source != gotato.NoticeFromService || gotato.TextOf(notice) != "Order 42 was delivered." {
+	if notice.Role != gotato.RoleNotice || notice.Notice == nil || notice.Notice.Kind != "order_update" || notice.Notice.Source != gotato.NoticeSourceService || gotato.TextOf(notice) != "Order 42 was delivered." {
 		t.Fatalf("the Record keeps %+v after the prompt", notice)
 	}
 	events := h.ok("events", "--session", created.ID)

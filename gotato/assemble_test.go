@@ -9,9 +9,9 @@ func TestAssembleRequestLayout(t *testing.T) {
 		SystemInstructions: "be helpful",
 		System:             []Block{{Tag: "rules", Text: "- one\n- two"}},
 		Messages: []Message{
-			{ID: "m1", Role: RoleUser, Parts: []ContentPart{{Kind: ContentText, Text: "hi", Metadata: map[string]string{"x": "y"}}}, Usage: Usage{TotalTokens: 3}},
-			{ID: "m2", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: "hello"}}, StopReason: StopEndTurn},
-			{ID: "m3", Role: RoleUser, Parts: []ContentPart{{Kind: ContentText, Text: "now"}}},
+			{ID: "m1", Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: "hi", Metadata: map[string]string{"x": "y"}}}, Usage: Usage{TotalTokens: 3}},
+			{ID: "m2", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: "hello"}}, StopReason: StopReasonEndTurn},
+			{ID: "m3", Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: "now"}}},
 		},
 	}
 	tools := []ToolSpec{{ID: "b", InputSchema: []byte(`{"type":"object"}`)}, {ID: "a", InputSchema: []byte(`{"type":"object"}`)}}
@@ -35,7 +35,7 @@ func TestAssembleRequestLayout(t *testing.T) {
 	}
 	// The message breakpoint is on the last Message, so the whole request is
 	// cached for the next Turn.
-	want := []CacheBreakpoint{{After: CacheAfterSystem}, {After: CacheAfterTools}, {After: CacheAfterMessage, Index: 2}}
+	want := []CacheBreakpoint{{After: CacheAnchorAfterSystem}, {After: CacheAnchorAfterTools}, {After: CacheAnchorAfterMessage, Index: 2}}
 	if len(request.CacheBreakpoints) != len(want) {
 		t.Fatalf("breakpoints = %+v", request.CacheBreakpoints)
 	}
@@ -53,7 +53,7 @@ func TestAssembleRequestLayout(t *testing.T) {
 func TestAssembleRequestCachesEvenTheFirstPrompt(t *testing.T) {
 	built := ModelContext{Messages: []Message{UserMessage("first")}}
 	request, _ := AssembleRequest(built, nil)
-	want := CacheBreakpoint{After: CacheAfterMessage, Index: 0}
+	want := CacheBreakpoint{After: CacheAnchorAfterMessage, Index: 0}
 	if len(request.CacheBreakpoints) != 1 || request.CacheBreakpoints[0] != want {
 		t.Fatalf("breakpoints for a one-message request = %+v, want %+v", request.CacheBreakpoints, want)
 	}
@@ -66,7 +66,7 @@ func TestAssembleRequestLeavesAToolResultAsTheToolReturnedIt(t *testing.T) {
 	built := ModelContext{
 		Messages: []Message{
 			UserMessage("u"),
-			{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultOK}, Parts: []ContentPart{{Kind: ContentJSON, Text: `{"r":1}`}}},
+			{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultStatusOK}, Parts: []ContentPart{{Kind: ContentKindJSON, Text: `{"r":1}`}}},
 		},
 	}
 	request, _ := AssembleRequest(built, nil)
@@ -77,8 +77,8 @@ func TestAssembleRequestLeavesAToolResultAsTheToolReturnedIt(t *testing.T) {
 
 func TestForModelKeepsSignatureAndToolResults(t *testing.T) {
 	messages := []Message{
-		{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentReasoning, Text: "r", Signature: []byte{1}}}, ToolCalls: []ToolCall{{ID: "c", ToolID: "t", Arguments: []byte(`{}`)}}},
-		{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultOK, Executed: true, Metadata: map[string]string{"k": "v"}, Content: []ContentPart{{Kind: ContentText, Text: "ok", Metadata: map[string]string{"z": "1"}}}}},
+		{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindReasoning, Text: "r", Signature: []byte{1}}}, ToolCalls: []ToolCall{{ID: "c", ToolID: "t", Arguments: []byte(`{}`)}}},
+		{Role: RoleToolResult, ToolResult: &ToolResult{CallID: "c", Status: ToolResultStatusOK, Executed: true, Metadata: map[string]string{"k": "v"}, Content: []ContentPart{{Kind: ContentKindText, Text: "ok", Metadata: map[string]string{"z": "1"}}}}},
 	}
 	out := ForModel(messages)
 	if len(out[0].Parts[0].Signature) != 1 || len(out[0].ToolCalls) != 1 {

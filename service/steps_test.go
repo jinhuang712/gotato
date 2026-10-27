@@ -89,7 +89,7 @@ func (s *crashingStore) Append(ctx context.Context, id string, after uint64, ent
 	s.mu.Lock()
 	crashed := s.crashed
 	for _, entry := range entries {
-		if entry.Kind == gotato.KindToolStarted {
+		if entry.Kind == gotato.EventKindToolStarted {
 			s.crashed = true
 		}
 	}
@@ -147,7 +147,7 @@ func TestACrashDuringAToolIsAnsweredOnTheNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := view.Runs()
-	if len(runs) != 2 || runs[0].Error != "interrupted" || runs[1].Status != gotato.RunCompleted {
+	if len(runs) != 2 || runs[0].Error != "interrupted" || runs[1].Status != gotato.RunStatusCompleted {
 		t.Fatalf("runs = %+v, want the crashed Run ended as interrupted", runs)
 	}
 }

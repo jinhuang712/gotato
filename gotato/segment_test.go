@@ -13,10 +13,10 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 	segment := gotato.Segment{
 		Number: 2, From: at, To: at.Add(time.Hour),
 		Source:   gotato.SegmentSource{SessionID: "parent", FromNumber: 3, ToNumber: 40},
-		Messages: []gotato.Message{{ID: "m1", Role: gotato.RoleUser, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "hi"}}}},
+		Messages: []gotato.Message{{ID: "m1", Role: gotato.RoleUser, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "hi"}}}},
 		Rendered: 1,
 		ToolCalls: []gotato.ToolCallLine{
-			{At: at, ToolID: "logs.query", Args: `{"a":1}`, Status: gotato.ToolResultOK, Count: 2},
+			{At: at, ToolID: "logs.query", Args: `{"a":1}`, Status: gotato.ToolResultStatusOK, Count: 2},
 		},
 		Recap: "## What happened\n- x", Tools: []string{"logs.tail"},
 	}
@@ -29,7 +29,7 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind() != gotato.KindSegmentClosed || got.Kind().Class() != gotato.ClassStored {
+	if got.Kind() != gotato.EventKindSegmentClosed || got.Kind().Class() != gotato.EventClassStored {
 		t.Fatalf("kind %q class %v, want a stored segment_closed", got.Kind(), got.Kind().Class())
 	}
 	if !reflect.DeepEqual(got.(gotato.SegmentClosed).Segment, segment) {

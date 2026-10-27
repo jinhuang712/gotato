@@ -14,17 +14,17 @@ import (
 func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 	sig := []byte(`{"id":"rs_1"}`)
 	model := &testModel{scripts: [][]ModelEvent{{
-		{Kind: ModelReasoningDelta, Text: "think"},
-		{Kind: ModelReasoningDelta, Text: " hard"},
-		{Kind: ModelReasoningDone, ReasoningArtifact: sig},
-		{Kind: ModelReasoningDelta, Text: "second"},
-		{Kind: ModelReasoningDelta, Text: " thought"},
-		{Kind: ModelTextDelta, Text: "hel"},
-		{Kind: ModelTextDelta, Text: "lo"},
-		{Kind: ModelTextDelta, Text: " world"},
-		{Kind: ModelReasoningDelta, Text: "again"},
-		{Kind: ModelTextDelta, Text: "!"},
-		{Kind: ModelDone, StopReason: StopEndTurn},
+		{Kind: ModelEventKindReasoningDelta, Text: "think"},
+		{Kind: ModelEventKindReasoningDelta, Text: " hard"},
+		{Kind: ModelEventKindReasoningDone, ReasoningArtifact: sig},
+		{Kind: ModelEventKindReasoningDelta, Text: "second"},
+		{Kind: ModelEventKindReasoningDelta, Text: " thought"},
+		{Kind: ModelEventKindTextDelta, Text: "hel"},
+		{Kind: ModelEventKindTextDelta, Text: "lo"},
+		{Kind: ModelEventKindTextDelta, Text: " world"},
+		{Kind: ModelEventKindReasoningDelta, Text: "again"},
+		{Kind: ModelEventKindTextDelta, Text: "!"},
+		{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 	}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
@@ -36,11 +36,11 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ContentPart{
-		{Kind: ContentReasoning, Text: "think hard", Signature: sig},
-		{Kind: ContentReasoning, Text: "second thought"},
-		{Kind: ContentText, Text: "hello world"},
-		{Kind: ContentReasoning, Text: "again"},
-		{Kind: ContentText, Text: "!"},
+		{Kind: ContentKindReasoning, Text: "think hard", Signature: sig},
+		{Kind: ContentKindReasoning, Text: "second thought"},
+		{Kind: ContentKindText, Text: "hello world"},
+		{Kind: ContentKindReasoning, Text: "again"},
+		{Kind: ContentKindText, Text: "!"},
 	}
 	if got := result.FinalMessage.Parts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("parts = %#v\nwant %#v", got, want)
@@ -51,7 +51,7 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 }
 
 // A reasoning block that streams no deltas still ends with its own
-// ModelReasoningDone: an Anthropic redacted_thinking block, a thinking block
+// ModelEventKindReasoningDone: an Anthropic redacted_thinking block, a thinking block
 // with its display omitted, a Responses reasoning item without a summary. The
 // Session signed the last reasoning Part on every Done, so the second block's
 // signature overwrote the first block's, and the first block was lost on
@@ -67,46 +67,46 @@ func TestReasoningDoneWithoutDeltasKeepsEachBlock(t *testing.T) {
 		{
 			name: "thinking then redacted",
 			events: []ModelEvent{
-				{Kind: ModelReasoningDelta, Text: "thi"},
-				{Kind: ModelReasoningDelta, Text: "nk"},
-				{Kind: ModelReasoningDone, ReasoningArtifact: first},
-				{Kind: ModelReasoningDone, ReasoningArtifact: second},
-				{Kind: ModelTextDelta, Text: "answer"},
-				{Kind: ModelDone, StopReason: StopEndTurn},
+				{Kind: ModelEventKindReasoningDelta, Text: "thi"},
+				{Kind: ModelEventKindReasoningDelta, Text: "nk"},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelEventKindTextDelta, Text: "answer"},
+				{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 			},
 			want: []ContentPart{
-				{Kind: ContentReasoning, Text: "think", Signature: first},
-				{Kind: ContentReasoning, Signature: second},
-				{Kind: ContentText, Text: "answer"},
+				{Kind: ContentKindReasoning, Text: "think", Signature: first},
+				{Kind: ContentKindReasoning, Signature: second},
+				{Kind: ContentKindText, Text: "answer"},
 			},
 		},
 		{
 			name: "two blocks without deltas",
 			events: []ModelEvent{
-				{Kind: ModelReasoningDone, ReasoningArtifact: first},
-				{Kind: ModelReasoningDone, ReasoningArtifact: second},
-				{Kind: ModelTextDelta, Text: "answer"},
-				{Kind: ModelDone, StopReason: StopEndTurn},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelEventKindTextDelta, Text: "answer"},
+				{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 			},
 			want: []ContentPart{
-				{Kind: ContentReasoning, Signature: first},
-				{Kind: ContentReasoning, Signature: second},
-				{Kind: ContentText, Text: "answer"},
+				{Kind: ContentKindReasoning, Signature: first},
+				{Kind: ContentKindReasoning, Signature: second},
+				{Kind: ContentKindText, Text: "answer"},
 			},
 		},
 		{
 			name: "signed block after text",
 			events: []ModelEvent{
-				{Kind: ModelReasoningDelta, Text: "think"},
-				{Kind: ModelReasoningDone, ReasoningArtifact: first},
-				{Kind: ModelTextDelta, Text: "answer"},
-				{Kind: ModelReasoningDone, ReasoningArtifact: second},
-				{Kind: ModelDone, StopReason: StopEndTurn},
+				{Kind: ModelEventKindReasoningDelta, Text: "think"},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: first},
+				{Kind: ModelEventKindTextDelta, Text: "answer"},
+				{Kind: ModelEventKindReasoningDone, ReasoningArtifact: second},
+				{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 			},
 			want: []ContentPart{
-				{Kind: ContentReasoning, Text: "think", Signature: first},
-				{Kind: ContentText, Text: "answer"},
-				{Kind: ContentReasoning, Signature: second},
+				{Kind: ContentKindReasoning, Text: "think", Signature: first},
+				{Kind: ContentKindText, Text: "answer"},
+				{Kind: ContentKindReasoning, Signature: second},
 			},
 		},
 	} {

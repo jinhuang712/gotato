@@ -55,18 +55,20 @@ type MergeRequest struct {
 // first, which read_segment reads once it is merged.
 func (r MergeRequest) Numbers() []int { return numbersOf(r.Segments) }
 
-// Why a merge did nothing, or failed, in MergeResult.Reason.
+// MergeReason says why a merge did nothing, or failed, in MergeResult.Reason.
+type MergeReason string
+
 const (
-	// MergeUnderBudget: the Segments together fit their budget.
-	MergeUnderBudget = "under_budget"
-	// MergeNothingToMerge: fewer than two Segments, so none can be merged.
-	MergeNothingToMerge = "nothing_to_merge"
-	// MergeRecapFailed: the Recap of the merge could not be written, and
+	// MergeReasonUnderBudget: the Segments together fit their budget.
+	MergeReasonUnderBudget MergeReason = "under_budget"
+	// MergeReasonNothingToMerge: fewer than two Segments, so none can be merged.
+	MergeReasonNothingToMerge MergeReason = "nothing_to_merge"
+	// MergeReasonRecapFailed: the Recap of the merge could not be written, and
 	// nothing was merged.
-	MergeRecapFailed = "recap_failed"
-	// MergeWriteFailed: the Record could not be written, and nothing was
+	MergeReasonRecapFailed MergeReason = "recap_failed"
+	// MergeReasonWriteFailed: the Record could not be written, and nothing was
 	// merged.
-	MergeWriteFailed = "write_failed"
+	MergeReasonWriteFailed MergeReason = "write_failed"
 )
 
 // MergeDigestName is the Recap name recorded for a merge whose Recap is the
@@ -85,7 +87,7 @@ type MergeOptions struct {
 	// other writer, or nil, leaves a digest built by code.
 	Recap RecapWriter
 	// Why says why the merge runs, for its Events; the default is
-	// gotato.CompactionPastBudget.
+	// gotato.CompactionWhyPastBudget.
 	Why gotato.CompactionWhy
 	// Location is the time zone of the times the merged Segment shows.
 	Location *time.Location
@@ -96,8 +98,8 @@ type MergeOptions struct {
 // MergeResult reports a MergeSegments call. Merged is true only when the
 // Segments were merged; Reason says why not otherwise.
 type MergeResult struct {
-	Merged bool   `json:"merged"`
-	Reason string `json:"reason,omitempty"`
+	Merged bool        `json:"merged"`
+	Reason MergeReason `json:"reason,omitempty"`
 	// Error says why the Recap or the write failed.
 	Error string `json:"error,omitempty"`
 	// Budget is the Segments' budget in force, in estimated tokens, and
@@ -154,10 +156,10 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 	}
 	switch {
 	case result.SegmentTokens <= budget:
-		result.Reason = MergeUnderBudget
+		result.Reason = MergeReasonUnderBudget
 		return result, nil
 	case len(segments) < 2:
-		result.Reason = MergeNothingToMerge
+		result.Reason = MergeReasonNothingToMerge
 		return result, nil
 	}
 	// The oldest merge until the Segments left fit in half the budget; at
@@ -171,7 +173,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 
 	why := opts.Why
 	if why == "" {
-		why = gotato.CompactionPastBudget
+		why = gotato.CompactionWhyPastBudget
 	}
 	now := opts.Now
 	if now == nil {
@@ -179,7 +181,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 	}
 	header := func() gotato.Header { return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0) }
 	s.Emit(gotato.CompactionStarted{Header: header(), Why: why})
-	fail := func(reason string, cause gotato.ErrorCode, err error) MergeResult {
+	fail := func(reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
 		s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: cause})
 		result.Reason, result.Error = reason, err.Error()
 		return result
@@ -204,7 +206,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 			if errors.Is(err, ErrBadRecap) {
 				cause = gotato.CodeModelProtocolFailure
 			}
-			return fail(MergeRecapFailed, cause, err), nil
+			return fail(MergeReasonRecapFailed, cause, err), nil
 		}
 		recapName = writer.Name()
 	} else {
@@ -244,7 +246,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 		numbers[i] = segment.Number
 	}
 	if _, err := mergeSegments(s, why, merged, numbers, tail, &record); err != nil {
-		return fail(MergeWriteFailed, causeOf(err), err), nil
+		return fail(MergeReasonWriteFailed, causeOf(err), err), nil
 	}
 	result.Merged, result.Reason = true, ""
 	result.Segment, result.Replaced = merged.Number, merged.Numbers()
@@ -428,7 +430,7 @@ func userTexts(segment gotato.Segment) []string {
 		}
 		var parts []string
 		for _, part := range message.Parts {
-			if _, tagged := part.Metadata[gotato.MetaTag]; !tagged && part.Kind == gotato.ContentText && strings.TrimSpace(part.Text) != "" {
+			if _, tagged := part.Metadata[gotato.MetaTag]; !tagged && part.Kind == gotato.ContentKindText && strings.TrimSpace(part.Text) != "" {
 				parts = append(parts, part.Text)
 			}
 		}

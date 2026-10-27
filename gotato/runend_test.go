@@ -61,7 +61,7 @@ func TestARunEndsByTheModelsReplyWhateverItsLength(t *testing.T) {
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("go"))
-	if err != nil || result.Status != gotato.RunCompleted || result.Metrics.Turns != 151 {
+	if err != nil || result.Status != gotato.RunStatusCompleted || result.Metrics.Turns != 151 {
 		t.Fatalf("result = %+v, err = %v; want completed after 151 Turns", result, err)
 	}
 }
@@ -118,7 +118,7 @@ func TestALargeToolResultNoLongerFailsTheRun(t *testing.T) {
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("go"))
-	if err != nil || result.Status != gotato.RunCompleted {
+	if err != nil || result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("result = %+v, err = %v; want completed", result, err)
 	}
 	requests := model.Requests()

@@ -38,7 +38,7 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Address: "http://" + instance + ".example:8080", Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestMessagesMidRunLandOnceOnTheWriter(t *testing.T) {
 	}()
 	<-hold.started
 
-	kinds := []service.MessageKind{service.MessageSteer, service.MessageFollowUp, service.MessageInterrupt}
+	kinds := []service.MessageKind{service.MessageKindSteer, service.MessageKindFollowUp, service.MessageKindInterrupt}
 	const senders = 18
 	type sent struct {
 		text   string
@@ -232,7 +232,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			outcomes := make(chan outcome, 128)
 			var done atomic.Int64
 			var wg sync.WaitGroup
-			kinds := []service.MessageKind{service.MessageSteer, service.MessageFollowUp, service.MessageInterrupt}
+			kinds := []service.MessageKind{service.MessageKindSteer, service.MessageKindFollowUp, service.MessageKindInterrupt}
 			for worker := range 6 {
 				wg.Add(1)
 				go func() {
@@ -323,7 +323,7 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 					if !killed && !ended[o.session][gotato.MessageID(o.result.MessageID)] {
 						t.Fatalf("message %s was accepted and neither committed nor dropped", o.result.MessageID)
 					}
-				case o.result.Run != nil && o.result.Run.Result.Status == gotato.RunCompleted:
+				case o.result.Run != nil && o.result.Run.Result.Status == gotato.RunStatusCompleted:
 					ranCount++
 					if seen[o.text] != 1 || !strings.Contains(replies[o.text], ": "+o.session) {
 						t.Fatalf("the Run that message %q started landed %d times, answered by %q", o.text, seen[o.text], replies[o.text])

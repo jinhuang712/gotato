@@ -12,8 +12,8 @@ import (
 // acted: what a reasoning model returns when it plans at length.
 func truncated() testkit.Script {
 	return testkit.Script{
-		{Kind: gotato.ModelReasoningDelta, Text: "Let me think through every function first..."},
-		{Kind: gotato.ModelDone, StopReason: gotato.StopMaxTokens},
+		{Kind: gotato.ModelEventKindReasoningDelta, Text: "Let me think through every function first..."},
+		{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonMaxTokens},
 	}
 }
 
@@ -49,7 +49,7 @@ func TestTruncatedTurnContinuesWithinTheBound(t *testing.T) {
 			if model.Calls() != tc.calls {
 				t.Fatalf("model calls = %d, want %d", model.Calls(), tc.calls)
 			}
-			if result.Status != gotato.RunCompleted || result.FinalMessage == nil || gotato.TextOf(*result.FinalMessage) != tc.final {
+			if result.Status != gotato.RunStatusCompleted || result.FinalMessage == nil || gotato.TextOf(*result.FinalMessage) != tc.final {
 				t.Fatalf("result = %+v", result)
 			}
 			if tc.calls < 2 {

@@ -128,7 +128,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 	var result service.RunResponse
 	_ = json.Unmarshal(body, &result)
-	if result.Result.Status != gotato.RunCompleted || result.Result.Metrics.ToolCalls != 1 || result.Messages != 4 {
+	if result.Result.Status != gotato.RunStatusCompleted || result.Result.Metrics.ToolCalls != 1 || result.Messages != 4 {
 		t.Fatalf("result = %+v", result)
 	}
 
@@ -153,7 +153,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if filtered.Kind() != gotato.KindContextBuilt {
+		if filtered.Kind() != gotato.EventKindContextBuilt {
 			t.Fatalf("event kind = %q, want context_built", filtered.Kind())
 		}
 	}
@@ -272,7 +272,7 @@ func TestStreamRunSSE(t *testing.T) {
 		t.Fatalf("a Run's stream carries Instance Events: %v", events)
 	}
 	var result service.RunResponse
-	if err := json.Unmarshal([]byte(resultLine), &result); err != nil || result.Result.Status != gotato.RunCompleted {
+	if err := json.Unmarshal([]byte(resultLine), &result); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("result = %s err=%v", resultLine, err)
 	}
 	found := false
@@ -328,7 +328,7 @@ func TestAgentsReportMaxEffect(t *testing.T) {
 		Store: session.NewMemoryStore(),
 		Agents: []service.Agent{
 			{Name: "open", Model: testkit.EchoModel{}},
-			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.EffectRead},
+			{Name: "reader", Model: testkit.EchoModel{}, MaxEffect: gotato.ToolEffectRead},
 		},
 	})
 	if err != nil {
@@ -375,7 +375,7 @@ func (s *failingSaveStore) fail(entries []session.Entry) bool {
 	defer s.mu.Unlock()
 	s.saves++
 	for _, entry := range entries {
-		if s.failFinal && entry.Kind == gotato.KindRunEnded {
+		if s.failFinal && entry.Kind == gotato.EventKindRunEnded {
 			return true
 		}
 	}

@@ -50,13 +50,13 @@ func TestGatewayStreamNormalizesTextAndUsage(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("events = %+v", events)
 	}
-	if events[0].Kind != gotato.ModelTextDelta || events[0].Text != "hello" {
+	if events[0].Kind != gotato.ModelEventKindTextDelta || events[0].Text != "hello" {
 		t.Fatalf("text event = %+v", events[0])
 	}
-	if events[1].Kind != gotato.ModelUsage || events[1].Usage.TotalTokens != 5 {
+	if events[1].Kind != gotato.ModelEventKindUsage || events[1].Usage.TotalTokens != 5 {
 		t.Fatalf("usage event = %+v", events[1])
 	}
-	if events[2].Kind != gotato.ModelDone || events[2].StopReason != gotato.StopEndTurn {
+	if events[2].Kind != gotato.ModelEventKindDone || events[2].StopReason != gotato.StopReasonEndTurn {
 		t.Fatalf("done event = %+v", events[2])
 	}
 	if received.Model != "gateway-model" || !received.Stream || len(received.Messages) != 2 {
@@ -89,7 +89,7 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if toolEvent.Kind != gotato.ModelToolCall || toolEvent.ToolCall == nil {
+	if toolEvent.Kind != gotato.ModelEventKindToolCall || toolEvent.ToolCall == nil {
 		t.Fatalf("tool event = %+v", toolEvent)
 	}
 	if toolEvent.ToolCall.ToolID != "demo.echo" || string(toolEvent.ToolCall.Arguments) != `{"value":"x"}` {
@@ -99,7 +99,7 @@ func TestGatewayStreamReassemblesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doneEvent.Kind != gotato.ModelDone || doneEvent.StopReason != gotato.StopToolCalls {
+	if doneEvent.Kind != gotato.ModelEventKindDone || doneEvent.StopReason != gotato.StopReasonToolCalls {
 		t.Fatalf("done event = %+v", doneEvent)
 	}
 }
@@ -127,7 +127,7 @@ func TestGatewayStreamDefaultsEmptyToolArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if toolEvent.Kind != gotato.ModelToolCall || toolEvent.ToolCall == nil || string(toolEvent.ToolCall.Arguments) != `{}` {
+	if toolEvent.Kind != gotato.ModelEventKindToolCall || toolEvent.ToolCall == nil || string(toolEvent.ToolCall.Arguments) != `{}` {
 		t.Fatalf("tool event = %+v", toolEvent)
 	}
 }
@@ -269,8 +269,8 @@ func TestStreamRejectsOversizedSSELine(t *testing.T) {
 func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
 	message := gotato.Message{
 		Role:       gotato.RoleToolResult,
-		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
-		Parts:      []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: `{"summary":"sunny"}`}},
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+		Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"summary":"sunny"}`}},
 	}
 	wire, err := convertMessage(message, map[string]string{}, true)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
 func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
 	message := gotato.Message{
 		Role:       gotato.RoleToolResult,
-		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultFailed, SafeError: "upstream is down"},
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusFailed, SafeError: "upstream is down"},
 	}
 	wire, err := convertMessage(message, map[string]string{}, true)
 	if err != nil {

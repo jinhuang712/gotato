@@ -74,8 +74,8 @@ func TestStreamDisconnectSettlesAndSavesTheRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		runs := view.Runs()
-		if len(runs) == 1 && runs[0].Status != gotato.RunRunning && runner.ActiveRuns() == 0 {
-			if runs[0].Status != gotato.RunCanceled {
+		if len(runs) == 1 && runs[0].Status != gotato.RunStatusRunning && runner.ActiveRuns() == 0 {
+			if runs[0].Status != gotato.RunStatusCanceled {
 				t.Fatalf("run = %+v, want canceled", runs[0])
 			}
 			if messages := view.Messages(); len(messages) != 1 || gotato.TextOf(messages[0]) != "hello?" {

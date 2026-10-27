@@ -212,9 +212,9 @@ func TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance(t *testing.T) 
 	}
 	loaded, unloaded := 0, 0
 	for _, ev := range rec.Events() {
-		if ev.Kind() == gotato.KindToolLoaded {
+		if ev.Kind() == gotato.EventKindToolLoaded {
 			loaded++
-		} else if ev.Kind() == gotato.KindToolUnloaded {
+		} else if ev.Kind() == gotato.EventKindToolUnloaded {
 			unloaded++
 		}
 	}

@@ -63,8 +63,8 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 		id, _ := r.seed()
 		store.reset(last - 1)
 		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
-		if res.Result.Status != gotato.RunFailed {
-			t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunFailed)
+		if res.Result.Status != gotato.RunStatusFailed {
+			t.Fatalf("status = %q (err %v), want %q", res.Result.Status, err, gotato.RunStatusFailed)
 		}
 		if res.Result.Error == nil || !gotato.IsCode(res.Result.Error, gotato.CodeStoreFailure) {
 			t.Fatalf("result error = %v, want store_failure", res.Result.Error)
@@ -82,7 +82,7 @@ func TestEmbeddedCallerSeesALostFinalWrite(t *testing.T) {
 		id, _ := r.seed()
 		store.reset(last)
 		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "hello"})
-		if err != nil || res.Result.Status != gotato.RunCompleted || res.Result.Error != nil {
+		if err != nil || res.Result.Status != gotato.RunStatusCompleted || res.Result.Error != nil {
 			t.Fatalf("a Run whose Events are all stored = %q, %v, %v, want completed without an error", res.Result.Status, res.Result.Error, err)
 		}
 		if res.FinalText == "" {

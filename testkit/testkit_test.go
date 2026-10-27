@@ -43,7 +43,7 @@ func TestReplayModelFailsWhenExhausted(t *testing.T) {
 		t.Fatalf("remaining = %d", model.Remaining())
 	}
 	result, err := agent.Prompt(context.Background(), gotato.UserMessage("2"))
-	if result.Status != gotato.RunFailed || !errors.Is(err, io.ErrUnexpectedEOF) && !gotato.IsCode(err, gotato.CodeModelFailure) {
+	if result.Status != gotato.RunStatusFailed || !errors.Is(err, io.ErrUnexpectedEOF) && !gotato.IsCode(err, gotato.CodeModelFailure) {
 		t.Fatalf("exhausted replay: %+v %v", result, err)
 	}
 }
@@ -131,16 +131,16 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		t.Fatalf("uses = %+v", tool.Uses())
 	}
 	kinds := recorder.Kinds()
-	if len(kinds) == 0 || kinds[0] != gotato.KindRunStarted || kinds[len(kinds)-1] != gotato.KindRunEnded {
+	if len(kinds) == 0 || kinds[0] != gotato.EventKindRunStarted || kinds[len(kinds)-1] != gotato.EventKindRunEnded {
 		t.Fatalf("kinds = %v", kinds)
 	}
-	if len(recorder.OfKind(gotato.KindToolEnded)) != 1 {
-		t.Fatalf("tool end events = %d", len(recorder.OfKind(gotato.KindToolEnded)))
+	if len(recorder.OfKind(gotato.EventKindToolEnded)) != 1 {
+		t.Fatalf("tool end events = %d", len(recorder.OfKind(gotato.EventKindToolEnded)))
 	}
 	// Stored Events are numbered by their position in the Record, in order.
 	var last uint64
 	for _, event := range recorder.Events() {
-		if event.Kind().Class() != gotato.ClassStored {
+		if event.Kind().Class() != gotato.EventClassStored {
 			continue
 		}
 		if number := event.Head().Number; number <= last {
@@ -187,13 +187,13 @@ func TestEventRecorderWaitsForAMatchingEvent(t *testing.T) {
 	recorder := testkit.RecordEvents(agent)
 	defer recorder.Close()
 	defer func() { _ = agent.Close(context.Background()) }()
-	if recorder.Wait(10*time.Millisecond, func(e gotato.Event) bool { return e.Kind() == gotato.KindRunEnded }) {
+	if recorder.Wait(10*time.Millisecond, func(e gotato.Event) bool { return e.Kind() == gotato.EventKindRunEnded }) {
 		t.Fatal("Wait matched an Event before any Run")
 	}
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
-	if !recorder.Wait(time.Second, func(e gotato.Event) bool { return e.Kind() == gotato.KindRunEnded }) {
+	if !recorder.Wait(time.Second, func(e gotato.Event) bool { return e.Kind() == gotato.EventKindRunEnded }) {
 		t.Fatalf("Wait did not see run_ended in %v", recorder.Kinds())
 	}
 }

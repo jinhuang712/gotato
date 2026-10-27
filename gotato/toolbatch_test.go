@@ -19,7 +19,7 @@ func (t stalledTool) Spec() ToolSpec {
 
 func (t stalledTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
 	<-t.blocked
-	return ToolResult{Status: ToolResultOK}, nil
+	return ToolResult{Status: ToolResultStatusOK}, nil
 }
 
 // A Tool that ignores its context must not pin the Session goroutine: Abort has
@@ -29,8 +29,8 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 	defer close(blocked)
 	call := ToolCall{ID: "c1", ToolID: "slow", Arguments: []byte(`{}`)}
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
-		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
+		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
@@ -56,7 +56,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		if nextErr != nil {
 			t.Fatalf("waiting for the Tool to start: %v", nextErr)
 		}
-		if event.Kind() == KindToolStarted {
+		if event.Kind() == EventKindToolStarted {
 			break
 		}
 	}
@@ -94,7 +94,7 @@ func (t *concurrentProgressTool) Execute(_ context.Context, _ ToolUse, progress 
 		}()
 	}
 	wg.Wait()
-	return ToolResult{Status: ToolResultOK}, nil
+	return ToolResult{Status: ToolResultStatusOK}, nil
 }
 
 // A Tool may report progress from any goroutine. Every report under the limit
@@ -105,8 +105,8 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 	want := workers * perWorker
 	call := ToolCall{ID: "c1", ToolID: "progress", Arguments: []byte(`{}`)}
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
-		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
+		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: workers, updates: perWorker}))
 	if err != nil {
@@ -128,10 +128,10 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 				observed <- nextErr
 				return
 			}
-			if event.Kind() == KindToolProgress {
+			if event.Kind() == EventKindToolProgress {
 				updates++
 			}
-			if event.Kind() == KindRunEnded {
+			if event.Kind() == EventKindRunEnded {
 				observed <- nil
 				return
 			}
@@ -168,7 +168,7 @@ func (t hookTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResul
 	if t.hook != nil {
 		t.hook()
 	}
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "ok"}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "ok"}}}, nil
 }
 
 // callsScript is a Model reply that calls each Tool in order, as c1, c2, ….
@@ -176,9 +176,9 @@ func callsScript(toolIDs ...string) []ModelEvent {
 	events := make([]ModelEvent, 0, len(toolIDs)+1)
 	for i, id := range toolIDs {
 		call := ToolCall{ID: ToolCallID("c" + string(rune('1'+i))), ToolID: id, Arguments: []byte(`{}`)}
-		events = append(events, ModelEvent{Kind: ModelToolCall, ToolCall: &call})
+		events = append(events, ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &call})
 	}
-	return append(events, ModelEvent{Kind: ModelDone, StopReason: StopToolCalls})
+	return append(events, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls})
 }
 
 func resultsByCall(messages []Message) map[ToolCallID]ToolResult {
@@ -225,7 +225,7 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 		count := hookTool{id: "later", hook: func() { mu.Lock(); launched++; mu.Unlock() }}
 		model := &testModel{scripts: [][]ModelEvent{
 			callsScript("abort", "later", "later"),
-			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+			{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 		}}
 		var err error
 		agent, err = NewSession(WithModel(model), WithTools(abort, count))
@@ -246,10 +246,10 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 		results := resultsByCall(agent.Transcript().Messages())
 		for _, id := range []ToolCallID{"c2", "c3"} {
 			result, ok := results[id]
-			if !ok || result.Status != ToolResultCanceled || result.Executed {
+			if !ok || result.Status != ToolResultStatusCanceled || result.Executed {
 				t.Fatalf("attempt %d: result of %s = %+v (found %v)", attempt, id, result, ok)
 			}
-			if starts, ends := countCall(log.events(), KindToolStarted, id), countCall(log.events(), KindToolEnded, id); starts != 1 || ends != 1 {
+			if starts, ends := countCall(log.events(), EventKindToolStarted, id), countCall(log.events(), EventKindToolEnded, id); starts != 1 || ends != 1 {
 				t.Fatalf("attempt %d: %s has %d starts and %d ends", attempt, id, starts, ends)
 			}
 		}
@@ -264,7 +264,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 	defer close(blocked)
 	model := &testModel{scripts: [][]ModelEvent{
 		callsScript("slow"),
-		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
@@ -278,7 +278,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		done <- promptErr
 	}()
 	deadline := time.Now().Add(10 * time.Second)
-	for countCall(log.events(), KindToolStarted, "c1") == 0 {
+	for countCall(log.events(), EventKindToolStarted, "c1") == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the Tool did not start")
 		}
@@ -289,7 +289,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	result, ok := resultsByCall(agent.Transcript().Messages())["c1"]
-	if !ok || result.Status != ToolResultCanceled || !result.Executed {
+	if !ok || result.Status != ToolResultStatusCanceled || !result.Executed {
 		t.Fatalf("result of the started Tool = %+v (found %v)", result, ok)
 	}
 }
@@ -319,7 +319,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 	t.Run("extension in preflight", func(t *testing.T) {
 		model := &testModel{scripts: [][]ModelEvent{
 			callsScript("echo", "echo"),
-			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+			{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 		}}
 		agent, err := NewSession(WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
 		if err != nil {
@@ -332,7 +332,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 		results := resultsByCall(agent.Transcript().Messages())
 		for _, id := range []ToolCallID{"c1", "c2"} {
 			result, ok := results[id]
-			if !ok || result.Status != ToolResultFailed || result.Executed || !strings.Contains(result.SafeError, string(CodeExtensionFailure)) {
+			if !ok || result.Status != ToolResultStatusFailed || result.Executed || !strings.Contains(result.SafeError, string(CodeExtensionFailure)) {
 				t.Fatalf("closing result of %s = %+v (found %v)", id, result, ok)
 			}
 		}
@@ -367,7 +367,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 			t.Fatalf("Run error = %v", err)
 		}
 		result, ok := resultsByCall(agent.Transcript().Messages())["c1"]
-		if !ok || result.Status != ToolResultFailed || !result.Executed {
+		if !ok || result.Status != ToolResultStatusFailed || !result.Executed {
 			t.Fatalf("closing result of the Tool that ran = %+v (found %v)", result, ok)
 		}
 		if err := validateContinuable(agent.Transcript().Messages()); err != nil {

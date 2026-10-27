@@ -90,7 +90,7 @@ func TestMessageForARunInAnotherProcessIsNotWriter(t *testing.T) {
 	// With no Run going, the message starts a new Run on the CLI's own instance.
 	var outcome runOutcome
 	h.mustJSON(h.ok("session", "message", created.ID, "--json", "next"), &outcome)
-	if outcome.Status != gotato.RunCompleted || outcome.FinalText != "echo: next" || outcome.Messages != 4 {
+	if outcome.Status != gotato.RunStatusCompleted || outcome.FinalText != "echo: next" || outcome.Messages != 4 {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 }

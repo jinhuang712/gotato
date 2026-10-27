@@ -117,7 +117,7 @@ func RunRecapCheck(ctx context.Context, cfg RecapCheckConfig, check reftasks.Rec
 		if err != nil {
 			return report, fmt.Errorf("workload: %s: the conversation failed: %w", check.Name, err)
 		}
-		if result.Result.Status != gotato.RunCompleted {
+		if result.Result.Status != gotato.RunStatusCompleted {
 			return report, fmt.Errorf("workload: %s: a Run of the conversation settled as %s", check.Name, result.Result.Status)
 		}
 		id = result.SessionID

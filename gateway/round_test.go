@@ -27,7 +27,7 @@ var wireEncoders = map[string]func(string, gotato.ModelRequest, providerRules) (
 // reasoningPart is a reasoning Part as each wire API keeps it: its text, and
 // the provider's own artifact where the wire API has one.
 func reasoningPart(api, label string) gotato.ContentPart {
-	part := gotato.ContentPart{Kind: gotato.ContentReasoning, Text: "think-" + label}
+	part := gotato.ContentPart{Kind: gotato.ContentKindReasoning, Text: "think-" + label}
 	switch api {
 	case APIAnthropicMessages:
 		part.Signature = []byte(`{"type":"thinking","thinking":"think-` + label + `","signature":"sig-` + label + `"}`)
@@ -52,7 +52,7 @@ func sentReasoning(api, label string) string {
 func reply(api, label, text string, calls ...gotato.ToolCall) gotato.Message {
 	message := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{reasoningPart(api, label)}, ToolCalls: calls}
 	if text != "" {
-		message.Parts = append(message.Parts, gotato.ContentPart{Kind: gotato.ContentText, Text: text})
+		message.Parts = append(message.Parts, gotato.ContentPart{Kind: gotato.ContentKindText, Text: text})
 	}
 	return message
 }
@@ -62,8 +62,8 @@ func echoCall(id string) gotato.ToolCall {
 }
 
 func echoResult(id string) gotato.Message {
-	return gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: gotato.ToolCallID(id), Status: gotato.ToolResultOK},
-		Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "echoed"}}}
+	return gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: gotato.ToolCallID(id), Status: gotato.ToolResultStatusOK},
+		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "echoed"}}}
 }
 
 // twoRounds is a history in its second Round's tool loop. The first Round, a
@@ -286,7 +286,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 		mu.Unlock()
 		ctx := context.Background()
 		first, _ := created.Prompt(ctx, gotato.UserMessage("check a"))
-		if first.Status != gotato.RunFailed {
+		if first.Status != gotato.RunStatusFailed {
 			t.Fatalf("steer=%v: the first Run settled %q, want failed at its second Turn", steer, first.Status)
 		}
 		if _, err := created.Continue(ctx); err != nil {
@@ -508,7 +508,7 @@ func TestCacheRetentionComesFromTheConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 		body, _, err := encodeAnthropicRequest(client.model, gotato.ModelRequest{SystemInstructions: "sys",
-			CacheBreakpoints: []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}}}, client.rules)
+			CacheBreakpoints: []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}}, client.rules)
 		if err != nil {
 			t.Fatal(err)
 		}

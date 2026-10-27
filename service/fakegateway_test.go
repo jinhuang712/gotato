@@ -88,14 +88,14 @@ func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {
 				result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: prompt(word)})
-				if err != nil || result.Result.Status != gotato.RunCompleted {
+				if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("%s: %+v, %v", word, result, err)
 				}
 				id = result.SessionID
 			}
 			before := len(fake.Requests())
 			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: prompt("delta")})
-			if err != nil || result.Result.Status != gotato.RunCompleted || !strings.HasPrefix(result.FinalText, "fake: delta") {
+			if err != nil || result.Result.Status != gotato.RunStatusCompleted || !strings.HasPrefix(result.FinalText, "fake: delta") {
 				t.Fatalf("delta: %+v, %v", result, err)
 			}
 			requests := fake.Requests()[before:]
@@ -105,7 +105,7 @@ func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
 			if len(requests[1].Body) >= len(requests[0].Body) {
 				t.Errorf("the request sent again is not smaller: %d bytes after %d", len(requests[1].Body), len(requests[0].Body))
 			}
-			if got := compactions(t, runner, id); len(got) != 1 || got[0] != gotato.CompactionOverflow {
+			if got := compactions(t, runner, id); len(got) != 1 || got[0] != gotato.CompactionWhyOverflow {
 				t.Fatalf("compactions = %v, want one overflow", got)
 			}
 			if !strings.Contains(string(requests[1].Body), "delta") {
@@ -133,7 +133,7 @@ func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t
 			// The directive makes the fake refuse every time, as a window the history
 			// cannot get under would.
 			result, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "charlie [quirk:overflow]"})
-			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunStatusFailed {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if n := len(fake.Requests()); n != 4 {
@@ -152,7 +152,7 @@ func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie", "delta", "echo"} {
 				result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: prompt(word)})
-				if err != nil || result.Result.Status != gotato.RunCompleted {
+				if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("%s: %+v, %v", word, result, err)
 				}
 				id = result.SessionID
@@ -162,7 +162,7 @@ func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
 				t.Fatal("the Session never compacted")
 			}
 			for _, why := range got {
-				if why != gotato.CompactionPastCeiling {
+				if why != gotato.CompactionWhyPastCeiling {
 					t.Errorf("compactions = %v, want only past_ceiling", got)
 				}
 			}
@@ -197,7 +197,7 @@ func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireA
 			}
 			before := len(fake.Requests())
 			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "delta [quirk:overflow-midstream]"})
-			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Result.Status != gotato.RunStatusFailed {
 				t.Fatalf("delta: %+v, %v", result, err)
 			}
 			if requests := fake.Requests()[before:]; len(requests) != 1 || requests[0].Outcome != "overflow-midstream" {

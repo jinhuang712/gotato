@@ -62,9 +62,9 @@ func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	var runEnd, release session.Entry
 	for _, entry := range entries {
 		switch entry.Kind {
-		case gotato.KindRunEnded:
+		case gotato.EventKindRunEnded:
 			runEnd = entry
-		case gotato.KindSessionReleased:
+		case gotato.EventKindSessionReleased:
 			release = entry
 		}
 	}
@@ -103,7 +103,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 				results[i] = make(chan error, 1)
 				go func() {
 					result, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: fmt.Sprintf("p%d", i)})
-					if err == nil && (result.Result.Status != gotato.RunCompleted || result.Reconnect != nil) {
+					if err == nil && (result.Result.Status != gotato.RunStatusCompleted || result.Reconnect != nil) {
 						err = fmt.Errorf("result = %+v, want completed and no reconnect", result)
 					}
 					results[i] <- err
@@ -170,7 +170,7 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 				if len(messages) != 2 || gotato.TextOf(messages[1]) != fmt.Sprintf("done: p%d", i) {
 					t.Fatalf("Session %d = %d messages, want the prompt and its reply", i, len(messages))
 				}
-				if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunCompleted {
+				if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted {
 					t.Fatalf("Session %d runs = %+v, want one completed", i, runs)
 				}
 				checkReleased(t, open(), id, "instance-a")
@@ -247,7 +247,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 	wg.Wait()
 	close(outcomes)
 	for o := range outcomes {
-		if o.result.Result.Status != gotato.RunCanceled || o.result.Result.RunID == "" {
+		if o.result.Result.Status != gotato.RunStatusCanceled || o.result.Result.RunID == "" {
 			t.Fatalf("a Run past the deadline = %+v, want a canceled Run", o.result.Result)
 		}
 		if o.result.Reconnect == nil || o.result.Reconnect.RetryAfterMS <= 0 {
@@ -262,7 +262,7 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunCanceled {
+		if runs := view.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCanceled {
 			t.Fatalf("runs = %+v, want one canceled", runs)
 		}
 		checkReleased(t, store, id, "instance-a")

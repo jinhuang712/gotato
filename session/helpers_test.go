@@ -20,7 +20,7 @@ func header() gotato.Header { return gotato.NewHeader("", "", 0) }
 func messageEvent(message gotato.Message) gotato.Event {
 	switch {
 	case message.Role == gotato.RoleUser:
-		return gotato.MessageCommitted{Header: header(), Message: message, Source: gotato.SourcePrompt}
+		return gotato.MessageCommitted{Header: header(), Message: message, Source: gotato.MessageSourcePrompt}
 	case message.Role == gotato.RoleToolResult && message.ToolResult != nil:
 		return gotato.ToolResultCommitted{Header: header(), Message: message, CallID: message.ToolResult.CallID, Status: message.ToolResult.Status}
 	default:

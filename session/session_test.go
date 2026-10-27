@@ -59,17 +59,17 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 	s := session.New()
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
-		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CacheReadTokens: 6, CacheWriteTokens: 2}}}, testkit.Text("done")...),
+		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CacheReadTokens: 6, CacheWriteTokens: 2}}}, testkit.Text("done")...),
 	)
 	result := runSession(t, s, model, "use-tool")
-	if result.Status != gotato.RunCompleted {
+	if result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("status = %s", result.Status)
 	}
 	if s.Len() != 4 {
 		t.Fatalf("messages = %d, want user, assistant(tool call), tool_result, assistant", s.Len())
 	}
 	runs := s.Runs()
-	if len(runs) != 1 || runs[0].Status != gotato.RunCompleted || runs[0].Turns != 2 || runs[0].ToolCalls != 1 {
+	if len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted || runs[0].Turns != 2 || runs[0].ToolCalls != 1 {
 		t.Fatalf("runs = %+v", runs)
 	}
 	if usage := s.Usage(); usage.TotalTokens != 15 || usage.CacheReadTokens != 6 || usage.CacheWriteTokens != 2 {
@@ -83,12 +83,12 @@ func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
 		t.Fatal("no events recorded")
 	}
 	kinds := kindsOf(events)
-	if kinds[0] != gotato.KindRunStarted || kinds[len(kinds)-1] != gotato.KindRunEnded {
+	if kinds[0] != gotato.EventKindRunStarted || kinds[len(kinds)-1] != gotato.EventKindRunEnded {
 		t.Fatalf("events = %v", kinds)
 	}
 	var built int
 	for _, event := range events {
-		if event.Kind() == gotato.KindContextBuilt {
+		if event.Kind() == gotato.EventKindContextBuilt {
 			built++
 		}
 	}
@@ -261,7 +261,7 @@ func TestEventsReturnsACopyOfTheWindow(t *testing.T) {
 	}
 	events := s.Events()
 	events[0] = gotato.RunEnded{Header: header()}
-	if kinds := kindsOf(s.Events()); len(kinds) != 2 || kinds[0] != gotato.KindTurnStarted || kinds[1] != gotato.KindTurnEnded {
+	if kinds := kindsOf(s.Events()); len(kinds) != 2 || kinds[0] != gotato.EventKindTurnStarted || kinds[1] != gotato.EventKindTurnEnded {
 		t.Fatalf("a caller's edit reached the Record's window: %v", kinds)
 	}
 }
@@ -270,7 +270,7 @@ func TestEventsReturnsACopyOfTheWindow(t *testing.T) {
 // written, whatever the caller does to its own copy of the value afterwards.
 func TestEventsKeepTheirFields(t *testing.T) {
 	s := session.New()
-	ended := gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunCompleted, Turns: 2, Usage: gotato.Usage{TotalTokens: 9}}
+	ended := gotato.RunEnded{Header: gotato.NewHeader("", "run-1", 0), Status: gotato.RunStatusCompleted, Turns: 2, Usage: gotato.Usage{TotalTokens: 9}}
 	if _, err := s.Write(context.Background(), []gotato.Event{ended}); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestLoadNormalizesAnOverfullDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := s.Events()
-	if len(got) != 2 || got[0].Head().Turn != 4 || got[1].Kind() != gotato.KindTurnEnded {
+	if len(got) != 2 || got[0].Head().Turn != 4 || got[1].Kind() != gotato.EventKindTurnEnded {
 		t.Fatalf("events = %+v", got)
 	}
 }
@@ -331,7 +331,7 @@ func TestDocumentRoundTripsTypedEvents(t *testing.T) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if kinds := kindsOf(doc.Events); len(kinds) != 2 || kinds[0] != gotato.KindRunStarted || kinds[1] != gotato.KindTurnStarted {
+	if kinds := kindsOf(doc.Events); len(kinds) != 2 || kinds[0] != gotato.EventKindRunStarted || kinds[1] != gotato.EventKindTurnStarted {
 		t.Fatalf("document events = %v", kinds)
 	}
 	withFuture := []byte(`{"id":"x","schema_version":1,"events":[{"kind":"from_the_future"},{"kind":"turn_started","time":"2026-10-17T12:00:00Z"}]}`)
@@ -339,7 +339,7 @@ func TestDocumentRoundTripsTypedEvents(t *testing.T) {
 	if err := json.Unmarshal(withFuture, &future); err != nil {
 		t.Fatal(err)
 	}
-	if kinds := kindsOf(future.Events); len(kinds) != 1 || kinds[0] != gotato.KindTurnStarted {
+	if kinds := kindsOf(future.Events); len(kinds) != 1 || kinds[0] != gotato.EventKindTurnStarted {
 		t.Fatalf("future document events = %v", kinds)
 	}
 }

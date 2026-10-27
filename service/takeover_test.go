@@ -58,7 +58,7 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 		if err != nil {
 			t.Fatalf("after %d: %v", prev, err)
 		}
-		if event.Kind().Class() != gotato.ClassStored {
+		if event.Kind().Class() != gotato.EventClassStored {
 			continue
 		}
 		if number := event.Head().Number; number != prev+1 {

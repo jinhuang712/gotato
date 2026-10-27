@@ -156,7 +156,7 @@ func playScript(name, arg string, r gotato.ModelRequest, run []gotato.Message) (
 		if last == nil {
 			return toolCall("seg-"+next, modelctx.ReadSegmentID, map[string]int{"segment": 1}), nil
 		}
-		if last.Status != gotato.ToolResultOK {
+		if last.Status != gotato.ToolResultStatusOK {
 			return testkit.Text(ansSegError + " " + last.SafeError), nil
 		}
 		return testkit.Text(ansSegOK + " " + cut(resultText(*last), 600)), nil
@@ -168,7 +168,7 @@ func playScript(name, arg string, r gotato.ModelRequest, run []gotato.Message) (
 
 // reportResult is the one line the model says about a Tool Result: what came back, or the error it read.
 func reportResult(res gotato.ToolResult) string {
-	if res.Status != gotato.ToolResultOK {
+	if res.Status != gotato.ToolResultStatusOK {
 		return ansMCPError + " " + res.SafeError
 	}
 	return ansMCPOK + " " + resultText(res)

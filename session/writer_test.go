@@ -76,7 +76,7 @@ func TestReopeningByTheHolderWritesTheClaimAgain(t *testing.T) {
 		t.Fatalf("written after the head = %v, %v; want one claim at %d", events, err, before.Head+1)
 	}
 	claimed, ok := events[0].(gotato.SessionClaimed)
-	if !ok || claimed.Epoch != 1 || claimed.Instance != "instance-a" || claimed.Why != gotato.ClaimIdle {
+	if !ok || claimed.Epoch != 1 || claimed.Instance != "instance-a" || claimed.Why != gotato.ClaimWhyIdle {
 		t.Fatalf("event = %+v, want session_claimed, epoch 1, idle", events[0])
 	}
 	after, err := store.Load(ctx, id)
@@ -116,7 +116,7 @@ func TestCreateWritesSessionCreatedThenTheFirstClaim(t *testing.T) {
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("log = %+v, %v; want two Entries", entries, err)
 	}
-	if entries[0].Kind != gotato.KindSessionCreated || entries[1].Kind != gotato.KindSessionClaimed {
+	if entries[0].Kind != gotato.EventKindSessionCreated || entries[1].Kind != gotato.EventKindSessionClaimed {
 		t.Fatalf("kinds = %s, %s", entries[0].Kind, entries[1].Kind)
 	}
 	for i, entry := range entries {
@@ -133,7 +133,7 @@ func TestCreateWritesSessionCreatedThenTheFirstClaim(t *testing.T) {
 		t.Fatalf("session_created = %+v", c)
 	}
 	claimed, _, _ := session.EventOf(entries[1], "c1")
-	if c := claimed.(gotato.SessionClaimed); c.Instance != "instance-a" || c.Epoch != 1 || c.Why != gotato.ClaimNewSession || c.From != "" {
+	if c := claimed.(gotato.SessionClaimed); c.Instance != "instance-a" || c.Epoch != 1 || c.Why != gotato.ClaimWhyNewSession || c.From != "" {
 		t.Fatalf("session_claimed = %+v", c)
 	}
 	if record.Head() != 2 {
@@ -162,7 +162,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			why: gotato.ClaimIdle,
+			why: gotato.ClaimWhyIdle,
 		},
 		{
 			name: "writer_gone: busy holder",
@@ -171,7 +171,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			why: gotato.ClaimWriterGone,
+			why: gotato.ClaimWhyWriterGone,
 		},
 		{
 			name: "writer_gone: a Run that never ended",
@@ -187,7 +187,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			why: gotato.ClaimWriterGone,
+			why: gotato.ClaimWhyWriterGone,
 		},
 		{
 			name: "waited",
@@ -201,7 +201,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 				}
 			},
 			options: []session.WriterOption{session.WithWaited()},
-			why:     gotato.ClaimWaited,
+			why:     gotato.ClaimWhyWaited,
 		},
 	}
 	for _, tc := range cases {
@@ -258,14 +258,14 @@ func TestPublisherReceivesWhatWasWrittenAfterTheWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := kindsOf(published); len(got) != 2 || got[0] != gotato.KindSessionCreated || got[1] != gotato.KindSessionClaimed {
+	if got := kindsOf(published); len(got) != 2 || got[0] != gotato.EventKindSessionCreated || got[1] != gotato.EventKindSessionClaimed {
 		t.Fatalf("Create published %v", got)
 	}
 	writer.Record().Set("agent", "support")
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := kindsOf(published); len(got) != 3 || got[2] != gotato.KindMetadataChanged {
+	if got := kindsOf(published); len(got) != 3 || got[2] != gotato.EventKindMetadataChanged {
 		t.Fatalf("Flush published %v", got)
 	}
 	// What a live Session writes through Write comes back to it, not to the publisher.
@@ -300,20 +300,20 @@ func TestReleasePublishesSessionReleased(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := kindsOf(published); len(got) != 1 || got[0] != gotato.KindSessionClaimed || published[0].Head().Number != 3 {
+	if got := kindsOf(published); len(got) != 1 || got[0] != gotato.EventKindSessionClaimed || published[0].Head().Number != 3 {
 		t.Fatalf("OpenWriter published %v", got)
 	}
 	if err := writer.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := kindsOf(published); len(got) != 2 || got[1] != gotato.KindSessionReleased || published[1].Head().Number != 4 {
+	if got := kindsOf(published); len(got) != 2 || got[1] != gotato.EventKindSessionReleased || published[1].Head().Number != 4 {
 		t.Fatalf("Release published %v", got)
 	}
 	if released := published[1].(gotato.SessionReleased); released.Instance != "instance-a" || released.Epoch != 1 {
 		t.Fatalf("session_released = %+v", released)
 	}
 	entries, err := store.Log(ctx, "rel", 3)
-	if err != nil || len(entries) != 1 || entries[0].Kind != gotato.KindSessionReleased {
+	if err != nil || len(entries) != 1 || entries[0].Kind != gotato.EventKindSessionReleased {
 		t.Fatalf("stored after the claim = %+v, %v", entries, err)
 	}
 	if err := writer.Release(ctx); err != nil || len(published) != 2 {
@@ -371,7 +371,7 @@ func TestWriteReturnsQueuedEventsFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantKinds := []gotato.EventKind{gotato.KindMetadataChanged, gotato.KindMessageCommitted, gotato.KindTurnStarted}
+	wantKinds := []gotato.EventKind{gotato.EventKindMetadataChanged, gotato.EventKindMessageCommitted, gotato.EventKindTurnStarted}
 	if got := kindsOf(events); len(got) != 3 || got[0] != wantKinds[0] || got[1] != wantKinds[1] || got[2] != wantKinds[2] {
 		t.Fatalf("Write returned %v, want %v", got, wantKinds)
 	}
@@ -435,7 +435,7 @@ func TestTakeoverEndsAnInterruptedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := view.Runs()
-	if len(runs) != 1 || runs[0].Status != gotato.RunFailed || runs[0].Error != "interrupted" {
+	if len(runs) != 1 || runs[0].Status != gotato.RunStatusFailed || runs[0].Error != "interrupted" {
 		t.Fatalf("runs = %+v, want run-1 ended as interrupted", runs)
 	}
 	list, err := store.List(ctx)
@@ -479,7 +479,7 @@ func TestCreateRefusesATakenID(t *testing.T) {
 
 // toolCallReply is an assistant reply that calls the demo tool twice.
 func toolCallReply() gotato.Message {
-	return gotato.Message{ID: "reply-1", Role: gotato.RoleAssistant, StopReason: gotato.StopToolCalls, ToolCalls: []gotato.ToolCall{
+	return gotato.Message{ID: "reply-1", Role: gotato.RoleAssistant, StopReason: gotato.StopReasonToolCalls, ToolCalls: []gotato.ToolCall{
 		{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{}`)},
 		{ID: "call-2", ToolID: "demo.echo", Arguments: []byte(`{}`)},
 	}}
@@ -511,7 +511,7 @@ func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 			t.Fatalf("messages = %+v, want both calls answered", messages)
 		}
 		stopped, notRun := messages[2].ToolResult, messages[3].ToolResult
-		if stopped == nil || stopped.CallID != "call-1" || !stopped.Executed || stopped.Status != gotato.ToolResultFailed || stopped.SafeError != session.StoppedToolResult {
+		if stopped == nil || stopped.CallID != "call-1" || !stopped.Executed || stopped.Status != gotato.ToolResultStatusFailed || stopped.SafeError != session.StoppedToolResult {
 			t.Fatalf("call-1 answered with %+v", stopped)
 		}
 		if notRun == nil || notRun.CallID != "call-2" || notRun.Executed || notRun.SafeError != session.NotRunToolResult {
@@ -524,7 +524,7 @@ func TestOpeningAnswersToolCallsLeftWithoutResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range loaded.Facts {
-		if entry.Kind == gotato.KindToolResultCommitted && strings.Contains(string(entry.Data), "repair-") {
+		if entry.Kind == gotato.EventKindToolResultCommitted && strings.Contains(string(entry.Data), "repair-") {
 			t.Fatalf("a repair was written: %s", entry.Data)
 		}
 	}
@@ -554,7 +554,7 @@ func TestViewRebuildsACutOffReplyFromItsParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	messages := view.Messages()
-	if len(messages) != 3 || messages[1].StopReason != gotato.StopCutOff || gotato.TextOf(messages[1]) != "half an answer" || gotato.TextOf(messages[2]) != "again" {
+	if len(messages) != 3 || messages[1].StopReason != gotato.StopReasonCutOff || gotato.TextOf(messages[1]) != "half an answer" || gotato.TextOf(messages[2]) != "again" {
 		t.Fatalf("view = %+v, want the cut-off reply between the two prompts", messages)
 	}
 	facts, err := session.Open(ctx, store, writer.ID())
@@ -586,7 +586,7 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if loaded, err := store.Load(ctx, "busy"); err != nil || loaded.Info.Busy || loaded.Head != 3 {
 		t.Fatalf("after Release = %+v, %v; want idle at head 3", loaded.Info, err)
 	}
-	if kinds := storedKinds(t, store, "busy", 0); len(kinds) != 3 || kinds[2] != gotato.KindSessionReleased {
+	if kinds := storedKinds(t, store, "busy", 0); len(kinds) != 3 || kinds[2] != gotato.EventKindSessionReleased {
 		t.Fatalf("entries = %v, want session_created, session_claimed, session_released", kinds)
 	}
 
@@ -597,7 +597,7 @@ func TestCreateIsBusyUntilReleasedUnlessIdle(t *testing.T) {
 	if loaded, err := store.Load(ctx, "idle"); err != nil || loaded.Info.Busy || loaded.Head != 3 {
 		t.Fatalf("an idle Record = %+v, %v; want idle at head 3", loaded.Info, err)
 	}
-	if len(published) != 3 || published[2].Kind() != gotato.KindSessionReleased || published[2].Head().Number != 3 {
+	if len(published) != 3 || published[2].Kind() != gotato.EventKindSessionReleased || published[2].Head().Number != 3 {
 		t.Fatalf("published = %v, want the three Events of the write, release last", published)
 	}
 }

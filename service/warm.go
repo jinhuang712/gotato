@@ -89,9 +89,9 @@ func (p WarmPolicy) idleSchedule(retention time.Duration) (after time.Duration, 
 	}
 	ttl := p.ttl()
 	lead := min(p.lead(), ttl/2)
-	after, why = ttl-lead, gotato.CompactionBeforeUnload
+	after, why = ttl-lead, gotato.CompactionWhyBeforeUnload
 	if retention >= 2*p.lead() && retention-lead < after {
-		after, why = retention-lead, gotato.CompactionBeforeCacheExpires
+		after, why = retention-lead, gotato.CompactionWhyBeforeCacheExpires
 	}
 	return after, why, true
 }

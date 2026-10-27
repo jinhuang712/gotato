@@ -74,7 +74,7 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 	if err != nil {
 		panic(err)
 	}
-	return gotato.ToolWithEffect(tool, gotato.EffectRead)
+	return gotato.ToolWithEffect(tool, gotato.ToolEffectRead)
 }
 
 func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultOptions, in readResultInput) (string, error) {

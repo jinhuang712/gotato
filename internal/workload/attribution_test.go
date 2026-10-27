@@ -13,7 +13,7 @@ import (
 )
 
 func TestToolFailureAttribution(t *testing.T) {
-	failed, ok, blocked, canceled := string(gotato.ToolResultFailed), string(gotato.ToolResultOK), string(gotato.ToolResultBlocked), string(gotato.ToolResultCanceled)
+	failed, ok, blocked, canceled := string(gotato.ToolResultStatusFailed), string(gotato.ToolResultStatusOK), string(gotato.ToolResultStatusBlocked), string(gotato.ToolResultStatusCanceled)
 	cases := []struct {
 		call    toolCall
 		result  string
@@ -60,15 +60,15 @@ func TestRunFailureAttribution(t *testing.T) {
 		gotato.CodeInvalidState:         CauseGotato,
 	}
 	for code, want := range cases {
-		result := service.RunResponse{Result: gotato.RunResult{Status: gotato.RunFailed, Error: gotato.ErrorOf(code, "x")}}
+		result := service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusFailed, Error: gotato.ErrorOf(code, "x")}}
 		if f, failed := runFailure(result, nil); !failed || f.cause != want {
 			t.Errorf("%s: cause %s, want %s", code, f.cause, want)
 		}
 	}
-	if f, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunCompleted}}, service.ErrNotPersisted); !failed || f.cause != CauseStore {
+	if f, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, service.ErrNotPersisted); !failed || f.cause != CauseStore {
 		t.Fatalf("a Run that was not saved is the store's: %+v", f)
 	}
-	if _, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunCompleted}}, nil); failed {
+	if _, failed := runFailure(service.RunResponse{Result: gotato.RunResult{Status: gotato.RunStatusCompleted}}, nil); failed {
 		t.Fatal("a completed Run is not a failure")
 	}
 }

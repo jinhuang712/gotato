@@ -47,7 +47,7 @@ func textsOf(item map[string]any) []string {
 }
 
 func notice(kind, text string) gotato.Message {
-	return gotato.NewNotice(gotato.NoticeFromService, kind, text)
+	return gotato.NewNotice(gotato.NoticeSourceService, kind, text)
 }
 
 // A notice reaches each wire API as tagged text in a user turn: after the Tool

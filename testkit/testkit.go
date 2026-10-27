@@ -25,8 +25,8 @@ type Script []gotato.ModelEvent
 // Text builds a Script that streams text and ends the Turn.
 func Text(text string) Script {
 	return Script{
-		{Kind: gotato.ModelTextDelta, Text: text},
-		{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn},
+		{Kind: gotato.ModelEventKindTextDelta, Text: text},
+		{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn},
 	}
 }
 
@@ -35,9 +35,9 @@ func ToolCalls(calls ...gotato.ToolCall) Script {
 	out := make(Script, 0, len(calls)+1)
 	for i := range calls {
 		call := calls[i]
-		out = append(out, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: &call})
+		out = append(out, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: &call})
 	}
-	return append(out, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: gotato.StopToolCalls})
+	return append(out, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonToolCalls})
 }
 
 // FakeModel streams one Script per call, in order. After the last Script it
@@ -202,7 +202,7 @@ type FakeTool struct {
 func NewFakeTool(id, text string) *FakeTool {
 	return &FakeTool{
 		spec:   gotato.ToolSpec{ID: id, Name: id, Description: "fake tool " + id, InputSchema: []byte(`{"type":"object"}`)},
-		Result: gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: text}}},
+		Result: gotato.ToolResult{Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}}},
 	}
 }
 
@@ -401,7 +401,7 @@ func NewRecord(turns ...string) *session.Record {
 			message = gotato.UserMessage(text)
 		} else {
 			message = gotato.AssistantMessage(text)
-			message.StopReason = gotato.StopEndTurn
+			message.StopReason = gotato.StopReasonEndTurn
 		}
 		message.ID = gotato.MessageID("fixture-" + itoa(i+1))
 		_ = s.Append(message)
@@ -475,7 +475,7 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 // promptText returns the first text part of a Message: the user's prompt.
 func promptText(message gotato.Message) string {
 	for _, part := range message.Parts {
-		if part.Kind == gotato.ContentText {
+		if part.Kind == gotato.ContentKindText {
 			return part.Text
 		}
 	}

@@ -159,7 +159,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 			}
 			defer func() { _ = agent.Close(context.Background()) }()
 			result, err := agent.Prompt(context.Background(), gotato.UserMessage("go"))
-			if err != nil || result.Status != gotato.RunCompleted {
+			if err != nil || result.Status != gotato.RunStatusCompleted {
 				t.Fatalf("Run = %v, %v; want completed", result.Status, err)
 			}
 			mu.Lock()
@@ -193,7 +193,7 @@ func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
 		for sent, want := range cases {
 			call := gotato.AssistantMessage("")
 			call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: "echo", Arguments: []byte(sent)}}
-			result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultFailed, SafeError: "bad"}}
+			result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultStatusFailed, SafeError: "bad"}}
 			request := gotato.ModelRequest{
 				Messages: []gotato.Message{gotato.UserMessage("go"), call, result},
 				Tools:    []gotato.ToolSpec{{ID: "echo"}},

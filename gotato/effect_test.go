@@ -9,7 +9,7 @@ import (
 )
 
 func TestToolEffectOrdering(t *testing.T) {
-	order := []gotato.ToolEffect{gotato.EffectRead, gotato.EffectWriteLocal, gotato.EffectWriteExternal, gotato.EffectDestructive}
+	order := []gotato.ToolEffect{gotato.ToolEffectRead, gotato.ToolEffectWriteLocal, gotato.ToolEffectWriteExternal, gotato.ToolEffectDestructive}
 	for i, e := range order {
 		if e.Rank() != i+1 {
 			t.Errorf("%s.Rank() = %d, want %d", e, e.Rank(), i+1)
@@ -18,13 +18,13 @@ func TestToolEffectOrdering(t *testing.T) {
 			t.Errorf("%s is not Valid", e)
 		}
 	}
-	if gotato.EffectUnspecified.Rank() != gotato.EffectDestructive.Rank() {
+	if gotato.ToolEffectUnspecified.Rank() != gotato.ToolEffectDestructive.Rank() {
 		t.Error("an unspecified effect must rank as destructive")
 	}
-	if gotato.EffectUnspecified.Within(gotato.EffectWriteExternal) {
+	if gotato.ToolEffectUnspecified.Within(gotato.ToolEffectWriteExternal) {
 		t.Error("an unspecified effect passed a write_external ceiling")
 	}
-	if !gotato.EffectRead.Within(gotato.EffectWriteLocal) || gotato.EffectWriteExternal.Within(gotato.EffectWriteLocal) {
+	if !gotato.ToolEffectRead.Within(gotato.ToolEffectWriteLocal) || gotato.ToolEffectWriteExternal.Within(gotato.ToolEffectWriteLocal) {
 		t.Error("Within does not follow the ordering")
 	}
 	if gotato.ToolEffect("mutate").Valid() {
@@ -34,8 +34,8 @@ func TestToolEffectOrdering(t *testing.T) {
 
 func TestToolWithEffectSetsSpecAndKeepsBehavior(t *testing.T) {
 	inner := testkit.NewFakeTool("fs.read", "contents")
-	tool := gotato.ToolWithEffect(inner, gotato.EffectRead)
-	if got := tool.Spec(); got.Effect != gotato.EffectRead || got.ID != "fs.read" {
+	tool := gotato.ToolWithEffect(inner, gotato.ToolEffectRead)
+	if got := tool.Spec(); got.Effect != gotato.ToolEffectRead || got.ID != "fs.read" {
 		t.Fatalf("Spec = %+v", got)
 	}
 	res, err := tool.Execute(context.Background(), gotato.ToolUse{}, nil)
@@ -75,9 +75,9 @@ func TestPreToolUseSeesEffect(t *testing.T) {
 			gotato.ToolCall{ID: "c2", ToolID: "push", Arguments: []byte(`{}`)}),
 		testkit.Text("done"),
 	)
-	policy := &ceiling{max: gotato.EffectWriteLocal}
+	policy := &ceiling{max: gotato.ToolEffectWriteLocal}
 	agent, err := gotato.NewSession(gotato.WithModel(model),
-		gotato.WithTools(gotato.ToolWithEffect(read, gotato.EffectRead), gotato.ToolWithEffect(push, gotato.EffectWriteExternal)),
+		gotato.WithTools(gotato.ToolWithEffect(read, gotato.ToolEffectRead), gotato.ToolWithEffect(push, gotato.ToolEffectWriteExternal)),
 		gotato.WithExtension(policy))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestPreToolUseSeesEffect(t *testing.T) {
 	if _, err := agent.Prompt(ctx, gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
-	if len(policy.seen) != 2 || policy.seen[0] != gotato.EffectRead || policy.seen[1] != gotato.EffectWriteExternal {
+	if len(policy.seen) != 2 || policy.seen[0] != gotato.ToolEffectRead || policy.seen[1] != gotato.ToolEffectWriteExternal {
 		t.Fatalf("effects seen by PreToolUse = %v", policy.seen)
 	}
 	if read.Calls() != 1 || push.Calls() != 0 {

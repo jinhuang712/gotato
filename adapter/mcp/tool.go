@@ -65,8 +65,8 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 		result, err := session.CallTool(ctx, params)
 		if err == nil {
 			if result.NeedsInput() {
-				return gotato.ToolResult{Status: gotato.ToolResultFailed, SafeError: needsInput,
-					Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: needsInput}}}, nil
+				return gotato.ToolResult{Status: gotato.ToolResultStatusFailed, SafeError: needsInput,
+					Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: needsInput}}}, nil
 			}
 			return convertResult(result), nil
 		}
@@ -92,18 +92,18 @@ const needsInput = "the MCP tool asked for input in the middle of the call (elic
 //	anything else                      destructive
 func effectOf(a *sdk.ToolAnnotations) gotato.ToolEffect {
 	if a == nil {
-		return gotato.EffectDestructive
+		return gotato.ToolEffectDestructive
 	}
 	if a.ReadOnlyHint {
-		return gotato.EffectRead
+		return gotato.ToolEffectRead
 	}
 	if a.DestructiveHint == nil || *a.DestructiveHint {
-		return gotato.EffectDestructive
+		return gotato.ToolEffectDestructive
 	}
 	if a.OpenWorldHint == nil || *a.OpenWorldHint {
-		return gotato.EffectWriteExternal
+		return gotato.ToolEffectWriteExternal
 	}
-	return gotato.EffectWriteLocal
+	return gotato.ToolEffectWriteLocal
 }
 
 // slimSchema drops what costs tokens in every request and tells the model
@@ -190,14 +190,14 @@ func slimNode(node map[string]any, redundantTitle string) {
 //   - _meta, on the result and on a content block, is copied as strings, without
 //     the gotato.MetaTag key, so a server cannot write tagged text as the system.
 func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
-	out := gotato.ToolResult{Status: gotato.ToolResultOK, Metadata: metaStrings(result.Meta)}
+	out := gotato.ToolResult{Status: gotato.ToolResultStatusOK, Metadata: metaStrings(result.Meta)}
 	if result.IsError {
-		out.Status = gotato.ToolResultFailed
+		out.Status = gotato.ToolResultStatusFailed
 	}
 	var structured *gotato.ContentPart
 	if result.StructuredContent != nil {
 		if encoded, err := json.Marshal(result.StructuredContent); err == nil {
-			structured = &gotato.ContentPart{Kind: gotato.ContentJSON, Text: string(encoded)}
+			structured = &gotato.ContentPart{Kind: gotato.ContentKindJSON, Text: string(encoded)}
 		}
 	}
 	for _, content := range result.Content {
@@ -205,7 +205,7 @@ func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 		if !ok {
 			continue
 		}
-		if structured != nil && part.Kind == gotato.ContentText && sameJSON(part.Text, structured.Text) {
+		if structured != nil && part.Kind == gotato.ContentKindText && sameJSON(part.Text, structured.Text) {
 			continue
 		}
 		out.Content = append(out.Content, part)
@@ -213,7 +213,7 @@ func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 	if structured != nil {
 		out.Content = append(out.Content, *structured)
 	}
-	if out.Status == gotato.ToolResultFailed {
+	if out.Status == gotato.ToolResultStatusFailed {
 		out.SafeError = firstText(out.Content, 200)
 		if out.SafeError == "" {
 			out.SafeError = "the MCP tool reported an error"
@@ -225,9 +225,9 @@ func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 func convertContent(content sdk.Content) (gotato.ContentPart, bool) {
 	switch c := content.(type) {
 	case *sdk.TextContent:
-		return gotato.ContentPart{Kind: gotato.ContentText, Text: c.Text, Metadata: metaStrings(c.Meta)}, true
+		return gotato.ContentPart{Kind: gotato.ContentKindText, Text: c.Text, Metadata: metaStrings(c.Meta)}, true
 	case *sdk.ImageContent:
-		return gotato.ContentPart{Kind: gotato.ContentImage, Data: c.Data, MIMEType: c.MIMEType, Metadata: metaStrings(c.Meta)}, true
+		return gotato.ContentPart{Kind: gotato.ContentKindImage, Data: c.Data, MIMEType: c.MIMEType, Metadata: metaStrings(c.Meta)}, true
 	case *sdk.AudioContent:
 		return placeholder(fmt.Sprintf("[audio content, %s, %d bytes, not shown]", orUnknown(c.MIMEType), len(c.Data)), c.Meta), true
 	case *sdk.ResourceLink:
@@ -251,7 +251,7 @@ func convertContent(content sdk.Content) (gotato.ContentPart, bool) {
 		case r.Text != "":
 			return placeholder("[resource "+r.URI+"]\n"+r.Text, c.Meta), true
 		case strings.HasPrefix(r.MIMEType, "image/") && len(r.Blob) > 0:
-			return gotato.ContentPart{Kind: gotato.ContentImage, Data: r.Blob, MIMEType: r.MIMEType, Metadata: metaStrings(c.Meta)}, true
+			return gotato.ContentPart{Kind: gotato.ContentKindImage, Data: r.Blob, MIMEType: r.MIMEType, Metadata: metaStrings(c.Meta)}, true
 		default:
 			return placeholder(fmt.Sprintf("[embedded resource: %s, %s, %d bytes, not shown]", r.URI, orUnknown(r.MIMEType), len(r.Blob)), c.Meta), true
 		}
@@ -263,7 +263,7 @@ func convertContent(content sdk.Content) (gotato.ContentPart, bool) {
 }
 
 func placeholder(text string, meta sdk.Meta) gotato.ContentPart {
-	return gotato.ContentPart{Kind: gotato.ContentText, Text: text, Metadata: metaStrings(meta)}
+	return gotato.ContentPart{Kind: gotato.ContentKindText, Text: text, Metadata: metaStrings(meta)}
 }
 
 func orUnknown(mime string) string {
@@ -314,7 +314,7 @@ func sameJSON(a, b string) bool {
 
 func firstText(parts []gotato.ContentPart, limit int) string {
 	for _, part := range parts {
-		if part.Kind == gotato.ContentText && part.Text != "" {
+		if part.Kind == gotato.ContentKindText && part.Text != "" {
 			text := strings.TrimSpace(part.Text)
 			if len(text) > limit {
 				text = text[:limit]

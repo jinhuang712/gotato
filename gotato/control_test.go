@@ -80,13 +80,13 @@ func containsUserText(messages []Message, text string) bool {
 
 func toolCallScript() []ModelEvent {
 	return []ModelEvent{
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
-		{Kind: ModelDone, StopReason: StopToolCalls},
+		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
+		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
 	}
 }
 
 func finalScript(text string) []ModelEvent {
-	return []ModelEvent{{Kind: ModelTextDelta, Text: text}, {Kind: ModelDone, StopReason: StopEndTurn}}
+	return []ModelEvent{{Kind: ModelEventKindTextDelta, Text: text}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}
 }
 
 func TestContinueAppendsNoUserMessage(t *testing.T) {
@@ -158,7 +158,7 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.Status != RunCompleted {
+		if result.Status != RunStatusCompleted {
 			t.Fatalf("result = %+v", result)
 		}
 	case <-time.After(2 * time.Second):
@@ -214,7 +214,7 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 	for _, event := range seen.events() {
 		switch e := event.(type) {
 		case MessageCommitted:
-			if e.Source == SourceSteer {
+			if e.Source == MessageSourceSteer {
 				steered++
 			}
 		case RunEnded:
@@ -330,7 +330,7 @@ func TestControlCommandsRejectedAfterClose(t *testing.T) {
 func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
-	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +365,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 
 func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 	model := &recordingModel{
-		scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}, finalScript("second")},
+		scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}, finalScript("second")},
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}

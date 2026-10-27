@@ -7,9 +7,9 @@ import "testing"
 // content field; ReasoningOf returns it separately.
 func TestTextOfExcludesReasoning(t *testing.T) {
 	m := Message{Role: RoleAssistant, Parts: []ContentPart{
-		{Kind: ContentReasoning, Text: "let me think"},
-		{Kind: ContentText, Text: "the answer"},
-		{Kind: ContentReasoning, Text: " again"},
+		{Kind: ContentKindReasoning, Text: "let me think"},
+		{Kind: ContentKindText, Text: "the answer"},
+		{Kind: ContentKindReasoning, Text: " again"},
 	}}
 	if got := TextOf(m); got != "the answer" {
 		t.Fatalf("TextOf = %q", got)

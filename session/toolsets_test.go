@@ -10,15 +10,15 @@ import (
 )
 
 func loaded(id string) gotato.Event {
-	return gotato.ToolLoaded{Header: header(), Tool: id, Why: gotato.ToolLoadedNames}
+	return gotato.ToolLoaded{Header: header(), Tool: id, Why: gotato.ToolLoadedWhyNames}
 }
 
 func unloaded(id string) gotato.Event {
-	return gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedCompaction}
+	return gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedWhyCompaction}
 }
 
 func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
-	if session.LayerOf(gotato.KindToolLoaded) != session.LayerFact {
+	if session.LayerOf(gotato.EventKindToolLoaded) != session.LayerFact {
 		t.Fatal("tool_loaded is not a fact")
 	}
 	ctx := context.Background()
@@ -46,7 +46,7 @@ func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {
 }
 
 func TestAnUnloadIsAFactAndRemovesTheTool(t *testing.T) {
-	if session.LayerOf(gotato.KindToolUnloaded) != session.LayerFact {
+	if session.LayerOf(gotato.EventKindToolUnloaded) != session.LayerFact {
 		t.Fatal("tool_unloaded is not a fact")
 	}
 	ctx := context.Background()
@@ -81,7 +81,7 @@ func TestCheckpointKeepsLoadedTools(t *testing.T) {
 	if _, err := w.Write(ctx, []gotato.Event{loaded("files.read")}); err != nil {
 		t.Fatal(err)
 	}
-	w.Record().Checkpoint(gotato.CompactionOnDemand, []gotato.Message{gotato.AssistantMessage("summary")}, nil)
+	w.Record().Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{gotato.AssistantMessage("summary")}, nil)
 	if _, err := w.Write(ctx, []gotato.Event{loaded("mail.send")}); err != nil {
 		t.Fatal(err)
 	}

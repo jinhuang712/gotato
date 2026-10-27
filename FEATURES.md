@@ -335,7 +335,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 | Surface | Message | Stop |
 |---|---|---|
-| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageSteer` (the default), `MessageFollowUp` or `MessageInterrupt` | `Runner.AbortSession` |
+| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageKindSteer` (the default), `MessageKindFollowUp` or `MessageKindInterrupt` | `Runner.AbortSession` |
 | HTTP | `POST /v1/sessions/{id}/messages` with `{"kind", "text"}` | `POST /v1/sessions/{id}/abort` |
 
 - A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
@@ -833,7 +833,7 @@ A tool is one thing an agent can do, such as a lookup in your database:
 
 ```go
 lookup, _ := gotato.NewFuncTool("orders.lookup", "Finds an order by its ID", findOrder)
-lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
+lookup = gotato.ToolWithEffect(lookup, gotato.ToolEffectRead)
 ```
 
 - `gotato.NewFuncTool` turns a Go function into a tool. Its input schema comes from the Go type, and every call is checked against that schema before the tool runs. The check covers `type`, `enum`, `required`, `properties` and `additionalProperties`; other keywords pass through unchecked.
@@ -845,7 +845,7 @@ lookup = gotato.ToolWithEffect(lookup, gotato.EffectRead)
 
 ```go
 s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup, refund),
-	gotato.WithMaxEffect(gotato.EffectRead))
+	gotato.WithMaxEffect(gotato.ToolEffectRead))
 ```
 
 - A tool above the cap is hidden: it is in no model request, no inspected Context and no tool listing. That includes the tools of a ToolSet the model searches later: a tool above the cap is never in the index of `search_tools`. The discovery tool declares `read`, so every cap keeps it.
@@ -1154,7 +1154,7 @@ The YAML file is the only way to configure the gateway. A secret reaches it thro
 A Gotato service runs far from its callers, on networks and providers it does not control, so a reply cut off partway must not fail the Run. A stream cut after some output is sent again, the way one cut before any output is:
 
 - The identical request is sent again, within `max_retries`, the limit a cut before any output has. Each time, a `model_retried` Event says so, with the attempt, the wait and why.
-- The reply cut off stays in the Record only as a log of what happened. The text received is a Cut-off reply (`StopCutOff`, `reply_cut_off`), which no model is ever sent, and the new reply is a reply of its own, with its own `reply_started`. This holds for text, a tool call's arguments and reasoning alike.
+- The reply cut off stays in the Record only as a log of what happened. The text received is a Cut-off reply (`StopReasonCutOff`, `reply_cut_off`), which no model is ever sent, and the new reply is a reply of its own, with its own `reply_started`. This holds for text, a tool call's arguments and reasoning alike.
 - **A stream reader who sees `model_retried` discards what it received of that reply**: the `text_delta` and `reasoning_delta` Events since the last `reply_started`. The Events come in this order: `model_retried`, `reply_cut_off` when text was kept, and `reply_started` for the new reply.
 - When the attempts run out, the Run fails with `model_failure` as before, and the Record keeps the last Cut-off reply.
 - A refusal of the request (including `context_overflow`), an Interrupt, a canceled `ctx` and a deadline are not cuts and are not sent again. The gateway restarts only on a transport interruption: a connection reset, or a close before the stream's end. An invalid chunk is never one.

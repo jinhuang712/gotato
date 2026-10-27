@@ -19,10 +19,10 @@ func (roundModel) RoundReasoningOnly() bool { return true }
 
 func thinkingReply(text string) testkit.Script {
 	return testkit.Script{
-		{Kind: gotato.ModelReasoningDelta, Text: "plan"},
-		{Kind: gotato.ModelReasoningDone, ReasoningArtifact: []byte(`{"type":"thinking","signature":"sig"}`)},
-		{Kind: gotato.ModelTextDelta, Text: text},
-		{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn},
+		{Kind: gotato.ModelEventKindReasoningDelta, Text: "plan"},
+		{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: []byte(`{"type":"thinking","signature":"sig"}`)},
+		{Kind: gotato.ModelEventKindTextDelta, Text: text},
+		{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn},
 	}
 }
 
@@ -35,7 +35,7 @@ func storedReasoning(t *testing.T, store session.Store, id string) int {
 	count := 0
 	for _, message := range s.Messages() {
 		for _, part := range message.Parts {
-			if part.Kind == gotato.ContentReasoning {
+			if part.Kind == gotato.ContentKindReasoning {
 				count++
 			}
 		}

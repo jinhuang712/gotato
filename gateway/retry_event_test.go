@@ -39,7 +39,7 @@ func TestGatewayRetryIsAnEvent(t *testing.T) {
 	if _, err := session.Prompt(context.Background(), gotato.UserMessage("hi")); err != nil {
 		t.Fatal(err)
 	}
-	retries := recorder.OfKind(gotato.KindModelRetried)
+	retries := recorder.OfKind(gotato.EventKindModelRetried)
 	if len(retries) != 1 {
 		t.Fatalf("model_retried Events = %d, want 1: %v", len(retries), recorder.Kinds())
 	}
@@ -51,9 +51,9 @@ func TestGatewayRetryIsAnEvent(t *testing.T) {
 	retry, reply := -1, -1
 	for i, kind := range kinds {
 		switch kind {
-		case gotato.KindModelRetried:
+		case gotato.EventKindModelRetried:
 			retry = i
-		case gotato.KindReplyEnded:
+		case gotato.EventKindReplyEnded:
 			reply = i
 		}
 	}

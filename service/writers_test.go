@@ -38,7 +38,7 @@ func instanceRunner(t *testing.T, store session.Store, instance string, model go
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: instance, Liveness: liveness,
-		Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -533,7 +533,7 @@ func commit(t *testing.T, w *session.Writer, message gotato.Message) {
 	if err := w.Append(message); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Write(context.Background(), []gotato.Event{gotato.MessageCommitted{Header: gotato.NewHeader("", "", 0), Message: message, Source: gotato.SourcePrompt}}); err != nil {
+	if _, err := w.Write(context.Background(), []gotato.Event{gotato.MessageCommitted{Header: gotato.NewHeader("", "", 0), Message: message, Source: gotato.MessageSourcePrompt}}); err != nil {
 		t.Fatal(err)
 	}
 }

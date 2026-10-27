@@ -53,7 +53,7 @@ func runEvents(t *testing.T, agent *Session, text string) []Event {
 			t.Fatal(err)
 		}
 		events = append(events, event)
-		if event.Kind() == KindRunEnded {
+		if event.Kind() == EventKindRunEnded {
 			return events
 		}
 	}
@@ -72,7 +72,7 @@ func unavailableStages(events []Event) []string {
 func goneTools(events []Event) []string {
 	var ids []string
 	for _, event := range events {
-		if e, ok := event.(ToolUnloaded); ok && e.Why == ToolUnloadedGone {
+		if e, ok := event.(ToolUnloaded); ok && e.Why == ToolUnloadedWhyGone {
 			ids = append(ids, e.Tool)
 		}
 	}

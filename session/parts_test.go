@@ -26,7 +26,7 @@ func (m stallModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelSt
 func (s *stallStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	s.n++
 	if s.n <= 3 {
-		return gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: strings.Repeat("x", 3000)}, nil
+		return gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: strings.Repeat("x", 3000)}, nil
 	}
 	if s.n == 4 {
 		close(s.sent)
@@ -40,7 +40,7 @@ func (s *stallStream) Close() error { return nil }
 func cutOffTexts(messages []gotato.Message) []string {
 	var out []string
 	for _, message := range messages {
-		if message.StopReason == gotato.StopCutOff {
+		if message.StopReason == gotato.StopReasonCutOff {
 			out = append(out, gotato.TextOf(message))
 		}
 	}
@@ -73,7 +73,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("hi"))
 	}()
 	<-sent
-	waitStored(t, store, record.ID(), gotato.KindReplyPartKept, 1)
+	waitStored(t, store, record.ID(), gotato.EventKindReplyPartKept, 1)
 
 	// The Instance that held the Session stopped: another one takes it over.
 	opened, err := session.OpenWriter(ctx, store, record.ID(), "b")
@@ -138,7 +138,7 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 	cancel()
 	<-done
 	for _, event := range record.Events() {
-		if event.Kind() == gotato.KindReplyPartKept {
+		if event.Kind() == gotato.EventKindReplyPartKept {
 			t.Fatalf("an unstored Record holds %s", event.Kind())
 		}
 	}

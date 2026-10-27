@@ -76,7 +76,7 @@ func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolPr
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "tool-ok"}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
 }
 
 func (t *countingTool) count() int {
@@ -210,12 +210,12 @@ func TestSubscriberSeesProductionOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	kinds := seen.kinds()
-	if len(kinds) == 0 || kinds[0] != KindRunStarted || kinds[len(kinds)-1] != KindRunEnded {
+	if len(kinds) == 0 || kinds[0] != EventKindRunStarted || kinds[len(kinds)-1] != EventKindRunEnded {
 		t.Fatalf("observed order = %v", kinds)
 	}
 	var last uint64
 	for _, event := range seen.events() {
-		if event.Kind().Class() != ClassStored {
+		if event.Kind().Class() != EventClassStored {
 			continue
 		}
 		if event.Head().Number != last+1 {
@@ -289,7 +289,7 @@ func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	if !IsCode(err, CodeExtensionFailure) {
 		t.Fatalf("blocking extension failure = %v", err)
 	}
-	if result.Status != RunFailed {
+	if result.Status != RunStatusFailed {
 		t.Fatalf("result = %+v", result)
 	}
 	if model.calls() != 0 {
@@ -299,7 +299,7 @@ func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	for _, event := range seen.events() {
 		if ended, ok := event.(RunEnded); ok {
 			terminal++
-			if ended.Status != RunFailed || ended.Cause != CodeExtensionFailure {
+			if ended.Status != RunStatusFailed || ended.Cause != CodeExtensionFailure {
 				t.Fatalf("RunEnded = %+v", ended)
 			}
 		}
@@ -326,7 +326,7 @@ func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != RunCompleted {
+	if result.Status != RunStatusCompleted {
 		t.Fatalf("result = %+v", result)
 	}
 	var failed []ExtensionFailed
@@ -341,7 +341,7 @@ func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	if failed[0].Stage != "ContextTransformer" || failed[0].Code != CodeExtensionFailure || failed[0].Number == 0 {
 		t.Fatalf("ExtensionFailed = %+v", failed[0])
 	}
-	if failed[0].Kind().Class() != ClassStored {
+	if failed[0].Kind().Class() != EventClassStored {
 		t.Fatalf("ExtensionFailed class = %s", failed[0].Kind().Class())
 	}
 }
@@ -387,14 +387,14 @@ func (r *snapshotRecorder) Stop(_ context.Context, snapshot TurnSnapshot) (StopD
 }
 
 // A reply that the output limit cut off after a finished Tool call still runs
-// the call, and its Message keeps StopMaxTokens, so a TurnStopper sees the
-// cut-off. The Turn itself ends with StopToolCalls.
+// the call, and its Message keeps StopReasonMaxTokens, so a TurnStopper sees the
+// cut-off. The Turn itself ends with StopReasonToolCalls.
 func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 	tool := &scriptedTool{}
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
-			{Kind: ModelDone, StopReason: StopMaxTokens}},
-		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
+			{Kind: ModelEventKindDone, StopReason: StopReasonMaxTokens}},
+		{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	recorder := &snapshotRecorder{}
 	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(recorder))
@@ -413,9 +413,9 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 		t.Fatalf("tool calls %d, snapshots %d", calls, len(recorder.snaps))
 	}
 	first := recorder.snaps[0]
-	if first.Assistant.StopReason != StopMaxTokens || first.StopReason != StopToolCalls {
+	if first.Assistant.StopReason != StopReasonMaxTokens || first.StopReason != StopReasonToolCalls {
 		t.Fatalf("message stop %q, turn stop %q; want %q and %q", first.Assistant.StopReason, first.StopReason,
-			StopMaxTokens, StopToolCalls)
+			StopReasonMaxTokens, StopReasonToolCalls)
 	}
 }
 
@@ -433,7 +433,7 @@ func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != RunCompleted {
+	if result.Status != RunStatusCompleted {
 		t.Fatalf("stopped Run = %+v", result)
 	}
 	if model.calls() != 1 {

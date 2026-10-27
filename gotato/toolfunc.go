@@ -81,19 +81,19 @@ func toolResultFor(output any) (ToolResult, error) {
 		return typed, nil
 	case *ToolResult:
 		if typed == nil {
-			return ToolResult{Status: ToolResultOK}, nil
+			return ToolResult{Status: ToolResultStatusOK}, nil
 		}
 		return *typed, nil
 	case string:
-		return ToolResult{Status: ToolResultOK, Content: []ContentPart{{Kind: ContentText, Text: typed}}}, nil
+		return ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindText, Text: typed}}}, nil
 	case []ContentPart:
-		return ToolResult{Status: ToolResultOK, Content: cloneContent(typed)}, nil
+		return ToolResult{Status: ToolResultStatusOK, Content: cloneContent(typed)}, nil
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {
 		return ToolResult{}, runtimeError(CodeToolExecutionFailure, "Tool", "cannot encode Tool output", err)
 	}
-	return ToolResult{Status: ToolResultOK, Content: []ContentPart{{Kind: ContentJSON, Text: string(encoded)}}}, nil
+	return ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindJSON, Text: string(encoded)}}}, nil
 }
 
 // inputSchemaFor derives the object Schema Core validates arguments against.

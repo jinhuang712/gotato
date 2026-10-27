@@ -344,7 +344,7 @@ func checkWirePair(t *testing.T, enc *wireEncoder, pair string, prevReq, nextReq
 	// The breakpoints on Anthropic: each lands on the end of the Message it names.
 	if enc.api == gateway.APIAnthropicMessages {
 		for _, point := range nextReq.CacheBreakpoints {
-			if point.After != gotato.CacheAfterMessage {
+			if point.After != gotato.CacheAnchorAfterMessage {
 				continue
 			}
 			end := enc.blocks(t, nextReq, point.Index+1) - 1

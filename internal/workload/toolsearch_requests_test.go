@@ -276,7 +276,7 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	var unloaded []string
 	for _, event := range events {
 		if e, ok := event.(gotato.ToolUnloaded); ok {
-			if e.Why != gotato.ToolUnloadedCompaction {
+			if e.Why != gotato.ToolUnloadedWhyCompaction {
 				t.Errorf("%s unloaded for %q, want the compaction", e.Tool, e.Why)
 			}
 			unloaded = append(unloaded, e.Tool)
@@ -338,7 +338,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			}
 			runner = taskRunner(t, store, task, stages[i%len(stages)])
 		}
-		if result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil || result.Result.Status != gotato.RunCompleted {
+		if result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: prompt}); err != nil || result.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("Run %d: %v (%s)", i+1, err, result.Result.Status)
 		}
 		if i+1 == 5 {

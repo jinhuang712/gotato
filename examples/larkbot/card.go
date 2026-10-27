@@ -80,7 +80,7 @@ func cardContent(c cardInfo, text string) string {
 // and a short notice otherwise.
 func replyCard(c cardInfo, status gotato.RunStatus, finalText string) string {
 	text := strings.TrimSpace(finalText)
-	if status != gotato.RunCompleted && text == "" {
+	if status != gotato.RunStatusCompleted && text == "" {
 		text = fmt.Sprintf("The run did not complete (%s).", status)
 	}
 	return cardContent(c, text)

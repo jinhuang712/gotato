@@ -61,7 +61,7 @@ func TestMessageCloneIsolatesToolCallArguments(t *testing.T) {
 func TestForModelIsolatesPartBytes(t *testing.T) {
 	data := []byte("png")
 	signature := []byte("sig")
-	message := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentImage, Data: data, Signature: signature}}}
+	message := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: data, Signature: signature}}}
 	out := ForModel([]Message{message})
 	out[0].Parts[0].Data[0] = 'X'
 	out[0].Parts[0].Signature[0] = 'X'
@@ -72,7 +72,7 @@ func TestForModelIsolatesPartBytes(t *testing.T) {
 
 func TestToolResultCloneIsolatesSignature(t *testing.T) {
 	signature := []byte("sig")
-	result := ToolResult{Status: ToolResultOK, Content: []ContentPart{{Kind: ContentText, Text: "x", Signature: signature}}}
+	result := ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindText, Text: "x", Signature: signature}}}
 	clone := result.Clone()
 	clone.Content[0].Signature[0] = 'X'
 	if result.Content[0].Signature[0] != 's' {
@@ -82,7 +82,7 @@ func TestToolResultCloneIsolatesSignature(t *testing.T) {
 
 func TestRunResultCloneIsolatesErrorDetails(t *testing.T) {
 	result := RunResult{
-		Status: RunFailed,
+		Status: RunStatusFailed,
 		Error:  &RuntimeError{Code: CodeToolExecutionFailure, Message: "boom", Details: map[string]string{"tool": "echo"}},
 	}
 	clone := result.Clone()

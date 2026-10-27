@@ -88,13 +88,15 @@ func DropsReasoning(model gotato.Model) bool {
 	return ok && reasoner.RoundReasoningOnly()
 }
 
-// Why a compaction closed nothing, in Result.Reason.
+// CompactReason says why a compaction closed nothing, in Result.Reason.
+type CompactReason string
+
 const (
-	// ReasonBelowMinTokens: the stretch since the last Checkpoint is below
+	// CompactReasonBelowMinTokens: the stretch since the last Checkpoint is below
 	// CompactOptions.MinTokens.
-	ReasonBelowMinTokens = "below_min_tokens"
-	// ReasonNothingToClose: the kept tail covers the whole stretch.
-	ReasonNothingToClose = "nothing_to_close"
+	CompactReasonBelowMinTokens CompactReason = "below_min_tokens"
+	// CompactReasonNothingToClose: the kept tail covers the whole stretch.
+	CompactReasonNothingToClose CompactReason = "nothing_to_close"
 )
 
 // Result reports a Compact call. Compaction is present only when a Segment
@@ -102,7 +104,7 @@ const (
 type Result struct {
 	SessionID      string              `json:"session_id"`
 	Replaced       bool                `json:"replaced"`
-	Reason         string              `json:"reason,omitempty"`
+	Reason         CompactReason       `json:"reason,omitempty"`
 	MessagesBefore int                 `json:"messages_before"`
 	MessagesAfter  int                 `json:"messages_after"`
 	TokensBefore   int                 `json:"tokens_before"`
@@ -110,7 +112,7 @@ type Result struct {
 	Compaction     *session.Compaction `json:"compaction,omitempty"`
 	// Merge reports the merge of the oldest Segments that followed the
 	// Segment's closing, when the Segments passed their budget: merged, or
-	// why not (MergeRecapFailed, MergeWriteFailed). It is absent when the
+	// why not (MergeReasonRecapFailed, MergeReasonWriteFailed). It is absent when the
 	// Segments fit their budget.
 	Merge *MergeResult `json:"merge,omitempty"`
 }
@@ -161,20 +163,20 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 		now = time.Now
 	}
 	stretch := s.Tail()
-	skipped := func(reason string) Result {
+	skipped := func(reason CompactReason) Result {
 		tokens := EstimateTokens(all)
 		return Result{SessionID: s.ID(), Reason: reason, MessagesBefore: len(all), MessagesAfter: len(all), TokensBefore: tokens, TokensAfter: tokens}
 	}
 	if opts.MinTokens > 0 && EstimateTokens(stretch) < opts.MinTokens {
-		return skipped(ReasonBelowMinTokens), nil
+		return skipped(CompactReasonBelowMinTokens), nil
 	}
 	cut := tailStart(stretch, opts)
 	if cut <= 0 {
-		return skipped(ReasonNothingToClose), nil
+		return skipped(CompactReasonNothingToClose), nil
 	}
 	why := opts.Why
 	if why == "" {
-		why = gotato.CompactionOnDemand
+		why = gotato.CompactionWhyOnDemand
 	}
 	header := func() gotato.Header { return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0) }
 	s.Emit(gotato.CompactionStarted{Header: header(), Why: why})
@@ -255,7 +257,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactOptions) (Resul
 	}
 	for _, id := range loaded {
 		if !slices.Contains(kept, id) {
-			s.Emit(gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedCompaction})
+			s.Emit(gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedWhyCompaction})
 		}
 	}
 	result := Result{
@@ -401,7 +403,7 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 			// The Turn compacted already: the refusal stands.
 			return gotato.TurnPrepared{}, nil
 		}
-		prepared, _, err := a.compact(ctx, pending, gotato.CompactionOverflow)
+		prepared, _, err := a.compact(ctx, pending, gotato.CompactionWhyOverflow)
 		return prepared, err
 	}
 	ceiling := a.Ceiling()
@@ -410,11 +412,11 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		if pending.Turn == 1 {
 			// Not past the ceiling, but the Segments may be past their
 			// budget: a merge that failed before is tried again here.
-			return a.mergeOnly(ctx, pending, gotato.CompactionPastBudget, a.policy.effectiveBudget())
+			return a.mergeOnly(ctx, pending, gotato.CompactionWhyPastBudget, a.policy.effectiveBudget())
 		}
 		return gotato.TurnPrepared{}, nil
 	}
-	prepared, dropped, err := a.compact(ctx, pending, gotato.CompactionPastCeiling)
+	prepared, dropped, err := a.compact(ctx, pending, gotato.CompactionWhyPastCeiling)
 	if err != nil {
 		return prepared, err
 	}
@@ -458,7 +460,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	// The budget of the Segments is half the ceiling, or the default. On an
 	// overflow the limit the refusal names, if any, sizes it too.
 	budget := a.policy.effectiveBudget()
-	if limit := refusalLimit(pending.Refusal); why == gotato.CompactionOverflow && limit > 0 {
+	if limit := refusalLimit(pending.Refusal); why == gotato.CompactionWhyOverflow && limit > 0 {
 		budget = min(budget, limit)
 	}
 	options.SegmentBudget = budget
@@ -486,7 +488,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		merge = &merged
 		prepared.Changed = merged.Merged
 	}
-	if why == gotato.CompactionOverflow && merge != nil && merge.Error != "" {
+	if why == gotato.CompactionWhyOverflow && merge != nil && merge.Error != "" {
 		// A merge that could not be written leaves the far past as it was:
 		// the caller is told, not left with a request that is refused again.
 		return prepared, false, gotato.ErrorOf(gotato.CodeContextOverflow,
@@ -679,7 +681,7 @@ func turnCut(messages []gotato.Message, want int) int {
 
 // withoutReasoning returns message without its reasoning Parts.
 func withoutReasoning(message gotato.Message) gotato.Message {
-	reasoning := func(part gotato.ContentPart) bool { return part.Kind == gotato.ContentReasoning }
+	reasoning := func(part gotato.ContentPart) bool { return part.Kind == gotato.ContentKindReasoning }
 	if !slices.ContainsFunc(message.Parts, reasoning) {
 		return message
 	}

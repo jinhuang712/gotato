@@ -343,13 +343,13 @@ func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (
 			return gotato.Message{}, err
 		}
 		switch event.Kind {
-		case gotato.ModelTextDelta:
+		case gotato.ModelEventKindTextDelta:
 			b.WriteString(event.Text)
-		case gotato.ModelToolCall:
+		case gotato.ModelEventKindToolCall:
 			calledTool = true
-		case gotato.ModelUsage:
+		case gotato.ModelEventKindUsage:
 			usage = event.Usage
-		case gotato.ModelDone:
+		case gotato.ModelEventKindDone:
 			completed = true
 			stop = event.StopReason
 			if event.Usage.TotalTokens != 0 || event.Usage.InputTokens != 0 || event.Usage.OutputTokens != 0 {
@@ -358,13 +358,13 @@ func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (
 		}
 	}
 	if !completed {
-		return gotato.Message{}, errors.New("modelctx: model stream ended before ModelDone")
+		return gotato.Message{}, errors.New("modelctx: model stream ended before ModelEventKindDone")
 	}
 	spent := gotato.Message{Role: gotato.RoleAssistant, Usage: usage}
 	switch {
-	case calledTool || stop == gotato.StopToolCalls:
+	case calledTool || stop == gotato.StopReasonToolCalls:
 		return spent, fmt.Errorf("%w: the reply called a tool", ErrBadRecap)
-	case stop == gotato.StopMaxTokens:
+	case stop == gotato.StopReasonMaxTokens:
 		return spent, fmt.Errorf("%w: the reply was cut off at the output limit", ErrBadRecap)
 	}
 	text, err := ValidateRecap(b.String())

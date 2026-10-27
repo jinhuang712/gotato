@@ -25,7 +25,7 @@ type hangStream struct {
 func (s *hangStream) Recv(ctx context.Context) (ModelEvent, error) {
 	if !s.sent {
 		s.sent = true
-		return ModelEvent{Kind: ModelTextDelta, Text: "partial"}, nil
+		return ModelEvent{Kind: ModelEventKindTextDelta, Text: "partial"}, nil
 	}
 	close(s.hanging)
 	<-ctx.Done()
@@ -90,7 +90,7 @@ func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the interrupted Run did not settle")
 	}
-	if result.Status != RunCompleted || TextOf(*result.FinalMessage) != "B done" {
+	if result.Status != RunStatusCompleted || TextOf(*result.FinalMessage) != "B done" {
 		t.Fatalf("result = %+v", result)
 	}
 	// The second call sees the user's words and the interrupt: a cut-off reply
@@ -109,11 +109,11 @@ func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 	for _, event := range seen.events() {
 		switch e := event.(type) {
 		case MessageQueued:
-			if e.Source != SourceInterrupt {
+			if e.Source != MessageSourceInterrupt {
 				t.Fatalf("queued source = %q", e.Source)
 			}
 		case MessageCommitted:
-			if e.Source == SourceInterrupt {
+			if e.Source == MessageSourceInterrupt {
 				kinds = append(kinds, e.Kind())
 			}
 		case ReplyCutOff:
@@ -123,7 +123,7 @@ func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 			kinds = append(kinds, e.Kind())
 		}
 	}
-	if len(kinds) != 2 || kinds[0] != KindReplyCutOff || kinds[1] != KindMessageCommitted {
+	if len(kinds) != 2 || kinds[0] != EventKindReplyCutOff || kinds[1] != EventKindMessageCommitted {
 		t.Fatalf("events = %v", kinds)
 	}
 }
@@ -143,7 +143,7 @@ func (t *blockingTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFun
 	close(t.started)
 	<-t.release
 	t.canceled = ctx.Err() != nil
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "tool-ok"}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
 }
 
 func TestInterruptLetsARunningToolFinish(t *testing.T) {
@@ -174,7 +174,7 @@ func TestInterruptLetsARunningToolFinish(t *testing.T) {
 	close(tool.release)
 	select {
 	case result := <-done:
-		if result.Status != RunCompleted {
+		if result.Status != RunStatusCompleted {
 			t.Fatalf("result = %+v", result)
 		}
 	case <-time.After(2 * time.Second):

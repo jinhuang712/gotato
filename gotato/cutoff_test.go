@@ -54,7 +54,7 @@ func (m *breakingModel) Stream(_ context.Context, request ModelRequest) (ModelSt
 	if len(m.requests) == 1 {
 		return m.first, nil
 	}
-	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "again"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
+	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "again"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
 func (m *breakingModel) request(i int) ModelRequest {
@@ -65,10 +65,10 @@ func (m *breakingModel) request(i int) ModelRequest {
 
 func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 	streamed := []ModelEvent{
-		{Kind: ModelTextDelta, Text: "hel"},
-		{Kind: ModelReasoningDelta, Text: "thinking"},
-		{Kind: ModelTextDelta, Text: "lo"},
-		{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{}`)}},
+		{Kind: ModelEventKindTextDelta, Text: "hel"},
+		{Kind: ModelEventKindReasoningDelta, Text: "thinking"},
+		{Kind: ModelEventKindTextDelta, Text: "lo"},
+		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{}`)}},
 	}
 	for _, tc := range []struct {
 		name   string
@@ -80,13 +80,13 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 	}{
 		{name: "provider error", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), err: errors.New("connection reset")}
-		}, status: RunFailed, code: CodeModelFailure},
+		}, status: RunStatusFailed, code: CodeModelFailure},
 		{name: "canceled", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), reached: make(chan struct{})}
-		}, cancel: true, status: RunCanceled, code: CodeCanceled},
+		}, cancel: true, status: RunStatusCanceled, code: CodeCanceled},
 		{name: "deadline", stream: func() *breakingStream {
 			return &breakingStream{events: append([]ModelEvent(nil), streamed...), reached: make(chan struct{})}
-		}, limits: &CoreLimits{ModelCallDeadline: 20 * time.Millisecond}, status: RunDeadlineExceeded, code: CodeDeadlineExceeded},
+		}, limits: &CoreLimits{ModelCallDeadline: 20 * time.Millisecond}, status: RunStatusDeadlineExceeded, code: CodeDeadlineExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := tc.stream()
@@ -120,7 +120,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 				t.Fatalf("transcript = %+v, want the prompt and the cut-off reply", messages)
 			}
 			reply := messages[1]
-			if reply.Role != RoleAssistant || reply.StopReason != StopCutOff || TextOf(reply) != "hello" {
+			if reply.Role != RoleAssistant || reply.StopReason != StopReasonCutOff || TextOf(reply) != "hello" {
 				t.Fatalf("cut-off reply = %+v", reply)
 			}
 			if len(reply.Parts) != 1 || len(reply.ToolCalls) != 0 || ReasoningOf(reply) != "" {
@@ -131,7 +131,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 }
 
 func TestStreamThatBreaksBeforeAnyTextCommitsNothing(t *testing.T) {
-	stream := &breakingStream{events: []ModelEvent{{Kind: ModelReasoningDelta, Text: "thinking"}}, err: errors.New("connection reset")}
+	stream := &breakingStream{events: []ModelEvent{{Kind: ModelEventKindReasoningDelta, Text: "thinking"}}, err: errors.New("connection reset")}
 	transcript := &recordingTranscript{}
 	session, err := NewSession(WithModel(&breakingModel{first: stream}), WithTranscript(transcript))
 	if err != nil {
@@ -147,7 +147,7 @@ func TestStreamThatBreaksBeforeAnyTextCommitsNothing(t *testing.T) {
 }
 
 func TestCutOffReplyIsNotSentToTheModel(t *testing.T) {
-	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "half an answ"}}, err: errors.New("connection reset")}}
+	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "half an answ"}}, err: errors.New("connection reset")}}
 	transcript := &recordingTranscript{}
 	session, err := NewSession(WithModel(model), WithTranscript(transcript))
 	if err != nil {
@@ -170,7 +170,7 @@ func TestCutOffReplyIsNotSentToTheModel(t *testing.T) {
 }
 
 func TestContinueAfterACutOffReplyAsksAgain(t *testing.T) {
-	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "half"}}, err: errors.New("connection reset")}}
+	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "half"}}, err: errors.New("connection reset")}}
 	transcript := &recordingTranscript{}
 	session, err := NewSession(WithModel(model), WithTranscript(transcript))
 	if err != nil {
@@ -191,13 +191,13 @@ func TestContinueAfterACutOffReplyAsksAgain(t *testing.T) {
 		t.Fatalf("Continue sent %+v, want the question alone", request.Messages)
 	}
 	messages := transcript.Messages()
-	if len(messages) != 3 || messages[1].StopReason != StopCutOff || TextOf(messages[2]) != "again" {
+	if len(messages) != 3 || messages[1].StopReason != StopReasonCutOff || TextOf(messages[2]) != "again" {
 		t.Fatalf("transcript = %+v", messages)
 	}
 }
 
 func TestForModelLeavesOutCutOffReplies(t *testing.T) {
-	cut := Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: "half"}}, StopReason: StopCutOff}
+	cut := Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: "half"}}, StopReason: StopReasonCutOff}
 	out := ForModel([]Message{UserMessage("q"), cut, UserMessage("again")})
 	if len(out) != 2 || TextOf(out[0]) != "q" || TextOf(out[1]) != "again" {
 		t.Fatalf("ForModel = %+v", out)
@@ -206,8 +206,8 @@ func TestForModelLeavesOutCutOffReplies(t *testing.T) {
 
 func TestReplyModelIsRecordedAndNeverSent(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelTextDelta, Text: "first"}, {Kind: ModelDone, StopReason: StopEndTurn, Model: "fallback-model"}},
-		{{Kind: ModelTextDelta, Text: "second"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindTextDelta, Text: "first"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn, Model: "fallback-model"}},
+		{{Kind: ModelEventKindTextDelta, Text: "second"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	transcript := &recordingTranscript{}
 	session, err := NewSession(WithModel(model), WithTranscript(transcript))

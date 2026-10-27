@@ -277,7 +277,7 @@ func (f *Feed) PublishLabeled(event Event, label string) {
 		f.mu.Unlock()
 		return
 	}
-	if !f.mixed && event.Kind().Class() == ClassStored {
+	if !f.mixed && event.Kind().Class() == EventClassStored {
 		if number := event.Head().Number; number > f.last {
 			f.last = number
 		}
@@ -415,7 +415,7 @@ func (s *subscription) offer(event Event, label string) {
 		return
 	}
 	class := event.Kind().Class()
-	stored := class == ClassStored && !s.feed.mixed
+	stored := class == EventClassStored && !s.feed.mixed
 	if s.behind {
 		// A stored Event is read again from the Record; a delta is skipped.
 		return
@@ -446,14 +446,14 @@ func (s *subscription) offer(event Event, label string) {
 		// Make room by dropping the oldest delta; only deltas may be skipped.
 		dropped := false
 		for i, queued := range s.queue {
-			if queued.Kind().Class() == ClassDelta {
+			if queued.Kind().Class() == EventClassDelta {
 				s.queue = append(s.queue[:i], s.queue[i+1:]...)
 				dropped = true
 				break
 			}
 		}
 		switch {
-		case class == ClassDelta:
+		case class == EventClassDelta:
 			if s.feed.mixed {
 				s.skipped++
 			}

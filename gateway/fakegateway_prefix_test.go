@@ -162,7 +162,7 @@ func TestFakeRequestOnlyGrowsAtItsEndWithReasoning(t *testing.T) {
 					newRound[len(fake.Requests())] = true
 				}
 				result, err := session.Prompt(context.Background(), gotato.UserMessage(prompt))
-				if err != nil || result.Status != gotato.RunCompleted {
+				if err != nil || result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("%q: %+v, %v", prompt, result, err)
 				}
 			}

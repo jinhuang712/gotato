@@ -60,7 +60,7 @@ func cutRunes(s string, n int) string {
 func spillBody(content []ContentPart) string {
 	var texts []string
 	for _, part := range content {
-		if part.Kind == ContentText {
+		if part.Kind == ContentKindText {
 			texts = append(texts, part.Text)
 		}
 	}
@@ -109,7 +109,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	}
 	size := 0
 	for _, part := range result.Content {
-		if part.Kind == ContentText {
+		if part.Kind == ContentKindText {
 			size += len(part.Text)
 		}
 	}
@@ -125,9 +125,9 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 		return result, err
 	}
 	seq := written[0].Head().Number
-	content := []ContentPart{{Kind: ContentText, Text: spillPreview(result.CallID, toolID, body)}}
+	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, toolID, body)}}
 	for _, part := range result.Content {
-		if part.Kind != ContentText {
+		if part.Kind != ContentKindText {
 			content = append(content, part)
 		}
 	}

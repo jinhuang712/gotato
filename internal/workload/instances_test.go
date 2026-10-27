@@ -134,7 +134,7 @@ func newCluster(t *testing.T, n int, tasks []reftasks.Task, seed uint64, adjust 
 		in := &instance{name: fmt.Sprintf("instance-%d", i), store: &killStore{Store: c.backing}}
 		cfg := service.Config{
 			Store: in.store, Instance: in.name, Liveness: clusterLiveness, StreamPoll: 20 * time.Millisecond,
-			Admission: service.Admission{Queue: service.WaitWhileBusy},
+			Admission: service.Admission{Queue: service.QueuePolicyWait},
 			Agents:    agents,
 		}
 		for _, change := range adjust {
@@ -717,7 +717,7 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 	events, _ := session.StoredEvents(context.Background(), c.backing, id, 0)
 	writers := map[string]bool{}
 	for _, event := range events {
-		if claimed, ok := event.(gotato.SessionClaimed); ok && claimed.Why != gotato.ClaimNewSession {
+		if claimed, ok := event.(gotato.SessionClaimed); ok && claimed.Why != gotato.ClaimWhyNewSession {
 			writers[claimed.Instance] = true
 		}
 	}

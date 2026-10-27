@@ -389,13 +389,13 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 	}
 	sort.Slice(request.Tools, func(i, j int) bool { return request.Tools[i].ID < request.Tools[j].ID })
 	if request.SystemInstructions != "" {
-		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterSystem})
+		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAnchorAfterSystem})
 	}
 	if len(request.Tools) > 0 {
-		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterTools})
+		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAnchorAfterTools})
 	}
 	if len(messages) > 0 {
-		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAfterMessage, Index: len(messages) - 1})
+		request.CacheBreakpoints = append(request.CacheBreakpoints, CacheBreakpoint{After: CacheAnchorAfterMessage, Index: len(messages) - 1})
 	}
 	return request, prefixHash(request)
 }
@@ -403,7 +403,7 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 // ForModel reduces Messages to the fields a provider needs: role, parts
 // (without runtime metadata), tool calls, and tool results. Runtime fields
 // (IDs, usage, stop reasons) are dropped so they can never perturb the prompt
-// bytes between Turns. A reply cut off mid-stream (StopCutOff) is left out:
+// bytes between Turns. A reply cut off mid-stream (StopReasonCutOff) is left out:
 // the Model sees what it saw before that reply started.
 //
 // Text that imitates one of Gotato's four tags (see EscapeTags) is escaped in
@@ -414,12 +414,12 @@ func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string
 func ForModel(messages []Message) []Message {
 	out := make([]Message, 0, len(messages))
 	for _, message := range messages {
-		if message.StopReason == StopCutOff {
+		if message.StopReason == StopReasonCutOff {
 			continue
 		}
 		if message.Role == RoleNotice {
 			// A notice reaches the model as tagged text the system wrote.
-			out = append(out, Message{Role: RoleNotice, Parts: []ContentPart{{Kind: ContentText, Text: renderNotice(message)}}})
+			out = append(out, Message{Role: RoleNotice, Parts: []ContentPart{{Kind: ContentKindText, Text: renderNotice(message)}}})
 			continue
 		}
 		m := Message{Role: message.Role, ToolCalls: cloneToolCalls(message.ToolCalls)}
@@ -454,9 +454,9 @@ func ForModel(messages []Message) []Message {
 // (backslash, u, 0, 0, 3, c) in place of "&lt;" so the JSON keeps its value.
 func escapePartText(part ContentPart) string {
 	switch part.Kind {
-	case ContentText:
+	case ContentKindText:
 		return text.EscapeTags(part.Text)
-	case ContentJSON:
+	case ContentKindJSON:
 		return text.EscapeTagsAs(part.Text, jsonLessThan)
 	}
 	return part.Text

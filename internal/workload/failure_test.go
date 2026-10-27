@@ -73,7 +73,7 @@ type midstreamError struct{ sent bool }
 func (m *midstreamError) Recv(context.Context) (gotato.ModelEvent, error) {
 	if !m.sent {
 		m.sent = true
-		return gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: "half a rep"}, nil
+		return gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: "half a rep"}, nil
 	}
 	return gotato.ModelEvent{}, errProvider
 }
@@ -115,12 +115,12 @@ func (m rigModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato
 	}
 	switch {
 	case afterTool:
-		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelTextDelta, Text: "done"}, {Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}}}, nil
+		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelEventKindTextDelta, Text: "done"}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}}}, nil
 	case strings.Contains(gotato.TextOf(last), "use-tool"):
 		call := gotato.ToolCall{ID: "call-" + gotato.ToolCallID(gotato.TextOf(last)[len("use-tool "):]), ToolID: "probe", Arguments: []byte(`{}`)}
-		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelToolCall, ToolCall: &call}, {Kind: gotato.ModelDone, StopReason: gotato.StopToolCalls}}}, nil
+		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelEventKindToolCall, ToolCall: &call}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonToolCalls}}}, nil
 	default:
-		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelTextDelta, Text: "ok"}, {Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}}}, nil
+		return &scripted{[]gotato.ModelEvent{{Kind: gotato.ModelEventKindTextDelta, Text: "ok"}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}}}, nil
 	}
 }
 
@@ -140,7 +140,7 @@ func (t rigTool) Execute(ctx context.Context, _ gotato.ToolUse, _ gotato.ToolPro
 		<-ctx.Done()
 		return gotato.ToolResult{}, ctx.Err()
 	}
-	return gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "probed"}}}, nil
+	return gotato.ToolResult{Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "probed"}}}, nil
 }
 
 // flakyStore counts the writes made through it since its last reset, keeps
@@ -214,7 +214,7 @@ func (r *rig) seed() (string, []gotato.Message) {
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	if res, err := r.runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunCompleted {
+	if res, err := r.runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "use-tool one"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
 		r.t.Fatalf("the first Run = %+v, %v", res.Result, err)
 	}
 	return s.ID(), r.load(s.ID())
@@ -256,16 +256,16 @@ func (r *rig) settled(request service.RunRequest) (service.RunResponse, error) {
 func wantSettled(t *testing.T, res service.RunResponse, want gotato.RunStatus) {
 	t.Helper()
 	got := res.Result.Status
-	if got == "" || got == gotato.RunRunning {
+	if got == "" || got == gotato.RunStatusRunning {
 		t.Fatalf("the Run did not settle: %+v", res.Result)
 	}
 	if want != "" && got != want {
 		t.Fatalf("the Run settled as %s, want %s (%+v)", got, want, res.Result.Error)
 	}
-	if got != gotato.RunCompleted && (res.Result.Error == nil || res.Result.Error.Code == "") {
+	if got != gotato.RunStatusCompleted && (res.Result.Error == nil || res.Result.Error.Code == "") {
 		t.Fatalf("the Run settled as %s with no cause", got)
 	}
-	if got == gotato.RunCompleted && res.Result.Error != nil {
+	if got == gotato.RunStatusCompleted && res.Result.Error != nil {
 		t.Fatalf("the Run completed and carries an error: %v", res.Result.Error)
 	}
 }
@@ -281,7 +281,7 @@ func (r *rig) wantUsable(id string, before []gotato.Message) {
 		r.t.Fatalf("the Record lost or changed a committed step:\n%s\nwas\n%s", shape(after), shape(before))
 	}
 	res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool next"})
-	if err != nil || res.Result.Status != gotato.RunCompleted {
+	if err != nil || res.Result.Status != gotato.RunStatusCompleted {
 		r.t.Fatalf("the next Run = %+v, %v", res.Result, err)
 	}
 	r.mu.Lock()
@@ -322,7 +322,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 				id, before := r.seed()
 				r.arm(tc.fault)
 				res, _ := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
-				wantSettled(t, res, gotato.RunFailed)
+				wantSettled(t, res, gotato.RunStatusFailed)
 				r.wantUsable(id, before)
 			})
 		}
@@ -337,11 +337,11 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		// The panic is a failed tool call the model is told about.
 		var failed bool
 		for _, m := range r.load(id)[len(before):] {
-			if m.ToolResult != nil && m.ToolResult.Status != gotato.ToolResultOK {
+			if m.ToolResult != nil && m.ToolResult.Status != gotato.ToolResultStatusOK {
 				failed = true
 			}
 		}
-		if !failed && res.Result.Status == gotato.RunCompleted {
+		if !failed && res.Result.Status == gotato.RunStatusCompleted {
 			t.Fatal("the panic left no failed tool result in the Record")
 		}
 		r.wantUsable(id, before)
@@ -353,7 +353,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			id, before := r.seed()
 			r.arm(rigFault{tool: "hang"})
 			res, _ := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two", Timeout: 100 * time.Millisecond})
-			wantSettled(t, res, gotato.RunDeadlineExceeded)
+			wantSettled(t, res, gotato.RunStatusDeadlineExceeded)
 			r.wantUsable(id, before)
 		})
 		t.Run("until the Run is canceled", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			}
 			select {
 			case o := <-done:
-				wantSettled(t, o.res, gotato.RunCanceled)
+				wantSettled(t, o.res, gotato.RunStatusCanceled)
 			case <-time.After(10 * time.Second):
 				t.Fatal("the Run did not settle after it was canceled")
 			}
@@ -390,7 +390,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		clean, cleanStore := newRig(t)
 		cleanID, _ := clean.seed()
 		cleanStore.reset(0)
-		if res, err := clean.settled(service.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunCompleted {
+		if res, err := clean.settled(service.RunRequest{SessionID: cleanID, Prompt: "use-tool two"}); err != nil || res.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("a clean Run = %+v, %v", res.Result, err)
 		}
 		writes, states := cleanStore.writes, cleanStore.states
@@ -405,15 +405,15 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
 			// The last write only releases the Session: every fact of the Run is
 			// stored, so that Run completes. A failure of any earlier write does not.
-			if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunCompleted) {
+			if releaseOnly := n == writes; releaseOnly != (err == nil && res.Result.Status == gotato.RunStatusCompleted) {
 				t.Fatalf("write %d failed: the Run settled as %q with %v", n, res.Result.Status, err)
 			}
 			// completed never carries an error: a Run whose reply or end was
 			// not written settles as failed, and says why.
-			if err != nil && res.Result.Status == gotato.RunCompleted {
+			if err != nil && res.Result.Status == gotato.RunStatusCompleted {
 				t.Fatalf("write %d failed: the Run says completed and returns %v", n, err)
 			}
-			if res.Result.Status == gotato.RunFailed && !errors.Is(err, service.ErrNotPersisted) {
+			if res.Result.Status == gotato.RunStatusFailed && !errors.Is(err, service.ErrNotPersisted) {
 				t.Fatalf("write %d failed: failed with err = %v, want ErrNotPersisted", n, err)
 			}
 			if res.Result.Status == "" {
@@ -458,7 +458,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = stream.Close() })
 		res, err := r.settled(service.RunRequest{SessionID: id, Prompt: "use-tool two"})
-		if err != nil || res.Result.Status != gotato.RunCompleted {
+		if err != nil || res.Result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("a Run with a stalled subscriber = %+v, %v", res.Result, err)
 		}
 		if got := r.load(id); len(got) != len(before)+4 {
@@ -495,7 +495,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if runs := view.Runs(); len(runs) == 2 && runs[1].Status == gotato.RunCompleted {
+			if runs := view.Runs(); len(runs) == 2 && runs[1].Status == gotato.RunStatusCompleted {
 				break
 			}
 			if time.Now().After(deadline) {

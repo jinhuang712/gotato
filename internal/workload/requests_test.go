@@ -72,8 +72,8 @@ func (m reasoningModel) Stream(ctx context.Context, request gotato.ModelRequest)
 		return nil, err
 	}
 	events := testkit.Script{
-		{Kind: gotato.ModelReasoningDelta, Text: fmt.Sprintf("thinking about %d messages", len(request.Messages))},
-		{Kind: gotato.ModelReasoningDone, ReasoningArtifact: fmt.Appendf(nil, "signature-%d", len(request.Messages))},
+		{Kind: gotato.ModelEventKindReasoningDelta, Text: fmt.Sprintf("thinking about %d messages", len(request.Messages))},
+		{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: fmt.Appendf(nil, "signature-%d", len(request.Messages))},
 	}
 	for {
 		event, err := stream.Recv(ctx)
@@ -138,7 +138,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 		if err != nil {
 			t.Fatalf("%s: Run %d on %s: %v", task.Name, i+1, runner.Instance(), err)
 		}
-		if result.Result.Status != gotato.RunCompleted || result.Compacted {
+		if result.Result.Status != gotato.RunStatusCompleted || result.Compacted {
 			t.Fatalf("%s: Run %d ended %s (compacted %t)", task.Name, i+1, result.Result.Status, result.Compacted)
 		}
 		if options.compactAfter == i+1 {

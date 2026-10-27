@@ -156,7 +156,7 @@ func taggedPart(tag string, attrs [][2]string, text string) gotato.ContentPart {
 	}
 	b.WriteString(">\n" + text + "\n</" + tag + ">")
 	return gotato.ContentPart{
-		Kind:     gotato.ContentText,
+		Kind:     gotato.ContentKindText,
 		Text:     b.String(),
 		Metadata: map[string]string{gotato.MetaTag: tag},
 	}
@@ -228,7 +228,7 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 			// Gotato's own notices mattered only at the time: the Recap covers
 			// them. A service's stays word for word, because Gotato cannot tell
 			// whether it still applies.
-			if message.Notice == nil || message.Notice.Source != gotato.NoticeFromService {
+			if message.Notice == nil || message.Notice.Source != gotato.NoticeSourceService {
 				continue
 			}
 			flush()
@@ -244,7 +244,7 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 				line := gotato.ToolCallLine{At: at, ToolID: call.ToolID, Args: cutArgs(call.Arguments, argChars), Status: statusUnanswered}
 				if r := results[call.ID]; r != nil {
 					line.Status = r.Status
-					if r.Status != gotato.ToolResultOK {
+					if r.Status != gotato.ToolResultStatusOK {
 						line.Code = string(r.Status)
 					}
 				}
@@ -313,7 +313,7 @@ func finalReplies(messages []gotato.Message) map[int]bool {
 	seen := map[string]bool{}
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
-		if message.Role != gotato.RoleAssistant || len(message.ToolCalls) > 0 || message.StopReason == gotato.StopCutOff || strings.TrimSpace(gotato.TextOf(message)) == "" {
+		if message.Role != gotato.RoleAssistant || len(message.ToolCalls) > 0 || message.StopReason == gotato.StopReasonCutOff || strings.TrimSpace(gotato.TextOf(message)) == "" {
 			continue
 		}
 		if !seen[groups[i]] {
@@ -340,7 +340,7 @@ func keptParts(parts []gotato.ContentPart, limit, number int) []gotato.ContentPa
 	cut := false
 	for _, part := range parts {
 		switch {
-		case part.Kind == gotato.ContentReasoning:
+		case part.Kind == gotato.ContentKindReasoning:
 		case isText(part):
 			if part.Text == "" {
 				continue
@@ -367,14 +367,14 @@ func keptParts(parts []gotato.ContentPart, limit, number int) []gotato.ContentPa
 }
 
 func isText(part gotato.ContentPart) bool {
-	return part.Kind == gotato.ContentText || part.Kind == gotato.ContentJSON
+	return part.Kind == gotato.ContentKindText || part.Kind == gotato.ContentKindJSON
 }
 
 // placeholder stands for an image or a file in a Segment: its kind, its name
 // when it has one, and its size.
 func placeholder(part gotato.ContentPart) gotato.ContentPart {
 	kind := "file"
-	if part.Kind == gotato.ContentImage && (part.MIMEType == "" || strings.HasPrefix(part.MIMEType, "image/")) {
+	if part.Kind == gotato.ContentKindImage && (part.MIMEType == "" || strings.HasPrefix(part.MIMEType, "image/")) {
 		kind = "image"
 	}
 	name := part.Metadata["name"]
@@ -385,7 +385,7 @@ func placeholder(part gotato.ContentPart) gotato.ContentPart {
 	if name != "" {
 		text = fmt.Sprintf("[%s: %s, %d bytes]", kind, oneLine(name), len(part.Data))
 	}
-	return gotato.ContentPart{Kind: gotato.ContentText, Text: text}
+	return gotato.ContentPart{Kind: gotato.ContentKindText, Text: text}
 }
 
 // cutRunes returns the first n bytes of s, less a rune cut in half.

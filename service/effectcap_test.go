@@ -31,9 +31,9 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	runner, _ := newRunner(t, service.Agent{
 		Name:        "capped",
 		Model:       model,
-		Tools:       []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.EffectRead), gotato.ToolWithEffect(refund, gotato.EffectWriteExternal)},
-		ToolSources: []gotato.ToolSource{toolList{gotato.ToolWithEffect(purge, gotato.EffectDestructive)}},
-		MaxEffect:   gotato.EffectRead,
+		Tools:       []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.ToolEffectRead), gotato.ToolWithEffect(refund, gotato.ToolEffectWriteExternal)},
+		ToolSources: []gotato.ToolSource{toolList{gotato.ToolWithEffect(purge, gotato.ToolEffectDestructive)}},
+		MaxEffect:   gotato.ToolEffectRead,
 	})
 	entries, err := runner.Tools(ctx, "capped", "")
 	if err != nil {
@@ -53,7 +53,7 @@ func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 		}
 	}
 	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"})
-	if err != nil || result.Result.Status != gotato.RunCompleted {
+	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result, err)
 	}
 	if lookup.Calls() != 1 || refund.Calls() != 0 || purge.Calls() != 0 {

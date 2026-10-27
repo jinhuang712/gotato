@@ -65,7 +65,7 @@ func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	if len(queued) != 1 || len(committed) != 1 || queued[0].Number != notice.Number || committed[0].Queued != notice.Number {
 		t.Fatalf("notice_queued %+v, notice_committed %+v; the commit must name queue entry %d", queued, committed, notice.Number)
 	}
-	if queued[0].NoticeKind != "order_update" || queued[0].Source != gotato.NoticeFromService || string(queued[0].MessageID) != notice.MessageID {
+	if queued[0].NoticeKind != "order_update" || queued[0].Source != gotato.NoticeSourceService || string(queued[0].MessageID) != notice.MessageID {
 		t.Fatalf("notice_queued = %+v", queued[0])
 	}
 }
@@ -105,7 +105,7 @@ func TestANoticeBetweenRunsWaitsForTheNextRun(t *testing.T) {
 		t.Fatalf("model calls = %d: a notice kept the Run going", model.calls)
 	}
 	result, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "again"})
-	if err != nil || result.Result.Status != gotato.RunCompleted {
+	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result, err)
 	}
 	want := []string{"user:hello", noticeText("k", "idle one"), "assistant:first", "user:again", noticeText("k", "late one")}
@@ -181,7 +181,7 @@ func timeAwayRunner(t *testing.T, clock *fakeClock, agent service.Agent) (*servi
 	agent.Warm.NoIdleCompaction = true
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: session.NewMemoryStore(), Instance: "a", Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.WaitWhileBusy}, Agents: []service.Agent{agent},
+		Admission: service.Admission{Queue: service.QueuePolicyWait}, Agents: []service.Agent{agent},
 	}, clock))
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +234,7 @@ func TestATimeAwayNoticeFollowsAMessageAfterALongAbsence(t *testing.T) {
 	record, _ := runner.Record(ctx, s.ID())
 	messages := record.Messages()
 	last := messages[len(messages)-2]
-	if last.Role != gotato.RoleNotice || last.Notice.Kind != gotato.NoticeTimeAway || last.Notice.Source != gotato.NoticeFromGotato {
+	if last.Role != gotato.RoleNotice || last.Notice.Kind != gotato.NoticeTimeAway || last.Notice.Source != gotato.NoticeSourceGotato {
 		t.Fatalf("the Record keeps %+v", last)
 	}
 }
@@ -365,7 +365,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
-	if result := settled(t, done); result.Result.Status != gotato.RunCanceled {
+	if result := settled(t, done); result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("the Run = %+v, want canceled", result.Result)
 	}
 	runOn(t, runner, s.ID(), "next")
@@ -395,7 +395,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 	}
 	if _, err := dead.Write(ctx, []gotato.Event{gotato.NoticeQueued{
 		Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), MessageID: "stale", NoticeKind: gotato.NoticeTimeAway,
-		Source: gotato.NoticeFromGotato, Text: "It has been 40 minutes since the last message. It is now stale.",
+		Source: gotato.NoticeSourceGotato, Text: "It has been 40 minutes since the last message. It is now stale.",
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func timeAwayRunner2(t *testing.T, store session.Store, name string, clock *fake
 	model := testkit.NewFakeModel(testkit.Text("ok"), testkit.Text("ok"), testkit.Text("ok"))
 	runner, err := service.New(service.WithClock(service.Config{
 		Store: store, Instance: name, Liveness: steadyLiveness,
-		Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents:    []service.Agent{{Name: "echo", Model: model, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
 	}, clock))
 	if err != nil {

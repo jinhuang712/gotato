@@ -40,12 +40,12 @@ type ModelRequest struct {
 type CacheAnchor string
 
 const (
-	// CacheAfterSystem marks the end of the system prompt.
-	CacheAfterSystem CacheAnchor = "system"
-	// CacheAfterTools marks the end of the tool definitions.
-	CacheAfterTools CacheAnchor = "tools"
-	// CacheAfterMessage marks the end of Messages[Index].
-	CacheAfterMessage CacheAnchor = "message"
+	// CacheAnchorAfterSystem marks the end of the system prompt.
+	CacheAnchorAfterSystem CacheAnchor = "system"
+	// CacheAnchorAfterTools marks the end of the tool definitions.
+	CacheAnchorAfterTools CacheAnchor = "tools"
+	// CacheAnchorAfterMessage marks the end of Messages[Index].
+	CacheAnchorAfterMessage CacheAnchor = "message"
 )
 
 // CacheBreakpoint is one prompt-cache hint.
@@ -72,14 +72,14 @@ type ModelStream interface {
 type ModelEventKind string
 
 const (
-	ModelTextDelta      ModelEventKind = "text_delta"
-	ModelReasoningDelta ModelEventKind = "reasoning_delta"
-	// ModelReasoningDone carries an opaque provider reasoning artifact. Core
+	ModelEventKindTextDelta      ModelEventKind = "text_delta"
+	ModelEventKindReasoningDelta ModelEventKind = "reasoning_delta"
+	// ModelEventKindReasoningDone carries an opaque provider reasoning artifact. Core
 	// stores it with the reasoning part but never interprets it.
-	ModelReasoningDone ModelEventKind = "reasoning_done"
-	ModelToolCall      ModelEventKind = "tool_call"
-	ModelUsage         ModelEventKind = "usage"
-	ModelDone          ModelEventKind = "done"
+	ModelEventKindReasoningDone ModelEventKind = "reasoning_done"
+	ModelEventKindToolCall      ModelEventKind = "tool_call"
+	ModelEventKindUsage         ModelEventKind = "usage"
+	ModelEventKindDone          ModelEventKind = "done"
 )
 
 type ModelEvent struct {

@@ -557,7 +557,7 @@ func runFailure(result service.RunResponse, err error) (failure, bool) {
 		return failure{kind: KindRun, cause: CauseStore, code: "not_persisted", message: err.Error()}, true
 	case errors.Is(err, session.ErrNotFound):
 		return failure{kind: KindRun, cause: CauseStore, code: "not_found", message: err.Error()}, true
-	case err == nil && result.Result.Status == gotato.RunCompleted:
+	case err == nil && result.Result.Status == gotato.RunStatusCompleted:
 		return failure{}, false
 	}
 	var code gotato.ErrorCode
@@ -606,11 +606,11 @@ func toolFailure(call toolCall, committed *gotato.ToolResult) (failure, bool) {
 		f.code = string(codePrefix(committed.SafeError))
 	}
 	switch {
-	case call.status == string(gotato.ToolResultOK):
+	case call.status == string(gotato.ToolResultStatusOK):
 		return failure{}, false
-	case call.status == string(gotato.ToolResultBlocked):
+	case call.status == string(gotato.ToolResultStatusBlocked):
 		f.cause = CauseExtension
-	case call.status == string(gotato.ToolResultCanceled):
+	case call.status == string(gotato.ToolResultStatusCanceled):
 		f.cause = CauseCanceled
 	case f.code == string(gotato.CodeInternalInvariant):
 		f.cause = CauseGotato

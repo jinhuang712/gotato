@@ -59,7 +59,7 @@ func TestAcceptedToolIDsKeepTheirNamesInACollision(t *testing.T) {
 	}
 	call := gotato.AssistantMessage("")
 	call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: "a.b", Arguments: []byte(`{}`)}}
-	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultOK}}
+	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultStatusOK}}
 	requests := map[string]gotato.ModelRequest{
 		"tools only": {
 			Messages: []gotato.Message{gotato.UserMessage("go")},

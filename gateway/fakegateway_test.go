@@ -72,7 +72,7 @@ func drainFake(t *testing.T, client *Client, request gotato.ModelRequest) ([]got
 			return events, err
 		}
 		events = append(events, event)
-		if event.Kind == gotato.ModelDone {
+		if event.Kind == gotato.ModelEventKindDone {
 			return events, nil
 		}
 	}
@@ -93,7 +93,7 @@ func TestFakePlainReplyOnEachWireAPI(t *testing.T) {
 			fake, client := newFake(t, wire)
 			session, _ := newFakeSession(t, client)
 			result, err := session.Prompt(context.Background(), gotato.UserMessage("hello"))
-			if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "fake: hello" {
+			if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "fake: hello" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if got := fake.Requests(); len(got) != 1 || got[0].Outcome != "ok" || got[0].UserText != "hello" {
@@ -109,7 +109,7 @@ func TestFakeToolRoundTripOnEachWireAPI(t *testing.T) {
 			fake, client := newFake(t, wire)
 			session, _ := newFakeSession(t, client)
 			result, err := session.Prompt(context.Background(), gotato.UserMessage("use-tool"))
-			if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "tool said: from-tool" {
+			if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "tool said: from-tool" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if got := fake.Requests(); len(got) != 2 {
@@ -130,7 +130,7 @@ func TestFakeCachedTokensAreCountedFromEachProvidersField(t *testing.T) {
 			}
 			var usage gotato.Usage
 			for _, event := range events {
-				if event.Kind == gotato.ModelUsage {
+				if event.Kind == gotato.ModelEventKindUsage {
 					usage = event.Usage
 				}
 			}
@@ -194,13 +194,13 @@ func TestFakeMidstreamOverflowEndsTheRunWithContextOverflowAndKeepsTheText(t *te
 			fake, client := newFake(t, wire)
 			session, recorder := newFakeSession(t, client)
 			result, err := session.Prompt(context.Background(), gotato.UserMessage("an answer that runs out [quirk:overflow-midstream]"))
-			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed {
+			if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
-			if len(recorder.OfKind(gotato.KindReplyCutOff)) != 1 {
+			if len(recorder.OfKind(gotato.EventKindReplyCutOff)) != 1 {
 				t.Errorf("the text before the overflow is not kept as a cut-off reply: %v", recorder.Kinds())
 			}
-			if len(recorder.OfKind(gotato.KindModelRetried)) != 0 || len(fake.Requests()) != 1 {
+			if len(recorder.OfKind(gotato.EventKindModelRetried)) != 0 || len(fake.Requests()) != 1 {
 				t.Errorf("an overflow was retried: %d requests", len(fake.Requests()))
 			}
 		})
@@ -226,10 +226,10 @@ func TestFakeStreamCutAfterTextAndInArgumentsIsRetriedAndSucceeds(t *testing.T) 
 				fake, client := newFake(t, wire)
 				session, recorder := newFakeSession(t, client)
 				result, err := session.Prompt(context.Background(), gotato.UserMessage(tc.prompt))
-				if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != tc.want {
+				if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != tc.want {
 					t.Fatalf("result = %+v, err = %v", result, err)
 				}
-				if got := len(recorder.OfKind(gotato.KindModelRetried)); got != 1 {
+				if got := len(recorder.OfKind(gotato.EventKindModelRetried)); got != 1 {
 					t.Fatalf("model_retried Events = %d: %v", got, recorder.Kinds())
 				}
 				requests := fake.Requests()
@@ -256,7 +256,7 @@ func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.
 			session, _ := newFakeSession(t, client)
 			prompt := "use-tool [quirk:reasoning]"
 			result, err := session.Prompt(context.Background(), gotato.UserMessage(prompt))
-			if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "tool said: from-tool" {
+			if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "tool said: from-tool" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if !strings.Contains(gotato.ReasoningOf(session.Transcript().Messages()[1]), "thinking about: use-tool") {
@@ -269,7 +269,7 @@ func TestFakeReasoningIsReplayedAndTheFakeRefusesARequestThatDropsIt(t *testing.
 				kept := message
 				kept.Parts = nil
 				for _, part := range message.Parts {
-					if part.Kind != gotato.ContentReasoning {
+					if part.Kind != gotato.ContentKindReasoning {
 						kept.Parts = append(kept.Parts, part)
 					}
 				}
@@ -292,7 +292,7 @@ func TestFakeNoticeGoesAsAUserTurnOnEachWireAPI(t *testing.T) {
 	for _, wire := range fakeWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake, client := newFake(t, wire)
-			notice := gotato.NewNotice(gotato.NoticeFromService, "time_away", "You were away for an hour.")
+			notice := gotato.NewNotice(gotato.NoticeSourceService, "time_away", "You were away for an hour.")
 			_, err := drainFake(t, client, gotato.ModelRequest{SystemInstructions: "be brief", Messages: gotato.ForModel([]gotato.Message{
 				gotato.UserMessage("first"), gotato.AssistantMessage("answer"), gotato.UserMessage("second"), notice})})
 			if err != nil {

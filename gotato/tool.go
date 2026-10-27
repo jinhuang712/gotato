@@ -23,35 +23,35 @@ type ToolSpec struct {
 }
 
 // ToolEffect classifies a tool's side effects, ordered by impact:
-// EffectRead < EffectWriteLocal < EffectWriteExternal < EffectDestructive.
+// ToolEffectRead < ToolEffectWriteLocal < ToolEffectWriteExternal < ToolEffectDestructive.
 // An application uses it to choose the tools an agent loads, or to gate a
 // call in a PreToolUse extension.
 type ToolEffect string
 
 const (
-	// EffectUnspecified ranks as EffectDestructive, so filters fail closed.
-	EffectUnspecified ToolEffect = ""
-	// EffectRead observes state and changes nothing.
-	EffectRead ToolEffect = "read"
-	// EffectWriteLocal changes local, recoverable state such as files in a
+	// ToolEffectUnspecified ranks as ToolEffectDestructive, so filters fail closed.
+	ToolEffectUnspecified ToolEffect = ""
+	// ToolEffectRead observes state and changes nothing.
+	ToolEffectRead ToolEffect = "read"
+	// ToolEffectWriteLocal changes local, recoverable state such as files in a
 	// working directory.
-	EffectWriteLocal ToolEffect = "write_local"
-	// EffectWriteExternal changes state outside the host, such as a remote
+	ToolEffectWriteLocal ToolEffect = "write_local"
+	// ToolEffectWriteExternal changes state outside the host, such as a remote
 	// API, a message, or a push.
-	EffectWriteExternal ToolEffect = "write_external"
-	// EffectDestructive deletes or overwrites state that is hard to recover.
-	EffectDestructive ToolEffect = "destructive"
+	ToolEffectWriteExternal ToolEffect = "write_external"
+	// ToolEffectDestructive deletes or overwrites state that is hard to recover.
+	ToolEffectDestructive ToolEffect = "destructive"
 )
 
-// rank orders effects by impact, from 1 for EffectRead to 4 for
-// EffectDestructive. EffectUnspecified and unknown values rank 4.
+// rank orders effects by impact, from 1 for ToolEffectRead to 4 for
+// ToolEffectDestructive. ToolEffectUnspecified and unknown values rank 4.
 func (e ToolEffect) rank() int {
 	switch e {
-	case EffectRead:
+	case ToolEffectRead:
 		return 1
-	case EffectWriteLocal:
+	case ToolEffectWriteLocal:
 		return 2
-	case EffectWriteExternal:
+	case ToolEffectWriteExternal:
 		return 3
 	default:
 		return 4
@@ -61,10 +61,10 @@ func (e ToolEffect) rank() int {
 // Within reports whether e is at or below ceiling.
 func (e ToolEffect) Within(ceiling ToolEffect) bool { return e.rank() <= ceiling.rank() }
 
-// Valid reports whether e is EffectUnspecified or one of the named effects.
+// Valid reports whether e is ToolEffectUnspecified or one of the named effects.
 func (e ToolEffect) Valid() bool {
 	switch e {
-	case EffectUnspecified, EffectRead, EffectWriteLocal, EffectWriteExternal, EffectDestructive:
+	case ToolEffectUnspecified, ToolEffectRead, ToolEffectWriteLocal, ToolEffectWriteExternal, ToolEffectDestructive:
 		return true
 	}
 	return false

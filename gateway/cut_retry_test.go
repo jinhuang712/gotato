@@ -87,13 +87,13 @@ func TestCutAfterTextIsRetriedAndTheRunCompletes(t *testing.T) {
 	)
 	session, recorder := cutSession(t, server, 2)
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "the whole answer" {
+	if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "the whole answer" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
-	if len(recorder.OfKind(gotato.KindModelRetried)) != 1 {
+	if len(recorder.OfKind(gotato.EventKindModelRetried)) != 1 {
 		t.Fatalf("model_retried Events: %v", recorder.Kinds())
 	}
-	cut := recorder.OfKind(gotato.KindReplyCutOff)
+	cut := recorder.OfKind(gotato.EventKindReplyCutOff)
 	if len(cut) != 1 || gotato.TextOf(cut[0].(gotato.ReplyCutOff).Message) != "half an answ" {
 		t.Fatalf("the cut-off reply is not kept as a log: %v", recorder.Kinds())
 	}
@@ -101,11 +101,11 @@ func TestCutAfterTextIsRetriedAndTheRunCompletes(t *testing.T) {
 	order := []gotato.EventKind{}
 	for _, kind := range recorder.Kinds() {
 		switch kind {
-		case gotato.KindModelRetried, gotato.KindReplyCutOff, gotato.KindReplyStarted, gotato.KindReplyEnded:
+		case gotato.EventKindModelRetried, gotato.EventKindReplyCutOff, gotato.EventKindReplyStarted, gotato.EventKindReplyEnded:
 			order = append(order, kind)
 		}
 	}
-	want := []gotato.EventKind{gotato.KindReplyStarted, gotato.KindModelRetried, gotato.KindReplyCutOff, gotato.KindReplyStarted, gotato.KindReplyEnded}
+	want := []gotato.EventKind{gotato.EventKindReplyStarted, gotato.EventKindModelRetried, gotato.EventKindReplyCutOff, gotato.EventKindReplyStarted, gotato.EventKindReplyEnded}
 	if strings.Join(kindStrings(order), ",") != strings.Join(kindStrings(want), ",") {
 		t.Fatalf("events = %v, want %v", order, want)
 	}
@@ -124,7 +124,7 @@ func TestCutAfterTextIsRetriedAndTheRunCompletes(t *testing.T) {
 	}
 	cutOffs := 0
 	for _, message := range session.Transcript().Messages() {
-		if message.StopReason == gotato.StopCutOff {
+		if message.StopReason == gotato.StopReasonCutOff {
 			cutOffs++
 		}
 	}
@@ -153,10 +153,10 @@ func TestCutInsideAToolCallsArgumentsIsRetried(t *testing.T) {
 	tool := testkit.NewFakeTool("echo", "echoed")
 	session, recorder := cutSession(t, server, 2, gotato.WithTools(tool))
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "done" {
+	if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "done" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
-	if len(recorder.OfKind(gotato.KindModelRetried)) != 1 {
+	if len(recorder.OfKind(gotato.EventKindModelRetried)) != 1 {
 		t.Fatalf("model_retried Events: %v", recorder.Kinds())
 	}
 	if uses := tool.Uses(); len(uses) != 1 {
@@ -175,17 +175,17 @@ func TestCutsBeyondTheLimitFailTheRunWithModelFailure(t *testing.T) {
 	server := newCutServer(t, cutScript{chunks: chatText("partial"), cut: true})
 	session, recorder := cutSession(t, server, 2)
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.CodeModelFailure {
+	if err == nil || result.Status != gotato.RunStatusFailed || result.Error == nil || result.Error.Code != gotato.CodeModelFailure {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	if got := len(server.requests()); got != 3 {
 		t.Fatalf("requests = %d, want 1 + MaxRetries", got)
 	}
-	if got := len(recorder.OfKind(gotato.KindModelRetried)); got != 2 {
+	if got := len(recorder.OfKind(gotato.EventKindModelRetried)); got != 2 {
 		t.Fatalf("model_retried Events = %d, want 2", got)
 	}
 	// Two cut-off replies were retried; the last one fails the Run.
-	if got := len(recorder.OfKind(gotato.KindReplyCutOff)); got != 3 {
+	if got := len(recorder.OfKind(gotato.EventKindReplyCutOff)); got != 3 {
 		t.Fatalf("reply_cut_off Events = %d, want 3: %v", got, recorder.Kinds())
 	}
 }
@@ -221,12 +221,12 @@ func TestCutAfterOutputIsNotRetriedWhenTheRunIsCanceled(t *testing.T) {
 		session.Abort()
 	}()
 	result, _ := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if result.Status != gotato.RunCanceled {
+	if result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("status = %q, want canceled", result.Status)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if calls != 1 || len(recorder.OfKind(gotato.KindModelRetried)) != 0 {
+	if calls != 1 || len(recorder.OfKind(gotato.EventKindModelRetried)) != 0 {
 		t.Fatalf("a canceled Run was retried: %d calls, %v", calls, recorder.Kinds())
 	}
 }
@@ -267,12 +267,12 @@ func TestInterruptDuringStreamingIsNotRetriedAsACut(t *testing.T) {
 		_ = session.Interrupt(gotato.UserMessage("stop that"))
 	}()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err != nil || result.Status != gotato.RunCompleted {
+	if err != nil || result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if calls != 2 || len(recorder.OfKind(gotato.KindModelRetried)) != 0 {
+	if calls != 2 || len(recorder.OfKind(gotato.EventKindModelRetried)) != 0 {
 		t.Fatalf("an Interrupt was retried as a cut: %d calls, %v", calls, recorder.Kinds())
 	}
 }
@@ -287,10 +287,10 @@ func TestCutAfterReasoningIsRetried(t *testing.T) {
 	)
 	session, recorder := cutSession(t, server, 2)
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "answer" {
+	if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "answer" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
-	if len(recorder.OfKind(gotato.KindModelRetried)) != 1 || strings.Contains(gotato.ReasoningOf(*result.FinalMessage), "thinking") {
+	if len(recorder.OfKind(gotato.EventKindModelRetried)) != 1 || strings.Contains(gotato.ReasoningOf(*result.FinalMessage), "thinking") {
 		t.Fatalf("events %v, final %+v", recorder.Kinds(), result.FinalMessage)
 	}
 }

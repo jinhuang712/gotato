@@ -35,7 +35,7 @@ func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
 	id, wait := running(t, a, g)
 
-	resp, err := forwardMessage(context.Background(), b.runner, http.DefaultClient, service.MessageRequest{SessionID: id, Kind: service.MessageSteer, Text: "via the embedder"}, false)
+	resp, err := forwardMessage(context.Background(), b.runner, http.DefaultClient, service.MessageRequest{SessionID: id, Kind: service.MessageKindSteer, Text: "via the embedder"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,7 +55,7 @@ func recvAll(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent, erro
 func textOf(events []gotato.ModelEvent) string {
 	var b strings.Builder
 	for _, e := range events {
-		if e.Kind == gotato.ModelTextDelta {
+		if e.Kind == gotato.ModelEventKindTextDelta {
 			b.WriteString(e.Text)
 		}
 	}
@@ -99,7 +99,7 @@ func TestStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("stream failed instead of restarting: %v", err)
 			}
-			if textOf(events) != "ok" || events[len(events)-1].Kind != gotato.ModelDone {
+			if textOf(events) != "ok" || events[len(events)-1].Kind != gotato.ModelEventKindDone {
 				t.Fatalf("events = %+v", events)
 			}
 			if calls.Load() != 2 {
@@ -216,7 +216,7 @@ func TestStreamToleratesMissingDoneAfterFinishReason(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 	events, err := recvAll(t, stream)
-	if err != nil || textOf(events) != "done" || events[len(events)-1].Kind != gotato.ModelDone {
+	if err != nil || textOf(events) != "done" || events[len(events)-1].Kind != gotato.ModelEventKindDone {
 		t.Fatalf("events = %+v, err = %v", events, err)
 	}
 	if calls.Load() != 1 {
@@ -321,7 +321,7 @@ func TestAnthropicStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 	events, err := recvAll(t, stream)
-	if err != nil || textOf(events) != "ok" || events[len(events)-1].Kind != gotato.ModelDone {
+	if err != nil || textOf(events) != "ok" || events[len(events)-1].Kind != gotato.ModelEventKindDone {
 		t.Fatalf("events = %+v, err = %v", events, err)
 	}
 	if calls.Load() != 2 {

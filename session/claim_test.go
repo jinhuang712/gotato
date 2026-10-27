@@ -22,7 +22,7 @@ func TestCheckpointKeepsTheClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wa.Record().Checkpoint(gotato.CompactionPastCeiling, []gotato.Message{gotato.UserMessage("summary")}, nil)
+	wa.Record().Checkpoint(gotato.CompactionWhyPastCeiling, []gotato.Message{gotato.UserMessage("summary")}, nil)
 	if err := wa.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}

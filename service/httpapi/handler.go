@@ -250,7 +250,7 @@ func (h *Handler) agents(w http.ResponseWriter, _ *http.Request) {
 	names := h.runner.Agents()
 	caps := map[string]gotato.ToolEffect{}
 	for _, name := range names {
-		if spec, ok := h.runner.Agent(name); ok && spec.MaxEffect != gotato.EffectUnspecified {
+		if spec, ok := h.runner.Agent(name); ok && spec.MaxEffect != gotato.ToolEffectUnspecified {
 			caps[name] = spec.MaxEffect
 		}
 	}
@@ -471,7 +471,7 @@ func writeEvent(w http.ResponseWriter, flusher http.Flusher, event gotato.Event)
 		return err
 	}
 	var id string
-	if number := event.Head().Number; number > 0 && event.Kind().Class() == gotato.ClassStored {
+	if number := event.Head().Number; number > 0 && event.Kind().Class() == gotato.EventClassStored {
 		id = "id: " + strconv.FormatUint(number, 10) + "\n"
 	}
 	if _, err := fmt.Fprintf(w, "%sevent: %s\ndata: %s\n\n", id, event.Kind(), data); err != nil {

@@ -46,7 +46,7 @@ func numbers(t *testing.T, sub Subscription, count int) []uint64 {
 func TestEventJSONIsFlatAndRoundTrips(t *testing.T) {
 	ended := RunEnded{
 		Header: Header{Time: time.Date(2026, 10, 18, 1, 2, 3, 0, time.UTC), SessionID: "s1", Number: 7, RunID: "r1", Turn: 2},
-		Status: RunFailed, Cause: CodeModelFailure, Turns: 2, Usage: Usage{InputTokens: 5},
+		Status: RunStatusFailed, Cause: CodeModelFailure, Turns: 2, Usage: Usage{InputTokens: 5},
 	}
 	data, err := MarshalEvent(ended)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestSlowSubscriberCatchesUpFromTheRecord(t *testing.T) {
 		default:
 		}
 		event := next(t, sub)
-		if event.Kind().Class() == ClassStored {
+		if event.Kind().Class() == EventClassStored {
 			stored = append(stored, event.Head().Number)
 		}
 	}

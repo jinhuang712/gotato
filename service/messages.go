@@ -16,26 +16,26 @@ import (
 type MessageKind string
 
 const (
-	// MessageSteer is read on the Run's next model call, at the next Turn
+	// MessageKindSteer is read on the Run's next model call, at the next Turn
 	// boundary.
-	MessageSteer MessageKind = "steer"
-	// MessageFollowUp is picked up where the Run would otherwise settle, so
+	MessageKindSteer MessageKind = "steer"
+	// MessageKindFollowUp is picked up where the Run would otherwise settle, so
 	// the same Run goes on.
-	MessageFollowUp MessageKind = "follow_up"
-	// MessageInterrupt cancels the model call in flight, lets a running tool
+	MessageKindFollowUp MessageKind = "follow_up"
+	// MessageKindInterrupt cancels the model call in flight, lets a running tool
 	// finish, and starts the next Turn of the same Run with the message.
-	MessageInterrupt MessageKind = "interrupt"
+	MessageKindInterrupt MessageKind = "interrupt"
 )
 
 // Valid reports whether k is one of the kinds above.
 func (k MessageKind) Valid() bool {
-	return k == MessageSteer || k == MessageFollowUp || k == MessageInterrupt
+	return k == MessageKindSteer || k == MessageKindFollowUp || k == MessageKindInterrupt
 }
 
 // MessageRequest is one message for a Session.
 type MessageRequest struct {
 	SessionID string
-	// Kind defaults to MessageSteer.
+	// Kind defaults to MessageKindSteer.
 	Kind MessageKind
 	Text string
 }
@@ -113,7 +113,7 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 		ctx = context.Background()
 	}
 	if request.Kind == "" {
-		request.Kind = MessageSteer
+		request.Kind = MessageKindSteer
 	}
 	switch {
 	case strings.TrimSpace(request.SessionID) == "":
@@ -267,9 +267,9 @@ func (h *runHandle) send(kind MessageKind, message gotato.Message) error {
 		return gotato.ErrorOf(gotato.CodeInvalidState, "service: the run is over")
 	}
 	switch kind {
-	case MessageFollowUp:
+	case MessageKindFollowUp:
 		return live.FollowUp(message)
-	case MessageInterrupt:
+	case MessageKindInterrupt:
 		return live.Interrupt(message)
 	default:
 		return live.Steer(message)

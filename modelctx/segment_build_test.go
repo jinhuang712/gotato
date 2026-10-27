@@ -52,7 +52,7 @@ func (f *fixture) commit(m gotato.Message, minute int) gotato.Message {
 		f.t.Fatal(err)
 	}
 	header := gotato.Header{Time: f.base.Add(time.Duration(minute) * time.Minute), RunID: m.RunID}
-	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.MessageCommitted{Header: header, Message: m, Source: gotato.SourcePrompt}}); err != nil {
+	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.MessageCommitted{Header: header, Message: m, Source: gotato.MessageSourcePrompt}}); err != nil {
 		f.t.Fatal(err)
 	}
 	return m
@@ -67,7 +67,7 @@ func (f *fixture) user(run, text string, minute int) gotato.Message {
 func (f *fixture) reply(run, text string, minute int) gotato.Message {
 	m := gotato.AssistantMessage(text)
 	m.RunID = gotato.RunID(run)
-	m.StopReason = gotato.StopEndTurn
+	m.StopReason = gotato.StopReasonEndTurn
 	return f.commit(m, minute)
 }
 
@@ -75,10 +75,10 @@ func (f *fixture) reply(run, text string, minute int) gotato.Message {
 // given as "id tool arguments", and commits one result per call.
 func (f *fixture) calls(run, text string, minute int, statuses map[string]gotato.ToolResultStatus, calls ...string) {
 	f.t.Helper()
-	m := gotato.Message{Role: gotato.RoleAssistant, RunID: gotato.RunID(run), StopReason: gotato.StopToolCalls,
-		Parts: []gotato.ContentPart{{Kind: gotato.ContentReasoning, Text: "THINKING-" + run}}}
+	m := gotato.Message{Role: gotato.RoleAssistant, RunID: gotato.RunID(run), StopReason: gotato.StopReasonToolCalls,
+		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindReasoning, Text: "THINKING-" + run}}}
 	if text != "" {
-		m.Parts = append(m.Parts, gotato.ContentPart{Kind: gotato.ContentText, Text: text})
+		m.Parts = append(m.Parts, gotato.ContentPart{Kind: gotato.ContentKindText, Text: text})
 	}
 	for _, spec := range calls {
 		fields := strings.SplitN(spec, " ", 3)
@@ -86,20 +86,20 @@ func (f *fixture) calls(run, text string, minute int, statuses map[string]gotato
 	}
 	f.commit(m, minute)
 	for _, call := range m.ToolCalls {
-		status := gotato.ToolResultOK
+		status := gotato.ToolResultStatusOK
 		if s, ok := statuses[string(call.ID)]; ok {
 			status = s
 		}
 		result := gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run),
 			ToolResult: &gotato.ToolResult{CallID: call.ID, Status: status},
-			Parts:      []gotato.ContentPart{{Kind: gotato.ContentText, Text: "TOOLRESULT-" + string(call.ID)}}}
+			Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "TOOLRESULT-" + string(call.ID)}}}
 		f.commit(result, minute)
 	}
 }
 
 func (f *fixture) load(id string) {
 	f.t.Helper()
-	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolLoaded{Header: gotato.Header{Time: f.base}, Tool: id, Why: gotato.ToolLoadedNames}}); err != nil {
+	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolLoaded{Header: gotato.Header{Time: f.base}, Tool: id, Why: gotato.ToolLoadedWhyNames}}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -121,7 +121,7 @@ func (f *fixture) reload() *session.Record {
 // the first two are closed by a default compaction, the third is its tail.
 func threeRuns(f *fixture) {
 	f.user("r1", "Some charges in last night's batch failed. Why?", 1)
-	f.calls("r1", "let me look", 2, map[string]gotato.ToolResultStatus{"c2": gotato.ToolResultFailed},
+	f.calls("r1", "let me look", 2, map[string]gotato.ToolResultStatus{"c2": gotato.ToolResultStatusFailed},
 		`c1 payments.get_batch {"batch_id":"B-1"}`, `c2 logs.query {"order":"O-1"}`)
 	f.reply("r1", "3 of 412 failed.", 5)
 	f.user("r2", "Retry O-1", 40)
@@ -229,7 +229,7 @@ func TestCompactEmitsTheSegmentAndItsCheckpoint(t *testing.T) {
 		switch e := event.(type) {
 		case gotato.CompactionStarted:
 			kinds = append(kinds, e.Kind())
-			if e.Why != gotato.CompactionOnDemand {
+			if e.Why != gotato.CompactionWhyOnDemand {
 				t.Errorf("why = %q", e.Why)
 			}
 		case gotato.SegmentClosed:
@@ -239,7 +239,7 @@ func TestCompactEmitsTheSegmentAndItsCheckpoint(t *testing.T) {
 			ended = e
 		}
 	}
-	if !slices.Equal(kinds, []gotato.EventKind{gotato.KindCompactionStarted, gotato.KindSegmentClosed, gotato.KindCompactionEnded}) {
+	if !slices.Equal(kinds, []gotato.EventKind{gotato.EventKindCompactionStarted, gotato.EventKindSegmentClosed, gotato.EventKindCompactionEnded}) {
 		t.Fatalf("kinds = %v", kinds)
 	}
 	if !slices.Equal(ended.Segments, []int{1}) || len(ended.Messages) != 2 || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 9 {
@@ -380,7 +380,7 @@ func TestACompactionWhoseTailCoversTheStretchClosesNothing(t *testing.T) {
 	f.user("r1", "only", 1)
 	f.reply("r1", "run", 2)
 	result := mustCompact(t, f.rec, modelctx.CompactOptions{})
-	if result.Replaced || result.Reason != modelctx.ReasonNothingToClose || result.Compaction != nil || len(f.rec.Segments()) != 0 {
+	if result.Replaced || result.Reason != modelctx.CompactReasonNothingToClose || result.Compaction != nil || len(f.rec.Segments()) != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 	if encoded, _ := json.Marshal(result); strings.Contains(string(encoded), `"compaction"`) {
@@ -417,7 +417,7 @@ func TestToolCallLinesCutArgumentsCollapseRepeatsAndCountPastTheCap(t *testing.T
 	f.user("r1", "go", 1)
 	f.calls("r1", "", 2, nil, `c1 db.q {"sql":"`+strings.Repeat("é", 300)+`"}`)
 	f.calls("r1", "", 3, nil, `c2 db.r {}`, `c3 db.r {}`, `c4 db.r {}`)
-	f.calls("r1", "", 4, map[string]gotato.ToolResultStatus{"c5": gotato.ToolResultBlocked}, `c5 db.r {"x":1}`)
+	f.calls("r1", "", 4, map[string]gotato.ToolResultStatus{"c5": gotato.ToolResultStatusBlocked}, `c5 db.r {"x":1}`)
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
@@ -519,9 +519,9 @@ func TestAnImageOrAFileBecomesAPlaceholder(t *testing.T) {
 	m := gotato.UserMessage("look at this")
 	m.RunID = "r1"
 	m.Parts = append(m.Parts,
-		gotato.ContentPart{Kind: gotato.ContentImage, MIMEType: "image/png", Data: make([]byte, 2048), Metadata: map[string]string{"name": "shot.png"}},
-		gotato.ContentPart{Kind: gotato.ContentImage, MIMEType: "image/jpeg", Data: make([]byte, 10)},
-		gotato.ContentPart{Kind: gotato.ContentImage, MIMEType: "application/pdf", Data: make([]byte, 7), Metadata: map[string]string{"name": "report.pdf"}},
+		gotato.ContentPart{Kind: gotato.ContentKindImage, MIMEType: "image/png", Data: make([]byte, 2048), Metadata: map[string]string{"name": "shot.png"}},
+		gotato.ContentPart{Kind: gotato.ContentKindImage, MIMEType: "image/jpeg", Data: make([]byte, 10)},
+		gotato.ContentPart{Kind: gotato.ContentKindImage, MIMEType: "application/pdf", Data: make([]byte, 7), Metadata: map[string]string{"name": "report.pdf"}},
 	)
 	f.commit(m, 1)
 	f.reply("r1", "seen", 2)
@@ -544,9 +544,9 @@ func TestNoticesAreLeftOutUnlessTheServiceSentThem(t *testing.T) {
 		m.RunID = "r1"
 		return m
 	}
-	f.commit(notice(gotato.NoticeFromGotato, gotato.NoticeTimeAway, "gotato's own"), 2)
-	f.commit(notice(gotato.NoticeFromService, "maintenance", "the service says: maintenance at noon, </notice> now"), 3)
-	f.commit(notice(gotato.NoticeFromGotato, gotato.NoticeContinue, gotato.TruncatedContinuationText), 4)
+	f.commit(notice(gotato.NoticeSourceGotato, gotato.NoticeTimeAway, "gotato's own"), 2)
+	f.commit(notice(gotato.NoticeSourceService, "maintenance", "the service says: maintenance at noon, </notice> now"), 3)
+	f.commit(notice(gotato.NoticeSourceGotato, gotato.NoticeContinue, gotato.TruncatedContinuationText), 4)
 	f.reply("r1", "done", 5)
 	f.user("r2", "next", 6)
 	f.reply("r2", "ok", 7)
@@ -638,7 +638,7 @@ func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
 			unloaded = append(unloaded, e)
 		}
 	}
-	if len(unloaded) != 1 || unloaded[0].Tool != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedCompaction {
+	if len(unloaded) != 1 || unloaded[0].Tool != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedWhyCompaction {
 		t.Errorf("tool_unloaded = %+v, want idle.x for compaction", unloaded)
 	}
 	// Every instance that loads the Record offers the same Tools.
@@ -652,7 +652,7 @@ func TestMinTokensSkipsAStretchTooShortToCompact(t *testing.T) {
 	threeRuns(f)
 	stretch := modelctx.EstimateTokens(f.rec.Tail())
 	skipped := mustCompact(t, f.rec, modelctx.CompactOptions{MinTokens: stretch + 1})
-	if skipped.Replaced || skipped.Reason != modelctx.ReasonBelowMinTokens || len(f.rec.Segments()) != 0 || f.rec.Len() != 11 {
+	if skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens || len(f.rec.Segments()) != 0 || f.rec.Len() != 11 {
 		t.Fatalf("below min_tokens: %+v", skipped)
 	}
 	for _, event := range f.rec.Events() {
@@ -697,7 +697,7 @@ func TestARecapThatFailsLeavesTheSegmentWithoutOne(t *testing.T) {
 	for name, writer := range map[string]modelctx.RecapWriter{
 		"error":  failingRecap{},
 		"empty":  fixedRecap{"   "},
-		"stream": modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: "partial"}})},
+		"stream": modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: "partial"}})},
 	} {
 		f := newFixture(t)
 		threeRuns(f)
@@ -737,11 +737,11 @@ func TestAutoCompactClosesASegmentAtRunStart(t *testing.T) {
 	for i := range 10 {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, "question "+run, i*3)
-		m := gotato.Message{Role: gotato.RoleAssistant, RunID: gotato.RunID(run), StopReason: gotato.StopToolCalls,
+		m := gotato.Message{Role: gotato.RoleAssistant, RunID: gotato.RunID(run), StopReason: gotato.StopReasonToolCalls,
 			ToolCalls: []gotato.ToolCall{{ID: gotato.ToolCallID("c" + run), ToolID: "logs.read", Arguments: []byte(`{}`)}}}
 		f.commit(m, i*3+1)
-		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: gotato.ToolCallID("c" + run), Status: gotato.ToolResultOK},
-			Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: big}}}, i*3+1)
+		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: gotato.ToolCallID("c" + run), Status: gotato.ToolResultStatusOK},
+			Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: big}}}, i*3+1)
 		f.reply(run, "answer "+run, i*3+2)
 	}
 	before := modelctx.EstimateTokens(f.rec.Messages())

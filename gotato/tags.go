@@ -29,7 +29,7 @@ const jsonLessThan = "\x5cu003c"
 // hasTagMeta reports whether any Part of messages is marked MetaTag.
 func hasTagMeta(messages []Message) bool {
 	for _, message := range messages {
-		if message.Role == RoleNotice && message.StopReason != StopCutOff {
+		if message.Role == RoleNotice && message.StopReason != StopReasonCutOff {
 			return true
 		}
 		for _, part := range message.Parts {

@@ -11,7 +11,7 @@ import (
 )
 
 func thinking(label string) gotato.ContentPart {
-	return gotato.ContentPart{Kind: gotato.ContentReasoning, Text: "think-" + label, Signature: []byte(`{"type":"thinking","signature":"sig-` + label + `"}`)}
+	return gotato.ContentPart{Kind: gotato.ContentKindReasoning, Text: "think-" + label, Signature: []byte(`{"type":"thinking","signature":"sig-` + label + `"}`)}
 }
 
 // reasoningSession holds two Rounds whose replies all carry reasoning. A
@@ -19,11 +19,11 @@ func thinking(label string) gotato.ContentPart {
 func reasoningSession(t *testing.T) *session.Record {
 	t.Helper()
 	call := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{thinking("r2")},
-		ToolCalls: []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}, StopReason: gotato.StopToolCalls}
-	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultOK},
-		Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "done"}}}
+		ToolCalls: []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}, StopReason: gotato.StopReasonToolCalls}
+	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "done"}}}
 	answer := func(label, text string) gotato.Message {
-		return gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{thinking(label), {Kind: gotato.ContentText, Text: text}}, StopReason: gotato.StopEndTurn}
+		return gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{thinking(label), {Kind: gotato.ContentKindText, Text: text}}, StopReason: gotato.StopReasonEndTurn}
 	}
 	s := session.New()
 	for _, message := range []gotato.Message{
@@ -41,7 +41,7 @@ func reasoningParts(messages []gotato.Message) int {
 	count := 0
 	for _, message := range messages {
 		for _, part := range message.Parts {
-			if part.Kind == gotato.ContentReasoning {
+			if part.Kind == gotato.ContentKindReasoning {
 				count++
 			}
 		}

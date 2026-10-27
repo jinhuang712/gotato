@@ -55,7 +55,7 @@ func runEvent(kind string, runID gotato.RunID, at time.Time) gotato.Event {
 	if kind == "start" {
 		return gotato.RunStarted{Header: hd}
 	}
-	return gotato.RunEnded{Header: hd, Status: gotato.RunCompleted, Turns: 1, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
+	return gotato.RunEnded{Header: hd, Status: gotato.RunStatusCompleted, Turns: 1, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
 }
 
 func TestEntriesRebuildEveryChange(t *testing.T) {
@@ -84,9 +84,9 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 	}
 	got := layers(entries)
 	want := map[gotato.EventKind]session.Layer{
-		gotato.KindSessionCreated: session.LayerFact, gotato.KindMessageCommitted: session.LayerFact,
-		gotato.KindMetadataChanged: session.LayerFact, gotato.KindReplyEnded: session.LayerFact,
-		gotato.KindRunStarted: session.LayerLog, gotato.KindRunEnded: session.LayerLog,
+		gotato.EventKindSessionCreated: session.LayerFact, gotato.EventKindMessageCommitted: session.LayerFact,
+		gotato.EventKindMetadataChanged: session.LayerFact, gotato.EventKindReplyEnded: session.LayerFact,
+		gotato.EventKindRunStarted: session.LayerLog, gotato.EventKindRunEnded: session.LayerLog,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry layers = %v, want %v", got, want)
@@ -99,7 +99,7 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 	if rebuilt.Head() != uint64(len(entries)) {
 		t.Fatalf("Head = %d, want %d", rebuilt.Head(), len(entries))
 	}
-	if runs := rebuilt.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunCompleted || rebuilt.Usage().TotalTokens != 12 {
+	if runs := rebuilt.Runs(); len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted || rebuilt.Usage().TotalTokens != 12 {
 		t.Fatalf("rebuilt Runs = %+v usage = %+v", runs, rebuilt.Usage())
 	}
 	// The window of Events a rebuilt Record keeps is typed and numbered by position.
@@ -145,16 +145,16 @@ func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
 		commit(t, r, gotato.UserMessage(text))
 	}
 	summary := gotato.AssistantMessage("summary of one and two")
-	r.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &session.Compaction{ReplacedMessages: 2, Recap: "test"})
+	r.Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &session.Compaction{ReplacedMessages: 2, Recap: "test"})
 	commit(t, r, gotato.UserMessage("four"))
 	entries := session.TakePending(r)
 
 	last := -1
 	for i, entry := range entries {
-		if entry.Kind == gotato.KindCompactionEnded {
+		if entry.Kind == gotato.EventKindCompactionEnded {
 			last = i
 		}
-		if entry.IsCheckpoint() != (entry.Kind == gotato.KindSessionCreated || entry.Kind == gotato.KindCompactionEnded) {
+		if entry.IsCheckpoint() != (entry.Kind == gotato.EventKindSessionCreated || entry.Kind == gotato.EventKindCompactionEnded) {
 			t.Fatalf("%s: IsCheckpoint = %v", entry.Kind, entry.IsCheckpoint())
 		}
 	}
@@ -198,11 +198,11 @@ func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
 	var kinds []gotato.EventKind
 	for _, entry := range session.TakePending(r) {
 		kinds = append(kinds, entry.Kind)
-		if entry.Kind == gotato.KindMessageCommitted || entry.Kind == gotato.KindReplyEnded {
+		if entry.Kind == gotato.EventKindMessageCommitted || entry.Kind == gotato.EventKindReplyEnded {
 			t.Fatalf("compaction rewrote Messages one by one: %+v", entry)
 		}
 	}
-	if want := []gotato.EventKind{gotato.KindCompactionStarted, gotato.KindSegmentClosed, gotato.KindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
+	if want := []gotato.EventKind{gotato.EventKindCompactionStarted, gotato.EventKindSegmentClosed, gotato.EventKindCompactionEnded}; !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}
 }
@@ -257,7 +257,7 @@ func TestSetSameValueAppendsNothing(t *testing.T) {
 		t.Fatalf("Set without a change queued %+v", entries)
 	}
 	r.Set("agent", "sales")
-	if entries := session.TakePending(r); len(entries) != 1 || entries[0].Kind != gotato.KindMetadataChanged {
+	if entries := session.TakePending(r); len(entries) != 1 || entries[0].Kind != gotato.EventKindMetadataChanged {
 		t.Fatalf("Set with a change queued %+v", entries)
 	}
 }

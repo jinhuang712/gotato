@@ -31,7 +31,7 @@ func readUntilEnd(stream gotato.Subscription) <-chan streamEnd {
 				ended <- end
 				return
 			}
-			if event.Kind().Class() == gotato.ClassStored {
+			if event.Kind().Class() == gotato.EventClassStored {
 				end.numbers = append(end.numbers, event.Head().Number)
 			}
 		}

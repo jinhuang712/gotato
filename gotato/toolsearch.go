@@ -82,7 +82,7 @@ func (t *searchTool) Spec() ToolSpec {
 		InputSchema: schema,
 		// It changes only which Tools the Model sees, and those Tools pass
 		// the Effect cap like any other, so it stays visible under every cap.
-		Effect: EffectRead,
+		Effect: ToolEffectRead,
 	}
 }
 
@@ -106,7 +106,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	}
 	for _, name := range input.Names {
 		name = strings.TrimSpace(name)
-		switch t.registry.stageLoad(name, ToolLoadedNames) {
+		switch t.registry.stageLoad(name, ToolLoadedWhyNames) {
 		case loadStaged:
 			add(&loaded, name)
 		case loadAlready:
@@ -128,7 +128,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		for i, id := range ranked {
 			switch {
 			case i < searchLoadCount:
-				if t.registry.stageLoad(id, ToolLoadedQuery) == loadStaged {
+				if t.registry.stageLoad(id, ToolLoadedWhyQuery) == loadStaged {
 					add(&loaded, id)
 				}
 			case i < searchLoadCount+searchListCount:
@@ -157,8 +157,8 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		parts = append(parts, t.registry.describeSet(name))
 	}
 	return ToolResult{
-		Status:  ToolResultOK,
-		Content: []ContentPart{{Kind: ContentText, Text: strings.Join(parts, " ")}},
+		Status:  ToolResultStatusOK,
+		Content: []ContentPart{{Kind: ContentKindText, Text: strings.Join(parts, " ")}},
 		Loaded:  loaded,
 	}, nil
 }

@@ -337,7 +337,7 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 		}
 		for _, part := range message.Parts {
 			switch part.Kind {
-			case gotato.ContentReasoning:
+			case gotato.ContentKindReasoning:
 				if len(part.Signature) == 0 || !keepReasoning {
 					continue
 				}
@@ -347,9 +347,9 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 				}
 				flushText()
 				items = append(items, reasoning)
-			case gotato.ContentText:
+			case gotato.ContentKindText:
 				text.WriteString(part.Text)
-			case gotato.ContentImage, gotato.ContentJSON:
+			case gotato.ContentKindImage, gotato.ContentKindJSON:
 				if len(part.Data) > 0 || part.Text != "" {
 					return nil, fmt.Errorf("gateway: Responses assistant content kind %q is unsupported", part.Kind)
 				}
@@ -425,11 +425,11 @@ func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 	content := make([]any, 0, len(parts))
 	for _, part := range parts {
 		switch part.Kind {
-		case gotato.ContentText:
+		case gotato.ContentKindText:
 			if part.Text != "" {
 				content = append(content, map[string]any{"type": "input_text", "text": part.Text})
 			}
-		case gotato.ContentImage:
+		case gotato.ContentKindImage:
 			if len(part.Data) == 0 {
 				continue
 			}
@@ -442,7 +442,7 @@ func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
 				"detail":    "auto",
 				"image_url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
 			})
-		case gotato.ContentReasoning, gotato.ContentJSON:
+		case gotato.ContentKindReasoning, gotato.ContentKindJSON:
 			if part.Text != "" || len(part.Data) > 0 {
 				return nil, fmt.Errorf("gateway: Responses user content kind %q is unsupported", part.Kind)
 			}
@@ -610,11 +610,11 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 	case "response.output_text.delta", "response.refusal.delta":
 		if event.Delta != "" {
 			s.texts[event.OutputIndex] = true
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: event.Delta})
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta})
 		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		if event.Delta != "" {
-			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDelta, Text: event.Delta})
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.Delta})
 		}
 	case "response.function_call_arguments.delta":
 		call := s.calls[event.OutputIndex]
@@ -719,13 +719,13 @@ func (s *responsesStream) finishResponsesItem(index int, item responsesOutputIte
 		if err == nil && len(raw) > 0 {
 			artifact = append([]byte(nil), raw...)
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelReasoningDone, ReasoningArtifact: artifact})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDone, ReasoningArtifact: artifact})
 		return
 	}
 	if item.Type == "message" && !s.texts[index] {
 		for _, content := range item.Content {
 			if content.Type == "output_text" && content.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: content.Text})
+				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: content.Text})
 			}
 		}
 		return
@@ -760,7 +760,7 @@ func (s *responsesStream) emitResponsesCall(index int) {
 		name = original
 	}
 	// Validate before marking emitted: a call that cannot be delivered must
-	// not make finishResponsesResponse report StopToolCalls.
+	// not make finishResponsesResponse report StopReasonToolCalls.
 	if name == "" || call.callID == "" {
 		return
 	}
@@ -775,7 +775,7 @@ func (s *responsesStream) emitResponsesCall(index int) {
 	if call.id != "" {
 		toolCall.Signature = []byte(call.id)
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelToolCall, ToolCall: toolCall})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: toolCall})
 }
 
 func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
@@ -795,7 +795,7 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 	for _, index := range indices {
 		// A call that the output limit cut off has incomplete arguments, so
 		// it is not delivered.
-		if stop == gotato.StopMaxTokens && !s.calls[index].argumentsDone {
+		if stop == gotato.StopReasonMaxTokens && !s.calls[index].argumentsDone {
 			continue
 		}
 		s.emitResponsesCall(index)
@@ -810,17 +810,17 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 			usage.CacheReadTokens = details.CachedTokens
 			usage.CacheWriteTokens = details.CacheWriteTokens
 		}
-		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: usage})
+		s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: usage})
 	}
-	// Delivered calls make the stop StopToolCalls, unless the output limit
-	// cut the response off: StopMaxTokens stays, so the agent learns it.
+	// Delivered calls make the stop StopReasonToolCalls, unless the output limit
+	// cut the response off: StopReasonMaxTokens stays, so the agent learns it.
 	for _, call := range s.calls {
-		if call.emitted && stop != gotato.StopMaxTokens {
-			stop = gotato.StopToolCalls
+		if call.emitted && stop != gotato.StopReasonMaxTokens {
+			stop = gotato.StopReasonToolCalls
 			break
 		}
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelDone, StopReason: stop, Model: s.model})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: stop, Model: s.model})
 	s.finished = true
 }
 
@@ -828,12 +828,12 @@ func responsesStopReason(status string, details *struct {
 	Reason string `json:"reason"`
 }) gotato.StopReason {
 	if status == "incomplete" && details != nil && details.Reason == "max_output_tokens" {
-		return gotato.StopMaxTokens
+		return gotato.StopReasonMaxTokens
 	}
 	if status == "failed" || status == "canceled" || (status == "incomplete" && (details == nil || details.Reason != "max_output_tokens")) {
-		return gotato.StopError
+		return gotato.StopReasonError
 	}
-	return gotato.StopEndTurn
+	return gotato.StopReasonEndTurn
 }
 
 func (s *responsesStream) finishWithError(err error) {

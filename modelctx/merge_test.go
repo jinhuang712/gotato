@@ -134,7 +134,7 @@ func TestTheOldestSegmentsMergeDownToHalfTheBudget(t *testing.T) {
 	if last.Segment != 7 || !reflect.DeepEqual(last.Merged, result.Replaced) || last.Recap != "digest" || last.TokensAfter >= last.TokensBefore {
 		t.Errorf("compaction record = %+v", last)
 	}
-	if got := whyOf(f.rec); len(got) != 7 || got[6] != gotato.CompactionPastBudget {
+	if got := whyOf(f.rec); len(got) != 7 || got[6] != gotato.CompactionWhyPastBudget {
 		t.Errorf("compaction reasons = %v, want the 6 on_demand closings and past_budget", got)
 	}
 
@@ -253,10 +253,10 @@ func TestSegmentsUnderTheirBudgetOrAloneAreNotMerged(t *testing.T) {
 	_, total := sizes(f.rec.Segments())
 	before := bytesOf(t, f.rec.Messages())
 	events := len(f.rec.Events())
-	if result := mustMerge(t, f.rec, modelctx.MergeOptions{Budget: total}); result.Merged || result.Reason != modelctx.MergeUnderBudget {
+	if result := mustMerge(t, f.rec, modelctx.MergeOptions{Budget: total}); result.Merged || result.Reason != modelctx.MergeReasonUnderBudget {
 		t.Errorf("at the budget: %+v", result)
 	}
-	if result := mustMerge(t, f.rec, modelctx.MergeOptions{Ceiling: total * 2}); result.Merged || result.Reason != modelctx.MergeUnderBudget || result.Budget != total {
+	if result := mustMerge(t, f.rec, modelctx.MergeOptions{Ceiling: total * 2}); result.Merged || result.Reason != modelctx.MergeReasonUnderBudget || result.Budget != total {
 		t.Errorf("under half the ceiling: %+v", result)
 	}
 	if bytesOf(t, f.rec.Messages()) != before || len(f.rec.Events()) != events {
@@ -264,7 +264,7 @@ func TestSegmentsUnderTheirBudgetOrAloneAreNotMerged(t *testing.T) {
 	}
 
 	one := segmentsFixture(t, 1, nil)
-	if result := mustMerge(t, one.rec, modelctx.MergeOptions{Budget: 1}); result.Merged || result.Reason != modelctx.MergeNothingToMerge {
+	if result := mustMerge(t, one.rec, modelctx.MergeOptions{Budget: 1}); result.Merged || result.Reason != modelctx.MergeReasonNothingToMerge {
 		t.Errorf("one Segment: %+v", result)
 	}
 	if none := newFixture(t); mustMerge(t, none.rec, modelctx.MergeOptions{Budget: 1}).Merged {
@@ -329,8 +329,8 @@ func TestTheModelWritesTheMergedRecapFromTheRecapsAlone(t *testing.T) {
 	_, total := sizes(f.rec.Segments())
 	usage := gotato.Usage{InputTokens: 700, OutputTokens: 90, TotalTokens: 790}
 	model := testkit.NewFakeModel(testkit.Script{
-		{Kind: gotato.ModelTextDelta, Text: goodRecap},
-		{Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn, Usage: usage},
+		{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap},
+		{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn, Usage: usage},
 	})
 	result := mustMerge(t, f.rec, modelctx.MergeOptions{Budget: total - 10, Recap: modelctx.ModelRecap{Model: model, Label: "model:ops"}})
 	if !result.Merged || result.Recap != "model:ops" || result.RecapUsage == nil || *result.RecapUsage != usage {
@@ -401,22 +401,22 @@ func TestASegmentWithoutARecapGivesItsDigestToTheMergeAsk(t *testing.T) {
 func TestAMergeWhoseRecapFailsMergesNothing(t *testing.T) {
 	usage := gotato.Usage{InputTokens: 900, OutputTokens: 40, TotalTokens: 940}
 	text := func(reply string, stop gotato.StopReason) testkit.Script {
-		return testkit.Script{{Kind: gotato.ModelTextDelta, Text: reply}, {Kind: gotato.ModelDone, StopReason: stop, Usage: usage}}
+		return testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: reply}, {Kind: gotato.ModelEventKindDone, StopReason: stop, Usage: usage}}
 	}
 	call := gotato.ToolCall{ID: "x", ToolID: "payments.get_batch", Arguments: []byte(`{}`)}
 	for name, script := range map[string]testkit.Script{
-		"calls a tool":            {{Kind: gotato.ModelTextDelta, Text: goodRecap}, {Kind: gotato.ModelToolCall, ToolCall: &call}, {Kind: gotato.ModelDone, StopReason: gotato.StopToolCalls, Usage: usage}},
-		"cut off at the limit":    text(goodRecap, gotato.StopMaxTokens),
-		"does not start with one": text("Here is the recap.\n"+goodRecap, gotato.StopEndTurn),
-		"another ## heading":      text(goodRecap+"## Summary\n- x\n", gotato.StopEndTurn),
-		"no ## What happened":     text("## Key facts\n- x\n", gotato.StopEndTurn),
-		"empty":                   text("  \n", gotato.StopEndTurn),
+		"calls a tool":            {{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap}, {Kind: gotato.ModelEventKindToolCall, ToolCall: &call}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonToolCalls, Usage: usage}},
+		"cut off at the limit":    text(goodRecap, gotato.StopReasonMaxTokens),
+		"does not start with one": text("Here is the recap.\n"+goodRecap, gotato.StopReasonEndTurn),
+		"another ## heading":      text(goodRecap+"## Summary\n- x\n", gotato.StopReasonEndTurn),
+		"no ## What happened":     text("## Key facts\n- x\n", gotato.StopReasonEndTurn),
+		"empty":                   text("  \n", gotato.StopReasonEndTurn),
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := segmentsFixture(t, 4, numberedRecap{})
 			beforeMessages, beforeSegments := bytesOf(t, f.rec.Messages()), len(f.rec.Segments())
 			result, err := modelctx.MergeSegments(f.ctx, f.rec, modelctx.MergeOptions{Budget: 1, Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}})
-			if err != nil || result.Merged || result.Reason != modelctx.MergeRecapFailed || result.Error == "" {
+			if err != nil || result.Merged || result.Reason != modelctx.MergeReasonRecapFailed || result.Error == "" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
 			if result.RecapUsage == nil || result.RecapUsage.InputTokens != 900 {
@@ -432,7 +432,7 @@ func TestAMergeWhoseRecapFailsMergesNothing(t *testing.T) {
 					failed = &e
 				}
 			}
-			if failed == nil || failed.Why != gotato.CompactionPastBudget || failed.Cause != gotato.CodeModelProtocolFailure {
+			if failed == nil || failed.Why != gotato.CompactionWhyPastBudget || failed.Cause != gotato.CodeModelProtocolFailure {
 				t.Errorf("failure Event = %+v", failed)
 			}
 		})
@@ -450,7 +450,7 @@ func (m errModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStre
 func TestAMergeWhoseModelFailsOrIsStoppedMergesNothing(t *testing.T) {
 	f := segmentsFixture(t, 4, numberedRecap{})
 	result := mustMerge(t, f.rec, modelctx.MergeOptions{Budget: 1, Recap: modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}}})
-	if result.Merged || result.Reason != modelctx.MergeRecapFailed || !strings.Contains(result.Error, "gateway down") || len(f.rec.Segments()) != 4 {
+	if result.Merged || result.Reason != modelctx.MergeReasonRecapFailed || !strings.Contains(result.Error, "gateway down") || len(f.rec.Segments()) != 4 {
 		t.Fatalf("result = %+v, %d Segments", result, len(f.rec.Segments()))
 	}
 	ctx, cancel := context.WithCancel(context.Background())

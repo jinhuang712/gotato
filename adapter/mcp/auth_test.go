@@ -138,7 +138,7 @@ func TestARunsToolCallCarriesTheTokenOfItsUser(t *testing.T) {
 			testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "crm.echo", Arguments: []byte(`{"text":"hi"}`)}),
 			testkit.Text("done"),
 		)
-		session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
+		session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.ToolEffectRead))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func TestARunsToolCallCarriesTheTokenOfItsUser(t *testing.T) {
 		result, err := session.Prompt(ctx, gotato.UserMessage("echo"))
 		cancel()
 		_ = session.Close(context.Background())
-		if err != nil || result.Status != gotato.RunCompleted {
+		if err != nil || result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("%s: status %v, err %v", user, result.Status, err)
 		}
 	}

@@ -59,7 +59,7 @@ func TestSteerAndFollowUpAreQueuedThenCommitted(t *testing.T) {
 	for _, want := range []struct {
 		source MessageSource
 		text   string
-	}{{SourceSteer, "prefer metric units"}, {SourceFollowUp, "and then summarize"}} {
+	}{{MessageSourceSteer, "prefer metric units"}, {MessageSourceFollowUp, "and then summarize"}} {
 		var queued *MessageQueued
 		var committed *MessageCommitted
 		queuedAt, committedAt := -1, -1
@@ -92,7 +92,7 @@ func TestSteerAndFollowUpAreQueuedThenCommitted(t *testing.T) {
 // says so before the RunEnded.
 func TestLeftoverControlMessageIsDropped(t *testing.T) {
 	model := &recordingModel{
-		scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}},
+		scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}},
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
@@ -128,7 +128,7 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 		case MessageDropped:
 			dropped = &e
 		case MessageCommitted:
-			if e.Source != SourcePrompt {
+			if e.Source != MessageSourcePrompt {
 				t.Fatalf("a dropped message was committed: %+v", e)
 			}
 		}
@@ -136,10 +136,10 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 	if queued == nil || dropped == nil {
 		t.Fatalf("queued %v, dropped %v in %v", queued, dropped, seen.kinds())
 	}
-	if dropped.MessageID != queued.MessageID || dropped.Source != SourceFollowUp || dropped.Why != "run_ended" {
+	if dropped.MessageID != queued.MessageID || dropped.Source != MessageSourceFollowUp || dropped.Why != "run_ended" {
 		t.Fatalf("MessageDropped = %+v for %+v", dropped, queued)
 	}
-	if droppedAt, endAt := indexOfKind(events, KindMessageDropped, 0), indexOfKind(events, KindRunEnded, 0); droppedAt < 0 || droppedAt > endAt {
+	if droppedAt, endAt := indexOfKind(events, EventKindMessageDropped, 0), indexOfKind(events, EventKindRunEnded, 0); droppedAt < 0 || droppedAt > endAt {
 		t.Fatalf("MessageDropped must come before RunEnded: %v", seen.kinds())
 	}
 }
@@ -182,8 +182,8 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	if queued != 2 || len(rejected) != 2 {
 		t.Fatalf("queued %d, rejected %+v in %v", queued, rejected, seen.kinds())
 	}
-	if rejected[0].Source != SourceFollowUp || rejected[0].Why != "queue_full" ||
-		rejected[1].Source != SourceSteer || rejected[1].Why != "queue_full" {
+	if rejected[0].Source != MessageSourceFollowUp || rejected[0].Why != "queue_full" ||
+		rejected[1].Source != MessageSourceSteer || rejected[1].Why != "queue_full" {
 		t.Fatalf("rejections = %+v", rejected)
 	}
 	for _, event := range rejected {
@@ -197,7 +197,7 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
-	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -220,14 +220,14 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 		t.Fatalf("aborted Run error = %v", err)
 	}
 	events := seen.events()
-	abortAt, endAt := indexOfKind(events, KindAbortRequested, 0), indexOfKind(events, KindRunEnded, 0)
+	abortAt, endAt := indexOfKind(events, EventKindAbortRequested, 0), indexOfKind(events, EventKindRunEnded, 0)
 	if abortAt < 0 || endAt < 0 || abortAt > endAt {
 		t.Fatalf("AbortRequested at %d, RunEnded at %d in %v", abortAt, endAt, seen.kinds())
 	}
 	if events[abortAt].Head().RunID != events[endAt].Head().RunID || events[abortAt].Head().RunID == "" {
 		t.Fatalf("AbortRequested names Run %q, RunEnded Run %q", events[abortAt].Head().RunID, events[endAt].Head().RunID)
 	}
-	if ended := events[endAt].(RunEnded); ended.Status != RunCanceled {
+	if ended := events[endAt].(RunEnded); ended.Status != RunStatusCanceled {
 		t.Fatalf("RunEnded = %+v", ended)
 	}
 }
@@ -236,10 +236,10 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 // stored.
 func TestReasoningDeltaIsSentNotStored(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{
-		{Kind: ModelReasoningDelta, Text: "think"},
-		{Kind: ModelReasoningDelta, Text: " hard"},
-		{Kind: ModelTextDelta, Text: "answer"},
-		{Kind: ModelDone, StopReason: StopEndTurn},
+		{Kind: ModelEventKindReasoningDelta, Text: "think"},
+		{Kind: ModelEventKindReasoningDelta, Text: " hard"},
+		{Kind: ModelEventKindTextDelta, Text: "answer"},
+		{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 	}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
@@ -254,7 +254,7 @@ func TestReasoningDeltaIsSentNotStored(t *testing.T) {
 	for _, event := range seen.events() {
 		if e, ok := event.(ReasoningDelta); ok {
 			text = append(text, e.Text)
-			if e.Kind().Class() != ClassDelta || e.MessageID == "" {
+			if e.Kind().Class() != EventClassDelta || e.MessageID == "" {
 				t.Fatalf("ReasoningDelta = %+v", e)
 			}
 		}

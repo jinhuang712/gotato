@@ -242,7 +242,7 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
-	if err == nil || result.Status != gotato.RunFailed || result.Error == nil || result.Error.Code != gotato.CodeContextOverflow {
+	if err == nil || result.Status != gotato.RunStatusFailed || result.Error == nil || result.Error.Code != gotato.CodeContextOverflow {
 		t.Fatalf("result = %+v, err = %v; want a failed Run with context_overflow", result, err)
 	}
 	if calls.Load() != 1 {

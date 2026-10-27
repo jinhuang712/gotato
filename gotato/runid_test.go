@@ -103,7 +103,7 @@ func TestSteeredMessagesCarryTheirRun(t *testing.T) {
 
 // The continuation the Loop writes after a cut-off Turn belongs to the Run.
 func TestContinuationMessageCarriesTheRun(t *testing.T) {
-	cut := []ModelEvent{{Kind: ModelReasoningDelta, Text: "thinking"}, {Kind: ModelDone, StopReason: StopMaxTokens}}
+	cut := []ModelEvent{{Kind: ModelEventKindReasoningDelta, Text: "thinking"}, {Kind: ModelEventKindDone, StopReason: StopReasonMaxTokens}}
 	limits := DefaultLimits()
 	limits.MaxTruncatedContinuations = 2
 	model := &recordingModel{scripts: [][]ModelEvent{cut, finalScript("done")}}
@@ -153,8 +153,8 @@ func TestHistoryOutsideARunHasNoRunID(t *testing.T) {
 // the model sees nothing of it.
 func TestRunIDNeverReachesTheModel(t *testing.T) {
 	with := []Message{
-		{ID: "m1", RunID: "run-secret-1", Role: RoleUser, Parts: []ContentPart{{Kind: ContentText, Text: "hi"}}},
-		{ID: "m2", RunID: "run-secret-1", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentText, Text: "hello"}}},
+		{ID: "m1", RunID: "run-secret-1", Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: "hi"}}},
+		{ID: "m2", RunID: "run-secret-1", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: "hello"}}},
 	}
 	without := []Message{with[0], with[1]}
 	without[0].RunID, without[1].RunID = "", ""

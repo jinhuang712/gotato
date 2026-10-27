@@ -40,7 +40,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, _ := first.Prompt(ctx, gotato.UserMessage("p1")); result.Status != gotato.RunFailed {
+	if result, _ := first.Prompt(ctx, gotato.UserMessage("p1")); result.Status != gotato.RunStatusFailed {
 		t.Fatalf("the first Run is %s, want failed on the Message limit", result.Status)
 	}
 	_ = first.Close(ctx)
@@ -52,7 +52,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	turnsBefore := countStored(t, store, record.ID(), gotato.KindTurnStarted)
+	turnsBefore := countStored(t, store, record.ID(), gotato.EventKindTurnStarted)
 	started := make(chan struct{})
 	live, err := gotato.NewSession(gotato.WithModel(blockModel{started}), gotato.WithTranscript(second))
 	if err != nil {
@@ -65,7 +65,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 		_, _ = live.Prompt(runCtx, gotato.UserMessage("p2"))
 	}()
 	<-started
-	waitStored(t, store, record.ID(), gotato.KindTurnStarted, turnsBefore+1)
+	waitStored(t, store, record.ID(), gotato.EventKindTurnStarted, turnsBefore+1)
 
 	taken, err := session.OpenWriter(ctx, store, record.ID(), "b") // the crash: B takes over
 	if err != nil {

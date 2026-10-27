@@ -57,10 +57,10 @@ func TestSegmentsPastTheirBudgetAreMergedBeforeARunsFirstCall(t *testing.T) {
 	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy { return modelctx.CompactPolicy{SegmentBudget: tokens - 100} })
 	model := &stepModel{steps: []any{answering("hello again"), answering("and again")}}
 	result, err := l.run(model, "a new question", "ok")
-	if err != nil || result.Status != gotato.RunCompleted {
+	if err != nil || result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 5 || got[4] != gotato.CompactionPastBudget {
+	if got := whyOf(l.writer.Record()); len(got) != 5 || got[4] != gotato.CompactionWhyPastBudget {
 		t.Fatalf("compactions = %v, want four closings and one past_budget", got)
 	}
 	if !l.merged() || l.segmentCount() >= 4 {
@@ -87,7 +87,7 @@ func TestAFailedMergeAtTheStartOfARunLetsTheRunGoOn(t *testing.T) {
 		return modelctx.CompactPolicy{SegmentBudget: tokens - 100, Recap: broken}
 	})
 	result, err := l.run(testkit.NewFakeModel(answering("fine")), "go on", "ok")
-	if err != nil || result.Status != gotato.RunCompleted {
+	if err != nil || result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	if l.merged() || l.segmentCount() != 4 {
@@ -117,11 +117,11 @@ func TestARunPastTheCeilingMergesTheOldestSegmentsToo(t *testing.T) {
 	})
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
-	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "all done" {
+	if err != nil || result.Status != gotato.RunStatusCompleted || gotato.TextOf(*result.FinalMessage) != "all done" {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
 	got := whyOf(l.writer.Record())
-	if len(got) != 5 || got[3] != gotato.CompactionPastCeiling || got[4] != gotato.CompactionPastCeiling {
+	if len(got) != 5 || got[3] != gotato.CompactionWhyPastCeiling || got[4] != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("compactions = %v, want three on_demand closings, then a closing and a merge, both past_ceiling", got)
 	}
 	third := model.requests[2].Messages
@@ -154,11 +154,11 @@ func TestARefusalMergesTheOldestSegmentsAndSendsTheCallAgain(t *testing.T) {
 	l := overflowFixture(t, nil)
 	model := &stepModel{steps: []any{refusal{}, answering("fits now")}}
 	result, err := l.run(model, "six", "ok")
-	if err != nil || result.Status != gotato.RunCompleted || model.calls() != 2 {
+	if err != nil || result.Status != gotato.RunStatusCompleted || model.calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	got := whyOf(l.writer.Record())
-	if len(got) != 5 || got[3] != gotato.CompactionOverflow || got[4] != gotato.CompactionOverflow {
+	if len(got) != 5 || got[3] != gotato.CompactionWhyOverflow || got[4] != gotato.CompactionWhyOverflow {
 		t.Fatalf("compactions = %v, want three closings, then an overflow closing and an overflow merge", got)
 	}
 	refused, sent := model.requests[0].Messages, model.requests[1].Messages
@@ -189,7 +189,7 @@ func TestTheLimitARefusalNamesSizesTheMerge(t *testing.T) {
 			model := &stepModel{steps: []any{tc.refusal, answering("fits now")}}
 			result, err := l.run(model, "four", "ok")
 			if tc.wantMerged {
-				if err != nil || result.Status != gotato.RunCompleted || model.calls() != 2 {
+				if err != nil || result.Status != gotato.RunStatusCompleted || model.calls() != 2 {
 					t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 				}
 			} else if !gotato.IsCode(err, gotato.CodeContextOverflow) || model.calls() != 1 {
@@ -209,7 +209,7 @@ func TestAFailedMergeRecapOnAnOverflowEndsTheRunWithContextOverflow(t *testing.T
 	l := overflowFixture(t, modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}})
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "six", "ok")
-	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 1 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
 	if !strings.Contains(err.Error(), "nothing was merged") || !strings.Contains(err.Error(), "gateway down") {
@@ -231,10 +231,10 @@ func TestAnOverflowWithNothingToCloseStillMergesTheSegments(t *testing.T) {
 	l := segmented(t, 3, func(int) modelctx.CompactPolicy { return modelctx.CompactPolicy{} })
 	model := &stepModel{steps: []any{limitedRefusal{limit: 600}, answering("fits now")}}
 	result, err := l.run(model, "four", "ok")
-	if err != nil || result.Status != gotato.RunCompleted || !l.merged() {
+	if err != nil || result.Status != gotato.RunStatusCompleted || !l.merged() {
 		t.Fatalf("result = %+v, err = %v, merged %v", result, err, l.merged())
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 4 || got[3] != gotato.CompactionOverflow {
+	if got := whyOf(l.writer.Record()); len(got) != 4 || got[3] != gotato.CompactionWhyOverflow {
 		t.Fatalf("compactions = %v, want three closings and one overflow merge", got)
 	}
 }
@@ -245,10 +245,10 @@ func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
 	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy { return modelctx.CompactPolicy{SegmentBudget: tokens - 100} })
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "five", "ok")
-	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunFailed || model.calls() != 1 {
+	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 1 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
-	if got := whyOf(l.writer.Record()); len(got) != 5 || got[4] != gotato.CompactionPastBudget {
+	if got := whyOf(l.writer.Record()); len(got) != 5 || got[4] != gotato.CompactionWhyPastBudget {
 		t.Fatalf("compactions = %v, want four closings and one past_budget merge", got)
 	}
 }

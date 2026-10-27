@@ -96,7 +96,7 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 	case errors.Is(err, service.ErrNotPersisted):
 		// A write of the Run failed, so the Record does not hold it: exit 1, not 4.
 		code = ExitError
-	case outcome.Status != gotato.RunCompleted:
+	case outcome.Status != gotato.RunStatusCompleted:
 		code = ExitRunIncomplete
 	}
 	switch {
@@ -164,7 +164,7 @@ func (c *cli) sessionMessage(args []string) int {
 	fs := c.newFlagSet("session message")
 	var flags modelFlags
 	bindModel(fs, &flags)
-	kind := fs.String("kind", string(service.MessageSteer), "steer, follow_up or interrupt")
+	kind := fs.String("kind", string(service.MessageKindSteer), "steer, follow_up or interrupt")
 	positionals, err := parseInterspersed(fs, args)
 	if err != nil {
 		return c.parseError(err)
@@ -197,7 +197,7 @@ func (c *cli) sessionMessage(args []string) int {
 	switch {
 	case errors.Is(err, service.ErrNotPersisted):
 		code = ExitError
-	case outcome.Status != gotato.RunCompleted:
+	case outcome.Status != gotato.RunStatusCompleted:
 		code = ExitRunIncomplete
 	}
 	if c.machine() {
@@ -787,7 +787,7 @@ func (c *cli) cmdServe(args []string) int {
 		return c.parseError(err)
 	}
 	switch *queue {
-	case string(service.RejectWhileBusy), string(service.WaitWhileBusy):
+	case string(service.QueuePolicyReject), string(service.QueuePolicyWait):
 	default:
 		return c.usageError("--queue accepts reject or wait")
 	}

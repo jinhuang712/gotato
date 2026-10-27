@@ -72,7 +72,7 @@ func TestRunCreatesSessionAndPersists(t *testing.T) {
 	out := h.ok("run", "--json", "hello")
 	var outcome runOutcome
 	h.mustJSON(out, &outcome)
-	if outcome.Status != gotato.RunCompleted || outcome.FinalText != "echo: hello" || outcome.SessionID == "" || outcome.Messages != 2 {
+	if outcome.Status != gotato.RunStatusCompleted || outcome.FinalText != "echo: hello" || outcome.SessionID == "" || outcome.Messages != 2 {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 	if outcome.RecordEpoch == "" {
@@ -151,10 +151,10 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 		if err != nil {
 			t.Fatalf("line %d %q: %v", i, line, err)
 		}
-		if i == 0 && event.Kind() != gotato.KindSessionCreated {
+		if i == 0 && event.Kind() != gotato.EventKindSessionCreated {
 			t.Fatalf("first line kind = %s, want session_created", event.Kind())
 		}
-		if event.Kind().Class() == gotato.ClassInstance {
+		if event.Kind().Class() == gotato.EventClassInstance {
 			t.Fatalf("line %d is the Instance Event %s", i, event.Kind())
 		}
 	}
@@ -163,7 +163,7 @@ func TestRunEventsJSONLStreamsThenResult(t *testing.T) {
 		Result runOutcome `json:"result"`
 	}
 	h.mustJSON(lines[len(lines)-1], &last)
-	if last.Kind != "run_result" || last.Result.Status != gotato.RunCompleted {
+	if last.Kind != "run_result" || last.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("last line = %+v", last)
 	}
 }
@@ -207,7 +207,7 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	out := h.ok("run", "--session", id, "--events", "jsonl", "four")
 	sawBuild := false
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if event, err := gotato.UnmarshalEvent([]byte(line)); err == nil && event.Kind() == gotato.KindContextBuilt {
+		if event, err := gotato.UnmarshalEvent([]byte(line)); err == nil && event.Kind() == gotato.EventKindContextBuilt {
 			sawBuild = true
 			if strings.Contains(line, "panel_bytes") {
 				t.Fatalf("context_built still reports panel_bytes: %s", line)
@@ -250,7 +250,7 @@ func TestContextInspectBuildCompact(t *testing.T) {
 	// The compacted session keeps running.
 	var outcome runOutcome
 	h.mustJSON(h.ok("run", "--session", id, "--json", "five"), &outcome)
-	if outcome.Status != gotato.RunCompleted || outcome.Messages != 10 {
+	if outcome.Status != gotato.RunStatusCompleted || outcome.Messages != 10 {
 		t.Fatalf("run after compact = %+v", outcome)
 	}
 }
@@ -325,9 +325,9 @@ func TestToolsActivationIsSessionState(t *testing.T) {
 
 func TestToolsListReportsTheEffectCap(t *testing.T) {
 	h := newHarness(t)
-	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.EffectRead)
+	lookup := gotato.ToolWithEffect(testkit.NewFakeTool("lookup", "found"), gotato.ToolEffectRead)
 	push := testkit.NewFakeTool("push", "pushed") // declares no Effect, so it ranks as destructive
-	testAgents = []service.Agent{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.EffectRead}}
+	testAgents = []service.Agent{{Name: "reader", Model: testkit.EchoModel{}, Tools: []gotato.Tool{lookup, push}, MaxEffect: gotato.ToolEffectRead}}
 	defer func() { testAgents = nil }()
 
 	var listing toolListing
@@ -500,7 +500,7 @@ func TestRunIncompleteExitCode(t *testing.T) {
 	}
 	var outcome runOutcome
 	h.mustJSON(out, &outcome)
-	if outcome.Status != gotato.RunDeadlineExceeded || outcome.Error == nil || outcome.SessionID == "" {
+	if outcome.Status != gotato.RunStatusDeadlineExceeded || outcome.Error == nil || outcome.SessionID == "" {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 }

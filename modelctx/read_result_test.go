@@ -63,7 +63,7 @@ func (f *spillFixture) call(id, body string) []gotato.ModelRequest {
 	}
 	defer func() { _ = session.Close(context.Background()) }()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("go "+id))
-	if err != nil || result.Status != gotato.RunCompleted {
+	if err != nil || result.Status != gotato.RunStatusCompleted {
 		f.t.Fatalf("Run = %+v, err = %v", result, err)
 	}
 	return model.Requests()
@@ -144,7 +144,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range loaded.Facts {
-		if entry.Kind == gotato.KindToolResultSpilled || len(entry.Data) > 64<<10 {
+		if entry.Kind == gotato.EventKindToolResultSpilled || len(entry.Data) > 64<<10 {
 			t.Fatalf("a load read entry %d (%s, %d bytes)", entry.Seq, entry.Kind, len(entry.Data))
 		}
 	}
@@ -242,13 +242,13 @@ func TestAMultiMegabyteResultNoLongerFailsTheRun(t *testing.T) {
 type imageTool struct{}
 
 func (imageTool) Spec() gotato.ToolSpec {
-	return gotato.ToolSpec{ID: "demo.read", Description: "d", InputSchema: json.RawMessage(`{"type":"object"}`), Effect: gotato.EffectRead}
+	return gotato.ToolSpec{ID: "demo.read", Description: "d", InputSchema: json.RawMessage(`{"type":"object"}`), Effect: gotato.ToolEffectRead}
 }
 
 func (imageTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	return gotato.ToolResult{Content: []gotato.ContentPart{
-		{Kind: gotato.ContentText, Text: strings.Repeat("a", gotato.SpillPageBytes+10)},
-		{Kind: gotato.ContentImage, MIMEType: "image/png", Data: []byte("png")},
+		{Kind: gotato.ContentKindText, Text: strings.Repeat("a", gotato.SpillPageBytes+10)},
+		{Kind: gotato.ContentKindImage, MIMEType: "image/png", Data: []byte("png")},
 	}}, nil
 }
 
@@ -261,11 +261,11 @@ func TestSpillKeepsThePartsThatAreNotText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
-	if result, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil || result.Status != gotato.RunCompleted {
+	if result, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil || result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result, err)
 	}
 	r := resultOf(t, f.writer.Record(), "c1")
-	if r.Spilled == nil || len(r.Content) != 2 || r.Content[1].Kind != gotato.ContentImage || string(r.Content[1].Data) != "png" {
+	if r.Spilled == nil || len(r.Content) != 2 || r.Content[1].Kind != gotato.ContentKindImage || string(r.Content[1].Data) != "png" {
 		t.Fatalf("result = %+v", r)
 	}
 }
@@ -293,11 +293,11 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 		}
 		result, err := agent.Prompt(context.Background(), gotato.UserMessage("read "+ref))
 		_ = agent.Close(context.Background())
-		if err != nil || result.Status != gotato.RunCompleted {
+		if err != nil || result.Status != gotato.RunStatusCompleted {
 			t.Fatalf("%s: Run = %+v, err = %v", ref, result, err)
 		}
 		failed := resultOf(t, f.writer.Record(), id)
-		if failed.Status != gotato.ToolResultFailed || !strings.Contains(failed.SafeError, "result:c1") {
+		if failed.Status != gotato.ToolResultStatusFailed || !strings.Contains(failed.SafeError, "result:c1") {
 			t.Errorf("%s: status %s, error %q: want a failure that lists result:c1", ref, failed.Status, failed.SafeError)
 		}
 	}
@@ -308,7 +308,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 func TestReadResultDeclaresReadAndItsInput(t *testing.T) {
 	tool := modelctx.ReadResultTool(session.New(), session.NewMemoryStore(), modelctx.ReadResultOptions{})
 	spec := tool.Spec()
-	if spec.ID != "read_result" || spec.Effect != gotato.EffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
+	if spec.ID != "read_result" || spec.Effect != gotato.ToolEffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
 		t.Fatalf("spec = %+v", spec)
 	}
 }

@@ -20,7 +20,7 @@ func TestRunIDNeverReachesAWireRequest(t *testing.T) {
 		user := gotato.UserMessage("go")
 		call := gotato.AssistantMessage("calling")
 		call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: "echo", Arguments: []byte(`{"q":"x"}`)}}
-		result := gotato.Message{Role: gotato.RoleToolResult, Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "x"}}, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "x"}}}}
+		result := gotato.Message{Role: gotato.RoleToolResult, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "x"}}, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "x"}}}}
 		reply := gotato.AssistantMessage("done")
 		messages := []gotato.Message{user, call, result, reply}
 		for i := range messages {

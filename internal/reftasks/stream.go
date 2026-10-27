@@ -30,7 +30,7 @@ func (s *stream) Close() error { return nil }
 // promptText returns the first text part of a Message: the user's prompt.
 func promptText(message gotato.Message) string {
 	for _, part := range message.Parts {
-		if part.Kind == gotato.ContentText {
+		if part.Kind == gotato.ContentKindText {
 			return part.Text
 		}
 	}

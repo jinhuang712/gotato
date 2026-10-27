@@ -128,12 +128,12 @@ type Agent struct {
 type QueuePolicy string
 
 const (
-	// RejectWhileBusy fails a second concurrent Run on the same Session with
+	// QueuePolicyReject fails a second concurrent Run on the same Session with
 	// ErrBusy (HTTP 409).
-	RejectWhileBusy QueuePolicy = "reject"
-	// WaitWhileBusy queues the Run until the Session is free or the caller's
+	QueuePolicyReject QueuePolicy = "reject"
+	// QueuePolicyWait queues the Run until the Session is free or the caller's
 	// context ends.
-	WaitWhileBusy QueuePolicy = "wait"
+	QueuePolicyWait QueuePolicy = "wait"
 )
 
 // Admission bounds concurrent work. Zero values disable a bound.
@@ -376,9 +376,9 @@ func New(cfg Config) (*Runner, error) {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
 	}
 	if r.admission.Queue == "" {
-		r.admission.Queue = RejectWhileBusy
+		r.admission.Queue = QueuePolicyReject
 	}
-	if r.admission.Queue != RejectWhileBusy && r.admission.Queue != WaitWhileBusy {
+	if r.admission.Queue != QueuePolicyReject && r.admission.Queue != QueuePolicyWait {
 		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
 	}
 	if r.streamPoll == 0 {
@@ -714,7 +714,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		r.followOn(ctx, handle, next, release)
 		return out, err
 	}
-	if handle.stoppedByDrain() && out.Result.Status != gotato.RunCompleted {
+	if handle.stoppedByDrain() && out.Result.Status != gotato.RunStatusCompleted {
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
 		// a Session that no instance is still using.
@@ -1005,7 +1005,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			return true
 		})
 		for _, notice := range notices {
-			if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeFromGotato {
+			if notice.Message.Notice != nil && notice.Message.Notice.Source == gotato.NoticeSourceGotato {
 				live.DropQueued([]gotato.Queued{notice}, "run_ended")
 			}
 		}
@@ -1048,8 +1048,8 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 				}
 				// completed never carries an error. The Run's own writes
 				// settle it as failed, so this only guards the rule.
-				if result.Status == gotato.RunCompleted {
-					result.Status = gotato.RunFailed
+				if result.Status == gotato.RunStatusCompleted {
+					result.Status = gotato.RunStatusFailed
 					result.Error = saveFailure
 				}
 				persistErr := error(notPersisted{saveErr})
@@ -1167,7 +1167,7 @@ func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bo
 	onWait := func() {
 		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 	}
-	if err := r.locks.acquire(ctx, sessionID, forceWait || r.admission.Queue == WaitWhileBusy, onWait); err != nil {
+	if err := r.locks.acquire(ctx, sessionID, forceWait || r.admission.Queue == QueuePolicyWait, onWait); err != nil {
 		if errors.Is(err, ErrBusy) {
 			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
 		}
@@ -1183,11 +1183,11 @@ func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bo
 func runStatusForError(err error) gotato.RunStatus {
 	switch {
 	case errors.Is(err, context.Canceled), gotato.IsCode(err, gotato.CodeCanceled):
-		return gotato.RunCanceled
+		return gotato.RunStatusCanceled
 	case errors.Is(err, context.DeadlineExceeded), gotato.IsCode(err, gotato.CodeDeadlineExceeded):
-		return gotato.RunDeadlineExceeded
+		return gotato.RunStatusDeadlineExceeded
 	default:
-		return gotato.RunFailed
+		return gotato.RunStatusFailed
 	}
 }
 
@@ -1240,7 +1240,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
 		gotato.WithToolFilter(filter.active))
-	if spec.MaxEffect != gotato.EffectUnspecified {
+	if spec.MaxEffect != gotato.ToolEffectUnspecified {
 		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
 	}
 	if spec.Limits != nil {
@@ -1385,7 +1385,7 @@ func (t *sessionTools) Tools() []gotato.Tool {
 
 // allowed reports whether a Tool is within the Agent's MaxEffect.
 func (t *sessionTools) allowed(spec gotato.ToolSpec) bool {
-	return t.spec.MaxEffect == gotato.EffectUnspecified || spec.Effect.Within(t.spec.MaxEffect)
+	return t.spec.MaxEffect == gotato.ToolEffectUnspecified || spec.Effect.Within(t.spec.MaxEffect)
 }
 
 func (t *sessionTools) active(id string) bool {

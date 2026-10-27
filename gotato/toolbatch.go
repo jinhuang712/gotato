@@ -48,9 +48,9 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 		*batch = openBatch{}
 		return
 	}
-	resultStatus := ToolResultFailed
-	if status == RunCanceled || status == RunDeadlineExceeded {
-		resultStatus = ToolResultCanceled
+	resultStatus := ToolResultStatusFailed
+	if status == RunStatusCanceled || status == RunStatusDeadlineExceeded {
+		resultStatus = ToolResultStatusCanceled
 	}
 	text := fmt.Sprintf("%s: the Run ended before this call's result was committed", cause.Code)
 	for i := batch.next; i < len(batch.calls); i++ {
@@ -59,7 +59,7 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 		result := ToolResult{
 			CallID:    call.ID,
 			Status:    resultStatus,
-			Content:   []ContentPart{{Kind: ContentText, Text: text}},
+			Content:   []ContentPart{{Kind: ContentKindText, Text: text}},
 			SafeError: text,
 			Executed:  known && outcome.Executed,
 		}
@@ -81,8 +81,8 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded 
 		blocked: true,
 		result: ToolResult{
 			CallID:    call.ID,
-			Status:    ToolResultFailed,
-			Content:   []ContentPart{{Kind: ContentText, Text: message}},
+			Status:    ToolResultStatusFailed,
+			Content:   []ContentPart{{Kind: ContentKindText, Text: message}},
 			SafeError: message,
 			Executed:  false,
 			Loaded:    loaded,
@@ -182,7 +182,7 @@ func (a *Session) executeToolGroup(
 			if _, done := outcomes[index]; done {
 				continue
 			}
-			settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultCanceled, SafeError: safeError(ctx.Err()), Executed: started})
+			settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultStatusCanceled, SafeError: safeError(ctx.Err()), Executed: started})
 		}
 		return outcomes
 	}
@@ -231,13 +231,13 @@ func (a *Session) executeToolGroup(
 			executed, toolErr := executeToolSafely(plan.tool, toolCtx, plan.use, progress)
 			var result ToolResult
 			if toolErr != nil {
-				result = ToolResult{CallID: plan.call.ID, Status: ToolResultFailed, SafeError: safeError(toolErr), Executed: true}
+				result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: safeError(toolErr), Executed: true}
 			} else {
 				result = executed
 				result.CallID = plan.call.ID
 				result.Executed = true
 				if result.Status == "" {
-					result.Status = ToolResultOK
+					result.Status = ToolResultStatusOK
 				}
 			}
 			select {
@@ -283,7 +283,7 @@ func (a *Session) executeToolGroup(
 // The Tool ran, so Executed stays true.
 func canceledOutcome(ctx context.Context, result ToolResult) ToolResult {
 	if ctx.Err() != nil {
-		result.Status = ToolResultCanceled
+		result.Status = ToolResultStatusCanceled
 		if result.SafeError == "" {
 			result.SafeError = safeError(ctx.Err())
 		}
@@ -342,11 +342,11 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		}
 		if decision.Block {
 			plan.blocked = true
-			plan.result = ToolResult{CallID: call.ID, Status: ToolResultBlocked, SafeError: decision.Reason, Executed: false}
+			plan.result = ToolResult{CallID: call.ID, Status: ToolResultStatusBlocked, SafeError: decision.Reason, Executed: false}
 			if decision.Result != nil {
 				replacement := decision.Result.Clone()
 				replacement.CallID = call.ID
-				replacement.Status = ToolResultBlocked
+				replacement.Status = ToolResultStatusBlocked
 				replacement.Executed = false
 				if replacement.SafeError == "" {
 					replacement.SafeError = decision.Reason

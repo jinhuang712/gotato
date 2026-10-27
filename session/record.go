@@ -123,7 +123,7 @@ func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, err
 	}
 	s := &Record{eventLimit: defaultEventLimit, now: time.Now, metadata: map[string]string{}, retainRead: retain, closed: map[int]gotato.Segment{}, positions: map[gotato.MessageID]gotato.MessagePosition{}}
 	for _, entry := range segments {
-		if entry.Kind != gotato.KindSegmentClosed {
+		if entry.Kind != gotato.EventKindSegmentClosed {
 			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: entry %d (%s) is not a segment_closed Entry", entry.Seq, entry.Kind))
 		}
 		if err := s.apply(entry); err != nil {
@@ -305,8 +305,8 @@ func (s *Record) closeParts(committed gotato.MessageID) {
 			continue
 		}
 		s.messages = append(s.messages, gotato.Message{
-			ID: part.MessageID, RunID: part.RunID, Role: gotato.RoleAssistant, StopReason: gotato.StopCutOff,
-			Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: part.Text}},
+			ID: part.MessageID, RunID: part.RunID, Role: gotato.RoleAssistant, StopReason: gotato.StopReasonCutOff,
+			Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: part.Text}},
 		})
 	}
 	s.openParts = nil
@@ -363,10 +363,10 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 			out = append(out, gotato.Message{
 				ID:    gotato.MessageID("repair-" + string(call.ID)),
 				Role:  gotato.RoleToolResult,
-				Parts: []gotato.ContentPart{{Kind: gotato.ContentText, Text: text}},
+				Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
 				ToolResult: &gotato.ToolResult{
-					CallID: call.ID, Status: gotato.ToolResultFailed, Executed: started[call.ID], SafeError: text,
-					Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: text}},
+					CallID: call.ID, Status: gotato.ToolResultStatusFailed, Executed: started[call.ID], SafeError: text,
+					Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
 				},
 			})
 		}

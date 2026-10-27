@@ -19,7 +19,7 @@ type ContextSnapshot struct {
 }
 
 // TurnSnapshot is the read-only view a TurnStopper receives after turn_end.
-// Assistant.StopReason is why the Model stopped, StopMaxTokens for a reply
+// Assistant.StopReason is why the Model stopped, StopReasonMaxTokens for a reply
 // the output limit cut off. StopReason is why the Turn stopped.
 type TurnSnapshot struct {
 	SessionID   SessionID

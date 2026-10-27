@@ -117,20 +117,20 @@ func entry(seq uint64, kind gotato.EventKind, layer session.Layer, writer string
 
 // checkpoint is the first Entry of a Record: a session_created Event.
 func checkpoint(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.KindSessionCreated, session.LayerFact, writer)
+	return entry(seq, gotato.EventKindSessionCreated, session.LayerFact, writer)
 }
 
 // compaction is a later Checkpoint: a compaction_ended Event.
 func compaction(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.KindCompactionEnded, session.LayerFact, writer)
+	return entry(seq, gotato.EventKindCompactionEnded, session.LayerFact, writer)
 }
 
 func fact(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.KindMessageCommitted, session.LayerFact, writer)
+	return entry(seq, gotato.EventKindMessageCommitted, session.LayerFact, writer)
 }
 
 func logEntry(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.KindTurnStarted, session.LayerLog, writer)
+	return entry(seq, gotato.EventKindTurnStarted, session.LayerLog, writer)
 }
 
 func summary(id string, seq uint64, updated string) session.RecordInfo {
@@ -195,7 +195,7 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 func checkInfoNotices(ctx context.Context, open Open) error {
 	store := open()
 	pending := func(n uint64, text string) gotato.PendingNotice {
-		return gotato.PendingNotice{MessageID: gotato.MessageID(fmt.Sprintf("m%d", n)), Kind: "order_update", Source: gotato.NoticeFromService, Text: text, Number: n}
+		return gotato.PendingNotice{MessageID: gotato.MessageID(fmt.Sprintf("m%d", n)), Kind: "order_update", Source: gotato.NoticeSourceService, Text: text, Number: n}
 	}
 	first := summary("r1", 3, "2026-10-17T00:00:03.000Z")
 	first.LastRunEnd = "2026-10-17T00:00:02.500Z"
@@ -315,7 +315,7 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 		return fmt.Errorf("create: %w", err)
 	}
 	body, _ := json.Marshal(map[string]any{"seq": 4, "writer": "a", "body": strings.Repeat("row,paid,41.20\n", 70000)})
-	spilled := session.Entry{Seq: 4, Kind: gotato.KindToolResultSpilled, Layer: session.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
+	spilled := session.Entry{Seq: 4, Kind: gotato.EventKindToolResultSpilled, Layer: session.LayerLog, At: time.Date(2026, 10, 17, 0, 0, 4, 0, time.UTC), Data: body}
 	after := fact(5, "a")
 	more := []session.Entry{spilled, after}
 	if err := store.Append(ctx, "r1", 3, more, summary("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
@@ -339,7 +339,7 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 }
 
 func segment(seq uint64, writer string) session.Entry {
-	return entry(seq, gotato.KindSegmentClosed, session.LayerFact, writer)
+	return entry(seq, gotato.EventKindSegmentClosed, session.LayerFact, writer)
 }
 
 // checkSegments checks that a load hands back the segment_closed Entries from

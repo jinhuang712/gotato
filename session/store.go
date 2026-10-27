@@ -170,7 +170,7 @@ func loadedFrom(entries []Entry) (facts, segments []Entry) {
 		}
 	}
 	for _, entry := range entries[:start] {
-		if entry.Kind == gotato.KindSegmentClosed {
+		if entry.Kind == gotato.EventKindSegmentClosed {
 			segments = append(segments, entry)
 		}
 	}

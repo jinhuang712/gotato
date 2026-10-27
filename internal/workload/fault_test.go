@@ -216,7 +216,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 					t.Fatalf("crash after write %d: the rebuilt Context has prefix %s, the clean one %s", n, report.PrefixHash, expected.PrefixHash)
 				}
 				result, err := next.Run(ctx, service.RunRequest{SessionID: id, Prompt: task.Prompts[len(task.Prompts)-1]})
-				if err != nil || result.Result.Status != gotato.RunCompleted {
+				if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 					t.Fatalf("crash after write %d: the next Run = %+v, %v", n, result.Result, err)
 				}
 			}

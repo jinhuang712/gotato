@@ -4,7 +4,7 @@ import "github.com/jinhuang712/gotato/gotato"
 
 var (
 	// ErrBusy is returned when a Session already has a Run in flight and the
-	// policy is RejectWhileBusy.
+	// policy is QueuePolicyReject.
 	ErrBusy = gotato.ErrorOf(gotato.CodeBusy, "service: session has a run in flight")
 
 	// ErrCapacity is returned when MaxActiveRuns is reached.
@@ -29,7 +29,7 @@ var (
 	ErrDraining = gotato.ErrorOf(gotato.CodeDraining, "service: draining")
 
 	// ErrNotPersisted reports that a write of a Run failed, so the Record does not
-	// hold the Run. The Run outcome is still returned, settled as gotato.RunFailed
+	// hold the Run. The Run outcome is still returned, settled as gotato.RunStatusFailed
 	// with store_failure; callers must treat the Session state as lost. A Run whose
 	// only failed write is the release of the Session keeps its status and
 	// returns no error: its Events are all stored.

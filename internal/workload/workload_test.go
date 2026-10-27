@@ -126,8 +126,8 @@ func (m usageModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 		if err != nil {
 			break
 		}
-		if event.Kind == gotato.ModelDone {
-			events = append(events, gotato.ModelEvent{Kind: gotato.ModelUsage, Usage: gotato.Usage{
+		if event.Kind == gotato.ModelEventKindDone {
+			events = append(events, gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{
 				InputTokens: 1000, CacheReadTokens: 800, OutputTokens: 50, TotalTokens: 1050,
 			}})
 		}

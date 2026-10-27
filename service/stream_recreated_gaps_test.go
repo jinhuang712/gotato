@@ -83,7 +83,7 @@ func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
 			}
 			return
 		}
-		if event.Kind().Class() == gotato.ClassStored {
+		if event.Kind().Class() == gotato.EventClassStored {
 			t.Fatalf("the stream delivered Event %d (%s) of the Record created again", event.Head().Number, event.Kind())
 		}
 	}

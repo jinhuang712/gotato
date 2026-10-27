@@ -41,7 +41,7 @@ func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout t
 	})
 	start := time.Now()
 	result, err := runner.Run(ctx, service.RunRequest{Prompt: "go", Timeout: requestTimeout})
-	if err != nil || result.Result.Status != gotato.RunCompleted {
+	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Run = %+v, %v", result.Result, err)
 	}
 	probe.mu.Lock()
@@ -91,7 +91,7 @@ func TestARunPastItsRunTimeoutSettlesAsDeadlineExceeded(t *testing.T) {
 	})
 	runner, _ := newRunner(t, service.Agent{Name: "slow", Model: model, RunTimeout: 50 * time.Millisecond})
 	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go"})
-	if err == nil || result.Result.Status != gotato.RunDeadlineExceeded {
+	if err == nil || result.Result.Status != gotato.RunStatusDeadlineExceeded {
 		t.Fatalf("Run = %+v, %v; want deadline_exceeded", result.Result, err)
 	}
 }

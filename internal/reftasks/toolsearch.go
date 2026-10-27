@@ -42,22 +42,22 @@ type toolSearchTool struct {
 
 var toolSearchTools = map[string][]toolSearchTool{
 	ShopSetName: {
-		{"invoice", "Issues the invoice of an order and returns its number.", gotato.EffectRead, []string{"order"}},
-		{"cancel", "Cancels an order that has not shipped yet.", gotato.EffectWriteExternal, []string{"order"}},
-		{"history", "Lists the past orders of a customer by the customer ID.", gotato.EffectRead, []string{"customer"}},
-		{"address", "Changes the delivery address of an order before it ships.", gotato.EffectWriteExternal, []string{"order", "address"}},
+		{"invoice", "Issues the invoice of an order and returns its number.", gotato.ToolEffectRead, []string{"order"}},
+		{"cancel", "Cancels an order that has not shipped yet.", gotato.ToolEffectWriteExternal, []string{"order"}},
+		{"history", "Lists the past orders of a customer by the customer ID.", gotato.ToolEffectRead, []string{"customer"}},
+		{"address", "Changes the delivery address of an order before it ships.", gotato.ToolEffectWriteExternal, []string{"order", "address"}},
 	},
 	CarrierSetName: {
-		{"quote", "Quotes the price and transit time of shipping a parcel to a city.", gotato.EffectRead, []string{"city", "kg"}},
-		{"track", "Follows a parcel by its tracking number and returns its last scan.", gotato.EffectRead, []string{"tracking"}},
-		{"label", "Prints the label to stick on the box of an order.", gotato.EffectWriteLocal, []string{"order"}},
+		{"quote", "Quotes the price and transit time of shipping a parcel to a city.", gotato.ToolEffectRead, []string{"city", "kg"}},
+		{"track", "Follows a parcel by its tracking number and returns its last scan.", gotato.ToolEffectRead, []string{"tracking"}},
+		{"label", "Prints the label to stick on the box of an order.", gotato.ToolEffectWriteLocal, []string{"order"}},
 	},
 	WarehouseSetName: {
-		{"stock", "Counts the units of an item on the shelves.", gotato.EffectRead, []string{"sku"}},
-		{"reserve", "Holds units of an item for an order so nobody else can buy them.", gotato.EffectWriteLocal, []string{"sku", "units"}},
-		{"restock", "Orders more units of an item from its supplier.", gotato.EffectWriteExternal, []string{"sku", "units"}},
-		{"locations", "Lists the shelves where an item is stored.", gotato.EffectRead, []string{"sku"}},
-		{"audit", "Starts a count of one shelf and reports the differences.", gotato.EffectRead, []string{"shelf"}},
+		{"stock", "Counts the units of an item on the shelves.", gotato.ToolEffectRead, []string{"sku"}},
+		{"reserve", "Holds units of an item for an order so nobody else can buy them.", gotato.ToolEffectWriteLocal, []string{"sku", "units"}},
+		{"restock", "Orders more units of an item from its supplier.", gotato.ToolEffectWriteExternal, []string{"sku", "units"}},
+		{"locations", "Lists the shelves where an item is stored.", gotato.ToolEffectRead, []string{"sku"}},
+		{"audit", "Starts a count of one shelf and reports the differences.", gotato.ToolEffectRead, []string{"shelf"}},
 	},
 }
 
@@ -122,7 +122,7 @@ func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.
 		out["number"] = "INV-" + in["order"]
 	}
 	encoded, _ := json.Marshal(out)
-	return gotato.ToolResult{Status: gotato.ToolResultOK, Content: []gotato.ContentPart{{Kind: gotato.ContentJSON, Text: string(encoded)}}}, nil
+	return gotato.ToolResult{Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: string(encoded)}}}, nil
 }
 
 // ToolSearchOptions returns the Options the tool_search task adds to its Agent:
@@ -251,7 +251,7 @@ func playToolSearch(request gotato.ModelRequest) testkit.Script {
 	}
 	succeeded := func(tool string) (string, bool) {
 		for id, call := range calls {
-			if result, ok := results[id]; ok && call.ToolID == tool && result.Status == gotato.ToolResultOK {
+			if result, ok := results[id]; ok && call.ToolID == tool && result.Status == gotato.ToolResultStatusOK {
 				return resultText(result), true
 			}
 		}

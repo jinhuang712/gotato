@@ -42,7 +42,7 @@ type hangingStream struct{ sent bool }
 func (s *hangingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	if !s.sent {
 		s.sent = true
-		return gotato.ModelEvent{Kind: gotato.ModelTextDelta, Text: "partial"}, nil
+		return gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: "partial"}, nil
 	}
 	<-ctx.Done()
 	return gotato.ModelEvent{}, ctx.Err()
@@ -153,7 +153,7 @@ func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
 		case gotato.MessageQueued:
 			out = append(out, "queued:"+string(e.Source))
 		case gotato.MessageCommitted:
-			if e.Source != gotato.SourcePrompt {
+			if e.Source != gotato.MessageSourcePrompt {
 				out = append(out, "committed:"+string(e.Source))
 			}
 		case gotato.MessageDropped:
@@ -168,7 +168,7 @@ func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
 func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
 	t.Helper()
 	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.WaitWhileBusy},
+		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
 		Agents: []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
@@ -186,7 +186,7 @@ func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {
 
 	done := startRun(t, runner, s.ID(), "hello")
 	waitCall(t, model, 0)
-	result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageSteer, Text: "prefer metric"})
+	result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "prefer metric"})
 	if err != nil || !result.Queued || result.MessageID == "" || result.Run != nil {
 		t.Fatalf("Send = %+v, %v; want queued with an ID", result, err)
 	}
@@ -215,14 +215,14 @@ func TestFollowUpKeepsTheRunGoingWhereItWouldSettle(t *testing.T) {
 
 	done := startRun(t, runner, s.ID(), "hello")
 	waitCall(t, model, 0)
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageFollowUp, Text: "and then summarize"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindFollowUp, Text: "and then summarize"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
 	waitCall(t, model, 1)
 	close(model.release[1])
 	result := settled(t, done)
-	if result.Result.Status != gotato.RunCompleted || result.FinalText != "second" {
+	if result.Result.Status != gotato.RunStatusCompleted || result.FinalText != "second" {
 		t.Fatalf("result = %+v", result)
 	}
 	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:hello", "assistant:first", "user:and then summarize", "assistant:second"}) {
@@ -241,13 +241,13 @@ func TestInterruptCutsTheModelCallAndStartsTheNextTurn(t *testing.T) {
 
 	done := startRun(t, runner, s.ID(), "do A")
 	waitCall(t, model, 0)
-	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageInterrupt, Text: "do B instead"}); err != nil {
+	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindInterrupt, Text: "do B instead"}); err != nil {
 		t.Fatal(err)
 	}
 	waitCall(t, model, 1)
 	close(model.release[1])
 	result := settled(t, done)
-	if result.Result.Status != gotato.RunCompleted || result.FinalText != "B done" {
+	if result.Result.Status != gotato.RunStatusCompleted || result.FinalText != "B done" {
 		t.Fatalf("result = %+v", result)
 	}
 	// The Transcript keeps the cut-off reply; the model does not read it.
@@ -278,7 +278,7 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := settled(t, done)
-	if result.Result.Status != gotato.RunCanceled {
+	if result.Result.Status != gotato.RunStatusCanceled {
 		t.Fatalf("status = %q, want canceled", result.Result.Status)
 	}
 	if got := transcriptOf(t, runner, s.ID()); !equal(got, []string{"user:do A", "assistant:partial"}) {
@@ -303,7 +303,7 @@ func TestAMessageAfterTheRunStartsANewRun(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []service.MessageKind{service.MessageFollowUp} {
+	for _, kind := range []service.MessageKind{service.MessageKindFollowUp} {
 		result, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: kind, Text: "one more thing"})
 		if err != nil || result.Queued || result.Run == nil || result.Run.FinalText != "second" {
 			t.Fatalf("Send = %+v, %v; want a new Run", result, err)
@@ -344,7 +344,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	done := startRun(t, a, s.ID(), "hello")
 	waitCall(t, model, 0)
 
-	for _, kind := range []service.MessageKind{service.MessageSteer, service.MessageFollowUp, service.MessageInterrupt} {
+	for _, kind := range []service.MessageKind{service.MessageKindSteer, service.MessageKindFollowUp, service.MessageKindInterrupt} {
 		result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: kind, Text: "from b"})
 		if !gotato.IsCode(err, gotato.CodeNotWriter) || !gotato.NotRun(err) || !gotato.Retryable(err) {
 			t.Fatalf("%s: Send = %+v, %v; want not_writer, not run, retryable", kind, result, err)
@@ -359,7 +359,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 	}
 
 	// The Run is untouched, and the writer takes the message itself.
-	if _, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageSteer, Text: "from a"}); err != nil {
+	if _, err := a.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "from a"}); err != nil {
 		t.Fatal(err)
 	}
 	close(model.release[0])
@@ -373,7 +373,7 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 
 	// With no Run going, the other instance takes the Session over and runs.
 	result, err := b.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "now from b"})
-	if err != nil || result.Queued || result.Run == nil || result.Run.Result.Status != gotato.RunCompleted {
+	if err != nil || result.Queued || result.Run == nil || result.Run.Result.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Send with no Run going = %+v, %v; want a new Run on b", result, err)
 	}
 	view, _ := b.Record(ctx, s.ID())
@@ -434,7 +434,7 @@ func TestMessageEventsReachTheInstanceStream(t *testing.T) {
 	close(model.release[1])
 	settled(t, done)
 
-	for _, kind := range []gotato.EventKind{gotato.KindMessageQueued, gotato.KindMessageCommitted} {
+	for _, kind := range []gotato.EventKind{gotato.EventKindMessageQueued, gotato.EventKindMessageCommitted} {
 		// The Instance stream is delivered after the Run settles.
 		seen.Wait(5*time.Second, func(event gotato.Event) bool { return event.Kind() == kind })
 		if len(seen.OfKind(kind)) == 0 {

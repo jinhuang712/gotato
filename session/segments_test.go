@@ -64,7 +64,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			if len(record.Segments()) != 0 {
 				t.Fatal("a closed Segment is in the Context before a Checkpoint lists it")
 			}
-			if err := record.CheckpointSegments(gotato.CompactionPastCeiling, []int{1}, record.Tail()[2:], &session.Compaction{Segment: 1, Recap: "none"}); err != nil {
+			if err := record.CheckpointSegments(gotato.CompactionWhyPastCeiling, []int{1}, record.Tail()[2:], &session.Compaction{Segment: 1, Recap: "none"}); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Flush(ctx); err != nil {
@@ -79,11 +79,11 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			var kinds []gotato.EventKind
 			for _, entry := range entries {
 				kinds = append(kinds, entry.Kind)
-				if entry.Kind == gotato.KindCompactionEnded && strings.Contains(string(entry.Data), "SEGMENT-ONE-TEXT") {
+				if entry.Kind == gotato.EventKindCompactionEnded && strings.Contains(string(entry.Data), "SEGMENT-ONE-TEXT") {
 					t.Fatalf("the Checkpoint copies the Segment's Messages: %s", entry.Data)
 				}
 			}
-			want := []gotato.EventKind{gotato.KindSessionCreated, gotato.KindSessionClaimed, gotato.KindMessageCommitted, gotato.KindReplyEnded, gotato.KindMessageCommitted, gotato.KindReplyEnded, gotato.KindSegmentClosed, gotato.KindCompactionEnded, gotato.KindMessageCommitted}
+			want := []gotato.EventKind{gotato.EventKindSessionCreated, gotato.EventKindSessionClaimed, gotato.EventKindMessageCommitted, gotato.EventKindReplyEnded, gotato.EventKindMessageCommitted, gotato.EventKindReplyEnded, gotato.EventKindSegmentClosed, gotato.EventKindCompactionEnded, gotato.EventKindMessageCommitted}
 			if len(kinds) != len(want) {
 				t.Fatalf("kinds = %v, want %v", kinds, want)
 			}
@@ -96,7 +96,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Facts[0].Kind != gotato.KindCompactionEnded || len(loaded.Segments) != 1 || loaded.Segments[0].Kind != gotato.KindSegmentClosed {
+			if loaded.Facts[0].Kind != gotato.EventKindCompactionEnded || len(loaded.Segments) != 1 || loaded.Segments[0].Kind != gotato.EventKindSegmentClosed {
 				t.Fatalf("Load = facts from %s, %d segment Entries; want the Checkpoint and one segment_closed Entry before it", loaded.Facts[0].Kind, len(loaded.Segments))
 			}
 
@@ -138,7 +138,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			if _, err := record.CloseSegment(rendered(0, "first", "first reply")); err != nil {
 				t.Fatal(err)
 			}
-			if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, nil, nil); err != nil {
+			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 			commit(t, writer, idMessage("u2", "user", "two"))
@@ -153,7 +153,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			if _, err := record.CloseSegment(rendered(0, "second", "second reply")); err != nil {
 				t.Fatal(err)
 			}
-			if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1, 2}, record.Tail()[2:], nil); err != nil {
+			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1, 2}, record.Tail()[2:], nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Flush(ctx); err != nil {
@@ -216,7 +216,7 @@ func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, kept, nil); err != nil {
+	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, kept, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Flush(ctx); err != nil {
@@ -248,7 +248,7 @@ func TestRecordKeepsWhereMessagesWereCommitted(t *testing.T) {
 
 func TestCheckpointSegmentsRefusesWhatIsNotClosed(t *testing.T) {
 	record := session.New()
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, nil, nil); err == nil {
+	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err == nil {
 		t.Fatal("CheckpointSegments accepted a Segment that is not closed")
 	}
 	if _, err := record.CloseSegment(rendered(3, "a", "b")); err != nil {
@@ -276,10 +276,10 @@ func TestCheckpointWithMessagesLeavesNoSegments(t *testing.T) {
 	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, nil, nil); err != nil {
+	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	record.Checkpoint(gotato.CompactionOnDemand, []gotato.Message{gotato.UserMessage("summary")}, nil)
+	record.Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{gotato.UserMessage("summary")}, nil)
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			if _, err := parent.CloseSegment(rendered(0, "first", "reply")); err != nil {
 				t.Fatal(err)
 			}
-			if err := parent.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, []gotato.Message{idMessage("u2", "user", "two")}, nil); err != nil {
+			if err := parent.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, []gotato.Message{idMessage("u2", "user", "two")}, nil); err != nil {
 				t.Fatal(err)
 			}
 			child := session.Fork(parent, session.WithID("child-1"))
@@ -320,7 +320,7 @@ func TestForkCopiesSegments(t *testing.T) {
 			if _, err := writer.Record().CloseSegment(rendered(0, "second", "reply two")); err != nil {
 				t.Fatal(err)
 			}
-			if err := writer.Record().CheckpointSegments(gotato.CompactionOnDemand, []int{1, 2}, nil, nil); err != nil {
+			if err := writer.Record().CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1, 2}, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Flush(ctx); err != nil {
@@ -349,7 +349,7 @@ func TestADocumentKeepsSegments(t *testing.T) {
 	if _, err := record.CloseSegment(rendered(0, "first", "reply")); err != nil {
 		t.Fatal(err)
 	}
-	if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, record.Tail(), nil); err != nil {
+	if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, record.Tail(), nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(record.Snapshot())

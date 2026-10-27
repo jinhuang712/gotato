@@ -231,7 +231,7 @@ func (b *bot) attempt(ctx context.Context, chatID, id, messageID, text string, a
 	// Send queues the text when a Run is going here, and otherwise runs it and
 	// returns when that Run settles.
 	tm := time.AfterFunc(acceptGrace, accepted)
-	res, err := b.runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageFollowUp, Text: text})
+	res, err := b.runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: text})
 	tm.Stop()
 	switch {
 	case err == nil && res.Queued:
@@ -261,7 +261,7 @@ func (b *bot) forward(ctx context.Context, addr, sessionID, text string) error {
 	if addr == "" {
 		return &deliveryError{err: errors.New("the writer advertises no address"), notRun: true}
 	}
-	body, _ := json.Marshal(map[string]string{"kind": string(service.MessageFollowUp), "text": text})
+	body, _ := json.Marshal(map[string]string{"kind": string(service.MessageKindFollowUp), "text": text})
 	target := addr + "/v1/sessions/" + url.PathEscape(sessionID) + "/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {

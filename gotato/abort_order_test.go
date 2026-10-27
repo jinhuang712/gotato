@@ -11,7 +11,7 @@ import (
 // write is the end of the Run.
 func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 	journal := &journalTranscript{}
-	s, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hi"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}), WithTranscript(journal))
+	s, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,11 +23,11 @@ func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // an abort write in flight would land by now
 	kinds := journal.kinds()
 	for _, kind := range kinds {
-		if kind == KindAbortRequested {
+		if kind == EventKindAbortRequested {
 			t.Fatalf("an abort_requested was stored for an Abort that came after the Run began to end: %v", kinds)
 		}
 	}
-	if kinds[len(kinds)-1] != KindRunEnded {
+	if kinds[len(kinds)-1] != EventKindRunEnded {
 		t.Fatalf("the last Event is %s, want run_ended: %v", kinds[len(kinds)-1], kinds)
 	}
 }

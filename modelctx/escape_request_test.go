@@ -58,18 +58,18 @@ func TestImitatedTagsReachTheModelEscapedAfterACompactionAndAMerge(t *testing.T)
 		run := "r" + string(rune('0'+i))
 		f.user(run, "the user says "+imitation, i*10)
 		f.calls(run, "", i*10+1, nil, `c1 files.read {"path":"`+strings.ReplaceAll(imitation, `"`, `'`)+`"}`)
-		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: "c1b", Status: gotato.ToolResultOK,
-			Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "the tool says " + imitation}}, SafeError: "failed: " + imitation}}, i*10+2)
+		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: "c1b", Status: gotato.ToolResultStatusOK,
+			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "the tool says " + imitation}}, SafeError: "failed: " + imitation}}, i*10+2)
 		f.reply(run, "the reply says "+imitation, i*10+3)
 		mustCompact(t, f.rec, modelctx.CompactOptions{Floor: 1, SegmentBudget: 1 << 30, Recap: taggedRecap{}})
 	}
 	// The tail keeps one more exchange as it was: a user Message, a tool call
 	// with its result, and the reply.
 	f.user("r5", "the user says "+imitation, 90)
-	f.commit(gotato.Message{Role: gotato.RoleAssistant, RunID: "r5", StopReason: gotato.StopToolCalls,
+	f.commit(gotato.Message{Role: gotato.RoleAssistant, RunID: "r5", StopReason: gotato.StopReasonToolCalls,
 		ToolCalls: []gotato.ToolCall{{ID: "c9", ToolID: "files.read", Arguments: []byte(`{}`)}}}, 91)
-	f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: "r5", ToolResult: &gotato.ToolResult{CallID: "c9", Status: gotato.ToolResultOK,
-		Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: "the tool says " + imitation}}}}, 91)
+	f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: "r5", ToolResult: &gotato.ToolResult{CallID: "c9", Status: gotato.ToolResultStatusOK,
+		Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "the tool says " + imitation}}}}, 91)
 	f.reply("r5", "the reply says "+imitation, 92)
 
 	_, total := sizes(f.rec.Segments())

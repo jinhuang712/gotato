@@ -64,7 +64,7 @@ func TestRunIDSurvivesTheRecord(t *testing.T) {
 			if _, err := record.CloseSegment(rendered); err != nil {
 				t.Fatal(err)
 			}
-			if err := record.CheckpointSegments(gotato.CompactionOnDemand, []int{1}, record.Tail()[2:], nil); err != nil {
+			if err := record.CheckpointSegments(gotato.CompactionWhyOnDemand, []int{1}, record.Tail()[2:], nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := writer.Flush(ctx); err != nil {
@@ -144,7 +144,7 @@ func TestCutOffReplyRebuiltFromPartsKeepsItsRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	messages := view.Messages()
-	if len(messages) != 1 || messages[0].StopReason != gotato.StopCutOff || messages[0].RunID != "run-x" {
+	if len(messages) != 1 || messages[0].StopReason != gotato.StopReasonCutOff || messages[0].RunID != "run-x" {
 		t.Fatalf("rebuilt Messages = %+v, want one cut-off reply of run-x", messages)
 	}
 }

@@ -29,7 +29,7 @@ func (f *fixture) contextOf(calls *int) func(context.Context) (gotato.ModelReque
 		}
 		request := report.Request
 		request.CacheKey = "gotato-key"
-		request.CacheBreakpoints = []gotato.CacheBreakpoint{{After: gotato.CacheAfterSystem}, {After: gotato.CacheAfterMessage, Index: 1}}
+		request.CacheBreakpoints = []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}, {After: gotato.CacheAnchorAfterMessage, Index: 1}}
 		request.Options.ReasoningEffort = "low"
 		return request, nil
 	}
@@ -130,18 +130,18 @@ func TestAValidRecapLandsEscapedInsideTheRecapTag(t *testing.T) {
 func TestEachFailureRuleLeavesTheSegmentWithoutARecap(t *testing.T) {
 	usage := gotato.Usage{InputTokens: 900, OutputTokens: 40, TotalTokens: 940}
 	text := func(reply string, stop gotato.StopReason) testkit.Script {
-		return testkit.Script{{Kind: gotato.ModelTextDelta, Text: reply}, {Kind: gotato.ModelDone, StopReason: stop, Usage: usage}}
+		return testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: reply}, {Kind: gotato.ModelEventKindDone, StopReason: stop, Usage: usage}}
 	}
 	call := gotato.ToolCall{ID: "x", ToolID: "payments.get_batch", Arguments: []byte(`{}`)}
 	cases := map[string]testkit.Script{
-		"calls a tool":             {{Kind: gotato.ModelTextDelta, Text: goodRecap}, {Kind: gotato.ModelToolCall, ToolCall: &call}, {Kind: gotato.ModelDone, StopReason: gotato.StopToolCalls, Usage: usage}},
-		"cut off at the limit":     text(goodRecap, gotato.StopMaxTokens),
-		"does not start with one":  text("Here is the recap.\n"+goodRecap, gotato.StopEndTurn),
-		"another ## heading":       text(goodRecap+"## Summary\n- x\n", gotato.StopEndTurn),
-		"no ## What happened":      text("## Key facts\n- x\n## Decisions\n- y\n", gotato.StopEndTurn),
-		"starts with a wrong head": text("## Summary\n- x\n## What happened\n- y\n", gotato.StopEndTurn),
-		"empty":                    text("  \n", gotato.StopEndTurn),
-		"a heading in lower case":  text("## what happened\n- x\n", gotato.StopEndTurn),
+		"calls a tool":             {{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap}, {Kind: gotato.ModelEventKindToolCall, ToolCall: &call}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonToolCalls, Usage: usage}},
+		"cut off at the limit":     text(goodRecap, gotato.StopReasonMaxTokens),
+		"does not start with one":  text("Here is the recap.\n"+goodRecap, gotato.StopReasonEndTurn),
+		"another ## heading":       text(goodRecap+"## Summary\n- x\n", gotato.StopReasonEndTurn),
+		"no ## What happened":      text("## Key facts\n- x\n## Decisions\n- y\n", gotato.StopReasonEndTurn),
+		"starts with a wrong head": text("## Summary\n- x\n## What happened\n- y\n", gotato.StopReasonEndTurn),
+		"empty":                    text("  \n", gotato.StopReasonEndTurn),
+		"a heading in lower case":  text("## what happened\n- x\n", gotato.StopReasonEndTurn),
 	}
 	for name, script := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestTheRecapsUsageIsRecorded(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	usage := gotato.Usage{InputTokens: 5000, CacheReadTokens: 4800, OutputTokens: 300, TotalTokens: 5300}
-	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelTextDelta, Text: goodRecap}, {Kind: gotato.ModelUsage, Usage: usage}, {Kind: gotato.ModelDone, StopReason: gotato.StopEndTurn}})
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap}, {Kind: gotato.ModelEventKindUsage, Usage: usage}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}})
 	result := mustCompact(t, f.rec, modelctx.CompactOptions{Recap: modelctx.ModelRecap{Model: model}, Context: f.contextOf(nil)})
 	if u := result.Compaction.RecapUsage; u == nil || *u != usage {
 		t.Fatalf("RecapUsage = %+v", u)

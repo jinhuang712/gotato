@@ -57,7 +57,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 
 	// A compaction makes the load start at a Checkpoint that is not
 	// session_created: the epoch still comes with it.
-	other.Record().Checkpoint(gotato.CompactionOnDemand, []gotato.Message{gotato.UserMessage("summary")}, nil)
+	other.Record().Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{gotato.UserMessage("summary")}, nil)
 	if err := other.Release(ctx); err != nil {
 		t.Fatal(err)
 	}

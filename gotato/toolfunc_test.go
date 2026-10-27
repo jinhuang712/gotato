@@ -159,11 +159,11 @@ func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (Model
 	m.calls++
 	if call == 0 {
 		return &testStream{events: []ModelEvent{
-			{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "get_weather", Arguments: []byte(m.arguments)}},
-			{Kind: ModelDone, StopReason: StopToolCalls},
+			{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "get_weather", Arguments: []byte(m.arguments)}},
+			{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
 		}}, nil
 	}
-	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
+	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
 func TestFuncToolRunsThroughTheLoop(t *testing.T) {
@@ -183,7 +183,7 @@ func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != RunCompleted {
+	if result.Status != RunStatusCompleted {
 		t.Fatalf("result = %+v", result)
 	}
 	if seen.City != "Shenzhen" || seen.Unit != "celsius" {
@@ -207,7 +207,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	// Invalid arguments settle as a failed Tool Result the Model can correct;
 	// the Run continues (GOALS.md G-G04).
 	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
-	if err != nil || result.Status != RunCompleted {
+	if err != nil || result.Status != RunStatusCompleted {
 		t.Fatalf("run = %+v, %v; invalid arguments must not end the Run", result, err)
 	}
 	if executed {
@@ -219,7 +219,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 			failed = m.ToolResult
 		}
 	}
-	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, "city is required") || !strings.Contains(failed.SafeError, string(CodeToolArgumentFailure)) {
+	if failed == nil || failed.Status != ToolResultStatusFailed || failed.Executed || !strings.Contains(failed.SafeError, "city is required") || !strings.Contains(failed.SafeError, string(CodeToolArgumentFailure)) {
 		t.Fatalf("tool result = %+v", failed)
 	}
 }
@@ -237,7 +237,7 @@ func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 	}
 	defer func() { _ = agent.Close(context.Background()) }()
 	result, err := agent.Prompt(context.Background(), UserMessage("weather"))
-	if err != nil || result.Status != RunCompleted {
+	if err != nil || result.Status != RunStatusCompleted {
 		t.Fatalf("run = %+v, %v; an unknown tool must not end the Run", result, err)
 	}
 	var failed *ToolResult
@@ -246,7 +246,7 @@ func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 			failed = m.ToolResult
 		}
 	}
-	if failed == nil || failed.Status != ToolResultFailed || failed.Executed || !strings.Contains(failed.SafeError, `unknown tool "get_wether"`) || !strings.Contains(failed.SafeError, "get_weather") {
+	if failed == nil || failed.Status != ToolResultStatusFailed || failed.Executed || !strings.Contains(failed.SafeError, `unknown tool "get_wether"`) || !strings.Contains(failed.SafeError, "get_weather") {
 		t.Fatalf("tool result = %+v", failed)
 	}
 	if model.calls != 2 {
@@ -263,11 +263,11 @@ func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (Mode
 	m.calls++
 	if m.calls == 1 {
 		return &testStream{events: []ModelEvent{
-			{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: m.tool, Arguments: []byte(`{}`)}},
-			{Kind: ModelDone, StopReason: StopToolCalls},
+			{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: m.tool, Arguments: []byte(`{}`)}},
+			{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
 		}}, nil
 	}
-	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "recovered"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
+	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "recovered"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
@@ -298,12 +298,12 @@ func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 		if ended, ok := event.(ToolEnded); ok {
 			status = ended.Status
 		}
-		if event.Kind() == KindRunEnded {
+		if event.Kind() == EventKindRunEnded {
 			break
 		}
 	}
-	if status != ToolResultFailed {
-		t.Fatalf("tool result status = %v, want %q", status, ToolResultFailed)
+	if status != ToolResultStatusFailed {
+		t.Fatalf("tool result status = %v, want %q", status, ToolResultStatusFailed)
 	}
 }
 
@@ -323,7 +323,7 @@ func TestFuncToolStringOutputBecomesText(t *testing.T) {
 	if updates != 1 {
 		t.Fatalf("progress updates = %d", updates)
 	}
-	if result.Status != ToolResultOK || len(result.Content) != 1 || result.Content[0].Kind != ContentText || result.Content[0].Text != "spoken" {
+	if result.Status != ToolResultStatusOK || len(result.Content) != 1 || result.Content[0].Kind != ContentKindText || result.Content[0].Text != "spoken" {
 		t.Fatalf("result = %+v", result)
 	}
 }

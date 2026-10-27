@@ -27,8 +27,8 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 		t.Fatal("a new Record is not empty")
 	}
 	model := testkit.NewFakeModel(
-		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 4, OutputTokens: 3, TotalTokens: 7}}}, testkit.Text("one")...),
-		append(testkit.Script{{Kind: gotato.ModelUsage, Usage: gotato.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9}}}, testkit.Text("two")...),
+		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 4, OutputTokens: 3, TotalTokens: 7}}}, testkit.Text("one")...),
+		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9}}}, testkit.Text("two")...),
 	)
 	live, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
 	if err != nil {
@@ -37,11 +37,11 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 	defer func() { _ = live.Close(ctx) }()
 
 	first, err := live.Prompt(ctx, gotato.UserMessage("q1"))
-	if err != nil || first.Status != gotato.RunCompleted {
+	if err != nil || first.Status != gotato.RunStatusCompleted {
 		t.Fatalf("Prompt = %+v, %v", first, err)
 	}
 	runs := r.Runs()
-	if len(runs) != 1 || runs[0].RunID != first.RunID || runs[0].Status != gotato.RunCompleted || runs[0].Turns != 1 || runs[0].StartedAt.IsZero() || runs[0].EndedAt.IsZero() {
+	if len(runs) != 1 || runs[0].RunID != first.RunID || runs[0].Status != gotato.RunStatusCompleted || runs[0].Turns != 1 || runs[0].StartedAt.IsZero() || runs[0].EndedAt.IsZero() {
 		t.Fatalf("Runs = %+v", runs)
 	}
 	if usage := r.Usage(); usage.TotalTokens != 7 || usage.InputTokens != 4 {
@@ -61,11 +61,11 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 			}
 		case gotato.RunEnded:
 			ended++
-			if e.RunID != first.RunID || e.Status != gotato.RunCompleted || e.Usage.TotalTokens != 7 {
+			if e.RunID != first.RunID || e.Status != gotato.RunStatusCompleted || e.Usage.TotalTokens != 7 {
 				t.Fatalf("run_ended = %+v", e)
 			}
 		}
-		if event.Kind().Class() != gotato.ClassStored {
+		if event.Kind().Class() != gotato.EventClassStored {
 			t.Fatalf("the Record keeps a %s Event: %s", event.Kind().Class(), event.Kind())
 		}
 	}
@@ -81,7 +81,7 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 	if runs := r.Runs(); len(runs) != 2 || r.Usage().TotalTokens != 16 {
 		t.Fatalf("after two Runs: %+v usage %+v", runs, r.Usage())
 	}
-	if all := r.Events(); all[len(all)-1].Head().Number <= last || all[len(all)-1].Kind() != gotato.KindRunEnded {
+	if all := r.Events(); all[len(all)-1].Head().Number <= last || all[len(all)-1].Kind() != gotato.EventKindRunEnded {
 		t.Fatalf("after two Runs the last Event is %s numbered %d (was %d)", all[len(all)-1].Kind(), all[len(all)-1].Head().Number, last)
 	}
 	if r.Len() != 4 {
@@ -105,7 +105,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	for _, text := range []string{"one", "two", "three"} {
 		commit(t, writer, gotato.UserMessage(text))
 	}
-	writer.Record().Checkpoint(gotato.CompactionBeforeUnload,
+	writer.Record().Checkpoint(gotato.CompactionWhyBeforeUnload,
 		[]gotato.Message{gotato.AssistantMessage("summary"), gotato.UserMessage("three")},
 		&session.Compaction{ReplacedMessages: 2, Recap: "test"})
 	if err := writer.Flush(ctx); err != nil {
@@ -119,7 +119,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 	var checkpoint session.Entry
 	for _, entry := range entries {
-		if entry.Kind == gotato.KindCompactionEnded {
+		if entry.Kind == gotato.EventKindCompactionEnded {
 			checkpoint = entry
 		}
 	}
@@ -131,7 +131,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	ended := event.(gotato.CompactionEnded)
-	if ended.Why != gotato.CompactionBeforeUnload || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 2 || len(ended.Messages) != 2 || len(ended.History) != 1 {
+	if ended.Why != gotato.CompactionWhyBeforeUnload || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 2 || len(ended.Messages) != 2 || len(ended.History) != 1 {
 		t.Fatalf("compaction_ended = %+v", ended)
 	}
 	loaded, err := store.Load(ctx, "cp-1")
@@ -157,7 +157,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	if err != nil || view.Len() != 3 || view.Head() != 7 {
 		t.Fatalf("View = %v, %v", view, err)
 	}
-	if kinds := storedKinds(t, store, "cp-1", 0); len(kinds) != 7 || kinds[2] != gotato.KindMessageCommitted {
+	if kinds := storedKinds(t, store, "cp-1", 0); len(kinds) != 7 || kinds[2] != gotato.EventKindMessageCommitted {
 		t.Fatalf("stored kinds = %v", kinds)
 	}
 }
@@ -196,10 +196,10 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		t.Fatalf("a failed compaction changed the Messages: %d", writer.Record().Len())
 	}
 	got := storedKinds(t, store, "cmp-1", uint64(len(before)))
-	if len(got) != 2 || got[0] != gotato.KindCompactionStarted || got[1] != gotato.KindCompactionFailed {
+	if len(got) != 2 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindCompactionFailed {
 		t.Fatalf("after a failed compaction: %v", got)
 	}
-	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 2, Why: gotato.CompactionPastCeiling})
+	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactOptions{Keep: 2, Why: gotato.CompactionWhyPastCeiling})
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}
@@ -207,18 +207,18 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = storedKinds(t, store, "cmp-1", uint64(len(before)+2))
-	if len(got) != 3 || got[0] != gotato.KindCompactionStarted || got[1] != gotato.KindSegmentClosed || got[2] != gotato.KindCompactionEnded {
+	if len(got) != 3 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindSegmentClosed || got[2] != gotato.EventKindCompactionEnded {
 		t.Fatalf("after a compaction: %v", got)
 	}
 	events, err := session.StoredEvents(ctx, store, "cmp-1", uint64(len(before)+2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if events[0].(gotato.CompactionStarted).Why != gotato.CompactionPastCeiling || events[2].(gotato.CompactionEnded).Why != gotato.CompactionPastCeiling {
+	if events[0].(gotato.CompactionStarted).Why != gotato.CompactionWhyPastCeiling || events[2].(gotato.CompactionEnded).Why != gotato.CompactionWhyPastCeiling {
 		t.Fatalf("events = %+v", events)
 	}
 	loaded, err := store.Load(ctx, "cmp-1")
-	if err != nil || loaded.Facts[0].Kind != gotato.KindCompactionEnded {
+	if err != nil || loaded.Facts[0].Kind != gotato.EventKindCompactionEnded {
 		t.Fatalf("a load starts at %v, %v; want the compaction_ended Checkpoint", loaded.Facts[0].Kind, err)
 	}
 }

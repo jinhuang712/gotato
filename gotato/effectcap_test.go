@@ -11,10 +11,10 @@ import (
 )
 
 // effectLevels is every Effect a tool can declare, the empty one included.
-var effectLevels = []gotato.ToolEffect{gotato.EffectRead, gotato.EffectWriteLocal, gotato.EffectWriteExternal, gotato.EffectDestructive, gotato.EffectUnspecified}
+var effectLevels = []gotato.ToolEffect{gotato.ToolEffectRead, gotato.ToolEffectWriteLocal, gotato.ToolEffectWriteExternal, gotato.ToolEffectDestructive, gotato.ToolEffectUnspecified}
 
 func effectToolID(effect gotato.ToolEffect) string {
-	if effect == gotato.EffectUnspecified {
+	if effect == gotato.ToolEffectUnspecified {
 		return "unspecified"
 	}
 	return string(effect)
@@ -45,7 +45,7 @@ func toolResultsByCall(request gotato.ModelRequest) map[gotato.ToolCallID]gotato
 // fails as a call to an unknown tool that does not name it as available.
 func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 	ctx := context.Background()
-	for _, ceiling := range []gotato.ToolEffect{gotato.EffectRead, gotato.EffectWriteLocal, gotato.EffectWriteExternal, gotato.EffectDestructive} {
+	for _, ceiling := range []gotato.ToolEffect{gotato.ToolEffectRead, gotato.ToolEffectWriteLocal, gotato.ToolEffectWriteExternal, gotato.ToolEffectDestructive} {
 		t.Run(string(ceiling), func(t *testing.T) {
 			fakes := map[gotato.ToolEffect]*testkit.FakeTool{}
 			var tools []gotato.Tool
@@ -78,7 +78,7 @@ func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 				t.Fatalf("inspected request tools = %v, want %v", got, want)
 			}
 			result, err := agent.Prompt(ctx, gotato.UserMessage("call every tool"))
-			if err != nil || result.Status != gotato.RunCompleted {
+			if err != nil || result.Status != gotato.RunStatusCompleted {
 				t.Fatalf("Prompt = %+v, %v", result, err)
 			}
 			requests := model.Requests()
@@ -95,7 +95,7 @@ func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 				id := effectToolID(effect)
 				res := results[gotato.ToolCallID("call-"+id)]
 				if effect.Within(ceiling) {
-					if fakes[effect].Calls() != 1 || res.Status != gotato.ToolResultOK {
+					if fakes[effect].Calls() != 1 || res.Status != gotato.ToolResultStatusOK {
 						t.Errorf("%s within %s: calls %d, result %+v", id, ceiling, fakes[effect].Calls(), res)
 					}
 					continue
@@ -104,7 +104,7 @@ func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 					t.Errorf("%s above %s ran %d times", id, ceiling, fakes[effect].Calls())
 				}
 				_, available, found := strings.Cut(res.SafeError, "available tools:")
-				if res.Status != gotato.ToolResultFailed || res.Executed || !strings.Contains(res.SafeError, "unknown tool") || !found {
+				if res.Status != gotato.ToolResultStatusFailed || res.Executed || !strings.Contains(res.SafeError, "unknown tool") || !found {
 					t.Errorf("%s above %s: result %+v, want a failed unknown-tool result", id, ceiling, res)
 				}
 				if strings.Contains(available, id) {
@@ -125,14 +125,14 @@ func TestEffectCapKeepsAToolOfAToolSetOutOfTheIndex(t *testing.T) {
 	ctx := context.Background()
 	lookup := testkit.NewFakeTool("lookup", "found")
 	push := testkit.NewFakeTool("push", "pushed")
-	set := opsToolSet{tools: []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.EffectRead), gotato.ToolWithEffect(push, gotato.EffectWriteExternal)}}
+	set := opsToolSet{tools: []gotato.Tool{gotato.ToolWithEffect(lookup, gotato.ToolEffectRead), gotato.ToolWithEffect(push, gotato.ToolEffectWriteExternal)}}
 	model := testkit.NewFakeModel(
 		testkit.ToolCalls(gotato.ToolCall{ID: "a", ToolID: gotato.SearchToolName, Arguments: []byte(`{"names":["ops.lookup","ops.push"],"queries":["push"]}`)}),
 		testkit.ToolCalls(gotato.ToolCall{ID: "b", ToolID: "ops.lookup", Arguments: []byte(`{}`)},
 			gotato.ToolCall{ID: "c", ToolID: "ops.push", Arguments: []byte(`{}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSet(set), gotato.WithMaxEffect(gotato.EffectRead))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSet(set), gotato.WithMaxEffect(gotato.ToolEffectRead))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestEffectCapKeepsAToolOfAToolSetOutOfTheIndex(t *testing.T) {
 	if lookup.Calls() != 1 || push.Calls() != 0 {
 		t.Fatalf("calls: lookup %d, push %d; want 1, 0", lookup.Calls(), push.Calls())
 	}
-	if res := toolResultsByCall(requests[2])["c"]; res.Status != gotato.ToolResultFailed || !strings.Contains(res.SafeError, "unknown tool") {
+	if res := toolResultsByCall(requests[2])["c"]; res.Status != gotato.ToolResultStatusFailed || !strings.Contains(res.SafeError, "unknown tool") {
 		t.Fatalf("hidden ToolSet tool result = %+v", res)
 	}
 }
@@ -177,7 +177,7 @@ func TestNoEffectCapOffersEveryTool(t *testing.T) {
 		want = append(want, effectToolID(effect))
 	}
 	slices.Sort(want)
-	for _, extra := range [][]gotato.Option{nil, {gotato.WithMaxEffect(gotato.EffectUnspecified)}} {
+	for _, extra := range [][]gotato.Option{nil, {gotato.WithMaxEffect(gotato.ToolEffectUnspecified)}} {
 		options := append([]gotato.Option{gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tools...)}, extra...)
 		agent, err := gotato.NewSession(options...)
 		if err != nil {

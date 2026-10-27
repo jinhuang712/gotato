@@ -71,7 +71,7 @@ func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 }
 
 func TestSessionPromptEventsAndClose(t *testing.T) {
-	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelTextDelta, Text: "hello"}, {Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hello"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != RunCompleted || TextOf(*result.FinalMessage) != "hello" {
+	if result.Status != RunStatusCompleted || TextOf(*result.FinalMessage) != "hello" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	if result.Metrics.Turns != 1 || result.Metrics.TextBytes != uint64(len("hello")) {
@@ -142,20 +142,20 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("run_ended count = %d for run %s in %v", count, run, kinds)
 		}
-		if lastKind[run] != KindRunEnded {
+		if lastKind[run] != EventKindRunEnded {
 			t.Fatalf("run %s ended with %s, want run_ended", run, lastKind[run])
 		}
 	}
 	// The Session says it left: SessionUnloaded is the last Event of the stream.
-	if len(kinds) == 0 || kinds[len(kinds)-1] != KindSessionUnloaded {
+	if len(kinds) == 0 || kinds[len(kinds)-1] != EventKindSessionUnloaded {
 		t.Fatalf("final Event = %v", kinds)
 	}
 	replyStarted, textDelta := -1, -1
 	for i, kind := range kinds {
-		if kind == KindReplyStarted && replyStarted < 0 {
+		if kind == EventKindReplyStarted && replyStarted < 0 {
 			replyStarted = i
 		}
-		if kind == KindTextDelta && textDelta < 0 {
+		if kind == EventKindTextDelta && textDelta < 0 {
 			textDelta = i
 		}
 	}
@@ -168,7 +168,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 func TestSessionAbortRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
-	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestSessionAbortRun(t *testing.T) {
 func TestSessionSingleFlight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
-	model := &testModel{started: started, block: release, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{started: started, block: release, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestSessionSingleFlight(t *testing.T) {
 
 func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	release := make(chan struct{})
-	model := &testModel{block: release, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
+	model := &testModel{block: release, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(WithModel(model))
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func (t *scriptedTool) Execute(ctx context.Context, use ToolUse, progress ToolPr
 	t.mu.Lock()
 	t.calls++
 	t.mu.Unlock()
-	return ToolResult{Content: []ContentPart{{Kind: ContentText, Text: "tool-ok"}}}, nil
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
 }
 
 type toolModel struct {
@@ -302,17 +302,17 @@ func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 	m.calls++
 	m.mu.Unlock()
 	if call == 0 {
-		return &testStream{events: []ModelEvent{{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}}, {Kind: ModelDone, StopReason: StopToolCalls}}}, nil
+		return &testStream{events: []ModelEvent{{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}}}, nil
 	}
-	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
+	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
 }
 
 // A Tool Call's Signature is the adapter's: the Session stores it with the
 // call and sends it back on the next Turn unchanged.
 func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{
-		{{Kind: ModelToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`), Signature: []byte("item-1")}}, {Kind: ModelDone, StopReason: StopToolCalls}},
-		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
+		{{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`), Signature: []byte("item-1")}}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
+		{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	transcript := &recordingTranscript{}
 	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}), WithTranscript(transcript))
@@ -389,8 +389,8 @@ func TestForModelDeepCopiesToolResultSignature(t *testing.T) {
 		Role: RoleToolResult,
 		ToolResult: &ToolResult{
 			CallID:  "c1",
-			Status:  ToolResultOK,
-			Content: []ContentPart{{Kind: ContentText, Text: "x", Signature: signature}},
+			Status:  ToolResultStatusOK,
+			Content: []ContentPart{{Kind: ContentKindText, Text: "x", Signature: signature}},
 		},
 	}
 	out := ForModel([]Message{message})
