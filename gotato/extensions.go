@@ -264,7 +264,7 @@ func (s extensionSet) beforeTool(ctx context.Context, use ToolUse) (PreToolDecis
 		var decision PreToolDecision
 		current := component
 		view := use
-		view.ArgumentsJSON = slices.Clone(use.ArgumentsJSON)
+		view.Arguments = slices.Clone(use.Arguments)
 		if err := guard("PreToolUse", func() error {
 			result, failure := current.Before(ctx, view)
 			decision = result

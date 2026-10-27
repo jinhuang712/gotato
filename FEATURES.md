@@ -947,7 +947,7 @@ crm — Customer records (214 tools; pass toolset="crm" to list them)
 | `tool_loaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it | the tool's ID and why: `names`, `query` or `call` |
 | `tool_unloaded` | a compaction unloads a tool | the tool's ID and why: `compaction` |
 
-`tool_loaded` and `tool_unloaded` replace the ToolSet facts. A Checkpoint lists the tools that are loaded, so a load by any instance starts from them and reads the later `tool_loaded` facts, and a Fork carries them. A tool that no installed ToolSet carries any more stays unloaded.
+`tool_loaded` and `tool_unloaded` replace the ToolSet facts. A Checkpoint lists the tools that are loaded (`loaded_tools`, as on `session_created`, `compaction_ended` and a Segment), so a load by any instance starts from them and reads the later `tool_loaded` facts, and a Fork carries them. A tool that no installed ToolSet carries any more stays unloaded.
 
 **A call to a tool that is not loaded.** A model may call a catalog tool it has not loaded, because it remembers the name. The call does not run. Gotato loads the tool and returns a failed Tool Result that says so:
 
@@ -962,7 +962,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 | `native` | every tool is in the request from the start, marked deferred, and a load only tells the provider which one is in use, so the tool list is the same bytes on every request. On Anthropic Messages it is `defer_loading` with `tool_reference` blocks in the result of `search_tools`; on OpenAI's Responses API it is `tool_search` | the default on `anthropic-messages` and `openai-responses` |
 | `list` | a loaded tool is added to the tool list, which stays sorted by ID | the default on `openai-chat-completions`, which has no native form and uses `list` whatever is set |
 
-- **How the core and the gateway share it.** The core stays wire-agnostic. Every request of a Session with a catalog carries the visible tools, the IDs of the loaded ones (`ModelRequest.LoadedTools`) and the specs of the catalog tools still to load (`ModelRequest.UnloadedTools`), and a Tool Result lists the tools it loaded (`ToolResult.Loaded`), which the Record keeps. The same Record gives the same request on every instance. A gateway in the `list` form sends the visible tools and ignores the rest; in the `native` form it lays the tools out itself:
+- **How the core and the gateway share it.** The core stays wire-agnostic. Every request of a Session with a catalog carries the visible tools, the IDs of the loaded ones (`ModelRequest.LoadedTools`) and the specs of the catalog tools still to load (`ModelRequest.UnloadedTools`), and a Tool Result lists the tools it loaded (`ToolResult.LoadedTools`, `loaded_tools`), which the Record keeps. The same Record gives the same request on every instance. A gateway in the `list` form sends the visible tools and ignores the rest; in the `native` form it lays the tools out itself:
   - the tools that are not in the catalog first, then every catalog tool, loaded or not, deferred, each group in ID order, so a load moves nothing;
   - **Anthropic Messages** ([tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)): a catalog tool has `defer_loading: true`, `search_tools` stays a plain function of ours, and a load is a `tool_reference` block (`tool_name`) after the text of the `search_tools` result, which the API expands into the tool's definition. The `cache_control` marker for the tools sits on the last tool that is not deferred, as the API requires;
   - **OpenAI Responses** ([tool search](https://developers.openai.com/api/docs/guides/tools-tool-search), client-executed): `search_tools` becomes a `tool_search` entry with `execution: "client"` and the schema of `search_tools`, a catalog tool is a function with `defer_loading: true`, a call to the search is a `tool_search_call` item (its arguments an object) and its result a `tool_search_output` item (same `call_id`) whose `tools` are the functions it loads;
@@ -1465,6 +1465,8 @@ for {
 
 Each Event is kept in one of three places: in the **Record**, which a subscriber can read again from any number; **sent only**, for deltas; or on the **Instance**, for an Instance Event, from an Instance that holds no Claim on the Session.
 
+The same thing is written the same way on every Event. A duration is a number of milliseconds in a key ending in `_ms`, a `float64` with its sub-millisecond part (`elapsed_ms`, `wait_ms`). A Tool is named by `tool_id`, its qualified ID, on `tool_started`, `tool_ended`, `tool_result_spilled`, `tool_loaded` and `tool_unloaded`. A list of the Tools the model has loaded is `loaded_tools`.
+
 *Runs and replies*
 
 | Event | When | Kept |
@@ -1485,7 +1487,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `tool_started`, `tool_ended` | a Tool starts, and ends with its status and how long it ran; a call blocked before it ran has a `tool_ended` and no `tool_started`. A `tool_ended` rides the write that commits its group's results, so it is sent when the group is done: in a parallel group it can wait behind the slowest sibling, though its `elapsed_ms` and time are those of its own Tool | Record |
 | `tool_progress` | a Tool reports its own progress | sent only |
 | `tool_result_committed` | a Tool Result enters the Transcript, in the order the model asked | Record |
-| `tool_loaded`, `tool_unloaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it; a compaction unloads a tool, with why (`tool` and `why`: `names`, `query`, `call`, `compaction` or `gone`, [G-F34](#g-f34--tool-search-)) | Record |
+| `tool_loaded`, `tool_unloaded` | `search_tools` loads a tool, or a call to an unloaded catalog tool loads it; a compaction unloads a tool, with why (`tool_id` and `why`: `names`, `query`, `call`, `compaction` or `gone`, [G-F34](#g-f34--tool-search-)) | Record |
 | `tool_result_spilled` | a Tool Result over one page is stored in full as an Entry of its own; a load skips it ([G-F35](#g-f35--large-tool-results-)); subscribers get it without the body | Record |
 
 *Messages into a Session*
@@ -1496,7 +1498,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | `message_queued` | a Steer, FollowUp or Interrupt waits for its point in the Run | Record |
 | `message_committed` | a user Message enters the Transcript, with where it came from: the prompt, a Steer, a FollowUp or an Interrupt | Record |
 | `message_dropped`, `message_rejected` | a waiting message (with the source `notice`, a notice) is dropped, with why (the Run was stopped: `run_ended`; the instance drains: `draining`; the writer failed: `writer_failed`; the next Run's queue is full: `queue_full`; the Session closed: `session_closed`), or refused because the queue is full | Record |
-| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue (`notice_kind`, `source`, `text`), and goes into the Transcript right before a model call (`message`, and `queued`, the number of its `notice_queued`; absent for a notice of Gotato's own, which is committed at once) | Record |
+| `notice_queued`, `notice_committed` | a notice ([G-F29](#g-f29--runtime-notices-)) waits in the queue (`label`, `source`, `text`), and goes into the Transcript right before a model call (`message`, and `queued`, the number of its `notice_queued`; absent for a notice of Gotato's own, which is committed at once) | Record |
 | `abort_requested` | an Abort arrives; the Run's `run_ended` follows, and the time between them is how long the Abort took | Record |
 
 *Claims*

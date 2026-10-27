@@ -73,7 +73,7 @@ func goneTools(events []Event) []string {
 	var ids []string
 	for _, event := range events {
 		if e, ok := event.(ToolUnloaded); ok && e.Why == ToolUnloadedWhyGone {
-			ids = append(ids, e.Tool)
+			ids = append(ids, e.ToolID)
 		}
 	}
 	return ids

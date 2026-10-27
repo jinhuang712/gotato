@@ -28,7 +28,7 @@ func TestWithModelConfigReachesEveryModelCall(t *testing.T) {
 	if !ok {
 		t.Fatal("model received no request")
 	}
-	options := request.Options
+	options := request.Config
 	if options.Temperature == nil || *options.Temperature != 0.2 || options.MaxTokens != 256 || options.ReasoningEffort != "low" {
 		t.Fatalf("options = %+v (temperature %v)", options, options.Temperature)
 	}

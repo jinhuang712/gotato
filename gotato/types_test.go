@@ -33,7 +33,7 @@ func TestRuntimeErrorIsMatchesASentinelByIdentity(t *testing.T) {
 // A ToolUse describes a call before it runs, so it carries no outcome. The
 // outcome is the ToolResult that a PostToolUse extension receives.
 func TestToolUseCarriesNoOutcome(t *testing.T) {
-	encoded, err := json.Marshal(ToolUse{CallID: "call-1", QualifiedID: "demo.echo"})
+	encoded, err := json.Marshal(ToolUse{CallID: "call-1", ToolID: "demo.echo"})
 	if err != nil {
 		t.Fatal(err)
 	}

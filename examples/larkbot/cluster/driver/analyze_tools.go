@@ -39,7 +39,7 @@ func (r record) assistantTexts() []string {
 // hasEvent says the Record holds an event of the kind (for the tool kinds, of that tool).
 func (r record) hasEvent(kind, toolID string) bool {
 	for _, ev := range r.Events {
-		if ev.Kind == kind && (toolID == "" || ev.ToolID == toolID || ev.Tool == toolID) {
+		if ev.Kind == kind && (toolID == "" || ev.ToolID == toolID) {
 			return true
 		}
 	}
@@ -113,10 +113,10 @@ func loadedTools(r record) []string {
 	for _, ev := range r.Events {
 		switch ev.Kind {
 		case "tool_loaded":
-			out = append(out, ev.Tool)
+			out = append(out, ev.ToolID)
 		case "tool_unloaded":
 			for i, id := range out {
-				if id == ev.Tool {
+				if id == ev.ToolID {
 					out = append(out[:i], out[i+1:]...)
 					break
 				}

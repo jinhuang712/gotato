@@ -244,7 +244,7 @@ func (t *FakeTool) Uses() []gotato.ToolUse {
 
 func cloneToolUse(use gotato.ToolUse) gotato.ToolUse {
 	out := use
-	out.ArgumentsJSON = slices.Clone(use.ArgumentsJSON)
+	out.Arguments = slices.Clone(use.Arguments)
 	return out
 }
 

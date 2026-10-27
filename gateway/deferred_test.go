@@ -32,7 +32,7 @@ func loadingTurns() (first, second gotato.ModelRequest) {
 		Role:  gotato.RoleToolResult,
 		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "Loaded: orders.lookup."}},
 		ToolResult: &gotato.ToolResult{
-			CallID: "call_1", Status: gotato.ToolResultStatusOK, Loaded: []string{"orders.lookup"},
+			CallID: "call_1", Status: gotato.ToolResultStatusOK, LoadedTools: []string{"orders.lookup"},
 		},
 	}
 	second = gotato.ModelRequest{

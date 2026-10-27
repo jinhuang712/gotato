@@ -82,11 +82,10 @@ type recordEvent struct {
 	Source   string    `json:"source"`
 	Text     string    `json:"text"`
 	CallID   string    `json:"call_id"` // tool_started, tool_ended, tool_result_spilled
-	ToolID   string    `json:"tool_id"` // those, and tool_loaded
+	ToolID   string    `json:"tool_id"` // those, tool_loaded and tool_unloaded (the qualified ID)
 	Bytes    int       `json:"bytes"`   // tool_result_spilled: the size of the full result
 	Stage    string    `json:"stage"`   // extension_failed: such as toolset:crm
 	Code     string    `json:"code"`
-	Tool     string    `json:"tool"` // tool_loaded, tool_unloaded: the qualified ID
 	RunID    string    `json:"run_id"`
 }
 
@@ -120,11 +119,11 @@ type record struct {
 		Status string `json:"status"`
 	} `json:"runs"`
 	Events []recordEvent `json:"events"`
-	// Segments are the closed Segments the Record holds; Compactions say what each compaction did; Tools are
+	// Segments are the closed Segments the Record holds; Compactions say what each compaction did; LoadedTools are
 	// the catalog tools loaded now.
 	Segments    []recordSegment    `json:"segments"`
 	Compactions []recordCompaction `json:"compactions"`
-	Tools       []string           `json:"tools"`
+	LoadedTools []string           `json:"loaded_tools"`
 }
 
 type recordSegment struct {

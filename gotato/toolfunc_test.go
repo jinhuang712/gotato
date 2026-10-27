@@ -406,7 +406,7 @@ func TestFuncToolMapsStringLikeTypes(t *testing.T) {
 	if address["type"] != "string" {
 		t.Fatalf("net.IP schema = %#v", address)
 	}
-	result, err := tool.Execute(context.Background(), ToolUse{ArgumentsJSON: []byte(`{"at":"2026-09-01T10:00:00Z"}`)}, nil)
+	result, err := tool.Execute(context.Background(), ToolUse{Arguments: []byte(`{"at":"2026-09-01T10:00:00Z"}`)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

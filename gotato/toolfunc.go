@@ -63,8 +63,8 @@ func (t *funcTool[In, Out]) Spec() ToolSpec { return cloneToolSpec(t.spec) }
 
 func (t *funcTool[In, Out]) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
 	var input In
-	if len(use.ArgumentsJSON) > 0 {
-		if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
+	if len(use.Arguments) > 0 {
+		if err := json.Unmarshal(use.Arguments, &input); err != nil {
 			return ToolResult{}, runtimeError(CodeToolArgumentFailure, "Tool", "cannot decode arguments for "+t.spec.ID, err)
 		}
 	}

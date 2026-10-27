@@ -34,7 +34,7 @@ func TestCheckMCPByTagAndPhase(t *testing.T) {
 
 func TestLoadedToolsAndAnswers(t *testing.T) {
 	r := record{Events: []recordEvent{
-		{Kind: "tool_loaded", Tool: catalogTool}, {Kind: "tool_loaded", Tool: "crm.get_order"}, {Kind: "tool_unloaded", Tool: "crm.get_order"},
+		{Kind: "tool_loaded", ToolID: catalogTool}, {Kind: "tool_loaded", ToolID: "crm.get_order"}, {Kind: "tool_unloaded", ToolID: "crm.get_order"},
 	}, Messages: []recordMessage{said("loaded: false"), said("something else"), said("loaded: true")}}
 	if got := loadedTools(r); len(got) != 1 || got[0] != catalogTool {
 		t.Fatalf("loaded = %v", got)
@@ -71,7 +71,7 @@ func TestDecodeRecord(t *testing.T) {
 	 "events":[
 	  {"kind":"message_committed","number":7,"message":{"id":"m1","role":"user"}},
 	  {"kind":"tool_result_spilled","number":14,"call_id":"export-1","tool_id":"orders.export","bytes":1231620},
-	  {"kind":"tool_loaded","number":15,"tool":"crm.get_invoice","why":"names"},
+	  {"kind":"tool_loaded","number":15,"tool_id":"crm.get_invoice","why":"names"},
 	  {"kind":"extension_failed","number":16,"stage":"toolset:crm","code":"tool_resolution_failure"}]}`
 	var r record
 	if err := json.Unmarshal([]byte(doc), &r); err != nil {

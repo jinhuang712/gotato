@@ -92,7 +92,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		Queries []string `json:"queries"`
 		Toolset string   `json:"toolset"`
 	}
-	if err := json.Unmarshal(use.ArgumentsJSON, &input); err != nil {
+	if err := json.Unmarshal(use.Arguments, &input); err != nil {
 		return ToolResult{}, runtimeError(CodeToolArgumentFailure, SearchToolName, "cannot decode search arguments", err)
 	}
 	if len(input.Names) == 0 && len(input.Queries) == 0 && strings.TrimSpace(input.Toolset) == "" {
@@ -157,9 +157,9 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		parts = append(parts, t.registry.describeSet(name))
 	}
 	return ToolResult{
-		Status:  ToolResultStatusOK,
-		Content: []ContentPart{{Kind: ContentKindText, Text: strings.Join(parts, " ")}},
-		Loaded:  loaded,
+		Status:      ToolResultStatusOK,
+		Content:     []ContentPart{{Kind: ContentKindText, Text: strings.Join(parts, " ")}},
+		LoadedTools: loaded,
 	}, nil
 }
 

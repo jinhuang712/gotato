@@ -157,7 +157,7 @@ type ToolResult struct {
 	// (search_tools, or a call to a Tool that was not loaded). A gateway that
 	// defers tools natively shows each to the Model as a reference at this
 	// place of the history, and a gateway that does not ignores the field.
-	Loaded []string `json:"loaded,omitempty"`
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 }
 
 func (r ToolResult) Clone() ToolResult {
@@ -170,7 +170,7 @@ func (r ToolResult) Clone() ToolResult {
 		out.Content[i].Metadata = maps.Clone(p.Metadata)
 	}
 	out.Metadata = maps.Clone(r.Metadata)
-	out.Loaded = slices.Clone(r.Loaded)
+	out.LoadedTools = slices.Clone(r.LoadedTools)
 	if r.Spilled != nil {
 		spilled := *r.Spilled
 		out.Spilled = &spilled
@@ -219,11 +219,11 @@ const (
 )
 
 type RunMetrics struct {
-	ElapsedMS      int64  `json:"elapsed_ms"`
-	Turns          uint32 `json:"turns"`
-	ToolCalls      uint32 `json:"tool_calls"`
-	TextBytes      uint64 `json:"text_bytes"`
-	ReasoningBytes uint64 `json:"reasoning_bytes"`
+	ElapsedMS      float64 `json:"elapsed_ms"`
+	Turns          uint32  `json:"turns"`
+	ToolCalls      uint32  `json:"tool_calls"`
+	TextBytes      uint64  `json:"text_bytes"`
+	ReasoningBytes uint64  `json:"reasoning_bytes"`
 }
 
 type RunResult struct {

@@ -89,3 +89,7 @@ func orDefault[T comparable](v, def T) T {
 	}
 	return v
 }
+
+// millis returns d in milliseconds, with its sub-millisecond part, as every
+// ...MS field of an Event or a result carries it.
+func millis(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }

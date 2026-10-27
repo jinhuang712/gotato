@@ -88,12 +88,12 @@ func (t effectTool) Spec() ToolSpec {
 }
 
 type ToolUse struct {
-	RunID         RunID      `json:"run_id"`
-	Turn          TurnNumber `json:"turn"`
-	CallID        ToolCallID `json:"call_id"`
-	QualifiedID   string     `json:"qualified_id"`
-	ArgumentsJSON []byte     `json:"arguments_json"`
-	SourceIndex   uint32     `json:"source_index"`
+	RunID       RunID      `json:"run_id"`
+	Turn        TurnNumber `json:"turn"`
+	CallID      ToolCallID `json:"call_id"`
+	ToolID      string     `json:"tool_id"`
+	Arguments   []byte     `json:"arguments"`
+	SourceIndex uint32     `json:"source_index"`
 	// Effect is the called tool's ToolSpec.Effect, so a PreToolUse extension
 	// can gate the call by impact.
 	Effect ToolEffect `json:"effect,omitempty"`

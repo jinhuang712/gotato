@@ -185,7 +185,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 					next.SystemInstructions != prev.SystemInstructions+"\n\n"+gotato.TagsSentence && next.SystemInstructions != prev.SystemInstructions+gotato.TagsSentence {
 					t.Errorf("%s: system instruction changed", pair)
 				}
-				if !bytes.Equal(jsonOf(t, prev.Options), jsonOf(t, next.Options)) || prev.CacheKey != next.CacheKey {
+				if !bytes.Equal(jsonOf(t, prev.Config), jsonOf(t, next.Config)) || prev.CacheKey != next.CacheKey {
 					t.Errorf("%s: options or cache key changed", pair)
 				}
 				extends := len(next.Messages) >= len(prev.Messages)

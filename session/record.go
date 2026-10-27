@@ -32,7 +32,7 @@ func (s *Record) startLog() {
 		Messages:    tail,
 		Metadata:    maps.Clone(s.metadata),
 		Compactions: slices.Clone(s.compactions),
-		Tools:       slices.Clone(s.loaded),
+		LoadedTools: slices.Clone(s.loaded),
 		Segments:    slices.Clone(s.used),
 		Tail:        tailPositions(tail, s.positions),
 	}
@@ -182,7 +182,7 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = e.Compactions
-		s.loaded = slices.Clone(e.Tools)
+		s.loaded = slices.Clone(e.LoadedTools)
 		s.startContext(e.Segments, e.Tail)
 		s.started = nil
 		s.openParts = nil
@@ -197,7 +197,7 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata = map[string]string{}
 		}
 		s.compactions = e.History
-		s.loaded = slices.Clone(e.Tools)
+		s.loaded = slices.Clone(e.LoadedTools)
 		s.startContext(e.Segments, e.Tail)
 		if e.Instance != "" {
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
@@ -233,9 +233,9 @@ func (s *Record) apply(entry Entry) error {
 			s.metadata[e.Key] = e.Value
 		}
 	case gotato.ToolLoaded:
-		s.load(e.Tool)
+		s.load(e.ToolID)
 	case gotato.ToolUnloaded:
-		s.unload(e.Tool)
+		s.unload(e.ToolID)
 	case gotato.SessionClaimed:
 		s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 		s.busy = true

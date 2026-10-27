@@ -98,7 +98,7 @@ func TestEachToolCallCarriesTheTokenOfItsOwnCaller(t *testing.T) {
 		t.Fatal("no echo tool")
 	}
 	for _, user := range []string{"bob", "alice", "bob", "carol"} {
-		if _, err := echo.Execute(as(user), gotato.ToolUse{ArgumentsJSON: []byte(`{"text":"hi"}`)}, nil); err != nil {
+		if _, err := echo.Execute(as(user), gotato.ToolUse{Arguments: []byte(`{"text":"hi"}`)}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

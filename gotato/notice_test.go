@@ -86,7 +86,7 @@ func TestNoticeDuringARunLandsAfterTheToolResults(t *testing.T) {
 	for _, event := range seen.events() {
 		switch e := event.(type) {
 		case NoticeQueued:
-			queued[e.NoticeKind] = e.Number
+			queued[e.Label] = e.Number
 		case NoticeCommitted:
 			if queued[e.Message.Notice.Kind] == 0 || e.Queued != queued[e.Message.Notice.Kind] {
 				t.Errorf("notice_committed %s names queue entry %d, want %d", e.Message.Notice.Kind, e.Queued, queued[e.Message.Notice.Kind])

@@ -98,7 +98,7 @@ func bigBody(size int) string {
 
 func readResult(t *testing.T, tool gotato.Tool, arguments string) (string, error) {
 	t.Helper()
-	result, err := tool.Execute(context.Background(), gotato.ToolUse{ArgumentsJSON: []byte(arguments)}, nil)
+	result, err := tool.Execute(context.Background(), gotato.ToolUse{Arguments: []byte(arguments)}, nil)
 	if err != nil {
 		return "", err
 	}

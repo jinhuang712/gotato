@@ -80,12 +80,12 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded 
 		call:    call,
 		blocked: true,
 		result: ToolResult{
-			CallID:    call.ID,
-			Status:    ToolResultStatusFailed,
-			Content:   []ContentPart{{Kind: ContentKindText, Text: message}},
-			SafeError: message,
-			Executed:  false,
-			Loaded:    loaded,
+			CallID:      call.ID,
+			Status:      ToolResultStatusFailed,
+			Content:     []ContentPart{{Kind: ContentKindText, Text: message}},
+			SafeError:   message,
+			Executed:    false,
+			LoadedTools: loaded,
 		},
 	}
 }
@@ -170,7 +170,7 @@ func (a *Session) executeToolGroup(
 	// becomes known. Commitment happens later, in assistant source order.
 	settle := func(index int, result ToolResult) {
 		outcomes[index] = result
-		elapsed := float64(time.Since(launched).Microseconds()) / 1000
+		elapsed := millis(time.Since(launched))
 		a.stage(ToolEnded{Header: NewHeader(a.id, runID, turn), CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: elapsed})
 	}
 	// cancelRest settles every call of the group that has no outcome yet as
@@ -327,13 +327,13 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			tool:       tool,
 			sequential: spec.Sequential,
 			use: ToolUse{
-				RunID:         runID,
-				Turn:          turn,
-				CallID:        call.ID,
-				QualifiedID:   call.ToolID,
-				ArgumentsJSON: slices.Clone(call.Arguments),
-				SourceIndex:   uint32(sourceIndex),
-				Effect:        spec.Effect,
+				RunID:       runID,
+				Turn:        turn,
+				CallID:      call.ID,
+				ToolID:      call.ToolID,
+				Arguments:   slices.Clone(call.Arguments),
+				SourceIndex: uint32(sourceIndex),
+				Effect:      spec.Effect,
 			},
 		}
 		decision, preErr := a.extensions.beforeTool(ctx, plan.use)

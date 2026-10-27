@@ -30,7 +30,7 @@ func (f *fixture) contextOf(calls *int) func(context.Context) (gotato.ModelReque
 		request := report.Request
 		request.CacheKey = "gotato-key"
 		request.CacheBreakpoints = []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}, {After: gotato.CacheAnchorAfterMessage, Index: 1}}
-		request.Options.ReasoningEffort = "low"
+		request.Config.ReasoningEffort = "low"
 		return request, nil
 	}
 }
@@ -57,14 +57,14 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	}
 	prefix := sent
 	prefix.Messages = sent.Messages[:n]
-	prefix.Options.MaxTokens = next.Options.MaxTokens
+	prefix.Config.MaxTokens = next.Config.MaxTokens
 	want, _ := json.Marshal(next)
 	got, _ := json.Marshal(prefix)
 	if string(want) != string(got) {
 		t.Fatalf("the prefix differs from the next call's Context:\n got %s\nwant %s", got, want)
 	}
-	if sent.Options.MaxTokens != 8192 || modelctx.DefaultRecapMaxTokens != 8192 {
-		t.Errorf("MaxTokens = %d, want 8192", sent.Options.MaxTokens)
+	if sent.Config.MaxTokens != 8192 || modelctx.DefaultRecapMaxTokens != 8192 {
+		t.Errorf("MaxTokens = %d, want 8192", sent.Config.MaxTokens)
 	}
 	ask := sent.Messages[n]
 	text := gotato.TextOf(ask)
@@ -222,8 +222,8 @@ func TestTheRecapOutputLimitIsConfigurable(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
 	mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}, Context: f.contextOf(nil)})
 	sent, _ := model.LastRequest()
-	if sent.Options.MaxTokens != 1500 {
-		t.Errorf("MaxTokens = %d", sent.Options.MaxTokens)
+	if sent.Config.MaxTokens != 1500 {
+		t.Errorf("MaxTokens = %d", sent.Config.MaxTokens)
 	}
 }
 

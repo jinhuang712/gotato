@@ -32,8 +32,8 @@ type Segment struct {
 	// Recap is the text the Segment ends with, or empty when the Recap
 	// failed or none was asked for.
 	Recap string `json:"recap,omitempty"`
-	// Tools are the loaded Tools (qualified IDs) the Segment's stretch called.
-	Tools []string `json:"tools,omitempty"`
+	// LoadedTools are the loaded Tools (qualified IDs) the Segment's stretch called.
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 	// Merged lists the Segments this one stands for, oldest first, when it
 	// is the merged Segment that opens the Context (see MergedSegment). It
 	// is empty for a Segment a compaction closed. The Messages that render
@@ -104,7 +104,7 @@ func (s Segment) Clone() Segment {
 		out.Messages[i] = message.Clone()
 	}
 	out.ToolCalls = slices.Clone(s.ToolCalls)
-	out.Tools = slices.Clone(s.Tools)
+	out.LoadedTools = slices.Clone(s.LoadedTools)
 	out.Merged = slices.Clone(s.Merged)
 	return out
 }

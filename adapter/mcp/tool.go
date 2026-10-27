@@ -43,8 +43,8 @@ func (t *tool) Spec() gotato.ToolSpec { return t.spec }
 // isError is a failed Tool Result the model reads.
 func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	params := &sdk.CallToolParams{Name: t.name}
-	if len(bytes.TrimSpace(use.ArgumentsJSON)) > 0 {
-		params.Arguments = json.RawMessage(use.ArgumentsJSON)
+	if len(bytes.TrimSpace(use.Arguments)) > 0 {
+		params.Arguments = json.RawMessage(use.Arguments)
 	}
 	if progress != nil {
 		// A server sends progress only to a call that carries a token.

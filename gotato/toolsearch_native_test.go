@@ -41,7 +41,7 @@ func TestTheRequestNamesTheLoadedAndTheUnloadedCatalogTools(t *testing.T) {
 	// The load is on the Tool Result that made it, for a gateway to show.
 	var found bool
 	for _, message := range second.Messages {
-		if message.ToolResult != nil && slices.Equal(message.ToolResult.Loaded, []string{"orders.lookup"}) {
+		if message.ToolResult != nil && slices.Equal(message.ToolResult.LoadedTools, []string{"orders.lookup"}) {
 			found = true
 		}
 	}

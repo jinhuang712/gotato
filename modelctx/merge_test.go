@@ -341,7 +341,7 @@ func TestTheModelWritesTheMergedRecapFromTheRecapsAlone(t *testing.T) {
 	}
 	sent, _ := model.LastRequest()
 	if len(sent.Messages) != 1 || sent.Messages[0].Role != gotato.RoleUser || sent.SystemInstructions != "" || len(sent.Tools) != 0 ||
-		sent.CacheKey != "" || len(sent.CacheBreakpoints) != 0 || sent.Options.MaxTokens != 8192 {
+		sent.CacheKey != "" || len(sent.CacheBreakpoints) != 0 || sent.Config.MaxTokens != 8192 {
 		t.Fatalf("request = %+v, want one user message, nothing else", sent)
 	}
 	ask := gotato.TextOf(sent.Messages[0])

@@ -10,11 +10,11 @@ import (
 )
 
 func loaded(id string) gotato.Event {
-	return gotato.ToolLoaded{Header: header(), Tool: id, Why: gotato.ToolLoadedWhyNames}
+	return gotato.ToolLoaded{Header: header(), ToolID: id, Why: gotato.ToolLoadedWhyNames}
 }
 
 func unloaded(id string) gotato.Event {
-	return gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedWhyCompaction}
+	return gotato.ToolUnloaded{Header: header(), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction}
 }
 
 func TestLoadedToolsAreFactsOfTheRecord(t *testing.T) {

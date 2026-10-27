@@ -985,7 +985,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Request.Options.MaxTokens != 256 || gotato.TextOf(report.Request.Messages[0]) != "note: answer briefly" {
+	if report.Request.Config.MaxTokens != 256 || gotato.TextOf(report.Request.Messages[0]) != "note: answer briefly" {
 		t.Fatalf("the report left out the Spec's Extensions or model options: %+v", report.Request)
 	}
 	if report.CompactionPending || report.CompactCeiling != 0 {

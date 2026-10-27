@@ -434,7 +434,7 @@ func ForModel(messages []Message) []Message {
 			m.Parts = append(m.Parts, part)
 		}
 		if message.ToolResult != nil {
-			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: text.EscapeTags(message.ToolResult.SafeError), Loaded: slices.Clone(message.ToolResult.Loaded)}
+			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: text.EscapeTags(message.ToolResult.SafeError), LoadedTools: slices.Clone(message.ToolResult.LoadedTools)}
 			result.Content = cloneContent(message.ToolResult.Content)
 			for j := range result.Content {
 				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {

@@ -152,7 +152,7 @@ func TestSearchToolLoadsByNameAndKeepsTheCatalogSteady(t *testing.T) {
 	if text := textOfResult(resultOf(t, model, 1, "s")); text != "Loaded: orders.lookup." {
 		t.Fatalf("search result = %q", text)
 	}
-	if len(loads) != 1 || loads[0].Tool != "orders.lookup" || loads[0].Why != ToolLoadedWhyNames || loads[0].Number == 0 {
+	if len(loads) != 1 || loads[0].ToolID != "orders.lookup" || loads[0].Why != ToolLoadedWhyNames || loads[0].Number == 0 {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	// The description is the catalog, and it is the same bytes while tools load.
@@ -212,7 +212,7 @@ func TestACallToAnUnloadedCatalogToolLoadsItAndDoesNotRunIt(t *testing.T) {
 	if want := "orders.refund was not loaded, so this call did not run. It is loaded now; call it again."; !strings.Contains(textOfResult(result), want) {
 		t.Fatalf("result text = %q", textOfResult(result))
 	}
-	if len(loads) != 1 || loads[0].Tool != "orders.refund" || loads[0].Why != ToolLoadedWhyCall {
+	if len(loads) != 1 || loads[0].ToolID != "orders.refund" || loads[0].Why != ToolLoadedWhyCall {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	if !slices.Contains(model.toolIDs(1), "orders.refund") {
@@ -272,7 +272,7 @@ func TestAFoldedToolSetShowsACountAndExpandsWithoutLoading(t *testing.T) {
 	if got := model.toolIDs(1); !slices.Equal(got, []string{SearchToolName}) {
 		t.Fatalf("tools after the expansion = %v, want only search_tools", got)
 	}
-	if len(loads) != 1 || loads[0].Tool != "orders.list_open" {
+	if len(loads) != 1 || loads[0].ToolID != "orders.list_open" {
 		t.Fatalf("tool_loaded = %+v", loads)
 	}
 	if got := descriptionOf(model, 2, SearchToolName); got != catalog {

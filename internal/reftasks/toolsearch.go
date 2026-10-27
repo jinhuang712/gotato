@@ -111,7 +111,7 @@ func (t toolSearchFunc) Spec() gotato.ToolSpec { return t.spec }
 
 func (t toolSearchFunc) Execute(_ context.Context, use gotato.ToolUse, _ gotato.ToolProgressFunc) (gotato.ToolResult, error) {
 	var in map[string]string
-	if err := json.Unmarshal(use.ArgumentsJSON, &in); err != nil {
+	if err := json.Unmarshal(use.Arguments, &in); err != nil {
 		return gotato.ToolResult{}, err
 	}
 	out := map[string]string{"result": t.fact}
@@ -346,7 +346,7 @@ func WithLoadedToolsOf(messages []gotato.Message) session.RecordOption {
 		if message.ToolResult == nil {
 			continue
 		}
-		for _, id := range message.ToolResult.Loaded {
+		for _, id := range message.ToolResult.LoadedTools {
 			if !slices.Contains(ids, id) {
 				ids = append(ids, id)
 			}

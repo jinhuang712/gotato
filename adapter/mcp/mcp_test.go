@@ -169,7 +169,7 @@ func execute(t *testing.T, set *gmcp.ToolSet, name, arguments string) gotato.Too
 	}
 	for _, tool := range tools {
 		if tool.Spec().ID == name {
-			result, err := tool.Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(arguments)}, nil)
+			result, err := tool.Execute(ctx, gotato.ToolUse{Arguments: []byte(arguments)}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -410,7 +410,7 @@ func TestACanceledContextEndsTheCall(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := tools[0].Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(`{}`)}, nil)
+		_, err := tools[0].Execute(ctx, gotato.ToolUse{Arguments: []byte(`{}`)}, nil)
 		done <- err
 	}()
 	<-entered
@@ -677,7 +677,7 @@ func TestTheFirstCallAfterAServerRestartSucceeds(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := tool.Execute(ctx, gotato.ToolUse{ArgumentsJSON: []byte(`{"text":"hi"}`)}, nil); err != nil {
+		if _, err := tool.Execute(ctx, gotato.ToolUse{Arguments: []byte(`{"text":"hi"}`)}, nil); err != nil {
 			t.Fatalf("the first call after the restart failed: %v", err)
 		}
 		return

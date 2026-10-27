@@ -14,7 +14,7 @@ import (
 // readSegment calls the tool the way the Loop does, and returns its text.
 func readSegment(t *testing.T, tool gotato.Tool, arguments string) (string, error) {
 	t.Helper()
-	result, err := tool.Execute(context.Background(), gotato.ToolUse{ArgumentsJSON: []byte(arguments)}, nil)
+	result, err := tool.Execute(context.Background(), gotato.ToolUse{Arguments: []byte(arguments)}, nil)
 	if err != nil {
 		return "", err
 	}

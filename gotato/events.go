@@ -252,8 +252,8 @@ type Compaction struct {
 	Ceiling      int `json:"ceiling,omitempty"`
 	// RecapUsage is what the model call that wrote the Recap used.
 	RecapUsage *Usage `json:"recap_usage,omitempty"`
-	// Tools are the loaded Tools the compaction kept loaded.
-	Tools []string `json:"tools,omitempty"`
+	// LoadedTools are the loaded Tools the compaction kept loaded.
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 }
 
 // ForkedFrom names the Session a new Session was forked from, and the
@@ -286,14 +286,14 @@ type RunEnded struct {
 	Cause ErrorCode `json:"cause,omitempty"`
 	// StoppedByExtension is set when a TurnStopper ended the Run; StopReason
 	// is the reason it gave.
-	StoppedByExtension bool   `json:"stopped_by_extension,omitempty"`
-	StopReason         string `json:"stop_reason,omitempty"`
-	Turns              uint32 `json:"turns"`
-	ToolCalls          uint32 `json:"tool_calls"`
-	Usage              Usage  `json:"usage"`
-	ElapsedMS          int64  `json:"elapsed_ms"`
-	TextBytes          uint64 `json:"text_bytes,omitempty"`
-	ReasoningBytes     uint64 `json:"reasoning_bytes,omitempty"`
+	StoppedByExtension bool    `json:"stopped_by_extension,omitempty"`
+	StopReason         string  `json:"stop_reason,omitempty"`
+	Turns              uint32  `json:"turns"`
+	ToolCalls          uint32  `json:"tool_calls"`
+	Usage              Usage   `json:"usage"`
+	ElapsedMS          float64 `json:"elapsed_ms"`
+	TextBytes          uint64  `json:"text_bytes,omitempty"`
+	ReasoningBytes     uint64  `json:"reasoning_bytes,omitempty"`
 }
 
 // TurnStarted: a Turn starts.
@@ -304,7 +304,7 @@ type TurnEnded struct {
 	Header
 	StopReason     StopReason    `json:"stop_reason"`
 	Usage          Usage         `json:"usage"`
-	ElapsedMS      int64         `json:"elapsed_ms"`
+	ElapsedMS      float64       `json:"elapsed_ms"`
 	TextBytes      uint64        `json:"text_bytes"`
 	ReasoningBytes uint64        `json:"reasoning_bytes"`
 	ToolCalls      int           `json:"tool_calls"`
@@ -378,9 +378,9 @@ type ReplyPartKept struct {
 // ModelRetried: the gateway calls the model again.
 type ModelRetried struct {
 	Header
-	Attempt int    `json:"attempt"`
-	WaitMS  int64  `json:"wait_ms"`
-	Error   string `json:"error,omitempty"`
+	Attempt int     `json:"attempt"`
+	WaitMS  float64 `json:"wait_ms"`
+	Error   string  `json:"error,omitempty"`
 }
 
 // ---- Tools ------------------------------------------------------------------
@@ -398,7 +398,7 @@ type ToolStarted struct {
 type ToolEnded struct {
 	Header
 	CallID    ToolCallID       `json:"call_id"`
-	ToolID    string           `json:"tool_id,omitempty"`
+	ToolID    string           `json:"tool_id"`
 	Status    ToolResultStatus `json:"status"`
 	Executed  bool             `json:"executed"`
 	ElapsedMS float64          `json:"elapsed_ms"`
@@ -428,7 +428,7 @@ type ToolResultCommitted struct {
 type ToolResultSpilled struct {
 	Header
 	CallID ToolCallID `json:"call_id"`
-	ToolID string     `json:"tool_id,omitempty"`
+	ToolID string     `json:"tool_id"`
 	// Bytes is the size of the body, in bytes of text.
 	Bytes int `json:"bytes"`
 	// Body is the text of the Tool Result, whole. The text Parts of a result
@@ -465,8 +465,8 @@ const (
 type ToolLoaded struct {
 	Header
 	// Tool is the Tool's qualified ID, "<toolset>.<tool>".
-	Tool string        `json:"tool"`
-	Why  ToolLoadedWhy `json:"why"`
+	ToolID string        `json:"tool_id"`
+	Why    ToolLoadedWhy `json:"why"`
 }
 
 // ToolUnloadedWhy says why a Tool was unloaded.
@@ -484,8 +484,8 @@ const ToolUnloadedWhyGone ToolUnloadedWhy = "gone"
 // Session, like ToolLoaded.
 type ToolUnloaded struct {
 	Header
-	Tool string          `json:"tool"`
-	Why  ToolUnloadedWhy `json:"why"`
+	ToolID string          `json:"tool_id"`
+	Why    ToolUnloadedWhy `json:"why"`
 }
 
 // ---- Messages into a Session ------------------------------------------------
@@ -531,10 +531,11 @@ type MessageCommitted struct {
 type NoticeQueued struct {
 	Header
 	MessageID MessageID `json:"message_id"`
-	// NoticeKind is the notice's label; "kind" in the JSON names the Event.
-	NoticeKind string       `json:"notice_kind"`
-	Source     NoticeSource `json:"source"`
-	Text       string       `json:"text"`
+	// Label is the notice's kind (Message.Notice.Kind); it is not called Kind
+	// because "kind" in the JSON names the Event.
+	Label  string       `json:"label"`
+	Source NoticeSource `json:"source"`
+	Text   string       `json:"text"`
 }
 
 // NoticeCommitted: a notice enters the Transcript, right before a model call.
@@ -621,9 +622,9 @@ type SessionCreated struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	// Compactions is the compaction history a fork inherits.
 	Compactions []Compaction `json:"compactions,omitempty"`
-	// Tools are the Tools the model had loaded, in the order it did, which a
+	// LoadedTools are the Tools the model had loaded, in the order it did, which a
 	// fork inherits.
-	Tools []string `json:"tools,omitempty"`
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 	// Segments are the numbers of the Segments the Context starts with, in
 	// order, before Messages: a fork inherits them. Their SegmentClosed
 	// Events follow this one.
@@ -659,9 +660,9 @@ type CompactionEnded struct {
 	History    []Compaction      `json:"history,omitempty"`
 	Messages   []Message         `json:"messages"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
-	// Tools are the Tools the model had loaded, in the order it did, as a
+	// LoadedTools are the Tools the model had loaded, in the order it did, as a
 	// Checkpoint keeps them.
-	Tools []string `json:"tools,omitempty"`
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 	// Segments are the numbers of the Segments the Context starts with, in
 	// order. A load resolves each to the Messages its SegmentClosed Event
 	// stored, so the Checkpoint does not copy them.

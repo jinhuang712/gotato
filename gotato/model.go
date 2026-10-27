@@ -19,10 +19,10 @@ type ModelRequest struct {
 	// both and sends Tools, which grows when a Tool loads. One that can
 	// sends every catalog Tool as deferred in a fixed order, so the tool
 	// list stays the same while Tools load, and shows a load as a
-	// reference in the Tool Result that loaded it (ToolResult.Loaded).
+	// reference in the Tool Result that loaded it (ToolResult.LoadedTools).
 	LoadedTools   []string    `json:"loaded_tools,omitempty"`
 	UnloadedTools []ToolSpec  `json:"unloaded_tools,omitempty"`
-	Options       ModelConfig `json:"options,omitempty"`
+	Config        ModelConfig `json:"config,omitempty"`
 	// CacheBreakpoints are provider-neutral prompt-cache hints in prefix
 	// order. An adapter maps them to its provider's mechanism (for example
 	// Anthropic cache_control) or ignores them when the provider caches

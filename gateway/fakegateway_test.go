@@ -167,7 +167,7 @@ func TestFakeMaxTokensAloneTooLargeIsNotAnOverflow(t *testing.T) {
 		t.Run(wire.name, func(t *testing.T) {
 			_, client := newFake(t, wire, fakegateway.WithMaxOutput(1000))
 			_, err := client.Stream(context.Background(), gotato.ModelRequest{
-				Messages: []gotato.Message{gotato.UserMessage("hi")}, Options: gotato.ModelConfig{MaxTokens: 99999}})
+				Messages: []gotato.Message{gotato.UserMessage("hi")}, Config: gotato.ModelConfig{MaxTokens: 99999}})
 			gerr := asGatewayError(t, err)
 			if gerr.ContextOverflow() || gerr.StatusCode != 400 || !strings.Contains(gerr.Message, "99999") {
 				t.Fatalf("error = %+v", gerr)

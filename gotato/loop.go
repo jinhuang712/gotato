@@ -166,7 +166,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	runStarted := time.Now()
 	runMetrics := func() RunMetrics {
 		return RunMetrics{
-			ElapsedMS:      time.Since(runStarted).Milliseconds(),
+			ElapsedMS:      millis(time.Since(runStarted)),
 			Turns:          turns,
 			ToolCalls:      toolCalls,
 			TextBytes:      textBytes,
@@ -391,7 +391,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			}
 			a.stage(TurnEnded{
 				Header: hd(turn), StopReason: StopReasonCutOff, Usage: usage,
-				ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
+				ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
 			})
 			if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
 				return fail(controlErr)
@@ -449,7 +449,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		if len(assistant.ToolCalls) == 0 {
 			a.stage(TurnEnded{
 				Header: hd(turn), StopReason: assistant.StopReason, Usage: usage,
-				ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
+				ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
 			})
 			// A TurnStopper runs after TurnEnded and before continuation
 			// selection. A stop preserves the Turn and settles the Run.
@@ -536,8 +536,8 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				}
 				batch.next = committed + 1
 				a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
-				for _, load := range a.registry.announce(toolResult.Loaded) {
-					a.stage(ToolLoaded{Header: hd(turn), Tool: load.id, Why: load.why})
+				for _, load := range a.registry.announce(toolResult.LoadedTools) {
+					a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
 				}
 				if err := a.flush(runCtx); err != nil {
 					return err
@@ -587,12 +587,12 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if load.announced {
 				continue
 			}
-			a.stage(ToolLoaded{Header: hd(turn), Tool: load.id, Why: load.why})
+			a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
 		}
 
 		a.stage(TurnEnded{
 			Header: hd(turn), StopReason: StopReasonToolCalls, Usage: usage,
-			ElapsedMS: time.Since(turnStarted).Milliseconds(), TextBytes: turnText, ReasoningBytes: turnReasoning,
+			ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
 			ToolCalls: len(assistant.ToolCalls), Tools: toolOutcomes,
 		})
 		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
@@ -760,7 +760,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	var partText, partReasoning strings.Builder
 	partStarted := time.Now()
 	modelCtx = withRetryReporter(modelCtx, func(retry ModelRetry) {
-		retried := ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: retry.Wait.Milliseconds(), Error: retry.Error}
+		retried := ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: millis(retry.Wait), Error: retry.Error}
 		if len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
 			// A retry before any output falls between steps: it gets a write
 			// of its own.

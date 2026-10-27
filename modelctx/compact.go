@@ -219,7 +219,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 	}
 	loaded := s.LoadedTools()
 	segment := buildSegment(s.NextSegment(), closed, recapText, opts.SegmentSettings, loaded, s.Position)
-	kept := keptTools(loaded, segment.Tools, tail)
+	kept := keptTools(loaded, segment.LoadedTools, tail)
 
 	before, _ := json.Marshal(all)
 	// What the Record holds after: the Segments before, the new one, the tail.
@@ -242,7 +242,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
 		Ceiling:          opts.Ceiling,
-		Tools:            kept,
+		LoadedTools:      kept,
 	}
 	s.SetLoadedTools(kept)
 	if _, err := closeSegment(s, why, segment, earlier, tail, &record); err != nil {
@@ -252,7 +252,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 	}
 	for _, id := range loaded {
 		if !slices.Contains(kept, id) {
-			s.Emit(gotato.ToolUnloaded{Header: header(), Tool: id, Why: gotato.ToolUnloadedWhyCompaction})
+			s.Emit(gotato.ToolUnloaded{Header: header(), ToolID: id, Why: gotato.ToolUnloadedWhyCompaction})
 		}
 	}
 	result := Result{

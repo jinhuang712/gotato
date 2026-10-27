@@ -65,7 +65,7 @@ func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	if len(queued) != 1 || len(committed) != 1 || queued[0].Number != notice.Number || committed[0].Queued != notice.Number {
 		t.Fatalf("notice_queued %+v, notice_committed %+v; the commit must name queue entry %d", queued, committed, notice.Number)
 	}
-	if queued[0].NoticeKind != "order_update" || queued[0].Source != gotato.NoticeSourceService || string(queued[0].MessageID) != notice.MessageID {
+	if queued[0].Label != "order_update" || queued[0].Source != gotato.NoticeSourceService || string(queued[0].MessageID) != notice.MessageID {
 		t.Fatalf("notice_queued = %+v", queued[0])
 	}
 }
@@ -394,7 +394,7 @@ func TestATimeAwayOfACrashedRunIsNotKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := dead.Write(ctx, []gotato.Event{gotato.NoticeQueued{
-		Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), MessageID: "stale", NoticeKind: gotato.NoticeTimeAway,
+		Header: gotato.NewHeader(gotato.SessionID(s.ID()), "", 0), MessageID: "stale", Label: gotato.NoticeTimeAway,
 		Source: gotato.NoticeSourceGotato, Text: "It has been 40 minutes since the last message. It is now stale.",
 	}}); err != nil {
 		t.Fatal(err)

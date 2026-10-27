@@ -56,7 +56,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inspection.SourceMessages != 3 || inspection.Request.Options.MaxTokens != 512 {
+	if inspection.SourceMessages != 3 || inspection.Request.Config.MaxTokens != 512 {
 		t.Fatalf("inspection = %+v", inspection)
 	}
 	if first := gotato.TextOf(inspection.Request.Messages[0]); first != "POLICY: ANSWER BRIEFLY" {

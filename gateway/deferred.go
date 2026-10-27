@@ -19,7 +19,7 @@ import (
 // Whether a tool is loaded never moves it, so the tool list is the same bytes
 // on every Turn of a Session while tools load, and a prompt cache that covers
 // the tool list survives. A load shows as a reference to the tool in the Tool
-// Result that made it (ToolResult.Loaded), which the history carries from
+// Result that made it (ToolResult.LoadedTools), which the history carries from
 // then on, in the wire API's own form.
 //
 // A loaded tool that no Tool Result in the history references any more (its
@@ -71,7 +71,7 @@ func newDeferredLayout(request gotato.ModelRequest, rules providerRules) *deferr
 			}
 		}
 		if message.ToolResult != nil {
-			for _, id := range message.ToolResult.Loaded {
+			for _, id := range message.ToolResult.LoadedTools {
 				referenced[id] = true
 			}
 		}
@@ -107,7 +107,7 @@ func (l *deferredLayout) references(result *gotato.ToolResult) []string {
 		return nil
 	}
 	var ids []string
-	for _, id := range result.Loaded {
+	for _, id := range result.LoadedTools {
 		if l.deferred[id] {
 			ids = append(ids, id)
 		}

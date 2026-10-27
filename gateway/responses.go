@@ -280,21 +280,21 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 		ParallelToolCalls: true,
 		Tools:             tools,
 	}
-	if request.Options.Temperature != nil {
-		payload.Temperature = request.Options.Temperature
+	if request.Config.Temperature != nil {
+		payload.Temperature = request.Config.Temperature
 	}
-	if request.Options.MaxTokens != 0 {
-		payload.MaxOutputTokens = request.Options.MaxTokens
+	if request.Config.MaxTokens != 0 {
+		payload.MaxOutputTokens = request.Config.MaxTokens
 	}
 	if rules.responsesCacheTTL != "" {
 		payload.PromptCacheOptions = &responsesCacheOptions{TTL: rules.responsesCacheTTL}
 	}
-	if request.Options.ReasoningEffort != "" {
-		summary := request.Options.ReasoningSummary
+	if request.Config.ReasoningEffort != "" {
+		summary := request.Config.ReasoningSummary
 		if summary == "" {
 			summary = "auto"
 		}
-		payload.Reasoning = &responsesReasoning{Effort: request.Options.ReasoningEffort, Summary: summary}
+		payload.Reasoning = &responsesReasoning{Effort: request.Config.ReasoningEffort, Summary: summary}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -127,7 +127,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("go")); err != nil {
 		t.Fatal(err)
 	}
-	if tool.Calls() != 1 || string(tool.Uses()[0].ArgumentsJSON) != `{"x":1}` {
+	if tool.Calls() != 1 || string(tool.Uses()[0].Arguments) != `{"x":1}` {
 		t.Fatalf("uses = %+v", tool.Uses())
 	}
 	kinds := recorder.Kinds()
@@ -165,16 +165,16 @@ func TestSessionFixture(t *testing.T) {
 
 func TestFakeToolUsesAreIsolated(t *testing.T) {
 	tool := testkit.NewFakeTool("fake", "result")
-	use := gotato.ToolUse{ArgumentsJSON: []byte(`{"x":1}`)}
+	use := gotato.ToolUse{Arguments: []byte(`{"x":1}`)}
 	if _, err := tool.Execute(context.Background(), use, nil); err != nil {
 		t.Fatal(err)
 	}
 	uses := tool.Uses()
-	uses[0].ArgumentsJSON[0] = 'X'
+	uses[0].Arguments[0] = 'X'
 
 	again := tool.Uses()
-	if string(again[0].ArgumentsJSON) != `{"x":1}` {
-		t.Fatalf("arguments mutation reached the recording: %s", again[0].ArgumentsJSON)
+	if string(again[0].Arguments) != `{"x":1}` {
+		t.Fatalf("arguments mutation reached the recording: %s", again[0].Arguments)
 	}
 }
 

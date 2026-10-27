@@ -230,7 +230,7 @@ func loadedEvent(sessionID string, messages int, elapsed time.Duration, err erro
 	return gotato.SessionLoaded{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), "", 0),
 		Messages:  messages,
-		ElapsedMS: float64(elapsed.Microseconds()) / 1000,
+		ElapsedMS: float64(elapsed) / float64(time.Millisecond),
 		Failed:    err != nil,
 	}
 }
@@ -239,7 +239,7 @@ func savedEvent(sessionID string, runID gotato.RunID, messages int, stats sessio
 	return gotato.SessionSaved{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), runID, 0),
 		Messages:  messages,
-		ElapsedMS: float64(stats.Elapsed.Microseconds()) / 1000,
+		ElapsedMS: float64(stats.Elapsed) / float64(time.Millisecond),
 		Writes:    stats.Writes,
 		Failed:    err != nil,
 	}

@@ -73,8 +73,8 @@ type Document struct {
 	Usage       gotato.Usage      `json:"usage"`
 	Compactions []Compaction      `json:"compactions,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
-	// Tools are the Tools the model loaded (Record.LoadedTools).
-	Tools []string `json:"tools,omitempty"`
+	// LoadedTools are the Tools the model loaded (Record.LoadedTools).
+	LoadedTools []string `json:"loaded_tools,omitempty"`
 	// Segments are the Segments the Messages start with (Record.Segments);
 	// their rendered Messages are the first of Messages.
 	Segments []gotato.Segment `json:"segments,omitempty"`
@@ -303,7 +303,7 @@ func FromDocument(doc Document) (*Record, error) {
 		usage:       doc.Usage,
 		compactions: slices.Clone(doc.Compactions),
 		metadata:    maps.Clone(doc.Metadata),
-		loaded:      slices.Clone(doc.Tools),
+		loaded:      slices.Clone(doc.LoadedTools),
 		eventLimit:  defaultEventLimit,
 		closed:      map[int]gotato.Segment{},
 		positions:   map[gotato.MessageID]gotato.MessagePosition{},
@@ -349,7 +349,7 @@ func (s *Record) Snapshot() Document {
 		Usage:         s.usage,
 		Compactions:   slices.Clone(s.compactions),
 		Metadata:      maps.Clone(s.metadata),
-		Tools:         slices.Clone(s.loaded),
+		LoadedTools:   slices.Clone(s.loaded),
 		Segments:      s.segmentsLocked(),
 		Seq:           s.head,
 	}
@@ -487,9 +487,9 @@ func (s *Record) foldLive(event gotato.Event) {
 	case gotato.RunEnded:
 		s.endRun(runEnded(e))
 	case gotato.ToolLoaded:
-		s.load(e.Tool)
+		s.load(e.ToolID)
 	case gotato.ToolUnloaded:
-		s.unload(e.Tool)
+		s.unload(e.ToolID)
 	case gotato.NoticeQueued, gotato.NoticeCommitted, gotato.MessageDropped:
 		s.foldNotice(e)
 	}
@@ -557,7 +557,7 @@ func (s *Record) foldNotice(event gotato.Event) {
 		if e.Source != gotato.NoticeSourceService {
 			return
 		}
-		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.NoticeKind, Source: e.Source, Text: e.Text, Number: e.Number})
+		s.notices = append(s.notices, gotato.PendingNotice{MessageID: e.MessageID, Kind: e.Label, Source: e.Source, Text: e.Text, Number: e.Number})
 	case gotato.NoticeCommitted:
 		s.notices = slices.DeleteFunc(s.notices, func(p gotato.PendingNotice) bool { return p.Number == e.Queued && e.Queued != 0 })
 	case gotato.MessageDropped:
@@ -760,7 +760,7 @@ func Fork(parent *Record, options ...RecordOption) *Record {
 	child.messages = doc.Messages
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
-	child.loaded = doc.Tools
+	child.loaded = doc.LoadedTools
 	child.inheritSegments(doc.ID, doc.Segments, parent.maxSegmentNumber(), parent.positionTimes())
 	if len(child.metadata) == 0 {
 		child.metadata = doc.Metadata

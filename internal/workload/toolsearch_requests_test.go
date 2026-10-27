@@ -49,7 +49,7 @@ func loadsBetween(prev, next gotato.ModelRequest) []string {
 	var ids []string
 	for _, message := range next.Messages[min(len(prev.Messages), len(next.Messages)):] {
 		if message.ToolResult != nil {
-			for _, id := range message.ToolResult.Loaded {
+			for _, id := range message.ToolResult.LoadedTools {
 				if !slices.Contains(prev.LoadedTools, id) && !slices.Contains(ids, id) {
 					ids = append(ids, id)
 				}
@@ -277,9 +277,9 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	for _, event := range events {
 		if e, ok := event.(gotato.ToolUnloaded); ok {
 			if e.Why != gotato.ToolUnloadedWhyCompaction {
-				t.Errorf("%s unloaded for %q, want the compaction", e.Tool, e.Why)
+				t.Errorf("%s unloaded for %q, want the compaction", e.ToolID, e.Why)
 			}
-			unloaded = append(unloaded, e.Tool)
+			unloaded = append(unloaded, e.ToolID)
 		}
 	}
 	if len(unloaded) == 0 {

@@ -4,6 +4,24 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### Event fields written one way
+
+The same thing is written the same way in Go and on the wire. Before, a duration was an `int64` on some Events and a `float64` on others, a Tool was `tool` here and `tool_id` there, and a list of loaded Tools had four names. A client that reads Event JSON, a stored Record or a Tool implementation changes the keys below; a stored Record written before this change does not read back.
+
+| Before (Go field, JSON key) | After |
+|---|---|
+| `RunEnded.ElapsedMS`, `TurnEnded.ElapsedMS`, `RunMetrics.ElapsedMS`, `ModelRetried.WaitMS` (`int64`, whole milliseconds) | `float64` milliseconds, with the sub-millisecond part, like `SessionLoaded`, `SessionSaved` and `ToolEnded`; keys `elapsed_ms`, `wait_ms` unchanged |
+| `ToolLoaded.Tool`, `ToolUnloaded.Tool` (`tool`) | `ToolID` (`tool_id`) |
+| `NoticeQueued.NoticeKind` (`notice_kind`) | `Label` (`label`); `Kind` is taken by the Event's own `kind` |
+| `ToolEnded.ToolID`, `ToolResultSpilled.ToolID` (`tool_id,omitempty`) | `tool_id`, always written |
+| `ModelRequest.Options` (`options`) | `ModelRequest.Config` (`config`) |
+| `ToolUse.QualifiedID` (`qualified_id`) | `ToolUse.ToolID` (`tool_id`) |
+| `ToolUse.ArgumentsJSON` (`arguments_json`) | `ToolUse.Arguments` (`arguments`), as on `ToolCall` |
+| `Compaction.Tools`, `CompactionEnded.Tools`, `SessionCreated.Tools`, `Segment.Tools`, `session.Document.Tools` (`tools`) | `LoadedTools` (`loaded_tools`) |
+| `ToolResult.Loaded` (`loaded`) | `ToolResult.LoadedTools` (`loaded_tools`), as on `ModelRequest.LoadedTools` |
+
+A Tool that reads its call changes `use.QualifiedID` to `use.ToolID` and `use.ArgumentsJSON` to `use.Arguments`.
+
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
 ### Fields that carried nothing

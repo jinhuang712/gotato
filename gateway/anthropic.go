@@ -100,12 +100,12 @@ func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules pro
 	payload := anthropicRequest{
 		Model:       model,
 		MaxTokens:   defaultAnthropicMaxTokens,
-		Temperature: request.Options.Temperature,
+		Temperature: request.Config.Temperature,
 		Stream:      true,
 		Messages:    make([]anthropicMessage, 0, len(request.Messages)),
 	}
-	if request.Options.MaxTokens != 0 {
-		payload.MaxTokens = request.Options.MaxTokens
+	if request.Config.MaxTokens != 0 {
+		payload.MaxTokens = request.Config.MaxTokens
 	}
 	if rules.blockBinding {
 		payload.Thinking = &anthropicThinking{Type: "adaptive", BlockBinding: anthropicBlockBinding{PrefixMismatchBehavior: "drop_block"}}

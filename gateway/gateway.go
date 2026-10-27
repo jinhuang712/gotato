@@ -555,10 +555,10 @@ func encodeRequest(model string, request gotato.ModelRequest, rules providerRule
 		tools = append(tools, wireTool{Type: "function", Function: wireFunction{Name: name, Description: spec.Description, Parameters: json.RawMessage(parameters)}})
 	}
 	payload := wireRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &wireStreamOptions{IncludeUsage: true}}
-	if request.Options.Temperature != nil || request.Options.MaxTokens != 0 {
-		payload.Temperature = request.Options.Temperature
-		if request.Options.MaxTokens != 0 {
-			payload.MaxTokens = request.Options.MaxTokens
+	if request.Config.Temperature != nil || request.Config.MaxTokens != 0 {
+		payload.Temperature = request.Config.Temperature
+		if request.Config.MaxTokens != 0 {
+			payload.MaxTokens = request.Config.MaxTokens
 		}
 	}
 	body, err := json.Marshal(payload)

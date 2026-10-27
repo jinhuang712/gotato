@@ -1066,7 +1066,7 @@ func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (M
 	request, _ := AssembleRequest(built, a.registry.visibleSpecs())
 	request.LoadedTools, request.UnloadedTools = a.registry.catalogView()
 	prefix := prefixHash(request)
-	request.Options = a.modelConfig
+	request.Config = a.modelConfig
 	request.CacheKey = a.cacheKey
 	return built, request, prefix, nil
 }
@@ -1146,7 +1146,7 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: CodeToolResolutionFailure})
 	}
 	for _, id := range report.gone {
-		a.stage(ToolUnloaded{Header: header, Tool: id, Why: ToolUnloadedWhyGone})
+		a.stage(ToolUnloaded{Header: header, ToolID: id, Why: ToolUnloadedWhyGone})
 	}
 	return nil
 }

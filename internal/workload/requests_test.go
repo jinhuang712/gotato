@@ -304,7 +304,7 @@ func TestRequestOnlyGrowsAtItsEnd(t *testing.T) {
 					} else if !bytes.Equal(jsonOf(t, prev.Tools), jsonOf(t, next.Tools)) {
 						t.Errorf("%s: Tools changed", pair)
 					}
-					if !bytes.Equal(jsonOf(t, prev.Options), jsonOf(t, next.Options)) || prev.CacheKey != next.CacheKey {
+					if !bytes.Equal(jsonOf(t, prev.Config), jsonOf(t, next.Config)) || prev.CacheKey != next.CacheKey {
 						t.Errorf("%s: options or cache key changed", pair)
 					}
 					if len(prev.CacheBreakpoints) < 2 || len(next.CacheBreakpoints) < 2 ||

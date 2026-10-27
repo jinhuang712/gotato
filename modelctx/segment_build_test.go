@@ -99,7 +99,7 @@ func (f *fixture) calls(run, text string, minute int, statuses map[string]gotato
 
 func (f *fixture) load(id string) {
 	f.t.Helper()
-	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolLoaded{Header: gotato.Header{Time: f.base}, Tool: id, Why: gotato.ToolLoadedWhyNames}}); err != nil {
+	if _, err := f.writer.Write(f.ctx, []gotato.Event{gotato.ToolLoaded{Header: gotato.Header{Time: f.base}, ToolID: id, Why: gotato.ToolLoadedWhyNames}}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -288,7 +288,7 @@ func TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest(t *testing.T)
 	if got, _ := json.Marshal(loaded.Segments()[0].Messages); string(got) != string(first) {
 		t.Fatalf("Segment 1 after a reload:\n%s", got)
 	}
-	if !slices.Equal(loaded.Compactions()[0].Tools, f.rec.Compactions()[0].Tools) || len(loaded.Compactions()) != 2 {
+	if !slices.Equal(loaded.Compactions()[0].LoadedTools, f.rec.Compactions()[0].LoadedTools) || len(loaded.Compactions()) != 2 {
 		t.Fatalf("compactions after a reload = %+v", loaded.Compactions())
 	}
 }
@@ -625,10 +625,10 @@ func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
 	f.reply("r2", "ok", 7)
 	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
 	want := []string{"files.read", "mail.send", "db.query"}
-	if !slices.Equal(result.Compaction.Tools, want) || !slices.Equal(f.rec.LoadedTools(), want) {
-		t.Fatalf("kept Tools = %v / %v, want %v (idle.x is unloaded)", result.Compaction.Tools, f.rec.LoadedTools(), want)
+	if !slices.Equal(result.Compaction.LoadedTools, want) || !slices.Equal(f.rec.LoadedTools(), want) {
+		t.Fatalf("kept Tools = %v / %v, want %v (idle.x is unloaded)", result.Compaction.LoadedTools, f.rec.LoadedTools(), want)
 	}
-	if got := f.rec.Segments()[0].Tools; !slices.Equal(got, []string{"files.read", "mail.send"}) {
+	if got := f.rec.Segments()[0].LoadedTools; !slices.Equal(got, []string{"files.read", "mail.send"}) {
 		t.Errorf("Segment Tools = %v", got)
 	}
 	// The unload is a fact of the Record, with its reason.
@@ -638,7 +638,7 @@ func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
 			unloaded = append(unloaded, e)
 		}
 	}
-	if len(unloaded) != 1 || unloaded[0].Tool != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedWhyCompaction {
+	if len(unloaded) != 1 || unloaded[0].ToolID != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedWhyCompaction {
 		t.Errorf("tool_unloaded = %+v, want idle.x for compaction", unloaded)
 	}
 	// Every instance that loads the Record offers the same Tools.

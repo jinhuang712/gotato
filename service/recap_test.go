@@ -89,7 +89,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	n := len(before.Request.Messages)
 	prefix := sent[0]
 	prefix.Messages = prefix.Messages[:n]
-	prefix.Options.MaxTokens = before.Request.Options.MaxTokens
+	prefix.Config.MaxTokens = before.Request.Config.MaxTokens
 	want, _ := json.Marshal(before.Request)
 	got, _ := json.Marshal(prefix)
 	if string(want) != string(got) || len(sent[0].Messages) != n+1 {

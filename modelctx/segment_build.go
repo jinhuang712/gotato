@@ -127,7 +127,7 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 	}
 	segment.Messages = out.messages
 	segment.Recap = recap
-	segment.Tools = toolsCalled(closed, loaded)
+	segment.LoadedTools = toolsCalled(closed, loaded)
 	return segment
 }
 
