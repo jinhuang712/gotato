@@ -302,7 +302,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 		return err
 	}
 	defer func() { _ = os.RemoveAll(building) }()
-	epochName := filepath.Base(f.epochDir(id, summary.Epoch()))
+	epochName := filepath.Base(f.epochDir(id, summary.RecordEpoch))
 	if err := os.Mkdir(filepath.Join(building, epochName), 0o755); err != nil {
 		return err
 	}
@@ -318,7 +318,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := syncDir(f.dir); err != nil {
 		return err
 	}
-	dir := f.epochDir(id, summary.Epoch())
+	dir := f.epochDir(id, summary.RecordEpoch)
 	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
 	return nil
 }
@@ -338,7 +338,7 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	// deleted, or deleted and created again under this ID, has no such
 	// directory, and the write fails with ErrNotFound, however late: the
 	// directory is the check, and nothing is left between it and the write.
-	dir := f.epochDir(id, summary.Epoch())
+	dir := f.epochDir(id, summary.RecordEpoch)
 	last, err := f.head(id, dir, after)
 	if err != nil {
 		return err

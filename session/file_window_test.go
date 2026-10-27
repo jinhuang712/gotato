@@ -66,7 +66,7 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 		t.Fatalf("the new Record holds %d Entries (%v), want 2", len(entries), err)
 	}
 	loaded, err := b.Load(ctx, "r")
-	if err != nil || loaded.Info.Epoch() != "e2" || loaded.Head != 2 {
+	if err != nil || loaded.Info.RecordEpoch != "e2" || loaded.Head != 2 {
 		t.Fatalf("the new Record = %+v (%v), want epoch e2 at head 2", loaded.Info, err)
 	}
 }

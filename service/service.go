@@ -431,10 +431,6 @@ func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, 
 // Sessions lists the stored Sessions, the most recently updated first.
 func (r *Runner) Sessions(ctx context.Context) ([]session.RecordInfo, error) {
 	list, err := r.store.List(ctx)
-	for i := range list {
-		// A Record written before epochs names one, as every surface does.
-		list[i].RecordEpoch = list[i].Epoch()
-	}
 	return list, err
 }
 

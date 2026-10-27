@@ -523,8 +523,8 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}
 	loaded, err := store.Load(ctx, s.ID())
-	if err != nil || loaded.Info.Epoch() != fresh.Record().RecordEpoch() {
-		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.Epoch(), err, fresh.Record().RecordEpoch())
+	if err != nil || loaded.Info.RecordEpoch != fresh.Record().RecordEpoch() {
+		t.Fatalf("the new Record's epoch = %q (%v), want %q", loaded.Info.RecordEpoch, err, fresh.Record().RecordEpoch())
 	}
 }
 

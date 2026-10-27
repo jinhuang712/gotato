@@ -12,9 +12,8 @@ import (
 )
 
 // A RecordInfo's times are time.Time. They go through a store's JSON and come
-// back as the same instants, and an epoch made of the creation time (a Record
-// written before epochs) reads the same after the reload, whatever digits the
-// time carries and in whatever zone it was written.
+// back as the same instants, and the epoch reads the same after the reload,
+// whatever digits the time carries and in whatever zone it was written.
 func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	ctx := context.Background()
 	store, err := session.NewFileStore(t.TempDir())
@@ -25,7 +24,7 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	created := time.Date(2026, 10, 17, 9, 30, 15, 123_456_789, zone)
 	updated := created.Add(1500 * time.Millisecond)
 	ended := created.Add(time.Second)
-	info := session.RecordInfo{ID: "r", CreatedAt: created, UpdatedAt: updated, LastRunEnd: ended, Seq: 2}
+	info := session.RecordInfo{ID: "r", RecordEpoch: "e1", CreatedAt: created, UpdatedAt: updated, LastRunEnd: ended, Seq: 2}
 	entries := []session.Entry{
 		{Seq: 1, Kind: gotato.EventKindSessionCreated, Layer: session.LayerFact, Data: []byte(`{}`)},
 		{Seq: 2, Kind: gotato.EventKindMessageCommitted, Layer: session.LayerFact, Data: []byte(`{}`)},
@@ -33,10 +32,7 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 	if err := store.Create(ctx, "r", entries, info); err != nil {
 		t.Fatal(err)
 	}
-	want := info.Epoch()
-	if want != "created-2026-10-17T09:30:15.123+08:00" {
-		t.Fatalf("epoch = %q", want)
-	}
+	want := info.RecordEpoch
 
 	loaded, err := store.Load(ctx, "r")
 	if err != nil {
@@ -50,8 +46,8 @@ func TestRecordInfoTimesSurviveASaveAndLoad(t *testing.T) {
 		if !got.CreatedAt.Equal(created) || !got.UpdatedAt.Equal(updated) || !got.LastRunEnd.Equal(ended) {
 			t.Errorf("%s: times %v %v %v, want %v %v %v", name, got.CreatedAt, got.UpdatedAt, got.LastRunEnd, created, updated, ended)
 		}
-		if got.Epoch() != want {
-			t.Errorf("%s: epoch %q, want %q", name, got.Epoch(), want)
+		if got.RecordEpoch != want {
+			t.Errorf("%s: epoch %q, want %q", name, got.RecordEpoch, want)
 		}
 	}
 
@@ -85,7 +81,7 @@ func TestStoredInfoTimesAreTheRecordsOwn(t *testing.T) {
 	if !loaded.Info.CreatedAt.Equal(before.CreatedAt) || !loaded.Info.UpdatedAt.Equal(before.UpdatedAt) {
 		t.Fatalf("stored times %v %v, the Record's %v %v", loaded.Info.CreatedAt, loaded.Info.UpdatedAt, before.CreatedAt, before.UpdatedAt)
 	}
-	if loaded.Info.Epoch() != before.Epoch() {
-		t.Fatalf("epoch %q after the reload, %q before", loaded.Info.Epoch(), before.Epoch())
+	if loaded.Info.RecordEpoch != before.RecordEpoch {
+		t.Fatalf("epoch %q after the reload, %q before", loaded.Info.RecordEpoch, before.RecordEpoch)
 	}
 }

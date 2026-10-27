@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -43,7 +42,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 		t.Fatalf("session_created JSON = %s", entries[0].Data)
 	}
 	loaded, err := store.Load(ctx, "same")
-	if err != nil || loaded.Info.RecordEpoch != epoch || loaded.Info.Epoch() != epoch {
+	if err != nil || loaded.Info.RecordEpoch != epoch {
 		t.Fatalf("RecordInfo epoch = %q, %v; want %q", loaded.Info.RecordEpoch, err, epoch)
 	}
 
@@ -86,23 +85,5 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	fork := session.Fork(again.Record())
 	if fork.RecordEpoch() == again.Record().RecordEpoch() {
 		t.Fatal("a fork shares its parent's epoch")
-	}
-}
-
-// A Record written before epochs has none of its own. Its RecordInfo still names
-// one, from its creation time, so a client can tell it from a Record created
-// under the same ID later.
-func TestSummaryEpochFallsBackToTheCreationTime(t *testing.T) {
-	legacy := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
-	if legacy.Epoch() == "" {
-		t.Fatal("a RecordInfo without an epoch names none")
-	}
-	later := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)}
-	if legacy.Epoch() == later.Epoch() {
-		t.Fatal("two creation times share an epoch")
-	}
-	own := session.RecordInfo{ID: "x", CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), RecordEpoch: "abc"}
-	if own.Epoch() != "abc" {
-		t.Fatalf("Epoch = %q, want its own", own.Epoch())
 	}
 }

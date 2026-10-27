@@ -587,8 +587,8 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 		return fmt.Errorf("an append of the deleted record, at the new record's length = %v, want ErrNotFound", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
-	if err != nil || loaded.Head != 4 || loaded.Info.Epoch() != "epoch-new" {
-		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Info.Epoch(), err)
+	if err != nil || loaded.Head != 4 || loaded.Info.RecordEpoch != "epoch-new" {
+		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Info.RecordEpoch, err)
 	}
 
 	// The new Record is longer, written as one batch that covers the

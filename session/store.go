@@ -11,18 +11,13 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// epochTime is how an epoch made of a creation time writes it: to the
-// millisecond, so that it reads the same before and after a Record's times went
-// through a store.
-const epochTime = "2006-01-02T15:04:05.000Z07:00"
-
 // RecordInfo is the listing view of a stored Session. A writer passes it with
 // every write, so a store can list Sessions without reading their logs.
 type RecordInfo struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parent_id,omitempty"`
 	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch). A
-	// store keeps it with the rest of the RecordInfo; Epoch reads it.
+	// store keeps it with the rest of the RecordInfo.
 	RecordEpoch string            `json:"record_epoch,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
@@ -45,16 +40,6 @@ type RecordInfo struct {
 	// (Record.PendingNotices), so that the next Run on any instance can queue
 	// them again.
 	Notices []gotato.PendingNotice `json:"notices,omitempty"`
-}
-
-// Epoch returns the Record's epoch: its own, or for a Record written before
-// epochs, one made of its creation time, which also tells a Record from one
-// created later under the same ID.
-func (s RecordInfo) Epoch() string {
-	if s.RecordEpoch != "" {
-		return s.RecordEpoch
-	}
-	return epochOfCreation(s.CreatedAt)
 }
 
 // Loaded is what Store.Load returns: the facts of a Record from its last
@@ -196,7 +181,7 @@ func (s *Record) Info() RecordInfo {
 
 func (s *Record) infoLocked() RecordInfo {
 	summary := infoOf(s.id, s.parentID, s.createdAt, s.updatedAt, len(s.messages), s.baseRuns+len(s.runs), s.usage, s.metadata)
-	summary.RecordEpoch = s.epochLocked()
+	summary.RecordEpoch = s.epoch
 	summary.Seq = s.head
 	summary.Running = s.running
 	summary.Busy = s.busy
@@ -227,10 +212,4 @@ func sortInfos(out []RecordInfo) {
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
-}
-
-// epochOfCreation is the epoch of a Record written before epochs: its creation
-// time, to the millisecond.
-func epochOfCreation(createdAt time.Time) string {
-	return "created-" + createdAt.Format(epochTime)
 }

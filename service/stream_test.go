@@ -62,8 +62,8 @@ func TestStreamSessionGoesOnAfterANumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = stream.Close() }()
-	if stream.RecordEpoch == "" || stream.RecordEpoch != first.RecordEpoch || stream.RecordEpoch != loaded.Info.Epoch() {
-		t.Fatalf("stream epoch %q, the Run's %q, the store's %q", stream.RecordEpoch, first.RecordEpoch, loaded.Info.Epoch())
+	if stream.RecordEpoch == "" || stream.RecordEpoch != first.RecordEpoch || stream.RecordEpoch != loaded.Info.RecordEpoch {
+		t.Fatalf("stream epoch %q, the Run's %q, the store's %q", stream.RecordEpoch, first.RecordEpoch, loaded.Info.RecordEpoch)
 	}
 	if stream.Head != head {
 		t.Fatalf("stream head = %d, want %d", stream.Head, head)

@@ -243,13 +243,11 @@ func newEpoch() string {
 // is created, the same on every load and on every Instance, and different only
 // when the Record is deleted and created again under the same ID. A stored
 // Event's number means the same Event only within one epoch, so a client that
-// resumes a stream from a number sends the epoch it saw. A Record written
-// before epochs has none of its own: it reports one made of its creation
-// time, the same as RecordInfo.Epoch.
+// resumes a stream from a number sends the epoch it saw.
 func (s *Record) RecordEpoch() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.epochLocked()
+	return s.epoch
 }
 
 // Holder reports who holds the Record: the Claim it was last written under,
@@ -260,16 +258,6 @@ func (s *Record) Holder() (claim Claim, busy bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.claim, s.busy || s.running != ""
-}
-
-// epochLocked is the epoch every surface reports: the Record's own, or for a
-// Record written before epochs the one RecordInfo.Epoch names, made of its
-// creation time.
-func (s *Record) epochLocked() string {
-	if s.epoch != "" {
-		return s.epoch
-	}
-	return epochOfCreation(s.createdAt)
 }
 
 // NewID returns a random, restart-safe identifier.
@@ -340,7 +328,7 @@ func (s *Record) Snapshot() Document {
 		SchemaVersion: SchemaVersion,
 		ID:            s.id,
 		ParentID:      s.parentID,
-		RecordEpoch:   s.epochLocked(),
+		RecordEpoch:   s.epoch,
 		CreatedAt:     s.createdAt,
 		UpdatedAt:     s.updatedAt,
 		Messages:      cloneMessages(s.messages),

@@ -62,7 +62,7 @@ func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entri
 	if !ok {
 		return ErrNotFound
 	}
-	if record.summary.Epoch() != summary.Epoch() {
+	if record.summary.RecordEpoch != summary.RecordEpoch {
 		return ErrNotFound
 	}
 	if uint64(len(record.entries)) != after {

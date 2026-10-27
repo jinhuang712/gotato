@@ -4,6 +4,15 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A Record's epoch is always its own
+
+**Breaking**: before the first release nothing keeps an old form. Every Record gets an epoch when it is created, so the epoch made of the creation time (`created-<time>`), which stood in for a Record written before epochs, is gone. `RecordInfo.Epoch()` was only a getter after that, so it goes too.
+
+| Before | After |
+|---|---|
+| `RecordInfo.Epoch()` returned `RecordEpoch`, or `created-<creation time>` when it was empty | read `RecordInfo.RecordEpoch` |
+| a Record whose stored epoch is empty reported `created-<creation time>` on every surface | it reports an empty epoch; `session_created` of a Record that has none gets a new one |
+
 ### The file store has one layout and no `ErrOldLayout`
 
 **Breaking**: before the first release nothing keeps an old layout. The file store no longer recognizes a directory `<id>/<position>.json` or a session document `<id>.json`.
@@ -44,7 +53,7 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ### A RecordInfo's times are `time.Time`
 
-**Breaking**: before the first release nothing keeps an old form. `session.RecordInfo` held its times as strings in a fixed millisecond format, while `Record.CreatedAt()`, `UpdatedAt()` and `LastRunEnd()` returned `time.Time`. The three fields are `time.Time` now. On the wire (a store's JSON, `GET /v1/sessions`, a Session summary) they are RFC 3339 with as many fraction digits as the time has, where they had three. `last_run_end` is left out when no Run has ended (`omitzero`). `RecordInfo.Epoch()` of a Record written before epochs is unchanged: `created-` and the creation time to the millisecond.
+**Breaking**: before the first release nothing keeps an old form. `session.RecordInfo` held its times as strings in a fixed millisecond format, while `Record.CreatedAt()`, `UpdatedAt()` and `LastRunEnd()` returned `time.Time`. The three fields are `time.Time` now. On the wire (a store's JSON, `GET /v1/sessions`, a Session summary) they are RFC 3339 with as many fraction digits as the time has, where they had three. `last_run_end` is left out when no Run has ended (`omitzero`).
 
 | Before | After |
 |---|---|
