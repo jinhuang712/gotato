@@ -86,7 +86,7 @@ Built.
 Exit:
 
 - ✅ No exported identifier, Event kind or field carries the old meaning of Agent.
-- ✅ G-G06 holds for the break: the HTTP and gRPC contract version is `"4"`, and the CLI contract version is `"2"`.
+- ✅ G-G06 holds for the break: it has its before-and-after entry in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Design discussion ✅
 
@@ -137,7 +137,7 @@ Exit:
 - ✅ With requests sent to random instances, the harness gets the same Transcripts and Event order as a single instance.
 - ✅ A stream cut at every Event of the reference workload resumes equal to an uncut one, over HTTP and over gRPC.
 - ✅ A subscriber that stops reading never slows its Session, and catches up from the Record with every stored Event once.
-- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md), under the contract version change that Phase 3 made.
+- ✅ G-G06 holds for the Event break: a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md).
 - ✅ A drained instance commits its Runs and releases its Claims before it leaves.
 - ✅ A test stops an instance's heartbeat and expects its Claims to end and its late appends to fail.
 - ✅ A test fills an instance to its hard limit and expects a "not run" refusal, an Event, and no Session activated there.

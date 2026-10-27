@@ -131,7 +131,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | HTTP API | a handler you mount on your own mux | G-F14 | ✅ |
 | Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
 | Stream resume | reconnect on any instance and go on after the number of the last Event seen, with the Record's epoch; a stream that ends says whether and when to reconnect | G-F14 | ✅ |
-| gRPC | `gotato.v2.SessionService`, in its own Go module | G-F14 | ✅ |
+| gRPC | `gotato.v1.SessionService`, in its own Go module | G-F14 | ✅ |
 | Go API | call the Runner directly, and subscribe to a Run's, a Session's or the Instance's Events | G-F14 | ✅ |
 | Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
 
@@ -1448,7 +1448,7 @@ POST   /v1/runs                  POST /v1/runs/stream
     - **What makes it so.** Each Record has a Feed of its own on an instance, named by its Session ID and epoch, so a stream is never handed the live Events of another Record, and the stream of a new Record never waits for the old Record's numbers. Every read of the Record that returns Events is checked against the stream's epoch before they are delivered. A stream is registered before it reads the Record, so what the instance does to the Record meanwhile reaches it. `Runner.SubscribeSession` is the same stream.
   - **Which instance.** A stream on the Session's writer receives its Events as they are written. On any other instance it also receives them, from the Record, when its next look at the store finds them (`Config.StreamPoll`, one second by default), so a load balancer that sends a reconnect elsewhere still works, a little later. An idle stream costs one read of the Record after its number per look (`Log`, which is empty when nothing was written), on every instance, because between Runs no instance is the writer; the Record's epoch is read again (`Load`) only after a look that returned Events.
 
-**gRPC.** `gotato.v2.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
+**gRPC.** `gotato.v1.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
 
 - Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `StreamSession`, `CancelRun`, `SendMessage`, `Notice`, `Events`, `Context`, `Compact`. `Notice(session_id, kind, text)` queues a notice and answers `queued` with its `number` and `message_id`, and is forwarded like `SendMessage`. `SendMessage(session_id, kind, text)` answers `queued` with a `message_id`, or `run` with the result of the Run it started; `CancelRun` by `session_id` is the Stop of a Session. Both are forwarded to the writer when `grpcadapter.WithForwarding` is on, with the metadata `gotato-forwarded`.
 - `StreamSession(session_id, after, record_epoch)` is the same stream as the HTTP route, as a server stream of `SessionUpdate`: a `start` message with the epoch, then the Events. The epoch is also in the header metadata `record-epoch`. A position that cannot be resumed fails with `FAILED_PRECONDITION` and the current epoch in a `record-epoch` trailer; an unknown Session with `NOT_FOUND`. The drain ends the stream with `UNAVAILABLE` and a `retry-after-ms` trailer, like `StreamRun`.
@@ -1462,7 +1462,7 @@ POST   /v1/runs                  POST /v1/runs/stream
 
 **For all of them:**
 
-- Both contracts report their version, now `"4"`, on `GET /healthz` and through `Contract`.
+- Both contracts report their version, `"1"` at the first release, on `GET /healthz` and through `Contract`.
 - Authentication, logging and access control are yours: wrap the HTTP handler, or add gRPC interceptors. How a refusal reaches the caller is in [G-N22](#g-n22--access-control-belongs-to-applications).
 
 ## Watching and extending

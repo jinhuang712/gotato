@@ -144,7 +144,7 @@ Default output is JSON Lines, one stored `Event` per line, in the order of the R
 gotato serve [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction] [--drain-timeout D] [--advertise URL] [--forward] [--model M] [--gateway-config PATH]
 ```
 
-Serves the same runner over HTTP (`service/httpapi`, contract `4`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
+Serves the same runner over HTTP (`service/httpapi`, contract `1`). Sessions live in the same store the CLI uses, so `gotato run --session ID` and `POST /v1/sessions/ID/runs` continue the same history. Routes:
 
 ```text
 GET    /healthz  /readyz  /v1/agents
@@ -177,7 +177,7 @@ gotato doctor [--json] [--gateway-config PATH]
 ```
 
 ```json
-{"ok": true, "version": "2", "go": "go1.26.1",
+{"ok": true, "version": "1", "go": "go1.26.1",
  "checks": [
    {"name": "store", "ok": true, "detail": "/…/sessions (3 sessions)"},
    {"name": "model.echo", "ok": true, "detail": "deterministic, no credentials"},

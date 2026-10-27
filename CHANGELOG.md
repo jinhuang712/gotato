@@ -4,7 +4,22 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
-Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break: the HTTP and gRPC contract version is now `"4"`, and the CLI contract version is now `"2"`. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
+Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
+
+### Contract versions
+
+Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (HTTP and gRPC `ContractVersion` `"2"` to `"4"`, the CLI's `"2"`, and the protobuf package `gotato.v2`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.
+
+| | before | after |
+|---|---|---|
+| HTTP `ContractVersion` (`GET /healthz` `contract`, `gotato serve` `contract`) | `"4"` | `"1"` |
+| gRPC `ContractVersion` (the `Contract` call) | `"4"` | `"1"` |
+| CLI contract version (`gotato version`, `gotato doctor` `version`) | `"2"` | `"1"` |
+| protobuf package and service | `gotato.v2.SessionService` | `gotato.v1.SessionService` |
+| generated Go package | `adapter/grpc/gotato/v2` (`gotatov2`) | `adapter/grpc/gotato/v1` (`gotatov1`) |
+| `.proto` path | `adapter/grpc/proto/gotato/v2/service.proto` | `adapter/grpc/proto/gotato/v1/service.proto` |
+
+A gRPC client regenerates its stubs from the new `.proto`: the method paths on the wire are now `/gotato.v1.SessionService/…`.
 
 ### Examples
 
@@ -42,7 +57,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names
   | a tool of a ToolSet could not be switched off for a Session | `gotato.WithToolFilter(keep)`; the Runner sets it from `gotato.tool.<id>` for every tool of every ToolSet |
   | `Runner.Tools` with a Session listed the Agent's tools, `read_segment` and `read_result` | adds `search_tools` (its description is the catalog) and the tools the Session has loaded, in `Runner.Tools` and `gotato tools list --session` |
 
-  `gotato.WithToolSearcher(searcher)` plugs in a team's own search: `ToolSearcher.Search(ctx, query, tools []ToolSpec) ([]string, error)` returns IDs best first. The `toolregistry` package is unchanged: it is a `ToolSource` for tools switched on and off by the application, and never served `activate_toolset`. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`), since the break ships with the changes above that already raised them.
+  `gotato.WithToolSearcher(searcher)` plugs in a team's own search: `ToolSearcher.Search(ctx, query, tools []ToolSpec) ([]string, error)` returns IDs best first. The `toolregistry` package is unchanged: it is a `ToolSource` for tools switched on and off by the application, and never served `activate_toolset`.
 
 - **The gateway sends deferred tools natively: the tool list stays the same while tools load.** The new key `deferred_tools` (`Config.DeferredTools`) is `native` or `list`. The default is `native` on `anthropic-messages` (every catalog tool has `defer_loading: true`, and a load is a `tool_reference` block in the `search_tools` result) and on `openai-responses` (`search_tools` is a client-executed `tool_search`, a catalog tool is a function with `defer_loading: true`, and a load is a `tool_search_output` item); `openai-chat-completions` always uses `list`. A request carries `ModelRequest.LoadedTools` and `ModelRequest.UnloadedTools`, and a Tool Result carries `ToolResult.Loaded`; all three are additions. **Breaking** for a team on those two wire APIs whose gateway refuses the native form:
 
@@ -62,7 +77,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names
 
 ### Messages from any endpoint
 
-Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table.
 
 - **A message that arrives while a Run is ending is not answered `busy`.** `run_ended` comes a few milliseconds before the Run saves and releases its Session; a message sent in that window (a chat bot replying to `run_ended`, say) found the Session held and was refused. `Runner.Send`, and so `POST /v1/sessions/{id}/messages`, gRPC `SendMessage` and `gotato session message`, now waits for the release, bounded by the caller's context, and starts the next Run. A Run on another instance still answers `not_writer`; a plain `Runner.Run` on a busy Session is unchanged. A Stop in the window finds the ending Run and returns nil; a notice already waited for the Session.
 
@@ -102,7 +117,7 @@ Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATUR
 
 ### Runtime notices
 
-Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table. The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`).
+Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table.
 
 - **A notice is a Message of its own kind.** `gotato.RoleNotice` and `Message.Notice` (`NoticeInfo{Kind, Source, CausedBy}`) tell the model a fact the user did not say. It waits in the queue beside the Steer queue, goes in right before the next model call, and starts no Round and no Run. The request carries it as `<notice kind="…">…</notice>`, with the text escaped, and a request that holds one ends its system part with the fixed sentence about the four tags.
 - **A service sends its own.**
@@ -146,7 +161,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
   | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
 
-  `MaxMessageBytes`, `ModelCallDeadline` and `ToolCallDeadline` are unchanged (`MaxActiveToolSets` goes in *Tool search*, below). `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits, so the contract versions stay as they are.
+  `MaxMessageBytes`, `ModelCallDeadline` and `ToolCallDeadline` are unchanged (`MaxActiveToolSets` goes in *Tool search*, below). `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits.
 
 ### Large Tool Results
 
@@ -161,7 +176,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `FileStore.Log(after)` opened every write of the Record | it skips the files that end at or before `after` |
   | the demo model answered `use-tool` only | also `use-big-tool`, which returns a result over one page |
 
-  The `storetest` suite gains a check that a log Entry of a megabyte is kept whole, read at its position, and not loaded; every `session.Store` adapter must pass it. The contract versions stay as they are, since every change here is an addition.
+  The `storetest` suite gains a check that a log Entry of a megabyte is kept whole, read at its position, and not loaded; every `session.Store` adapter must pass it. Every change here is an addition.
 
 ### Access control
 
@@ -187,7 +202,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | gRPC `RuntimeError` message: `code`, `operation`, `message`; only `Run` and `StreamRun` set the trailer `gotato-not-run` | adds `retryable` and `not_run`; every failed call sets the trailers `gotato-not-run` and the new `gotato-retryable` when they hold |
   | CLI failure JSON `{"error","exit_code"}` | adds `code`, `not_run` and `retryable` |
 
-  The contract versions stay as they are (HTTP and gRPC `"4"`, CLI `"2"`), since the break ships with the changes above that already raised them.
+ 
 
 ### Names
 
@@ -445,9 +460,9 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 
 ### Events
 
-The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against the build of 2026-10-16. It is one break. It shares the contract version change that the changes above already hold (HTTP and gRPC `"4"`, CLI `"2"`); the versions are not raised a second time.
+The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against the build of 2026-10-16. It is one break. It is part of the same pre-release break as the changes above.
 
-- **The Event `message_withdrawn` is removed.** Nothing could withdraw a waiting message, so Gotato never sent it ([G-N23](FEATURES.md#g-n23--a-waiting-message-is-not-withdrawn)). It is a break of the Event kinds, and it shares the contract version change above (HTTP and gRPC `"4"`); the versions are not raised again, because the Event was never sent and no stream or log can hold one.
+- **The Event `message_withdrawn` is removed.** Nothing could withdraw a waiting message, so Gotato never sent it ([G-N23](FEATURES.md#g-n23--a-waiting-message-is-not-withdrawn)). It is a break of the Event kinds, and it is part of the same pre-release break, and no stream or log can hold one, because the Event was never sent.
 
   | Before | After |
   |---|---|
@@ -540,7 +555,7 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
 - **Two names moved to make room for the Events.** **Breaking:** the Session's status constants `gotato.SessionCreated`, `SessionIdle`, `SessionBusy`, `SessionClosing` and `SessionClosed` are now `SessionStatusCreated` … `SessionStatusClosed`, because `SessionCreated` is the Event; and the function type a Tool reports progress with, `gotato.ToolProgress`, is now `gotato.ToolProgressFunc`, because `ToolProgress` is the Event.
 - **New Events.** `session_claimed` (with why, and which instance held the Session before), `session_released`, `session_fenced` and `liveness_lapsed` come with the Claim; `message_queued`, `message_committed`, `message_dropped` and `message_rejected`, and `abort_requested`, come from a live Session's Steer, FollowUp and Abort; `model_retried` comes from the gateway; `reply_part_kept` is the stored part of a streaming reply; `session_created`, `metadata_changed` and `compaction_*` come from the Record; `run_requested`, `run_waiting`, `run_rejected`, `session_loaded`, `session_saved`, `session_deleted` and `store_write_failed` are Instance Events. An Instance that opens a Session it holds already writes `session_claimed` again, with the same Epoch, where it wrote a busy mark.
 - **New in the Go API:** `gotato.Feed`, `gotato.Subscription`, `gotato.WithFeed`, `gotato.WithRunStart`, `gotato.MarshalEvent`, `gotato.UnmarshalEvent`, `gotato.ReportModelRetry` (for a gateway), `session.StoredEvents`, `session.WithPublisher`, `session.WithWaited`, `service.Runner.SubscribeSession`, `SubscribeInstance` and `service.ForAgents`.
-- **HTTP.** Every Event, in `…/runs/stream` and in `GET …/events`, is one flat object with `kind`, `time`, `session_id` and `number`, and the fields of its kind at the same level, where it had `payload`. The SSE `event:` name is the new kind. **Breaking**, within the version change above:
+- **HTTP.** Every Event, in `…/runs/stream` and in `GET …/events`, is one flat object with `kind`, `time`, `session_id` and `number`, and the fields of its kind at the same level, where it had `payload`. The SSE `event:` name is the new kind. **Breaking**:
 
   ```json
   // before
@@ -550,9 +565,9 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
   ```
 
   A Run's stream starts with the Event that claimed, or created, its Session and ends with `run_ended`. `GET …/events` lists every stored Event of the Session, read from its Record, messages included; it listed the retained window of protected Events, 1000 at most, before.
-- **gRPC.** `Event` is an `EventHeader` and a `oneof event` with one message for each type; `payload_json`, `event_class`, `sequence`, `kind` and `message_id` are gone. A Message that an Event carries travels as JSON bytes (`message_json`). `Usage` adds `cache_read_tokens` and `cache_write_tokens`. **Breaking**, within the version change above. `adapter/grpc` has `KindOf(event)` for the kind of an Event on the wire. The generated code is regenerated with `buf generate`.
-- **CLI.** `events` and `run --events jsonl` print the flat objects above, where they printed `payload`; the Run's stream begins with `session_created` and `session_claimed` for a new session, and has no `session_loaded` or `session_saved`. **Breaking**, within the version change above.
-- **Field-level moves that the entries above imply.** The Event design renames the fields inside the kinds as well as the kinds. These are the ones the tables above do not name one by one. **Breaking**, within the version change above:
+- **gRPC.** `Event` is an `EventHeader` and a `oneof event` with one message for each type; `payload_json`, `event_class`, `sequence`, `kind` and `message_id` are gone. A Message that an Event carries travels as JSON bytes (`message_json`). `Usage` adds `cache_read_tokens` and `cache_write_tokens`. **Breaking**. `adapter/grpc` has `KindOf(event)` for the kind of an Event on the wire. The generated code is regenerated with `buf generate`.
+- **CLI.** `events` and `run --events jsonl` print the flat objects above, where they printed `payload`; the Run's stream begins with `session_created` and `session_claimed` for a new session, and has no `session_loaded` or `session_saved`. **Breaking**.
+- **Field-level moves that the entries above imply.** The Event design renames the fields inside the kinds as well as the kinds. These are the ones the tables above do not name one by one. **Breaking**:
 
   | Before | After |
   |---|---|
@@ -568,7 +583,7 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
 
 ### Many instances
 
-These are additions, within the version change that the changes above already hold, but for one break: the streaming routes answer a refusal at admission with a status, before the stream starts.
+These are additions, but for one break: the streaming routes answer a refusal at admission with a status, before the stream starts.
 
 - **An instance refuses a new Session past a hard limit.** `service.Admission.MaxActiveSessions` (`gotato serve --max-sessions`, `gotato-grpc --max-sessions`; off by default) counts the Sessions an instance has active. A Run that would activate another one past it is refused before anything is loaded, claimed or created: `service.ErrOverloaded` (the new code `gotato.ErrOverloaded`, `overloaded`), and a `run_rejected` Instance Event with the reason `activation_limit`. HTTP answers 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, also for the streaming routes, which answer it before the stream starts (`Runner.StreamRunAdmitted`); gRPC answers `UNAVAILABLE` with the trailer `gotato-not-run: true`. The mark tells it from the 503 of a store failure, which may have run. A Run on a Session that is active already, and creating or forking a Session, are not refused. `Runner.ActiveSessions` reports the count, and `/readyz` adds `active_sessions`.
 - **The streaming routes answer a refusal at admission with a status.** `POST /v1/runs/stream` and `POST /v1/sessions/{id}/runs/stream` know whether a Run is admitted before they write a byte, so a refused Run gets the status and body that `/v1/runs` gives it, and no stream: draining 409, capacity (`MaxActiveRuns`) 429, and the new activation limit 503 marked not run. Every failure after admission still arrives in-band as `event: error`. No status code or mark of `/v1/runs` changed, and gRPC already answered with a status. **Breaking** for a client of the streaming routes that read these refusals from the stream:
@@ -615,21 +630,21 @@ These are additions, within the version change that the changes above already ho
 
 ### Contracts
 
-- Additions to all three, with no change to the contract versions: `gotato context compact --json`, `POST /v1/sessions/{id}/compact` and gRPC `CompactResult` (`merge_json`) report a merge of the oldest Segments as `merge`; gRPC `Segment` adds `merged` (and the message `MergedSegment`), `Compaction` adds `merged`, and a Session's tool list holds `read_segment` once it has a Segment. A compaction's `why` may now be `past_budget`.
-- HTTP: the contract version is now `"4"`. Every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and is the flat object that Events describes. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry. A stream whose Run the drain stopped ends with `event: result` and then `event: reconnect`, which carries an SSE `retry:` field and `{"retry_after_ms": N, "why": "draining"}`; a run result adds `reconnect` and `record_epoch`. The streaming routes `POST /v1/runs/stream` and `POST /v1/sessions/{id}/runs/stream` answer a refusal at admission with its status before the stream starts: draining 409 and capacity 429, where they answered 200 and an in-band `event: error` (**Breaking**, see Many instances for the before and after), and the new activation limit 503. The other additions of Many instances are not a break, so the version stays: the route `GET /v1/sessions/{id}/stream`, the `id:` of stored Events, the `session-id` header, `Gotato-Not-Run`, 503 `overloaded`, 409 `cannot_resume`, `record_epoch`, and `active_sessions` on `/readyz`.
-- gRPC: the contract version is now `"4"`. `Event` is now an `EventHeader` and a `oneof`, as Events describes. A `StreamRun` whose Run the drain stopped sends its result, then ends with `UNAVAILABLE` and a `retry-after-ms` trailer, where it ended with `OK` before. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation. The additions of Many instances are not a break, so the version stays: the method `StreamSession` with `StreamSessionRequest`, `StreamStart` and `SessionUpdate`, `record_epoch` on `SessionSummary`, `RunResult` and `SessionCreated`, the `session-id` metadata, and the trailer `gotato-not-run`.
-- CLI: the contract version that `doctor` reports is now `"2"`, because `events` and `run --events jsonl` print the flat Events that Events describes, with `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
+- Additions to all three, `gotato context compact --json`, `POST /v1/sessions/{id}/compact` and gRPC `CompactResult` (`merge_json`) report a merge of the oldest Segments as `merge`; gRPC `Segment` adds `merged` (and the message `MergedSegment`), `Compaction` adds `merged`, and a Session's tool list holds `read_segment` once it has a Segment. A compaction's `why` may now be `past_budget`.
+- HTTP: every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and is the flat object that Events describes. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry. A stream whose Run the drain stopped ends with `event: result` and then `event: reconnect`, which carries an SSE `retry:` field and `{"retry_after_ms": N, "why": "draining"}`; a run result adds `reconnect` and `record_epoch`. The streaming routes `POST /v1/runs/stream` and `POST /v1/sessions/{id}/runs/stream` answer a refusal at admission with its status before the stream starts: draining 409 and capacity 429, where they answered 200 and an in-band `event: error` (**Breaking**, see Many instances for the before and after), and the new activation limit 503. The other additions of Many instances are not a break, so the version stays: the route `GET /v1/sessions/{id}/stream`, the `id:` of stored Events, the `session-id` header, `Gotato-Not-Run`, 503 `overloaded`, 409 `cannot_resume`, `record_epoch`, and `active_sessions` on `/readyz`.
+- gRPC: `Event` is now an `EventHeader` and a `oneof`, as Events describes. A `StreamRun` whose Run the drain stopped sends its result, then ends with `UNAVAILABLE` and a `retry-after-ms` trailer, where it ended with `OK` before. `AgentsResponse` adds `map<string, string> max_effect = 2`, with the same meaning as on HTTP. The generated code also picks up comments that `service.proto` had gained since the last generation. The additions of Many instances are not a break, so the version stays: the method `StreamSession` with `StreamSessionRequest`, `StreamStart` and `SessionUpdate`, `record_epoch` on `SessionSummary`, `RunResult` and `SessionCreated`, the `session-id` metadata, and the trailer `gotato-not-run`.
+- CLI: `events` and `run --events jsonl` print the flat Events that Events describes, with `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
 ## Before the first release — 2026-10-16
 
-Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](plan/GOALS.md) but G-B13. The HTTP and gRPC contract version is now `"3"`.
+Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](plan/GOALS.md) but G-B13.
 
 ### Runtime
 
 - **The panel is gone.** It re-rendered small content that changes every Turn, such as the time, onto the last message of every request. Such content is never cached, so it cost its full price on every Turn, and after a tool call it was appended to the tool's output. A request is now the system prompt, the tools and the history. A fact the model needs now, such as the current time, comes from a tool it calls. A Session that still carries `gotato.panel` in its metadata runs as before, without a panel. **Breaking:**
   - Go: `ModelContext.Panel`, `ModelContext.RenderPanel`, `gotato.PanelTag`, `modelctx.WithPanel`, `modelctx.PanelFunc`, `modelctx.Time`, `modelctx.Report.PanelBytes`, `service.MetaPanel`, `service.PanelFromSpec`, `service.InspectOptions.Panel` and `service.Config.Now`, which only the time panel read, are removed.
   - CLI: `--panel` is gone from `run`, `session create` and `context inspect` (exit 2 if given).
-  - HTTP and gRPC: the contract version is now `"3"`. The context report (`GET /v1/sessions/{id}/context`, the gRPC `report_json`) has no `panel_bytes`, and the `context_built` payload has no `panel_bytes`.
+  - HTTP and gRPC: the context report (`GET /v1/sessions/{id}/context`, the gRPC `report_json`) has no `panel_bytes`, and the `context_built` payload has no `panel_bytes`.
 
   ```go
   // before: the time on every request
@@ -750,7 +765,7 @@ The notes below list the breaking changes from the development builds before 202
 
 ### Service
 
-- **`orchestration` and `host` became `service`, with wire contract 2.** `orchestration`, `host` and `cmd/gotato-agent` are removed. The service is `service.Runner`: a Session store plus an Agent created for each Run. `service/httpapi` serves it over HTTP (`ContractVersion "2"`), and `adapter/grpc` serves it over gRPC (`gotato.v2.SessionService`, replacing `gotato.v1.AgentService`). The Session ID is the unit of identity. Conversation keys, agent generations, retirement and spawn groups are gone. Derived work is `session.Fork` plus another Run.
+- **`orchestration` and `host` became `service`, with a new wire contract.** `orchestration`, `host` and `cmd/gotato-agent` are removed. The service is `service.Runner`: a Session store plus an Agent created for each Run. `service/httpapi` serves it over HTTP (`ContractVersion`), and `adapter/grpc` serves it over gRPC (`SessionService`, replacing `AgentService`). The Session ID is the unit of identity. Conversation keys, agent generations, retirement and spawn groups are gone. Derived work is `session.Fork` plus another Run.
 
   | Before | After |
   |---|---|
