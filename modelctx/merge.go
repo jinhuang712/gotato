@@ -34,7 +34,7 @@ func SegmentsBudget(ceiling int) int {
 // MergeRecapWriter is a RecapWriter that also writes the Recap of a merge of
 // the oldest Segments, from their Recaps alone. A writer that is not one, such
 // as NoRecap and TruncateRecap, leaves the merged Segment with a digest built
-// by code (MergeDigest). ModelRecap is one.
+// by code (mergeDigest). ModelRecap is one.
 type MergeRecapWriter interface {
 	RecapWriter
 	WriteMergeRecap(context.Context, MergeRequest) (gotato.Message, error)
@@ -130,7 +130,7 @@ var mergeSegments = (*session.Record).MergeSegments
 //
 // The Recap comes from opts.Recap when it is a MergeRecapWriter (ModelRecap
 // asks the model from the Recaps alone, validated by the five-heading rules),
-// else from MergeDigest. A Recap that fails, or a write that fails, leaves the
+// else from mergeDigest. A Recap that fails, or a write that fails, leaves the
 // Segments unmerged: the result says so, and the error is nil. Only a Run
 // stopped during the merge returns an error. The merge is one Checkpoint, a
 // compaction_started and a compaction_ended Event, or a compaction_failed.
@@ -207,7 +207,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeOptions) (M
 		}
 		recapName = writer.Name()
 	} else {
-		text = MergeDigest(replaced, opts.Location)
+		text = mergeDigest(replaced, opts.Location)
 	}
 
 	before := s.Messages()
@@ -341,7 +341,7 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 	return merged
 }
 
-// The sizes of a digest built by code (MergeDigest), in bytes.
+// The sizes of a digest built by code (mergeDigest), in bytes.
 const (
 	digestMaxBytes     = 4000
 	digestUserChars    = 160
@@ -351,13 +351,13 @@ const (
 	digestToolsPerLine = 5
 )
 
-// MergeDigest is the Recap of a merge when no model writes it: a digest built
+// mergeDigest is the Recap of a merge when no model writes it: a digest built
 // by code, deterministic, under `## What happened`, so it passes the same rules
 // as a Recap the model writes. For each Segment it has one line with its times,
 // the start of its user Messages, its tool calls counted by tool, and its own
 // Recap cut short; a merged Segment among them contributes the start of its
 // Recap. The whole is cut at 4,000 bytes by dropping the oldest lines.
-func MergeDigest(segments []gotato.Segment, loc *time.Location) string {
+func mergeDigest(segments []gotato.Segment, loc *time.Location) string {
 	if loc == nil {
 		loc = time.UTC
 	}

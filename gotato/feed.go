@@ -100,9 +100,9 @@ func (f *Feed) SetLabel(label string) {
 	f.mu.Unlock()
 }
 
-// SetSource sets where a subscriber that falls behind catches up. A Feed that
+// setSource sets where a subscriber that falls behind catches up. A Feed that
 // has a source keeps no Events of its own.
-func (f *Feed) SetSource(source EventSource) {
+func (f *Feed) setSource(source EventSource) {
 	f.mu.Lock()
 	f.source = source
 	f.ring, f.dropped = nil, false

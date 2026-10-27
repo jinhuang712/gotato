@@ -94,8 +94,8 @@ func Paginate(lines []string, limit int) [][]string {
 	return pages
 }
 
-// CutRunes returns the first n bytes of s, less a rune cut in half.
-func CutRunes(s string, n int) string {
+// cutRunes returns the first n bytes of s, less a rune cut in half.
+func cutRunes(s string, n int) string {
 	if n >= len(s) {
 		return s
 	}
@@ -105,9 +105,9 @@ func CutRunes(s string, n int) string {
 	return s[:n]
 }
 
-// SpillBody is the text of a result as the spill stores it: its text Parts,
+// spillBody is the text of a result as the spill stores it: its text Parts,
 // joined with a line break.
-func SpillBody(content []ContentPart) string {
+func spillBody(content []ContentPart) string {
 	var texts []string
 	for _, part := range content {
 		if part.Kind == ContentText {
@@ -123,7 +123,7 @@ func SpillBody(content []ContentPart) string {
 func spillPreview(call ToolCallID, toolID, body string) string {
 	pages := len(Paginate(SplitLines(body, SpillPageBytes), SpillPageBytes))
 	var b strings.Builder
-	b.WriteString(CutRunes(body, SpillPreviewBytes))
+	b.WriteString(cutRunes(body, SpillPreviewBytes))
 	if !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')
 	}
@@ -166,7 +166,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	if size <= SpillPageBytes {
 		return result, nil
 	}
-	body := SpillBody(result.Content)
+	body := spillBody(result.Content)
 	if err := a.flush(ctx); err != nil {
 		return result, err
 	}

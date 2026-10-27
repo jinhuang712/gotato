@@ -137,14 +137,14 @@ func TestDeferredToolsDefaultsPerWireAPI(t *testing.T) {
 }
 
 func TestParseYAMLReadsDeferredTools(t *testing.T) {
-	config, err := ParseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: list\n"))
+	config, err := parseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: list\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if config.DeferredTools != "list" {
 		t.Fatalf("DeferredTools = %q", config.DeferredTools)
 	}
-	if _, err := ParseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: both\n")); err == nil {
+	if _, err := parseYAML([]byte("api: openai-responses\nmodel: m\ndeferred_tools: both\n")); err == nil {
 		t.Fatal("an unknown form must be refused")
 	}
 }

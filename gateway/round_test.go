@@ -523,7 +523,7 @@ func TestCacheRetentionComesFromTheConfig(t *testing.T) {
 }
 
 func TestParseYAMLProviderRetentionAndDropBlock(t *testing.T) {
-	config, err := ParseYAML([]byte("api: anthropic-messages\nbase_url: https://gateway.example.com\nmodel: m\nprovider: anthropic\ncache_retention: 10m\nno_drop_block: true\n"))
+	config, err := parseYAML([]byte("api: anthropic-messages\nbase_url: https://gateway.example.com\nmodel: m\nprovider: anthropic\ncache_retention: 10m\nno_drop_block: true\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +531,7 @@ func TestParseYAMLProviderRetentionAndDropBlock(t *testing.T) {
 		t.Fatalf("config = %+v", config)
 	}
 	for _, bad := range []string{"cache_retention: soon\n", "provider: gemini\n"} {
-		if _, err := ParseYAML([]byte("base_url: https://gateway.example.com\nmodel: m\n" + bad)); err == nil {
+		if _, err := parseYAML([]byte("base_url: https://gateway.example.com\nmodel: m\n" + bad)); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}
 	}

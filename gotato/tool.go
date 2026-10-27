@@ -43,9 +43,9 @@ const (
 	EffectDestructive ToolEffect = "destructive"
 )
 
-// Rank orders effects by impact, from 1 for EffectRead to 4 for
+// rank orders effects by impact, from 1 for EffectRead to 4 for
 // EffectDestructive. EffectUnspecified and unknown values rank 4.
-func (e ToolEffect) Rank() int {
+func (e ToolEffect) rank() int {
 	switch e {
 	case EffectRead:
 		return 1
@@ -59,7 +59,7 @@ func (e ToolEffect) Rank() int {
 }
 
 // Within reports whether e is at or below ceiling.
-func (e ToolEffect) Within(ceiling ToolEffect) bool { return e.Rank() <= ceiling.Rank() }
+func (e ToolEffect) Within(ceiling ToolEffect) bool { return e.rank() <= ceiling.rank() }
 
 // Valid reports whether e is EffectUnspecified or one of the named effects.
 func (e ToolEffect) Valid() bool {

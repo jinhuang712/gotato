@@ -199,7 +199,7 @@ const recapHeadingBlock = `## What happened     what the user asked for, and wha
 ## Where it stands   only while a task is still running: the step it is on
                      and the next one`
 
-// MergeRecapAsk is the message that asks for the Recap of a merge: one Recap of
+// mergeRecapAsk is the message that asks for the Recap of a merge: one Recap of
 // the Recaps of the oldest Segments, under the same rules, and which numbers
 // read_segment still reads (FEATURES.md → G-F06, Many Segments). The Recaps
 // follow it, each with the times it covers. A Segment that has no Recap
@@ -207,7 +207,7 @@ const recapHeadingBlock = `## What happened     what the user asked for, and wha
 // first is a merged Segment, its Recap comes first and is the far past. Like
 // RecapAsk it is a request for work, so it carries no tag, and it is never
 // stored.
-func MergeRecapAsk(request MergeRequest) string {
+func mergeRecapAsk(request MergeRequest) string {
 	loc := request.Location
 	if loc == nil {
 		loc = time.UTC
@@ -245,7 +245,7 @@ Start with the first heading.
 		recap := strings.TrimSpace(segment.Recap)
 		if recap == "" {
 			name += ", no recap: its conversation and tool calls"
-			recap = MergeDigest([]gotato.Segment{segment}, loc)
+			recap = mergeDigest([]gotato.Segment{segment}, loc)
 		}
 		fmt.Fprintf(&b, "\n--- recap of %s ---\n%s\n--- end ---\n", name, recap)
 	}
@@ -301,16 +301,16 @@ func (m ModelRecap) WriteRecap(ctx context.Context, recap RecapRequest) (gotato.
 	return m.complete(ctx, request)
 }
 
-// MergeRecapModelRequest returns the request that asks for the Recap of a
+// mergeRecapModelRequest returns the request that asks for the Recap of a
 // merge: one user message, the ask with the Recaps of the Segments merged
 // below it. It holds no instruction, tools or earlier Messages, so it stays
 // small and cannot be refused as too long when the Context was.
-func MergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.ModelRequest {
+func mergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.ModelRequest {
 	if maxTokens == 0 {
 		maxTokens = DefaultRecapMaxTokens
 	}
 	return gotato.ModelRequest{
-		Messages: []gotato.Message{gotato.UserMessage(MergeRecapAsk(request))},
+		Messages: []gotato.Message{gotato.UserMessage(mergeRecapAsk(request))},
 		Options:  gotato.ModelOptions{MaxTokens: maxTokens},
 	}
 }
@@ -322,7 +322,7 @@ func (m ModelRecap) WriteMergeRecap(ctx context.Context, request MergeRequest) (
 	if m.Model == nil {
 		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
 	}
-	return m.complete(ctx, MergeRecapModelRequest(request, m.MaxTokens))
+	return m.complete(ctx, mergeRecapModelRequest(request, m.MaxTokens))
 }
 
 // complete sends request and reads the Recap from the reply.

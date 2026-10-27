@@ -69,9 +69,9 @@ type Block struct {
 	Text  string            `json:"text"`
 }
 
-// RenderBlocks renders Blocks one per line, attributes in sorted order so
+// renderBlocks renders Blocks one per line, attributes in sorted order so
 // the output is byte-stable for identical input.
-func RenderBlocks(blocks []Block) string {
+func renderBlocks(blocks []Block) string {
 	var b strings.Builder
 	for i, block := range blocks {
 		if i > 0 {
@@ -160,13 +160,13 @@ func cloneBlocks(blocks []Block) []Block {
 	return out
 }
 
-// RenderSystem returns the system prompt: the instructions followed by the
+// renderSystem returns the system prompt: the instructions followed by the
 // static Blocks.
-func (c ModelContext) RenderSystem() string {
+func (c ModelContext) renderSystem() string {
 	if len(c.System) == 0 {
 		return c.SystemInstructions
 	}
-	rendered := RenderBlocks(c.System)
+	rendered := renderBlocks(c.System)
 	if c.SystemInstructions == "" {
 		return rendered
 	}
@@ -373,7 +373,7 @@ func (a *Session) Transcript() Transcript { return a.transcript }
 //     prefix to the provider.
 func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string) {
 	messages := ForModel(built.Messages)
-	system := built.RenderSystem()
+	system := built.renderSystem()
 	if hasTagMeta(built.Messages) {
 		if system != "" {
 			system += "\n\n"

@@ -105,7 +105,7 @@ func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
 }
 
 func TestOverflowPhrasesFromYAMLReachStreamErrors(t *testing.T) {
-	config, err := ParseYAML([]byte("api: openai-responses\nbase_url: https://gw.example.com\nmodel: m\noverflow_phrases:\n  - too_much_context\n"))
+	config, err := parseYAML([]byte("api: openai-responses\nbase_url: https://gw.example.com\nmodel: m\noverflow_phrases:\n  - too_much_context\n"))
 	if err != nil || len(config.OverflowPhrases) != 1 {
 		t.Fatalf("config = %+v, err %v", config, err)
 	}
@@ -265,7 +265,7 @@ func TestContextWindowFromConfigAndYAML(t *testing.T) {
 	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindow: -1}); err == nil {
 		t.Fatal("a negative window was accepted")
 	}
-	config, err := ParseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
+	config, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
 	if err != nil || config.ContextWindow != 128000 {
 		t.Fatalf("config = %+v, err %v", config, err)
 	}

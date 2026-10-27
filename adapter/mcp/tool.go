@@ -24,14 +24,14 @@ type tool struct {
 func newTool(set *ToolSet, t *sdk.Tool) *tool {
 	effect, ok := set.cfg.effects[t.Name]
 	if !ok {
-		effect = EffectOf(t.Annotations)
+		effect = effectOf(t.Annotations)
 	}
 	return &tool{set: set, name: t.Name, spec: gotato.ToolSpec{
 		ID:           t.Name,
 		Name:         t.Name,
 		Description:  t.Description,
-		InputSchema:  SlimSchema(t.Name, t.InputSchema),
-		OutputSchema: SlimSchema(t.Name, t.OutputSchema),
+		InputSchema:  slimSchema(t.Name, t.InputSchema),
+		OutputSchema: slimSchema(t.Name, t.OutputSchema),
 		Effect:       effect,
 	}}
 }
@@ -68,7 +68,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 				return gotato.ToolResult{Status: gotato.ToolResultFailed, SafeError: needsInput,
 					Content: []gotato.ContentPart{{Kind: gotato.ContentText, Text: needsInput}}}, nil
 			}
-			return ConvertResult(result), nil
+			return convertResult(result), nil
 		}
 		t.set.drop(session, err)
 		if attempt == 0 && errors.Is(err, sdk.ErrSessionMissing) && ctx.Err() == nil {
@@ -82,7 +82,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 // call, for input that Gotato cannot give (elicitation, sampling, roots).
 const needsInput = "the MCP tool asked for input in the middle of the call (elicitation or sampling), which this client cannot give, so the call ended; call it again with everything it needs in the arguments"
 
-// EffectOf maps a tool's annotations to its Effect, with the defaults of the
+// effectOf maps a tool's annotations to its Effect, with the defaults of the
 // MCP specification for a hint the server left out: not read-only, destructive
 // and open world. A tool with no annotations is destructive.
 //
@@ -90,7 +90,7 @@ const needsInput = "the MCP tool asked for input in the middle of the call (elic
 //	not destructive, closed world      write_local
 //	not destructive, open world        write_external
 //	anything else                      destructive
-func EffectOf(a *sdk.ToolAnnotations) gotato.ToolEffect {
+func effectOf(a *sdk.ToolAnnotations) gotato.ToolEffect {
 	if a == nil {
 		return gotato.EffectDestructive
 	}
@@ -106,12 +106,12 @@ func EffectOf(a *sdk.ToolAnnotations) gotato.ToolEffect {
 	return gotato.EffectWriteLocal
 }
 
-// SlimSchema drops what costs tokens in every request and tells the model
+// slimSchema drops what costs tokens in every request and tells the model
 // nothing: $schema, $id and examples, and a title equal to the tool's name
 // (or, on a property, to the property's own name). It returns the schema as
 // JSON with sorted keys, so the bytes are the same on every instance. A
 // schema that is absent or not an object is returned as the empty value.
-func SlimSchema(toolName string, schema any) []byte {
+func slimSchema(toolName string, schema any) []byte {
 	if schema == nil {
 		return nil
 	}
@@ -123,7 +123,7 @@ func SlimSchema(toolName string, schema any) []byte {
 	if err := json.Unmarshal(encoded, &root); err != nil || root == nil {
 		return nil
 	}
-	slimSchema(root, toolName)
+	slimNode(root, toolName)
 	out, err := json.Marshal(root)
 	if err != nil {
 		return nil
@@ -131,9 +131,9 @@ func SlimSchema(toolName string, schema any) []byte {
 	return out
 }
 
-// slimSchema walks the keywords that hold schemas. It never treats the name of
+// slimNode walks the keywords that hold schemas. It never treats the name of
 // a property as a keyword, so a property called "title" or "examples" stays.
-func slimSchema(node map[string]any, redundantTitle string) {
+func slimNode(node map[string]any, redundantTitle string) {
 	delete(node, "$schema")
 	delete(node, "$id")
 	delete(node, "examples")
@@ -148,21 +148,21 @@ func slimSchema(node map[string]any, redundantTitle string) {
 					if key == "properties" {
 						title = name
 					}
-					slimSchema(child, title)
+					slimNode(child, title)
 				}
 			}
 		}
 	}
 	for _, key := range []string{"items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames", "unevaluatedItems", "unevaluatedProperties"} {
 		if child, ok := node[key].(map[string]any); ok {
-			slimSchema(child, "")
+			slimNode(child, "")
 		}
 	}
 	for _, key := range []string{"anyOf", "oneOf", "allOf", "prefixItems"} {
 		if list, ok := node[key].([]any); ok {
 			for _, member := range list {
 				if child, ok := member.(map[string]any); ok {
-					slimSchema(child, "")
+					slimNode(child, "")
 				}
 			}
 		}
@@ -170,13 +170,13 @@ func slimSchema(node map[string]any, redundantTitle string) {
 	if list, ok := node["items"].([]any); ok {
 		for _, member := range list {
 			if child, ok := member.(map[string]any); ok {
-				slimSchema(child, "")
+				slimNode(child, "")
 			}
 		}
 	}
 }
 
-// ConvertResult maps an MCP tool result to a Gotato Tool Result.
+// convertResult maps an MCP tool result to a Gotato Tool Result.
 //
 //   - text becomes a text Part; an image becomes an image Part.
 //   - structuredContent becomes a JSON Part, and a text block that only repeats
@@ -189,7 +189,7 @@ func slimSchema(node map[string]any, redundantTitle string) {
 //   - isError makes the Tool Result failed; its content is what the model reads.
 //   - _meta, on the result and on a content block, is copied as strings, without
 //     the gotato.MetaTag key, so a server cannot write tagged text as the system.
-func ConvertResult(result *sdk.CallToolResult) gotato.ToolResult {
+func convertResult(result *sdk.CallToolResult) gotato.ToolResult {
 	out := gotato.ToolResult{Status: gotato.ToolResultOK, Metadata: metaStrings(result.Meta)}
 	if result.IsError {
 		out.Status = gotato.ToolResultFailed

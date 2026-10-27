@@ -108,11 +108,11 @@ func (s *Record) inheritSegments(parentID string, segments []gotato.Segment, max
 	s.positions = positions
 }
 
-// CloseSegment records a Segment a compaction closed: it appends a
+// closeSegment records a Segment a compaction closed: it appends a
 // segment_closed Event that holds the Segment once, with the Messages that
 // render it, and returns the Segment as recorded. The Segment's Number is
 // NextSegment when it is 0. The Segment is not part of the Context until a
-// Checkpoint lists it (CheckpointSegments). Its Messages are never rewritten:
+// Checkpoint lists it (checkpointSegments). Its Messages are never rewritten:
 // the provider's prompt cache reads their bytes.
 //
 // A Segment closed alone, with no Checkpoint after it, is stored and listed by
@@ -120,7 +120,7 @@ func (s *Record) inheritSegments(parentID string, segments []gotato.Segment, max
 // and its number is never given to another Segment. A compaction that wants
 // the Segment in the Context closes and lists it in one step
 // (CloseSegmentAndCheckpoint), so no write holds the one without the other.
-func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
+func (s *Record) closeSegment(segment gotato.Segment) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closeSegmentLocked(segment)
@@ -146,22 +146,22 @@ func (s *Record) closeLocked(segment gotato.Segment) {
 	s.maxSegment = max(s.maxSegment, segment.Number)
 }
 
-// CheckpointSegments replaces the Context with the Segments listed by number,
-// which must be closed already (CloseSegment), in ascending order and each
+// checkpointSegments replaces the Context with the Segments listed by number,
+// which must be closed already (closeSegment), in ascending order and each
 // once, followed by tail, and appends the compaction_ended Checkpoint that
 // holds it. The Checkpoint stores the numbers and tail, not the Segments'
-// Messages, which stay where CloseSegment wrote them. compaction is recorded
+// Messages, which stay where closeSegment wrote them. compaction is recorded
 // when it is not nil. Nothing written before is rewritten, and it must not
 // run while a Run is using the Record.
-func (s *Record) CheckpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+func (s *Record) checkpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.checkpointSegmentsLocked(why, numbers, tail, compaction)
 }
 
-// CloseSegmentAndCheckpoint closes segment (CloseSegment) and, in the same
+// CloseSegmentAndCheckpoint closes segment (closeSegment) and, in the same
 // step, appends the Checkpoint whose Context is the earlier Segments, then
-// the new one, then tail (CheckpointSegments). Both Events are queued under
+// the new one, then tail (checkpointSegments). Both Events are queued under
 // one lock, so no write holds the Segment without the Checkpoint that lists
 // it. earlier are closed numbers in ascending order, all below the new
 // Segment's. When it returns an error, nothing was closed or checkpointed.
@@ -223,7 +223,7 @@ func (s *Record) checkNumbersLocked(numbers []int, pending int) error {
 }
 
 // MergeSegments replaces the oldest Segments of the Context with one merged
-// Segment, in one step: it closes merged (CloseSegment), which names the
+// Segment, in one step: it closes merged (closeSegment), which names the
 // Segments it stands for in Merged, and appends the Checkpoint whose Context is
 // merged, then the Segments after the replaced ones, then tail, which is the
 // Record's own tail (Tail) with whatever the caller does to Messages it keeps,

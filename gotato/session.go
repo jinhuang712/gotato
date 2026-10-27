@@ -244,7 +244,7 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 		a.feed = NewFeed(nil)
 		a.ownFeed = true
 		if source, ok := cfg.transcript.(EventSource); ok {
-			a.feed.SetSource(source)
+			a.feed.setSource(source)
 		}
 	}
 	a.extensions.report = a.reportExtension
@@ -1441,10 +1441,10 @@ type Queued struct {
 	number  uint64
 }
 
-// QueuedNotice returns the queue entry of a notice that was reported queued
+// queuedNotice returns the queue entry of a notice that was reported queued
 // already, as number, the notice_queued Event that said so. A host that keeps a
 // notice between Runs gives it to the next Session with Requeue.
-func QueuedNotice(message Message, number uint64) Queued {
+func queuedNotice(message Message, number uint64) Queued {
 	return Queued{Message: message, Source: SourceNotice, number: number}
 }
 

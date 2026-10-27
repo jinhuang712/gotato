@@ -9,7 +9,7 @@ import (
 
 func TestParseYAMLExpandsEnvironmentAndDuration(t *testing.T) {
 	t.Setenv("TEST_GOTATO_GATEWAY_KEY", "secret-from-env")
-	config, err := ParseYAML([]byte(`
+	config, err := parseYAML([]byte(`
 base_url: https://gateway.example.com/v1
 api_key: ${TEST_GOTATO_GATEWAY_KEY}
 model: model-a
@@ -30,7 +30,7 @@ headers:
 }
 
 func TestParseYAMLResponsesConfig(t *testing.T) {
-	config, err := ParseYAML([]byte(`
+	config, err := parseYAML([]byte(`
 api: openai-responses
 model: gpt-test
 api_key: secret
@@ -48,7 +48,7 @@ api_key: secret
 	if client.endpoint != "https://api.openai.com/v1/responses" {
 		t.Fatalf("endpoint = %s", client.endpoint)
 	}
-	if _, err := ParseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: api_key\n")); err == nil || !strings.Contains(err.Error(), "auth") {
+	if _, err := parseYAML([]byte("api: openai-responses\nmodel: m\nauth:\n  type: api_key\n")); err == nil || !strings.Contains(err.Error(), "auth") {
 		t.Fatalf("an auth key must be rejected by name, err = %v", err)
 	}
 	if _, err := New(Config{API: "openai-codex-responses", Model: "m", BaseURL: "https://gw.example.com"}); err != nil {
@@ -64,7 +64,7 @@ func TestNoRetriesDisablesRetries(t *testing.T) {
 	if client.maxRetries != 0 {
 		t.Fatalf("maxRetries = %d, want 0", client.maxRetries)
 	}
-	config, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nno_retries: true\n"))
+	config, err := parseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nno_retries: true\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestNoRetriesDisablesRetries(t *testing.T) {
 
 func TestParseYAMLKeepsLiteralDollarAndBareNames(t *testing.T) {
 	t.Setenv("TEST_GOTATO_BARE", "expanded")
-	config, err := ParseYAML([]byte(`
+	config, err := parseYAML([]byte(`
 base_url: https://gw.example.com/v1
 api_key: $TEST_GOTATO_BARE-literal$dollar
 model: m
@@ -98,7 +98,7 @@ headers:
 
 func TestParseYAMLEnvValueCannotInjectStructure(t *testing.T) {
 	t.Setenv("TEST_GOTATO_YAML", "m\nbase_url: https://evil.example.com/v1")
-	config, err := ParseYAML([]byte("model: ${TEST_GOTATO_YAML}\nbase_url: https://gw.example.com/v1\n"))
+	config, err := parseYAML([]byte("model: ${TEST_GOTATO_YAML}\nbase_url: https://gw.example.com/v1\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,10 +113,10 @@ func TestParseYAMLEnvValueCannotInjectStructure(t *testing.T) {
 // TestParseYAMLRejectsWrongScalarTypes pins that decoding after the
 // env-expansion round trip still enforces the declared types.
 func TestParseYAMLRejectsWrongScalarTypes(t *testing.T) {
-	if _, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: [a, b]\n")); err == nil {
+	if _, err := parseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: [a, b]\n")); err == nil {
 		t.Fatal("sequence header value must be rejected")
 	}
-	if _, err := ParseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: {a: 1}\n")); err == nil {
+	if _, err := parseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nheaders:\n  X-Key: {a: 1}\n")); err == nil {
 		t.Fatal("mapping header value must be rejected")
 	}
 }

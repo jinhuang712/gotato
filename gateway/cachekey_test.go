@@ -151,7 +151,7 @@ func TestCacheKeyHeaderSurvivesARestart(t *testing.T) {
 }
 
 func TestParseYAMLCacheKey(t *testing.T) {
-	config, err := ParseYAML([]byte(`
+	config, err := parseYAML([]byte(`
 api: openai-responses
 model: m
 api_key: secret

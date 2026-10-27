@@ -3,7 +3,7 @@ package gotato
 import "testing"
 
 func TestRenderBlocks(t *testing.T) {
-	got := RenderBlocks([]Block{
+	got := renderBlocks([]Block{
 		{Tag: "resource", Attrs: map[string]string{"path": "a.md", "lines": "1-2"}, Text: "x"},
 		{Text: "bare"},
 	})

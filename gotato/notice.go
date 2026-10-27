@@ -61,7 +61,7 @@ type PendingNotice struct {
 func (p PendingNotice) Queued() Queued {
 	message := NewNotice(p.Source, p.Kind, p.Text)
 	message.ID = p.MessageID
-	return QueuedNotice(message, p.Number)
+	return queuedNotice(message, p.Number)
 }
 
 // NewNotice returns a notice Message holding text. The text is kept as it is;

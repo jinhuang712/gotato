@@ -8,11 +8,11 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// DefaultSpillCacheBytes is how much of the bodies of spilled results a live
+// defaultSpillCacheBytes is how much of the bodies of spilled results a live
 // Record keeps in memory once they are stored: the rest is read from the
 // store when the model asks. A body that is not stored yet, or whose Record
 // has no store, is never dropped, since it is the only copy.
-const DefaultSpillCacheBytes = 16 << 20
+const defaultSpillCacheBytes = 16 << 20
 
 // spillCache holds the bodies a live Record has seen, by the position of the
 // Entry that holds each.
@@ -90,17 +90,17 @@ func (s *Record) SpilledResults() (calls []gotato.ToolCallID, byCall map[gotato.
 // live Record, or else read from the Entry at spilled.Seq in log, the store of
 // the Record. pruned is true when the Entry is no longer there, which a team
 // does when it prunes the log. A body read is cached, within
-// DefaultSpillCacheBytes of the bodies the store holds.
+// defaultSpillCacheBytes of the bodies the store holds.
 func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.SpilledResult) (body string, pruned bool, err error) {
 	if body, ok := s.spilled.get(spilled.Seq); ok {
 		return body, false, nil
 	}
-	body, pruned, err = ReadSpilled(ctx, log, s.ID(), spilled.Seq)
+	body, pruned, err = readSpilled(ctx, log, s.ID(), spilled.Seq)
 	if err != nil || pruned {
 		return "", pruned, err
 	}
 	s.spilled.put(spilled.Seq, body)
-	s.spilled.trim(s.Head(), DefaultSpillCacheBytes)
+	s.spilled.trim(s.Head(), defaultSpillCacheBytes)
 	return body, false, nil
 }
 
@@ -116,7 +116,7 @@ func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolC
 		if entry.Kind != gotato.KindToolResultSpilled {
 			continue
 		}
-		event, known, err := EventOf(entry, gotato.SessionID(id))
+		event, known, err := eventOf(entry, gotato.SessionID(id))
 		if err != nil {
 			return gotato.SpilledResult{}, false, err
 		}
@@ -127,9 +127,9 @@ func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolC
 	return gotato.SpilledResult{}, false, nil
 }
 
-// ReadSpilled reads the body of the tool_result_spilled Entry at seq of Record
+// readSpilled reads the body of the tool_result_spilled Entry at seq of Record
 // id from log. pruned is true when the Entry is not there.
-func ReadSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body string, pruned bool, err error) {
+func readSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body string, pruned bool, err error) {
 	if seq == 0 {
 		return "", true, nil
 	}
@@ -143,7 +143,7 @@ func ReadSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body
 	if entries[0].Kind != gotato.KindToolResultSpilled {
 		return "", false, fmt.Errorf("session: entry %d of %s is a %s Entry, not a tool_result_spilled one", seq, id, entries[0].Kind)
 	}
-	event, ok, err := EventOf(entries[0], gotato.SessionID(id))
+	event, ok, err := eventOf(entries[0], gotato.SessionID(id))
 	if err != nil || !ok {
 		return "", false, err
 	}

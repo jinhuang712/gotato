@@ -329,14 +329,14 @@ type CompactPolicy struct {
 	Now           func() time.Time
 	// SegmentBudget is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged. 0 means half the
-	// ceiling in force, or DefaultSegmentsBudget with none (EffectiveBudget).
+	// ceiling in force, or DefaultSegmentsBudget with none (effectiveBudget).
 	SegmentBudget int
 	SegmentSettings
 }
 
-// EffectiveBudget is the Segments' budget in force: SegmentBudget when set,
+// effectiveBudget is the Segments' budget in force: SegmentBudget when set,
 // else half the ceiling in force, else DefaultSegmentsBudget.
-func (p CompactPolicy) EffectiveBudget() int {
+func (p CompactPolicy) effectiveBudget() int {
 	if p.SegmentBudget > 0 {
 		return p.SegmentBudget
 	}
@@ -410,7 +410,7 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		if pending.Turn == 1 {
 			// Not past the ceiling, but the Segments may be past their
 			// budget: a merge that failed before is tried again here.
-			return a.mergeOnly(ctx, pending, gotato.CompactionPastBudget, a.policy.EffectiveBudget())
+			return a.mergeOnly(ctx, pending, gotato.CompactionPastBudget, a.policy.effectiveBudget())
 		}
 		return gotato.TurnPrepared{}, nil
 	}
@@ -457,7 +457,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	}
 	// The budget of the Segments is half the ceiling, or the default. On an
 	// overflow the limit the refusal names, if any, sizes it too.
-	budget := a.policy.EffectiveBudget()
+	budget := a.policy.effectiveBudget()
 	if limit := refusalLimit(pending.Refusal); why == gotato.CompactionOverflow && limit > 0 {
 		budget = min(budget, limit)
 	}

@@ -6,6 +6,24 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Implementation helpers leave the public API
+
+These exports were steps used only inside their own package. They are unexported. **Breaking** for code that called them; none has a replacement, because none is part of a contract.
+
+```text
+before  gotato.CutRunes, gotato.SpillBody, gotato.RenderBlocks, gotato.QueuedNotice,
+        ModelContext.RenderSystem, Feed.SetSource, ToolEffect.Rank
+        session.EventOf, session.FromEntries, session.LayerOf, session.ReadSpilled,
+        session.DefaultSpillCacheBytes, Record.CloseSegment, Record.CheckpointSegments
+        modelctx.MergeDigest, modelctx.MergeRecapAsk, modelctx.MergeRecapModelRequest,
+        CompactPolicy.EffectiveBudget
+        gateway.ParseYAML, gateway.YAMLConfig (LoadYAML stays)
+        mcp.ConvertResult, mcp.EffectOf, mcp.SlimSchema
+after   none; they are internal
+```
+
+`Record.CloseSegmentAndCheckpoint`, `Record.MergeSegments` and `Compact` close and list Segments; read a rebuilt Record with `session.Open` or `session.View`.
+
 ### The CLI is a test tool, not a deliverable
 
 `gotato` is no longer shipped or versioned. It moved to `internal/cmd/gotato` and is our own test tool, a thin client of the packages. Its commands, flags, JSON fields and exit codes promise nothing. **Breaking** for anything that installed it.

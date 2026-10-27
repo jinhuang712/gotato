@@ -79,7 +79,7 @@ func (s *Record) stored(seq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.head = max(s.head, seq)
-	s.spilled.trim(s.head, DefaultSpillCacheBytes)
+	s.spilled.trim(s.head, defaultSpillCacheBytes)
 }
 
 // Head returns the Seq of the last Entry the store holds for this Record, or
@@ -93,7 +93,7 @@ func (s *Record) Head() uint64 {
 // Checkpoint replaces the committed Messages with messages, as a Compaction
 // does, records compaction when it is not nil, and appends a compaction_ended
 // Event, a Checkpoint, to the log. The Context is then messages alone, with no
-// Segments (see CheckpointSegments for a Context that starts with some).
+// Segments (see checkpointSegments for a Context that starts with some).
 // Nothing written before is rewritten: the Messages it replaces stay in the
 // store, and a load starts after them. It must not run while a Run is using
 // the Record.
@@ -105,19 +105,19 @@ func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message,
 	s.checkpointLocked(why, messages, compaction)
 }
 
-// FromEntries rebuilds a Record from its log, starting at a Checkpoint: the
+// fromEntries rebuilds a Record from its log, starting at a Checkpoint: the
 // facts a Store loads, or the whole log. The Entries must be in Seq order. Log
 // Entries are applied when present: the facts alone rebuild everything a Run
 // needs, and the log adds Runs, usage and Events. An Entry of an unknown kind
 // is refused rather than misread.
-func FromEntries(entries []Entry) (*Record, error) {
-	return fromEntries(entries, true, nil)
+func fromEntries(entries []Entry) (*Record, error) {
+	return rebuildRecord(entries, true, nil)
 }
 
-// fromEntries rebuilds a Record from entries, which start at a Checkpoint.
+// rebuildRecord rebuilds a Record from entries, which start at a Checkpoint.
 // segments are the segment_closed Entries from before that Checkpoint, which
 // it may list.
-func fromEntries(entries []Entry, retain bool, segments []Entry) (*Record, error) {
+func rebuildRecord(entries []Entry, retain bool, segments []Entry) (*Record, error) {
 	if len(entries) == 0 || !entries[0].IsCheckpoint() {
 		return nil, gotato.ErrorOf(gotato.ErrInvalidArgument, "session: a log must start at a checkpoint")
 	}

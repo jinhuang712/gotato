@@ -39,7 +39,7 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 		if entry.Seq > to {
 			break
 		}
-		event, ok, err := EventOf(entry, gotato.SessionID(id))
+		event, ok, err := eventOf(entry, gotato.SessionID(id))
 		if err != nil {
 			return nil, false, err
 		}

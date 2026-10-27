@@ -10,10 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// YAMLConfig is the on-disk configuration format for gotato-gateway.
+// yAMLConfig is the on-disk configuration format for gotato-gateway.
 // Environment variables may be referenced as ${NAME}; this is useful for
 // keeping API keys out of the configuration file committed to source control.
-type YAMLConfig struct {
+type yAMLConfig struct {
 	// API selects the wire protocol: openai-chat-completions (default),
 	// openai-responses, or anthropic-messages.
 	API      string            `yaml:"api"`
@@ -49,14 +49,14 @@ func LoadYAML(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("gateway: read config %q: %w", path, err)
 	}
-	config, err := ParseYAML(data)
+	config, err := parseYAML(data)
 	if err != nil {
 		return Config{}, fmt.Errorf("gateway: parse config %q: %w", path, err)
 	}
 	return config, nil
 }
 
-func ParseYAML(data []byte) (Config, error) {
+func parseYAML(data []byte) (Config, error) {
 	// Expand after decoding: a substituted value is then a plain scalar and
 	// can never change the document structure, and only the documented
 	// ${NAME} form is recognized.
@@ -64,7 +64,7 @@ func ParseYAML(data []byte) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var fileConfig YAMLConfig
+	var fileConfig yAMLConfig
 	decoder := yaml.NewDecoder(bytes.NewReader(expanded))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&fileConfig); err != nil {
@@ -173,10 +173,10 @@ func expandBraceEnv(value string) string {
 	return b.String()
 }
 
-func (c YAMLConfig) Config() (Config, error) {
+func (c yAMLConfig) Config() (Config, error) {
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return Config{}, err
 	}
-	return ParseYAML(data)
+	return parseYAML(data)
 }

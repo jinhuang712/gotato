@@ -38,9 +38,9 @@ var factKinds = map[gotato.EventKind]bool{
 	gotato.KindSessionClaimed:      true,
 }
 
-// LayerOf returns the Layer of Entries of a kind: the Events a rebuild reads
+// layerOf returns the Layer of Entries of a kind: the Events a rebuild reads
 // are facts, and every other Event is a log Entry.
-func LayerOf(kind gotato.EventKind) Layer {
+func layerOf(kind gotato.EventKind) Layer {
 	if factKinds[kind] {
 		return LayerFact
 	}
@@ -92,13 +92,13 @@ func entryOf(event gotato.Event, instance string) (Entry, error) {
 		return Entry{}, fmt.Errorf("session: encode %s entry: %w", event.Kind(), err)
 	}
 	head := event.Head()
-	return Entry{Seq: head.Number, Kind: event.Kind(), Layer: LayerOf(event.Kind()), At: head.Time, Instance: instance, Data: data}, nil
+	return Entry{Seq: head.Number, Kind: event.Kind(), Layer: layerOf(event.Kind()), At: head.Time, Instance: instance, Data: data}, nil
 }
 
-// EventOf decodes an Entry back into the Event it holds, with the Entry's
+// eventOf decodes an Entry back into the Event it holds, with the Entry's
 // position as its number and sessionID as its Session. ok is true whenever err
 // is nil.
-func EventOf(entry Entry, sessionID gotato.SessionID) (event gotato.Event, ok bool, err error) {
+func eventOf(entry Entry, sessionID gotato.SessionID) (event gotato.Event, ok bool, err error) {
 	event, err = gotato.UnmarshalEvent(entry.Data)
 	if err != nil {
 		return nil, false, fmt.Errorf("session: entry %d (%s): %w", entry.Seq, entry.Kind, err)

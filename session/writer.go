@@ -271,7 +271,7 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := FromEntries(entries)
+	r, err := fromEntries(entries)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 			entries, head = tail, max(head, tail[len(tail)-1].Seq)
 		}
 	}
-	r, err := fromEntries(entries, false, loaded.Segments)
+	r, err := rebuildRecord(entries, false, loaded.Segments)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +396,7 @@ func StoredEvents(ctx context.Context, store Store, id string, after uint64) ([]
 	}
 	events := make([]gotato.Event, 0, len(entries))
 	for _, entry := range entries {
-		event, ok, err := EventOf(entry, gotato.SessionID(id))
+		event, ok, err := eventOf(entry, gotato.SessionID(id))
 		if err != nil {
 			return nil, err
 		}

@@ -1,6 +1,29 @@
 package session
 
-import "time"
+import (
+	"time"
+
+	"github.com/jinhuang712/gotato/gotato"
+)
+
+// The names below left the public API; the external tests reach them here.
+
+var (
+	EventOf     = eventOf
+	FromEntries = fromEntries
+	LayerOf     = layerOf
+	ReadSpilled = readSpilled
+)
+
+// CloseSegment is Record.closeSegment.
+func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
+	return s.closeSegment(segment)
+}
+
+// CheckpointSegments is Record.checkpointSegments.
+func (s *Record) CheckpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+	return s.checkpointSegments(why, numbers, tail, compaction)
+}
 
 // StartLog turns r's log on, as storing r does.
 func StartLog(r *Record) { r.startLog() }

@@ -1020,11 +1020,7 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 			continue // created while looking for ids, never run
 		}
 		checked++
-		loaded, err := c.backing.Load(context.Background(), summary.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		record, err := session.FromEntries(loaded.Facts)
+		record, err := session.Open(context.Background(), c.backing, summary.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
