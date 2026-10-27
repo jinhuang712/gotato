@@ -462,19 +462,6 @@ func escapePartText(part ContentPart) string {
 	return part.Text
 }
 
-func cloneToolCalls(calls []ToolCall) []ToolCall {
-	if calls == nil {
-		return nil
-	}
-	out := make([]ToolCall, len(calls))
-	for i, call := range calls {
-		out[i] = call
-		out[i].Arguments = append([]byte(nil), call.Arguments...)
-		out[i].Signature = slices.Clone(call.Signature)
-	}
-	return out
-}
-
 // prefixHash hashes system + tools + messages[:len-1].
 func prefixHash(request ModelRequest) string {
 	h := sha256.New()
@@ -496,4 +483,105 @@ func prefixHash(request ModelRequest) string {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// buildContext runs the ContextBuilder under the same panic guard as an
+// Extension and falls back to the snapshot's system instructions when the
+// builder leaves them empty.
+func (a *Session) buildContext(ctx context.Context, snapshot ContextSnapshot) (ModelContext, *RuntimeError) {
+	var built ModelContext
+	if err := guard("ContextBuilder", func() error {
+		result, failure := a.contextBuilder.Build(ctx, snapshot)
+		built = result
+		return failure
+	}); err != nil {
+		return ModelContext{}, err
+	}
+	if built.SystemInstructions == "" {
+		built.SystemInstructions = snapshot.SystemInstructions
+	}
+	if built.Messages == nil {
+		built.Messages = []Message{}
+	}
+	return built, nil
+}
+
+// assembleTurn builds the request one Turn sends. The ContextBuilder decides
+// what the Model sees now, and the ContextTransformer and MessageConverter
+// Extensions shape that view further. Neither output is ever committed as the
+// transcript: Session is what happened, Context is what the Model sees now.
+// The request is laid out for prompt caching: static system and tools first,
+// the append-only history last. A Turn and InspectContext both call it, so an
+// inspection shows the bytes a Turn sends.
+func (a *Session) assembleTurn(ctx context.Context, snapshot ContextSnapshot) (ModelContext, ModelRequest, string, *RuntimeError) {
+	built, err := a.buildContext(ctx, snapshot)
+	if err != nil {
+		return ModelContext{}, ModelRequest{}, "", err
+	}
+	if !a.extensions.empty() {
+		view := snapshot
+		view.SystemInstructions = built.SystemInstructions
+		view.Messages = built.Messages
+		transformed, err := a.extensions.transformContext(ctx, view)
+		if err != nil {
+			return ModelContext{}, ModelRequest{}, "", err
+		}
+		built.Messages = transformed
+	}
+	request, _ := AssembleRequest(built, a.registry.visibleSpecs())
+	request.LoadedTools, request.UnloadedTools = a.registry.catalogView()
+	prefix := prefixHash(request)
+	request.Config = a.modelConfig
+	request.CacheKey = a.cacheKey
+	return built, request, prefix, nil
+}
+
+// InspectContext builds the request the Session's next Turn would send for its
+// Transcript as committed now, without calling the Model. It runs the code a
+// Turn runs: the Tool sources are read again, the ContextBuilder builds the
+// Context, the ContextTransformer and MessageConverter Extensions shape it,
+// and the request carries the visible Tools and the model options. It runs no
+// TurnPreparer and emits no Event. It fails with CodeBusy while a Run is in
+// flight.
+//
+// The snapshot it builds from has no RunID and is Turn 1, as at the start of
+// a Run. A ContextTransformer whose output depends on the Run or the Turn, or
+// a Tool the Model loaded during a Run, makes a later Turn differ.
+func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ContextInspection{}, runtimeError(codeForContext(err), "InspectContext", "context ended", err)
+	}
+	if err := a.admissionError("InspectContext"); err != nil {
+		return ContextInspection{}, err
+	}
+	// Holding the admission token keeps a Run from starting while the
+	// Context is built from the Transcript and the Tool registry.
+	select {
+	case a.admission <- struct{}{}:
+	default:
+		return ContextInspection{}, runtimeError(CodeBusy, "InspectContext", "Session is processing a Run", nil)
+	}
+	defer func() { <-a.admission }()
+	if err := a.refreshTools(); err != nil {
+		return ContextInspection{}, asRuntimeError(err)
+	}
+	snapshot := ContextSnapshot{
+		SessionID:          a.id,
+		Turn:               1,
+		SystemInstructions: a.instruction,
+		Messages:           cloneMessages(a.transcript.Messages()),
+	}
+	built, request, prefix, err := a.assembleTurn(ctx, snapshot)
+	if err != nil {
+		return ContextInspection{}, err
+	}
+	return ContextInspection{
+		SourceMessages: len(snapshot.Messages),
+		Context:        built,
+		Request:        request,
+		PrefixHash:     prefix,
+	}, nil
 }
