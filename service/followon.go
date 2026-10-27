@@ -14,13 +14,6 @@ type followOn struct {
 	rest   []gotato.Queued
 }
 
-// isStopped reports whether a Stop reached the Run.
-func (h *runHandle) isStopped() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.stopped
-}
-
 // followOn runs the Runs that follow a settled one, one after the other, while
 // messages are left to run, and then ends the admitted Run. It is called on
 // the goroutine of the Run that left them, whose caller has its own result

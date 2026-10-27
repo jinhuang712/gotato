@@ -393,3 +393,13 @@ func (r *Runner) openSessionStream(ctx context.Context, key feedKey, after uint6
 	}
 	return &feedSubscription{Subscription: sub, release: func() { r.releaseFeed(key) }}, nil
 }
+
+// Reconnect tells a caller to send its next request for the Session through
+// the load balancer, to any instance, after waiting RetryAfterMS. When the
+// Run has a RunID, its prompt is saved, and the caller continues the Session;
+// otherwise nothing ran, and the caller sends the request again.
+type Reconnect struct {
+	RetryAfterMS int64 `json:"retry_after_ms"`
+	// Why names the reason, such as "draining".
+	Why string `json:"why,omitempty"`
+}

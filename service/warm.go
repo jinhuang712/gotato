@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -334,58 +333,6 @@ func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
 		}
 	}
 	return unhold, nil
-}
-
-// acquire gives the caller the Writer of a Session it is about to use, under
-// the Session lock. A warm copy is used when the store's head is still the
-// copy's, claiming the Session again with a write; when another Instance
-// wrote the Record, the copy is dropped and the Session is loaded from the
-// store, as for a Session that was never warm. before is set only when the
-// copy was used, so the Session was not loaded: it holds the Writer's counts of
-// its work with the store before the claim, which a copy that has written for
-// earlier Runs needs to count this Run's writes alone. The Events the claim
-// wrote come back for the caller to publish, as open returns them.
-func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session.Writer, early []gotato.Event, before *session.WriteStats, err error) {
-	if entry := r.takeWarm(sessionID); entry != nil {
-		w := entry.writer
-		stale, staleErr := w.Stale(ctx)
-		switch {
-		case ctx.Err() != nil:
-			return nil, nil, nil, ctx.Err()
-		case staleErr == nil && !stale:
-			if err := r.live(ctx); err != nil {
-				r.unloaded(sessionID, entry.agent, "liveness_lapsed")
-				return nil, nil, nil, err
-			}
-			base := w.Stats()
-			var claimed []gotato.Event
-			w.SetPublisher(func(event gotato.Event) { claimed = append(claimed, event) })
-			err := w.Resume(ctx)
-			if err == nil {
-				return w, claimed, &base, nil
-			}
-			// Only a write that lost the race to another Instance falls back
-			// to a load. Any other failure is the Run's, as it is for a Session
-			// that was never warm.
-			if !lostRace(err) {
-				r.noteFailure(err, sessionID, entry.agent)
-				r.unloaded(sessionID, entry.agent, "failed")
-				return nil, nil, nil, err
-			}
-		}
-		// Another Instance wrote the Record, or deleted it, or the copy
-		// could not claim: the copy is of no use.
-		r.unloaded(sessionID, entry.agent, "taken_over")
-	}
-	writer, early, err = r.open(ctx, sessionID)
-	return writer, early, nil, err
-}
-
-// lostRace reports a write refused because another Instance wrote the Record,
-// or deleted it, first. A write this Instance's own Liveness row refused is
-// not one.
-func lostRace(err error) bool {
-	return !lapsed(err) && (errors.Is(err, session.ErrConflict) || errors.Is(err, session.ErrNotFound))
 }
 
 // idleCompact is the warm Session's own timer: it compacts the idle Session
