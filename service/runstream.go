@@ -77,9 +77,9 @@ func deliver(ctx context.Context, sub gotato.Subscription, sink func(gotato.Even
 	}
 }
 
-// storeNotice builds the Instance Event for a load or a save, with the time the
-// store took. A failure is only flagged: the store's error text can name paths
-// and hosts, and Events reach clients.
+// loadedEvent and savedEvent build the Instance Event for a load or a save,
+// with the time the store took. A failure is only flagged: the store's error
+// text can name paths and hosts, and Events reach clients.
 func loadedEvent(sessionID string, messages int, elapsed time.Duration, err error) gotato.SessionLoaded {
 	return gotato.SessionLoaded{
 		Header:    gotato.NewHeader(gotato.SessionID(sessionID), "", 0),
