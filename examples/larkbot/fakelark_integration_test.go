@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,8 +164,7 @@ func burst(t *testing.T, replies int, seed int64) (fl *fakelark.Server, a, b *la
 }
 
 // A user replying in a thread in a burst, over two instances on one store:
-// one card per Run, nothing lost, and a reply that lands on the instance
-// without the Run is forwarded to the writer.
+// one card per Run and nothing lost.
 func TestConversationBurstOverTwoInstances(t *testing.T) {
 	fl, a, b, sent, turns := burst(t, 3, 7)
 	for _, s := range sent {
@@ -191,10 +191,51 @@ func TestConversationBurstOverTwoInstances(t *testing.T) {
 			t.Fatalf("%q appears %d times in the Transcript: %v", want, seen[want], seen)
 		}
 	}
-	if f := a.forwards.Load() + b.forwards.Load(); f == 0 {
-		t.Fatal("no message was forwarded to a writer; the burst never met not_writer")
-	}
+	// Whether a reply meets not_writer depends on timing: an instance whose
+	// message finds the Session between two Runs takes it over instead. The
+	// forward is checked in TestReplyOnTheInstanceWithoutTheRunIsForwarded.
 	t.Logf("runs=%d cards=%d forwards a=%d b=%d", runs(), len(fl.Cards("", "", time.Time{})), a.forwards.Load(), b.forwards.Load())
+}
+
+// A reply that lands on the instance without the Run is forwarded to the
+// writer. The writer's Run is held in flight by a model the test releases, so
+// the reply meets not_writer whatever the timing.
+func TestReplyOnTheInstanceWithoutTheRunIsForwarded(t *testing.T) {
+	store, _ := session.NewFileStore(t.TempDir())
+	h, _, start := newFake(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	gated := testkit.NewFuncModel(func(ctx context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
+		once.Do(func() { close(entered) })
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return testkit.Text("ok"), nil
+	})
+	a := newLarkInstance(t, store, "pod-a", h.url, gated)
+	b := newLarkInstance(t, store, "pod-b", h.url, slowModel(0))
+	start(fakelark.Config{Bots: []string{a.srv.URL, b.srv.URL}, Seed: seedPicking(2, 0, 1)})
+
+	first := h.srv.Deliver(context.Background(), "oc_x", "first", "", "")
+	<-entered // pod-a's Run is in flight and stays so until release
+	reply := h.srv.Deliver(context.Background(), "oc_x", "r1", first.MessageID, first.MessageID)
+	if first.Deliveries[0].Endpoint != a.srv.URL || reply.Deliveries[0].Endpoint != b.srv.URL {
+		t.Fatalf("scenario did not play: %+v %+v", first.Deliveries, reply.Deliveries)
+	}
+	waitFor(t, "the reply forwarded to pod-a", func() bool { return a.forwards.Load() == 1 })
+	close(release)
+
+	id := sessionIDFor(first.MessageID)
+	waitFor(t, "both messages in the Transcript", func() bool { return len(userTexts(t, a.runner, id)) == 2 })
+	users := userTexts(t, a.runner, id)
+	if users[0] != "first" || users[1] != "r1" || b.forwards.Load() != 0 {
+		t.Fatalf("transcript %q, forwards to pod-b %d", users, b.forwards.Load())
+	}
+	waitFor(t, "a card per Run", func() bool {
+		return a.runsEnded.Load() >= 1 && len(h.srv.Cards("", "", time.Time{})) == int(a.runsEnded.Load()+b.runsEnded.Load())
+	})
 }
 
 // A burst longer than Gotato's default FollowUp buffer of 4 is kept whole: the
