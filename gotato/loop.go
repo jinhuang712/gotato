@@ -278,11 +278,7 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 		refused     *RuntimeError
 	)
 	for {
-		var refusal error
-		if refused != nil {
-			refusal = refused
-		}
-		changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refusal)
+		changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, asError(refused))
 		if prepareErr != nil {
 			return Message{}, Usage{}, nil, prepareErr
 		}
@@ -679,12 +675,7 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 		Request:    request,
 		Overflow:   refusal != nil,
 		Refusal:    refusal,
-		Flush: func(ctx context.Context) error {
-			if err := a.flush(ctx); err != nil {
-				return err
-			}
-			return nil
-		},
+		Flush:      func(ctx context.Context) error { return asError(a.flush(ctx)) },
 	})
 }
 

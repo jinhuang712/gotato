@@ -1019,6 +1019,16 @@ func safeError(err error) string {
 	return err.Error()
 }
 
+// asError returns failure as an error that is nil when failure is nil. Code
+// that holds a *RuntimeError and hands it on as an error goes through it, so
+// a nil failure never becomes a non-nil error (the typed-nil trap).
+func asError(failure *RuntimeError) error {
+	if failure == nil {
+		return nil
+	}
+	return failure
+}
+
 func asRuntimeError(err error) *RuntimeError {
 	if err == nil {
 		return nil
