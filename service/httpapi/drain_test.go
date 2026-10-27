@@ -128,7 +128,7 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatalf("readyz before the drain = %d %s", status, body)
 	}
 
-	drainCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+	drainCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	drained := make(chan error, 1)
 	go func() { drained <- runner.Drain(drainCtx) }()

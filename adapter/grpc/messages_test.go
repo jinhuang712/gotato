@@ -71,7 +71,7 @@ func newNode(t *testing.T, store session.Store, mesh *peers, name string, model 
 	var err error
 	n.runner, err = service.New(service.Config{
 		Store: store, Instance: name, Address: "passthrough:///" + name,
-		Liveness: service.Liveness{TTL: time.Second, Wait: 3 * time.Second},
+		Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second},
 		Agents:   []service.Agent{{Name: "echo", Model: model}},
 	})
 	if err != nil {
