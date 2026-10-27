@@ -13,23 +13,23 @@ import (
 // is the latest Run's Turns within TailTokens (20K tokens by default), and no
 // more than a quarter of the window, or of the ceiling when no window is
 // known. Every cut moves forward to a Turn boundary.
-func tailStart(stretch []gotato.Message, opts CompactConfig) int {
+func tailStart(stretch []gotato.Message, cfg CompactConfig) int {
 	cut := 0
 	switch {
-	case opts.KeepMessages > 0:
-		cut = turnCut(stretch, len(stretch)-opts.KeepMessages)
+	case cfg.KeepMessages > 0:
+		cut = turnCut(stretch, len(stretch)-cfg.KeepMessages)
 	default:
-		budget := orDefault(opts.TailTokens, DefaultTailTokens)
-		base := opts.WindowTokens
+		budget := orDefault(cfg.TailTokens, DefaultTailTokens)
+		base := cfg.WindowTokens
 		if base <= 0 {
-			base = opts.CeilingTokens
+			base = cfg.CeilingTokens
 		}
 		if base > 0 {
 			budget = min(budget, base/4)
 		}
-		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, opts.CurrentRun)))
+		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, cfg.CurrentRun)))
 	}
-	if opts.KeepLastTurn {
+	if cfg.KeepLastTurn {
 		cut = min(cut, lastTurnStart(stretch))
 	}
 	return cut

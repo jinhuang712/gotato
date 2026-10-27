@@ -120,7 +120,7 @@ type MergeResult struct {
 var mergeSegments = (*session.Record).MergeSegments
 
 // MergeSegments merges the oldest Segments of the Context into one merged
-// Segment when the Segments together pass their budget (opts.Budget). It takes
+// Segment when the Segments together pass their budget (cfg.BudgetTokens). It takes
 // the oldest until the Segments left fit in half the budget, and at least two,
 // and the merged Segment, which keeps their numbers in <segment n="1-3">, holds
 // one Recap and opens the Context. If the Context already opens with a merged
@@ -128,7 +128,7 @@ var mergeSegments = (*session.Record).MergeSegments
 // Segments it replaces stay in the log, readable by their own numbers
 // (ReadSegmentTool). The Segments left, and the tail, keep their bytes.
 //
-// The Recap comes from opts.Recap when it is a MergeRecapWriter (ModelRecap
+// The Recap comes from cfg.Recap when it is a MergeRecapWriter (ModelRecap
 // asks the model from the Recaps alone, validated by the five-heading rules),
 // else from mergeDigest. A Recap that fails, or a write that fails, leaves the
 // Segments unmerged: the result says so, and the error is nil. Only a Run
@@ -136,16 +136,46 @@ var mergeSegments = (*session.Record).MergeSegments
 // compaction_started and a compaction_ended Event, or a compaction_failed.
 //
 // It must not run while a Run is using the Session.
-func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (MergeResult, error) {
+func MergeSegments(ctx context.Context, s *session.Record, cfg MergeConfig) (MergeResult, error) {
 	if s == nil {
 		return MergeResult{}, errors.New("modelctx: session is nil")
 	}
-	budget := opts.BudgetTokens
+	budget := cfg.BudgetTokens
 	if budget <= 0 {
-		budget = SegmentsBudget(opts.CeilingTokens)
+		budget = SegmentsBudget(cfg.CeilingTokens)
 	}
 	result := MergeResult{BudgetTokens: budget}
 	segments := s.Segments()
+	count := pickOldest(segments, budget, &result)
+	if count == 0 {
+		return result, nil
+	}
+	replaced := segments[:count]
+
+	why := cfg.Why
+	if why == "" {
+		why = gotato.CompactionWhyPastBudget
+	}
+	s.Emit(gotato.CompactionStarted{Header: sessionHeader(s), Why: why})
+
+	recapName, text, recapErr, err := mergeRecap(ctx, s, cfg, replaced, why, &result)
+	if err != nil {
+		return result, err
+	}
+	if recapErr != nil {
+		cause := gotato.CodeModelFailure
+		if errors.Is(recapErr, ErrBadRecap) {
+			cause = gotato.CodeModelProtocolFailure
+		}
+		return failMerge(s, why, result, MergeReasonRecapFailed, cause, recapErr), nil
+	}
+	return commitMerge(s, cfg, why, result, segments, count, recapName, text), nil
+}
+
+// pickOldest decides how many of the oldest segments to merge, for budget. It
+// returns 0 and sets result.Reason when nothing merges; result.SegmentTokens
+// is set either way.
+func pickOldest(segments []gotato.Segment, budget int, result *MergeResult) int {
 	sizes := make([]int, len(segments))
 	for i, segment := range segments {
 		sizes[i] = EstimateTokens(segment.Messages)
@@ -154,10 +184,10 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 	switch {
 	case result.SegmentTokens <= budget:
 		result.Reason = MergeReasonUnderBudget
-		return result, nil
+		return 0
 	case len(segments) < 2:
 		result.Reason = MergeReasonNothingToMerge
-		return result, nil
+		return 0
 	}
 	// The oldest merge until the Segments left fit in half the budget; at
 	// least two, so a merge always shortens the Context.
@@ -166,49 +196,43 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		count--
 		left += sizes[count]
 	}
+	return count
+}
+
+// mergeRecap writes the Recap of the merge: the model's when cfg.Recap is a
+// MergeRecapWriter, else the digest. It records the model call's usage in
+// result. recapErr is a Recap that failed or broke the rules, which leaves the
+// Segments unmerged; err is a canceled ctx, after a compaction_failed Event.
+func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replaced []gotato.Segment, why gotato.CompactionWhy, result *MergeResult) (name, text string, recapErr, err error) {
+	writer, ok := cfg.Recap.(MergeRecapWriter)
+	if !ok || writer == nil {
+		return MergeDigestName, mergeDigest(replaced, cfg.Location), nil, nil
+	}
+	message, writeErr := writer.WriteMergeRecap(ctx, MergeRequest{Segments: replaced, Location: cfg.Location})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(ctxErr)})
+		return "", "", nil, ctxErr
+	}
+	if message.Usage != (gotato.Usage{}) {
+		usage := message.Usage
+		result.RecapUsage = &usage
+	}
+	if writeErr == nil {
+		text, writeErr = ValidateRecap(gotato.TextOf(message))
+	}
+	if writeErr != nil {
+		return "", "", writeErr, nil
+	}
+	return writer.Name(), text, nil, nil
+}
+
+// commitMerge builds the merged Segment from the first count segments and
+// writes it with its Checkpoint. A write that fails leaves the Segments
+// unmerged and says so in the result.
+func commitMerge(s *session.Record, cfg MergeConfig, why gotato.CompactionWhy, result MergeResult, segments []gotato.Segment, count int, recapName, text string) MergeResult {
 	replaced := segments[:count]
-
-	why := opts.Why
-	if why == "" {
-		why = gotato.CompactionWhyPastBudget
-	}
-	now := time.Now
-	header := func() gotato.Header { return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0) }
-	s.Emit(gotato.CompactionStarted{Header: header(), Why: why})
-	fail := func(reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
-		s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: cause})
-		result.Reason, result.Error = reason, err.Error()
-		return result
-	}
-
-	recapName, text := MergeDigestName, ""
-	if writer, ok := opts.Recap.(MergeRecapWriter); ok && writer != nil {
-		message, err := writer.WriteMergeRecap(ctx, MergeRequest{Segments: replaced, Location: opts.Location})
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			s.Emit(gotato.CompactionFailed{Header: header(), Why: why, Cause: causeOf(ctxErr)})
-			return result, ctxErr
-		}
-		if message.Usage != (gotato.Usage{}) {
-			usage := message.Usage
-			result.RecapUsage = &usage
-		}
-		if err == nil {
-			text, err = ValidateRecap(gotato.TextOf(message))
-		}
-		if err != nil {
-			cause := gotato.CodeModelFailure
-			if errors.Is(err, ErrBadRecap) {
-				cause = gotato.CodeModelProtocolFailure
-			}
-			return fail(MergeReasonRecapFailed, cause, err), nil
-		}
-		recapName = writer.Name()
-	} else {
-		text = mergeDigest(replaced, opts.Location)
-	}
-
 	before := s.Messages()
-	merged := buildMerged(s.NextSegment(), replaced, text, opts.Location)
+	merged := buildMerged(s.NextSegment(), replaced, text, cfg.Location)
 	tail := s.Tail()
 	for i := range tail {
 		// The usage a reply reported was for a request that is no more.
@@ -222,7 +246,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		rendered += len(segment.Messages)
 	}
 	record := session.Compaction{
-		At:               now().UTC(),
+		At:               time.Now().UTC(),
 		ReplacedMessages: rendered,
 		Recap:            recapName,
 		RecapUsage:       result.RecapUsage,
@@ -232,7 +256,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(beforeBytes),
 		BytesAfter:       len(afterBytes),
-		CeilingTokens:    opts.CeilingTokens,
+		CeilingTokens:    cfg.CeilingTokens,
 		LoadedTools:      s.LoadedTools(),
 	}
 	numbers := make([]int, count)
@@ -240,13 +264,21 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		numbers[i] = segment.Number
 	}
 	if _, err := mergeSegments(s, why, merged, numbers, tail, &record); err != nil {
-		return fail(MergeReasonWriteFailed, causeOf(err), err), nil
+		return failMerge(s, why, result, MergeReasonWriteFailed, causeOf(err), err)
 	}
 	result.Merged, result.Reason = true, ""
 	result.Segment, result.Replaced = merged.Number, merged.Numbers()
 	result.Recap = recapName
 	result.TokensBefore, result.TokensAfter = record.TokensBefore, record.TokensAfter
-	return result, nil
+	return result
+}
+
+// failMerge emits the compaction_failed Event of a merge and returns result
+// with the reason and the error text.
+func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
+	s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: cause})
+	result.Reason, result.Error = reason, err.Error()
+	return result
 }
 
 // flatten returns the rendered Messages of segments, in order.
