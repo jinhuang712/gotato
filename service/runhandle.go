@@ -30,8 +30,11 @@ type runHandle struct {
 	// liveMu guards live, the Run's live Session while it runs, where a
 	// message for the Run goes (see messages.go). ready is closed once there
 	// is one, or the Run is over.
-	liveMu      sync.Mutex
-	live        *gotato.Session
+	liveMu sync.Mutex
+	live   *gotato.Session
+	// liveChanged is closed, and replaced, whenever live is attached or
+	// withdrawn or the Run finishes (guarded by liveMu).
+	liveChanged chan struct{}
 	ready       chan struct{}
 	readyClosed bool
 	// next holds the messages a settled Run left in its queues, for the Run that
@@ -112,7 +115,40 @@ func (h *runHandle) attachLive(live *gotato.Session) {
 	h.liveMu.Lock()
 	h.live = live
 	h.closeReadyLocked()
+	h.signalLiveLocked()
 	h.liveMu.Unlock()
+}
+
+// signalLiveLocked wakes whoever waits for a change of the live Session.
+func (h *runHandle) signalLiveLocked() {
+	if h.liveChanged != nil {
+		close(h.liveChanged)
+		h.liveChanged = nil
+	}
+}
+
+// awaitLiveChange blocks while the Run has a live Session that refused a
+// message, until it is withdrawn or replaced, the Run is over, or ctx ends. It
+// returns at once when there is none.
+func (h *runHandle) awaitLiveChange(ctx context.Context) error {
+	h.liveMu.Lock()
+	if h.live == nil {
+		h.liveMu.Unlock()
+		return nil
+	}
+	if h.liveChanged == nil {
+		h.liveChanged = make(chan struct{})
+	}
+	changed := h.liveChanged
+	h.liveMu.Unlock()
+	select {
+	case <-changed:
+		return nil
+	case <-h.over:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (h *runHandle) closeReadyLocked() {
@@ -144,6 +180,7 @@ func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) (notices []got
 	defer h.liveMu.Unlock()
 	live := h.live
 	h.live = nil
+	h.signalLiveLocked()
 	if live == nil {
 		return nil
 	}
@@ -169,6 +206,7 @@ func (h *runHandle) takeNext() []gotato.Queued {
 func (h *runHandle) finish() {
 	h.liveMu.Lock()
 	h.closeReadyLocked()
+	h.signalLiveLocked()
 	h.liveMu.Unlock()
 }
 

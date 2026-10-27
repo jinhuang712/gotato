@@ -207,6 +207,9 @@ type Runner struct {
 	// beforeDetach is a test seam: it runs when a Run has settled and its live
 	// Session still takes messages (see export_test.go).
 	beforeDetach func()
+	// onSendRetry is a test seam: it runs each time Send goes round its loop
+	// again.
+	onSendRetry func()
 	// beforeRelease is a test seam: it runs when a Run no longer takes
 	// messages and still holds the Session.
 	beforeRelease func()

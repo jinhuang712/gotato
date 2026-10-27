@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,5 +226,32 @@ func TestAStopDropsTheLeftovers(t *testing.T) {
 	_, dropped, runs := rig.events(t)
 	if runs != 1 || dropped[id] != "run_ended" {
 		t.Fatalf("%d Runs, dropped %v; want 1 Run and the message dropped for run_ended", runs, dropped)
+	}
+}
+
+// A message the live Session refuses while it is still attached (an Interrupt
+// after the Run settled) makes Send wait for the Session to be withdrawn; it
+// does not go round its loop again and again.
+func TestSendDoesNotSpinOnALiveSessionThatRefuses(t *testing.T) {
+	rig := startHeld(t)
+	var rounds atomic.Int64
+	rig.runner.SetOnSendRetry(func() { rounds.Add(1) })
+	sent := make(chan error, 1)
+	go func() {
+		_, err := rig.runner.Send(context.Background(), service.MessageRequest{SessionID: rig.id, Kind: service.MessageKindInterrupt, Text: "stop"})
+		sent <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if n := rounds.Load(); n > 2 {
+		t.Fatalf("Send went round its loop %d times while the Run was held", n)
+	}
+	rig.release(t)
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatalf("Send = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send did not return after the Run was released")
 	}
 }

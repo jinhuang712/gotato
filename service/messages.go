@@ -127,7 +127,10 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	message := gotato.UserMessage(request.Text)
 	message.ID = newMessageID()
 	waited := false
-	for {
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && r.onSendRetry != nil {
+			r.onSendRetry()
+		}
 		handle, err := r.liveRun(ctx, request.SessionID)
 		if err != nil {
 			return result, err
@@ -139,6 +142,12 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 				result.MessageID, result.Queued = string(message.ID), true
 				return result, nil
 			case !gone(err):
+				return result, err
+			}
+			// The live Session refuses the message while it is still
+			// attached, such as an Interrupt after the Run settled: wait for
+			// it to be withdrawn instead of asking again at once.
+			if err := handle.awaitLiveChange(ctx); err != nil {
 				return result, err
 			}
 		}

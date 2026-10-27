@@ -20,3 +20,6 @@ func WithClock(cfg Config, c Clock) Config {
 	cfg.clock = c
 	return cfg
 }
+
+// SetOnSendRetry sets the seam that counts the rounds of Send's loop.
+func (r *Runner) SetOnSendRetry(fn func()) { r.onSendRetry = fn }
