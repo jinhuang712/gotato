@@ -7,7 +7,7 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// --min-tokens skips a stretch too short to compact and says so; --keep 0
+// --min-tokens skips a stretch too short to compact and says so; --keep-messages 0
 // (the default) keeps the latest Run's Turns; --recap truncate asks for a Recap.
 func TestContextCompactMinTokensAndTheDefaultTail(t *testing.T) {
 	h := newHarness(t)
@@ -37,7 +37,7 @@ func TestContextCompactMinTokensAndTheDefaultTail(t *testing.T) {
 	}
 	var done answer
 	h.mustJSON(h.ok("context", "compact", id, "--min-tokens", "1", "--json"), &done)
-	// No --keep: the latest Run ("three" and its reply) stays, four Messages close.
+	// No --keep-messages: the latest Run ("three" and its reply) stays, four Messages close.
 	if !done.Replaced || done.Compaction == nil || done.Compaction.Segment != 1 || done.Compaction.ReplacedMsg != 4 || done.MessagesAfter != 6 {
 		t.Fatalf("compact: %+v", done)
 	}

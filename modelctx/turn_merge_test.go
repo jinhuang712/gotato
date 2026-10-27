@@ -26,7 +26,7 @@ func segmented(t *testing.T, n int, policy func(segments int) modelctx.CompactPo
 	l := newLive(t, modelctx.CompactPolicy{})
 	for i := 1; i <= n; i++ {
 		l.must(testkit.NewFakeModel(answering(strings.Repeat("y", 800))), fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)))
-		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{Floor: 1, SegmentBudget: 1 << 30}); err != nil || !result.Replaced {
+		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}); err != nil || !result.Replaced {
 			t.Fatalf("Segment %d: %+v, %v", i, result, err)
 		}
 	}
@@ -54,7 +54,9 @@ func (l *live) merged() bool {
 // call, with no Segment to close, and the first request opens with the merged
 // Segment. A Run under the budget merges nothing.
 func TestSegmentsPastTheirBudgetAreMergedBeforeARunsFirstCall(t *testing.T) {
-	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy { return modelctx.CompactPolicy{SegmentBudget: tokens - 100} })
+	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
+		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	})
 	model := &stepModel{steps: []any{answering("hello again"), answering("and again")}}
 	result, err := l.run(model, "a new question", "ok")
 	if err != nil || result.Status != gotato.RunStatusCompleted {
@@ -84,7 +86,7 @@ func TestSegmentsPastTheirBudgetAreMergedBeforeARunsFirstCall(t *testing.T) {
 func TestAFailedMergeAtTheStartOfARunLetsTheRunGoOn(t *testing.T) {
 	broken := modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}}
 	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudget: tokens - 100, Recap: broken}
+		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100, Recap: broken}
 	})
 	result, err := l.run(testkit.NewFakeModel(answering("fine")), "go on", "ok")
 	if err != nil || result.Status != gotato.RunStatusCompleted {
@@ -113,7 +115,7 @@ func TestAFailedMergeAtTheStartOfARunLetsTheRunGoOn(t *testing.T) {
 // budget, merges the oldest, in the same Turn, and goes on.
 func TestARunPastTheCeilingMergesTheOldestSegmentsToo(t *testing.T) {
 	l := segmented(t, 3, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{Ceiling: 5000, SegmentBudget: tokens + 30}
+		return modelctx.CompactPolicy{CeilingTokens: 5000, SegmentBudgetTokens: tokens + 30}
 	})
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
@@ -140,7 +142,7 @@ func TestARunPastTheCeilingMergesTheOldestSegmentsToo(t *testing.T) {
 func overflowFixture(t *testing.T, recap modelctx.RecapWriter) *live {
 	t.Helper()
 	l := segmented(t, 3, func(tokens int) modelctx.CompactPolicy {
-		return modelctx.CompactPolicy{SegmentBudget: tokens + 60, Recap: recap}
+		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens + 60, Recap: recap}
 	})
 	l.must(testkit.NewFakeModel(answering("reply")), "question 4: "+strings.Repeat("x", 800))
 	l.must(testkit.NewFakeModel(answering("reply")), "question 5: "+strings.Repeat("x", 800))
@@ -242,7 +244,9 @@ func TestAnOverflowWithNothingToCloseStillMergesTheSegments(t *testing.T) {
 // A Turn compacts at most once: a Turn that merged at its start is not
 // compacted again by an overflow after it.
 func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
-	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy { return modelctx.CompactPolicy{SegmentBudget: tokens - 100} })
+	l := segmented(t, 4, func(tokens int) modelctx.CompactPolicy {
+		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	})
 	model := &stepModel{steps: []any{refusal{}, answering("never")}}
 	result, err := l.run(model, "five", "ok")
 	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 1 {

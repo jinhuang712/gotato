@@ -103,8 +103,8 @@ type Agent struct {
 	// no Run deadline of its own: there a Run's deadline is its ctx.
 	RunTimeout time.Duration
 	// Compact says when the Agent's Sessions compact by themselves: past the
-	// ceiling, which is the Model's window less a reserve unless Ceiling sets
-	// one (a negative Ceiling turns it off), and once when the provider refuses
+	// ceiling, which is the Model's window less a reserve unless CeilingTokens sets
+	// one (a negative CeilingTokens turns it off), and once when the provider refuses
 	// a request as too long. A Session may override the ceiling through
 	// MetaCompactCeiling.
 	Compact modelctx.CompactPolicy
@@ -1310,7 +1310,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	report.Compactions = s.Compactions()
 	if auto != nil {
 		report.CompactionPending = auto.PendingFor(inspection.Request)
-		report.CompactCeiling = auto.Ceiling()
+		report.CompactCeiling = auto.CeilingTokens()
 	}
 	return report, nil
 }
@@ -1543,7 +1543,8 @@ func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record,
 // Segment (modelctx.Compact), and merges the oldest Segments when they then pass
 // their budget. What opts leaves unset comes from the Session's
 // Agent: its Recap writer, its time zone and limits, the Model's window, the
-// ceiling in force, the Segments' budget, and, with neither Keep nor Floor, its Floor. When the
+// ceiling in force, the Segments' budget and the size of the kept tail
+// (SegmentSettings.TailTokens). When the
 // Agent's Model is sent only the current Round's reasoning
 // (modelctx.DropsReasoning), the kept Messages lose their reasoning.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactConfig) (modelctx.Result, error) {
@@ -1587,20 +1588,17 @@ func compactOptionsFor(spec Agent, record *session.Record, opts modelctx.Compact
 		opts.Recap = policy.Recap
 	}
 	opts.Recap = withAgentModel(opts.Recap, spec.Model)
-	if opts.Keep <= 0 && opts.Floor <= 0 {
-		opts.Floor = policy.Floor
+	if opts.WindowTokens <= 0 {
+		opts.WindowTokens = policy.WindowTokens
 	}
-	if opts.Window <= 0 {
-		opts.Window = policy.Window
-	}
-	if opts.Ceiling <= 0 {
-		opts.Ceiling = policy.EffectiveCeiling()
+	if opts.CeilingTokens <= 0 {
+		opts.CeilingTokens = policy.EffectiveCeilingTokens()
 	}
 	if opts.Location == nil {
 		opts.Location = policy.Location
 	}
-	if opts.SegmentBudget <= 0 {
-		opts.SegmentBudget = policy.SegmentBudget
+	if opts.SegmentBudgetTokens <= 0 {
+		opts.SegmentBudgetTokens = policy.SegmentBudgetTokens
 	}
 	opts.MessageTokens = cmpPositive(opts.MessageTokens, policy.MessageTokens)
 	opts.ToolLines = cmpPositive(opts.ToolLines, policy.ToolLines)
@@ -1650,12 +1648,12 @@ func compactPolicyFor(spec Agent, record *session.Record) modelctx.CompactPolicy
 	policy := spec.Compact
 	policy.Recap = withAgentModel(policy.Recap, spec.Model)
 	policy.DropReasoning = policy.DropReasoning || modelctx.DropsReasoning(spec.Model)
-	if policy.Window <= 0 {
-		policy.Window = modelctx.WindowOf(spec.Model)
+	if policy.WindowTokens <= 0 {
+		policy.WindowTokens = modelctx.WindowOf(spec.Model)
 	}
 	if raw, ok := record.Get(MetaCompactCeiling); ok {
 		if ceiling, err := strconv.Atoi(raw); err == nil && ceiling > 0 {
-			policy.Ceiling = ceiling
+			policy.CeilingTokens = ceiling
 		}
 	}
 	return policy

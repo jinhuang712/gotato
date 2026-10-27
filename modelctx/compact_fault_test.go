@@ -47,7 +47,7 @@ func conversation(t *testing.T) *session.Record {
 func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 	failWrites(t)
 	record := conversation(t)
-	_, err := Compact(context.Background(), record, CompactConfig{Keep: 2})
+	_, err := Compact(context.Background(), record, CompactConfig{KeepMessages: 2})
 	if !gotato.IsCode(err, gotato.CodeStoreFailure) {
 		t.Fatalf("err = %v", err)
 	}
@@ -95,7 +95,7 @@ func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
 	if err := record.Append(reported); err != nil {
 		t.Fatal(err)
 	}
-	auto := AutoCompact(record, CompactPolicy{Ceiling: 500})
+	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 500})
 	result, model, err := runOnce(t, record, auto)
 	if err != nil {
 		t.Fatalf("the Run failed with its compaction: %v", err)
@@ -125,7 +125,7 @@ func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
 func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t *testing.T) {
 	failWrites(t)
 	record := conversation(t)
-	auto := AutoCompact(record, CompactPolicy{Ceiling: 1})
+	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 1})
 	result, model, err := runOnce(t, record, auto)
 	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunStatusFailed || !strings.Contains(err.Error(), "compaction failed") {
 		t.Fatalf("result = %+v, err = %v; want limit_exceeded naming the failed compaction", result, err)
@@ -161,7 +161,7 @@ func reportingCall() testkit.Script {
 func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
 	failWrites(t)
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("all done"))
-	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{Ceiling: 500}) }, model)
+	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{CeilingTokens: 500}) }, model)
 	if err != nil || result.Status != gotato.RunStatusCompleted || model.Calls() != 2 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.Calls())
 	}
@@ -201,7 +201,7 @@ func threeSegments(t *testing.T) *session.Record {
 				}
 			}
 		}
-		if _, err := Compact(context.Background(), record, CompactConfig{Floor: 1, SegmentBudget: 1 << 30}); err != nil {
+		if _, err := Compact(context.Background(), record, CompactConfig{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -215,7 +215,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	failMerges(t)
 	record := threeSegments(t)
 	before := len(record.Events())
-	result, err := MergeSegments(context.Background(), record, MergeConfig{Budget: 1})
+	result, err := MergeSegments(context.Background(), record, MergeConfig{BudgetTokens: 1})
 	if err != nil || result.Merged || result.Reason != MergeReasonWriteFailed || !strings.Contains(result.Error, "disk gone") {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
@@ -239,7 +239,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	if err := record.Append(more); err != nil {
 		t.Fatal(err)
 	}
-	compacted, err := Compact(context.Background(), record, CompactConfig{Floor: 1, SegmentBudget: 1})
+	compacted, err := Compact(context.Background(), record, CompactConfig{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1})
 	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeReasonWriteFailed || len(record.Segments()) != 4 {
 		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
 	}
@@ -263,7 +263,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
 	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")),
-		gotato.WithExtension(AutoCompact(record, CompactPolicy{Ceiling: 500, Recap: stopper{cancel}})))
+		gotato.WithExtension(AutoCompact(record, CompactPolicy{CeilingTokens: 500, Recap: stopper{cancel}})))
 	if err != nil {
 		t.Fatal(err)
 	}

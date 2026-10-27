@@ -4,6 +4,21 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### The kept tail has one token setting, and counts name their unit
+
+**Breaking**: before the first release nothing keeps an old name. The kept tail of a compaction was sized three ways: `Keep` in Messages, `Floor` in tokens (which ignored the Run boundary and the quarter-window cap), and the default, `SegmentSettings.TailTokens`. `Floor` is gone; `TailTokens` is the one token setting, and a tail it sizes now always stays within the latest Run and under the quarter cap. The compaction settings that hold a count of tokens or Messages say so in their names.
+
+| Before | After |
+|---|---|
+| `CompactConfig{Floor: n}`, `CompactPolicy{Floor: n}` (the most tokens the tail holds, past the Run boundary and the quarter cap) | gone; `SegmentSettings: modelctx.SegmentSettings{TailTokens: n}`, which the latest Run and a quarter of the window (or ceiling) bound |
+| `CompactConfig.Keep` | `CompactConfig.KeepMessages` |
+| `CompactConfig.Window`, `CompactPolicy.Window` | `WindowTokens` |
+| `CompactConfig.Ceiling`, `CompactPolicy.Ceiling` | `CeilingTokens` |
+| `CompactConfig.SegmentBudget`, `CompactPolicy.SegmentBudget` | `SegmentBudgetTokens` |
+| `MergeConfig.Budget`, `MergeConfig.Ceiling` | `BudgetTokens`, `CeilingTokens` |
+| `AutoCompactor.Ceiling()`, `CompactPolicy.EffectiveCeiling()` | `CeilingTokens()`, `EffectiveCeilingTokens()` |
+| `POST /v1/sessions/{id}/compact` with `{"keep": 2}` | `{"keep_messages": 2}` |
+
 ### Gateway settings name their unit and type
 
 A setting that holds a number says its unit, and a setting with a family of constants has its own type, so the constants carry the type's name. Before, `Config.API`, `Config.Provider` and `Config.DeferredTools` were plain strings and the deferred forms were `DeferredNative` and `DeferredList`. The YAML strings that `api`, `provider` and `deferred_tools` take are the same, and an unknown value is refused as before.

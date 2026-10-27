@@ -235,7 +235,7 @@ func TestContextInspectBuildCompact(t *testing.T) {
 		} `json:"compaction"`
 	}
 	// Three Runs close into Segment 1 (six Messages), two stay.
-	h.mustJSON(h.ok("context", "compact", id, "--keep", "2", "--json"), &result)
+	h.mustJSON(h.ok("context", "compact", id, "--keep-messages", "2", "--json"), &result)
 	if !result.Replaced || result.MessagesBefore != 8 || result.MessagesAfter != 8 || result.Compaction.Segment != 1 || result.Compaction.Recap != "none" {
 		t.Fatalf("compact = %+v", result)
 	}

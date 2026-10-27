@@ -117,7 +117,7 @@ id=$(./bin/gotato session create --json | jq -r .id)
 ./bin/gotato run --session "$id" --model demo --json "use-tool"
 ./bin/gotato events --session "$id" | head
 ./bin/gotato context inspect "$id" --json
-./bin/gotato context compact "$id" --keep 2 --json
+./bin/gotato context compact "$id" --keep-messages 2 --json
 ```
 
 Every command above should exit 0 and emit valid JSON on stdout. The tool's exit codes are in `internal/cmd/gotato/README.md`.

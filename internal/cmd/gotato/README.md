@@ -48,6 +48,6 @@ Run `gotato <command> --help` for the flags.
 id=$(gotato session create --json | jq -r .id)
 gotato run --session "$id" --model demo --json "use-tool" | jq .status
 gotato context inspect "$id" --json | jq '{approx_tokens, prefix_hash}'
-gotato context compact "$id" --keep 2 --json | jq .messages_after
+gotato context compact "$id" --keep-messages 2 --json | jq .messages_after
 gotato events --session "$id" | jq -r .kind | sort | uniq -c
 ```

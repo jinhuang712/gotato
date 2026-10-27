@@ -186,7 +186,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	before := storedKinds(t, store, "cmp-1", 0)
 	stopped, stop := context.WithCancel(ctx)
 	stop()
-	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactConfig{Keep: 2, Recap: failingRecap{}}); err == nil {
+	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactConfig{KeepMessages: 2, Recap: failingRecap{}}); err == nil {
 		t.Fatal("Compact hid that its Run was stopped")
 	}
 	if err := writer.Flush(ctx); err != nil {
@@ -199,7 +199,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if len(got) != 2 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindCompactionFailed {
 		t.Fatalf("after a failed compaction: %v", got)
 	}
-	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{Keep: 2, Why: gotato.CompactionWhyPastCeiling})
+	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{KeepMessages: 2, Why: gotato.CompactionWhyPastCeiling})
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}

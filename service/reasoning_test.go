@@ -65,7 +65,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u2"}); err != nil {
 			t.Fatal(err)
 		}
-		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{Keep: 2})
+		result, err := runner.Compact(ctx, first.SessionID, modelctx.CompactConfig{KeepMessages: 2})
 		if err != nil || !result.Replaced {
 			t.Fatalf("round=%v: compact = %+v, %v", round, result, err)
 		}
@@ -77,7 +77,7 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 			t.Errorf("round=%v: Compact kept %d reasoning Parts, want %d", round, got, want)
 		}
 
-		runner, store = newRunner(t, service.Agent{Name: "a", Model: model(), Compact: modelctx.CompactPolicy{Floor: 70}})
+		runner, store = newRunner(t, service.Agent{Name: "a", Model: model(), Compact: modelctx.CompactPolicy{WindowTokens: 4000, SegmentSettings: modelctx.SegmentSettings{TailTokens: 70}}})
 		first, err = runner.Run(ctx, service.RunRequest{Agent: "a", Prompt: "u1"})
 		if err != nil {
 			t.Fatal(err)
@@ -88,7 +88,8 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 		third, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "u3",
 			Update: map[string]string{service.MetaCompactCeiling: "1"}})
 		// A ceiling of one token can never be met, so the Run ends after its
-		// compaction; the compaction is what this checks.
+		// compaction; the compaction is what this checks. The window of 4000
+		// tokens leaves the tail its 70.
 		if !gotato.IsCode(err, gotato.CodeLimitExceeded) || !third.Compacted {
 			t.Fatalf("round=%v: the third Run did not compact first: %+v, %v", round, third, err)
 		}

@@ -26,7 +26,7 @@ const (
 	// line quotes.
 	DefaultArgChars = 200
 	// DefaultTailTokens is the most the kept tail holds when a compaction
-	// names no Keep and no Floor.
+	// names no KeepMessages and no TailTokens.
 	DefaultTailTokens = 20000
 )
 

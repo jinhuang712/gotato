@@ -91,7 +91,7 @@ func TestLoadedToolStaysLoadedInLaterRuns(t *testing.T) {
 
 	// A compaction writes a Checkpoint that keeps the load of a tool
 	// the closed Segment called (Run 3 called files.read).
-	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactConfig{Keep: 2}); err != nil {
+	if _, err := other.Compact(ctx, first.SessionID, modelctx.CompactConfig{KeepMessages: 2}); err != nil {
 		t.Fatal(err)
 	}
 	// A fork starts with it too.

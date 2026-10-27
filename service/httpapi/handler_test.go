@@ -168,7 +168,7 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	for _, prompt := range []string{"a", "b"} {
 		call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/runs", map[string]any{"prompt": prompt})
 	}
-	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/compact", map[string]any{"keep": 2})
+	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+summary.ID+"/compact", map[string]any{"keep_messages": 2})
 	var compact map[string]any
 	_ = json.Unmarshal(body, &compact)
 	if status != http.StatusOK || compact["replaced"] != true || compact["messages_after"] != float64(6) {

@@ -142,7 +142,7 @@ func playAcross(t *testing.T, store session.Store, task reftasks.Task, options p
 			t.Fatalf("%s: Run %d ended %s (compacted %t)", task.Name, i+1, result.Result.Status, result.Compacted)
 		}
 		if options.compactAfter == i+1 {
-			if _, err := runner.Compact(ctx, s.ID(), modelctx.CompactConfig{Keep: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID(), modelctx.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}

@@ -123,7 +123,7 @@ func encode(t *testing.T, messages []gotato.Message) string {
 // goes on: the Segment holds what came before, the latest Turn stays with its
 // tool call and result, and another instance builds the same request.
 func TestARunPastTheCeilingIsCompactedBetweenTurnsAndGoesOn(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{Ceiling: 5000})
+	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), calling("2", 9000, 1000), answering("all done")}}
 	result, err := l.run(model, "investigate", strings.Repeat("log line ", 350))
@@ -175,7 +175,7 @@ func TestARequestRefusedAsTooLongIsCompactedAndSentAgainOnce(t *testing.T) {
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{Keep: 2}); err != nil || !result.Replaced {
+	if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{KeepMessages: 2}); err != nil || !result.Replaced {
 		t.Fatalf("compact = %+v, %v", result, err)
 	}
 	// Two Runs that read a large result each: a Segment keeps a line per call.
@@ -233,7 +233,7 @@ func TestASecondRefusalEndsTheRunWithContextOverflow(t *testing.T) {
 // A Turn compacts at most once: a refusal after the Turn compacted past the
 // ceiling is not compacted again.
 func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{Ceiling: 5000})
+	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 9000, 1000), refusal{}, answering("never")}}
 	result, err := l.run(model, "investigate", "ok")
@@ -249,7 +249,7 @@ func TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow(t *test
 // limit_exceeded and no further call is made. One prompt too large for the
 // ceiling is the cause here: a large tool result is spilled, so it is not.
 func TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{Ceiling: 5000})
+	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
 	l.must(testkit.NewFakeModel(answering("earlier answer")), "an earlier question")
 	model := &stepModel{steps: []any{calling("1", 400, 10), answering("never")}}
 	result, err := l.run(model, strings.Repeat("a very large prompt ", 2000), "ok")
@@ -273,13 +273,13 @@ func TestTheCeilingComesFromTheWindowUnlessSet(t *testing.T) {
 		want   int
 	}{
 		{"no window, no ceiling", modelctx.CompactPolicy{}, 0},
-		{"a 200K window", modelctx.CompactPolicy{Window: 200_000}, 180_000},
-		{"a small window keeps the reserve", modelctx.CompactPolicy{Window: 64_000}, 48_000},
-		{"a window too small to leave any", modelctx.CompactPolicy{Window: 10_000}, 0},
-		{"the ceiling wins", modelctx.CompactPolicy{Window: 200_000, Ceiling: 1234}, 1234},
-		{"a negative ceiling is off", modelctx.CompactPolicy{Window: 200_000, Ceiling: -1}, 0},
+		{"a 200K window", modelctx.CompactPolicy{WindowTokens: 200_000}, 180_000},
+		{"a small window keeps the reserve", modelctx.CompactPolicy{WindowTokens: 64_000}, 48_000},
+		{"a window too small to leave any", modelctx.CompactPolicy{WindowTokens: 10_000}, 0},
+		{"the ceiling wins", modelctx.CompactPolicy{WindowTokens: 200_000, CeilingTokens: 1234}, 1234},
+		{"a negative ceiling is off", modelctx.CompactPolicy{WindowTokens: 200_000, CeilingTokens: -1}, 0},
 	} {
-		if got := modelctx.AutoCompact(nil, tc.policy).Ceiling(); got != tc.want {
+		if got := modelctx.AutoCompact(nil, tc.policy).CeilingTokens(); got != tc.want {
 			t.Errorf("%s: ceiling = %d, want %d", tc.name, got, tc.want)
 		}
 	}
@@ -292,7 +292,7 @@ func TestACompactionClearsTheUsageOfTheMessagesItKeeps(t *testing.T) {
 	for _, prompt := range []string{"one", "two", "three"} {
 		l.must(testkit.NewFakeModel(answering("reply to "+prompt)), prompt)
 	}
-	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{Keep: 2}); err != nil {
+	if _, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{KeepMessages: 2}); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range l.writer.Record().Tail() {
@@ -305,7 +305,7 @@ func TestACompactionClearsTheUsageOfTheMessagesItKeeps(t *testing.T) {
 // Without a Run in flight the Record is below the ceiling by its size, and
 // Pending says so by the same count the Loop uses.
 func TestPendingFollowsTheReportedUsage(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{Ceiling: 5000})
+	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
 	l.must(testkit.NewFakeModel(answering("short")), "hi")
 	if l.auto.Pending() {
 		t.Fatal("a short Session is pending")
@@ -321,7 +321,7 @@ func TestPendingFollowsTheReportedUsage(t *testing.T) {
 // The instruction and the tools count toward the size before a model call, so
 // a request whose Messages fit the ceiling can still be past it.
 func TestPendingForCountsTheInstructionAndTheTools(t *testing.T) {
-	l := newLive(t, modelctx.CompactPolicy{Ceiling: 500})
+	l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 500})
 	l.must(testkit.NewFakeModel(testkit.Text("short")), "hi")
 	if l.auto.PendingFor(gotato.ModelRequest{}) {
 		t.Fatal("a short Session is pending")

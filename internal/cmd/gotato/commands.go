@@ -504,7 +504,7 @@ func (c *cli) contextCompact(args []string) int {
 	fs := c.newFlagSet("context compact")
 	var flags modelFlags
 	bindModel(fs, &flags)
-	keep := fs.Int("keep", 0, "number of recent messages to keep as they are (default: the latest run's turns)")
+	keep := fs.Int("keep-messages", 0, "number of recent messages to keep as they are (default: the latest run's turns)")
 	minTokens := fs.Int("min-tokens", 0, "skip a stretch since the last checkpoint estimated below this many tokens (default 0: always compact)")
 	recapFlag := fs.String("recap", "none", "none (the default: the segment has no recap), truncate (deterministic) or model (the session's agent writes it on the cached prefix; use only once the payments check passes on your gateway)")
 	recapMax := fs.Uint("recap-max-tokens", modelctx.DefaultRecapMaxTokens, "output limit of the model call that writes the recap (--recap model)")
@@ -522,7 +522,7 @@ func (c *cli) contextCompact(args []string) int {
 		return c.failErr(err)
 	}
 	if *keep < 0 || *minTokens < 0 {
-		return c.usageError("--keep and --min-tokens cannot be negative")
+		return c.usageError("--keep-messages and --min-tokens cannot be negative")
 	}
 	var writer modelctx.RecapWriter
 	switch *recapFlag {
@@ -549,7 +549,7 @@ func (c *cli) contextCompact(args []string) int {
 	default:
 		return c.usageError("unknown recap writer " + *recapFlag)
 	}
-	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactConfig{Keep: *keep, MinTokens: *minTokens, Recap: writer})
+	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactConfig{KeepMessages: *keep, MinTokens: *minTokens, Recap: writer})
 	if err != nil {
 		return c.failErr(err)
 	}

@@ -83,7 +83,7 @@ func TestOverflowOnEachWireAPICompactsAndSendsAgainOnce(t *testing.T) {
 			// A window that holds three exchanges of this size and not four, and no
 			// ceiling: the refusal is the only thing that says the Context is too long.
 			fake := fakegateway.New(fakegateway.WithWindow(33_000))
-			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{Ceiling: -1})
+			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{CeilingTokens: -1})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {
@@ -119,7 +119,7 @@ func TestASecondRefusalInTheSameTurnEndsTheRunWithContextOverflowOnEachWireAPI(t
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{Ceiling: -1})
+			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{CeilingTokens: -1})
 			ctx := context.Background()
 			// Two Runs of history: the compaction keeps the latest Run before the
 			// one that starts as its tail, and closes the Run before that.
@@ -147,7 +147,7 @@ func TestPastTheCeilingCompactsBeforeAnyRequestOnEachWireAPI(t *testing.T) {
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{Ceiling: 12_000})
+			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{CeilingTokens: 12_000})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie", "delta", "echo"} {
@@ -185,7 +185,7 @@ func TestAnOverflowInTheMiddleOfAReplyEndsTheRunAndKeepsTheCutOffTextOnEachWireA
 	for _, wire := range fakeGatewayWires {
 		t.Run(wire.name, func(t *testing.T) {
 			fake := fakegateway.New()
-			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{Ceiling: -1})
+			runner := gatewayRunner(t, wire.config, fake, modelctx.CompactPolicy{CeilingTokens: -1})
 			ctx := context.Background()
 			id := ""
 			for _, word := range []string{"alpha", "bravo", "charlie"} {

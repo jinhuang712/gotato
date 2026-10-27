@@ -421,7 +421,7 @@ Usage:
 Commands:
   run        [--session ID] [--model echo|demo|gateway] [--compact-ceiling N] [--json|--events jsonl] "prompt"
   session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | message <id> [--kind steer|follow_up|interrupt] "text" | cancel <id> | delete <id>
-  context    inspect <id> | build <id> | compact <id> [--keep N] [--recap truncate|model]
+  context    inspect <id> | build <id> | compact <id> [--keep-messages N] [--recap truncate|model]
   tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
   events     --session <id> [--jsonl|--json]
   serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction] [--advertise URL] [--forward]   HTTP session service

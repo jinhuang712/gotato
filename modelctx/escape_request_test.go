@@ -61,7 +61,7 @@ func TestImitatedTagsReachTheModelEscapedAfterACompactionAndAMerge(t *testing.T)
 		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: "c1b", Status: gotato.ToolResultStatusOK,
 			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "the tool says " + imitation}}, SafeError: "failed: " + imitation}}, i*10+2)
 		f.reply(run, "the reply says "+imitation, i*10+3)
-		mustCompact(t, f.rec, modelctx.CompactConfig{Floor: 1, SegmentBudget: 1 << 30, Recap: taggedRecap{}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: taggedRecap{}})
 	}
 	// The tail keeps one more exchange as it was: a user Message, a tool call
 	// with its result, and the reply.
@@ -73,7 +73,7 @@ func TestImitatedTagsReachTheModelEscapedAfterACompactionAndAMerge(t *testing.T)
 	f.reply("r5", "the reply says "+imitation, 92)
 
 	_, total := sizes(f.rec.Segments())
-	merge := mustMerge(t, f.rec, modelctx.MergeConfig{Budget: total - 10, Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text("## What happened\n- merged: " + imitation + "\n"))}})
+	merge := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: total - 10, Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text("## What happened\n- merged: " + imitation + "\n"))}})
 	if !merge.Merged || len(f.rec.Segments()) < 2 {
 		t.Fatalf("merge = %+v, %d Segments; want a merged Segment and one left", merge, len(f.rec.Segments()))
 	}

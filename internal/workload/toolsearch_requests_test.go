@@ -343,7 +343,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			t.Fatalf("Run %d: %v (%s)", i+1, err, result.Result.Status)
 		}
 		if i+1 == 5 {
-			if _, err := runner.Compact(ctx, s.ID(), modelctx.CompactConfig{Keep: 2}); err != nil {
+			if _, err := runner.Compact(ctx, s.ID(), modelctx.CompactConfig{KeepMessages: 2}); err != nil {
 				t.Fatal(err)
 			}
 		}

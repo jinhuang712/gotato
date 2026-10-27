@@ -121,7 +121,7 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "once more"}); err != nil {
 		t.Fatal(err)
 	}
-	if closed, err = runner.Compact(ctx, id, modelctx.CompactConfig{SegmentBudget: 1}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
+	if closed, err = runner.Compact(ctx, id, modelctx.CompactConfig{SegmentBudgetTokens: 1}); err != nil || !closed.Replaced || closed.Merge == nil || !closed.Merge.Merged {
 		t.Fatalf("compact = %+v, %v", closed, err)
 	}
 	if record, err = session.View(ctx, store, id); err != nil {

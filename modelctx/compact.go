@@ -15,22 +15,20 @@ import (
 
 // CompactConfig controls Compact.
 type CompactConfig struct {
-	// Keep is the number of most recent Messages to keep in the tail. The cut
-	// moves forward to a Turn boundary so a tool call keeps its result. With
-	// Keep and Floor both 0, the tail is the latest Run's Turns, up to
-	// SegmentSettings.TailTokens (20K tokens) and at most a quarter of Window,
-	// or of Ceiling when there is no window.
-	Keep int
-	// Floor is the most tokens the kept tail holds, as an alternative to Keep.
-	// Keep wins when both are set.
-	Floor int
+	// KeepMessages is the number of most recent Messages to keep in the tail.
+	// The cut moves forward to a Turn boundary so a tool call keeps its
+	// result. With KeepMessages 0, the tail is the latest Run's Turns, up to
+	// SegmentSettings.TailTokens (20K tokens by default) and at most a quarter
+	// of WindowTokens, or of CeilingTokens when there is no window.
+	KeepMessages int
 	// MinTokens skips the compaction when the stretch since the last
 	// Checkpoint is estimated below it. 0 always compacts.
 	MinTokens int
-	// Window is the Model's context window in tokens, 0 when unknown, and
-	// Ceiling the ceiling in force, 0 for none. They cap the default tail.
-	Window  int
-	Ceiling int
+	// WindowTokens is the Model's context window, 0 when unknown, and
+	// CeilingTokens the ceiling in force, 0 for none. They cap the tail
+	// that TailTokens sizes.
+	WindowTokens  int
+	CeilingTokens int
 	// Recap writes the Recap that ends the Segment; nil means the Segment has
 	// none. A Recap that fails leaves the Segment without one.
 	Recap RecapWriter
@@ -60,11 +58,11 @@ type CompactConfig struct {
 	// default), past the ceiling, on an overflow, or before the Session
 	// leaves memory.
 	Why gotato.CompactionWhy
-	// SegmentBudget is the most the Segments together may hold, in
+	// SegmentBudgetTokens is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged right after the
-	// Segment closes (MergeSegments). 0 means SegmentsBudget(Ceiling): half
-	// the ceiling, or DefaultSegmentsBudgetTokens with none.
-	SegmentBudget int
+	// Segment closes (MergeSegments). 0 means SegmentsBudget(CeilingTokens):
+	// half the ceiling, or DefaultSegmentsBudgetTokens with none.
+	SegmentBudgetTokens int
 	// SegmentSettings are the limits and the time zone of the Segment.
 	SegmentSettings
 }
@@ -241,7 +239,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
-		Ceiling:          opts.Ceiling,
+		Ceiling:          opts.CeilingTokens,
 		LoadedTools:      kept,
 	}
 	s.SetLoadedTools(kept)
@@ -264,7 +262,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 	// Checkpoint of their own. A merge that fails leaves the Segment just
 	// closed in place, and the Segments unmerged.
 	merge, err := MergeSegments(ctx, s, MergeConfig{
-		Budget: opts.SegmentBudget, Ceiling: opts.Ceiling, Recap: opts.Recap, Why: why, Location: opts.Location,
+		BudgetTokens: opts.SegmentBudgetTokens, CeilingTokens: opts.CeilingTokens, Recap: opts.Recap, Why: why, Location: opts.Location,
 	})
 	if err != nil {
 		return result, err
@@ -305,50 +303,49 @@ func DefaultCeiling(window int) int {
 	return max(window-max(window/10, DefaultReserveTokens), 0)
 }
 
-// CompactPolicy says when a Session compacts by itself. Past Ceiling, estimated
+// CompactPolicy says when a Session compacts by itself. Past the ceiling, estimated
 // in tokens, the Session is compacted before the model call that would send
 // more; a request the provider refuses as too long is compacted once and sent
 // again (AutoCompactor).
 //
-// Ceiling above 0 is the ceiling in force. At 0 it is DefaultCeiling(Window),
-// so a model whose window is known is compacted past it by default, and with no
-// window there is no ceiling. A negative Ceiling turns the ceiling off.
-// Window is the Model's context window, 0 when unknown. Floor, when above 0, is
-// the most tokens the kept tail holds; with none, the tail is the latest Run's
-// Turns (CompactConfig). DropReasoning is CompactConfig.DropReasoning for
-// every compaction the policy makes.
+// CeilingTokens above 0 is the ceiling in force. At 0 it is
+// DefaultCeiling(WindowTokens), so a model whose window is known is compacted
+// past it by default, and with no window there is no ceiling. A negative
+// CeilingTokens turns the ceiling off. WindowTokens is the Model's context
+// window, 0 when unknown. The kept tail is the latest Run's Turns, up to
+// SegmentSettings.TailTokens (CompactConfig). DropReasoning is
+// CompactConfig.DropReasoning for every compaction the policy makes.
 type CompactPolicy struct {
-	Ceiling       int
-	Floor         int
-	Window        int
+	CeilingTokens int
+	WindowTokens  int
 	Recap         RecapWriter
 	DropReasoning bool
-	// SegmentBudget is the most the Segments together may hold, in
+	// SegmentBudgetTokens is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged. 0 means half the
 	// ceiling in force, or DefaultSegmentsBudgetTokens with none (effectiveBudget).
-	SegmentBudget int
+	SegmentBudgetTokens int
 	SegmentSettings
 }
 
-// effectiveBudget is the Segments' budget in force: SegmentBudget when set,
+// effectiveBudget is the Segments' budget in force: SegmentBudgetTokens when set,
 // else half the ceiling in force, else DefaultSegmentsBudgetTokens.
 func (p CompactPolicy) effectiveBudget() int {
-	if p.SegmentBudget > 0 {
-		return p.SegmentBudget
+	if p.SegmentBudgetTokens > 0 {
+		return p.SegmentBudgetTokens
 	}
-	return SegmentsBudget(p.EffectiveCeiling())
+	return SegmentsBudget(p.EffectiveCeilingTokens())
 }
 
-// EffectiveCeiling is the ceiling in force: Ceiling when set, else the one the
+// EffectiveCeilingTokens is the ceiling in force: CeilingTokens when set, else the one the
 // window gives, else 0 for none.
-func (p CompactPolicy) EffectiveCeiling() int {
+func (p CompactPolicy) EffectiveCeilingTokens() int {
 	switch {
-	case p.Ceiling > 0:
-		return p.Ceiling
-	case p.Ceiling < 0:
+	case p.CeilingTokens > 0:
+		return p.CeilingTokens
+	case p.CeilingTokens < 0:
 		return 0
 	}
-	return DefaultCeiling(p.Window)
+	return DefaultCeiling(p.WindowTokens)
 }
 
 // AutoCompactor is a gotato.TurnPreparer that applies a CompactPolicy to one
@@ -400,7 +397,7 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		prepared, _, err := a.compact(ctx, pending, gotato.CompactionWhyOverflow)
 		return prepared, err
 	}
-	ceiling := a.Ceiling()
+	ceiling := a.CeilingTokens()
 	overhead := requestOverhead(pending.Request)
 	if ceiling <= 0 || a.size(a.session.Messages(), overhead) <= ceiling {
 		if pending.Turn == 1 {
@@ -441,7 +438,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	}
 	a.compacted = true
 	options := CompactConfig{
-		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.Ceiling(),
+		WindowTokens: a.policy.WindowTokens, CeilingTokens: a.CeilingTokens(),
 		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning,
 		Why: why, SegmentSettings: a.policy.SegmentSettings, KeepLastTurn: true,
 		// A Recap read from the request the Run is about to send is read from
@@ -457,7 +454,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	if limit := refusalLimit(pending.Refusal); why == gotato.CompactionWhyOverflow && limit > 0 {
 		budget = min(budget, limit)
 	}
-	options.SegmentBudget = budget
+	options.SegmentBudgetTokens = budget
 	result, err := Compact(ctx, a.session, options)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -474,7 +471,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	if !result.Replaced {
 		// Nothing to close, but the Segments may still pass their budget.
 		merged, err := MergeSegments(ctx, a.session, MergeConfig{
-			Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
+			BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 		})
 		if err != nil {
 			return prepared, false, err
@@ -509,7 +506,7 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 	}
 	a.compacted = true
 	merge, err := MergeSegments(ctx, a.session, MergeConfig{
-		Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
+		BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 	})
 	return gotato.TurnPrepared{Changed: merge.Merged}, err
 }
@@ -538,13 +535,13 @@ func (a *AutoCompactor) Pending() bool {
 // PendingFor is Pending for the request the next model call would send, whose
 // instruction and tools count toward the size as they do before a model call.
 func (a *AutoCompactor) PendingFor(request gotato.ModelRequest) bool {
-	ceiling := a.Ceiling()
+	ceiling := a.CeilingTokens()
 	return a.session != nil && ceiling > 0 && a.size(a.session.Messages(), requestOverhead(request)) > ceiling
 }
 
-// Ceiling returns the estimated-token size past which a Session compacts first
-// (CompactPolicy.EffectiveCeiling); 0 means this trigger is off.
-func (a *AutoCompactor) Ceiling() int { return a.policy.EffectiveCeiling() }
+// CeilingTokens returns the estimated-token size past which a Session compacts first
+// (CompactPolicy.EffectiveCeilingTokens); 0 means this trigger is off.
+func (a *AutoCompactor) CeilingTokens() int { return a.policy.EffectiveCeilingTokens() }
 
 // size is the Context's size in tokens: the input and output tokens the last
 // model call reported, plus an estimate of what came after it. With no reported
@@ -571,23 +568,20 @@ func requestOverhead(request gotato.ModelRequest) int {
 // tailStart returns the index in stretch where the kept tail starts; the
 // Messages before it are closed into a Segment. 0 means nothing is closed.
 //
-// With Keep, the tail is the last Keep Messages. With Floor, it is the most
-// recent Messages within Floor tokens. With neither, it is the latest Run's
-// Turns within the default budget: 20K tokens, and no more than a quarter of
-// the window, or of the ceiling when no window is known. Every cut moves
-// forward to a Turn boundary.
+// With KeepMessages, the tail is the last KeepMessages Messages. Without, it
+// is the latest Run's Turns within TailTokens (20K tokens by default), and no
+// more than a quarter of the window, or of the ceiling when no window is
+// known. Every cut moves forward to a Turn boundary.
 func tailStart(stretch []gotato.Message, opts CompactConfig) int {
 	cut := 0
 	switch {
-	case opts.Keep > 0:
-		cut = turnCut(stretch, len(stretch)-opts.Keep)
-	case opts.Floor > 0:
-		cut = turnCut(stretch, withinBudget(stretch, opts.Floor, 0))
+	case opts.KeepMessages > 0:
+		cut = turnCut(stretch, len(stretch)-opts.KeepMessages)
 	default:
 		budget := orDefault(opts.TailTokens, DefaultTailTokens)
-		base := opts.Window
+		base := opts.WindowTokens
 		if base <= 0 {
-			base = opts.Ceiling
+			base = opts.CeilingTokens
 		}
 		if base > 0 {
 			budget = min(budget, base/4)

@@ -77,12 +77,12 @@ const MergeDigestName = "digest"
 
 // MergeConfig controls MergeSegments.
 type MergeConfig struct {
-	// Budget is the most the Segments together may hold, in estimated
-	// tokens. 0 means SegmentsBudget(Ceiling).
-	Budget int
-	// Ceiling is the ceiling in force, 0 for none, which sets the default
-	// Budget and is recorded.
-	Ceiling int
+	// BudgetTokens is the most the Segments together may hold, in estimated
+	// tokens. 0 means SegmentsBudget(CeilingTokens).
+	BudgetTokens int
+	// CeilingTokens is the ceiling in force, 0 for none, which sets the
+	// default BudgetTokens and is recorded.
+	CeilingTokens int
 	// Recap writes the merged Recap when it is a MergeRecapWriter; any
 	// other writer, or nil, leaves a digest built by code.
 	Recap RecapWriter
@@ -141,9 +141,9 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 	if s == nil {
 		return MergeResult{}, errors.New("modelctx: session is nil")
 	}
-	budget := opts.Budget
+	budget := opts.BudgetTokens
 	if budget <= 0 {
-		budget = SegmentsBudget(opts.Ceiling)
+		budget = SegmentsBudget(opts.CeilingTokens)
 	}
 	result := MergeResult{Budget: budget}
 	segments := s.Segments()
@@ -233,7 +233,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(beforeBytes),
 		BytesAfter:       len(afterBytes),
-		Ceiling:          opts.Ceiling,
+		Ceiling:          opts.CeilingTokens,
 		LoadedTools:      s.LoadedTools(),
 	}
 	numbers := make([]int, count)

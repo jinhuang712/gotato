@@ -14,7 +14,7 @@
 //	GET    /v1/sessions/{id}/context        → modelctx report (what the model would see now)
 //	GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
 //	                                        → SSE: stream, event*, reconnect?   (resumes after N; Last-Event-ID too)
-//	POST   /v1/sessions/{id}/compact        {keep?}                        → compaction result
+//	POST   /v1/sessions/{id}/compact        {keep_messages?}               → compaction result
 //	POST   /v1/sessions/{id}/runs           {prompt | continue}            → run result
 //	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
 //	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the run in flight, or 200 the run it started
@@ -199,9 +199,9 @@ type runRequest struct {
 }
 
 type compactRequest struct {
-	// Keep is how many recent Messages stay as they are; without it the
+	// KeepMessages is how many recent Messages stay as they are; without it the
 	// latest Run's Turns do.
-	Keep int `json:"keep,omitempty"`
+	KeepMessages int `json:"keep_messages,omitempty"`
 	// MinTokens skips a stretch since the last Checkpoint estimated below it.
 	MinTokens int `json:"min_tokens,omitempty"`
 }
@@ -360,11 +360,11 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		writeDecodeError(w, err)
 		return
 	}
-	if in.Keep < 0 || in.MinTokens < 0 {
-		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep and min_tokens cannot be negative"))
+	if in.KeepMessages < 0 || in.MinTokens < 0 {
+		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep_messages and min_tokens cannot be negative"))
 		return
 	}
-	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactConfig{Keep: in.Keep, MinTokens: in.MinTokens})
+	result, err := h.runner.Compact(r.Context(), r.PathValue("id"), modelctx.CompactConfig{KeepMessages: in.KeepMessages, MinTokens: in.MinTokens})
 	if err != nil {
 		writeFailure(w, err)
 		return

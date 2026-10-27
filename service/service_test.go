@@ -251,7 +251,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if report.SelectedMessages != 8 || report.PrefixHash == "" {
 		t.Fatalf("report = %+v", report)
 	}
-	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactConfig{Keep: 2})
+	compact, err := runner.Compact(ctx, result.SessionID, modelctx.CompactConfig{KeepMessages: 2})
 	if err != nil || !compact.Replaced || compact.MessagesAfter != 8 || compact.Compaction.Segment != 1 {
 		t.Fatalf("compact = %+v err=%v", compact, err)
 	}
@@ -268,7 +268,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 }
 
 func TestAutoCompactFromSpecAndSession(t *testing.T) {
-	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 20000}})
+	runner, store := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{CeilingTokens: 20000}})
 	ctx := context.Background()
 	var last service.RunResponse
 	for i := 0; i < 8 && !last.Compacted; i++ {
@@ -1013,7 +1013,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 }
 
 func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
-	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{Ceiling: 20000}})
+	runner, _ := newRunner(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Compact: modelctx.CompactPolicy{CeilingTokens: 20000}})
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "hi"})
 	if err != nil {

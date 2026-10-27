@@ -300,7 +300,7 @@ func TestKeptTailStartsAtATurnSoACallKeepsItsResult(t *testing.T) {
 		f.calls("r1", "", 2, nil, `c1 a.x {}`, `c2 a.y {}`)
 		f.calls("r1", "", 3, nil, `c3 a.z {}`)
 		f.reply("r1", "done", 4)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{Keep: keep})
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{KeepMessages: keep})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +348,7 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	// A window of 800 tokens caps the tail at 200: only the latest Turns stay,
 	// from a Turn boundary.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{Window: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{WindowTokens: 800})
 	tail := f.rec.Tail()
 	if len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult || gotato.TextOf(tail[len(tail)-1]) != "second answer" {
 		t.Fatalf("capped tail = %d Messages: %+v", len(tail), tail)
@@ -358,20 +358,20 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	}
 	// With no window, the ceiling caps it the same way.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{Ceiling: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CeilingTokens: 800})
 	if got := len(f.rec.Tail()); got != len(tail) {
 		t.Errorf("tail under a ceiling = %d Messages, want %d as under the window", got, len(tail))
 	}
-	// Keep and Floor override the default.
+	// KeepMessages and TailTokens override the default.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{Keep: 1})
+	mustCompact(t, f.rec, modelctx.CompactConfig{KeepMessages: 1})
 	if tail := f.rec.Tail(); len(tail) != 1 || gotato.TextOf(tail[0]) != "second answer" {
-		t.Fatalf("Keep: 1 tail = %+v", tail)
+		t.Fatalf("KeepMessages: 1 tail = %+v", tail)
 	}
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{Floor: 150})
+	mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 150}})
 	if tail := f.rec.Tail(); len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult {
-		t.Fatalf("Floor tail = %d Messages", len(tail))
+		t.Fatalf("TailTokens tail = %d Messages", len(tail))
 	}
 }
 
@@ -745,7 +745,7 @@ func TestAutoCompactClosesASegmentAtRunStart(t *testing.T) {
 		f.reply(run, "answer "+run, i*3+2)
 	}
 	before := modelctx.EstimateTokens(f.rec.Messages())
-	auto := modelctx.AutoCompact(f.rec, modelctx.CompactPolicy{Ceiling: before / 2})
+	auto := modelctx.AutoCompact(f.rec, modelctx.CompactPolicy{CeilingTokens: before / 2})
 	model := testkit.NewFakeModel(testkit.Text("ok"))
 	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithExtension(auto))
 	if err != nil {

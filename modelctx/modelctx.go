@@ -32,7 +32,7 @@
 //	    gotato.WithModel(m),
 //	    gotato.WithInstruction(agentsMD),
 //	    gotato.WithTranscript(s),
-//	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{Ceiling: 60000})),
+//	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{CeilingTokens: 60000})),
 //	)
 package modelctx
 

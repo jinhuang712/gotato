@@ -15,7 +15,7 @@ import (
 )
 
 // {"min_tokens":N} skips a stretch estimated below N and says so; with no
-// "keep" the latest Run's Turns stay.
+// "keep_messages" the latest Run's Turns stay.
 func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
@@ -61,7 +61,7 @@ func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
 func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
 	ctx := context.Background()
 	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{
-		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudget: 1},
+		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudgetTokens: 1},
 	}}})
 	if err != nil {
 		t.Fatal(err)
