@@ -35,6 +35,23 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).
 
+## Naming
+
+Exported names follow one set of rules, so a reader can guess a name before looking it up. They follow the standard library where it has a habit, and [GLOSSARY.md](GLOSSARY.md) for what a thing is called.
+
+| Rule | Example |
+|---|---|
+| American spelling, in Go names and in wire strings alike | `canceled`, as in `context.Canceled` |
+| One verb per action, the glossary's | a Run is stopped with `Abort` |
+| An error code is `Code…` of type `ErrorCode`; a sentinel error is `Err…` and carries a code; a code's name matches its string | `gotato.CodeBusy` is `"busy"`; `service.ErrBusy` has it |
+| A type or method is named as the glossary names the thing | a method that returns a `session.Record` is called `Record` |
+| A constant is prefixed with the name of its type | `RunStatusRunning`, `ToolEffectRead` |
+| A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two | `CompactPolicy`, `session.WriterOption` |
+| `Load` reads from a store or a path, `Parse` from bytes, `From…` builds from a value in memory | `gateway.LoadYAML(path)`, `session.FromDocument(doc)` |
+| A boolean method is the adjective, with no `Is` | `Retryable()`, `Durable()` |
+| An Event type is a past participle; a stream piece is a `…Delta`, and `ToolProgress` is the one other noun | `RunStarted`, `TextDelta` |
+| A package's main type is built by a bare `New` | `service.New`, `gateway.New` |
+
 ## Development Workflow
 
 1. **Inspect before editing.** Read the package, its tests, and the FEATURES.md row you are about to change.
