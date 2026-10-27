@@ -205,7 +205,7 @@ func guard(stage string, call func() error) (err *RuntimeError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			// The stack stays on the Cause for logs; Message stays short
-			// because the service layer returns it to HTTP/gRPC clients.
+			// because the service layer returns it to HTTP clients.
 			err = runtimeError(ErrExtensionFailure, stage,
 				fmt.Sprintf("extension panic: %v", recovered),
 				fmt.Errorf("extension panic: %v\n%s", recovered, debug.Stack()))

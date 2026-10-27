@@ -1,7 +1,7 @@
 <!-- what-we-build: drafted 2026-10-27 -->
 # Gotato — Features
 
-What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP and gRPC routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
+What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes, the CLI commands and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
 
 ## TL;DR
 
@@ -22,8 +22,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Steer | add a message the model reads on its next call | G-F26 | ✅ |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | ✅ |
 | Interrupt | stop the model call in flight and go on with a new message, in the same Run | G-F26 | ✅ |
-| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API, HTTP, gRPC and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29) | G-F26 | ✅ |
-| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API, HTTP, gRPC and the CLI; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are the two Gotato sends itself; on every wire API a notice is tagged text in a user turn | G-F29 | ✅ |
+| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API, HTTP and the CLI; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29) | G-F26 | ✅ |
+| Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API, HTTP and the CLI; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are the two Gotato sends itself; on every wire API a notice is tagged text in a user turn | G-F29 | ✅ |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the CLI, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |
 | Fork | start a new Session from another one's Record; it writes the store and activates nothing | G-F02 | ✅ |
@@ -121,7 +121,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Activation limit | past a hard limit on its active Sessions, an instance refuses a new one with a 503 marked "not run" | G-F27 | ✅ |
 | Warm Session and TTL | after a Run the Session stays in memory as a cache, never a lock, and leaves after 60 idle minutes unless its Agent sets another TTL; its own timer compacts it before its cache goes cold | G-F27 | ✅ |
 | Memory limit | warm Sessions count toward `MaxActiveSessions`; at the limit the longest-idle warm Session is evicted first, and a Run is refused only when every live Session is running | G-F27 | ✅ |
-| A message for a Run on another instance | answered `not_writer`, not run and retryable, with the writer's advertised address; HTTP and gRPC can forward it when you opt in | G-F27 | ✅ |
+| A message for a Run on another instance | answered `not_writer`, not run and retryable, with the writer's advertised address; HTTP can forward it when you opt in | G-F27 | ✅ |
 | Prompt cache retention | the provider's longest cache retention, set per model or for all of them | G-F33 | ✅ |
 
 **Endpoints**
@@ -131,9 +131,8 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | HTTP API | a handler you mount on your own mux | G-F14 | ✅ |
 | Streaming | each Event as server-sent events, ending with the result | G-F14 | ✅ |
 | Stream resume | reconnect on any instance and go on after the number of the last Event seen, with the Record's epoch; a stream that ends says whether and when to reconnect | G-F14 | ✅ |
-| gRPC | `gotato.v1.SessionService`, in its own Go module | G-F14 | ✅ |
 | Go API | call the Runner directly, and subscribe to a Run's, a Session's or the Instance's Events | G-F14 | ✅ |
-| Contract version | reported on `GET /healthz` and through `Contract` | G-F14 | ✅ |
+| Contract version | reported on `GET /healthz` | G-F14 | ✅ |
 
 **Watching and extending**
 
@@ -176,7 +175,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Telemetry adapters | an Instance's Events mapped onto OpenTelemetry | — | later |
 | Model catalog | model names and prices | — | later |
 | Provider rate-limit information | limits and reset time, reported with usage | — | later |
-| Request IDs and idempotency keys | on the HTTP and gRPC endpoints | — | later |
+| Request IDs and idempotency keys | on the HTTP endpoints | — | later |
 | Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
 | Token budget per Run | a cap on the tokens one Run may spend; a `TurnStopper` does it today | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
@@ -214,6 +213,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Notices for a settings change and an interrupted Run | `settings_changed` and `run_interrupted` are not sent; the instruction is the Agent's, and a Run's end is an Event | G-N24 | not planned |
 | A native form for a notice | a `system` or `developer` message in the middle of a conversation; a notice stays tagged text in a user turn | G-N25 | not planned |
 | A load signal in the Liveness row | the row stays an address and a draining mark; `/readyz` already reports `active_sessions` and `active_runs` | G-N26 | not planned |
+| A gRPC adapter | HTTP is the one wire transport; a service that wants gRPC maps `service.Runner` itself | G-N27 | not planned |
 
 Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F17 to G-F21 into G-F16, G-F23 into G-F22. G-F25, G-F28 and G-F30 retired (G-F30 became [G-N21](#g-n21--a-last-turn-that-answers-is-the-callers-notice)).
 
@@ -287,8 +287,8 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 
 - `errors.Is` still matches by code, and both functions look through wrapped and joined errors.
 - `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
-- `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP, gRPC and the CLI each map it and carry the address (*A message for a Run that another instance writes*, in G-F26).
-- HTTP, gRPC and the CLI only translate ([G-F14](#g-f14--http-grpc-and-streaming-), [G-F16](#g-f16--the-gotato-cli-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:
+- `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP and the CLI each map it and carry the address (*A message for a Run that another instance writes*, in G-F26).
+- HTTP and the CLI only translate ([G-F14](#g-f14--http-and-streaming-), [G-F16](#g-f16--the-gotato-cli-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:
 
 ```go
 result, err := runner.Run(ctx, req)
@@ -341,12 +341,11 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 |---|---|---|
 | Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageSteer` (the default), `MessageFollowUp` or `MessageInterrupt` | `Runner.CancelSession` |
 | HTTP | `POST /v1/sessions/{id}/messages` with `{"kind", "text"}` | `POST /v1/sessions/{id}/cancel` |
-| gRPC | `SendMessage(session_id, kind, text)` | `CancelRun` by `session_id` |
 | CLI | `gotato session message <id> [--kind K] "text"` | `gotato session cancel <id>` |
 
-- A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202, gRPC `queued`). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
-- With no Run going, the message is the prompt of a new Run on this instance, which takes the Session over as it takes over any idle one. The call answers when that Run settles, with its result (HTTP 200 with `run`, gRPC `run`), as the run routes do. A client that wants the Run's Events reads the Session's stream.
-- **A message that starts a Run holds its call until the Run settles.** `Runner.Send` returns at once with `Queued` only when a Run is going on this instance; when none is, it is `Runner.Run` for the message, so it returns when the Run ends (`MessageResult.Run` is set). The HTTP route, gRPC `SendMessage` and `gotato session message` do the same, and so does a request the endpoint forwarded to the writer, whose answer arrives when the writer's call returns. A caller that must not wait, such as a chat bot answering a webhook, has three ways, which can be combined:
+- A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
+- With no Run going, the message is the prompt of a new Run on this instance, which takes the Session over as it takes over any idle one. The call answers when that Run settles, with its result (HTTP 200 with `run`), as the run routes do. A client that wants the Run's Events reads the Session's stream.
+- **A message that starts a Run holds its call until the Run settles.** `Runner.Send` returns at once with `Queued` only when a Run is going on this instance; when none is, it is `Runner.Run` for the message, so it returns when the Run ends (`MessageResult.Run` is set). The HTTP route and `gotato session message` do the same, and so does a request the endpoint forwarded to the writer, whose answer arrives when the writer's call returns. A caller that must not wait, such as a chat bot answering a webhook, has three ways, which can be combined:
   - call `Send` in a goroutine, with a `ctx` of its own that outlives the webhook;
   - read the reply from the Session's stream, not from the answer ([G-F13](#g-f13--events-), *Following one Session*);
   - set a deadline on the call only if ending the Run is acceptable: the `ctx` of `Send`, or the client's request timeout over HTTP, is the Run's `ctx`. A deadline that passes settles the Run as `deadline_exceeded` (`cancelled` when the caller cancels), keeping the Turns it committed, and the message stays in the Record. Over HTTP, a client that merely gives up has the same effect when the server sees the connection close.
@@ -382,7 +381,7 @@ Each kind takes effect at its own point:
 
 - **How it knows.** The instance reads the Record: the last Claim names the writer, and the Record is busy while the writer has a Run or a change under way. The writer's Liveness row must be alive. A holder whose row is gone is not a writer, so the message takes the Session over. The check is one read of the Record, and a warm copy that is current skips it.
 - **The address is the writer's own.** Each instance can advertise an address in its Liveness row, a setting that is optional (`service.Config.Address`, `--advertise`; [G-F27](#g-f27--service-many-instances-)). An instance with none still answers `not_writer`, and says so without an address. The address in the answer is read from the row the Claim names, so it is the address of the instance that holds the Claim now. The refusal is a `run_rejected` Instance Event with the reason `not_writer`.
-- **A caller follows it.** `not_writer` says the request did not run, and a retry at the named address may succeed (`gotato.NotRun`, `gotato.Retryable`, [G-F01](#g-f01--agents-and-runs-)). An embedding service sends the message again with its own client, and reads the address with `service.WriterOf(err)`. The HTTP and gRPC endpoints can forward it themselves, and that is a setting you opt in to (`httpapi.WithForwarding`, `grpcadapter.WithForwarding`, `--forward`). A forwarded request is marked (HTTP `Gotato-Forwarded: true`, gRPC metadata `gotato-forwarded`), so an instance that receives one and is not the writer answers `not_writer` and never forwards again. It carries the caller's headers or metadata, and the writer's answer is returned as it came.
+- **A caller follows it.** `not_writer` says the request did not run, and a retry at the named address may succeed (`gotato.NotRun`, `gotato.Retryable`, [G-F01](#g-f01--agents-and-runs-)). An embedding service sends the message again with its own client, and reads the address with `service.WriterOf(err)`. The HTTP endpoints can forward it themselves, and that is a setting you opt in to (`httpapi.WithForwarding`, `--forward`). A forwarded request is marked (HTTP `Gotato-Forwarded: true`), so an instance that receives one and is not the writer answers `not_writer` and never forwards again. It carries the caller's headers, and the writer's answer is returned as it came.
 - **An HTTP caller follows it by hand.** A 409 with `"code": "not_writer"` from `POST …/messages` carries the writer's address in the `Gotato-Writer` header and in the body's `writer`; both are absent when the writer advertises none. The caller sends the same request, once, to that address plus the same path, with `Gotato-Forwarded: true`; it is the address a caller reaches the endpoint at, so an endpoint mounted under a prefix (`http.StripPrefix("/agent", …)`) advertises it with the prefix (`http://10.0.0.7:8080/agent`), since the forward is sent to the address followed by the request's own path. `service.WriterOf(err)` is the same read for Go code.
 - **A Go embedder forwards with its own client.** Send it where it belongs, and keep the loop guard: mark the forward, and never forward a request that already carries the mark. `forwarded` is true when the request this code is answering carried `Gotato-Forwarded`:
 
@@ -399,7 +398,7 @@ Each kind takes effect at its own point:
 
 - **Gotato builds no network between instances.** There is no internal API, discovery or membership. A forward is the same public request, sent once to an address you configured the instances to advertise, and your own authentication applies to it there.
 - **Only a message for a Run is answered this way.** A new prompt for a busy Session keeps the busy policy ([G-F27](#g-f27--service-many-instances-)): it waits, up to a bound, for the Run elsewhere, then answers 409 `busy`.
-- **The surfaces.** The code is `not_writer`, and each surface maps it: HTTP 409 with a `Gotato-Writer` header and `writer` in the body, gRPC `FAILED_PRECONDITION` with a `gotato-writer` trailer (and the `gotato-not-run` and `gotato-retryable` ones), and the CLI's exit 1 with `{"error", "exit_code", "code", "not_run", "retryable"}` and `writer` added ([G-F14](#g-f14--http-grpc-and-streaming-), [G-F16](#g-f16--the-gotato-cli-)). Each only carries the address; none looks it up. A forward that fails to connect answers 502 on HTTP, unmarked, since the message may have reached the writer.
+- **The surfaces.** The code is `not_writer`, and each surface maps it: HTTP 409 with a `Gotato-Writer` header and `writer` in the body, and the CLI's exit 1 with `{"error", "exit_code", "code", "not_run", "retryable"}` and `writer` added ([G-F14](#g-f14--http-and-streaming-), [G-F16](#g-f16--the-gotato-cli-)). Each only carries the address; none looks it up. A forward that fails to connect answers 502 on HTTP, unmarked, since the message may have reached the writer.
 - **What the hash does not decide.** A message that reaches the wrong instance as a Run begins, or ends, is settled by the Claim: if the writer has just released the Session, the instance takes it over and runs the message; if it has just claimed it, `not_writer`. Two instances never both run it.
 
 #### Messages that arrive during a Run — 2026-10-16
@@ -418,7 +417,7 @@ The decision above relies on the load balancer's hash. A caller that cannot rout
 
 | Option | For | Against |
 |---|---|---|
-| **Tell the caller where the writer is** (chosen) | Nothing waits in the store and no network is added between instances. The message is not lost, because it did not run and the caller still holds it. A caller with a client sends it on; HTTP and gRPC can do it for you when you opt in. | A caller that cannot follow an address gets an error. The writer must advertise one. |
+| **Tell the caller where the writer is** (chosen) | Nothing waits in the store and no network is added between instances. The message is not lost, because it did not run and the caller still holds it. A caller with a client sends it on; HTTP can do it for you when you opt in. | A caller that cannot follow an address gets an error. The writer must advertise one. |
 | Queue the message in the store | Survives the writer's death. Any instance can accept it. | The option the first decision rejected: a write per message, and a writer that polls the store. |
 | Instances forward among themselves, always | Every caller reaches the writer without knowing. | Gotato becomes a router, with an internal API, discovery and authentication between instances ([DESIGNS.md → Gotato builds no infrastructure](DESIGNS.md#gotato-builds-no-infrastructure-and-stays-within-its-boundary--2026-10-16)). |
 
@@ -491,7 +490,6 @@ The names are constants (`gotato.NoticeContinue`, `NoticeTimeAway`), and `gotato
 | Go, a live Session | `Session.Notice(ctx, kind, text)` → the number |
 | Go, the Runner | `Runner.Notice(ctx, service.NoticeRequest{SessionID, Kind, Text})` → `NoticeResult{SessionID, Queued, Number, MessageID}` |
 | HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering 202 `{"session_id", "queued": true, "number": 57, "message_id"}` |
-| gRPC | `Notice(session_id, kind, text)` → `NoticeResponse{session_id, queued, number, message_id}` |
 | CLI | `gotato session notice <id> --kind K "text"` |
 
 - `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's two kinds (`continue` and `time_away`) are reserved, and a call that uses one is refused (`invalid_argument`, not run). An empty kind or text is refused the same way.
@@ -529,9 +527,9 @@ Per-Session settings live in the Session's metadata, so one Agent can serve Sess
 | Go API | `service.RunRequest.Update`, a map applied before the Run, under its Claim, as the Run's first write; an empty value deletes the key | it needs a Run: a `Prompt`, or `Continue`. With `SkipSave` the change applies to that Run only |
 | Go API | `Runner.SetToolActive(ctx, sessionID, toolID, active)` | writes only `gotato.tool.<id>`; the ID is a tool of the Agent or of one of its ToolSets |
 | CLI | `gotato run --session ID --instruction S --compact-ceiling N` (the Run's first write), and `gotato tools activate\|deactivate` | the CLI sets no other key; `session create --meta` is for a new Session only |
-| HTTP, gRPC | none | `metadata` on a run request, and on `POST /v1/runs`, is applied only when the request creates the Session, and is ignored for an existing one; `CreateSession` takes it too |
+| HTTP | none | `metadata` on a run request, and on `POST /v1/runs`, is applied only when the request creates the Session, and is ignored for an existing one; `CreateSession` takes it too |
 
-- **There is no call that only changes metadata.** `Runner`, HTTP and gRPC have no `UpdateSession`, and the `*session.Record` that `CreateSession` and `Runner.Session` return is for reading: calling `Set` on it writes nothing to the store. To change a setting without a model call, the application sets it on the Run that follows (`Update`), or creates the Session with the value.
+- **There is no call that only changes metadata.** `Runner` and HTTP have no `UpdateSession`, and the `*session.Record` that `CreateSession` and `Runner.Session` return is for reading: calling `Set` on it writes nothing to the store. To change a setting without a model call, the application sets it on the Run that follows (`Update`), or creates the Session with the value.
 - **Where to keep the application's own fields.** Anything the application keeps about a Session, such as a chat ID or an owner, is set at creation (`CreateSession`'s `metadata`) and is stable. A value that changes often belongs in the application's own store, keyed by the Session ID.
 
 ## What the model sees
@@ -554,7 +552,7 @@ instruction · Static blocks  →  tools, sorted by ID  →  the Transcript
 
 You can see what the model would receive now, without calling it.
 
-- `gotato context inspect <id>`, `gotato context build <id>`, `GET /v1/sessions/{id}/context` and the gRPC `Context` method return the request the Session's next Turn would send.
+- `gotato context inspect <id>`, `gotato context build <id>`, and `GET /v1/sessions/{id}/context` return the request the Session's next Turn would send.
 - The Runner builds the live Session a Run would build and asks it, so the request includes the Agent's `ContextTransformer` and `MessageConverter` extensions, its tools and its model options.
 - The report includes the prefix hash, the size of the system part, and an estimate of the tokens (bytes ÷ 4).
 - `compaction_pending` says the next Run compacts the Session first, because its size, by the last reported usage and an estimate of what came after, is past the ceiling (`compact_ceiling`: the Agent's or the Session's, else the one the model's window gives). That Run then sends a shorter request than the report shows.
@@ -575,18 +573,18 @@ A Session can live for weeks, its user often comes back long after the provider'
 
 **Built today.** A compaction closes a Segment that code builds (*What a Segment keeps*, below):
 
-- **On demand:** `gotato context compact <id> [--keep N] [--min-tokens N]`, `POST /v1/sessions/{id}/compact`, gRPC `Compact` and `Runner.Compact`.
+- **On demand:** `gotato context compact <id> [--keep N] [--min-tokens N]`, `POST /v1/sessions/{id}/compact` and `Runner.Compact`.
 - **Automatically:** before any model call, mid-Run included, when the Context is past the ceiling (`past_ceiling`), and once when the provider refuses a request as too long before any output (`overflow`). The ceiling is the model's `context_window` less max(10% of it, 16K tokens) when the gateway knows the window, else the Agent's (`CompactPolicy.Ceiling`) or the Session's (`gotato.compact_ceiling`), which override it; with no window and none set, the ceiling trigger is off, and a negative `CompactPolicy.Ceiling` turns it off for a model with a window. The overflow trigger needs no ceiling (*When it runs*, below).
 - **What it closes.** Everything since the last Checkpoint, less a kept tail. The tail is the latest Run's Turns, up to 20K tokens and at most a quarter of the model's window (or of the ceiling when no window is known), cut at a Turn boundary so a tool call keeps its result. `keep` (Messages) and `CompactPolicy.Floor` (tokens) override it.
 - **What a Segment holds.** The user's Messages and each Run's final reply word for word (cut at 2K tokens), one line per tool call (repeats counted, past 100 lines counted by tool name, arguments cut at 200 characters and escaped), and, when a `RecapWriter` is set, its Recap (off unless a team sets one). Tool results, reasoning, a Run's other text and Gotato's own notices are left out. The rendered Messages are frozen in the `segment_closed` Entry, with the tag text marked `MetaTag`. Times are UTC unless the Agent sets a zone (`CompactPolicy.Location`).
-- **`min_tokens`.** `CompactOptions.MinTokens`, `{"min_tokens":N}`, the gRPC field and `--min-tokens N` skip a stretch estimated below N tokens. The answer has `replaced: false` and `reason: below_min_tokens`. A stretch the kept tail covers whole answers `nothing_to_close`.
+- **`min_tokens`.** `CompactOptions.MinTokens`, `{"min_tokens":N}` and `--min-tokens N` skip a stretch estimated below N tokens. The answer has `replaced: false` and `reason: below_min_tokens`. A stretch the kept tail covers whole answers `nothing_to_close`.
 - **The Recap.** A `RecapWriter` set in `CompactOptions.Recap`, `CompactPolicy.Recap` or the CLI's `--recap truncate|model` is called with a `RecapRequest`, and its text ends the Segment inside `<recap>`, escaped. **The model's Recap is off by default** in the library, in the service and in the CLI: with no writer set, which is `modelctx.NoRecap{}`, the Segment has no Recap, and the CLI's `--recap` defaults to `none`. A team turns it on with `Recap: modelctx.ModelRecap{}` on the Agent's `CompactPolicy` (the Runner gives it the Agent's model), with `CompactOptions.Recap` in the library, or with `--recap model`, once the payments check passes on its own gateway (*Checked against the providers' behavior*, below).
 - Every compaction is recorded in the Session: the Segment's number, what it replaced, the sizes before and after, the tools kept loaded, `recap` (the writer's name, or `none`), and `recap_usage`, what the model call that wrote the Recap used, also when its reply failed the rules. A merge of the oldest Segments is recorded the same way, as a compaction of its own: `segment` is the merged Segment's number, `merged` lists the numbers it stands for, and `recap` is the writer's name or `digest`.
 - **`read_segment`.** Once a Session has a Segment, the model gets a built-in tool that reads one back, with the Messages as they were: tool calls and tool results included, reasoning left out (*Many Segments*, below).
 - **Merging.** The Segments together have a budget, half the ceiling or 32K tokens with none. When they pass it, the oldest merge into the one merged Segment that opens the Context, down to half the budget. The same happens on an overflow (*Many Segments*, below).
 - A compaction appends the Segment (`segment_closed`) and a Checkpoint (G-F03) in one step, so the closed part stays in the store and is no longer loaded. The Checkpoint lists the Segments the Context uses, holds the kept tail, and holds the loaded tools. A load by another instance builds the same request from it.
 - **Loaded tools.** The tools the closed Segment called and those the kept tail calls stay loaded; the other tools the model loaded are unloaded, and a tool of a ToolSet the Agent installed active is never unloaded ([G-F34](#g-f34--tool-search-)). The tool list comes before the Segments, so this is the moment the list changes: a compaction changes the request anyway.
-- **A Record compacted before Segments.** A Record whose last Checkpoint holds one summary is refused with `invalid_state` (`modelctx.ErrOldSummary`): 409 over HTTP, `FailedPrecondition` over gRPC, exit 1 from the CLI. Nothing migrates it.
+- **A Record compacted before Segments.** A Record whose last Checkpoint holds one summary is refused with `invalid_state` (`modelctx.ErrOldSummary`): 409 over HTTP, exit 1 from the CLI. Nothing migrates it.
 - **A compaction that fails.** A Recap that fails leaves the Segment without one. A compaction whose Record append fails is dropped: a `compaction_failed` Event says why, the Record and its loaded tools are as they were, an on-demand call returns the error, and the automatic one lets the Run go on. A Run stopped during a compaction ends cancelled.
 - When the Agent's model is sent only the current Round's reasoning (a recognized Claude or OpenAI, see [G-F07](#g-f07--models-and-providers-)), the kept tail is kept without its reasoning, because the Segment changes the prefix that reasoning was written under. The Runner asks the model (`modelctx.DropsReasoning`); with `modelctx.Compact` alone, set `CompactOptions.DropReasoning`. For DeepSeek and unrecognized providers, the reasoning stays.
 
@@ -595,7 +593,7 @@ A Session can live for weeks, its user often comes back long after the provider'
 - **Tags and escaping.** A Part marked `gotato.MetaTag` is tagged text the system wrote, and so is a notice Message, which `ForModel` writes as `<notice kind="…">` with its kind and text escaped; every other Part has the start or end of the four tags escaped in the request ([G-F29](#g-f29--runtime-notices-)). A tool source that bridges foreign metadata, such as the MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)), must drop that key when it copies foreign metadata into a Tool Result.
 - **The gateway** reads `context_window`, reports the cache retention in effect (`Client.CacheRetention()`), and reports a request refused as too long as `context_overflow` ([G-F07](#g-f07--models-and-providers-)).
 - **Loaded tools** are facts of the Record (`tool_loaded`, `tool_unloaded`), restored for every Run and kept in a Checkpoint and a Fork ([G-F34](#g-f34--tool-search-)).
-- **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetLoadedTools`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`, and gRPC carries them (*How it is kept*, below).
+- **The Record** stores a Segment (`Record.CloseSegment`), appends a Checkpoint that lists Segments (`Record.CheckpointSegments`, which refuses a number that is not closed, repeated or out of order), closes a Segment and lists it in one batch (`Record.CloseSegmentAndCheckpoint`, which `Compact` uses), narrows the loaded tools for a Checkpoint (`Record.SetLoadedTools`), and reads them back (`Segments()`, `Tail()`, `Position(id)`); the store contract returns them in `Loaded.Segments`.
 - **A Message carries the Run** that committed it (`Message.RunID`), so a Segment groups Messages by Run (*What a Segment keeps*, below).
 
 **Gap:** none for compaction itself. Everything below was designed on 2026-10-19, and it was built before the warm Session in four steps ([ROADMAP.md → Phase 6](plan/ROADMAP.md#phase-6--compaction-)); the idle trigger came with the warm Session ([Phase 8](plan/ROADMAP.md#phase-8--warm-session-), step 1). What is not measured is G-B15, which needs a provider's cache.
@@ -733,7 +731,7 @@ first heading.
 | Idle | a warm Session has been idle for min(TTL, cache retention) less 5 minutes, or for the TTL less 5 minutes when the retention is unknown or not well above 5 minutes, and the stretch since the last Checkpoint holds at least 20K tokens | `before_cache_expires`, or `before_unload` when the TTL comes first, both come at once, or the retention is not used |
 | Past the ceiling | before any model call, mid-Run included, when the Context is past the ceiling | `past_ceiling` |
 | Overflow | the provider refuses a request as too long, before any output | `overflow` |
-| On demand | `gotato context compact`, `POST /v1/sessions/{id}/compact`, gRPC `Compact` and `Runner.Compact` | `on_demand` |
+| On demand | `gotato context compact`, `POST /v1/sessions/{id}/compact` and `Runner.Compact` | `on_demand` |
 
 - **Idle.** The cache is still warm, so the Recap's request reads it, and a user who comes back later pays full price only for the smaller Context. The cache retention is the one the gateway configuration sets ([G-F33](#g-f33--prompt-cache-retention-)). When it is unknown, as for an unrecognized provider, which is sent none, or not well above the 5-minute lead, as with `cache_retention: 5m`, the trigger uses the TTL alone: a retention of 5 minutes less the lead is 0, and the Session would be compacted the moment a Run ends, so a user who answers a minute later would pay to write a new prefix instead of reading a warm one. The compaction then runs before the Session leaves memory (`before_unload`). The retention counts as well above the lead when it is at least twice the lead, 10 minutes with the default lead. The lead is at most half the TTL, so a short TTL does not compact a Session right after its Run. Five minutes ahead, because a compaction can take a minute or more.
 - **The smallest stretch.** Below 20K tokens an idle Session is not compacted, which saves a model call: if a user comes back 30 to 50 percent of the time, a compaction pays for itself from 10K to 17K tokens. That return rate is an assumption, tuned once real numbers are in.
@@ -864,7 +862,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup, refu
 - A model that calls a hidden tool by a guessed name gets the failed result of an unknown tool, which lists only the visible tools, and the Run goes on.
 - A tool that declares no Effect counts as destructive, so any cap below `destructive` hides it.
 - No cap is the default. In a service, `service.Agent.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent (see the decision below).
-- The cap is shown by `gotato tools list` (`max_effect` in `--json`), and by `GET /v1/agents` and the gRPC `Agents` call, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
+- The cap is shown by `gotato tools list` (`max_effect` in `--json`), and by `GET /v1/agents`, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
 - The check is G-G05: every cap against tools of every Effect ([GOALS.md](plan/GOALS.md)).
 
 #### The Effect cap hides tools, and only an Agent sets it — 2026-10-16
@@ -906,7 +904,7 @@ The tools a Session offers can change while it runs.
 
 - Listing a Session's tools (`Runner.Tools` with a Session, `gotato tools list --session`) names every tool of every ToolSet, loaded or not: its ID, effect, `toolset`, `loaded` and `active` (false when switched off). A ToolSet that did not resolve is one entry with the ToolSet's name as `id` and `unavailable: true`. The list is the ToolSets' last resolution, made when the listing builds the live Session; `search_tools` is listed as before.
 
-Listing without a Session (`Runner.Tools` with no Session ID, `gotato tools list` without `--session`) shows the Agent's own tools only, because a ToolSet lives in the Agent's Options and resolving it is a Session's work (an MCP server may be asked over the network). A caller that wants the ToolSets' tools lists with a Session. The HTTP and gRPC surfaces have no tool listing or switch: a service that wants one calls `Runner.Tools` and `Runner.SetToolActive`, or writes `gotato.tool.<id>` with `RunRequest.Update`. The CLI's own agents install no ToolSet, so the ToolSet fields of `tools list` are tested through the Runner, not through the CLI.
+Listing without a Session (`Runner.Tools` with no Session ID, `gotato tools list` without `--session`) shows the Agent's own tools only, because a ToolSet lives in the Agent's Options and resolving it is a Session's work (an MCP server may be asked over the network). A caller that wants the ToolSets' tools lists with a Session. The HTTP surface has no tool listing or switch: a service that wants one calls `Runner.Tools` and `Runner.SetToolActive`, or writes `gotato.tool.<id>` with `RunRequest.Update`. The CLI's own agents install no ToolSet, so the ToolSet fields of `tools list` are tested through the Runner, not through the CLI.
 
 ### G-F34 — Tool search ✅
 
@@ -987,7 +985,7 @@ orders.refund was not loaded, so this call did not run. It is loaded now; call i
 
 ### G-F12 — The MCP adapter ✅
 
-Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, as `adapter/grpc` is, on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0, Apache-2.0). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
+Tools a team already runs as MCP servers reach a Session as a ToolSet. The adapter is `adapter/mcp`, a Go module of its own, on the official `github.com/modelcontextprotocol/go-sdk` (v1.8.0, Apache-2.0). The core and the runtime packages never import it, so a service that does not use MCP carries none of it. Designed on 2026-10-25; built in Phase 7, step 5.
 
 A server is one ToolSet, and its tools are `<server>.<tool>`. How it is used:
 
@@ -1068,7 +1066,7 @@ O-88501,paid,41.20,…
 - **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it wrote or read in memory, and drops them with the Session. Bodies the store holds are dropped oldest first past 16 MiB (`session.DefaultSpillCacheBytes`); a body the store does not hold yet, or a Record with no store, is never dropped. Any instance reads the same body from the Record. A live Session counts its cache apart from the warm-Session limit of Phase 8.
 - **Pruned.** When the team has pruned the Entry, `read_result` says the body was removed, as `read_segment` does.
 - **The spill depends on size alone.** It is made when the result is committed, so every instance builds the same Message from the same Record.
-- **Subscribers and `events` get no body.** A subscriber, the retained window, `gotato events`, the HTTP events and gRPC see `tool_result_spilled` with `call_id`, `tool_id` and `bytes`; the body is only in the stored Entry and comes back with `read_result`.
+- **Subscribers and `events` get no body.** A subscriber, the retained window, `gotato events`, and the HTTP events see `tool_result_spilled` with `call_id`, `tool_id` and `bytes`; the body is only in the stored Entry and comes back with `read_result`.
 - **Only over a Record.** A Session spills when its Transcript keeps Entries (`gotato.SpillKeeper`: a `session.Record` or `session.Writer`). A Session over the plain in-memory Transcript has nowhere to read the body from, and commits the result whole.
 
 ## Models
@@ -1247,11 +1245,11 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 | One writer at a time | ✅ | the writer holds a Claim: a fact naming its instance and an Epoch, a number that grows with every new Claim, written at the position after the head it read. A writer that lost its Claim always writes to a taken position, so the store refuses it, and a second instance stops before it calls the model (G-G08). |
 | Liveness rows | ✅ | each instance renews one row in the store every third of its TTL, timed by the store's clock. When the row expires, every Claim of that instance ends at once. An instance that cannot show its row was renewed in time writes nothing, so it never calls the model. |
 | Any instance answers | ✅ | an instance that is not the writer takes over a Session that is idle, or whose writer is gone, and loads its facts from the last Checkpoint. For a Session its live writer is using, draining or not, it waits, up to a bound, then takes it over; past the bound it answers 409 with `Retry-After`. No Session is bound to an instance. |
-| Activation limit | ✅ | past `MaxActiveSessions`, an instance refuses a Run that would activate another Session with a 503 marked "not run" (gRPC: `UNAVAILABLE` with a trailer), emits `run_rejected` with the reason `activation_limit`, and loads, claims and creates nothing, so the load balancer can retry it elsewhere. Off by default. Spreading load stays the load balancer's and the autoscaler's job. |
+| Activation limit | ✅ | past `MaxActiveSessions`, an instance refuses a Run that would activate another Session with a 503 marked "not run", emits `run_rejected` with the reason `activation_limit`, and loads, claims and creates nothing, so the load balancer can retry it elsewhere. Off by default. Spreading load stays the load balancer's and the autoscaler's job. |
 | Advertised address | ✅ | an instance can advertise an address in its Liveness row (`Config.Address`, `--advertise`), so `not_writer` can name where the writer is. Optional. |
 | Warm Session and TTL | ✅ | after a Run the Session stays in memory, and leaves it after 60 idle minutes unless its Agent sets another TTL (`service.Agent.Warm`, `--warm-ttl`). The warm copy is a cache, never a lock: it holds no Claim while idle, and the store stays the truth. While it idles, its own timer compacts it shortly before its prompt cache expires or it leaves, whichever comes first, unless a setting turns this off (`--no-idle-compaction`; [G-F06](#g-f06--compaction-)). |
 | Memory limit | ✅ | warm Sessions count toward `MaxActiveSessions`. At the limit, the instance evicts the longest-idle warm Session first and refuses a Run (`overloaded`, not run) only when every live Session is running a Run. |
-| A message for a Run on another instance | ✅ | an instance that is not the writer answers `not_writer`, not run and retryable, with the writer's advertised address ([G-F26](#g-f26--steering-a-run-)). HTTP and gRPC can forward it when you opt in (`--forward`). |
+| A message for a Run on another instance | ✅ | an instance that is not the writer answers `not_writer`, not run and retryable, with the writer's advertised address ([G-F26](#g-f26--steering-a-run-)). HTTP can forward it when you opt in (`--forward`). |
 
 **One writer.** Only the writer may append to a Session's Record, and it holds a Claim with an Epoch.
 
@@ -1268,9 +1266,9 @@ A Runner hosts Sessions inside your service, on as many instances as you run. An
 - **A name you set (`Config.Instance`) is a label, and the store identity is unique per start.** Each start appends a random suffix, so a label such as `pod-0` becomes `pod-0-3fa9c1d2` in the Liveness row, in every Claim, in `session_claimed` Events and in the advertised-address row, and `Runner.Instance()` returns that form. A label that is the same across restarts, such as a StatefulSet pod name, or that two live processes share, is therefore safe: a restarted process writes under its own new row and is not refused with `session.ErrExpired`; it never takes the old process's Claim as its own, so it goes through the holder check and the wait like any other instance (busy, `not_writer` or a takeover once the old row expires); and the old process's late `Close` removes only its own row. Empty still generates a whole name. `service/instance_reuse_test.go` holds the three cases.
 - When one instance dies, its row expires, and every Claim it held ends with it, with no write.
 - An instance that cannot show its row was renewed within its TTL, less a margin, refuses writes, so it never calls the model, and publishes `liveness_lapsed`. Its `/readyz` does not fail. The usual cause is the store being unreachable, and then it is unreachable for every pod at once; failing readiness there would turn request errors into a whole service taken out of rotation.
-- `Runner.Close` removes the row when an instance stops, so its Sessions move at once instead of after the TTL, and the store keeps nothing of the instance. A closed Runner writes nothing more, so its row never comes back. `gotato`, `gotato serve` and `gotato-grpc` call it.
+- `Runner.Close` removes the row when an instance stops, so its Sessions move at once instead of after the TTL, and the store keeps nothing of the instance. A closed Runner writes nothing more, so its row never comes back. `gotato` and `gotato serve` call it.
 - The row of an instance that died is not removed: it stays in the store, expired, so it can never be renewed.
-- **The row carries an address the instance advertises.** It is a setting (`Config.Address`, `--advertise`), and optional. It is where a caller can reach this instance's own HTTP or gRPC endpoint (`http://10.0.0.7:8787`, or `10.0.0.7:8788` for gRPC), and the only thing about another instance that Gotato reads (`Store.Instance` returns it): `not_writer` takes the writer's address from the row its Claim names ([G-F26](#g-f26--steering-a-run-)). Gotato does not connect to it, discover it or check it. The row is timed by the store's clock like the rest, so a dead instance's address lapses with it.
+- **The row carries an address the instance advertises.** It is a setting (`Config.Address`, `--advertise`), and optional. It is where a caller can reach this instance's own HTTP endpoint (`http://10.0.0.7:8787`), and the only thing about another instance that Gotato reads (`Store.Instance` returns it): `not_writer` takes the writer's address from the row its Claim names ([G-F26](#g-f26--steering-a-run-)). Gotato does not connect to it, discover it or check it. The row is timed by the store's clock like the rest, so a dead instance's address lapses with it.
 
 **The warm Session.** After a Run, the Session's Record and the Writer that wrote it stay in memory, and the store stays the truth ([DESIGNS.md → A warm copy is a cache, not a lock](DESIGNS.md#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). The Runner still builds a live `gotato.Session` over the copy for each Run; the live Session's queue stays warm when messages reach it between Runs (step 3 of [Phase 8](plan/ROADMAP.md#phase-8--warm-session-)):
 
@@ -1319,7 +1317,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 ```
 
 - The mark lets every instance see that this one is leaving. Another instance still waits for a Session the draining instance is using, because its Run is about to be saved; taking it over would fence that Run.
-- A request the draining instance refuses gets `ErrDraining`, code `draining`, which says it did not run and may succeed elsewhere: 503 with `Gotato-Not-Run: true` over HTTP, `UNAVAILABLE` with the trailer `gotato-not-run: true` over gRPC. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
+- A request the draining instance refuses gets `ErrDraining`, code `draining`, which says it did not run and may succeed elsewhere: 503 with `Gotato-Not-Run: true` over HTTP. A Run admitted before the drain still runs, also one queued behind a busy Session; one that would take a Session over from another instance is refused. Creating or forking a Session still works, since it writes the store and activates nothing.
 - A Run that finishes in time ends its stream with its result, as always. A Run the drain stops ends its stream with its result and then a reconnect code, once every Run of the drain is saved and released, so the caller reconnects to a Session that no instance is using. In the Go API, the stopped Run's `RunResult.Reconnect` carries the wait.
 - A release is a write like any other, so it lands only while the Claim still names this instance. What a drain cannot save by its deadline is fenced by the Epoch anyway.
 - A message that reaches a Run in flight during a drain is taken as usual, since the Run is still going. One that finds no Run starts a new Run, and a draining instance refuses that as `draining` (not run), like any new Run.
@@ -1327,7 +1325,7 @@ mark draining in its Liveness row ──► /readyz answers 503 ──► refuse
 
 **Activation limit.** An instance counts the Sessions it has activated: those that a Run holds or waits for, each once. `Admission.MaxActiveSessions` (`--max-sessions`) is the hard limit on that count; zero, the default, has none.
 
-- **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, gRPC `UNAVAILABLE` with the trailer `gotato-not-run: true`, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run. The runtime sets it (`gotato.NotRun`); a draining instance's refusal carries it too.
+- **What is refused.** A Run that would activate one Session more than the limit, whether it creates a Session or wakes a stored one. It is refused before anything is loaded, claimed or created: `ErrOverloaded`, code `overloaded`, HTTP 503 with the header `Gotato-Not-Run: true` and `"not_run": true` in the body, and a `run_rejected` Instance Event with the reason `activation_limit`. A streaming request is refused the same way, before the stream starts, so a load balancer can retry it too. The mark tells this 503 from the other one, a store failure, which may have run. The runtime sets it (`gotato.NotRun`); a draining instance's refusal carries it too.
 - **What is not refused.** A Run on a Session that is active here already, which reaches the busy policy instead; creating or forking a Session, which activates nothing; and the short changes that open a Session under its lock (compact, tool activation, delete).
 - **Why it counts Sessions in use.** Live Sessions are what an instance's memory and its Claims grow with, the Runner knows the count exactly, and it costs nothing to keep. Memory itself depends on how long the Sessions are and on the Agent, so a service that wants a byte budget sizes the count to it. With the warm Session ([ROADMAP.md → Phase 8](plan/ROADMAP.md#phase-8--warm-session-)) the same setting counts the Sessions held in memory, as the next part says.
 - **Why `/readyz` does not fail at the limit.** A full instance still serves the Sessions it holds, and a consistent hash sends their requests here. `/readyz` answers 503 for a drain only, and reports `active_sessions` beside `active_runs`, so an operator sees how close the instance is.
@@ -1353,11 +1351,11 @@ A Stop, like any other message, takes effect on the instance that runs the Sessi
 
 A request that creates a Session, such as `POST /v1/runs`, needs no header, and goes to any instance; its response carries the new ID in a `session-id` header, to send next time.
 
-A caller that cannot route by Session still works: a message for a Run going on another instance is answered `not_writer` with the writer's address, and the caller, or the HTTP and gRPC endpoints when you opt in, sends it there ([G-F26](#g-f26--steering-a-run-)). The hash stays the first choice, because it makes that second request unneeded.
+A caller that cannot route by Session still works: a message for a Run going on another instance is answered `not_writer` with the writer's address, and the caller, or the HTTP endpoints when you opt in, sends it there ([G-F26](#g-f26--steering-a-run-)). The hash stays the first choice, because it makes that second request unneeded.
 
-- **What reading the header means.** The endpoints read `session-id` as a check. It must agree with the Session ID in the path or in the body (`POST /v1/sessions` with an `id`); otherwise the request is refused with 400 on HTTP, or `INVALID_ARGUMENT` on gRPC, because the load balancer would have routed it for another Session. A missing or blank header agrees with everything, and on a request that creates a Session without naming an ID the header is ignored. The key is `session-id` in HTTP headers and in gRPC metadata. Gotato does not pick the Session from the header: the path or the body says which Session a request is about.
-- **Where the new ID is set.** `POST /v1/sessions`, `POST /v1/runs`, a fork, and the gRPC `CreateSession`, `Run` and `ForkSession` answer with it. A streaming request that creates a Session cannot: its headers go out first, and its first Event, `session_created`, names the Session.
-- **The "not run" mark.** A refusal with `Gotato-Not-Run: true` (gRPC: `gotato-not-run: true` in the trailers), such as the 503 of a draining or full instance, never ran, so the load balancer may send it once to another instance. A connection that broke after the request was sent is different: it may have run, and is not retried.
+- **What reading the header means.** The endpoints read `session-id` as a check. It must agree with the Session ID in the path or in the body (`POST /v1/sessions` with an `id`); otherwise the request is refused with 400, because the load balancer would have routed it for another Session. A missing or blank header agrees with everything, and on a request that creates a Session without naming an ID the header is ignored. The key is `session-id` in HTTP headers. Gotato does not pick the Session from the header: the path or the body says which Session a request is about.
+- **Where the new ID is set.** `POST /v1/sessions`, `POST /v1/runs`, and a fork answer with it. A streaming request that creates a Session cannot: its headers go out first, and its first Event, `session_created`, names the Session.
+- **The "not run" mark.** A refusal with `Gotato-Not-Run: true`, such as the 503 of a draining or full instance, never ran, so the load balancer may send it once to another instance. A connection that broke after the request was sent is different: it may have run, and is not retried.
 
 The test harness has such a load balancer: `TestProxyRetriesAFullInstancesRefusalElsewhere` and `TestRandomInstancesGiveWhatOneInstanceGives` in `service/workload` hash on `session-id` over several instances, retry a refusal marked "not run" once, and drop an instance whose connection is refused. Examples of these settings for common load balancers come later.
 
@@ -1374,10 +1372,8 @@ Settings, on `service.Config` or `gotato serve`:
 | TTL of a warm Session (`WarmPolicy.TTL` of an Agent, `--warm-ttl`) | 60 minutes | memory is a cache, so an idle Session gives it back; the store keeps the conversation |
 | clock of the warm Session (`Config.Clock`, service only) | the system clock | a test advances its own, so no test waits for a TTL |
 | advertised address (`Config.Address`, `--advertise`) | none | optional; without it `not_writer` says the writer is elsewhere and names no address |
-| forward a `not_writer` message (`httpapi.WithForwarding`, `grpcadapter.WithForwarding`, `--forward`; HTTP and gRPC only) | off | forwarding sends a request to another instance, so a team turns it on; an embedding service forwards with its own client. `gotato-grpc --forward` connects over plaintext gRPC; a service that needs TLS passes its own dial options |
+| forward a `not_writer` message (`httpapi.WithForwarding`, `--forward`; HTTP only) | off | forwarding sends a request to another instance, so a team turns it on; an embedding service forwards with its own client. |
 | stream look (`Config.StreamPoll`, service only) | 1 second | how often an idle Session stream looks in the store for Events that another instance wrote, at the cost of one `Log` read per stream per look; negative turns it off |
-
-`gotato-grpc` takes `--max-runs`, `--max-sessions`, `--warm-ttl`, `--no-idle-compaction`, `--advertise` and `--forward` but not `--queue` or `--drain-timeout`, so its busy policy is always `reject`.
 
 ### G-F33 — Prompt cache retention ✅
 
@@ -1389,11 +1385,11 @@ A provider keeps a cached prefix for minutes, and a conversation that pauses lon
 
 ## Endpoints
 
-### G-F14 — HTTP, gRPC and streaming ✅
+### G-F14 — HTTP and streaming ✅
 
 A bot, a job or another service talks to Sessions like any other API.
 
-**HTTP.** Mount the handler from `service/httpapi` on your own mux. It serves these routes:
+Mount the handler from `service/httpapi` on your own mux. It serves these routes:
 
 ```text
 GET    /healthz  /readyz  /v1/agents
@@ -1442,28 +1438,18 @@ POST   /v1/runs                  POST /v1/runs/stream
   - **When the position cannot be resumed.** A client may send the epoch it saw, as `record_epoch` or the `Record-Epoch` header. If it is not the Record's, or `after` is past the Record's last Event, the request is refused before the stream starts: 409, code `cannot_resume`, and the current `record_epoch` in the body. The client starts over with `after` 0. A browser's `EventSource` cannot send the header, so it compares the epoch in the first frame with the one it kept. An unknown Session is 404.
   - **A Run's stream that is lost.** A Run's stream carries the same ids, and its first Event names the Session (`session_created` has the epoch). A client that loses it reconnects through the Session's stream after the last number it saw, and reads the rest of the Run from there. For an existing Session, the client learns the epoch from the response that created it, or from the first frame of the resumed stream.
   - **When a stream ends.** A drain ends a Session's stream, once every Run is saved and released, after the stored Events, with `event: reconnect`: `{"retry_after_ms", "why": "draining"}` and the SSE `retry:` field, the wait spread at random from half a second to one and a half. A Run's stream the drain stopped ends the same way. The first frame also sets `retry:`, a different wait for each client, which a browser uses after a connection that dropped without a word, so a lost instance does not make every client reconnect at the same instant. Any other end is an `event: error` and no reconnect. An idle stream sends a comment every 15 seconds (`httpapi.WithKeepAlive`).
-  - **A Session deleted, or created again, under the stream.** A stream follows the Record it opened, the one its epoch names, and never delivers an Event of another Record under the same ID. It ends instead, with `event: error`. Over HTTP, a Session that is gone gives 404 with `"code": "not_found"` and `"not_run": true`, and one created again gives `cannot_resume`; over gRPC, `StreamSession` returns `NOT_FOUND` or `FAILED_PRECONDITION`. What was queued for it is dropped.
+  - **A Session deleted, or created again, under the stream.** A stream follows the Record it opened, the one its epoch names, and never delivers an Event of another Record under the same ID. It ends instead, with `event: error`. A Session that is gone gives 404 with `"code": "not_found"` and `"not_run": true`, and one created again gives `cannot_resume`. What was queued for it is dropped.
     - **On the instance that deletes the Session, opens or creates the new Record** (a Run, a tool change, a compaction, a create), **or opens a stream on it**, the old stream ends at once. A stream that read the old epoch while that happened reads the epoch again before it starts, and is refused: with 404 if the Session is gone, with 409 `cannot_resume` if it was created again. The open or create cuts only the streams that started before it read the Record, or wrote it, and that are of another Record. A stream that started after may be of a newer Record, since another instance can delete and create the Session again after the claim was written; the open reads the Record once more, and cuts such a stream only if its epoch is not the Record's now.
     - **On any other instance**, it ends at the first look that finds the Session gone, or at the first read that returns Events of the new Record. Until then it stays open and delivers nothing: a new Record that is no longer than what the stream has seen is noticed only once it grows past that, because an idle look reads only the Events after the stream's number.
     - **What makes it so.** Each Record has a Feed of its own on an instance, named by its Session ID and epoch, so a stream is never handed the live Events of another Record, and the stream of a new Record never waits for the old Record's numbers. Every read of the Record that returns Events is checked against the stream's epoch before they are delivered. A stream is registered before it reads the Record, so what the instance does to the Record meanwhile reaches it. `Runner.SubscribeSession` is the same stream.
   - **Which instance.** A stream on the Session's writer receives its Events as they are written. On any other instance it also receives them, from the Record, when its next look at the store finds them (`Config.StreamPoll`, one second by default), so a load balancer that sends a reconnect elsewhere still works, a little later. An idle stream costs one read of the Record after its number per look (`Log`, which is empty when nothing was written), on every instance, because between Runs no instance is the writer; the Record's epoch is read again (`Load`) only after a look that returned Events.
 
-**gRPC.** `gotato.v1.SessionService` lives in its own Go module, so gRPC never enters a service that does not use it.
-
-- Methods: `Contract`, `Agents`, `CreateSession`, `GetSession`, `ListSessions`, `DeleteSession`, `ForkSession`, `Run`, `StreamRun`, `StreamSession`, `CancelRun`, `SendMessage`, `Notice`, `Events`, `Context`, `Compact`. `Notice(session_id, kind, text)` queues a notice and answers `queued` with its `number` and `message_id`, and is forwarded like `SendMessage`. `SendMessage(session_id, kind, text)` answers `queued` with a `message_id`, or `run` with the result of the Run it started; `CancelRun` by `session_id` is the Stop of a Session. Both are forwarded to the writer when `grpcadapter.WithForwarding` is on, with the metadata `gotato-forwarded`.
-- `StreamSession(session_id, after, record_epoch)` is the same stream as the HTTP route, as a server stream of `SessionUpdate`: a `start` message with the epoch, then the Events. The epoch is also in the header metadata `record-epoch`. A position that cannot be resumed fails with `FAILED_PRECONDITION` and the current epoch in a `record-epoch` trailer; an unknown Session with `NOT_FOUND`. The drain ends the stream with `UNAVAILABLE` and a `retry-after-ms` trailer, like `StreamRun`.
-- The `session-id` metadata is checked and answered as the HTTP header is.
-- Each code has its gRPC code in one table (`codeOf`): `draining`, `overloaded` and `store_failure` are `UNAVAILABLE`, `not_found` is `NOT_FOUND`, `busy` and `invalid_state` are `FAILED_PRECONDITION`; `not_writer` is `FAILED_PRECONDITION` with a `gotato-writer` trailer (the writer's address, when it has one), not `UNAVAILABLE`, because a client library would retry `UNAVAILABLE` on the same connection. A failed call, unary or stream, carries the trailer `gotato-not-run: true` when the runtime says it did not run, and `gotato-retryable: true` when a retry may succeed. The `RuntimeError` in a `RunResult` has `retryable` and `not_run` fields.
-- An Event is a message with a header and a `oneof` that holds one message for each type of Event, so a client reads checked fields, not a JSON payload. A Message that an Event carries travels as JSON bytes.
-- The `gotato-grpc` binary serves it on `127.0.0.1:8788` by default, with `--store`, `--gateway-config` and `--max-runs`.
-- A Run the drain stopped sends its result, then ends `StreamRun` with `UNAVAILABLE` and a `retry-after-ms` trailer.
-
 **Go API.** Call the Runner directly, and subscribe to Events as they happen: `Runner.StreamRun` for one Run, `Runner.SubscribeSession` for a Session from any number, and `Runner.SubscribeInstance` for the Instance ([G-F13](#g-f13--events-)).
 
-**For all of them:**
+**For both:**
 
-- Both contracts report their version, `"1"` at the first release, on `GET /healthz` and through `Contract`.
-- Authentication, logging and access control are yours: wrap the HTTP handler, or add gRPC interceptors. How a refusal reaches the caller is in [G-N22](#g-n22--access-control-belongs-to-applications).
+- The HTTP contract reports its version, `"1"` at the first release, on `GET /healthz`.
+- Authentication, logging and access control are yours: wrap the HTTP handler. How a refusal reaches the caller is in [G-N22](#g-n22--access-control-belongs-to-applications).
 
 ## Watching and extending
 
@@ -1473,7 +1459,7 @@ Every step of a Session is reported as an Event, so you can watch, log or measur
 
 - **The Record is the Event log.** Every stored Event is an Entry of the Session's Record, and its number is that Entry's position, so every instance reads the same number. The number counts the whole Record, not one Run.
 - **Written, then sent.** A stored Event reaches its subscribers only after its write. Most ride the write of their step; the few between steps, such as a retry, an Abort request or a queued message, get a write of their own. Deltas are sent at once, marked with the number of the Event they follow. A Session without a store, in library use, still numbers and sends its Events.
-- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type embeds a `gotato.Header` with its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance Event has no number. In JSON an Event is one flat object whose `kind` names its type (`gotato.MarshalEvent`, `gotato.UnmarshalEvent`); in gRPC it is a `oneof`. A kind a later version adds comes back as a `gotato.UnknownEvent`, so a consumer tolerates it.
+- **A Go type for each kind.** A caller switches on the type and reads checked fields. Every type embeds a `gotato.Header` with its time and the Session's ID, and the number, the Run and the Turn where it has them; an Instance Event has no number. In JSON an Event is one flat object whose `kind` names its type (`gotato.MarshalEvent`, `gotato.UnmarshalEvent`). A kind a later version adds comes back as a `gotato.UnknownEvent`, so a consumer tolerates it.
 
 ```go
 sub, _ := live.SubscribeRun(ctx) // before Prompt
@@ -1560,7 +1546,7 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 
 | Subscription | For | What it carries |
 |---|---|---|
-| A Run's stream | the caller of a Run: `Session.SubscribeRun`, `Runner.StreamRun`, `/runs/stream`, gRPC `StreamRun` | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers. For a Run the Runner starts, the first Event is the claim, or the creation of the Session, that the Run caused |
+| A Run's stream | the caller of a Run: `Session.SubscribeRun`, `Runner.StreamRun`, `/runs/stream` | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers. For a Run the Runner starts, the first Event is the claim, or the creation of the Session, that the Run caused |
 | A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live. `Session.SubscribeFrom`, `Runner.SubscribeSession` |
 | An Instance's stream | the service's own telemetry | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents (`service.ForAgents`). `Runner.SubscribeInstance` |
 
@@ -1593,15 +1579,15 @@ for {
 - A subscriber that falls too far behind is no longer buffered in memory. It catches up from the Record by number and then rejoins the live Events, so it never misses a stored Event; only deltas can be skipped.
 - An Instance's stream mixes Sessions and has no single number. When its subscriber falls behind, it skips Events and says how many in an `events_skipped` Instance Event; each stored Event names its Session and number, so the subscriber can read what it missed from the Record.
 - With the Go API alone, a caller subscribes to the Session it built, before its first `Prompt`.
-- `Runner.StreamRun` runs the Run on its own goroutine and calls its sink from the caller's, reading a Subscription, so a slow HTTP or gRPC client slows its own stream and never the Run.
+- `Runner.StreamRun` runs the Run on its own goroutine and calls its sink from the caller's, reading a Subscription, so a slow HTTP client slows its own stream and never the Run.
 - An Instance Event is not in a Run's stream: `session_loaded` and `session_saved` are read from the Instance's stream.
 - A Run that is not saved (`SkipSave`) has only its Run's stream; its Events are in no Record, so they are numbered from 1 on that stream and are not Record positions.
 - A stream that needs Events its source cannot read again, as a Session over a Record that is not stored can after the Record's window (the last 1000 Events), ends with `gotato.ErrEventsLost`.
-- `Runner.StreamSession` opens a Session's stream for a client that reconnects: it checks the Record's epoch and the number first, and follows the Record when another instance writes it. HTTP (`GET /v1/sessions/{id}/stream`) and gRPC (`StreamSession`) serve it ([G-F14](#g-f14--http-grpc-and-streaming-)).
+- `Runner.StreamSession` opens a Session's stream for a client that reconnects: it checks the Record's epoch and the number first, and follows the Record when another instance writes it. HTTP (`GET /v1/sessions/{id}/stream`) serves it ([G-F14](#g-f14--http-and-streaming-)).
 
 **What it replaced.** It was one break, with a before-and-after entry in [CHANGELOG.md](CHANGELOG.md):
 
-- the map of fields in each Event, and `payload_json` on gRPC;
+- the map of fields in each Event;
 - the sequence number that counts within one Run;
 - the `events` Log entry that kept a copy of the Events, `session.Recorder`, which wrote it, and `session_compacted`, which `compaction_ended` replaced;
 - `EventObserver` ([G-F15](#g-f15--extensions-)), and the lifecycle stream of the Go API (`SubscribeLifecycle`), which `session_created` and `session_unloaded` replaced;
@@ -1696,9 +1682,9 @@ The numbers about a Run come from its Events, the store's time included, as a te
 | Test | What it does |
 |---|---|
 | `TestCrashAtEveryWriteRebuildsTheLastStep` | plays each reference task with an instance that dies after its n-th write, for every n (244 crash points over the eight tasks). Another instance must open exactly what that write left, with every tool call answered and a Context whose prefix hash matches a clean play's, and its next Run must complete. Each write holds at most one more stored Message than the one before. |
-| `TestStreamDisconnectSettlesAndSavesTheRun` | over HTTP and over gRPC: a client that leaves mid-stream still gets its Run settled as cancelled and saved. |
+| `TestStreamDisconnectSettlesAndSavesTheRun` | over HTTP: a client that leaves mid-stream still gets its Run settled as cancelled and saved. |
 | `TestManyInstancesOneWriter` | three Runners over one memory store, and over one file store, take concurrent prompts sent to random instances, and one instance is killed partway. Every completed Run's prompt lands once, followed by its reply, and no instance calls the model for a Session it does not hold. |
-| `TestStreamCutAtEveryEventResumesEqualToAnUncutOne` | over HTTP and over gRPC: for each Event of each reference task, a Session's stream is cut after that Event and resumed after its number, by `Last-Event-ID` or `after` and with the Record's epoch. The two parts joined are the same stored Events, in the same order, numbered with no gap and no repeat, as a stream that was never cut read; no resumed delta follows an Event before the cut. |
+| `TestStreamCutAtEveryEventResumesEqualToAnUncutOne` | over HTTP: for each Event of each reference task, a Session's stream is cut after that Event and resumed after its number, by `Last-Event-ID` or `after` and with the Record's epoch. The two parts joined are the same stored Events, in the same order, numbered with no gap and no repeat, as a stream that was never cut read; no resumed delta follows an Event before the cut. |
 | `TestRandomInstancesGiveWhatOneInstanceGives` | the hashing proxy: three instances over one store, each behind its own HTTP handler, and a proxy that hashes on `session-id`. Reference tasks run on Sessions created through the proxy, with prompts sent through it or straight to random instances, Sessions running concurrently, and in one variant an instance killed between two prompts. Each Session ends with the Transcript and the Events, under the same numbers and in the same order, that one instance gives. A stream read on an instance that is not the writer reads the same Events. |
 | `TestConcurrentMessagesToOneSessionAreNeverInterleaved`, `TestKilledInstanceMidTrafficLosesOnlyTheStepInFlight` | concurrent messages to one Session through the proxy and straight to instances land once each, never interleaved; an instance killed in the middle of the traffic loses only the step in flight, and the proxy does not retry a request that broke after it was sent. |
 | `TestProxyRetriesAFullInstancesRefusalElsewhere` | a full instance refuses new Sessions as not run, the proxy retries each once on another instance, where it runs, and the full instance activates none. |
@@ -1758,7 +1744,7 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Telemetry adapters | a package that subscribes to an Instance's Events and maps them onto OpenTelemetry. Teams can write their own today ([G-N11](#g-n11--telemetry-backends-belong-to-applications)). |
 | Model catalog | model names and prices next to the providers. A model's window is never looked up: it comes from `context_window` in its gateway configuration (G-F07). |
 | Provider rate-limit information | limits, remaining calls and reset time reported with usage, so a service can slow itself down |
-| Request IDs and idempotency keys | on the HTTP and gRPC endpoints |
+| Request IDs and idempotency keys | on the HTTP endpoints |
 | G-F24 — Examples | one-shot use, a persistent Session, compaction, forks, dynamic tools, CLI automation |
 | Token budget per Run | a `TurnStopper` can already cap the tokens one Run spends |
 | Paging and filtering the Session list | matters at population scale, after one writer per Session across instances |
@@ -1788,7 +1774,7 @@ IDEs and desktop products build on Gotato. Its official CLI is a runtime interfa
 
 ### G-N05 — Service Mode Is Optional
 
-`gotato serve` and `gotato-grpc` are first-class ways to run Gotato, and library and CLI use stand on their own. All three drive the same Runner, and the core packages never depend on the service.
+`gotato serve` is a first-class way to run Gotato, and library and CLI use stand on their own. All three drive the same Runner, and the core packages never depend on the service.
 
 ### G-N06 — Memory Architecture Belongs to Applications
 
@@ -1840,7 +1826,7 @@ Discovery, routing, autoscaling and deployment already exist where your services
 
 ### G-N18 — No Ready-Made Clients
 
-Bots, schedulers and front ends are the callers' own code. Gotato provides the HTTP handler, the gRPC service and the Go API they call.
+Bots, schedulers and front ends are the callers' own code. Gotato provides the HTTP handler and the Go API they call.
 
 ### G-N19 — Structured Output Is a Tool of the Agent's Own
 
@@ -1877,7 +1863,7 @@ The MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)) maps an MCP server's tools o
 | Prompts | the instruction and the Static blocks are the Agent's definition, where a reviewer reads them |
 | Sampling | a server that asks the client's model to answer for it makes a Run's cost and bounds depend on a server the team may not control |
 | Elicitation | a server that asks a person a question needs a waiting state in the Loop, which Gotato does not have ([DESIGNS.md → No approval system](DESIGNS.md#no-approval-system--2026-10-15)) |
-| Gotato as an MCP server | callers reach Sessions through the HTTP handler, the gRPC service and the Go API |
+| Gotato as an MCP server | callers reach Sessions through the HTTP handler and the Go API |
 | OAuth | every service already authenticates its callers and holds its own credentials ([DESIGNS.md → No authentication](DESIGNS.md#no-authentication)); a server's headers come from the application |
 | A CLI `--mcp` flag | the CLI is a thin client of the packages, and the service that embeds Gotato configures its servers in Go |
 
@@ -1904,7 +1890,7 @@ time.AfterFunc(time.Until(deadline)-10*time.Second, func() {
 
 Who the caller is, and who may touch which Session, are the application's. Gotato builds no identity type, no "not allowed" error and no hook for it. It passes the request's `context.Context`, with all its values, to every store and extension call it makes for that request, so the application's own code sees the caller wherever it needs to ([DESIGNS.md → No authentication](DESIGNS.md#no-authentication)).
 
-- **A refusal is `not_found`.** A store wrapper returns `session.ErrNotFound` for a Session the caller does not own. That answers 404 on HTTP, `NOT_FOUND` on gRPC and exit 3 on the CLI, and it does not reveal that the Session exists.
+- **A refusal is `not_found`.** A store wrapper returns `session.ErrNotFound` for a Session the caller does not own. That answers 404 on HTTP and exit 3 on the CLI, and it does not reveal that the Session exists.
 - **Every request-driven call reads through the store.** A read of a Session reaches the store by `Log`, a Run by `Load` and `Append`, and `Runner.CancelSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on this Instance. So a wrapper guards `Load`, `Log`, `Append` and `Delete`, and filters `List`, and that is all it needs: another caller's cancel, steer, follow-up, interrupt and notice answer `not_found` too.
 - **Work Gotato starts on its own has no caller.** The `ctx` of an idle compaction and of a Liveness renewal carries no caller, because no request started it. A Warm Session leaving memory writes nothing. A follow-on Run, which takes the messages left over when a Run ends, keeps the values of the request that started the Run before it, without its cancellation. What an empty caller means is the team's rule: the wrapper below lets it through.
 
@@ -1932,7 +1918,7 @@ runner.CreateSession(ctx, "support", map[string]string{"owner": user})
 
 ### G-N23 — A Waiting Message Is Not Withdrawn
 
-A Steer or a FollowUp that waits for its point in a Run could be taken back by its caller, with an Event, `message_withdrawn`, to say so. Gotato does not build it: no call, endpoint or command takes a message back, so there is no such Event in the Go API, the gRPC contract or the Event table.
+A Steer or a FollowUp that waits for its point in a Run could be taken back by its caller, with an Event, `message_withdrawn`, to say so. Gotato does not build it: no call, endpoint or command takes a message back, so there is no such Event in the Go API, the HTTP contract or the Event table.
 
 - **The caller already holds the message.** A message that waits was accepted with its ID and a `message_queued`; a caller who changes its mind sends the next message, or a Stop. Taking back one message in the middle of a queue would need a race between the withdrawal and the next model call, and an answer for both outcomes.
 - **A waiting message already has its endings.** It is committed (`message_committed`), dropped with a reason (`message_dropped`) or refused (`message_rejected`), and these three say all that a stream reader needs.
@@ -1963,3 +1949,11 @@ The Liveness row of an instance could carry the count of the Sessions it holds, 
 - **An instance already reports its own load.** `/readyz` shows `active_sessions` and `active_runs`, and `Runner.ActiveSessions` and `Runner.ActiveRuns` give the same to a Go service. An operator or a metrics scrape reads them where the instance is.
 - **Routing is the load balancer's.** A consistent hash on the Session sends a request to the instance that holds the Session, which no count improves ([G-F27](#g-f27--service-many-instances-)). An instance at its limit refuses a Run as not run, and the caller tries another ([Activation limit](#g-f27--service-many-instances-)).
 - **The feature test says no.** A Go service embedding an agent has not asked for the load of its peers inside the store. If one does, the request should name the case, and the row gets the field with it.
+
+### G-N27 — No gRPC Adapter
+
+A gRPC service over the Runner could ship beside the HTTP handler. Gotato does not build it. `service/httpapi` is its one wire transport.
+
+- **Every operation would repeat the HTTP one.** The Runner has one answer for a run, a message, a stream or a refusal, and a second transport maps each of them again. Every change to an Event or to the Runner would then be made twice, in two contracts that must agree.
+- **A service that wants gRPC maps the Runner itself.** `service.Runner` is a plain Go type, and `service/httpapi` shows the mapping: one table from error code to status, one stream built on a Subscription. A team writes the same for its own `.proto`, with the interceptors, the authentication and the names it already uses.
+- **The feature test says no.** A Go service embedding an agent has not asked for a second wire transport from its runtime. If one does, the request should name the case.

@@ -41,7 +41,7 @@ next message for S ──► pod B: opens S from the store, takes it over, goes 
 
 ## Errors say what to do
 
-Every error answers two questions, and HTTP, gRPC and the CLI only translate the answers.
+Every error answers two questions, and HTTP and the CLI only translate the answers.
 
 ```go
 out, err := runner.Run(ctx, req)
@@ -67,7 +67,7 @@ On SIGTERM, call `runner.Drain(ctx)`: the pod stops taking new Runs, lets each R
 mux.Handle("/agent/", http.StripPrefix("/agent", httpapi.New(runner)))
 ```
 
-The handler serves the same Runner over HTTP, with a stream for each Run and each Session. gRPC is the same Runner in the `adapter/grpc` module.
+The handler serves the same Runner over HTTP, with a stream for each Run and each Session. A service that wants another transport maps the same Runner itself.
 
 ## A chat bot on three pods
 

@@ -11,7 +11,7 @@ import (
 )
 
 // An embedding service, such as a chat bot, calls a Runner in process and never
-// meets HTTP or gRPC. These tests read only what that caller gets back: the
+// meets HTTP. These tests read only what that caller gets back: the
 // error and the RunResult.
 
 func TestEmbeddedCallerSeesARefusalAsNotRun(t *testing.T) {

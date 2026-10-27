@@ -21,9 +21,9 @@ import (
 
 Do not use `@main` in a service: it moves each time you run it. Until the first release a name may change, with the before and after in [CHANGELOG.md](../CHANGELOG.md); read its *Unreleased* section when you move the commit.
 
-## The adapters
+## The MCP adapter
 
-`adapter/grpc` and `adapter/mcp` are modules of their own. Each requires the runtime at `v0.0.0`, which does not exist as a tag, so point that requirement at the same commit with one `replace`:
+`adapter/mcp` is a module of its own. It requires the runtime at `v0.0.0`, which does not exist as a tag, so point that requirement at the same commit with one `replace`:
 
 ```sh
 go mod edit -replace=github.com/jinhuang712/gotato@v0.0.0=github.com/jinhuang712/gotato@<commit>
@@ -31,7 +31,7 @@ go get github.com/jinhuang712/gotato/adapter/mcp@<commit>
 go mod tidy
 ```
 
-Use the same commit for the runtime and every adapter. The adapters need Go 1.25, and `go get` raises the `go` line of your module to match. Once Gotato has a release, the `replace` goes away.
+Use the same commit for the runtime and the adapter. The adapter needs Go 1.25, and `go get` raises the `go` line of your module to match. Once Gotato has a release, the `replace` goes away.
 
 ## Check it
 

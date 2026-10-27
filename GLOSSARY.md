@@ -84,7 +84,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
 | **Instance** | One running copy of your service. On Kubernetes it is a pod, and the proposal says "pod" for that reason. | replica, node | |
-| **Not writer** | What an error says when a message reaches an Instance that is not the Writer of the Session's Run going on: the code `not_writer`, which is also Not run and Retryable. It carries the Writer's advertised address, so the caller, or the HTTP and gRPC endpoints when a team opts in, sends the message there. | redirect, forward | `gotato.ErrNotWriter`, `service.WriterOf` |
+| **Not writer** | What an error says when a message reaches an Instance that is not the Writer of the Session's Run going on: the code `not_writer`, which is also Not run and Retryable. It carries the Writer's advertised address, so the caller, or the HTTP endpoints when a team opts in, sends the message there. | redirect, forward | `gotato.ErrNotWriter`, `service.WriterOf` |
 | **Not run** | What an error says when nothing with side effects happened, so the same request can go to another Instance without running twice. A refusal before a Run starts is not run; a store failure may have run, and is not marked. | | `gotato.NotRun(err)`, `RuntimeError.NotRun`, HTTP `Gotato-Not-Run` |
 | **Retryable** | What an error says when the same request, sent again later, may succeed. | | `gotato.Retryable(err)`, `RuntimeError.Retryable` |
 | **Admission** | The rule for how many Runs may run at once, and what happens when a Session is busy. | | `service.Admission` |

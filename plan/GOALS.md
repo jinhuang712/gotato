@@ -108,8 +108,8 @@ Each check is a test or a harness that passes or fails.
 
 - **Serves:** [A failure stays local](../DESIGNS.md#4-a-failure-stays-local)
 - **Measure:** 100% of streams end with a final event. 100% of replies cut by the output limit say so. A client that disconnects mid-stream still gets its Run settled and saved.
-- **Method:** fault injection on the HTTP and gRPC streams (`TestStreamDisconnectSettlesAndSavesTheRun`)
-- **Status:** ✅ The final event exists, and output-limit cutoffs are reported. A client that disconnects mid-stream gets its Run settled as cancelled and saved with its prompt, over HTTP and gRPC. 2026-10-17.
+- **Method:** fault injection on the HTTP stream (`TestStreamDisconnectSettlesAndSavesTheRun`)
+- **Status:** ✅ The final event exists, and output-limit cutoffs are reported. A client that disconnects mid-stream gets its Run settled as cancelled and saved with its prompt, over HTTP. 2026-10-17.
 
 ### G-G04 — No failures caused by Gotato
 
@@ -286,6 +286,6 @@ Each evaluation needs a person or a real model, so it runs on demand.
 ### G-G06 — Breaking changes are written down
 
 - **Serves:** [Stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary)
-- **Measure:** 100% of breaking changes since the first release have a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md) and raise the contract version when they touch HTTP or gRPC; before the first release, every break has the entry
+- **Measure:** 100% of breaking changes since the first release have a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md) and raise the contract version when they touch HTTP; before the first release, every break has the entry
 - **Method:** review at each release; before the first release, an audit of the tree against CHANGELOG.md
-- **Status:** ✅ Audited 2026-10-27, from the tree of commit `7730514` (the last commit of 2026-10-10) to `HEAD`. Every break of the Go API of the core and the standard runtime packages (`apidiff` on `gotato-core`, `session`, `modelctx`, `service`, `service/httpapi`, `testkit`, `gateway`, `toolregistry` and `adapter/grpc`, with the old root package mapped to `gotato-core/`), of the CLI (commands, flags, README tables, exit codes), of the Event kinds, of the `.proto` and of the stored shapes is named in CHANGELOG.md; the audit added the field-level moves of the Event design. Gotato has made no release, so no consumer has seen a contract version: the development counters were reset, and the HTTP, gRPC and CLI contracts are version `"1"`, the version of the first release.
+- **Status:** ✅ Audited 2026-10-27, from the tree of commit `7730514` (the last commit of 2026-10-10) to `HEAD`. Every break of the Go API of the core and the standard runtime packages (`apidiff` on `gotato-core`, `session`, `modelctx`, `service`, `service/httpapi`, `testkit`, `gateway`, and `toolregistry`, with the old root package mapped to `gotato-core/`), of the CLI (commands, flags, README tables, exit codes), of the Event kinds and of the stored shapes is named in CHANGELOG.md; the audit added the field-level moves of the Event design. Gotato has made no release, so no consumer has seen a contract version: the development counters were reset, and the HTTP and CLI contracts are version `"1"`, the version of the first release.

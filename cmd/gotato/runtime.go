@@ -76,7 +76,7 @@ func builtinTools() []gotato.Tool {
 }
 
 // cliRuntime is the CLI's service.Runner plus the diagnostics gathered while
-// building it. The CLI, `gotato serve`, and gotato-grpc all run the same
+// building it. The CLI and `gotato serve` run the same
 // Runner; the CLI simply drives it in-process.
 type cliRuntime struct {
 	runner     *service.Runner

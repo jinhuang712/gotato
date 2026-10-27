@@ -23,7 +23,7 @@ import (
 //
 // An instance that dies is TestCrashAtEveryWriteRebuildsTheLastStep (G-G01),
 // and a client that disconnects mid-stream is
-// TestStreamDisconnectSettlesAndSavesTheRun (G-G02), over HTTP and gRPC.
+// TestStreamDisconnectSettlesAndSavesTheRun (G-G02), over HTTP.
 
 var errProvider = errors.New("provider unavailable")
 

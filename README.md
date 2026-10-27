@@ -77,7 +77,7 @@ Not a coding agent, a workflow language, a platform or infrastructure. Gotato ru
 | **Storage** | memory, file, or your own database behind eight calls, with a conformance suite | ✅ |
 | **Many instances** | one writer per Session, takeover, drain, `not_writer` forwarding | ✅ |
 | **Events** | every step as a Go type, streamed, resumable on any instance | ✅ |
-| **Endpoints** | Go API, HTTP, gRPC and a CLI | ✅ |
+| **Endpoints** | Go API, HTTP and a CLI | ✅ |
 | **Testing** | fake models, a fake gateway for each wire API, a reference workload | ✅ |
 | **Telemetry** | OpenTelemetry mapping of Events | later |
 
@@ -131,7 +131,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 
 | Guide | You learn |
 |---|---|
-| [Install](guides/install.md) | how to add Gotato and its adapters to your `go.mod` |
+| [Install](guides/install.md) | how to add Gotato and the MCP adapter to your `go.mod` |
 | [Which packages do I import?](guides/packages.md) | what each package is for, and what leaving one out costs |
 | [Getting started](guides/getting-started.md) | a Session, a tool and the Events of a Run |
 | [Embed Gotato in a service](guides/embed-in-a-service.md) | the Runner, many pods and shutting down |
@@ -150,7 +150,7 @@ Pin a commit you have tested:
 go get github.com/jinhuang712/gotato@<commit>
 ```
 
-[Install](guides/install.md) has the details, including the adapters.
+[Install](guides/install.md) has the details, including the MCP adapter.
 
 ## 📚 Documents
 

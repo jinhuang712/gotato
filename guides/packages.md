@@ -14,7 +14,7 @@ By the end of this page you know which Gotato packages your program needs, and w
 | Keep conversations in a store and continue them on any pod | add `service` (the Runner) and `session` (the Store) |
 | Keep long conversations small | `modelctx`; the Runner brings it |
 | Call MCP servers | `adapter/mcp` (a module of its own) |
-| Serve it over HTTP or gRPC | `service/httpapi`, `adapter/grpc` |
+| Serve it over HTTP | `service/httpapi` |
 | Register tools in code, without a Runner | `toolregistry` |
 | Write tests with a fake model | `testkit`, `test/fakegateway` |
 

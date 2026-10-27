@@ -22,8 +22,8 @@
 //	})
 //	result, _ := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hello"})
 //
-// Package httpapi exposes a Runner over HTTP; the gRPC adapter exposes the
-// same Runner; the gotato CLI drives one in-process. All three are thin.
+// Package httpapi exposes a Runner over HTTP; the gotato CLI drives one
+// in-process. Both are thin.
 package service
 
 import (

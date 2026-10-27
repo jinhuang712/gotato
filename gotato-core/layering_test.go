@@ -53,7 +53,7 @@ func TestLayering(t *testing.T) {
 		forbidden = append(forbidden, forbiddenForAll...)
 		if rel == "service" || strings.HasPrefix(rel, "service/") {
 			// The service layer and its HTTP adapter may reach inward, but not
-			// the gRPC adapter module or the CLI.
+			// the MCP adapter module or the CLI.
 			forbidden = forbiddenForAll
 		}
 		for _, imported := range imports(dir) {
@@ -68,7 +68,7 @@ func TestLayering(t *testing.T) {
 
 // modulePackageDirs returns every package directory under root except the CLI
 // and adapter layers, which are allowed to import outward. A nested module
-// (adapter/grpc, bench/refservice) is not part of this module and is skipped:
+// (adapter/mcp, bench/refservice) is not part of this module and is skipped:
 // it stands where a team's own service would, outside the layers.
 func modulePackageDirs(t *testing.T, root string) []string {
 	t.Helper()

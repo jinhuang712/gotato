@@ -9,7 +9,7 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 
 | You see | Go to |
 |---|---|
-| HTTP 503 or gRPC `UNAVAILABLE` marked "not run" | [A request is refused](#a-request-is-refused) |
+| HTTP 503 marked "not run" | [A request is refused](#a-request-is-refused) |
 | `/readyz` answers 503 | [An instance is draining](#an-instance-is-draining) |
 | A Session stays `busy` after its instance died | [An instance died](#an-instance-died) |
 | A Run ended `failed` with the cause `interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
@@ -18,7 +18,7 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 
 ## A request is refused
 
-An error marked "not run" means nothing with side effects happened, so sending the same request to another instance cannot run it twice. Over HTTP it is a 503 with the header `Gotato-Not-Run: true`; over gRPC it is `UNAVAILABLE` with the trailer `gotato-not-run: true`.
+An error marked "not run" means nothing with side effects happened, so sending the same request to another instance cannot run it twice. Over HTTP it is a 503 with the header `Gotato-Not-Run: true`.
 
 | Code | Meaning | Do |
 |---|---|---|

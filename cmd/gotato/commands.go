@@ -769,8 +769,7 @@ func (c *cli) cmdEvents(args []string) int {
 
 // ---- serve ----------------------------------------------------------------
 
-// cmdServe runs the same Runner behind the HTTP API. gRPC lives in the
-// adapter/grpc module (gotato-grpc).
+// cmdServe runs the same Runner behind the HTTP API.
 func (c *cli) cmdServe(args []string) int {
 	fs := c.newFlagSet("serve")
 	var flags modelFlags

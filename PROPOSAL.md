@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-26 -->
+<!-- what-we-build: drafted 2026-10-27 -->
 # Gotato — Proposal
 
 > **Agent-as-a-Service for Go.**
@@ -133,7 +133,7 @@ Gotato should behave like any other library in the service: easy to add, safe to
 - **A small footprint.** The core uses only the Go standard library. Gotato adds a few modules and a few megabytes to a service, and runs on Go 1.22.
 - **Your storage and your telemetry.** Gotato defines stable shapes for a Session and for its Events, the facts it reports as it works. Your adapter maps them onto the database you run, such as MySQL, Postgres or Mongo, and onto the telemetry stack you run.
 - **Any model provider.** A provider is configuration: an endpoint, a key, a wire API (the request format it speaks) and its models. Any vendor that speaks a supported wire API works without new code.
-- **Common endpoints.** Gotato provides an HTTP handler, a gRPC service and a Go API. A bot, a job or another service talks to a Session like any other API.
+- **Common endpoints.** Gotato provides an HTTP handler and a Go API. A bot, a job or another service talks to a Session like any other API.
 
 ### It runs on many pods
 
@@ -157,7 +157,7 @@ you:     store · model provider · tools · MCP servers · auth · telemetry
 
 ### It stays stable
 
-- **Stable contracts.** The Go API, the HTTP and gRPC contracts and the shape of a saved Session change only through versioned breaks, with before-and-after notes in [CHANGELOG.md](CHANGELOG.md).
+- **Stable contracts.** The Go API, the HTTP contract and the shape of a saved Session change only through versioned breaks, with before-and-after notes in [CHANGELOG.md](CHANGELOG.md).
 
 ## Where Gotato fits
 

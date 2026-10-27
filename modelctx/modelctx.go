@@ -113,7 +113,7 @@ func EstimateTokens(messages []gotato.Message) int {
 // A Report from ReportOf is built by the live Session itself, with the code its
 // Turns run, so it includes the ContextTransformer and MessageConverter
 // Extensions, the visible Tools and the model options; service.Runner.Inspect,
-// the CLI and the HTTP and gRPC endpoints return that kind. A Report from
+// the CLI and the HTTP endpoints return that kind. A Report from
 // Inspect or InspectSession runs the ContextBuilder alone.
 //
 // When CompactionPending is true, the next Run compacts the Session before
