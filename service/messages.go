@@ -49,7 +49,7 @@ type MessageResult struct {
 	MessageID string `json:"message_id,omitempty"`
 	// Queued says a Run in flight on this Instance took the message. When it
 	// is false, no Run was going: the message started a new Run, whose result
-	// is Run.
+	// is Run. Run is nil when that Run was refused before it ran.
 	Queued bool         `json:"queued"`
 	Run    *RunResponse `json:"run,omitempty"`
 }
@@ -168,7 +168,11 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 		return result, err
 	}
 	run, err := r.runWith(ctx, RunRequest{SessionID: request.SessionID, Prompt: request.Text}, nil, waited)
-	result.Run = &run
+	// A Run that was refused before it ran (a missing Session, a drain, a full
+	// Instance) has no response to give: Run stays nil.
+	if err == nil || run.SessionID != "" {
+		result.Run = &run
+	}
 	return result, err
 }
 

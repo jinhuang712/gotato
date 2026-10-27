@@ -611,7 +611,7 @@ func (h *Handler) message(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, result)
 	case err == nil:
 		writeJSON(w, http.StatusOK, result)
-	case result.Run == nil || result.Run.SessionID == "":
+	case result.Run == nil:
 		if h.forwarded(w, r, err, body) {
 			return
 		}

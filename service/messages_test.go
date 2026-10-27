@@ -493,3 +493,30 @@ func TestEveryQueuedMessageIsCommittedOrDropped(t *testing.T) {
 		}
 	}
 }
+
+// A message that started a Run which was refused before it ran (the Instance
+// is draining) carries no Run in its result.
+func TestSendRefusedBeforeItRanHasNoRun(t *testing.T) {
+	runner, err := service.New(service.Config{
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID(), Text: "hi"})
+	if !errors.Is(err, service.ErrDraining) {
+		t.Fatalf("Send while draining = %v, want ErrDraining", err)
+	}
+	if result.Run != nil {
+		t.Fatalf("result.Run = %+v, want nil for a Run that did not run", result.Run)
+	}
+}
