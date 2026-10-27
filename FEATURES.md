@@ -483,8 +483,8 @@ The names are constants (`gotato.NoticeContinue`, `NoticeTimeAway`), and `gotato
 | Where | Call |
 |---|---|
 | Go, a live Session | `Session.Notice(ctx, kind, text)` → the number |
-| Go, the Runner | `Runner.Notice(ctx, service.NoticeRequest{SessionID, Kind, Text})` → `NoticeResult{SessionID, Queued, Number, MessageID}` |
-| HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering 202 `{"session_id", "queued": true, "number": 57, "message_id"}` |
+| Go, the Runner | `Runner.Notice(ctx, service.NoticeRequest{SessionID, Kind, Text})` → `NoticeResult{SessionID, Number, MessageID}` |
+| HTTP | `POST /v1/sessions/{id}/notices` with `{"kind": "...", "text": "..."}`, answering 202 `{"session_id", "number": 57, "message_id"}` |
 
 - `kind` is your own short label, for your own counting; Gotato keeps it and does not read it. Gotato's two kinds (`continue` and `time_away`) are reserved, and a call that uses one is refused (`invalid_argument`, not run). An empty kind or text is refused the same way.
 - With many instances, a notice reaches the Session's writer through the load balancer's hash, as a Steer does. A notice for a Run going on another instance is answered `not_writer`, with the writer's address ([G-F26](#g-f26--steering-a-run-)), and forwarded when forwarding is on; with no Run going, the instance it reaches takes the Session over for the one write of its `notice_queued`, and the Session's next Run takes the notice, on any instance.
@@ -1394,7 +1394,7 @@ POST   /v1/sessions/{id}/abort
 
 - A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
 - A message request carries `kind` (`steer`, the default, `follow_up` or `interrupt`) and `text`. A Run in flight on the instance takes it: 202 with `{"session_id", "message_id", "queued": true}`. With no Run going it starts one and holds the response until that Run settles, then answers 200 with `{"session_id", "queued": false, "run": {…}}`; a caller that cannot wait sends the request from a goroutine, or reads the reply from `…/stream`, and a client timeout that closes the connection ends the Run ([G-F26](#g-f26--steering-a-run-)). A Run another live instance writes answers 409 `not_writer`, or is forwarded when `httpapi.WithForwarding` is on. `…/abort` answers 202, and 409 `invalid_state` when no Run is going, and is forwarded the same way ([G-F26](#g-f26--steering-a-run-)).
-- A notice request carries `kind` and `text`, and answers 202 with `{"session_id", "queued": true, "number", "message_id"}` at once: it starts no Run, and a Run going on another live instance answers 409 `not_writer`, or is forwarded as a message is ([G-F29](#g-f29--runtime-notices-)).
+- A notice request carries `kind` and `text`, and answers 202 with `{"session_id", "number", "message_id"}` at once: it starts no Run, and a Run going on another live instance answers 409 `not_writer`, or is forwarded as a message is ([G-F29](#g-f29--runtime-notices-)).
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
 - `GET /readyz` answers 200 with `active_runs` and `active_sessions`, and 503 with `"draining": true` while the instance drains.

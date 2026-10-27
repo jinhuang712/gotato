@@ -973,8 +973,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 		Model:       model,
 		Instruction: "You track orders.",
 		Tools:       []gotato.Tool{testkit.NewFakeTool("orders.lookup", "shipped")},
-		Extensions:  []any{briefNote{}},
-		Options:     []gotato.SessionOption{gotato.WithModelConfig(maxTokens)},
+		Options:     []gotato.SessionOption{gotato.WithExtension(briefNote{}), gotato.WithModelConfig(maxTokens)},
 	})
 	ctx := context.Background()
 	s, err := runner.CreateSession(ctx, "orders", nil, session.WithMessages(gotato.UserMessage("where is order 42?")))

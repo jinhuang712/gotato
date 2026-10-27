@@ -46,7 +46,7 @@ func TestANoticeReachesARunAtItsNextModelCall(t *testing.T) {
 	done := startRun(t, runner, s.ID(), "hello")
 	waitCall(t, model, 0)
 	notice, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "order_update", Text: "Order 42 was delivered."})
-	if err != nil || !notice.Queued || notice.Number == 0 || notice.MessageID == "" {
+	if err != nil || notice.Number == 0 || notice.MessageID == "" {
 		t.Fatalf("Notice = %+v, %v", notice, err)
 	}
 	if _, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Text: "prefer metric"}); err != nil {

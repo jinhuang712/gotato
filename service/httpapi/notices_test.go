@@ -14,7 +14,6 @@ import (
 
 type noticeAnswer struct {
 	SessionID string `json:"session_id"`
-	Queued    bool   `json:"queued"`
 	Number    uint64 `json:"number"`
 	MessageID string `json:"message_id"`
 }
@@ -29,8 +28,8 @@ func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
 
 	resp, body := a.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "order_update", "text": "Order 42 was delivered."})
 	var answer noticeAnswer
-	if err := json.Unmarshal(body, &answer); err != nil || resp.StatusCode != http.StatusAccepted || !answer.Queued || answer.Number == 0 || answer.MessageID == "" || answer.SessionID != id {
-		t.Fatalf("notice = %d %s, want 202 queued with a number", resp.StatusCode, body)
+	if err := json.Unmarshal(body, &answer); err != nil || resp.StatusCode != http.StatusAccepted || answer.Number == 0 || answer.MessageID == "" || answer.SessionID != id {
+		t.Fatalf("notice = %d %s, want 202 with a number", resp.StatusCode, body)
 	}
 	close(g.release)
 	wait()
@@ -80,7 +79,7 @@ func TestNoticeForARunElsewhereAnswersNotWriterOrIsForwarded(t *testing.T) {
 	}
 	before := a.requests.Load()
 	resp, body = forwarding.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "k", "text": "via c"})
-	if resp.StatusCode != http.StatusAccepted || !strings.Contains(string(body), `"queued":true`) || a.requests.Load() != before+1 {
+	if resp.StatusCode != http.StatusAccepted || !strings.Contains(string(body), `"number":`) || a.requests.Load() != before+1 {
 		t.Fatalf("forwarded notice = %d %s (%d requests at the writer)", resp.StatusCode, body, a.requests.Load()-before)
 	}
 	close(g.release)

@@ -6,6 +6,19 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
+### Fields that carried nothing
+
+**Breaking**: before the first release nothing keeps an old field. Each row is a field that was never read, or that only a test or a compatibility fallback used.
+
+| Before | After |
+|---|---|
+| `service.Agent{Extensions: []any{x}}` | `service.Agent{Options: []gotato.SessionOption{gotato.WithExtension(x)}}` |
+| `gotato.Compaction.SummaryMessageID` (`summary_message_id`) | gone; a Segment has no summary Message, and nothing read or wrote it |
+| `session.Document.MaxSegment` (`max_segment`) | gone; `Load` reads the largest number from the Segments the Document lists. A Segment closed alone, which no Checkpoint lists, no longer keeps its number across a Snapshot and Load (the Runner never closes one) |
+| `session.Document.EventLimit` (`event_limit`) | gone; a Record keeps its last 1000 Events in memory |
+| `modelctx.CompactConfig.Now`, `CompactPolicy.Now`, `MergeConfig.Now` | gone; they use the wall clock, and no test set them |
+| `service.NoticeResult.Queued`; `queued: true` in the notice answer of the HTTP route (`POST /v1/sessions/{id}/notices`) and of `gotato session notice --json` | gone; the answer is `{"session_id", "number", "message_id"}`, and a 202 or exit 0 says the notice was queued |
+
 ### Names follow one set of rules (batch 3)
 
 [AGENTS.md → Naming](AGENTS.md#naming) applied to constants, settings structs and the retryable convention. **Breaking**: nothing keeps an old name; wire strings do not change, and `ErrorCode` constants stay `Code…`.

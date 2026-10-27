@@ -46,8 +46,6 @@ type CompactConfig struct {
 	// reasoning could be refused. Leave it false for a provider that needs
 	// every reasoning artifact back, such as DeepSeek.
 	DropReasoning bool
-	// Now overrides the clock (tests).
-	Now func() time.Time
 	// KeepLastTurn keeps at least the latest Turn in the tail, whatever the
 	// budget: the last assistant Message with the results of its tool calls,
 	// or the last Message when it is not a result. A compaction in the middle
@@ -158,10 +156,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 		return Result{}, errors.New("modelctx: session is nil")
 	}
 	all := s.Messages()
-	now := opts.Now
-	if now == nil {
-		now = time.Now
-	}
+	now := time.Now
 	stretch := s.Tail()
 	skipped := func(reason CompactReason) Result {
 		tokens := EstimateTokens(all)
@@ -269,7 +264,7 @@ func Compact(ctx context.Context, s *session.Record, opts CompactConfig) (Result
 	// Checkpoint of their own. A merge that fails leaves the Segment just
 	// closed in place, and the Segments unmerged.
 	merge, err := MergeSegments(ctx, s, MergeConfig{
-		Budget: opts.SegmentBudget, Ceiling: opts.Ceiling, Recap: opts.Recap, Why: why, Location: opts.Location, Now: opts.Now,
+		Budget: opts.SegmentBudget, Ceiling: opts.Ceiling, Recap: opts.Recap, Why: why, Location: opts.Location,
 	})
 	if err != nil {
 		return result, err
@@ -328,7 +323,6 @@ type CompactPolicy struct {
 	Window        int
 	Recap         RecapWriter
 	DropReasoning bool
-	Now           func() time.Time
 	// SegmentBudget is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged. 0 means half the
 	// ceiling in force, or DefaultSegmentsBudgetTokens with none (effectiveBudget).
@@ -448,7 +442,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	a.compacted = true
 	options := CompactConfig{
 		Floor: a.policy.Floor, Window: a.policy.Window, Ceiling: a.Ceiling(),
-		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning, Now: a.policy.Now,
+		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning,
 		Why: why, SegmentSettings: a.policy.SegmentSettings, KeepLastTurn: true,
 		// A Recap read from the request the Run is about to send is read from
 		// the provider's cache.
@@ -480,7 +474,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	if !result.Replaced {
 		// Nothing to close, but the Segments may still pass their budget.
 		merged, err := MergeSegments(ctx, a.session, MergeConfig{
-			Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
+			Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 		})
 		if err != nil {
 			return prepared, false, err
@@ -515,7 +509,7 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 	}
 	a.compacted = true
 	merge, err := MergeSegments(ctx, a.session, MergeConfig{
-		Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location, Now: a.policy.Now,
+		Budget: budget, Ceiling: a.Ceiling(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 	})
 	return gotato.TurnPrepared{Changed: merge.Merged}, err
 }

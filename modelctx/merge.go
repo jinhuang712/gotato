@@ -91,8 +91,6 @@ type MergeConfig struct {
 	Why gotato.CompactionWhy
 	// Location is the time zone of the times the merged Segment shows.
 	Location *time.Location
-	// Now overrides the clock (tests).
-	Now func() time.Time
 }
 
 // MergeResult reports a MergeSegments call. Merged is true only when the
@@ -175,10 +173,7 @@ func MergeSegments(ctx context.Context, s *session.Record, opts MergeConfig) (Me
 	if why == "" {
 		why = gotato.CompactionWhyPastBudget
 	}
-	now := opts.Now
-	if now == nil {
-		now = time.Now
-	}
+	now := time.Now
 	header := func() gotato.Header { return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0) }
 	s.Emit(gotato.CompactionStarted{Header: header(), Why: why})
 	fail := func(reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {

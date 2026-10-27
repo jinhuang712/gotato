@@ -91,9 +91,10 @@ func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
 	}
 }
 
-// A Document carries the largest Segment number, so a Segment the store holds
-// and no Checkpoint lists keeps its number reserved across Snapshot and Load.
-func TestLoadKeepsTheLargestSegmentNumber(t *testing.T) {
+// A Record that holds a Segment no Checkpoint lists keeps its number reserved
+// while it lives; a Load reads the largest number from the Segments the
+// Document lists.
+func TestLoadReadsTheLargestListedSegmentNumber(t *testing.T) {
 	record := session.New(session.WithID("seg-max"))
 	if _, err := record.CloseSegment(rendered(0, "a", "b")); err != nil {
 		t.Fatal(err)
@@ -104,10 +105,10 @@ func TestLoadKeepsTheLargestSegmentNumber(t *testing.T) {
 	if _, err := record.CloseSegment(rendered(0, "c", "d")); err != nil { // closed alone: number 2, listed by nothing
 		t.Fatal(err)
 	}
-	doc := record.Snapshot()
-	if doc.MaxSegment != 2 {
-		t.Fatalf("Document.MaxSegment = %d, want 2", doc.MaxSegment)
+	if record.NextSegment() != 3 {
+		t.Fatalf("NextSegment = %d, want 3", record.NextSegment())
 	}
+	doc := record.Snapshot()
 	data, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
@@ -120,13 +121,7 @@ func TestLoadKeepsTheLargestSegmentNumber(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.NextSegment() != 3 {
-		t.Fatalf("NextSegment after Load = %d, want 3", loaded.NextSegment())
-	}
-	// A Document written before the field existed still loads from its Segments.
-	old := record.Snapshot()
-	old.MaxSegment = 0
-	if again, err := session.FromDocument(old); err != nil || again.NextSegment() != 2 {
-		t.Fatalf("a Document with no max_segment: next %d, %v; want 2", again.NextSegment(), err)
+	if loaded.NextSegment() != 2 {
+		t.Fatalf("NextSegment after Load = %d, want 2, one more than the largest listed Segment", loaded.NextSegment())
 	}
 }

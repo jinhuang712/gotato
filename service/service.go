@@ -95,7 +95,6 @@ type Agent struct {
 	MaxEffect gotato.ToolEffect
 	// ContextBuilder defaults to gotato.FullHistoryContext().
 	ContextBuilder gotato.ContextBuilder
-	Extensions     []any
 	Limits         *gotato.CoreLimits
 	// RunTimeout bounds one Run of this Agent; the Run settles as
 	// deadline_exceeded. Zero means DefaultRunTimeout, negative means no
@@ -1224,8 +1223,6 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	// Every Run has its Session compacted when the provider refuses a request
 	// as too long, and past the ceiling when there is one.
 	auto := modelctx.AutoCompact(s, compactPolicyFor(spec, s))
-	extensions := append([]any{auto}, spec.Extensions...)
-
 	options := []gotato.SessionOption{
 		gotato.WithModel(spec.Model),
 		gotato.WithInstruction(instruction),
@@ -1233,9 +1230,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		gotato.WithContextBuilder(builder),
 		gotato.WithCacheKey(sessionCacheKey(s)),
 	}
-	if len(extensions) > 0 {
-		options = append(options, gotato.WithExtensions(extensions...))
-	}
+	options = append(options, gotato.WithExtension(auto))
 	filter := &sessionTools{spec: spec, session: s}
 	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
@@ -1284,7 +1279,7 @@ type InspectConfig struct {
 
 // Inspect reports the Context a Run against the Session would send now. It
 // builds the live Session a Run would build and asks it, so the report includes the
-// Agent's Extensions, Tools and model options, and says whether the next Run
+// Agent's Options, Tools and model options, and says whether the next Run
 // compacts the Session first. Optional InspectConfig override the Session's
 // stored settings. The Session is not changed.
 func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectConfig) (modelctx.Report, error) {

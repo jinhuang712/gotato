@@ -19,12 +19,11 @@ func TestNoticeWaitsForTheNextRunAndStartsNone(t *testing.T) {
 
 	var queued struct {
 		SessionID string `json:"session_id"`
-		Queued    bool   `json:"queued"`
 		Number    uint64 `json:"number"`
 		MessageID string `json:"message_id"`
 	}
 	h.mustJSON(h.ok("session", "notice", created.ID, "--kind", "order_update", "--json", "Order 42 was delivered."), &queued)
-	if queued.SessionID != created.ID || !queued.Queued || queued.Number == 0 || queued.MessageID == "" {
+	if queued.SessionID != created.ID || queued.Number == 0 || queued.MessageID == "" {
 		t.Fatalf("notice = %+v", queued)
 	}
 	var shown struct {

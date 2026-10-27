@@ -232,9 +232,6 @@ type Compaction struct {
 	ReplacedMessages int       `json:"replaced_messages"`
 	FromMessageID    MessageID `json:"from_message_id,omitempty"`
 	ToMessageID      MessageID `json:"to_message_id,omitempty"`
-	// SummaryMessageID is the summary a compaction before Segments wrote. A
-	// compaction that closes a Segment leaves it empty.
-	SummaryMessageID MessageID `json:"summary_message_id,omitempty"`
 	// Recap names what wrote the Recap, or "none" when the Segment
 	// has none.
 	Recap       string `json:"recap"`

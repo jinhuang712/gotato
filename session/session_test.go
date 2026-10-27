@@ -213,9 +213,6 @@ func TestEventLimitBoundsRetention(t *testing.T) {
 
 func TestEventLimitZeroKeepsDefault(t *testing.T) {
 	s := session.New(session.WithEventLimit(0))
-	if got := s.Snapshot().EventLimit; got != session.DefaultEventLimit {
-		t.Fatalf("event limit = %d, want default %d", got, session.DefaultEventLimit)
-	}
 	if _, err := s.Write(context.Background(), []gotato.Event{turnStarted()}); err != nil {
 		t.Fatal(err)
 	}
@@ -298,10 +295,10 @@ func TestRingBufferKeepsNewestInOrder(t *testing.T) {
 
 func TestLoadNormalizesAnOverfullDocument(t *testing.T) {
 	var events []gotato.Event
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= session.DefaultEventLimit+2; i++ {
 		events = append(events, gotato.TurnStarted{Header: gotato.Header{Number: uint64(i), Turn: gotato.TurnNumber(i)}})
 	}
-	doc := session.Document{ID: "x", SchemaVersion: session.SchemaVersion, EventLimit: 2, Events: events}
+	doc := session.Document{ID: "x", SchemaVersion: session.SchemaVersion, Events: events}
 	s, err := session.FromDocument(doc)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +307,7 @@ func TestLoadNormalizesAnOverfullDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := s.Events()
-	if len(got) != 2 || got[0].Head().Turn != 4 || got[1].Kind() != gotato.EventKindTurnEnded {
+	if len(got) != session.DefaultEventLimit || got[0].Head().Turn != 4 || got[len(got)-1].Kind() != gotato.EventKindTurnEnded {
 		t.Fatalf("events = %+v", got)
 	}
 }

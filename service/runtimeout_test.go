@@ -36,7 +36,7 @@ func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout t
 		Name:       "probe",
 		Model:      testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "lookup", Arguments: []byte(`{}`)}), testkit.Text("done")),
 		Tools:      []gotato.Tool{testkit.NewFakeTool("lookup", "found")},
-		Extensions: []any{probe},
+		Options:    []gotato.SessionOption{gotato.WithExtension(probe)},
 		RunTimeout: runTimeout,
 	})
 	start := time.Now()

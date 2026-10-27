@@ -27,9 +27,6 @@ type NoticeRequest struct {
 // NoticeResult says that a notice was accepted.
 type NoticeResult struct {
 	SessionID string `json:"session_id"`
-	// Queued is always true: the notice waits for the next model call, of the
-	// Run going now or of the next Run.
-	Queued bool `json:"queued"`
 	// Number is the number of the notice's notice_queued Event in the
 	// Session's Record.
 	Number uint64 `json:"number"`
@@ -73,7 +70,7 @@ func (r *Runner) Notice(ctx context.Context, request NoticeRequest) (NoticeResul
 	if r.Draining() {
 		return NoticeResult{}, notRunError(gotato.ErrorOf(gotato.CodeDraining, "service: draining"))
 	}
-	result := NoticeResult{SessionID: request.SessionID, Queued: true}
+	result := NoticeResult{SessionID: request.SessionID}
 	handle, err := r.liveRun(ctx, request.SessionID)
 	if err != nil {
 		return NoticeResult{}, err

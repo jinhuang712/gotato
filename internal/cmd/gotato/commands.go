@@ -247,7 +247,7 @@ func (c *cli) sessionNotice(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(map[string]any{"session_id": result.SessionID, "queued": result.Queued, "number": result.Number, "message_id": result.MessageID}, fmt.Sprintf("queued notice %d", result.Number))
+	return c.emit(map[string]any{"session_id": result.SessionID, "number": result.Number, "message_id": result.MessageID}, fmt.Sprintf("queued notice %d", result.Number))
 }
 
 // sessionAbort stops the Run of a Session (Runner.AbortSession). A Run in
