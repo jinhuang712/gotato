@@ -253,6 +253,18 @@ func TestManyInstancesOneWriterWithMessages(t *testing.T) {
 			}
 			wg.Wait()
 			close(outcomes)
+			// A message queued as its Run settled is committed by a follow-on
+			// Run that the Runner starts on its own, so every Send having
+			// returned does not mean the work is done. The killed instance
+			// stopped writing, and its Runs end by being cut off.
+			waitFor(t, func() bool {
+				for _, runner := range runners[:instances-1] {
+					if runner.ActiveRuns() != 0 {
+						return false
+					}
+				}
+				return true
+			})
 
 			var all []outcome
 			for o := range outcomes {
