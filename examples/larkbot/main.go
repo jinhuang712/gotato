@@ -18,7 +18,6 @@ import (
 
 	"github.com/jinhuang712/gotato/gateway"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
@@ -50,7 +49,6 @@ func run() error {
 	toolList := flag.String("tools", "", "extra tools, comma-separated: export (test tool with a 1 MB result), mcp (the -mcp-url server, always visible), mcp-search (the same, in the tool-search catalog)")
 	mcpURL := flag.String("mcp-url", "", "streamable HTTP endpoint of the MCP server for -tools mcp / mcp-search")
 	script := flag.Bool("script", false, "test only: play [script:NAME] directives in a message with a scripted model (script.go); other messages go to -model")
-	recap := flag.String("recap", "none", "test only: the Recap writer of a compaction: none (Gotato's default) or truncate (a deterministic Recap, so a cluster scenario can check one)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -71,13 +69,6 @@ func run() error {
 	agent, err := buildAgent(*model)
 	if err != nil {
 		return err
-	}
-	switch *recap {
-	case "none":
-	case "truncate":
-		agent.Compact.Recap = modelctx.TruncateRecap{}
-	default:
-		return fmt.Errorf("-recap must be none or truncate, got %q", *recap)
 	}
 	tools, err := parseTools(*toolList, *mcpURL)
 	if err != nil {

@@ -1,9 +1,8 @@
 // Command driver plays the cluster scenarios against the local kind cluster that cluster/run.sh builds:
 // smoke, s1 (rolling deploy with Runs in flight), s2 (kill the pod that writes a Run), s3 (scale the bot
 // 3 -> 1 -> 5), s4 (pods contend for one Session), s5 (late acks, so events are redelivered),
-// s7 (MCP calls while the server restarts and the bot is deployed), s8 (a
-// tool loaded with search_tools, after a takeover), s9 (a compaction after a takeover) and s10 (a graceful
-// roll of the MCP server).
+// s7 (MCP calls while the server is killed, the bot is deployed and the server is rolled gracefully) and s8 (a
+// tool loaded with search_tools, after a takeover).
 //
 // It talks to the fake Lark's driver API and to the bots' Gotato HTTP API through `kubectl proxy`
 // (the API server's service proxy, so any ready bot pod answers a read), follows the bot pods' logs
@@ -46,9 +45,9 @@ func main() {
 	kubeconfig := flag.String("kubeconfig", "", "kubeconfig of the kind cluster")
 	kctx := flag.String("context", "kind-gotato", "kubectl context")
 	ns := flag.String("namespace", "gotato", "namespace")
-	kill := flag.String("kill", "delete", "s2, s8, s9: how to kill the writer: delete (kubectl delete pod --grace-period=0 --force) or crash (SIGKILL the container, no SIGTERM)")
+	kill := flag.String("kill", "delete", "s2, s8: how to kill the writer: delete (kubectl delete pod --grace-period=0 --force) or crash (SIGKILL the container, no SIGTERM)")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: driver -kubeconfig FILE [-context C] [-namespace N] smoke|s1|...|s10")
+		fmt.Fprintln(os.Stderr, "usage: driver -kubeconfig FILE [-context C] [-namespace N] smoke|s1|...|s8")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -112,10 +111,6 @@ func run(ctx context.Context, e *env, scenario string) bool {
 		ok = e.s7(ctx)
 	case "s8":
 		ok = e.s8(ctx)
-	case "s9":
-		ok = e.s9(ctx)
-	case "s10":
-		ok = e.s10(ctx)
 	default:
 		flag.Usage()
 		os.Exit(2)

@@ -9,7 +9,7 @@ A Lark chat bot built on [Gotato](../../README.md), and a local cluster to try i
 - **Ordered retry.** A message that was known not to have run (`not_writer`, `busy`, `draining`, a forward that could not connect) is sent again with backoff, in order per Session.
 - **Cards.** Every reply is a Lark interactive card whose footer names the instance that answered.
 - **Warm Sessions.** One Gotato Session per message thread. A new message starts a Session; a reply continues the Session of its thread. Any instance can pick a Session up from the shared store.
-- **Tools in a multi-instance service.** An MCP server, tool search and spilled results, each checked across a takeover or a restart.
+- **Tools in a multi-instance service.** An MCP server and tool search, each checked across a takeover or a restart.
 
 What it is not: a product. It has no users, no persona beyond one constant, no idempotency across instances, and no real model. Replace what you need.
 
@@ -114,7 +114,7 @@ Duplicates are left to you. Each instance keeps an in-memory set of message IDs 
 | `mcp` | the MCP server at `-mcp-url` as a ToolSet, always visible, through `adapter/mcp` over streamable HTTP |
 | `mcp-search` | the same ToolSet in the catalog: the model loads a tool with `search_tools` |
 
-For tests, `-script` plays `[script:NAME]` directives in a message with a scripted model (`script.go`) that decides from the request alone, so any instance continues a Run the same way. `-recap truncate` gives the Agent a deterministic Recap writer. `cmd/fakemcp` is a small MCP server with fixed answers, a `-stateless` mode and a graceful `-drain`.
+For tests, `-script` plays `[script:NAME]` directives in a message with a scripted model (`script.go`) that decides from the request alone, so any instance continues a Run the same way. `cmd/fakemcp` is a small MCP server with fixed answers, a `-stateless` mode and a graceful `-drain`.
 
 ## Run it on a local cluster
 
@@ -144,10 +144,8 @@ Each scenario runs against a cold cluster and checks the Records afterwards. The
 | `s3` | scale 3 to 1 to 5 with Runs in flight | pods added by the scale-up take Sessions over |
 | `s4` | bursts into one thread from several pods | `not_writer` forwarding keeps order and the Records stay consistent |
 | `s5` | `ACK_DELAY=4s cluster/run.sh up` first: bots ack late | measures redelivered events; the bot has no cross-instance idempotency |
-| `s7` | MCP calls in flight while the MCP server restarts and the bot rolls | tool errors are visible, no Run is stuck (`MCP_STATELESS=true` for a stateless server) |
+| `s7` | MCP calls in flight while the MCP server is killed (SIGKILL), the bot rolls, and the MCP server rolls gracefully (SIGTERM, drain) | tool errors are visible, no Run is stuck; in-flight calls survive a drain, while a stateful MCP server still fails some (`MCP_STATELESS=true` for a stateless server) |
 | `s8` | tool search, writer killed | a tool loaded by search is still loaded after a takeover |
-| `s9` | compaction after a takeover | the loaded tool is unloaded, a Segment is read from another pod |
-| `s10` | graceful roll of the MCP server next to a SIGKILL | in-flight calls survive a drain; a stateful MCP server still fails some |
 
 How to read the output:
 

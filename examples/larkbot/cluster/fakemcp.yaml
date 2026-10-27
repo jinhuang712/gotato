@@ -21,7 +21,7 @@ spec:
     metadata:
       labels: {app: fakemcp}
     spec:
-      # On SIGTERM fakemcp exits at once (s7) or, with -drain (MCP_DRAIN=20s, s10), stops answering /healthz, lets the
+      # On SIGTERM fakemcp exits at once (a SIGKILL in s7) or, with -drain (MCP_DRAIN=20s, the graceful roll in s7), stops answering /healthz, lets the
       # calls in flight finish and exits.
       terminationGracePeriodSeconds: 30
       containers:

@@ -53,7 +53,6 @@ spec:
             - -ack-delay=__ACK_DELAY__
             - -tools=__TOOLS__
             - -script=__SCRIPT__
-            - -recap=__RECAP__
             - -mcp-url=http://fakemcp:8090/mcp
           env:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}

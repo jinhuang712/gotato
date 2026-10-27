@@ -64,9 +64,9 @@ func printTakeover(t *thread, r record, victimInst string, killAt time.Time) {
 	}
 }
 
-// s7: MCP tools in flight while the MCP server restarts, and while the bot is deployed.
+// s7: MCP tools in flight while the MCP server restarts (killed, then rolled gracefully), and while the bot is deployed.
 func (e *env) s7(ctx context.Context) bool {
-	fmt.Println("== s7: MCP calls in flight during a restart of the MCP server and a rolling deploy of the bot")
+	fmt.Println("== s7: MCP calls in flight during a kill of the MCP server, a rolling deploy of the bot and a graceful roll of the MCP server")
 	st := newStamper()
 	statsBefore := e.mcpStats(ctx)
 	fmt.Printf("%s fakemcp %s\n", st.at(), statsBefore)
@@ -92,9 +92,10 @@ func (e *env) s7(ctx context.Context) bool {
 	a := mk("A", 6)
 	sendAll(a, "A", "a", "[script:mcp=8s]", 200*time.Millisecond)
 	sleep(ctx, 3*time.Second)
-	fmt.Printf("%s kubectl delete pod -l app=fakemcp --grace-period=0 --force\n", st.at())
-	out, err := e.kubectl(ctx, "delete", "pod", "-l", "app=fakemcp", "--grace-period=0", "--force")
-	if err != nil {
+	// SIGKILL of the container, not `delete --force`: the kubelet sends SIGTERM first even then, and a server that
+	// drains on SIGTERM (phase G) would finish its calls and not show what an abrupt end costs.
+	fmt.Printf("%s SIGKILL of the fakemcp container (crictl stop -t 0); it restarts in its pod\n", st.at())
+	if out, err := e.killContainer(ctx, "fakemcp"); err != nil {
 		return verdict("s7", false, out)
 	}
 	// B: new threads while the server is down or starting: the Runs resolve the ToolSet and call at once.
@@ -150,6 +151,13 @@ func (e *env) s7(ctx context.Context) bool {
 	}
 	fmt.Printf("%s rollout done\n", st.at())
 	sendAll(c, "C2", "b", "[script:mcp=2s]", 200*time.Millisecond) // pods that never saw these threads
+	e.waitQuiet(ctx, all, 10*time.Second, 120*time.Second)
+
+	// G, H, N, G2: a graceful roll of the MCP server.
+	roll, out, err := e.rollMCP(ctx, st, mk, sendAll)
+	if err != nil {
+		return verdict("s7", false, out)
+	}
 	fmt.Printf("%s waiting for the Runs to settle\n", st.at())
 	e.waitQuiet(ctx, all, 20*time.Second, 120*time.Second)
 
@@ -195,13 +203,13 @@ func (e *env) s7(ctx context.Context) bool {
 			unanswered++
 		}
 	}
-	phases := []string{"W", "A", "B", "R", "P", "A2", "C", "D", "C2"}
+	phases := []string{"W", "A", "B", "R", "P", "A2", "C", "D", "C2", "G", "H", "N", "G2"}
 	okN, errN := 0, 0
 	for _, p := range phases {
 		okN += ok[p]
 		errN += errs[p]
 	}
-	fmt.Printf("  tool calls the model reported, by phase (W warm-up; A calls in flight when the server is killed; B sent while it restarts; R after it answers again; P one a second after that; A2 a second message in the A threads; C and D during the bot deploy; C2 after it): %s\n", phaseCounts(ok, errs, phases))
+	fmt.Printf("  tool calls the model reported, by phase (W warm-up; A calls in flight when the server is killed; B sent while it restarts; R after it answers again; P one a second after that; A2 a second message in the A threads; C and D during the bot deploy; C2 after it; G in flight when the server is rolled gracefully, H one a second during the roll, N new threads after it, G2 a second message in the G threads): %s\n", phaseCounts(ok, errs, phases))
 	fmt.Printf("  total: %d succeeded, %d came back as a tool error\n", okN, errN)
 	for _, k := range sortedKeys(errTexts) {
 		fmt.Printf("    tool error x%d: %s\n", errTexts[k], k)
@@ -220,6 +228,8 @@ func (e *env) s7(ctx context.Context) bool {
 	fmt.Printf("  Runs that did not complete: %d\n", failedRuns)
 	fmt.Printf("  Runs not ended %d, threads that end on a user message %d, tool errors with no text %d\n", stuck, unanswered, emptyErr)
 	fmt.Printf("  fakemcp now: %s (before: %s)\n", e.mcpStats(ctx), statsBefore)
+	_, full := errorsByPhase(all, func(t *thread) record { r, _ := e.record(ctx, t.session()); return r })
+	faults += reportRoll(roll, ok, errs, full)
 	faults += stuck + emptyErr
 	if unanswered > 0 {
 		faults += unanswered
