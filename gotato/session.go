@@ -16,6 +16,8 @@ import (
 // it waits for a Run, busy during one, then closing and closed.
 type SessionStatus string
 
+// The statuses of a live Session. A Session starts created, is idle between
+// Runs and busy during one, and ends closing, then closed.
 const (
 	SessionStatusCreated SessionStatus = "created"
 	SessionStatusIdle    SessionStatus = "idle"
@@ -126,6 +128,9 @@ func WithMaxEffect(effect ToolEffect) SessionOption {
 	}
 }
 
+// WithTools adds Tools the Model can call from the first Turn. It fails with
+// CodeInvalidArgument when a Tool is nil. Tools from a ToolSet or a ToolSource
+// are added by their own options.
 func WithTools(tools ...Tool) SessionOption {
 	return func(c *sessionConfig) error {
 		for _, tool := range tools {
@@ -138,6 +143,8 @@ func WithTools(tools ...Tool) SessionOption {
 	}
 }
 
+// WithLimits sets the Session's CoreLimits; a zero field keeps its default. It
+// fails with CodeInvalidArgument when a deadline is negative.
 func WithLimits(limits CoreLimits) SessionOption {
 	return func(c *sessionConfig) error {
 		if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
@@ -361,8 +368,12 @@ type promptResponse struct {
 	err    error
 }
 
+// ID is the Session's ID.
 func (a *Session) ID() SessionID { return a.id }
 
+// Status is where the Session is in its life. It reports
+// SessionStatusClosing as soon as Close is requested, until the Session is
+// closed.
 func (a *Session) Status() SessionStatus {
 	status := decodeSessionStatus(a.status.Load())
 	if a.closeRequested.Load() && status != SessionStatusClosed {
@@ -371,8 +382,14 @@ func (a *Session) Status() SessionStatus {
 	return status
 }
 
+// Done returns a channel that is closed once the Session has closed: after
+// Close, when no Run is left and the Session has stopped accepting messages.
 func (a *Session) Done() <-chan struct{} { return a.done }
 
+// AbortRun stops the Run named runID. It is not a no-op for a Run that is
+// not in flight: it returns CodeInvalidState when runID is not the current
+// Run, or when that Run is already writing its end, and CodeInvalidArgument
+// when runID is empty. A canceled ctx returns its error and aborts nothing.
 func (a *Session) AbortRun(ctx context.Context, runID RunID) error {
 	if ctx == nil {
 		ctx = context.Background()

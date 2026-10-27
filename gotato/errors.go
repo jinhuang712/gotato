@@ -11,6 +11,7 @@ import (
 // them.
 type ErrorCode string
 
+// The error codes. Each value is the string that appears in JSON.
 const (
 	CodeInvalidArgument ErrorCode = "invalid_argument"
 	CodeInvalidState    ErrorCode = "invalid_state"
@@ -202,6 +203,7 @@ func codeForContext(err error) ErrorCode {
 	return CodeCanceled
 }
 
+// IsCode reports whether err is, or wraps, a RuntimeError with the given code.
 func IsCode(err error, code ErrorCode) bool {
 	var re *RuntimeError
 	return errors.As(err, &re) && re != nil && re.Code == code

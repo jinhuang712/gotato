@@ -161,6 +161,7 @@ type Timing struct {
 // Kind is what failed.
 type Kind string
 
+// The kinds of failure: what did not go as the task expected.
 const (
 	KindSetup    Kind = "setup"     // the driver could not prepare or read back the Session
 	KindRun      Kind = "run"       // a Run did not complete

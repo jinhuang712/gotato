@@ -27,6 +27,8 @@ type ToolCallID string
 // Role says who a Message is from.
 type Role string
 
+// The roles of a Message. RoleUser is the user's, RoleAssistant the Model's,
+// and RoleToolResult carries the ToolResult of one Tool call.
 const (
 	RoleUser       Role = "user"
 	RoleAssistant  Role = "assistant"
@@ -39,6 +41,8 @@ const (
 // ContentKind says what a ContentPart holds.
 type ContentKind string
 
+// The kinds of ContentPart. Text and reasoning use Text; an image uses Data and
+// MIMEType; JSON uses Text as the JSON document.
 const (
 	ContentKindText      ContentKind = "text"
 	ContentKindReasoning ContentKind = "reasoning"
@@ -148,6 +152,8 @@ type ToolCall struct {
 // ToolResultStatus says how a Tool call ended.
 type ToolResultStatus string
 
+// The statuses of a ToolResult. ToolResultStatusBlocked means an Extension refused
+// the call, so the Tool did not run (Executed is false).
 const (
 	ToolResultStatusOK       ToolResultStatus = "ok"
 	ToolResultStatusBlocked  ToolResultStatus = "blocked"
@@ -211,6 +217,7 @@ type Usage struct {
 // output limit cut it off, even next to Tool calls.
 type StopReason string
 
+// The stop reasons. StopReasonNone means no model call ended the Message.
 const (
 	StopReasonNone      StopReason = "none"
 	StopReasonEndTurn   StopReason = "end_turn"
@@ -227,6 +234,7 @@ const (
 // RunStatus is how a Run stands: running, or how it ended.
 type RunStatus string
 
+// The statuses of a Run. Every status but RunStatusRunning is final.
 const (
 	RunStatusRunning          RunStatus = "running"
 	RunStatusCompleted        RunStatus = "completed"

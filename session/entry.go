@@ -16,6 +16,7 @@ import (
 // Cut-off reply it had reached.
 type Layer string
 
+// The two layers of an Entry.
 const (
 	LayerFact Layer = "fact"
 	LayerLog  Layer = "log"

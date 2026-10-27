@@ -80,6 +80,8 @@ type ModelStream interface {
 // ModelEventKind says what a ModelEvent carries.
 type ModelEventKind string
 
+// The kinds of ModelEvent. A reply is a stream of deltas and Tool calls, then
+// Usage, then ModelEventKindDone.
 const (
 	ModelEventKindTextDelta      ModelEventKind = "text_delta"
 	ModelEventKindReasoningDelta ModelEventKind = "reasoning_delta"

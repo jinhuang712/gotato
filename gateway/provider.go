@@ -10,15 +10,15 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// Providers the gateway recognizes. A recognized provider is sent what its
-// documentation asks for: Claude and OpenAI only the reasoning of the current
-// Round, and the longest prompt cache retention they offer. DeepSeek, and any
-// provider the gateway does not recognize, gets every reasoning artifact back
-// and no field or header beyond the request, which every compatible server
-// accepts.
-// Provider names who serves a model (Config.Provider).
+// Provider names who serves a model (Config.Provider). A recognized provider
+// is sent what its documentation asks for: Claude and OpenAI only the
+// reasoning of the current Round, and the longest prompt cache retention they
+// offer. DeepSeek, and any provider the gateway does not recognize, gets every
+// reasoning artifact back and no field or header beyond the request, which
+// every compatible server accepts.
 type Provider string
 
+// The providers the gateway recognizes.
 const (
 	ProviderAnthropic Provider = "anthropic"
 	ProviderOpenAI    Provider = "openai"

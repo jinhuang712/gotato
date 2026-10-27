@@ -196,6 +196,8 @@ const (
 // CompactionWhy says why a compaction ran.
 type CompactionWhy string
 
+// The reasons a compaction ran. The ones with a comment are not obvious from
+// the name.
 const (
 	CompactionWhyOnDemand     CompactionWhy = "on_demand"
 	CompactionWhyPastCeiling  CompactionWhy = "past_ceiling"
@@ -213,6 +215,8 @@ const (
 // MessageSource says where a user Message came from.
 type MessageSource string
 
+// The sources of a user Message: Session.Prompt, Steer, FollowUp, an
+// interrupt, or a notice.
 const (
 	MessageSourcePrompt   MessageSource = "prompt"
 	MessageSourceSteer    MessageSource = "steer"

@@ -339,6 +339,7 @@ func (c *Client) CacheRetention() time.Duration {
 // APIAnthropicMessages.
 type API string
 
+// The wire protocols a Config can name. An empty API means APIChatCompletions.
 const (
 	APIChatCompletions API = "openai-chat-completions"
 	APIResponses       API = "openai-responses"
