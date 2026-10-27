@@ -4,6 +4,10 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A Run refused for its Agent writes nothing
+
+`RunRequest.Update` was applied to the Session's Record before the Agent was resolved, so a Run on an existing Session with an unknown Agent returned `ErrUnknownAgent` and still saved the Update when the Session was released. The Agent is resolved first now: a refused Run leaves the stored Record as it was. An `Update` of `gotato.agent` still selects the Agent, as before.
+
 ### A Responses retry is reported as `model_retried`
 
 The gateway repeated a Responses API request after a transport error or a 429/5xx without telling the Session, so no `model_retried` Event was stored. It now reports each retry, with the attempt, the wait and why, as the Chat Completions and Anthropic Messages calls already did.

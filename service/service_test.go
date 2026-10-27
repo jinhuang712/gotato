@@ -1106,3 +1106,24 @@ func TestRunUpdateSetsMetadataUnlessSkipSave(t *testing.T) {
 		t.Fatalf("team = %q, messages = %d; want the saved Run's update and its two Messages", team, stored.Len())
 	}
 }
+
+// A Run refused for its Agent writes nothing, the Update included.
+func TestRunRefusedForItsAgentDoesNotApplyTheUpdate(t *testing.T) {
+	runner, store := newRunner(t)
+	ctx := context.Background()
+	s, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Agent: "nope", Prompt: "hi", Update: map[string]string{"team": "orders"}})
+	if !errors.Is(err, service.ErrUnknownAgent) {
+		t.Fatalf("err = %v, want ErrUnknownAgent", err)
+	}
+	stored, err := session.View(ctx, store, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team, ok := stored.Get("team"); ok {
+		t.Fatalf("the stored Record has team = %q from a refused Run", team)
+	}
+}

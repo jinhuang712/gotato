@@ -366,13 +366,16 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 		}
 	}
 	s := st.s
-	for key, value := range request.Update {
-		s.Set(key, value)
-	}
 
+	// The Agent is resolved before the Update is applied, so a Run that is
+	// refused for its Agent writes nothing. An Update of MetaAgent counts.
 	agentName := request.Agent
 	if agentName == "" {
-		agentName, _ = s.Get(MetaAgent)
+		if value, set := request.Update[MetaAgent]; set {
+			agentName = value
+		} else {
+			agentName, _ = s.Get(MetaAgent)
+		}
 	}
 	spec, ok := r.Agent(agentName)
 	if request.SessionID != "" {
@@ -380,6 +383,9 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	}
 	if !ok {
 		return st.abandon(runCtx, ErrUnknownAgent)
+	}
+	for key, value := range request.Update {
+		s.Set(key, value)
 	}
 	s.Set(MetaAgent, spec.Name)
 	if spec.ModelName != "" {
