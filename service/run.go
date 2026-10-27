@@ -81,10 +81,15 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 // the Run is admitted and before its first Event is delivered. A Run that is
 // refused at admission (draining, at capacity, past the activation limit)
 // returns its error without the call, so an endpoint can still answer the
-// request with a status of its own before it starts to stream.
+// request with a status of its own before it starts to stream. A nil sink
+// still gets the call, and its Events are not delivered.
 func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResponse, error) {
 	if sink == nil {
-		return r.run(ctx, request, nil)
+		if admitted == nil {
+			return r.run(ctx, request, nil)
+		}
+		// The call still fires on admission: the Events go nowhere.
+		sink = func(gotato.Event) error { return nil }
 	}
 	if ctx == nil {
 		ctx = context.Background()

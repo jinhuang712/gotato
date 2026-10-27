@@ -1162,3 +1162,17 @@ func TestForkWithATakenIDIsErrSessionExists(t *testing.T) {
 		t.Fatalf("CreateSessionExclusive = %v, want ErrSessionExists", err)
 	}
 }
+
+// StreamRunAdmitted calls admitted once the Run is admitted, whether or not
+// there is a sink.
+func TestStreamRunAdmittedCallsAdmittedWithANilSink(t *testing.T) {
+	runner, _ := newRunner(t)
+	calls := 0
+	result, err := runner.StreamRunAdmitted(context.Background(), service.RunRequest{Prompt: "hi"}, func() { calls++ }, nil)
+	if err != nil || result.FinalText != "echo: hi" {
+		t.Fatalf("StreamRunAdmitted = %+v, %v", result, err)
+	}
+	if calls != 1 {
+		t.Fatalf("admitted called %d times, want 1", calls)
+	}
+}
