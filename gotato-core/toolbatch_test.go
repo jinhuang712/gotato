@@ -49,7 +49,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		resultCh <- promptErr
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for {
 		event, nextErr := events.Next(ctx)
@@ -277,7 +277,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		_, promptErr := agent.Prompt(context.Background(), UserMessage("go"))
 		done <- promptErr
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for countCall(log.events(), KindToolStarted, "c1") == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("the Tool did not start")

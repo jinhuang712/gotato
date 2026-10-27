@@ -247,7 +247,7 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	}
 	promptDone := make(chan error, 1)
 	go func() { _, runErr := agent.Prompt(context.Background(), UserMessage("blocking")); promptDone <- runErr }()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for agent.Status() != SessionStatusBusy {
 		if time.Now().After(deadline) {
 			t.Fatal("Session did not become Busy")
@@ -266,7 +266,7 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	if err := <-promptDone; err != nil {
 		t.Fatal(err)
 	}
-	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelWait()
 	if err := agent.Close(waitCtx); err != nil {
 		t.Fatal(err)

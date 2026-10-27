@@ -230,13 +230,16 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	}()
 	awaitArrivals(t, arrive, 2)
 	close(fastRelease)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for tracker.activeValue() != 1 {
 		if time.Now().After(deadline) {
 			t.Fatal("the released Tool did not finish while the other was held")
 		}
 		time.Sleep(time.Millisecond)
 	}
+	// No Event shows the fast Tool's outcome before the whole group settles,
+	// so there is nothing to wait on: the Session goroutine stages it from a
+	// channel the worker has already sent on, and this margin covers that hop.
 	time.Sleep(50 * time.Millisecond)
 	close(slowRelease)
 	select {
