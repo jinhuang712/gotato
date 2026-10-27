@@ -36,7 +36,9 @@ type RunRequest struct {
 	// as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
-	// keeps the Agent's RunTimeout.
+	// keeps the Agent's RunTimeout. It is the caller's bound for this request
+	// only: a Run that follows with the messages this one left keeps the
+	// Agent's RunTimeout.
 	Timeout time.Duration
 }
 
