@@ -15,7 +15,7 @@ import (
 )
 
 // A Run refused at capacity is known before any byte is written, so the
-// streaming routes answer it as /v1/runs does, 429, and not with a 200 and an
+// streaming routes answer it as the run route does, 429, and not with a 200 and an
 // error in the stream. The refusal is marked not run, as the runtime says: no
 // Run started, so another instance may take it.
 func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
@@ -45,7 +45,11 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	for _, path := range []string{"/v1/runs", "/v1/runs/stream"} {
+	fresh, err := runner.CreateSession(context.Background(), "gated", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/sessions/" + fresh.ID() + "/runs", "/v1/sessions/" + fresh.ID() + "/runs/stream"} {
 		resp, data := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Gotato-Not-Run") != "true" {
 			t.Fatalf("%s at capacity = %d %s, mark %q; want 429, marked not run", path, resp.StatusCode, data, resp.Header.Get("Gotato-Not-Run"))

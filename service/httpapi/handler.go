@@ -20,13 +20,6 @@
 //	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the run in flight, or 200 the run it started
 //	POST   /v1/sessions/{id}/notices        {kind, text}                   → 202 {queued, number, message_id}: a notice for the model's next call
 //	POST   /v1/sessions/{id}/cancel         stop the run in flight (202)
-//	POST   /v1/runs                         {prompt, agent?, metadata?}    → create session + run
-//	POST   /v1/runs/stream                  same, streaming
-//	POST   /v1/runs/{run_id}/cancel
-//
-// The metadata of a run request is applied only when the request creates the
-// Session; for an existing Session it is ignored. No route changes the
-// metadata of a Session that exists.
 //
 // A message (steer, follow_up or interrupt) with no Run going starts one, and
 // its response is held until that Run settles (200 with the Run's result); a
@@ -145,9 +138,6 @@ func New(runner *service.Runner, options ...Option) *Handler {
 	h.mux.HandleFunc("POST /v1/sessions/{id}/messages", h.scoped(h.message))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/notices", h.scoped(h.notice))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.scoped(h.cancelSession))
-	h.mux.HandleFunc("POST /v1/runs", h.run)
-	h.mux.HandleFunc("POST /v1/runs/stream", h.runStream)
-	h.mux.HandleFunc("POST /v1/runs/{run_id}/cancel", h.cancelRun)
 	return h
 }
 
@@ -212,10 +202,8 @@ type createSessionRequest struct {
 }
 
 type runRequest struct {
-	Prompt   string            `json:"prompt,omitempty"`
-	Continue bool              `json:"continue,omitempty"`
-	Agent    string            `json:"agent,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+	Continue bool   `json:"continue,omitempty"`
 	// TimeoutMS bounds the run; it settles as deadline_exceeded.
 	TimeoutMS int64 `json:"timeout_ms,omitempty"`
 }
@@ -407,10 +395,8 @@ func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.Ru
 	}
 	return service.RunRequest{
 		SessionID: r.PathValue("id"),
-		Agent:     in.Agent,
 		Prompt:    in.Prompt,
 		Continue:  in.Continue,
-		Metadata:  in.Metadata,
 		Timeout:   time.Duration(in.TimeoutMS) * time.Millisecond,
 	}, nil
 }
@@ -431,9 +417,6 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 		// not kept, and the caller can tell that from a store failure.
 		writeJSON(w, notSavedStatus(err), notSaved(err))
 		return
-	}
-	if request.SessionID == "" {
-		w.Header().Set(SessionIDHeader, result.SessionID)
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -461,7 +444,7 @@ func (h *Handler) runStream(w http.ResponseWriter, r *http.Request) {
 	sink := func(event gotato.Event) error { return writeEvent(w, flusher, event) }
 	// The stream answers 200 once the Run is admitted. A request refused at
 	// admission (draining, at capacity, past the activation limit) never gets
-	// there: it answers the status /v1/runs answers, before the stream starts,
+	// there: it answers the status a run answers, before the stream starts,
 	// and a refusal marked not run is marked here too.
 	result, runErr := h.runner.StreamRunAdmitted(r.Context(), request, start, sink)
 	if !started && runErr != nil && result.SessionID == "" {
@@ -749,15 +732,6 @@ func (h *Handler) cancelSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": r.PathValue("id"), "status": "cancel_requested"})
-}
-
-func (h *Handler) cancelRun(w http.ResponseWriter, r *http.Request) {
-	runID := gotato.RunID(r.PathValue("run_id"))
-	if err := h.runner.CancelRun(r.Context(), runID); err != nil {
-		writeFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": runID, "status": "cancel_requested"})
 }
 
 // ---- helpers ----------------------------------------------------------------

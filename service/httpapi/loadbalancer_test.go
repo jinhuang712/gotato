@@ -104,13 +104,6 @@ func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 		t.Fatalf("create: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
 	}
 
-	resp, data = send(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi"}, nil)
-	var result service.RunResult
-	_ = json.Unmarshal(data, &result)
-	if resp.StatusCode != http.StatusOK || result.SessionID == "" || resp.Header.Get("session-id") != result.SessionID {
-		t.Fatalf("one-shot run: %d header %q body %s", resp.StatusCode, resp.Header.Get("session-id"), data)
-	}
-
 	resp, data = send(t, server, http.MethodPost, "/v1/sessions/"+created.ID+"/fork", nil, nil)
 	var fork session.Summary
 	_ = json.Unmarshal(data, &fork)
@@ -129,19 +122,6 @@ func TestRequestsThatCreateASessionSetTheSessionIDHeader(t *testing.T) {
 	}
 	if status, _ := call(t, server, http.MethodGet, "/v1/sessions/yours", nil); status != http.StatusNotFound {
 		t.Fatalf("the refused create made a Session: %d", status)
-	}
-
-	// A streaming request that creates a Session cannot name it in a header:
-	// the headers go out before the Session exists. Its first Event carries it.
-	req, _ := http.NewRequest(http.MethodPost, server.URL+"/v1/runs/stream", strings.NewReader(`{"prompt":"hi"}`))
-	streamResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = streamResp.Body.Close() }()
-	frames, _ := readFrames(streamResp.Body)
-	if len(frames) == 0 || !strings.Contains(frames[0].data, `"session_id"`) {
-		t.Fatalf("stream frames = %+v, want the first Event to name the Session", frames)
 	}
 }
 
@@ -194,9 +174,14 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	server, runner, _ := fullServer(t)
 	before, _ := runner.Sessions(context.Background())
 
-	resp, data := send(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "new"}, nil)
+	// A stored idle Session is refused; nothing is activated.
+	idle, err := runner.CreateSession(context.Background(), "gated", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, data := send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID()+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID()})
 	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" {
-		t.Fatalf("a new Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get("Gotato-Not-Run"), data)
+		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get("Gotato-Not-Run"), data)
 	}
 	var body struct {
 		Code   string `json:"code"`
@@ -205,16 +190,6 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	if err := json.Unmarshal(data, &body); err != nil || body.Code != "overloaded" || !body.NotRun {
 		t.Fatalf("body = %s", data)
 	}
-
-	// A stored idle Session is refused the same way; nothing is activated.
-	idle, err := runner.CreateSession(context.Background(), "gated", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, data = send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID()+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID()})
-	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" {
-		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get("Gotato-Not-Run"), data)
-	}
 	after, _ := runner.Sessions(context.Background())
 	if len(after) != len(before)+1 {
 		t.Fatalf("Sessions before %d, after %d: the refusals created one", len(before), len(after))
@@ -222,7 +197,7 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 
 	// A streaming request is refused before the stream starts, with the same
 	// 503 and mark, so a load balancer can retry it on another instance.
-	for _, path := range []string{"/v1/runs/stream", "/v1/sessions/" + idle.ID() + "/runs/stream"} {
+	for _, path := range []string{"/v1/sessions/" + idle.ID() + "/runs/stream"} {
 		resp, data = send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" || !strings.Contains(string(data), `"not_run":true`) {
 			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get("Gotato-Not-Run"))

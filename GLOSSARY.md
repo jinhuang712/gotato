@@ -36,7 +36,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Continue** | Resume a Loop without new input. | | `Session.Continue` |
 | **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |
 | **FollowUp** | Queue a Message that the Run picks up when it would otherwise settle, so the same Run goes on. | | `Session.FollowUp` |
-| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelRun`; it is an `abort_requested` Event, and the Run's `run_ended` follows |
+| **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.CancelSession`; it is an `abort_requested` Event, and the Run's `run_ended` follows |
 
 ## Configuration and capabilities
 

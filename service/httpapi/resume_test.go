@@ -291,7 +291,8 @@ func openSessionStatus(t *testing.T, server *httptest.Server, id, query string) 
 // reconnects through the Session's stream after the last number it saw.
 func TestRunStreamCarriesNumbersAndTheEpoch(t *testing.T) {
 	server, _ := newServer(t)
-	resp, err := http.Post(server.URL+"/v1/runs/stream", "application/json", strings.NewReader(`{"prompt":"hi"}`))
+	id := newSession(t, server, "echo")
+	resp, err := http.Post(server.URL+"/v1/sessions/"+id+"/runs/stream", "application/json", strings.NewReader(`{"prompt":"hi"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,18 +320,20 @@ func TestRunStreamCarriesNumbersAndTheEpoch(t *testing.T) {
 		_ = json.Unmarshal([]byte(fr.data), &data)
 		sessionID = data.SessionID
 		if gotato.EventKind(fr.event).Class() == gotato.ClassStored {
+			if last == 0 {
+				// The stream of a Run on an existing Session starts at the
+				// Run's own first Event.
+				last = data.Number - 1
+			}
 			if fr.id != strconv.FormatUint(data.Number, 10) || data.Number != last+1 {
 				t.Fatalf("%s: id %q, number %d after %d", fr.event, fr.id, data.Number, last)
 			}
 			last = data.Number
-			if fr.event == "session_created" && data.RecordEpoch == "" {
-				t.Fatal("session_created carries no record_epoch")
-			}
 		} else if fr.id != "" {
 			t.Fatalf("%s carries id %q", fr.event, fr.id)
 		}
 	}
-	if result.RecordEpoch == "" || sessionID != result.SessionID || last == 0 {
+	if result.RecordEpoch == "" || sessionID != id || result.SessionID != id || last == 0 {
 		t.Fatalf("result = %+v, session %q, last number %d", result, sessionID, last)
 	}
 	// Reconnect through the Session's stream after the last number seen: all

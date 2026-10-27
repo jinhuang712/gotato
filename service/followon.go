@@ -51,17 +51,9 @@ func (r *Runner) followOn(ctx context.Context, handle *runHandle, next []gotato.
 }
 
 // rearm makes the handle the admitted Run's again for the Run that follows: no
-// RunID yet, no way to stop it yet, and no stale RunID to cancel by.
+// RunID yet and no way to stop it yet.
 func (r *Runner) rearm(handle *runHandle, cancel context.CancelFunc) {
 	handle.mu.Lock()
-	old := handle.runID
 	handle.runID, handle.abort, handle.cancel = "", nil, cancel
 	handle.mu.Unlock()
-	if old != "" {
-		r.mu.Lock()
-		if r.byRun[old] == handle {
-			delete(r.byRun, old)
-		}
-		r.mu.Unlock()
-	}
 }

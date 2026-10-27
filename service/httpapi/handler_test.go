@@ -59,6 +59,19 @@ func call(t *testing.T, server *httptest.Server, method, path string, body any) 
 	return resp.StatusCode, out.Bytes()
 }
 
+// newSession creates a Session over HTTP and returns its ID.
+func newSession(t *testing.T, server *httptest.Server, agent string) string {
+	t.Helper()
+	status, body := call(t, server, http.MethodPost, "/v1/sessions", map[string]any{"agent": agent})
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil || status != http.StatusCreated || created.ID == "" {
+		t.Fatalf("create session = %d %s (%v)", status, body, err)
+	}
+	return created.ID
+}
+
 func TestReadyzReportsDraining(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
@@ -186,13 +199,14 @@ func TestSessionLifecycleOverHTTP(t *testing.T) {
 	}
 }
 
-func TestOneShotRunAndErrors(t *testing.T) {
+func TestRunAndErrors(t *testing.T) {
 	server, _ := newServer(t)
-	status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi", "metadata": map[string]string{"k": "v"}})
+	id := newSession(t, server, "echo")
+	status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "hi"})
 	var result service.RunResult
 	_ = json.Unmarshal(body, &result)
-	if status != http.StatusOK || result.FinalText != "echo: hi" || result.SessionID == "" || result.Agent != "echo" {
-		t.Fatalf("one-shot = %d %+v", status, result)
+	if status != http.StatusOK || result.FinalText != "echo: hi" || result.SessionID != id || result.Agent != "echo" {
+		t.Fatalf("run = %d %+v", status, result)
 	}
 	cases := []struct {
 		method, path string
@@ -200,12 +214,12 @@ func TestOneShotRunAndErrors(t *testing.T) {
 		status       int
 		code         string
 	}{
-		{http.MethodPost, "/v1/runs", map[string]any{}, http.StatusBadRequest, ""},
-		{http.MethodPost, "/v1/runs", map[string]any{"prompt": "x", "agent": "nope"}, http.StatusBadRequest, "invalid_argument"},
-		{http.MethodPost, "/v1/runs", map[string]any{"prompt": "x", "bogus": 1}, http.StatusBadRequest, ""},
+		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{}, http.StatusBadRequest, ""},
+		{http.MethodPost, "/v1/sessions", map[string]any{"agent": "nope"}, http.StatusBadRequest, "invalid_argument"},
+		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": "x", "bogus": 1}, http.StatusBadRequest, ""},
+		{http.MethodPost, "/v1/sessions/" + id + "/runs", map[string]any{"prompt": "x", "agent": "echo"}, http.StatusBadRequest, ""},
 		{http.MethodPost, "/v1/sessions/missing/runs", map[string]any{"prompt": "x"}, http.StatusNotFound, ""},
 		{http.MethodPost, "/v1/sessions/missing/cancel", nil, http.StatusNotFound, "not_found"},
-		{http.MethodPost, "/v1/runs/nope/cancel", nil, http.StatusConflict, "invalid_state"},
 		{http.MethodGet, "/v1/sessions/missing/context", nil, http.StatusNotFound, ""},
 	}
 	for _, tc := range cases {
@@ -221,8 +235,9 @@ func TestOneShotRunAndErrors(t *testing.T) {
 
 func TestStreamRunSSE(t *testing.T) {
 	server, _ := newServer(t)
-	data, _ := json.Marshal(map[string]any{"prompt": "use-tool", "agent": "demo"})
-	resp, err := http.Post(server.URL+"/v1/runs/stream", "application/json", bytes.NewReader(data))
+	id := newSession(t, server, "demo")
+	data, _ := json.Marshal(map[string]any{"prompt": "use-tool"})
+	resp, err := http.Post(server.URL+"/v1/sessions/"+id+"/runs/stream", "application/json", bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,10 +261,10 @@ func TestStreamRunSSE(t *testing.T) {
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	// A one-shot Run streams the Session's stored Events, from the ones that
-	// made the Session to run_ended, and then its result. The store's timings
+	// A Run streams the Session's stored Events, from the claim that starts it
+	// to run_ended, and then its result. The store's timings
 	// are Instance Events: they are not in it.
-	if len(events) < 5 || events[0] != "session_created" || !slices.Contains(events, "run_started") ||
+	if len(events) < 5 || events[0] != "session_claimed" || !slices.Contains(events, "run_started") ||
 		events[len(events)-2] != "run_ended" || events[len(events)-1] != "result" {
 		t.Fatalf("events = %v", events)
 	}
@@ -336,8 +351,9 @@ func TestAgentsReportMaxEffect(t *testing.T) {
 
 func TestRunTimeoutOutOfRangeIsRejected(t *testing.T) {
 	server, _ := newServer(t)
+	id := newSession(t, server, "echo")
 	for _, timeout := range []int64{1 << 62, -1} {
-		status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi", "timeout_ms": timeout})
+		status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "hi", "timeout_ms": timeout})
 		if status != http.StatusBadRequest {
 			t.Fatalf("timeout_ms=%d status = %d (%s), want 400", timeout, status, body)
 		}
@@ -391,7 +407,8 @@ func TestInternalErrorsDoNotLeakStoreDetails(t *testing.T) {
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
 
-	status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi"})
+	id := newSession(t, server, "echo")
+	status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "hi"})
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d (%s), want 500", status, body)
 	}
@@ -425,7 +442,8 @@ func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 	server := httptest.NewServer(httpapi.New(runner))
 	t.Cleanup(server.Close)
 
-	status, body := call(t, server, http.MethodPost, "/v1/runs", map[string]any{"prompt": "hi"})
+	id := newSession(t, server, "big")
+	status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": "hi"})
 	// A Run that fails is a finished Run: 200, with the failure in the result.
 	var out struct {
 		Result struct {

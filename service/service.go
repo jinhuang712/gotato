@@ -268,7 +268,6 @@ type Runner struct {
 
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
-	byRun    map[gotato.RunID]*runHandle
 	inflight int
 	draining bool
 	// streams are the Session streams open for clients, and streamsOver says
@@ -406,7 +405,6 @@ func New(cfg Config) (*Runner, error) {
 		warm:       map[string]*warmEntry{},
 		feeds:      map[feedKey]*sessionFeed{},
 		handles:    map[string][]*runHandle{},
-		byRun:      map[gotato.RunID]*runHandle{},
 	}
 	// The label is never the identity: the suffix makes the name unique per
 	// start, so a restarted or overlapping process cannot share a Liveness
@@ -954,7 +952,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 
 		onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
 			track.set(runID)
-			r.attachRunID(handle, runID)
+			handle.attachRunID(runID)
 			handle.abortIfStopped()
 		})
 		live, auto, err := r.buildSession(ctx, spec, s, writer, InspectOptions{}, onRunStart, gotato.WithFeed(feed), gotato.WithQueueHandoff())
@@ -1754,24 +1752,6 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	return child, nil
 }
 
-// CancelRun cancels an active Run. It reports invalid_state when the Run is
-// not active rather than pretending to cancel.
-func (r *Runner) CancelRun(ctx context.Context, runID gotato.RunID) error {
-	if ctx != nil {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-	}
-	r.mu.Lock()
-	handle := r.byRun[runID]
-	r.mu.Unlock()
-	if handle == nil {
-		return gotato.ErrorOf(gotato.ErrInvalidState, "service: run is not active")
-	}
-	handle.stop()
-	return nil
-}
-
 // CancelSession stops the Run in flight on a Session: everything in flight is
 // cancelled through its context, and the Run settles as cancelled with every
 // Turn it committed. It is the Stop of the messages a Run takes (Send).
@@ -1888,21 +1868,6 @@ func (r *Runner) unregisterHandle(handle *runHandle) {
 	} else {
 		r.handles[handle.sessionID] = list
 	}
-	handle.mu.Lock()
-	runID := handle.runID
-	handle.mu.Unlock()
-	if runID != "" && r.byRun[runID] == handle {
-		delete(r.byRun, runID)
-	}
-	r.mu.Unlock()
-}
-
-// attachRunID maps the Session-assigned RunID to the admitted Run so CancelRun
-// can find it while it is in flight.
-func (r *Runner) attachRunID(handle *runHandle, runID gotato.RunID) {
-	r.mu.Lock()
-	handle.attachRunID(runID)
-	r.byRun[runID] = handle
 	r.mu.Unlock()
 }
 

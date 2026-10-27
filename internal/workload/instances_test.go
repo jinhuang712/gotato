@@ -942,8 +942,9 @@ func (m *holdModel) Stream(ctx context.Context, request gotato.ModelRequest) (go
 	return testkit.EchoModel{}.Stream(ctx, request)
 }
 
-// A full instance refuses a new Session with a 503 marked not run, and the
-// proxy sends that request once to another instance, where it runs: the load
+// A full instance refuses a Run on a Session it does not hold with a 503
+// marked not run, and the proxy sends that request once to another instance,
+// where it runs: the load
 // balancer's part of the activation limit, end to end. The full instance
 // activates nothing for the refused requests.
 func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
@@ -969,7 +970,8 @@ func TestProxyRetriesAFullInstancesRefusalElsewhere(t *testing.T) {
 	<-model.started
 
 	for i := range 12 {
-		r := send(t, c.front.URL, http.MethodPost, "/v1/runs", map[string]any{"agent": "echo", "prompt": fmt.Sprintf("p%d", i)}, "")
+		id := c.create(task)
+		r := send(t, c.front.URL, http.MethodPost, "/v1/sessions/"+id+"/runs", map[string]any{"prompt": fmt.Sprintf("p%d", i)}, id)
 		if r.status != http.StatusOK {
 			t.Fatalf("request %d = %d %s", i, r.status, r.body)
 		}

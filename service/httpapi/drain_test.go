@@ -143,10 +143,14 @@ func TestDrainEndsStreamsInOrder(t *testing.T) {
 		t.Fatalf("readyz while draining = %d %s", status, body)
 	}
 	// A new Run while draining is refused before the stream starts, with the
-	// status /v1/runs answers: 503 marked not run, so a load balancer sends it
-	// to another instance.
-	for _, path := range []string{"/v1/runs", "/v1/runs/stream"} {
-		resp, body := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new", "agent": "gated"}, nil)
+	// status a run answers: 503 marked not run, so a load balancer sends it
+	// to another instance. Creating the Session still works while draining.
+	fresh, err := runner.CreateSession(ctx, "gated", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/sessions/" + fresh.ID() + "/runs", "/v1/sessions/" + fresh.ID() + "/runs/stream"} {
+		resp, body := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" ||
 			!strings.Contains(string(body), `"code":"draining"`) || !strings.Contains(string(body), `"not_run":true`) || !strings.Contains(string(body), `"retryable":true`) {
 			t.Fatalf("a new Run on %s while draining = %d %s (not run %q), want 503, draining, not run, retryable", path, resp.StatusCode, body, resp.Header.Get(httpapi.NotRunHeader))

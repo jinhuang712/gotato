@@ -6,6 +6,22 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is cancelled during a tool batch, and what the Runner returns for a cancelled Run.
 
+### Every HTTP route is under `/v1/sessions`
+
+Gotato's HTTP API had two ways to do some things. `POST /v1/runs` and `POST /v1/runs/stream` created a Session and ran it in one call, which `POST /v1/sessions` followed by `POST /v1/sessions/{id}/runs` already does. `POST /v1/runs/{run_id}/cancel` duplicated `POST /v1/sessions/{id}/cancel`, but was not scoped by Session: it never reached the Run's writer, so it was wrong on more than one instance. Both are removed, and with them `service.Runner.CancelRun`. A run request no longer takes `agent` or `metadata`: they applied only when a run created the Session, and `POST /v1/sessions` takes them.
+
+```text
+before  POST /v1/runs {"prompt":"hi","agent":"echo"}
+after   POST /v1/sessions {"agent":"echo"}                  → {"id": …}, and the session-id header
+        POST /v1/sessions/{id}/runs {"prompt":"hi"}
+
+before  POST /v1/runs/{run_id}/cancel
+after   POST /v1/sessions/{id}/cancel
+
+before  runner.CancelRun(ctx, runID)
+after   runner.CancelSession(ctx, sessionID)
+```
+
 ### The core lives in `gotato/`, and `storetest` next to the Store
 
 The package layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias; a test-helper package sits next to what it tests. The core directory `gotato-core` is now `gotato`, and the Store contract suite moved beside `session`. `gotato.NewSession` and every other call stay as they were; only two import paths change, and the alias is no longer needed. `gotato/layering_test.go` (was `gotato-core/layering_test.go`) keeps the rules.
