@@ -620,15 +620,6 @@ func (s *responsesStream) processResponsesEvent(event responsesEvent, raw []byte
 	}
 }
 
-// streamError is the error of a stream that failed in its middle. One that
-// names a context overflow is an *Error with Overflow set.
-func (m overflowMatcher) streamError(what, message, code string, more ...string) error {
-	if m.mentions(append([]string{message, code}, more...)...) {
-		return &Error{Message: what + ": " + message, Overflow: true}
-	}
-	return fmt.Errorf("gateway: %s: %s", what, message)
-}
-
 func responsesItemRaw(event []byte) []byte {
 	var envelope struct {
 		Item json.RawMessage `json:"item"`
