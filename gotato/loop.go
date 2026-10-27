@@ -895,31 +895,13 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 			// streamed no deltas (redacted, or with its display omitted)
 			// finds the last reasoning Part already signed, and gets a Part
 			// of its own instead of overwriting that signature.
-			partIndex := -1
-			for i := len(assistant.Parts) - 1; i >= 0; i-- {
-				if assistant.Parts[i].Kind == ContentKindReasoning {
-					partIndex = i
-					break
-				}
-			}
-			if partIndex == -1 || len(assistant.Parts[partIndex].Signature) > 0 {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindReasoning})
-				partIndex = len(assistant.Parts) - 1
-			}
-			assistant.Parts[partIndex].Signature = slices.Clone(modelEvent.ReasoningArtifact)
+			assistant.Parts = signReasoning(assistant.Parts, modelEvent.ReasoningArtifact)
 		case ModelEventKindToolCall:
-			if modelEvent.ToolCall == nil || modelEvent.ToolCall.ID == "" || modelEvent.ToolCall.ToolID == "" {
-				return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "invalid Tool Call", nil))
+			calls, callErr := appendToolCall(assistant.ToolCalls, modelEvent.ToolCall)
+			if callErr != nil {
+				return broken(callErr)
 			}
-			for _, existing := range assistant.ToolCalls {
-				if existing.ID == modelEvent.ToolCall.ID {
-					return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil))
-				}
-			}
-			call := *modelEvent.ToolCall
-			call.Arguments = slices.Clone(call.Arguments)
-			call.Signature = slices.Clone(call.Signature)
-			assistant.ToolCalls = append(assistant.ToolCalls, call)
+			assistant.ToolCalls = calls
 		case ModelEventKindUsage:
 			usage = modelEvent.Usage
 		case ModelEventKindDone:
@@ -952,4 +934,41 @@ func newTurnEnded(header Header, stop StopReason, usage Usage, started time.Time
 		Header: header, StopReason: stop, Usage: usage,
 		ElapsedMS: millis(time.Since(started)), TextBytes: textBytes, ReasoningBytes: reasoningBytes,
 	}
+}
+
+// signReasoning attaches a reasoning artifact to the reasoning block the
+// Model just finished. A block that streamed no deltas (redacted, or with its
+// display omitted) finds the last reasoning Part already signed, and gets a
+// Part of its own instead of overwriting that signature.
+func signReasoning(parts []ContentPart, artifact []byte) []ContentPart {
+	index := -1
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i].Kind == ContentKindReasoning {
+			index = i
+			break
+		}
+	}
+	if index == -1 || len(parts[index].Signature) > 0 {
+		parts = append(parts, ContentPart{Kind: ContentKindReasoning})
+		index = len(parts) - 1
+	}
+	parts[index].Signature = slices.Clone(artifact)
+	return parts
+}
+
+// appendToolCall adds a call the Model made to calls, as a copy. A call
+// without an ID or a Tool, or with an ID already used, is a protocol failure.
+func appendToolCall(calls []ToolCall, call *ToolCall) ([]ToolCall, *RuntimeError) {
+	if call == nil || call.ID == "" || call.ToolID == "" {
+		return nil, runtimeError(CodeModelProtocolFailure, "ModelStream", "invalid Tool Call", nil)
+	}
+	for _, existing := range calls {
+		if existing.ID == call.ID {
+			return nil, runtimeError(CodeModelProtocolFailure, "ModelStream", "duplicate Tool Call ID", nil)
+		}
+	}
+	added := *call
+	added.Arguments = slices.Clone(added.Arguments)
+	added.Signature = slices.Clone(added.Signature)
+	return append(calls, added), nil
 }
