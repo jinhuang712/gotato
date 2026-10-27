@@ -994,6 +994,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 | `mcp.WithDescription(text)` | the description the catalog shows |
 | `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the one the annotations give |
 | `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless the server sends `list_changed`; the default 0 asks the server at every resolution |
+| `mcp.WithClientInfo(name, version)` | what the client tells the server |
 | `(*ToolSet).Close()` | ends the connection and the subprocess |
 
 - **Transports.** Streamable HTTP, used statelessly: no state of the server is held for a Gotato Session, so any instance can make any call. And stdio, a subprocess that belongs to the instance and is shared by its Sessions, never one for each Session ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)).

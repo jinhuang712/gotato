@@ -1,8 +1,10 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -690,6 +692,62 @@ func (h headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Header.Set(h.key, h.value)
 	return http.DefaultTransport.RoundTrip(r)
+}
+
+// clientInfoSeenBy serves a streamable HTTP MCP server and records the
+// clientInfo of the last initialize request it receives.
+func clientInfoSeenBy(t *testing.T) (gmcp.Transport, func() (name, version string)) {
+	t.Helper()
+	var mu sync.Mutex
+	var name, version string
+	server := newServer()
+	inner := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var msg struct {
+			Method string `json:"method"`
+			Params struct {
+				ClientInfo struct {
+					Name    string `json:"name"`
+					Version string `json:"version"`
+				} `json:"clientInfo"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(body, &msg) == nil && msg.Method == "initialize" {
+			mu.Lock()
+			name, version = msg.Params.ClientInfo.Name, msg.Params.ClientInfo.Version
+			mu.Unlock()
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { httpServer.CloseClientConnections(); httpServer.Close() })
+	return gmcp.StreamableHTTP(httpServer.URL), func() (string, string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return name, version
+	}
+}
+
+func TestTheClientTellsTheServerWhoItIs(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		options     []gmcp.Option
+		wantName    string
+		wantVersion string
+	}{
+		{"default", nil, "gotato", "0"},
+		{"WithClientInfo", []gmcp.Option{gmcp.WithClientInfo("billing-svc", "1.2")}, "billing-svc", "1.2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport, seen := clientInfoSeenBy(t)
+			set := newSet(t, transport, tc.options...)
+			specs(t, set) // the first resolution connects and initializes
+			if name, version := seen(); name != tc.wantName || version != tc.wantVersion {
+				t.Fatalf("server saw client %q %q, want %q %q", name, version, tc.wantName, tc.wantVersion)
+			}
+		})
+	}
 }
 
 func TestACustomHTTPClientCarriesItsHeaderOnEveryRequest(t *testing.T) {
