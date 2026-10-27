@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+// TestExampleConfigLoads keeps gateway.example.yaml, the file a reader copies,
+// loadable: it fails when the file names a key the loader does not know.
+func TestExampleConfigLoads(t *testing.T) {
+	t.Setenv("GOTATO_GATEWAY_API_KEY", "placeholder")
+	config, err := LoadYAML("gateway.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.APIKey != "placeholder" || config.Model == "" || config.ContextWindowTokens <= 0 {
+		t.Fatalf("config = %+v", config)
+	}
+}
+
 func TestParseYAMLExpandsEnvironmentAndDuration(t *testing.T) {
 	t.Setenv("TEST_GOTATO_GATEWAY_KEY", "secret-from-env")
 	config, err := parseYAML([]byte(`

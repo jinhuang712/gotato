@@ -71,7 +71,7 @@ curl -s -X POST localhost:9000/reset
 4. Publish a version of the app and add the bot to a chat.
 5. `cp .env.example .env`, fill `LARK_APP_ID` and `LARK_APP_SECRET` (`.env` is git-ignored), then `./run.sh`.
 
-`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a [gateway](../../gateway) config (`$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`).
+`./run.sh` reads `$MODEL` (default `echo`), `$ADDR`, `$STORE`, `$DELAY` and `$LABEL`. For a real model use `-model gateway` with a [gateway](../../gateway) config (copy [gateway.example.yaml](../../gateway/gateway.example.yaml); `$GOTATO_GATEWAY_CONFIG`, default `gateway.yaml`).
 
 ## Flags
 

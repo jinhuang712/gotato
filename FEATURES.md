@@ -1081,6 +1081,8 @@ api_key: ${GOTATO_GATEWAY_API_KEY}
 model: your-model
 ```
 
+[gateway/gateway.example.yaml](gateway/gateway.example.yaml) is the full file to copy: it sets the common keys and lists every other key as a commented line with its default. A test loads it, so it stays current.
+
 **Retries and broken streams**
 
 - Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff.

@@ -3,7 +3,8 @@
 // Messages API.
 //
 // It builds on the provider-neutral gotato Model contract and net/http, and
-// reads its configuration file with yaml.v3. Provider authentication, request
+// reads its configuration file with yaml.v3 (LoadYAML; gateway.example.yaml is
+// the commented file to copy). Provider authentication, request
 // encoding, retries, SSE decoding, and provider error classification live here,
 // outside Core, and so do the rules a few providers set for sending reasoning
 // back and for prompt cache retention (see Config.Provider).

@@ -44,6 +44,10 @@ type yAMLConfig struct {
 	DeferredTools DeferredForm `yaml:"deferred_tools"`
 }
 
+// LoadYAML reads a gateway configuration file and checks it with New. Write
+// ${NAME} in a value to read it from the environment, and a key the file format
+// does not know is an error. gateway.example.yaml, next to this file, lists
+// every key with its default; copy it as a starting point.
 func LoadYAML(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

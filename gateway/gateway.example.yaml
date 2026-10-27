@@ -1,13 +1,83 @@
 # Copy this file to gateway.yaml and fill in the deployment-specific values.
-# ${ENV_VAR} references are expanded when the file is loaded.
+# gateway.LoadYAML reads it. A key the loader does not know is an error.
+# ${NAME} in a value is replaced by the environment variable NAME when the
+# file is loaded, so a key never has to be written here. A bare $NAME is not.
 #
-# api: openai-chat-completions   → POST {base_url}/chat/completions   (default)
-# api: openai-responses          → POST {base_url}/responses          (default base_url https://api.openai.com/v1)
+# The settings you will usually want are set below. Every other setting is a
+# commented line with its default: remove the "#" to use it.
+
+# The wire API the provider speaks:
+#   openai-chat-completions  POST {base_url}/chat/completions (default)
+#   openai-responses         POST {base_url}/responses (base_url defaults to https://api.openai.com/v1)
+#   anthropic-messages       the Messages API (base_url defaults to https://api.anthropic.com)
 api: openai-chat-completions
+
+# Where the provider listens. An origin or an API base URL; required unless
+# the api has a default address above.
 base_url: https://gateway.example.com/v1
+
+# The provider's key. Read it from the environment.
 api_key: ${GOTATO_GATEWAY_API_KEY}
+
+# The model to call. Required.
 model: your-model
+
+# The model's context window in tokens; compaction takes its default ceiling
+# from it. Default: unset (0, unknown), so there is no default ceiling.
+context_window_tokens: 200000
+
+# Retries after the first attempt, for a call that never got a response, or
+# failed with 429, 500, 502, 503, 504 or 529. Default: 2.
 max_retries: 2
+
+# The first wait between retries; it grows per attempt, with jitter. A Go
+# duration. Default: 200ms.
 retry_backoff: 200ms
+
+# Headers some providers or proxies require. They cannot replace the
+# authentication, content-type or streaming headers. Default: none
+# (User-Agent is gotato/0.1).
 headers:
   X-Client-Name: gotato
+
+# --- Everything else, with its default --------------------------------------
+
+# The complete provider URL. Default: empty, so base_url is used.
+# endpoint: https://gateway.example.com/v1/chat/completions
+
+# Turn retries off. Exclusive with max_retries. Default: false.
+# no_retries: true
+
+# Whose rules for reasoning and the prompt cache apply: anthropic, openai,
+# deepseek or other. Default: recognized from the provider's own address
+# (api.anthropic.com, api.openai.com, api.deepseek.com), else none. Name it
+# when a gateway sits in front.
+# provider: anthropic
+
+# How long the provider keeps the prompt cache, a Go duration such as 5m.
+# Default: the recognized provider's longest.
+# cache_retention: 5m
+
+# Do not ask Claude to drop a thinking block whose prefix changed; the
+# provider then refuses such a request instead. Default: false.
+# no_drop_block: true
+
+# The body field that carries the prompt cache key. Default:
+# prompt_cache_key on openai-responses, none on openai-chat-completions;
+# "none" sends no field.
+# cache_key_field: prompt_cache_key
+
+# The header that carries the prompt cache key, for a provider that keys its
+# cache by a session header. Default: none.
+# cache_key_header: session-id
+
+# How the tools a Session loads from a catalog reach the provider: native or
+# list. Default: native on openai-responses and anthropic-messages, list on
+# openai-chat-completions (which always uses list).
+# deferred_tools: list
+
+# Your own wording, or codes, for "the request was too long": added to the
+# built-in list. A 400 or 413 whose message, code or type contains one
+# (any case) is reported as context_overflow. Default: none.
+# overflow_phrases:
+#   - too_much_context
