@@ -247,6 +247,228 @@ func (st *runState) settle(turn TurnNumber, assistant Message, stopped bool, rea
 	return result, nil
 }
 
+// callModel builds the Turn's request from the Transcript, calls the Model and
+// reads its reply. The Model is called once, and once more when it refuses the
+// request as too long before any output and a TurnPreparer shortened it. A
+// non-nil failure is an error of the Run itself; modelErr is the Model's.
+func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message, usage Usage, modelErr *RuntimeError, failure *RuntimeError) {
+	a, runCtx, runID, hd := st.a, st.runCtx, st.runID, st.header
+	// build makes the request of this Turn from the Transcript as it
+	// stands. A TurnPreparer that rewrote the Transcript has it built again.
+	build := func() (turnBuild, *RuntimeError) {
+		snapshot := ContextSnapshot{
+			SessionID:          a.id,
+			RunID:              runID,
+			Turn:               turn,
+			SystemInstructions: a.instruction,
+			Messages:           cloneMessages(a.transcript.Messages()),
+		}
+		built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
+		return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
+	}
+	current, assembleErr := build()
+	if assembleErr != nil {
+		return Message{}, Usage{}, nil, assembleErr
+	}
+
+	// The Model is called here, once, and once more when it refuses the
+	// request as too long before any output and a TurnPreparer shortened it.
+	var (
+		assistantID MessageID
+		refused     *RuntimeError
+	)
+	for {
+		var refusal error
+		if refused != nil {
+			refusal = refused
+		}
+		changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refusal)
+		if prepareErr != nil {
+			return Message{}, Usage{}, nil, prepareErr
+		}
+		if refused != nil && !changed {
+			// Nothing shortened the request: the refusal stands.
+			assistant, usage, modelErr = Message{}, Usage{}, refused
+			break
+		}
+		if changed {
+			if err := a.measureTranscript(); err != nil {
+				return Message{}, Usage{}, nil, asRuntimeError(err)
+			}
+			if err := a.syncLoadedTools(); err != nil {
+				return Message{}, Usage{}, nil, asRuntimeError(err)
+			}
+			if err := a.refreshTools(); err != nil {
+				return Message{}, Usage{}, nil, asRuntimeError(err)
+			}
+			if current, assembleErr = build(); assembleErr != nil {
+				return Message{}, Usage{}, nil, assembleErr
+			}
+		}
+		contextBuilt := ContextBuilt{
+			Header:           hd(turn),
+			Strategy:         current.built.Metadata["strategy"],
+			Messages:         len(current.request.Messages),
+			SourceMessages:   len(current.snapshot.Messages),
+			SelectedMessages: len(current.built.Messages),
+			PrefixHash:       current.prefix,
+			PrefixMessages:   max(len(current.request.Messages)-1, 0),
+			SystemBytes:      len(current.request.SystemInstructions),
+			Tools:            len(current.request.Tools),
+		}
+		// The builder's Metadata keeps its own key, so it can never replace
+		// a count above with its string form.
+		if len(current.built.Metadata) > 0 {
+			contextBuilt.Metadata = maps.Clone(current.built.Metadata)
+		}
+		// The model call is written before the Model is called, so a writer
+		// that can no longer write stops here, and the store's time stays out
+		// of the model's.
+		assistantID = MessageID(nextID("message"))
+		a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
+		if err := a.flush(runCtx); err != nil {
+			return Message{}, Usage{}, nil, err
+		}
+		var callUsage Usage
+		assistant, callUsage, modelErr = a.readAssistant(runCtx, runID, turn, assistantID, current.request)
+		usage = callUsage
+		st.usage = addUsage(st.usage, callUsage)
+		// A refusal before any output is the one failure a shorter request
+		// can mend, once per Turn.
+		if modelErr != nil && modelErr.Code == CodeContextOverflow && refused == nil &&
+			len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
+			refused = modelErr
+			continue
+		}
+		break
+	}
+	return assistant, usage, modelErr, nil
+}
+
+// runToolBatch runs the Tool calls of assistant, the reply of this Turn: it
+// checks them in source order, runs them in groups, commits their results in
+// source order and commits the Tools they loaded. It returns what the calls
+// came to. A non-nil failure is an error of the Run.
+func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcomes []ToolOutcome, settledResults []ToolResult, failure *RuntimeError) {
+	a, runCtx, runID, hd := st.a, st.runCtx, st.runID, st.header
+	// Preflight is source ordered: resolve, validate, and run the Pre
+	// chain before any executor starts.
+	plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &st.toolCalls)
+	if planErr != nil {
+		return nil, nil, planErr
+	}
+	// A blocked Tool is already settled at preflight: it ends without
+	// having started.
+	outcomes := make(map[int]ToolResult, len(plans))
+	st.batch.outcomes = outcomes
+	for i := range plans {
+		if plans[i].blocked {
+			outcomes[i] = plans[i].result
+			a.stage(ToolEnded{Header: hd(turn), CallID: plans[i].call.ID, ToolID: plans[i].call.ToolID, Status: plans[i].result.Status, Executed: plans[i].result.Executed})
+		}
+	}
+
+	// Results commit in source order, as soon as every call before them
+	// has settled: after each group runs, and for blocked calls, which
+	// settled at preflight. So a crash loses at most the group in flight.
+	toolOutcomes = make([]ToolOutcome, 0, len(plans))
+	settledResults = make([]ToolResult, 0, len(plans))
+	committed := 0
+	commitUpTo := func(end int) *RuntimeError {
+		for ; committed < end; committed++ {
+			call := plans[committed].call
+			toolResult := outcomes[committed]
+			// Post-Tool-Use sees executed, blocked, failed, and canceled
+			// outcomes alike, in reverse installation order.
+			finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
+			if postErr != nil {
+				return postErr
+			}
+			toolResult = finalized
+			toolResult, spillErr := a.spill(runCtx, runID, turn, call.ToolID, toolResult)
+			if spillErr != nil {
+				return spillErr
+			}
+			content := cloneParts(toolResult.Content)
+			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
+			if err := a.commitMessage(resultMessage); err != nil {
+				return asRuntimeError(err)
+			}
+			st.batch.next = committed + 1
+			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
+			for _, load := range a.registry.announce(toolResult.LoadedTools) {
+				a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
+			}
+			if err := a.flush(runCtx); err != nil {
+				return err
+			}
+			settledResults = append(settledResults, toolResult.Clone())
+			toolOutcomes = append(toolOutcomes, ToolOutcome{ToolID: call.ToolID, CallID: call.ID, Status: toolResult.Status, Executed: toolResult.Executed})
+		}
+		return nil
+	}
+
+	// Execution may be sequential or bounded parallel. Completion Events
+	// follow actual completion order; commitment stays source ordered.
+	for _, group := range groupPlans(plans, a.parallelWorkers()) {
+		// The calls are written before they run, so a crash during them
+		// leaves calls that are known to have started.
+		for _, index := range group {
+			a.stage(ToolStarted{Header: hd(turn), MessageID: assistant.ID, CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID})
+		}
+		if err := a.flush(runCtx); err != nil {
+			return nil, nil, err
+		}
+		completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
+		// A canceled group still reports what it knows, so the closing
+		// results of the failed Run keep Executed true for started Tools.
+		for index, result := range completed {
+			outcomes[index] = result
+		}
+		if err := commitUpTo(group[len(group)-1] + 1); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := commitUpTo(len(plans)); err != nil {
+		return nil, nil, err
+	}
+	st.batch = openBatch{}
+
+	// A load commits at the batch boundary, so a loaded Tool appears only
+	// in the next Model request. registryMu serializes the visibility
+	// write with ToolInspector.Tools on other goroutines.
+	a.registryMu.Lock()
+	loads, loadErr := a.registry.commitPending()
+	a.registryMu.Unlock()
+	if loadErr != nil {
+		return nil, nil, asRuntimeError(loadErr)
+	}
+	for _, load := range loads {
+		if load.announced {
+			continue
+		}
+		a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
+	}
+	return toolOutcomes, settledResults, nil
+}
+
+// stopTurn asks the TurnStoppers whether the Run stops after this Turn.
+func (st *runState) stopTurn(turn TurnNumber, assistant Message, results []ToolResult, reason StopReason) (StopDecision, *RuntimeError) {
+	return st.a.extensions.stopTurn(st.runCtx, TurnSnapshot{
+		SessionID: st.a.id, RunID: st.runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: results, StopReason: reason,
+	})
+}
+
+// boundary is the safe boundary after a Turn: Steer applies, and FollowUp too
+// when the Run is settling. Cancellation is checked first so a queued
+// continuation is never committed to a Run that is already ending.
+func (st *runState) boundary(turn TurnNumber, settling bool) (bool, *RuntimeError) {
+	if err := contextFailure(st.runCtx, "continuation"); err != nil {
+		return false, err
+	}
+	return st.a.consumeControl(st.runCtx, st.runID, turn, settling)
+}
+
 // executeRun runs the one canonical Loop. A nil prompt is a Continue: the Run
 // appends no user Message and picks up the committed transcript as it stands.
 func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, error) {
@@ -327,97 +549,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return st.fail(err)
 		}
 
-		// build makes the request of this Turn from the Transcript as it
-		// stands. A TurnPreparer that rewrote the Transcript has it built again.
-		build := func() (turnBuild, *RuntimeError) {
-			snapshot := ContextSnapshot{
-				SessionID:          a.id,
-				RunID:              runID,
-				Turn:               turn,
-				SystemInstructions: a.instruction,
-				Messages:           cloneMessages(a.transcript.Messages()),
-			}
-			built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
-			return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
-		}
-		current, assembleErr := build()
-		if assembleErr != nil {
-			return st.fail(assembleErr)
-		}
-
-		// The Model is called here, once, and once more when it refuses the
-		// request as too long before any output and a TurnPreparer shortened it.
-		var (
-			assistantID MessageID
-			assistant   Message
-			usage       Usage
-			modelErr    *RuntimeError
-			refused     *RuntimeError
-		)
-		for {
-			var refusal error
-			if refused != nil {
-				refusal = refused
-			}
-			changed, prepareErr := a.prepareTurn(runCtx, runID, turn, runStart, current.request, refusal)
-			if prepareErr != nil {
-				return st.fail(prepareErr)
-			}
-			if refused != nil && !changed {
-				// Nothing shortened the request: the refusal stands.
-				assistant, usage, modelErr = Message{}, Usage{}, refused
-				break
-			}
-			if changed {
-				if err := a.measureTranscript(); err != nil {
-					return st.fail(asRuntimeError(err))
-				}
-				if err := a.syncLoadedTools(); err != nil {
-					return st.fail(asRuntimeError(err))
-				}
-				if err := a.refreshTools(); err != nil {
-					return st.fail(asRuntimeError(err))
-				}
-				if current, assembleErr = build(); assembleErr != nil {
-					return st.fail(assembleErr)
-				}
-			}
-			contextBuilt := ContextBuilt{
-				Header:           hd(turn),
-				Strategy:         current.built.Metadata["strategy"],
-				Messages:         len(current.request.Messages),
-				SourceMessages:   len(current.snapshot.Messages),
-				SelectedMessages: len(current.built.Messages),
-				PrefixHash:       current.prefix,
-				PrefixMessages:   max(len(current.request.Messages)-1, 0),
-				SystemBytes:      len(current.request.SystemInstructions),
-				Tools:            len(current.request.Tools),
-			}
-			// The builder's Metadata keeps its own key, so it can never replace
-			// a count above with its string form.
-			if len(current.built.Metadata) > 0 {
-				contextBuilt.Metadata = maps.Clone(current.built.Metadata)
-			}
-			// The model call is written before the Model is called, so a writer
-			// that can no longer write stops here, and the store's time stays out
-			// of the model's.
-			assistantID = MessageID(nextID("message"))
-			a.stage(contextBuilt, ReplyStarted{Header: hd(turn), MessageID: assistantID})
-			if err := a.flush(runCtx); err != nil {
-				return st.fail(err)
-			}
-			var callUsage Usage
-			assistant, callUsage, modelErr = a.readAssistant(runCtx, runID, turn, assistantID, current.request)
-			usage = callUsage
-			st.usage = addUsage(st.usage, callUsage)
-			// A refusal before any output is the one failure a shorter request
-			// can mend, once per Turn.
-			if modelErr != nil && modelErr.Code == CodeContextOverflow && refused == nil &&
-				len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
-				refused = modelErr
-				continue
-			}
-			break
+		assistant, usage, modelErr, failure := st.callModel(turn, runStart)
+		if failure != nil {
+			return st.fail(failure)
 		}
 		turnText, turnReasoning := replyBytes(assistant)
 		st.textBytes += turnText
@@ -466,9 +600,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			a.stage(newTurnEnded(hd(turn), assistant.StopReason, usage, turnStarted, turnText, turnReasoning))
 			// A TurnStopper runs after TurnEnded and before continuation
 			// selection. A stop preserves the Turn and settles the Run.
-			decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-				SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), StopReason: assistant.StopReason,
-			})
+			decision, stopErr := st.stopTurn(turn, assistant, nil, assistant.StopReason)
 			if stopErr != nil {
 				return st.fail(stopErr)
 			}
@@ -478,10 +610,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// Safe boundary at settlement: Steer and FollowUp both apply here.
 			// Cancellation is checked first so a queued continuation is never
 			// committed to a Run that is already ending.
-			if err := contextFailure(runCtx, "continuation"); err != nil {
-				return st.fail(err)
-			}
-			injected, controlErr := a.consumeControl(runCtx, runID, turn, true)
+			injected, controlErr := st.boundary(turn, true)
 			if controlErr != nil {
 				return st.fail(controlErr)
 			}
@@ -504,111 +633,15 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			return st.settle(turn, assistant, false, "")
 		}
 
-		// Preflight is source ordered: resolve, validate, and run the Pre
-		// chain before any executor starts.
-		plans, planErr := a.preflightTools(runCtx, runID, turn, assistant.ToolCalls, &st.toolCalls)
-		if planErr != nil {
-			return st.fail(planErr)
-		}
-		// A blocked Tool is already settled at preflight: it ends without
-		// having started.
-		outcomes := make(map[int]ToolResult, len(plans))
-		st.batch.outcomes = outcomes
-		for i := range plans {
-			if plans[i].blocked {
-				outcomes[i] = plans[i].result
-				a.stage(ToolEnded{Header: hd(turn), CallID: plans[i].call.ID, ToolID: plans[i].call.ToolID, Status: plans[i].result.Status, Executed: plans[i].result.Executed})
-			}
-		}
-
-		// Results commit in source order, as soon as every call before them
-		// has settled: after each group runs, and for blocked calls, which
-		// settled at preflight. So a crash loses at most the group in flight.
-		toolOutcomes := make([]ToolOutcome, 0, len(plans))
-		settledResults := make([]ToolResult, 0, len(plans))
-		committed := 0
-		commitUpTo := func(end int) *RuntimeError {
-			for ; committed < end; committed++ {
-				call := plans[committed].call
-				toolResult := outcomes[committed]
-				// Post-Tool-Use sees executed, blocked, failed, and canceled
-				// outcomes alike, in reverse installation order.
-				finalized, postErr := a.extensions.afterTool(runCtx, toolResult)
-				if postErr != nil {
-					return postErr
-				}
-				toolResult = finalized
-				toolResult, spillErr := a.spill(runCtx, runID, turn, call.ToolID, toolResult)
-				if spillErr != nil {
-					return spillErr
-				}
-				content := cloneParts(toolResult.Content)
-				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
-				if err := a.commitMessage(resultMessage); err != nil {
-					return asRuntimeError(err)
-				}
-				st.batch.next = committed + 1
-				a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
-				for _, load := range a.registry.announce(toolResult.LoadedTools) {
-					a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
-				}
-				if err := a.flush(runCtx); err != nil {
-					return err
-				}
-				settledResults = append(settledResults, toolResult.Clone())
-				toolOutcomes = append(toolOutcomes, ToolOutcome{ToolID: call.ToolID, CallID: call.ID, Status: toolResult.Status, Executed: toolResult.Executed})
-			}
-			return nil
-		}
-
-		// Execution may be sequential or bounded parallel. Completion Events
-		// follow actual completion order; commitment stays source ordered.
-		for _, group := range groupPlans(plans, a.parallelWorkers()) {
-			// The calls are written before they run, so a crash during them
-			// leaves calls that are known to have started.
-			for _, index := range group {
-				a.stage(ToolStarted{Header: hd(turn), MessageID: assistant.ID, CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID})
-			}
-			if err := a.flush(runCtx); err != nil {
-				return st.fail(err)
-			}
-			completed := a.executeToolGroup(runCtx, runID, turn, plans, group)
-			// A canceled group still reports what it knows, so the closing
-			// results of the failed Run keep Executed true for started Tools.
-			for index, result := range completed {
-				outcomes[index] = result
-			}
-			if err := commitUpTo(group[len(group)-1] + 1); err != nil {
-				return st.fail(err)
-			}
-		}
-		if err := commitUpTo(len(plans)); err != nil {
-			return st.fail(err)
-		}
-		st.batch = openBatch{}
-
-		// A load commits at the batch boundary, so a loaded Tool appears only
-		// in the next Model request. registryMu serializes the visibility
-		// write with ToolInspector.Tools on other goroutines.
-		a.registryMu.Lock()
-		loads, loadErr := a.registry.commitPending()
-		a.registryMu.Unlock()
-		if loadErr != nil {
-			return st.fail(asRuntimeError(loadErr))
-		}
-		for _, load := range loads {
-			if load.announced {
-				continue
-			}
-			a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
+		toolOutcomes, settledResults, failure := st.runToolBatch(turn, assistant)
+		if failure != nil {
+			return st.fail(failure)
 		}
 
 		turnEnded := newTurnEnded(hd(turn), StopReasonToolCalls, usage, turnStarted, turnText, turnReasoning)
 		turnEnded.ToolCalls, turnEnded.Tools = len(assistant.ToolCalls), toolOutcomes
 		a.stage(turnEnded)
-		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
-			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopReasonToolCalls,
-		})
+		decision, stopErr := st.stopTurn(turn, assistant, settledResults, StopReasonToolCalls)
 		if stopErr != nil {
 			return st.fail(stopErr)
 		}
@@ -617,10 +650,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 		// Safe boundary between Turns: Steer applies, FollowUp waits for
 		// settlement.
-		if err := contextFailure(runCtx, "continuation"); err != nil {
-			return st.fail(err)
-		}
-		if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
+		if _, controlErr := st.boundary(turn, false); controlErr != nil {
 			return st.fail(controlErr)
 		}
 	}
