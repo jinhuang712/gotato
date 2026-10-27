@@ -362,7 +362,7 @@ func TestANoticeLeftByAStoppedRunWaitsForTheNextRun(t *testing.T) {
 	if _, err := runner.Notice(ctx, service.NoticeRequest{SessionID: s.ID(), Kind: "k", Text: "kept"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	if result := settled(t, done); result.Result.Status != gotato.RunCanceled {

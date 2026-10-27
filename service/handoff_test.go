@@ -217,7 +217,7 @@ func TestADrainDropsTheLeftoversWithTheReason(t *testing.T) {
 func TestAStopDropsTheLeftovers(t *testing.T) {
 	rig := startHeld(t)
 	id := rig.send(t, service.MessageFollowUp, "late")
-	if err := rig.runner.CancelSession(context.Background(), rig.id); err != nil {
+	if err := rig.runner.AbortSession(context.Background(), rig.id); err != nil {
 		t.Fatal(err)
 	}
 	rig.release(t)

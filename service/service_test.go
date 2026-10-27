@@ -141,7 +141,7 @@ func TestSessionIsSingleFlightRejectPolicy(t *testing.T) {
 	wg.Wait()
 }
 
-func TestWaitPolicyQueuesAndCancelSessionAborts(t *testing.T) {
+func TestWaitPolicyQueuesAndAbortSessionAborts(t *testing.T) {
 	block := make(chan struct{})
 	model := testkit.NewFakeModel(testkit.Text("slow"))
 	model.Block = block
@@ -165,7 +165,7 @@ func TestWaitPolicyQueuesAndCancelSessionAborts(t *testing.T) {
 	// Wait until the Run reached the Model so cancellation exercises the
 	// settled-canceled path instead of racing the initial Session load.
 	waitFor(t, func() bool { return model.Calls() == 1 })
-	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	// Canceling the first run settles it as canceled and frees the lock.
@@ -310,8 +310,8 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	}()
 	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
 
-	// The started Run is the one CancelSession prefers.
-	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+	// The started Run is the one AbortSession prefers.
+	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -321,10 +321,10 @@ func TestQueuedRunIsCancelable(t *testing.T) {
 	}
 
 	// Let the first Run leave before canceling again, so the next
-	// CancelSession can only match the queued Run (its handle is the only one
+	// AbortSession can only match the queued Run (its handle is the only one
 	// registered), settling it as canceled instead of leaving it invisible.
 	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
-	waitFor(t, func() bool { return runner.CancelSession(ctx, s.ID()) == nil })
+	waitFor(t, func() bool { return runner.AbortSession(ctx, s.ID()) == nil })
 	select {
 	case result := <-queued:
 		if result.Result.Status != gotato.RunCanceled {
@@ -924,8 +924,8 @@ func (s *blockingGetStore) Load(ctx context.Context, id string) (session.Loaded,
 }
 
 // A Run that is admitted but still loading its Session must be reachable by
-// CancelSession; before the handle was registered up front it was invisible.
-func TestCancelSessionReachesRunLoadingSession(t *testing.T) {
+// AbortSession; before the handle was registered up front it was invisible.
+func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 	blocking := &blockingGetStore{Store: session.NewMemoryStore(), started: make(chan struct{})}
 	runner, err := service.New(service.Config{
 		Store:  blocking,
@@ -942,8 +942,8 @@ func TestCancelSessionReachesRunLoadingSession(t *testing.T) {
 	}()
 	<-blocking.started
 
-	if err := runner.CancelSession(context.Background(), "loading-1"); err != nil {
-		t.Fatalf("CancelSession while loading = %v", err)
+	if err := runner.AbortSession(context.Background(), "loading-1"); err != nil {
+		t.Fatalf("AbortSession while loading = %v", err)
 	}
 	select {
 	case runErr := <-resultCh:
@@ -951,7 +951,7 @@ func TestCancelSessionReachesRunLoadingSession(t *testing.T) {
 			t.Fatalf("run error = %v", runErr)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not return after CancelSession")
+		t.Fatal("Run did not return after AbortSession")
 	}
 }
 
@@ -1069,7 +1069,7 @@ func TestCanceledRunKeepsItsRunID(t *testing.T) {
 	}()
 	runID := <-started
 	waitFor(t, func() bool { return model.Calls() == 1 })
-	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	result := <-done

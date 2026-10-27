@@ -77,7 +77,7 @@ func TestARunEndsByItsCtx(t *testing.T) {
 		{"deadline", func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), 50*time.Millisecond)
 		}, gotato.ErrDeadlineExceeded},
-		{"cancel", func() (context.Context, context.CancelFunc) {
+		{"abort", func() (context.Context, context.CancelFunc) {
 			ctx, cancel := context.WithCancel(context.Background())
 			time.AfterFunc(50*time.Millisecond, cancel)
 			return ctx, cancel

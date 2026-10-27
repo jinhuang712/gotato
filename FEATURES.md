@@ -334,8 +334,8 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 | Surface | Message | Stop |
 |---|---|---|
-| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageSteer` (the default), `MessageFollowUp` or `MessageInterrupt` | `Runner.CancelSession` |
-| HTTP | `POST /v1/sessions/{id}/messages` with `{"kind", "text"}` | `POST /v1/sessions/{id}/cancel` |
+| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageSteer` (the default), `MessageFollowUp` or `MessageInterrupt` | `Runner.AbortSession` |
+| HTTP | `POST /v1/sessions/{id}/messages` with `{"kind", "text"}` | `POST /v1/sessions/{id}/abort` |
 
 - A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
 - With no Run going, the message is the prompt of a new Run on this instance, which takes the Session over as it takes over any idle one. The call answers when that Run settles, with its result (HTTP 200 with `run`), as the run routes do. A client that wants the Run's Events reads the Session's stream.
@@ -1388,11 +1388,11 @@ POST   /v1/sessions/{id}/compact
 POST   /v1/sessions/{id}/runs    POST /v1/sessions/{id}/runs/stream
 POST   /v1/sessions/{id}/messages
 POST   /v1/sessions/{id}/notices
-POST   /v1/sessions/{id}/cancel
+POST   /v1/sessions/{id}/abort
 ```
 
 - A run request carries `prompt`, or `continue: true`, and may set its own deadline with `timeout_ms`.
-- A message request carries `kind` (`steer`, the default, `follow_up` or `interrupt`) and `text`. A Run in flight on the instance takes it: 202 with `{"session_id", "message_id", "queued": true}`. With no Run going it starts one and holds the response until that Run settles, then answers 200 with `{"session_id", "queued": false, "run": {…}}`; a caller that cannot wait sends the request from a goroutine, or reads the reply from `…/stream`, and a client timeout that closes the connection ends the Run ([G-F26](#g-f26--steering-a-run-)). A Run another live instance writes answers 409 `not_writer`, or is forwarded when `httpapi.WithForwarding` is on. `…/cancel` answers 202, and 409 `invalid_state` when no Run is going, and is forwarded the same way ([G-F26](#g-f26--steering-a-run-)).
+- A message request carries `kind` (`steer`, the default, `follow_up` or `interrupt`) and `text`. A Run in flight on the instance takes it: 202 with `{"session_id", "message_id", "queued": true}`. With no Run going it starts one and holds the response until that Run settles, then answers 200 with `{"session_id", "queued": false, "run": {…}}`; a caller that cannot wait sends the request from a goroutine, or reads the reply from `…/stream`, and a client timeout that closes the connection ends the Run ([G-F26](#g-f26--steering-a-run-)). A Run another live instance writes answers 409 `not_writer`, or is forwarded when `httpapi.WithForwarding` is on. `…/abort` answers 202, and 409 `invalid_state` when no Run is going, and is forwarded the same way ([G-F26](#g-f26--steering-a-run-)).
 - A notice request carries `kind` and `text`, and answers 202 with `{"session_id", "queued": true, "number", "message_id"}` at once: it starts no Run, and a Run going on another live instance answers 409 `not_writer`, or is forwarded as a message is ([G-F29](#g-f29--runtime-notices-)).
 - `GET /v1/agents` answers `{"agents": [...], "max_effect": {name: cap}}`; an Agent without an Effect cap has no `max_effect` entry.
 - `GET …/events` answers every stored Event of the Session, read from its Record, as JSON Lines, and filters with `?kind=`.
@@ -1404,7 +1404,7 @@ POST   /v1/sessions/{id}/cancel
 | 400 | the request is invalid |
 | 404 | the Session does not exist (`not_found`, marked not run) |
 | 408 | the caller canceled the request |
-| 409 | the Session is busy, the Run is not active, or a stream cannot resume (`cannot_resume`, with the current `record_epoch`); or a message or a cancel for a Run another instance writes (`not_writer`, marked not run, with a `Gotato-Writer` header and `writer` in the body) |
+| 409 | the Session is busy, the Run is not active, or a stream cannot resume (`cannot_resume`, with the current `record_epoch`); or a message or an abort for a Run another instance writes (`not_writer`, marked not run, with a `Gotato-Writer` header and `writer` in the body) |
 | 502 | a forward to the writer's address failed, so the message may have reached it (not marked not run) |
 | 413 | the body is too large |
 | 429 | the Runner is at capacity (marked not run) |
@@ -1623,7 +1623,7 @@ You test agents without a network or a paid model, and measure Gotato on a fixed
 `internal/workload` plays the tasks through a Runner, one at a time or under load, and reports what it saw:
 
 - how many plays passed their check;
-- every failed Run, tool call and check, with its cause: the model, the provider, the tool, the store, a limit, an extension, a cancel, or Gotato;
+- every failed Run, tool call and check, with its cause: the model, the provider, the tool, the store, a limit, an extension, an abort, or Gotato;
 - token usage, the cost at your price, and the cache hit rate;
 - Gotato's time per Turn next to the model's, and the store's time to load and save a Session;
 - the time Gotato adds before the first request, next to the model's own time to its first token;
@@ -1847,7 +1847,7 @@ time.AfterFunc(time.Until(deadline)-10*time.Second, func() {
 Who the caller is, and who may touch which Session, are the application's. Gotato builds no identity type, no "not allowed" error and no hook for it. It passes the request's `context.Context`, with all its values, to every store and extension call it makes for that request, so the application's own code sees the caller wherever it needs to ([DESIGNS.md → No authentication](DESIGNS.md#no-authentication)).
 
 - **A refusal is `not_found`.** A store wrapper returns `session.ErrNotFound` for a Session the caller does not own. That answers 404 on HTTP, and it does not reveal that the Session exists.
-- **Every request-driven call reads through the store.** A read of a Session reaches the store by `Log`, a Run by `Load` and `Append`, and `Runner.CancelSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on this Instance. So a wrapper guards `Load`, `Log`, `Append` and `Delete`, and filters `List`, and that is all it needs: another caller's cancel, steer, follow-up, interrupt and notice answer `not_found` too.
+- **Every request-driven call reads through the store.** A read of a Session reaches the store by `Log`, a Run by `Load` and `Append`, and `Runner.AbortSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on this Instance. So a wrapper guards `Load`, `Log`, `Append` and `Delete`, and filters `List`, and that is all it needs: another caller's cancel, steer, follow-up, interrupt and notice answer `not_found` too.
 - **Work Gotato starts on its own has no caller.** The `ctx` of an idle compaction and of a Liveness renewal carries no caller, because no request started it. A Warm Session leaving memory writes nothing. A follow-on Run, which takes the messages left over when a Run ends, keeps the values of the request that started the Run before it, without its cancellation. What an empty caller means is the team's rule: the wrapper below lets it through.
 
 This store wrapper reads the owner from the Session's metadata and refuses another caller, and the handler puts the caller into `ctx` under a key of its own type:

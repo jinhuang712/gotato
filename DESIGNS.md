@@ -357,7 +357,7 @@ A limit is a promise that something bad cannot happen. A cap that fits no real f
 ### Every Run settles with a status and a cause
 
 - **Instead of:** one generic error.
-- **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, a cancel or Gotato.
+- **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, an abort or Gotato.
 
 ### An error says whether it ran and whether a retry may succeed — 2026-10-25
 

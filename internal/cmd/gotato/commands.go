@@ -146,8 +146,8 @@ func (c *cli) cmdSession(args []string) int {
 		return c.sessionMessage(rest)
 	case "notice":
 		return c.sessionNotice(rest)
-	case "cancel", "stop":
-		return c.sessionCancel(rest)
+	case "abort", "stop":
+		return c.sessionAbort(rest)
 	case "delete", "rm":
 		return c.sessionDelete(rest)
 	default:
@@ -250,11 +250,11 @@ func (c *cli) sessionNotice(args []string) int {
 	return c.emit(map[string]any{"session_id": result.SessionID, "queued": result.Queued, "number": result.Number, "message_id": result.MessageID}, fmt.Sprintf("queued notice %d", result.Number))
 }
 
-// sessionCancel stops the Run of a Session (Runner.CancelSession). A Run in
+// sessionAbort stops the Run of a Session (Runner.AbortSession). A Run in
 // another process is not stopped from here: the failure is not_writer, with the
 // writer's address when it advertises one.
-func (c *cli) sessionCancel(args []string) int {
-	fs := c.newFlagSet("session cancel")
+func (c *cli) sessionAbort(args []string) int {
+	fs := c.newFlagSet("session abort")
 	var flags modelFlags
 	bindModel(fs, &flags)
 	positionals, err := parseInterspersed(fs, args)
@@ -262,16 +262,16 @@ func (c *cli) sessionCancel(args []string) int {
 		return c.parseError(err)
 	}
 	if len(positionals) != 1 {
-		return c.usageError("session cancel needs a session id")
+		return c.usageError("session abort needs a session id")
 	}
 	rt, err := c.newRuntime(flags)
 	if err != nil {
 		return c.failErr(err)
 	}
-	if err := rt.runner.CancelSession(context.Background(), positionals[0]); err != nil {
+	if err := rt.runner.AbortSession(context.Background(), positionals[0]); err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(map[string]any{"session_id": positionals[0], "status": "cancel_requested"}, "cancel requested")
+	return c.emit(map[string]any{"session_id": positionals[0], "status": "abort_requested"}, "abort requested")
 }
 
 func (c *cli) sessionCreate(args []string) int {

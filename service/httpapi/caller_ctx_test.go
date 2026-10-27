@@ -160,7 +160,7 @@ func TestRequestContextReachesTheStoreAndARefusalAnswers404(t *testing.T) {
 		}
 	}
 	// A cancel by another caller answers 404 here too, with no Run going on.
-	if status, body = callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/"+id+"/cancel", nil); status != http.StatusNotFound {
+	if status, body = callAs(t, third, "mallory", http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusNotFound {
 		t.Errorf("cancel by another caller = %d %s, want 404", status, body)
 	}
 	// The owner still reads it.

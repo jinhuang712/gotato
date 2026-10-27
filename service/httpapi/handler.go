@@ -19,7 +19,7 @@
 //	POST   /v1/sessions/{id}/runs/stream    {prompt | continue}            → SSE: event*, result, reconnect?
 //	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the run in flight, or 200 the run it started
 //	POST   /v1/sessions/{id}/notices        {kind, text}                   → 202 {queued, number, message_id}: a notice for the model's next call
-//	POST   /v1/sessions/{id}/cancel         stop the run in flight (202)
+//	POST   /v1/sessions/{id}/abort         stop the run in flight (202)
 //
 // A message (steer, follow_up or interrupt) with no Run going starts one, and
 // its response is held until that Run settles (200 with the Run's result); a
@@ -127,7 +127,7 @@ func New(runner *service.Runner, options ...Option) *Handler {
 	h.mux.HandleFunc("POST /v1/sessions/{id}/runs/stream", h.scoped(h.runStream))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/messages", h.scoped(h.message))
 	h.mux.HandleFunc("POST /v1/sessions/{id}/notices", h.scoped(h.notice))
-	h.mux.HandleFunc("POST /v1/sessions/{id}/cancel", h.scoped(h.cancelSession))
+	h.mux.HandleFunc("POST /v1/sessions/{id}/abort", h.scoped(h.abortSession))
 	return h
 }
 
@@ -713,15 +713,15 @@ func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, b
 	return true
 }
 
-func (h *Handler) cancelSession(w http.ResponseWriter, r *http.Request) {
-	if err := h.runner.CancelSession(r.Context(), r.PathValue("id")); err != nil {
+func (h *Handler) abortSession(w http.ResponseWriter, r *http.Request) {
+	if err := h.runner.AbortSession(r.Context(), r.PathValue("id")); err != nil {
 		if h.forwarded(w, r, err, nil) {
 			return
 		}
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": r.PathValue("id"), "status": "cancel_requested"})
+	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": r.PathValue("id"), "status": "abort_requested"})
 }
 
 // ---- helpers ----------------------------------------------------------------

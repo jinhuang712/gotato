@@ -371,7 +371,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("the tool never started")
 			}
-			if err := r.runner.CancelSession(context.Background(), id); err != nil {
+			if err := r.runner.AbortSession(context.Background(), id); err != nil {
 				t.Fatal(err)
 			}
 			select {

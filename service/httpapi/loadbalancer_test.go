@@ -61,7 +61,7 @@ func TestSessionIDHeaderMustAgreeWithThePath(t *testing.T) {
 		{http.MethodGet, "/v1/sessions/" + created.ID() + "/context"},
 		{http.MethodPost, "/v1/sessions/" + created.ID() + "/runs"},
 		{http.MethodPost, "/v1/sessions/" + created.ID() + "/runs/stream"},
-		{http.MethodPost, "/v1/sessions/" + created.ID() + "/cancel"},
+		{http.MethodPost, "/v1/sessions/" + created.ID() + "/abort"},
 		{http.MethodPost, "/v1/sessions/" + created.ID() + "/fork"},
 		{http.MethodPost, "/v1/sessions/" + created.ID() + "/compact"},
 		{http.MethodDelete, "/v1/sessions/" + created.ID()},

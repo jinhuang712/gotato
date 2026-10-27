@@ -35,7 +35,7 @@ Run `gotato <command> --help` for the flags.
 |---|---|
 | `run [--session ID] "prompt"` | runs a prompt on a new or existing Session; `--events jsonl` streams its Events |
 | `session create\|list\|show\|fork\|delete` | manage Sessions |
-| `session events\|resume\|message\|notice\|cancel <id>` | read the log, continue a Session, send it a message or a notice, stop its Run |
+| `session events\|resume\|message\|notice\|abort <id>` | read the log, continue a Session, send it a message or a notice, stop its Run |
 | `context inspect\|build\|compact <id>` | see what the model would receive, and compact the Session |
 | `tools list\|describe\|active\|activate\|deactivate` | list and switch the tools of a Session |
 | `events --session <id> [--kind K]` | the Session's Events, one per line |

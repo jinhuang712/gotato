@@ -194,7 +194,7 @@ func TestMessageForARunElsewhereAnswersNotWriter(t *testing.T) {
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
 	id, wait := running(t, a, g)
 
-	for _, path := range []string{"/messages", "/cancel"} {
+	for _, path := range []string{"/messages", "/abort"} {
 		resp, body := b.post(t, "/v1/sessions/"+id+path, map[string]string{"text": "from b"})
 		var failure struct {
 			Code      string `json:"code"`
@@ -276,7 +276,7 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil))
 	id, wait := running(t, a, g)
 
-	resp, body := b.post(t, "/v1/sessions/"+id+"/cancel", nil)
+	resp, body := b.post(t, "/v1/sessions/"+id+"/abort", nil)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("forwarded cancel = %d %s, want 202", resp.StatusCode, body)
 	}

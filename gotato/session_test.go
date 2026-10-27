@@ -165,7 +165,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	_ = stream.Close()
 }
 
-func TestSessionCancelRun(t *testing.T) {
+func TestSessionAbortRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelDone, StopReason: StopEndTurn}}}}
@@ -200,7 +200,7 @@ func TestSessionCancelRun(t *testing.T) {
 			runID = event.Head().RunID
 		}
 	}
-	if err := agent.CancelRun(context.Background(), runID); err != nil {
+	if err := agent.AbortRun(context.Background(), runID); err != nil {
 		t.Fatal(err)
 	}
 	select {

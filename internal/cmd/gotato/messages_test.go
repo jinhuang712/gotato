@@ -70,7 +70,7 @@ func TestMessageForARunInAnotherProcessIsNotWriter(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"session", "message", created.ID, "--kind", "interrupt", "--json", "change of plans"},
-		{"session", "cancel", created.ID, "--json"},
+		{"session", "abort", created.ID, "--json"},
 	} {
 		code, out, _ := h.run(args...)
 		var failure struct {
@@ -105,12 +105,12 @@ func TestMessageUsageAndErrors(t *testing.T) {
 		args []string
 		exit int
 	}{
-		"no session":   {[]string{"session", "message", "--json"}, ExitUsage},
-		"no text":      {[]string{"session", "message", created.ID, "--json"}, ExitUsage},
-		"bad kind":     {[]string{"session", "message", created.ID, "--kind", "shout", "--json", "hi"}, ExitUsage},
-		"missing":      {[]string{"session", "message", "missing", "--json", "hi"}, ExitNotFound},
-		"cancel none":  {[]string{"session", "cancel", created.ID, "--json"}, ExitError},
-		"cancel usage": {[]string{"session", "cancel", "--json"}, ExitUsage},
+		"no session":  {[]string{"session", "message", "--json"}, ExitUsage},
+		"no text":     {[]string{"session", "message", created.ID, "--json"}, ExitUsage},
+		"bad kind":    {[]string{"session", "message", created.ID, "--kind", "shout", "--json", "hi"}, ExitUsage},
+		"missing":     {[]string{"session", "message", "missing", "--json", "hi"}, ExitNotFound},
+		"abort none":  {[]string{"session", "abort", created.ID, "--json"}, ExitError},
+		"abort usage": {[]string{"session", "abort", "--json"}, ExitUsage},
 	} {
 		if code, out, _ := h.run(tc.args...); code != tc.exit || !strings.Contains(out, `"exit_code"`) {
 			t.Errorf("%s: exit %d, stdout %s; want exit %d with the error object", name, code, out, tc.exit)

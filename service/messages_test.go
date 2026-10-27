@@ -274,7 +274,7 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 		done <- result
 	}()
 	waitCall(t, model, 0)
-	if err := runner.CancelSession(ctx, s.ID()); err != nil {
+	if err := runner.AbortSession(ctx, s.ID()); err != nil {
 		t.Fatal(err)
 	}
 	result := settled(t, done)
@@ -288,7 +288,7 @@ func TestStopCancelsTheRunAndKeepsWhatItCommitted(t *testing.T) {
 		t.Fatalf("message events = %v", got)
 	}
 	// With nothing running, a Stop finds nothing to stop.
-	if err := runner.CancelSession(ctx, s.ID()); !errors.Is(err, service.ErrNoRun) {
+	if err := runner.AbortSession(ctx, s.ID()); !errors.Is(err, service.ErrNoRun) {
 		t.Fatalf("Stop with no Run = %v", err)
 	}
 }
@@ -354,8 +354,8 @@ func TestAMessageForARunOnAnotherInstanceIsNotWriter(t *testing.T) {
 		}
 	}
 	// A Stop is a message too.
-	if err := b.CancelSession(ctx, s.ID()); !gotato.IsCode(err, gotato.ErrNotWriter) {
-		t.Fatalf("CancelSession on the other instance = %v, want not_writer", err)
+	if err := b.AbortSession(ctx, s.ID()); !gotato.IsCode(err, gotato.ErrNotWriter) {
+		t.Fatalf("AbortSession on the other instance = %v, want not_writer", err)
 	}
 
 	// The Run is untouched, and the writer takes the message itself.

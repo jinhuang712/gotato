@@ -286,7 +286,7 @@ type Runner struct {
 
 // runHandle is one admitted Run. It exists from admission until the Run
 // settles, so a Run still waiting on the Session lock is visible to
-// CancelSession and to Drain instead of being an untracked inflight slot.
+// AbortSession and to Drain instead of being an untracked inflight slot.
 type runHandle struct {
 	sessionID string
 
@@ -722,7 +722,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		return RunResult{}, notRunError(gotato.ErrorOf(gotato.ErrInvalidArgument, "service: prompt is required"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
-	// at once and Drain and CancelSession reach it even while it is still
+	// at once and Drain and AbortSession reach it even while it is still
 	// loading its Session.
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
@@ -838,7 +838,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 			s = fresh
 		}
 		// A newly created Session has a generated ID; retarget the handle so
-		// CancelSession can find it for the rest of the Run.
+		// AbortSession can find it for the rest of the Run.
 		sessionID = s.ID()
 		r.retargetHandle(handle, sessionID)
 	}
@@ -1752,7 +1752,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 	return child, nil
 }
 
-// CancelSession stops the Run in flight on a Session: everything in flight is
+// AbortSession stops the Run in flight on a Session: everything in flight is
 // canceled through its context, and the Run settles as canceled with every
 // Turn it committed. It is the Stop of the messages a Run takes (Send).
 //
@@ -1760,7 +1760,7 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 // returns not_writer (NotRun, Retryable) with the writer's advertised address,
 // as Send does. With no Run going anywhere it returns ErrNoRun, and for a
 // Session the store does not know (or refuses the caller), not_found.
-func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
+func (r *Runner) AbortSession(ctx context.Context, sessionID string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1777,7 +1777,7 @@ func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
 			return err
 		}
 	}
-	if r.cancelSession(sessionID) {
+	if r.abortSession(sessionID) {
 		return nil
 	}
 	if err := r.checkWriter(ctx, sessionID); err != nil {
@@ -1786,9 +1786,9 @@ func (r *Runner) CancelSession(ctx context.Context, sessionID string) error {
 	return ErrNoRun
 }
 
-// cancelSession cancels the started Run for a Session, or the oldest Run still
+// abortSession cancels the started Run for a Session, or the oldest Run still
 // waiting for its lock when none has started.
-func (r *Runner) cancelSession(sessionID string) bool {
+func (r *Runner) abortSession(sessionID string) bool {
 	r.mu.Lock()
 	waiting := append([]*runHandle(nil), r.handles[sessionID]...)
 	r.mu.Unlock()

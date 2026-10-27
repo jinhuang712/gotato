@@ -59,7 +59,7 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 	}{
 		{"steer", "/messages", steer},
 		{"notice", "/notices", notice},
-		{"cancel", "/cancel", nil},
+		{"abort", "/abort", nil},
 	} {
 		if status, body := callAs(t, server, "mallory", http.MethodPost, "/v1/sessions/"+id+tc.path, tc.body); status != http.StatusNotFound {
 			t.Errorf("%s by another caller = %d %s, want 404", tc.name, status, body)
@@ -71,7 +71,7 @@ func TestARefusalAlsoGuardsALiveRun(t *testing.T) {
 	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/notices", notice); status >= 300 {
 		t.Errorf("notice by the owner = %d %s", status, body)
 	}
-	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/cancel", nil); status != http.StatusAccepted {
+	if status, body := callAs(t, server, "alice", http.MethodPost, "/v1/sessions/"+id+"/abort", nil); status != http.StatusAccepted {
 		t.Errorf("cancel by the owner = %d %s", status, body)
 	}
 }

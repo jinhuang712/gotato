@@ -374,7 +374,7 @@ func (a *Session) Status() SessionStatus {
 
 func (a *Session) Done() <-chan struct{} { return a.done }
 
-func (a *Session) CancelRun(ctx context.Context, runID RunID) error {
+func (a *Session) AbortRun(ctx context.Context, runID RunID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -382,13 +382,13 @@ func (a *Session) CancelRun(ctx context.Context, runID RunID) error {
 		return err
 	}
 	if runID == "" {
-		return runtimeError(ErrInvalidArgument, "CancelRun", "Run ID is required", nil)
+		return runtimeError(ErrInvalidArgument, "AbortRun", "Run ID is required", nil)
 	}
 	a.runMu.Lock()
 	currentID := a.currentRunID
 	a.runMu.Unlock()
 	if currentID != runID || !a.abort() {
-		return runtimeError(ErrInvalidState, "CancelRun", "Run is not active", nil)
+		return runtimeError(ErrInvalidState, "AbortRun", "Run is not active", nil)
 	}
 	return nil
 }

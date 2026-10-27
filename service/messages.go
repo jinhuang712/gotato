@@ -54,7 +54,7 @@ type MessageResult struct {
 	Run    *RunResult `json:"run,omitempty"`
 }
 
-// ErrNoRun is returned by CancelSession when no Run is going on the Session,
+// ErrNoRun is returned by AbortSession when no Run is going on the Session,
 // here or on the Instance that writes it: a Stop finds nothing to stop.
 var ErrNoRun = gotato.ErrorOf(gotato.ErrInvalidState, "service: session has no active run")
 

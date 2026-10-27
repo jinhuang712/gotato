@@ -92,10 +92,10 @@ func TestAMessageWhileARunIsEndingGivesUpWithItsContext(t *testing.T) {
 // next Run like any notice between Runs.
 func TestAStopAndANoticeWhileARunIsEnding(t *testing.T) {
 	runner, id, hold, done := holdBeforeRelease(t)
-	err := runner.CancelSession(context.Background(), id)
-	t.Logf("CancelSession in the window: %v", err)
+	err := runner.AbortSession(context.Background(), id)
+	t.Logf("AbortSession in the window: %v", err)
 	if err != nil && !errors.Is(err, service.ErrNoRun) {
-		t.Fatalf("CancelSession = %v; want nil or ErrNoRun", err)
+		t.Fatalf("AbortSession = %v; want nil or ErrNoRun", err)
 	}
 	answered := make(chan error, 1)
 	go func() {
