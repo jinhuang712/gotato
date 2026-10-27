@@ -81,19 +81,6 @@ func WithToolFilter(keep func(toolID string) bool) Option {
 	}
 }
 
-// WithRootNamespace qualifies individual root Tools under one namespace. The
-// default is an empty namespace, where a root Tool keeps its declared ID.
-func WithRootNamespace(namespace string) Option {
-	return func(c *sessionConfig) error {
-		namespace = strings.TrimSpace(namespace)
-		if strings.Contains(namespace, ".") {
-			return runtimeError(ErrInvalidArgument, "WithRootNamespace", "namespace cannot contain a dot", nil)
-		}
-		c.rootNamespace = namespace
-		return nil
-	}
-}
-
 // LoadedToolSource is an optional method set of a Transcript: the qualified IDs
 // of the catalog Tools the Model loaded in earlier Runs of the Session, in the
 // order it loaded them, with a compaction's unloads applied. NewSession loads
@@ -144,15 +131,14 @@ type pendingLoad struct {
 // goroutine commits loads at batch boundaries; search_tools stages them from
 // its own goroutine, so mu guards every mutation of that state.
 type toolRegistry struct {
-	rootNamespace string
-	rootTools     []Tool
-	sources       []ToolSource
-	sourceTools   []Tool
-	sets          []*toolSetState
-	catalog       []catalogTool
-	byCatalog     map[string]*catalogTool
-	byQualified   map[string]Tool
-	specs         []ToolSpec
+	rootTools   []Tool
+	sources     []ToolSource
+	sourceTools []Tool
+	sets        []*toolSetState
+	catalog     []catalogTool
+	byCatalog   map[string]*catalogTool
+	byQualified map[string]Tool
+	specs       []ToolSpec
 	// loaded are the qualified IDs of the loaded catalog Tools, in load order.
 	loaded []string
 	// parked are the loaded Tools of a ToolSet that is unavailable now. They
@@ -178,13 +164,12 @@ type toolRegistry struct {
 
 func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, error) {
 	registry := &toolRegistry{
-		rootNamespace: cfg.rootNamespace,
-		rootTools:     cfg.tools,
-		sources:       cfg.toolSources,
-		maxEffect:     cfg.maxEffect,
-		filter:        cfg.toolFilter,
-		searcher:      cfg.toolSearcher,
-		byCatalog:     map[string]*catalogTool{},
+		rootTools: cfg.tools,
+		sources:   cfg.toolSources,
+		maxEffect: cfg.maxEffect,
+		filter:    cfg.toolFilter,
+		searcher:  cfg.toolSearcher,
+		byCatalog: map[string]*catalogTool{},
 	}
 	if registry.searcher == nil {
 		registry.searcher = bm25Searcher{}
@@ -556,7 +541,7 @@ func (r *toolRegistry) rebuild() error {
 	return nil
 }
 
-// staticTools is the root surface: Tools installed with WithTool(s) followed
+// staticTools is the root surface: Tools installed with WithTools(s) followed
 // by the current Tools of every ToolSource.
 func (r *toolRegistry) staticTools() []Tool {
 	if len(r.sourceTools) == 0 {
@@ -619,9 +604,6 @@ func (r *toolRegistry) abortPending() {
 }
 
 func (r *toolRegistry) qualify(namespace, local string) string {
-	if namespace == "" {
-		namespace = r.rootNamespace
-	}
 	if namespace == "" {
 		return local
 	}

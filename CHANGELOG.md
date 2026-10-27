@@ -22,6 +22,17 @@ before  runner.CancelRun(ctx, runID)
 after   runner.CancelSession(ctx, sessionID)
 ```
 
+### One way to give a Session its tools; unused options go
+
+Each thing now has one way. `WithTool` is folded into the variadic `WithTools`; `WithFunc` is `NewFuncTool` plus `WithTools`; `WithDeadlines` is a field pair of `CoreLimits`; `WithRootNamespace` had no caller. No old name is kept.
+
+| Before | After |
+|---|---|
+| `gotato.WithTool(t)` | `gotato.WithTools(t)` |
+| `gotato.WithFunc("n", "d", fn)` | `tool, err := gotato.NewFuncTool("n", "d", fn)`, then `gotato.WithTools(tool)`; a type the schema cannot describe now fails at `NewFuncTool` |
+| `gotato.WithDeadlines(m, t)`: only the two deadlines, other limits keep their defaults | `l := gotato.DefaultLimits(); l.ModelCallDeadline = m; l.ToolCallDeadline = t; gotato.WithLimits(l)`. `WithLimits` makes the limits explicit, so start from `DefaultLimits()`: a zero size limit would otherwise admit no work of that kind. A zero deadline still disables it |
+| `gotato.WithRootNamespace("ns")` | none; a root Tool keeps its declared ID |
+
 ### The core lives in `gotato/`, and `storetest` next to the Store
 
 The package layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias; a test-helper package sits next to what it tests. The core directory `gotato-core` is now `gotato`, and the Store contract suite moved beside `session`. `gotato.NewSession` and every other call stay as they were; only two import paths change, and the alias is no longer needed. `gotato/layering_test.go` (was `gotato-core/layering_test.go`) keeps the rules.
@@ -220,7 +231,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `CoreLimits.MaxToolCalls` (128): the next call failed the Run with `limit_exceeded` | removed; the same `TurnStopper` counts calls from the `TurnSnapshot` |
   | `CoreLimits.MaxToolResultBytes` (4 MiB): a larger Tool Result failed the Run with `limit_exceeded` | removed; a result over one page (32 KiB) is spilled into the Record and the Context holds a preview and a ref (*Large Tool Results*, below). `MaxMessageBytes` still refuses a Message too large to commit, but a text result no longer reaches it |
   | `CoreLimits.RunDeadline` (5 minutes) | removed; a Run's deadline in the core is its `ctx` |
-  | `gotato.WithDeadlines(run, model, tool)` | `gotato.WithDeadlines(model, tool)` |
+  | `gotato.WithDeadlines(run, model, tool)` | `gotato.WithLimits` with `ModelCallDeadline` and `ToolCallDeadline` (see *One way to give a Session its tools*) |
   | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
   | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
 

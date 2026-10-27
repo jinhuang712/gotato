@@ -58,7 +58,7 @@ func (f preparerFunc) PrepareTurn(ctx context.Context, pending PendingTurn) (Tur
 
 func newPreparedSession(t *testing.T, model Model, transcript Transcript, preparer TurnPreparer, extra ...Option) *Session {
 	t.Helper()
-	options := []Option{WithModel(model), WithTool(&countingTool{}), WithExtension(preparer)}
+	options := []Option{WithModel(model), WithTools(&countingTool{}), WithExtension(preparer)}
 	if transcript != nil {
 		options = append(options, WithTranscript(transcript))
 	}

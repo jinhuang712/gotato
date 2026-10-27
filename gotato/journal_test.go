@@ -94,7 +94,7 @@ func echoToolModel(calls ...string) *testModel {
 // in order, with the Events each one holds.
 func TestJournalWritesEachStepWithItsEvents(t *testing.T) {
 	journal := &journalTranscript{}
-	session, err := NewSession(WithModel(echoToolModel("call-1", "call-2")), WithTool(&scriptedTool{}), WithTranscript(journal))
+	session, err := NewSession(WithModel(echoToolModel("call-1", "call-2")), WithTools(&scriptedTool{}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestJournalWritesEachStepWithItsEvents(t *testing.T) {
 
 func TestToolResultsCommitPerGroup(t *testing.T) {
 	journal := &journalTranscript{}
-	session, err := NewSession(WithModel(echoToolModel("call-1", "call-2")), WithTool(&scriptedTool{}), WithTranscript(journal))
+	session, err := NewSession(WithModel(echoToolModel("call-1", "call-2")), WithTools(&scriptedTool{}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}

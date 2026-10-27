@@ -53,7 +53,7 @@ func TestChatKeepsAndSendsBackACallsExtraContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	live, err := gotato.NewSession(gotato.WithModel(client), gotato.WithTool(testkit.NewFakeTool("echo", "echoed")))
+	live, err := gotato.NewSession(gotato.WithModel(client), gotato.WithTools(testkit.NewFakeTool("echo", "echoed")))
 	if err != nil {
 		t.Fatal(err)
 	}

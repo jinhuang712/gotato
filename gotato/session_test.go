@@ -315,7 +315,7 @@ func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
 		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
 	transcript := &recordingTranscript{}
-	agent, err := NewSession(WithModel(model), WithTool(&scriptedTool{}), WithTranscript(transcript))
+	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
 
 func TestSessionToolLoop(t *testing.T) {
 	tool := &scriptedTool{}
-	agent, err := NewSession(WithModel(&toolModel{}), WithTool(tool))
+	agent, err := NewSession(WithModel(&toolModel{}), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

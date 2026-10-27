@@ -141,7 +141,7 @@ func midRun(t *testing.T, auto func(*session.Record) *AutoCompactor, model *test
 	t.Helper()
 	record := conversation(t)
 	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
-		gotato.WithTool(testkit.NewFakeTool("demo.read", "ok")), gotato.WithExtension(auto(record)))
+		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")), gotato.WithExtension(auto(record)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCancelled(t *testing.T) {
 	defer cancel()
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
 	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
-		gotato.WithTool(testkit.NewFakeTool("demo.read", "ok")),
+		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")),
 		gotato.WithExtension(AutoCompact(record, CompactPolicy{Ceiling: 500, Recap: stopper{cancel}})))
 	if err != nil {
 		t.Fatal(err)

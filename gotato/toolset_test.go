@@ -3,7 +3,6 @@ package gotato
 import (
 	"context"
 	"errors"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -142,20 +141,6 @@ func TestToolSetConstructionValidation(t *testing.T) {
 	}
 	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, ErrInvalidArgument) {
 		t.Fatalf("nil ToolSet = %v", err)
-	}
-	if _, err := NewSession(WithModel(model), WithRootNamespace("a.b")); !IsCode(err, ErrInvalidArgument) {
-		t.Fatalf("dotted root namespace = %v", err)
-	}
-	agent, err := NewSession(WithModel(model), WithRootNamespace("core"), WithTool(&namedTool{id: "ping"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
-		t.Fatal(err)
-	}
-	if ids := model.toolIDs(0); !slices.Contains(ids, "core.ping") {
-		t.Fatalf("root namespace not applied: %v", ids)
 	}
 }
 

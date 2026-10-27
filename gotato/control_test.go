@@ -124,7 +124,7 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTool(tool))
+	agent, err := NewSession(WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTool(tool))
+	agent, err := NewSession(WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

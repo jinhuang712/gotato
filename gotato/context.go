@@ -282,7 +282,7 @@ type TurnPrepared struct {
 // be resolved when the Model calls it.
 //
 // Tools returned by a ToolSource are qualified under the root namespace like
-// Tools installed with WithTool.
+// Tools installed with WithTools.
 type ToolSource interface {
 	Tools() []Tool
 }

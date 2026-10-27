@@ -151,7 +151,7 @@ func TestCutInsideAToolCallsArgumentsIsRetried(t *testing.T) {
 		cutScript{chunks: chatText("done") + chatStop},
 	)
 	tool := testkit.NewFakeTool("echo", "echoed")
-	session, recorder := cutSession(t, server, 2, gotato.WithTool(tool))
+	session, recorder := cutSession(t, server, 2, gotato.WithTools(tool))
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
 	if err != nil || result.Status != gotato.RunCompleted || gotato.TextOf(*result.FinalMessage) != "done" {
 		t.Fatalf("result = %+v, err = %v", result, err)

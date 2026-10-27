@@ -277,7 +277,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		created, err := gotato.NewSession(gotato.WithModel(client), gotato.WithExtension(failAfterOneTurn{}), gotato.WithTool(testkit.NewFakeTool("echo", "echoed")))
+		created, err := gotato.NewSession(gotato.WithModel(client), gotato.WithExtension(failAfterOneTurn{}), gotato.WithTools(testkit.NewFakeTool("echo", "echoed")))
 		if err != nil {
 			t.Fatal(err)
 		}

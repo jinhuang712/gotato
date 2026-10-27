@@ -43,7 +43,7 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 			testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
 			testkit.Text("done"),
 		)
-		options = append(options, gotato.WithModel(model), gotato.WithTool(testkit.DemoEchoTool()))
+		options = append(options, gotato.WithModel(model), gotato.WithTools(testkit.DemoEchoTool()))
 		agent, err := gotato.NewSession(options...)
 		if err != nil {
 			t.Fatal(err)

@@ -18,7 +18,7 @@ func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt stri
 	agent, err := gotato.NewSession(
 		gotato.WithModel(model),
 		gotato.WithTranscript(s),
-		gotato.WithTool(testkit.DemoEchoTool()),
+		gotato.WithTools(testkit.DemoEchoTool()),
 	)
 	if err != nil {
 		t.Fatal(err)

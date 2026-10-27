@@ -19,7 +19,7 @@ func runIDsOf(messages []Message) map[RunID]int {
 // and each tool result; a later Run's carry its own.
 func TestMessagesCarryTheRunThatCommittedThem(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done"), finalScript("second")}}
-	agent, err := NewSession(WithModel(model), WithTool(&scriptedTool{}))
+	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSteeredMessagesCarryTheirRun(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTool(&scriptedTool{}))
+	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}))
 	if err != nil {
 		t.Fatal(err)
 	}

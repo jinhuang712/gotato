@@ -26,7 +26,7 @@ func play(t *testing.T, task reftasks.Task) (*session.Record, []string) {
 		gotato.WithTranscript(s),
 	}
 	for _, tool := range task.Tools {
-		options = append(options, gotato.WithTool(tool))
+		options = append(options, gotato.WithTools(tool))
 	}
 	options = append(options, task.Options...)
 	if task.Limits != nil {

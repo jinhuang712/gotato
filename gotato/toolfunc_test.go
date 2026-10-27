@@ -166,14 +166,14 @@ func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (Model
 	return &testStream{events: []ModelEvent{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}}}, nil
 }
 
-func TestWithFuncRunsThroughTheLoop(t *testing.T) {
+func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 	var seen weatherInput
 	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen","unit":"celsius"}`}),
-		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			seen = in
 			return weatherOutput{Summary: "sunny in " + in.City}, nil
-		}),
+		})),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -195,10 +195,10 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	executed := false
 	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"unit":"celsius"}`}),
-		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			executed = true
 			return weatherOutput{}, nil
-		}),
+		})),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -228,9 +228,9 @@ func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 	model := &namedToolModel{tool: "get_wether"}
 	agent, err := NewSession(
 		WithModel(model),
-		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, nil
-		}),
+		})),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -273,9 +273,9 @@ func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (Mode
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	agent, err := NewSession(
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen"}`}),
-		WithFunc("get_weather", "Return the weather.", func(ctx context.Context, in weatherInput) (weatherOutput, error) {
+		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, errors.New("upstream is down")
-		}),
+		})),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -413,4 +413,13 @@ func TestFuncToolMapsStringLikeTypes(t *testing.T) {
 	if result.Content[0].Text != "2026-09-01T10:00:00Z" {
 		t.Fatalf("decoded time = %+v", result.Content)
 	}
+}
+
+func weatherTool(t *testing.T, fn func(context.Context, weatherInput) (weatherOutput, error)) Tool {
+	t.Helper()
+	tool, err := NewFuncTool("get_weather", "Return the weather.", fn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tool
 }

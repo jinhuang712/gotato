@@ -84,7 +84,7 @@ func newLive(t *testing.T, policy modelctx.CompactPolicy) *live {
 func (l *live) run(model gotato.Model, prompt, result string) (gotato.RunResult, error) {
 	l.t.Helper()
 	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(l.writer),
-		gotato.WithTool(testkit.NewFakeTool("demo.read", result)), gotato.WithExtension(l.auto))
+		gotato.WithTools(testkit.NewFakeTool("demo.read", result)), gotato.WithExtension(l.auto))
 	if err != nil {
 		l.t.Fatal(err)
 	}

@@ -149,7 +149,7 @@ func (t *blockingTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFun
 func TestInterruptLetsARunningToolFinish(t *testing.T) {
 	tool := &blockingTool{started: make(chan struct{}), release: make(chan struct{})}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	session, err := NewSession(WithModel(model), WithTool(tool))
+	session, err := NewSession(WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

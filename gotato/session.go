@@ -39,7 +39,6 @@ type sessionConfig struct {
 	toolSources    []ToolSource
 	toolFilter     func(string) bool
 	toolSearcher   ToolSearcher
-	rootNamespace  string
 	extensions     extensionSet
 	limits         CoreLimits
 	limitsSet      bool
@@ -129,16 +128,6 @@ func WithMaxEffect(effect ToolEffect) Option {
 	}
 }
 
-func WithTool(tool Tool) Option {
-	return func(c *sessionConfig) error {
-		if tool == nil {
-			return runtimeError(ErrInvalidArgument, "WithTool", "tool is nil", nil)
-		}
-		c.tools = append(c.tools, tool)
-		return nil
-	}
-}
-
 func WithTools(tools ...Tool) Option {
 	return func(c *sessionConfig) error {
 		for _, tool := range tools {
@@ -158,20 +147,6 @@ func WithLimits(limits CoreLimits) Option {
 		}
 		c.limits = limits
 		c.limitsSet = true
-		return nil
-	}
-}
-
-// WithDeadlines overrides only the Model call and Tool call deadlines. A zero
-// duration disables that deadline. Other local limits retain their defaults
-// and are not made explicit by this option. A Run's own deadline is its ctx.
-func WithDeadlines(model, tool time.Duration) Option {
-	return func(c *sessionConfig) error {
-		if model < 0 || tool < 0 {
-			return runtimeError(ErrInvalidArgument, "WithDeadlines", "deadlines cannot be negative", nil)
-		}
-		c.limits.ModelCallDeadline = model
-		c.limits.ToolCallDeadline = tool
 		return nil
 	}
 }

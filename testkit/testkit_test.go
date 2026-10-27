@@ -117,7 +117,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "fake", Arguments: []byte(`{"x":1}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(tool))
+	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

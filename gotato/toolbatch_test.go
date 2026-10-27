@@ -32,7 +32,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}))
+	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 		{{Kind: ModelToolCall, ToolCall: &call}, {Kind: ModelDone, StopReason: StopToolCalls}},
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTool(&concurrentProgressTool{workers: workers, updates: perWorker}))
+	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: workers, updates: perWorker}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		callsScript("slow"),
 		{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTool(stalledTool{blocked: blocked}))
+	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 			callsScript("echo", "echo"),
 			{{Kind: ModelTextDelta, Text: "done"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 		}}
-		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
+		agent, err := NewSession(WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -358,7 +358,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 	})
 	t.Run("extension after the Tool ran", func(t *testing.T) {
 		model := &testModel{scripts: [][]ModelEvent{callsScript("echo")}}
-		agent, err := NewSession(WithModel(model), WithTool(hookTool{id: "echo"}), WithExtension(failingPost{}))
+		agent, err := NewSession(WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(failingPost{}))
 		if err != nil {
 			t.Fatal(err)
 		}

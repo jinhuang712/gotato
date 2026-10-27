@@ -40,7 +40,7 @@ func callsUntil(answerAfter int) *testkit.FuncModel {
 func ExampleTurnStopper() {
 	session, err := gotato.NewSession(
 		gotato.WithModel(callsUntil(0)),
-		gotato.WithTool(testkit.NewFakeTool("lookup", "found")),
+		gotato.WithTools(testkit.NewFakeTool("lookup", "found")),
 		gotato.WithExtension(maxTurns(3)),
 	)
 	if err != nil {
@@ -55,7 +55,7 @@ func ExampleTurnStopper() {
 // The core counts no Turns or Tool calls: a Run of 101 Turns, over the old
 // defaults of 32 Turns and 128 Tool calls, settles by the model's reply.
 func TestARunEndsByTheModelsReplyWhateverItsLength(t *testing.T) {
-	session, err := gotato.NewSession(gotato.WithModel(callsUntil(150)), gotato.WithTool(testkit.NewFakeTool("lookup", "found")))
+	session, err := gotato.NewSession(gotato.WithModel(callsUntil(150)), gotato.WithTools(testkit.NewFakeTool("lookup", "found")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestARunEndsByItsCtx(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 				return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprint(time.Now().UnixNano())), ToolID: "lookup", Arguments: []byte(`{}`)}), nil
 			})
-			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(testkit.NewFakeTool("lookup", "found")))
+			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(testkit.NewFakeTool("lookup", "found")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,7 +112,7 @@ func TestALargeToolResultNoLongerFailsTheRun(t *testing.T) {
 	limits := gotato.DefaultLimits()
 	limits.MaxMessageBytes = 32 << 20
 	model := callsUntil(1)
-	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(testkit.NewFakeTool("lookup", big)), gotato.WithLimits(limits))
+	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(testkit.NewFakeTool("lookup", big)), gotato.WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

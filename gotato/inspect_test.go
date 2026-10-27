@@ -42,7 +42,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 		gotato.WithModel(model),
 		gotato.WithInstruction("You track orders."),
 		gotato.WithTranscript(s),
-		gotato.WithTool(testkit.NewFakeTool("orders.lookup", "shipped")),
+		gotato.WithTools(testkit.NewFakeTool("orders.lookup", "shipped")),
 		gotato.WithModelOptions(gotato.ModelOptions{Temperature: &temperature, MaxTokens: 512}),
 		gotato.WithExtensions(policyNote{}, shout{}),
 	)

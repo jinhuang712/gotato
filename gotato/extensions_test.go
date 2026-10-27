@@ -91,7 +91,7 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 	first := &toolStages{name: "first", trace: recorder, tag: "first"}
 	second := &toolStages{name: "second", trace: recorder, tag: "second"}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtensions(first, second))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtensions(first, second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
 	blocker := &toolStages{name: "blocker", trace: recorder, block: true}
 	after := &toolStages{name: "after", trace: recorder}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtensions(blocker, after))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtensions(blocker, after))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 		{{Kind: ModelTextDelta, Text: "final"}, {Kind: ModelDone, StopReason: StopEndTurn}},
 	}}
 	recorder := &snapshotRecorder{}
-	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtension(recorder))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(recorder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	tool := &countingTool{}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("never reached")}}
-	agent, err := NewSession(WithModel(model), WithTool(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
 	if err != nil {
 		t.Fatal(err)
 	}

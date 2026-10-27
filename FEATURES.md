@@ -225,7 +225,7 @@ You define an Agent once, then run Sessions of it: a message goes in, the Loop w
 
 ```go
 // error handling left out
-s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTool(lookup))
+s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup))
 defer s.Close(ctx)
 result, _ := s.Prompt(ctx, gotato.UserMessage("Where is order 42?"))
 fmt.Println(gotato.TextOf(*result.FinalMessage))
