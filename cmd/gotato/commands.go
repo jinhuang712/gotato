@@ -571,11 +571,17 @@ type toolView struct {
 	Sequential  bool            `json:"sequential,omitempty"`
 	Effect      string          `json:"effect,omitempty"`
 	Active      bool            `json:"active"`
+	// ToolSet names the ToolSet of a tool that comes from one; Loaded says
+	// whether the model has loaded it; Unavailable marks a ToolSet that did
+	// not resolve (its entry has the ToolSet's name as id).
+	ToolSet     string `json:"toolset,omitempty"`
+	Loaded      bool   `json:"loaded,omitempty"`
+	Unavailable bool   `json:"unavailable,omitempty"`
 }
 
 func viewOf(entry service.ToolEntry) toolView {
 	view := toolView{ID: entry.Spec.ID, Name: entry.Spec.Name, Description: entry.Spec.Description, Sequential: entry.Spec.Sequential,
-		Effect: string(entry.Spec.Effect), Active: entry.Active}
+		Effect: string(entry.Spec.Effect), Active: entry.Active, ToolSet: entry.ToolSet, Loaded: entry.Loaded, Unavailable: entry.Unavailable}
 	if json.Valid(entry.Spec.InputSchema) {
 		view.InputSchema = json.RawMessage(entry.Spec.InputSchema)
 	}
@@ -653,6 +659,8 @@ func (c *cli) cmdTools(args []string) int {
 			state := "active"
 			if !entry.Active {
 				state = "inactive"
+			} else if entry.Unavailable {
+				state = "unavailable"
 			}
 			fmt.Fprintf(c.stdout, "%-12s %-8s %s\n", entry.ID, state, entry.Description)
 		}

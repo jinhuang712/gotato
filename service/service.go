@@ -66,9 +66,16 @@ const (
 )
 
 // ToolEntry describes one Tool of an Agent as seen by a Session.
+//
+// A Tool of a ToolSet carries the ToolSet's name and whether it is loaded
+// (Loaded; Active says whether the Session switched it off). A ToolSet that failed its last resolution is one
+// entry with the ToolSet's name as Spec.ID and Unavailable set.
 type ToolEntry struct {
-	Spec   gotato.ToolSpec `json:"spec"`
-	Active bool            `json:"active"`
+	Spec        gotato.ToolSpec `json:"spec"`
+	Active      bool            `json:"active"`
+	ToolSet     string          `json:"toolset,omitempty"`
+	Loaded      bool            `json:"loaded,omitempty"`
+	Unavailable bool            `json:"unavailable,omitempty"`
 }
 
 // Agent is a named, reusable definition: the model, instruction, tools and
@@ -1468,13 +1475,14 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	}
 	if s != nil {
 		// A Session's ToolSets live in the Agent's Options, so the live Session
-		// says what it offers now: search_tools, whose description is the
-		// catalog, and the catalog tools the Session has loaded.
+		// says what they hold: every tool of every ToolSet, loaded or not,
+		// switched off or not, and search_tools, whose description is the catalog.
 		live, _, err := r.buildSession(ctx, spec, s, nil, InspectOptions{})
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = live.Close(context.Background()) }()
+		entries = append(entries, toolSetEntries(live, filter)...)
 		for _, offered := range live.Tools() {
 			if !slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == offered.ID }) {
 				entries = append(entries, ToolEntry{Spec: offered, Active: true})
@@ -1485,10 +1493,31 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 	return entries, nil
 }
 
+// toolSetEntries lists the tools of a live Session's ToolSets, with whether
+// each is loaded and whether the Session switched it off. A ToolSet that is
+// unavailable now is one entry of its own.
+func toolSetEntries(live *gotato.Session, filter *sessionTools) []ToolEntry {
+	var entries []ToolEntry
+	for _, set := range live.ToolSets() {
+		if set.Unavailable {
+			entries = append(entries, ToolEntry{Spec: gotato.ToolSpec{ID: set.Name, Name: set.Name, Description: set.Description}, Active: true, ToolSet: set.Name, Unavailable: true})
+			continue
+		}
+		for _, tool := range set.Tools {
+			entries = append(entries, ToolEntry{Spec: tool.Spec, Active: filter.active(tool.Spec.ID), ToolSet: set.Name, Loaded: tool.Loaded})
+		}
+	}
+	return entries
+}
+
 // SetToolActive records a Session-level activation change and writes it as
-// the Session's writer, under the Session lock.
+// the Session's writer, under the Session lock. It names a tool of the Agent
+// or of one of its ToolSets, which the Session resolves to find it; a ToolSet
+// that is unavailable now cannot be asked, so its tools are named again once
+// it answers.
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
 	var found *gotato.ToolSpec
+	var result ToolEntry
 	err := r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
@@ -1510,6 +1539,13 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			}
 		}
 		if found == nil {
+			found, result.ToolSet, result.Loaded, err = r.findSetTool(ctx, spec, s, toolID)
+			if err != nil {
+				_ = writer.Release(ctx)
+				return err
+			}
+		}
+		if found == nil {
 			_ = writer.Release(ctx)
 			return gotato.ErrorOf(gotato.ErrInvalidArgument, "service: unknown tool "+toolID)
 		}
@@ -1527,7 +1563,32 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	if err != nil {
 		return ToolEntry{}, err
 	}
-	return ToolEntry{Spec: *found, Active: active}, nil
+	result.Spec, result.Active = *found, active
+	return result, nil
+}
+
+// findSetTool looks for toolID among the tools of the Agent's ToolSets, which
+// a live Session resolves. It reports the tool's spec (nil when no ToolSet
+// holds it), its ToolSet and whether it is loaded. A name inside an
+// unavailable ToolSet is an error that says so.
+func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
+	live, _, err := r.buildSession(ctx, spec, s, nil, InspectOptions{})
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer func() { _ = live.Close(context.Background()) }()
+	for _, set := range live.ToolSets() {
+		if set.Unavailable && strings.HasPrefix(toolID, set.Name+".") {
+			return nil, "", false, gotato.ErrorOf(gotato.ErrInvalidArgument, "service: tool set "+set.Name+" is unavailable now; "+toolID+" cannot be checked")
+		}
+		for _, tool := range set.Tools {
+			if tool.Spec.ID == toolID {
+				found := tool.Spec
+				return &found, set.Name, tool.Loaded, nil
+			}
+		}
+	}
+	return nil, "", false, nil
 }
 
 // Compact compacts a Session explicitly, under the Session lock, and closes a

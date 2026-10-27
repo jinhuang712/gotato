@@ -310,6 +310,36 @@ func (a *Session) Tools() []ToolSpec {
 	return specs
 }
 
+// ToolSetStatus is what a Session knows of one installed ToolSet.
+type ToolSetStatus struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Unavailable is true when the ToolSet failed its last resolution; it then
+	// holds no Tools.
+	Unavailable bool `json:"unavailable,omitempty"`
+	// Tools are the ToolSet's Tools in ID order, under their qualified IDs.
+	Tools []ToolSetTool `json:"tools,omitempty"`
+}
+
+// ToolSetTool is one Tool of an installed ToolSet.
+type ToolSetTool struct {
+	Spec ToolSpec `json:"spec"`
+	// Loaded is true when the Tool is loaded (a fact of the Transcript) or its
+	// ToolSet is installed active. A Tool the filter refuses is still Loaded;
+	// it is just not offered.
+	Loaded bool `json:"loaded"`
+}
+
+// ToolSets reports every installed ToolSet as the last resolution left it, in
+// install order. A Tool above the Effect cap is left out, as it is never
+// offered. A Tool the WithToolFilter keep refuses is still listed, so a
+// caller can name it to switch it back on.
+func (a *Session) ToolSets() []ToolSetStatus {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	return a.registry.toolSetStatus()
+}
+
 // ContextInspection is the request a Session's next Turn would send, built
 // without calling the Model.
 type ContextInspection struct {

@@ -746,6 +746,27 @@ func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, o
 	return nil, nil, false
 }
 
+// toolSetStatus reports every installed ToolSet and its Tools for ToolSets.
+func (r *toolRegistry) toolSetStatus() []ToolSetStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]ToolSetStatus, 0, len(r.sets))
+	for _, state := range r.sets {
+		status := ToolSetStatus{Name: state.spec.Name, Description: state.spec.Description, Unavailable: state.failure != nil}
+		for i := range r.catalog {
+			entry := &r.catalog[i]
+			if entry.set != state || r.hidden(entry.spec) || r.staticHolds(entry.id) {
+				continue
+			}
+			loaded := (state.mode == modeActive || slices.Contains(r.loaded, entry.id))
+			status.Tools = append(status.Tools, ToolSetTool{Spec: cloneToolSpec(entry.spec), Loaded: loaded})
+		}
+		sort.Slice(status.Tools, func(i, j int) bool { return status.Tools[i].Spec.ID < status.Tools[j].Spec.ID })
+		out = append(out, status)
+	}
+	return out
+}
+
 // catalogText is the description of search_tools: each catalog ToolSet by what
 // its install mode shows. It lists a loaded Tool like any other, so the text
 // does not change while Tools load. The caller holds mu or is constructing.
