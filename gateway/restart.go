@@ -14,7 +14,7 @@ import (
 
 // A streaming response can fail after its headers arrived: a provider or a
 // proxy resets the connection, or closes it before the terminal event. The
-// request-level retry in do/doResponses cannot see that, so the streams
+// request-level retry in Client.do cannot see that, so the streams
 // handle it here:
 //
 //   - before any event has been handed to the caller, the stream re-issues

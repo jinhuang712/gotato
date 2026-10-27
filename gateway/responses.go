@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -33,7 +32,7 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 	if err != nil {
 		return nil, err
 	}
-	open := c.withCacheKeyHeader(c.doResponses, request.CacheKey)
+	open := c.withCacheKeyHeader(c.do, request.CacheKey)
 	response, err := open(ctx, body)
 	if err != nil {
 		return nil, err
@@ -47,57 +46,6 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		restart:  restarter{client: c, body: body, open: open},
 		overflow: c.overflow,
 	}, nil
-}
-
-func (c *Client) doResponses(ctx context.Context, body []byte) (*http.Response, error) {
-	if strings.TrimSpace(c.apiKey) == "" {
-		return nil, &Error{Message: "gateway: api_key is required for the Responses API"}
-	}
-	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		c.applyHeaders(ctx, req)
-		// Protocol headers are set after the configurable ones so a provider
-		// header override cannot break authentication or streaming.
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "text/event-stream")
-
-		response, requestErr := c.httpClient.Do(req)
-		if requestErr != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			if attempt < c.maxRetries {
-				delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
-				// The error text can name hosts, and Events reach clients.
-				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the request could not be sent"})
-				if err := wait(ctx, delay); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			return nil, &Error{retryable: true, Message: requestErr.Error()}
-		}
-		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			return response, nil
-		}
-		body := readErrorBody(response.Body)
-		message := body.Message
-		_ = response.Body.Close()
-		retryable := retryableStatus(response.StatusCode, message)
-		if retryable && attempt < c.maxRetries {
-			delay := c.retryDelay(response.Header, attempt)
-			gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: fmt.Sprintf("the provider answered %d", response.StatusCode)})
-			if err := wait(ctx, delay); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		return nil, c.overflow.httpError(response.StatusCode, retryable, body)
-	}
 }
 
 type responsesRequest struct {

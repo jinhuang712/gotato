@@ -391,7 +391,18 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("gateway: HTTP %d: %s", e.StatusCode, e.Message)
 }
 
+// do sends body to the endpoint and returns the first 2xx response. It is the
+// one retry loop of every wire API: a transport error, or a status that
+// retryableStatus accepts, is repeated within MaxRetries, each time reported
+// with gotato.ReportModelRetry before the wait. What differs between the APIs
+// is only authentication and protocol headers, which setProtocolHeaders sets.
 func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
+	// The Responses API has no anonymous mode, so a missing key is refused
+	// before any request; the other two APIs send no credential without one,
+	// which keyless local gateways rely on.
+	if c.api == APIResponses && strings.TrimSpace(c.apiKey) == "" {
+		return nil, &Error{Message: "gateway: api_key is required for the Responses API"}
+	}
 	for attempt := 0; ; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 		if err != nil {
@@ -403,20 +414,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 		c.applyHeaders(ctx, req)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
-		if c.api == APIAnthropicMessages {
-			// A configured anthropic-version header pins another API version.
-			if req.Header.Get("anthropic-version") == "" {
-				req.Header.Set("anthropic-version", anthropicVersion)
-			}
-			if c.rules.blockBinding {
-				addAnthropicBeta(req.Header, anthropicBindingBeta)
-			}
-			if c.apiKey != "" {
-				req.Header.Set("x-api-key", c.apiKey)
-			}
-		} else if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
+		c.setProtocolHeaders(req)
 		response, err := c.httpClient.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -449,6 +447,30 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			continue
 		}
 		return nil, c.overflow.httpError(response.StatusCode, retryable, body)
+	}
+}
+
+// setProtocolHeaders sets the headers that belong to the wire API: the
+// credential, and for Anthropic Messages the version and beta flags.
+func (c *Client) setProtocolHeaders(req *http.Request) {
+	switch c.api {
+	case APIAnthropicMessages:
+		// A configured anthropic-version header pins another API version.
+		if req.Header.Get("anthropic-version") == "" {
+			req.Header.Set("anthropic-version", anthropicVersion)
+		}
+		if c.rules.blockBinding {
+			addAnthropicBeta(req.Header, anthropicBindingBeta)
+		}
+		if c.apiKey != "" {
+			req.Header.Set("x-api-key", c.apiKey)
+		}
+	case APIResponses:
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	default:
+		if c.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
 	}
 }
 
