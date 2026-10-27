@@ -6,6 +6,61 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
+### Names follow one set of rules (batch 3)
+
+[AGENTS.md → Naming](AGENTS.md#naming) applied to constants, settings structs and the retryable convention. **Breaking**: nothing keeps an old name; wire strings do not change, and `ErrorCode` constants stay `Code…`.
+
+**A constant is prefixed with the name of its type.** The pattern is `<Type><Member>`; each row lists the members.
+
+| Type | Before | After |
+|---|---|---|
+| `gotato.EventKind` | `KindRunStarted`, `KindRunEnded`, `KindTextDelta`, … (all 46) | `EventKindRunStarted`, `EventKindRunEnded`, `EventKindTextDelta`, … |
+| `gotato.EventClass` | `ClassStored`, `ClassDelta`, `ClassInstance` | `EventClassStored`, `EventClassDelta`, `EventClassInstance` |
+| `gotato.ClaimWhy` | `ClaimNewSession`, `ClaimIdle`, `ClaimWriterGone`, `ClaimWaited` | `ClaimWhyNewSession`, `ClaimWhyIdle`, `ClaimWhyWriterGone`, `ClaimWhyWaited` |
+| `gotato.CompactionWhy` | `CompactionOnDemand`, `CompactionPastCeiling`, `CompactionBeforeUnload`, `CompactionBeforeCacheExpires`, `CompactionOverflow`, `CompactionPastBudget` | `CompactionWhyOnDemand`, `CompactionWhyPastCeiling`, `CompactionWhyBeforeUnload`, `CompactionWhyBeforeCacheExpires`, `CompactionWhyOverflow`, `CompactionWhyPastBudget` |
+| `gotato.MessageSource` | `SourcePrompt`, `SourceSteer`, `SourceFollowUp`, `SourceInterrupt`, `SourceNotice` | `MessageSourcePrompt`, `MessageSourceSteer`, `MessageSourceFollowUp`, `MessageSourceInterrupt`, `MessageSourceNotice` |
+| `gotato.ToolLoadedWhy`, `ToolUnloadedWhy` | `ToolLoadedNames`, `ToolLoadedQuery`, `ToolLoadedCall`, `ToolUnloadedCompaction`, `ToolUnloadedGone` | `ToolLoadedWhyNames`, `ToolLoadedWhyQuery`, `ToolLoadedWhyCall`, `ToolUnloadedWhyCompaction`, `ToolUnloadedWhyGone` |
+| `gotato.CacheAnchor` | `CacheAfterSystem`, `CacheAfterTools`, `CacheAfterMessage` | `CacheAnchorAfterSystem`, `CacheAnchorAfterTools`, `CacheAnchorAfterMessage` |
+| `gotato.ModelEventKind` | `ModelTextDelta`, `ModelReasoningDelta`, `ModelReasoningDone`, `ModelToolCall`, `ModelUsage`, `ModelDone` | `ModelEventKindTextDelta`, `ModelEventKindReasoningDelta`, `ModelEventKindReasoningDone`, `ModelEventKindToolCall`, `ModelEventKindUsage`, `ModelEventKindDone` |
+| `gotato.NoticeSource` | `NoticeFromGotato`, `NoticeFromService` | `NoticeSourceGotato`, `NoticeSourceService` |
+| `gotato.ToolEffect` | `EffectUnspecified`, `EffectRead`, `EffectWriteLocal`, `EffectWriteExternal`, `EffectDestructive` | `ToolEffectUnspecified`, `ToolEffectRead`, `ToolEffectWriteLocal`, `ToolEffectWriteExternal`, `ToolEffectDestructive` |
+| `gotato.ContentKind` | `ContentText`, `ContentReasoning`, `ContentImage`, `ContentJSON` | `ContentKindText`, `ContentKindReasoning`, `ContentKindImage`, `ContentKindJSON` |
+| `gotato.ToolResultStatus` | `ToolResultOK`, `ToolResultBlocked`, `ToolResultFailed`, `ToolResultCanceled` | `ToolResultStatusOK`, `ToolResultStatusBlocked`, `ToolResultStatusFailed`, `ToolResultStatusCanceled` |
+| `gotato.StopReason` | `StopNone`, `StopEndTurn`, `StopToolCalls`, `StopMaxTokens`, `StopCanceled`, `StopError`, `StopCutOff` | `StopReasonNone`, `StopReasonEndTurn`, `StopReasonToolCalls`, `StopReasonMaxTokens`, `StopReasonCanceled`, `StopReasonError`, `StopReasonCutOff` |
+| `gotato.RunStatus` | `RunRunning`, `RunCompleted`, `RunCanceled`, `RunDeadlineExceeded`, `RunFailed` | `RunStatusRunning`, `RunStatusCompleted`, `RunStatusCanceled`, `RunStatusDeadlineExceeded`, `RunStatusFailed` |
+| `service.MessageKind` | `MessageSteer`, `MessageFollowUp`, `MessageInterrupt` | `MessageKindSteer`, `MessageKindFollowUp`, `MessageKindInterrupt` |
+| `service.QueuePolicy` | `RejectWhileBusy`, `WaitWhileBusy` | `QueuePolicyReject`, `QueuePolicyWait` |
+| `modelctx.Result.Reason` (was `string`) | `ReasonBelowMinTokens`, `ReasonNothingToClose` | new type `CompactReason`: `CompactReasonBelowMinTokens`, `CompactReasonNothingToClose` |
+| `modelctx.MergeResult.Reason` (was `string`) | `MergeUnderBudget`, `MergeNothingToMerge`, `MergeRecapFailed`, `MergeWriteFailed` | new type `MergeReason`: `MergeReasonUnderBudget`, `MergeReasonNothingToMerge`, `MergeReasonRecapFailed`, `MergeReasonWriteFailed` |
+
+`SessionStatus…`, `Role…`, `session.Layer…`, `workload.Kind…` and `workload.Cause…` already followed the rule.
+
+**A struct of settings is a `Config` or a `Policy`, never `Options`; a function type that configures is an `Option`, prefixed when a package has two.** A per-call setting is a `Config`; a standing rule stays a `Policy` (`modelctx.CompactPolicy`, `service.WarmPolicy`).
+
+| Before | After |
+|---|---|
+| `modelctx.CompactOptions`, `MergeOptions`, `ReadResultOptions`, `ReadSegmentOptions` | `modelctx.CompactConfig`, `MergeConfig`, `ReadResultConfig`, `ReadSegmentConfig` |
+| `gotato.ModelOptions`, `gotato.WithModelOptions(…)` | `gotato.ModelConfig`, `gotato.WithModelConfig(…)`; `ModelRequest.Options` keeps its name and JSON key |
+| `service.InspectOptions` | `service.InspectConfig` |
+| `gotato.Option` (beside `SubscribeOption`) | `gotato.SessionOption` |
+| `session.Option` (beside `WriterOption`) | `session.RecordOption` |
+| `mcp.Option` (beside `HTTPOption`) | `mcp.ToolSetOption` |
+
+**A `Default…` constant names its unit** where the type does not. A `time.Duration` needs no suffix.
+
+| Before | After |
+|---|---|
+| `modelctx.DefaultSegmentsBudget` (estimated tokens) | `modelctx.DefaultSegmentsBudgetTokens` |
+
+**The retryable convention is `Retryable() bool`,** matching `ContextOverflow() bool`. A Model error that says its failure is transient implements `Retryable() bool`.
+
+| Before | After |
+|---|---|
+| `interface{ IsRetryable() bool }` read by the core | `interface{ Retryable() bool }` |
+| `gateway.Error.Retryable` (field), `(*gateway.Error).IsRetryable()` | `(*gateway.Error).Retryable()`; the field is unexported |
+
+`gotato.RuntimeError.Retryable` and `gotato.Retryable(err)` keep their names.
+
 ### Names follow one set of rules (batch 2)
 
 The rules of [AGENTS.md → Naming](AGENTS.md#naming) applied to names that did not yet follow them: a name is the glossary's, `Load` reads from a store, `Parse` from bytes and `From…` builds from a value in memory. **Breaking**: nothing keeps an old name.
