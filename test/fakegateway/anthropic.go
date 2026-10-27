@@ -64,8 +64,10 @@ type anthropicMsg struct {
 }
 
 type anthropicTool struct {
-	Name        string         `json:"name"`
-	InputSchema map[string]any `json:"input_schema"`
+	Name         string         `json:"name"`
+	InputSchema  map[string]any `json:"input_schema"`
+	DeferLoading bool           `json:"defer_loading"`
+	CacheControl map[string]any `json:"cache_control"`
 }
 
 func (anthropicWire) api() string { return APIAnthropic }
@@ -136,8 +138,24 @@ func (a anthropicWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 		return nil, a.invalid("thinking.block_binding: Extra inputs are not permitted")
 	}
 	p := &parsed{model: req.Model, stream: req.Stream, maxOutput: *req.MaxTokens, header: h, raw: raw, request: &req, body: body}
-	for _, t := range req.Tools {
-		p.tools = append(p.tools, toolDef{name: t.Name, schema: t.InputSchema})
+	p.loaded = map[string]bool{}
+	deferredTools, plainTools := map[string]bool{}, 0
+	for i, t := range req.Tools {
+		p.tools = append(p.tools, toolDef{name: t.Name, schema: t.InputSchema, deferred: t.DeferLoading})
+		if t.DeferLoading {
+			deferredTools[t.Name] = true
+			if t.CacheControl != nil {
+				return nil, a.invalid(fmt.Sprintf("tools.%d.cache_control: a tool with defer_loading true cannot take cache_control", i))
+			}
+			continue
+		}
+		plainTools++
+		if t.Name == "search_tools" || strings.HasSuffix(t.Name, "_search_tools") {
+			p.searchName = t.Name
+		}
+	}
+	if len(deferredTools) > 0 && plainTools == 0 {
+		return nil, a.invalid("tools: at least one tool must be non-deferred (defer_loading true is set on every tool)")
 	}
 	req.blocks = make([][]map[string]any, len(req.Messages))
 	for i, m := range req.Messages {
@@ -238,19 +256,41 @@ func (a anthropicWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 		}
 		p.midSystem = append(p.midSystem, i)
 	}
+	useNames := map[string]string{}
 	for i, m := range req.Messages {
 		if m.Role == "system" {
 			continue
 		}
-		for _, b := range req.blocks[i] {
+		for j, b := range req.blocks[i] {
 			switch b["type"] {
 			case "text":
 				if m.Role == "user" {
 					text, _ := b["text"].(string)
 					p.events = append(p.events, event{text: text})
 				}
+			case "tool_use":
+				id, _ := b["id"].(string)
+				name, _ := b["name"].(string)
+				useNames[id] = name
+			case "tool_reference":
+				return nil, a.invalid(fmt.Sprintf("messages.%d.content.%d: a tool_reference block belongs in the content of a tool_result", i, j))
 			case "tool_result":
-				p.events = append(p.events, event{toolResult: true, text: toolResultText(b["content"])})
+				id, _ := b["tool_use_id"].(string)
+				ev := event{toolResult: true, text: toolResultText(b["content"]), search: p.searchName != "" && useNames[id] == p.searchName}
+				content, _ := b["content"].([]any)
+				for _, c := range content {
+					ref, _ := c.(map[string]any)
+					if ref["type"] != "tool_reference" {
+						continue
+					}
+					name, _ := ref["tool_name"].(string)
+					if !deferredTools[name] {
+						return nil, a.invalid(fmt.Sprintf("messages.%d.content.%d: tool reference '%s' is not a deferred tool in the tools list", i, j, name))
+					}
+					p.loaded[name] = true
+					ev.search = true
+				}
+				p.events = append(p.events, ev)
 			}
 		}
 	}

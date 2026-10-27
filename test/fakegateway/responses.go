@@ -25,9 +25,11 @@ type responsesRequest struct {
 	Include         []string        `json:"include"`
 	MaxOutputTokens int             `json:"max_output_tokens"`
 	Tools           []struct {
-		Type       string         `json:"type"`
-		Name       string         `json:"name"`
-		Parameters map[string]any `json:"parameters"`
+		Type         string         `json:"type"`
+		Name         string         `json:"name"`
+		Parameters   map[string]any `json:"parameters"`
+		DeferLoading bool           `json:"defer_loading"`
+		Execution    string         `json:"execution"`
 	} `json:"tools"`
 
 	items []map[string]any
@@ -78,9 +80,20 @@ func (r responsesWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 	var raw map[string]any
 	_ = json.Unmarshal(body, &raw)
 	p := &parsed{model: req.Model, stream: req.Stream, maxOutput: req.MaxOutputTokens, store: req.Store, include: req.Include, header: h, raw: raw, request: &req, body: body}
-	for _, t := range req.Tools {
-		if t.Type == "function" && t.Name != "" {
-			p.tools = append(p.tools, toolDef{name: t.Name, schema: t.Parameters})
+	p.loaded = map[string]bool{}
+	deferredTools := map[string]bool{}
+	for i, t := range req.Tools {
+		switch {
+		case t.Type == "function" && t.Name != "":
+			p.tools = append(p.tools, toolDef{name: t.Name, schema: t.Parameters, deferred: t.DeferLoading})
+			if t.DeferLoading {
+				deferredTools[t.Name] = true
+			}
+		case t.Type == "tool_search":
+			if t.Execution != "client" {
+				return nil, openAIErr(http.StatusBadRequest, "Unsupported tool_search execution: this fake serves \"client\" only.", fmt.Sprintf("tools[%d].execution", i), "")
+			}
+			p.searchName, p.nativeSearch = "tool_search", true
 		}
 	}
 	var text string
@@ -93,6 +106,8 @@ func (r responsesWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 	}
 	calls := map[string]bool{}
 	outputs := map[string]bool{}
+	searchCalls := map[string]bool{}
+	searchOutputs := map[string]bool{}
 	seenOther := false
 	for i, it := range req.items {
 		kind, _ := it["type"].(string)
@@ -111,6 +126,34 @@ func (r responsesWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 			case "user":
 				p.events = append(p.events, event{text: responsesText(it["content"])})
 			}
+		case "tool_search_call":
+			id, _ := it["call_id"].(string)
+			if !p.nativeSearch {
+				return nil, openAIErr(http.StatusBadRequest, "Item of type 'tool_search_call' was provided but no 'tool_search' tool is available.", "input", "")
+			}
+			if it["execution"] != "client" {
+				return nil, openAIErr(http.StatusBadRequest, "Invalid value: 'tool_search_call' needs execution \"client\".", fmt.Sprintf("input[%d].execution", i), "")
+			}
+			if _, ok := it["arguments"].(map[string]any); !ok {
+				return nil, openAIErr(http.StatusBadRequest, "Invalid type for 'tool_search_call.arguments': expected an object.", fmt.Sprintf("input[%d].arguments", i), "invalid_type")
+			}
+			searchCalls[id] = true
+		case "tool_search_output":
+			id, _ := it["call_id"].(string)
+			if !searchCalls[id] {
+				return nil, openAIErr(http.StatusBadRequest, "No tool search call found for tool search output with call_id "+id+".", "input", "")
+			}
+			searchOutputs[id] = true
+			loaded, _ := it["tools"].([]any)
+			for _, l := range loaded {
+				tool, _ := l.(map[string]any)
+				name, _ := tool["name"].(string)
+				if tool["type"] != "function" || !deferredTools[name] {
+					return nil, openAIErr(http.StatusBadRequest, fmt.Sprintf("Tool '%s' in the tool search output is not a function declared with defer_loading in 'tools'.", name), fmt.Sprintf("input[%d].tools", i), "")
+				}
+				p.loaded[name] = true
+			}
+			p.events = append(p.events, event{toolResult: true, search: true})
 		case "function_call":
 			id, _ := it["call_id"].(string)
 			calls[id] = true
@@ -128,6 +171,11 @@ func (r responsesWire) parse(_ *Gateway, body []byte, h http.Header) (*parsed, *
 	for id := range calls {
 		if !outputs[id] {
 			return nil, openAIErr(http.StatusBadRequest, "No tool output found for function call "+id+".", "input", "")
+		}
+	}
+	for id := range searchCalls {
+		if !searchOutputs[id] {
+			return nil, openAIErr(http.StatusBadRequest, "No tool search output found for tool search call "+id+".", "input", "")
 		}
 	}
 	return p, nil
@@ -282,6 +330,18 @@ func (responsesWire) stream(s *sseWriter, p *parsed, pl *plan, q *quirks) {
 		item := map[string]any{"id": id, "type": "message", "status": "completed", "role": "assistant", "content": []any{part}}
 		ev("response.output_item.done", map[string]any{"output_index": index, "item": item})
 		output = append(output, item)
+	} else if pl.call.search {
+		// The model's search: a tool_search_call item, whose arguments are an
+		// object and which streams no argument deltas.
+		id := "tsc_" + tag
+		callID := "call_" + pl.id
+		var args map[string]any
+		_ = json.Unmarshal([]byte(pl.call.args), &args)
+		item := map[string]any{"id": id, "type": "tool_search_call", "status": "in_progress", "call_id": callID, "execution": "client", "arguments": args}
+		ev("response.output_item.added", map[string]any{"output_index": index, "item": item})
+		done := map[string]any{"id": id, "type": "tool_search_call", "status": "completed", "call_id": callID, "execution": "client", "arguments": args}
+		ev("response.output_item.done", map[string]any{"output_index": index, "item": done})
+		output = append(output, done)
 	} else {
 		id := "fc_" + tag
 		callID := "call_" + pl.id

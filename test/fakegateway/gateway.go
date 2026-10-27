@@ -47,12 +47,47 @@
 //	delay=D                    wait D (a Go duration) before the reply, and
 //	                           stop when the client goes away
 //
+//	load=<tool ID>             play the native form of deferred tools: the
+//	                           model calls the search tool for the tool, calls
+//	                           the tool once it is loaded, and answers "tool
+//	                           said: <result>" (see Deferred tools)
+//
 // Without a directive the fake also refuses as the provider does a request
 // whose estimated size (one token per four bytes of the body) is past its
 // window (WithWindow), a request whose max output tokens are past its limit
 // (WithMaxOutput, a refusal that is not an overflow), a malformed tool loop,
 // and, for Anthropic, a mid-conversation system message that breaks its
 // placement rules.
+//
+// # Deferred tools
+//
+// The fake plays the native form of deferred tools on the two wire APIs that
+// have one, from the documented shapes of each:
+//
+//   - Anthropic Messages: a tool with defer_loading true is in the tools array
+//     but not in the model's context until a tool_result holds a tool_reference
+//     block that names it. At least one tool must be non-deferred, and a
+//     deferred tool takes no cache_control. A tool_reference to a tool that is
+//     not deferred, or not in the list, is a 400.
+//   - OpenAI Responses: a tool of type tool_search with execution "client"
+//     stands for the client's search. The model's search is a tool_search_call
+//     item with the arguments as an object, and the client answers with a
+//     tool_search_output item with the same call_id and the functions it loads,
+//     each one declared in tools with defer_loading true. A call without its
+//     output, or an output that loads a function not declared deferred, is a 400.
+//
+// A directive [quirk:load=shop.invoice] in the last user text makes the model
+// load that tool: it calls the search tool (a tool named search_tools, or
+// ending in _search_tools, on Anthropic; the tool_search tool on Responses)
+// with {"names":["shop.invoice"]}, and once the tool is loaded it calls it, with
+// "from-tool" for the first string property of its schema, in alphabetical
+// order. The tool's name on the wire is its ID with every character outside
+// [A-Za-z0-9_-] replaced by "_". A tool already loaded is called without a
+// search; a search that does not load the tool ends the reply with "fake: <name>
+// is not loaded". The fake plays the documented shape. It is not a real
+// provider, and it does not decide what a provider would do with a tool list it
+// did not expect. Chat Completions has no native form, and "load" is not played
+// there.
 //
 // # Recording
 //
@@ -216,7 +251,14 @@ type parsed struct {
 	maxOutput int
 	tools     []toolDef
 	events    []event
-	midSystem []int
+	// loaded holds the deferred tools the conversation loaded, by name.
+	loaded map[string]bool
+	// searchName is the name of the search tool, or "" when the request has
+	// none; nativeSearch says it is the Responses tool_search tool, which
+	// the model calls with a tool_search_call item.
+	searchName   string
+	nativeSearch bool
+	midSystem    []int
 	// store and include are the Responses API's fields of those names.
 	store   *bool
 	include []string
@@ -230,20 +272,48 @@ type parsed struct {
 type toolDef struct {
 	name   string
 	schema map[string]any
+	// deferred is a tool the model does not see until it is loaded
+	// (defer_loading).
+	deferred bool
 }
 
 // event is one step of the conversation as the model reads it: a text the
 // user wrote, or a Tool Result.
 type event struct {
 	toolResult bool
-	text       string
+	// search says the Tool Result answers the search tool.
+	search bool
+	text   string
+}
+
+// visibleTools are the tools the model can call: those that are not deferred,
+// and the deferred ones a tool_reference or a tool_search_output loaded.
+func (p *parsed) visibleTools() []toolDef {
+	var out []toolDef
+	for _, t := range p.tools {
+		if !t.deferred || p.loaded[t.name] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// wireName is a tool ID as the gateway names it for a provider: every
+// character outside [A-Za-z0-9_-] becomes "_".
+func wireName(id string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, id)
 }
 
 var directive = regexp.MustCompile(`\[quirk:([A-Za-z0-9-]*)(?:=([^\]]*))?\]`)
 
 var knownQuirks = map[string]bool{
 	"overflow": true, "overflow-midstream": true, "cut-after-text": true, "cut-in-args": true,
-	"cached": true, "reasoning": true, "delay": true,
+	"cached": true, "reasoning": true, "delay": true, "load": true,
 }
 
 // quirks are the quirks of one request.
@@ -473,6 +543,9 @@ type plan struct {
 type toolCall struct {
 	name string
 	args string
+	// search says the call is the model's search, a tool_search_call item on
+	// Responses.
+	search bool
 }
 
 func (g *Gateway) answer(p *parsed, text string, q *quirks, tokens int) *plan {
@@ -482,17 +555,22 @@ func (g *Gateway) answer(p *parsed, text string, q *quirks, tokens int) *plan {
 		pl.cached = min(pl.cached, tokens)
 	}
 	last := p.lastUser()
-	result, hasResult := "", false
+	result, hasResult, searched := "", false, false
 	for i := last + 1; i < len(p.events); i++ {
-		if p.events[i].toolResult {
+		if p.events[i].toolResult && p.events[i].search {
+			searched = true
+		} else if p.events[i].toolResult {
 			result, hasResult = p.events[i].text, true
 		}
 	}
+	visible := p.visibleTools()
 	switch {
 	case hasResult:
 		pl.text = "tool said: " + result
-	case text == "use-tool" && len(p.tools) > 0:
-		pl.call = &toolCall{name: p.tools[0].name, args: argsFor(p.tools[0])}
+	case q.has("load"):
+		pl.load(p, visible, q.byName["load"], searched)
+	case text == "use-tool" && len(visible) > 0:
+		pl.call = &toolCall{name: visible[0].name, args: argsFor(visible[0])}
 	default:
 		pl.text = "fake: " + text
 	}
@@ -504,6 +582,27 @@ func (g *Gateway) answer(p *parsed, text string, q *quirks, tokens int) *plan {
 		pl.output += len(pl.call.args)/4 + 1
 	}
 	return pl
+}
+
+// load plays the load directive: call the tool when it is visible, search for
+// it when it is not, and say so when a search did not load it.
+func (pl *plan) load(p *parsed, visible []toolDef, id string, searched bool) {
+	name := wireName(id)
+	for _, t := range visible {
+		if t.name == name {
+			pl.call = &toolCall{name: name, args: argsFor(t)}
+			return
+		}
+	}
+	switch {
+	case searched:
+		pl.text = "fake: " + name + " is not loaded"
+	case p.searchName == "":
+		pl.text = "fake: no search tool to load " + name
+	default:
+		args, _ := json.Marshal(map[string][]string{"names": {id}})
+		pl.call = &toolCall{name: p.searchName, args: string(args), search: p.nativeSearch}
+	}
 }
 
 func argsFor(t toolDef) string {
