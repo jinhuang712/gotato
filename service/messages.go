@@ -106,8 +106,13 @@ func WriterOf(err error) (address string, ok bool) {
 // leftovers are dropped instead, with a message_dropped Event, only when the
 // Run was stopped or canceled (run_ended), the instance is draining
 // (draining), or the Run's writer failed (writer_failed); a leftover that does
-// not fit the next Run's queues says queue_full. A writer that dies loses
-// them, as it loses any accepted message.
+// not fit the next Run's queues says queue_full, and one whose following Run
+// fails before its live Session takes it says run_failed (the store failed to
+// open the Session, the Session was deleted, its Agent is gone, the writer was
+// fenced). That drop is in the Record when the following Run opened it and can
+// still write; when nothing can be written, it is on the Instance's stream
+// alone and not stored. A writer that dies loses them, as it loses any
+// accepted message.
 func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

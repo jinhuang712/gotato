@@ -4,6 +4,10 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### A following Run that fails drops its messages as `run_failed`
+
+A message `Send` reported as queued, left over when its Run settled, vanished without a trace when the following Run failed before its live Session took it (the store failed to open the Session, the Session was deleted, its Agent was no longer configured). Each such message now gets a `message_dropped` Event with the new Why `run_failed`, in the Record when it can be written, else on the Instance's stream alone.
+
 ### A Fork whose ID is taken is `ErrSessionExists`
 
 **Breaking**: `Runner.Fork` with an explicit ID that a Session already holds answered `invalid_argument`, while `CreateSessionExclusive` answers `ErrSessionExists` for the same fault. Both answer `ErrSessionExists` now (`invalid_state`, HTTP 409).

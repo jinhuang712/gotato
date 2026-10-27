@@ -10,8 +10,18 @@ import (
 // is the new Run's prompt, with the ID it was queued under, and the rest wait
 // in its queues, in order.
 type followOn struct {
-	prompt gotato.Message
-	rest   []gotato.Queued
+	first gotato.Queued
+	rest  []gotato.Queued
+}
+
+// dropped is the message_dropped Event of each message the Run was to take,
+// with why.
+func (f *followOn) dropped(session gotato.SessionID, why string) []gotato.Event {
+	events := make([]gotato.Event, 0, 1+len(f.rest))
+	for _, m := range append([]gotato.Queued{f.first}, f.rest...) {
+		events = append(events, gotato.MessageDropped{Header: gotato.NewHeader(session, "", 0), MessageID: m.Message.ID, Source: m.Source, Why: why})
+	}
+	return events
 }
 
 // followOn runs the Runs that follow a settled one, one after the other, while
@@ -34,7 +44,7 @@ func (r *Runner) followOn(ctx context.Context, handle *runHandle, next []gotato.
 		for len(next) > 0 {
 			first := next[0]
 			request := RunRequest{SessionID: handle.sessionID, Prompt: gotato.TextOf(first.Message)}
-			_, _ = r.serve(runCtx, runCtx, request, nil, handle, &followOn{prompt: first.Message, rest: next[1:]})
+			_, _ = r.serve(runCtx, runCtx, request, nil, handle, &followOn{first: first, rest: next[1:]})
 			next = handle.takeNext()
 			if len(next) > 0 {
 				r.rearm(handle, cancel)

@@ -23,3 +23,7 @@ func WithClock(cfg Config, c Clock) Config {
 
 // SetOnSendRetry sets the seam that counts the rounds of Send's loop.
 func (r *Runner) SetOnSendRetry(fn func()) { r.onSendRetry = fn }
+
+// RemoveAgent unregisters an Agent, as a deploy that drops it would. Call it
+// only while no Run reads the Agents.
+func (r *Runner) RemoveAgent(name string) { delete(r.agents, name) }

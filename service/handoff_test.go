@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -253,5 +254,103 @@ func TestSendDoesNotSpinOnALiveSessionThatRefuses(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Send did not return after the Run was released")
+	}
+}
+
+// loadFails is a Store whose Load fails once armed.
+type loadFails struct {
+	session.Store
+	armed atomic.Bool
+}
+
+func (s *loadFails) Load(ctx context.Context, id string) (session.Loaded, error) {
+	if s.armed.Load() {
+		return session.Loaded{}, errors.New("store down")
+	}
+	return s.Store.Load(ctx, id)
+}
+
+// A following Run that cannot open the Session drops each message it was to
+// take, with run_failed, on the Instance's stream; nothing can be written to the
+// Record. A Run that follows without failing drops nothing (the tests above).
+func TestAFollowingRunThatFailsDropsItsMessages(t *testing.T) {
+	store := &loadFails{Store: session.NewMemoryStore()}
+	runner, err := service.New(service.Config{
+		Store:  store,
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: -1}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	hold := newHold()
+	runner.SetBeforeDetach(hold.hook)
+	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := runner.SubscribeInstance(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := testkit.RecordSubscription(sub)
+	done := make(chan struct{})
+	go func() {
+		_, _ = runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+		close(done)
+	}()
+	<-hold.reached
+	var ids []gotato.MessageID
+	for _, text := range []string{"one", "two"} {
+		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindFollowUp, Text: text})
+		if err != nil || !result.Queued {
+			t.Fatalf("Send(%s) = %+v, %v; want queued", text, result, err)
+		}
+		ids = append(ids, gotato.MessageID(result.MessageID))
+	}
+	store.armed.Store(true)
+	close(hold.proceed)
+	<-done
+
+	deadline := time.Now().Add(5 * time.Second)
+	for len(recorded.OfKind(gotato.EventKindMessageDropped)) < len(ids) {
+		if time.Now().After(deadline) {
+			t.Fatalf("got %v; want a message_dropped for each of %v", recorded.Kinds(), ids)
+		}
+		runtime.Gosched()
+	}
+	for i, event := range recorded.OfKind(gotato.EventKindMessageDropped) {
+		dropped := event.(gotato.MessageDropped)
+		if dropped.MessageID != ids[i] || dropped.Why != "run_failed" {
+			t.Fatalf("dropped %+v; want message %s with why run_failed", dropped, ids[i])
+		}
+	}
+}
+
+// A following Run that opened the Session and then finds its Agent gone writes
+// the drops in the Record, where the message_queued Events are, and they reach
+// the Session's subscribers too.
+func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
+	rig := startHeld(t)
+	id := rig.send(t, service.MessageKindSteer, "late")
+	rig.runner.RemoveAgent("echo")
+	rig.release(t)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, dropped, _ := rig.events(t)
+		if dropped[id] == "run_failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dropped %v; want message %s dropped for run_failed in the Record", dropped, id)
+		}
+		runtime.Gosched()
+	}
+	if got := rig.ended.OfKind(gotato.EventKindMessageDropped); len(got) != 1 {
+		t.Fatalf("the Instance stream has %d message_dropped, want 1", len(got))
+	}
+	if got := transcriptOf(t, rig.runner, rig.id); !equal(got, []string{"user:hello", "assistant:echo: hello"}) {
+		t.Fatalf("transcript = %v", got)
 	}
 }

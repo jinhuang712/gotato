@@ -242,8 +242,11 @@ type runState struct {
 	// started says the Run's live Session was built, so the Run cannot be
 	// undone by deleting the Session it created.
 	started bool
-	out     RunResponse
-	runErr  error
+	// followDropped says the messages a following Run was to take were
+	// reported dropped, since the Run failed before its live Session took them.
+	followDropped bool
+	out           RunResponse
+	runErr        error
 }
 
 // serve runs one admitted Run.
@@ -294,6 +297,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		return st.serveLocked(ctx, runCtx)
 	})
 	if lockErr != nil {
+		st.dropFollow(runCtx)
 		if created && !st.started {
 			lockErr = st.cleanupUnstarted(ctx, lockErr)
 		}
@@ -510,6 +514,7 @@ func (st *runState) announceOpen(spec Agent, known bool, early []gotato.Event, r
 // abandon returns err after a Run that cannot start has released the Session
 // it opened.
 func (st *runState) abandon(runCtx context.Context, err error) error {
+	st.dropFollow(runCtx)
 	if st.writer != nil {
 		releaseCtx, cancelRelease := persistContext(runCtx)
 		_ = st.writer.Release(releaseCtx)
@@ -590,7 +595,7 @@ func (st *runState) promptWithDeadline(ctx context.Context, spec Agent, live *go
 	case st.request.Continue:
 		return live.Continue(promptCtx)
 	case st.follow != nil:
-		return live.Prompt(promptCtx, st.follow.prompt)
+		return live.Prompt(promptCtx, st.follow.first.Message)
 	default:
 		return live.Prompt(promptCtx, gotato.UserMessage(st.request.Prompt))
 	}
@@ -827,4 +832,30 @@ func (r *Runner) release() {
 		r.idle.Broadcast()
 	}
 	r.mu.Unlock()
+}
+
+// dropFollow reports the messages a following Run was to take as dropped, with
+// why run_failed, when the Run failed before its live Session took them; from
+// then on the Session owns them and its own drops apply. The Events go in the
+// Record when the Run opened it and can still write, and then reach its
+// subscribers. When nothing can be written, such as a store that fails to open
+// the Session or a Session deleted meanwhile, they go to the Instance's stream
+// alone: the drop is not stored.
+func (st *runState) dropFollow(runCtx context.Context) {
+	if st.follow == nil || st.started || st.followDropped {
+		return
+	}
+	st.followDropped = true
+	r := st.r
+	events := st.follow.dropped(gotato.SessionID(st.sessionID), "run_failed")
+	if st.writer != nil {
+		writeCtx, cancel := persistContext(runCtx)
+		defer cancel()
+		if _, err := st.writer.Record().Write(writeCtx, events); err == nil && st.writer.Flush(writeCtx) == nil {
+			return
+		}
+	}
+	for _, event := range events {
+		r.notice(event, st.request.Agent)
+	}
 }
