@@ -198,6 +198,9 @@ func (c *cluster) coin() bool {
 func (c *cluster) kill(in *instance) {
 	in.killed.Store(true)
 	in.store.dead.Store(true)
+	// Stop accepting first, so a request that dials now is refused, as the
+	// proxy retries, and not accepted and then reset.
+	_ = in.server.Listener.Close()
 	in.server.CloseClientConnections()
 	go in.server.Close()
 }
