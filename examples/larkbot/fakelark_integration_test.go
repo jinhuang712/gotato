@@ -202,11 +202,10 @@ func TestConversationBurstOverTwoInstances(t *testing.T) {
 func TestBurstBeyondTheDefaultFollowUpBufferLosesNothing(t *testing.T) {
 	_, a, b, sent, turns := burst(t, 9, 7)
 	id := sessionIDFor(sent[0].MessageID)
-	time.Sleep(2 * time.Second) // let every Run settle
+	// Every message is committed by a Run that may still be going, so wait for
+	// the count instead of for a time; a message that is lost never arrives.
+	waitFor(t, "every user message in the Transcript", func() bool { return len(userTexts(t, a.runner, id)) == len(turns) })
 	users := userTexts(t, a.runner, id)
-	if len(users) != len(turns) {
-		t.Fatalf("sent %d, the Transcript holds %d: %q", len(turns), len(users), users)
-	}
 	t.Logf("sent %d, Transcript holds %d, runs=%d", len(turns), len(users), a.runsEnded.Load()+b.runsEnded.Load())
 }
 
