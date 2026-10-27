@@ -989,7 +989,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 | Name | What it does |
 |---|---|
 | `mcp.NewToolSet(name, transport, options...)` | the ToolSet of one server; it connects to nothing, so a server that is down never fails it |
-| `mcp.StreamableHTTP(url, WithHTTPClient(c), WithoutNotifications())` | the HTTP transport; the client carries timeouts or an `Authorization` header |
+| `mcp.StreamableHTTP(url, WithHTTPClient(c), WithoutNotifications())` | the HTTP transport; the client carries timeouts, a proxy or the credentials (see Authenticating to a server) |
 | `mcp.Stdio(name, args...)`, `mcp.StdioCommand(func() *exec.Cmd)` | a subprocess; the second form sets its environment and directory |
 | `mcp.WithDescription(text)` | the description the catalog shows |
 | `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the one the annotations give |
@@ -998,6 +998,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 
 - **Transports.** Streamable HTTP, used statelessly: no state of the server is held for a Gotato Session, so any instance can make any call. And stdio, a subprocess that belongs to the instance and is shared by its Sessions, never one for each Session ([DESIGNS.md → A Session holds only what is cheap to rebuild](DESIGNS.md#a-session-holds-only-what-is-cheap-to-rebuild)).
 - **Who closes what.** A `*ToolSet` is made once by the service and installed in every Session that needs the server. It connects at its first resolution and keeps that one connection (for stdio, one subprocess) for all its Sessions; a connection that closes is dropped and made again by the next call. The service closes the ToolSet when it shuts down. A Session never closes it. Every call takes the Run's `ctx`, so a cancel ends the call.
+- **Authenticating to a server.** Authentication is the team's own `http.Client`, given by `WithHTTPClient`: a fixed header, a token that refreshes itself (for example the `Transport` of `golang.org/x/oauth2`), or mutual TLS. For stdio it is the command's `Env`, set in `StdioCommand`. A `RoundTripper` can send the token of the end user who started the Run, read from `req.Context()`: a `tools/call` is sent in the `ctx` of the call, which is the Run's, so each call carries its own caller's token even though the ToolSet shares one connection (`TestEachToolCallCarriesTheTokenOfItsOwnCaller`, and through Sessions `TestARunsToolCallCarriesTheTokenOfItsUser`). Other requests do not carry it. `initialize`, the standalone stream and the closing `DELETE` go in the `ctx` that made the connection, which is whoever resolved the tools first and may have ended. A Session resolves its tools in a `ctx` with no user, so its `initialize` and `tools/list` carry none. A `RoundTripper` that reads a user from the `ctx` falls back to a token of the service when there is none, and the server answers those requests for the service. The MCP authorization flow (a 401, discovery, an authorization code) is not offered ([G-N20](#g-n20--mcp-features-gotato-does-not-build)).
 - **Effect from the tool's annotations,** with the specification's default for a hint the server left out (not read-only, destructive, open world). A tool that declares nothing is destructive, as for any tool. A per-tool override sets another Effect.
 
 | MCP annotations | Effect |
