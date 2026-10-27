@@ -263,7 +263,7 @@ Modules and stripped binary of a program that imports the agent, the Runner, a s
 - **Serves:** [Keep subtracting](../DESIGNS.md#5-keep-subtracting)
 - **Compared with:** Google ADK for Go: 128 modules, 14.8 MB
 - **Method:** `bench/refservice/footprint.sh` on the reference service, which also imports the gateway
-- **Last measured:** 3 modules linked (the service, Gotato and `yaml.v3`; `go list -m all` adds `yaml.v3`'s test dependency), 7.6 MB. Without the gateway, 7.0 MB. 2026-10-16. The 3.8 MB recorded on 2026-10-15 had no script behind it and could not be reproduced.
+- **Last measured:** 3 modules linked (the service, Gotato and `yaml.v3`; `go list -m all` adds `yaml.v3`'s test dependency), 8 packages outside the standard library, 8.7 MB, with Go 1.27.1 on darwin/arm64, 2026-10-28. It was 7.6 MB on 2026-10-16, with an earlier toolchain. The 3.8 MB recorded on 2026-10-15 had no script behind it and could not be reproduced.
 
 ## Evaluations
 

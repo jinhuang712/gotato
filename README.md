@@ -58,7 +58,7 @@ A request can reach any pod. Only one of them runs a given Session at a time, an
 - 🧩 **Stays simple.** One loop, no workflow language, and you see what the model sees.
 - 🔒 **Stays stable.** Breaks are versioned and come with before-and-after notes, from the first release on.
 
-📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds a 3.8 MB binary on Go 1.22 ([measured](PROPOSAL.md#where-gotato-fits)).
+📏 A program with the agent, runner, store and HTTP server pulls 3 modules and builds an 8.7 MB binary ([measured](PROPOSAL.md#where-gotato-fits)).
 
 ## 🚫 What it is not
 

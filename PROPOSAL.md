@@ -175,12 +175,12 @@ The footprint follows from that choice. A program that imports each library's ag
 ```text
                                    Gotato    Google ADK for Go
 modules in the build graph         3         128
-non-standard-library packages      23        370
-binary, stripped                   3.8 MB    14.8 MB
+non-standard-library packages      8         370
+binary, stripped                   8.7 MB    14.8 MB
 minimum Go version                 1.24      1.26.6
 ```
 
-Measured 2026-10-15 on an Apple M3, with ADK for Go v2.6.0.
+Gotato measured 2026-10-28 with `bench/refservice/footprint.sh` (Go 1.27.1, Apple M5 Pro), on the reference service, which also imports the gateway; ADK for Go v2.6.0 measured 2026-10-15 on an Apple M3.
 
 ## What we don't want
 

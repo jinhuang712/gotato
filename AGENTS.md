@@ -71,7 +71,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 4. **Use fake/replay models** (`testkit.FakeModel`, `testkit.ReplayModel`) for deterministic tests. Never make a unit test depend on a network provider or a credential.
 5. **Use CLI integration tests** (`internal/cmd/gotato/cli_test.go`) as one way to test runtime behavior end to end; assert on JSON, not on prose.
 6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
-7. **Keep the CLI honest.** Until the first release, nothing is kept for compatibility, and the CLI's flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
+7. **Keep the CLI honest.** The CLI promises no contract: its flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
 8. **Format**: `gofmt -l .` must print nothing.
 
 ## Editing the Project Documents
@@ -193,7 +193,7 @@ A breaking change to the public Go API, HTTP contract, or event kinds must:
 
 1. be called out in the commit subject with a `!` or a `BREAKING CHANGE:` body line;
 2. add or update an entry under *Unreleased* in `CHANGELOG.md` with a before/after snippet;
-3. until the first release, keep no old symbol: rename or remove it directly. From the first release on, prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low.
+3. prefer a deprecation period: keep the old symbol with a `// Deprecated:` comment for at least one release when the cost is low, and say in the entry when it goes.
 
 ### Generated Files
 
