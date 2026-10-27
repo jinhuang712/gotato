@@ -202,9 +202,11 @@ func (r *toolRegistry) describeSet(name string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s has %d tools:", name, len(specs))
 	for i, spec := range specs {
-		b.WriteString("\n" + spec.ID)
+		b.WriteString("\n")
+		b.WriteString(spec.ID)
 		if first := firstLine(spec.Description); first != "" {
-			b.WriteString(" — " + first)
+			b.WriteString(" — ")
+			b.WriteString(first)
 		}
 		if loaded[i] {
 			b.WriteString(" (loaded)")

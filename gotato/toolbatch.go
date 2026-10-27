@@ -228,7 +228,7 @@ func (a *Session) executeToolGroup(
 				case <-toolCtx.Done():
 				}
 			}
-			executed, toolErr := executeToolSafely(plan.tool, toolCtx, plan.use, progress)
+			executed, toolErr := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
 			var result ToolResult
 			if toolErr != nil {
 				result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: safeError(toolErr), Executed: true}

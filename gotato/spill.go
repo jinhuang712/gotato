@@ -70,7 +70,7 @@ func spillBody(content []ContentPart) string {
 // spillPreview is what stays in the Context of a spilled result: the start of
 // the body and a line that says how much was cut and how to read the rest. The
 // same body gives the same preview on every Instance.
-func spillPreview(call ToolCallID, toolID, body string) string {
+func spillPreview(call ToolCallID, body string) string {
 	pages := len(text.Paginate(text.SplitLines(body, SpillPageBytes), SpillPageBytes))
 	var b strings.Builder
 	b.WriteString(cutRunes(body, SpillPreviewBytes))
@@ -125,7 +125,7 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 		return result, err
 	}
 	seq := written[0].Head().Number
-	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, toolID, body)}}
+	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body)}}
 	for _, part := range result.Content {
 		if part.Kind != ContentKindText {
 			content = append(content, part)

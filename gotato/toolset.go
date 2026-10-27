@@ -771,9 +771,11 @@ func (r *toolRegistry) catalogText() string {
 			continue
 		}
 		description := strings.TrimSpace(state.spec.Description)
-		b.WriteString("\n" + state.spec.Name)
+		b.WriteString("\n")
+		b.WriteString(state.spec.Name)
 		if description != "" {
-			b.WriteString(" — " + description)
+			b.WriteString(" — ")
+			b.WriteString(description)
 		}
 		if unavailable {
 			b.WriteString(" (unavailable now; no tools)\n")
@@ -783,7 +785,9 @@ func (r *toolRegistry) catalogText() string {
 			fmt.Fprintf(&b, " (%d tools; pass toolset=%q to list them)\n", len(ids), state.spec.Name)
 			continue
 		}
-		b.WriteString("\n  " + strings.Join(ids, ", ") + "\n")
+		b.WriteString("\n  ")
+		b.WriteString(strings.Join(ids, ", "))
+		b.WriteString("\n")
 	}
 	return b.String()
 }

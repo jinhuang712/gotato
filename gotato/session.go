@@ -822,7 +822,7 @@ func coalesceDeltas(parts []ContentPart) []ContentPart {
 	return out
 }
 
-func executeToolSafely(tool Tool, ctx context.Context, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
+func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			// Match the Extension guard: a short, client-safe Message with the

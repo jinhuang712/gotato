@@ -1,7 +1,7 @@
 package gotato
 
 // The kind, the class and the JSON codec of every Event type. The fields of each
-// type are in event.go.
+// type are in events.go.
 
 // The kinds of Event, as they are named in JSON.
 const (
