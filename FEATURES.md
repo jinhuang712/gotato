@@ -274,14 +274,14 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 | `limit_exceeded` from the Runner's `MaxActiveRuns` | yes | yes | the instance is at capacity. The same code ends a Run that reached a limit of its own (the compaction ceiling, a message over `MaxMessageBytes`), which ran and is neither. |
 | `busy` | yes | yes, after the Run in flight | the Session has a Run, here or on another instance |
 | `not_writer` ([G-F26](#g-f26--steering-a-run-)) | yes | yes, at the writer named in the error | a message or a Stop for a Run that another instance writes. The error carries the writer's advertised address (`Details["writer"]`, read with `service.WriterOf`), when it has one. |
-| `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` matches it. |
+| `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` carries it. |
 | `session_closing`, `session_closed` | yes | no | the live Session takes no more calls |
 | `store_failure` | not known | yes | the store could not write or read |
 | `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `IsRetryable() bool` |
 | `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
 
 - A code is a `gotato.Code…` constant of type `ErrorCode`, and its name matches its string: `gotato.CodeBusy` is `busy`. A sentinel error is an `Err…` variable that carries a code: `service.ErrBusy` has `busy`, and `session.ErrExists`, `session.ErrExpired`, `service.ErrNotPersisted`, `modelctx.ErrBadRecap` and the other sentinels carry a code too.
-- `errors.Is` matches by code, so a sentinel also matches every other error of its code, and both functions look through wrapped and joined errors.
+- `errors.Is(err, sentinel)` matches the sentinel itself or an error that wraps it, so two sentinels that share a code (`session.ErrExists` and `session.ErrExpired` are both `invalid_state`) are told apart. `gotato.IsCode(err, code)` matches any error of a code. A variant of a sentinel with a message of its own sets its `Cause` to the sentinel. Both functions look through wrapped and joined errors.
 - `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
 - `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP maps it and carries the address (*A message for a Run that another instance writes*, in G-F26).
 - HTTP only translates ([G-F14](#g-f14--http-and-streaming-)). A service that embeds the Runner reads the same answers from `err` and `RunResult`:

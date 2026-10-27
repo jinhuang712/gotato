@@ -229,7 +229,24 @@ var ErrDraining = gotato.ErrorOf(gotato.CodeDraining, "service: draining")
 // with store_failure; callers must treat the Session state as lost. A Run whose
 // only failed write is the release of the Session keeps its status and
 // returns no error: its Events are all stored.
-var ErrNotPersisted = gotato.ErrorOf(gotato.CodeStoreFailure, "service: session was not persisted")
+var ErrNotPersisted = notPersistedSentinel()
+
+// notPersistedSentinel builds ErrNotPersisted. It carries store_failure, and is
+// not retryable by itself, as it was before it carried a code.
+func notPersistedSentinel() *gotato.RuntimeError {
+	e := gotato.ErrorOf(gotato.CodeStoreFailure, "service: session was not persisted")
+	e.Retryable = false
+	return e
+}
+
+// notPersisted is ErrNotPersisted joined to the store failure that caused it.
+// Its message is the sentinel's and the failure's; the failure comes first in
+// the chain, so errors.As reads its code and Retryable, and errors.Is matches
+// both.
+type notPersisted struct{ cause error }
+
+func (e notPersisted) Error() string   { return ErrNotPersisted.Error() + ": " + e.cause.Error() }
+func (e notPersisted) Unwrap() []error { return []error{e.cause, ErrNotPersisted} }
 
 // Runner serves Runs against Sessions.
 type Runner struct {
@@ -1097,7 +1114,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 					result.Status = gotato.RunFailed
 					result.Error = saveFailure
 				}
-				persistErr := fmt.Errorf("%w: %w", ErrNotPersisted, saveErr)
+				persistErr := error(notPersisted{saveErr})
 				if runErr == nil {
 					runErr = persistErr
 				} else {

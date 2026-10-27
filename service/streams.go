@@ -225,6 +225,7 @@ func (r *Runner) StreamSession(ctx context.Context, sessionID string, from Strea
 // Record's epoch and last number for the client to start over from.
 func cannotResume(why, epoch string, head uint64) error {
 	err := gotato.ErrorOf(gotato.CodeCannotResume, "service: the stream cannot resume: "+why)
+	err.Cause = ErrCannotResume
 	err.Details = map[string]string{"record_epoch": epoch, "head": strconv.FormatUint(head, 10)}
 	return err
 }

@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -33,6 +35,26 @@ func TestEverySentinelCarriesACode(t *testing.T) {
 		if !gotato.IsCode(c.err, c.code) {
 			t.Errorf("%v does not carry %q", c.err, c.code)
 		}
+	}
+}
+
+// TestSentinelsThatShareACodeAreToldApart: errors.Is matches a sentinel by
+// identity, and gotato.IsCode matches by code.
+func TestSentinelsThatShareACodeAreToldApart(t *testing.T) {
+	if errors.Is(session.ErrExpired, session.ErrExists) || errors.Is(session.ErrExists, session.ErrExpired) {
+		t.Error("session.ErrExpired and session.ErrExists match each other")
+	}
+	if !errors.Is(fmt.Errorf("x: %w", session.ErrExpired), session.ErrExpired) {
+		t.Error("a wrapped session.ErrExpired does not match itself")
+	}
+	if errors.Is(service.ErrNoRun, service.ErrSessionExists) || errors.Is(service.ErrSessionExists, service.ErrNoRun) {
+		t.Error("service.ErrNoRun and service.ErrSessionExists match each other")
+	}
+	if !gotato.IsCode(session.ErrExpired, gotato.CodeInvalidState) {
+		t.Error("session.ErrExpired does not carry invalid_state")
+	}
+	if gotato.Retryable(service.ErrNotPersisted) {
+		t.Error("service.ErrNotPersisted is retryable; it was a plain error before it carried a code")
 	}
 }
 

@@ -43,14 +43,14 @@ after   gotato.CodeCanceled (see the error codes below), workload.CauseCanceled
 | `gotato.ErrToolArgumentFailure` (`"tool_argument_validation_failure"`) | `gotato.CodeToolArgumentFailure` (`"tool_argument_failure"`) |
 | `gotato.ErrInternalInvariant` (`"internal_invariant_failure"`) | `gotato.CodeInternalInvariant` (`"internal_invariant"`) |
 
-Sentinels that had no code gain one. `errors.Is` matches a sentinel by code, as it does for every coded sentinel, so each also matches any other error of its code.
+Sentinels that had no code gain one. `errors.Is` now matches a sentinel by identity (the sentinel itself, or an error that wraps it); it used to match any `*RuntimeError` of the same code, which made two sentinels with one code match each other. `gotato.IsCode(err, code)` matches by code.
 
 | Sentinel | Before | After |
 |---|---|---|
 | `session.ErrExists` | no code | `invalid_state` |
 | `session.ErrExpired` | no code | `invalid_state` |
 | `session.ErrOldLayout` | no code | `not_supported` |
-| `service.ErrNotPersisted` | no code | `store_failure` (retryable) |
+| `service.ErrNotPersisted` | no code | `store_failure`, not retryable by itself, as before |
 | `modelctx.ErrBadRecap` | no code | `model_protocol_failure` |
 | `modelctx.ErrNoRecapContext` | no code | `invalid_argument` |
 | `testkit.ErrScriptExhausted` | no code (wraps `io.ErrUnexpectedEOF`) | `model_failure` (still wraps `io.ErrUnexpectedEOF`) |

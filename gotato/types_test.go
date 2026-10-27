@@ -3,16 +3,30 @@ package gotato
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 )
 
-func TestRuntimeErrorMatchesByCode(t *testing.T) {
+func TestRuntimeErrorIsMatchesASentinelByIdentity(t *testing.T) {
 	base := ErrorOf(CodeBusy, "service: session has a run in flight")
-	if !errors.Is(ErrorOf(CodeBusy, "different message"), base) {
-		t.Fatal("errors.Is did not match two errors with the same code")
+	other := ErrorOf(CodeBusy, "different message")
+	if errors.Is(other, base) {
+		t.Fatal("errors.Is matched a sentinel by its code")
 	}
-	if errors.Is(ErrorOf(CodeInvalidState, "x"), base) {
-		t.Fatal("errors.Is matched a different code")
+	if !errors.Is(fmt.Errorf("wrapped: %w", base), base) {
+		t.Fatal("errors.Is did not match a wrapped sentinel")
+	}
+	variant := ErrorOf(CodeBusy, "a variant")
+	variant.Cause = base
+	if !errors.Is(variant, base) {
+		t.Fatal("errors.Is did not match an error that wraps the sentinel")
+	}
+	if !IsCode(other, CodeBusy) || IsCode(other, CodeInvalidState) {
+		t.Fatal("IsCode does not match by code")
+	}
+	// A target with no Message is a bare code.
+	if !errors.Is(other, &RuntimeError{Code: CodeBusy}) || errors.Is(other, &RuntimeError{Code: CodeNotFound}) {
+		t.Fatal("a code-only target does not match by code")
 	}
 }
 

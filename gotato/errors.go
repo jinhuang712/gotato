@@ -51,7 +51,7 @@ const (
 	CodeDraining ErrorCode = "draining"
 	// CodeNotFound means the Session (or the Record it names) does not exist.
 	// The request did not run, and sending it again changes nothing.
-	// session.ErrNotFound matches it.
+	// session.ErrNotFound carries it.
 	CodeNotFound ErrorCode = "not_found"
 	// CodeCannotResume means a stream cannot go on from the position a client
 	// holds: the Record is not the one it saw, or the number is past its last
@@ -116,9 +116,11 @@ func (e *RuntimeError) Unwrap() error {
 	return e.Cause
 }
 
-// Is reports whether target is a *RuntimeError with the same Code. It lets a
-// caller match a sentinel built with ErrorOf through errors.Is without sharing
-// the sentinel's pointer.
+// Is reports whether target is a code-only *RuntimeError (one with no Message,
+// as in &RuntimeError{Code: CodeBusy}) with the same Code. A target with a
+// Message is a sentinel built with ErrorOf, and errors.Is matches it by
+// identity alone, through the chain, so two sentinels that share a code are
+// told apart. To match any error of a code, use IsCode.
 func (e *RuntimeError) Is(target error) bool {
 	if e == nil {
 		return false
@@ -127,7 +129,7 @@ func (e *RuntimeError) Is(target error) bool {
 	if !errors.As(target, &other) {
 		return false
 	}
-	if other == nil {
+	if other == nil || other.Message != "" {
 		return false
 	}
 	return e.Code == other.Code

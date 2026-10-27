@@ -56,11 +56,19 @@ type heartbeat struct {
 
 // errLapsed refuses a write once this Instance cannot show that its row is
 // alive: another Instance may hold its Sessions by now.
-var errLapsed = gotato.ErrorOf(gotato.CodeConflict, "service: this instance's liveness row may have expired")
+var errLapsed = lostRow("service: this instance's liveness row may have expired")
 
-// lapsed reports whether err is errLapsed itself. errors.Is cannot tell:
-// a RuntimeError matches any other of the same Code, so it would match every
-// conflict, and a lost race would never be looked at again.
+// lostRow builds a refusal of a write that carries conflict and wraps
+// session.ErrConflict, so the checks for a lost race match it as they match a
+// store's conflict.
+func lostRow(message string) *gotato.RuntimeError {
+	e := gotato.ErrorOf(gotato.CodeConflict, message)
+	e.Cause = session.ErrConflict
+	return e
+}
+
+// lapsed reports whether err is errLapsed itself. errors.Is cannot tell it from
+// errClosed or a store's conflict, which all match session.ErrConflict.
 func lapsed(err error) bool {
 	var runtimeErr *gotato.RuntimeError
 	return errors.As(err, &runtimeErr) && runtimeErr == errLapsed
@@ -70,10 +78,9 @@ func lapsed(err error) bool {
 // Instance.
 var errHolderBusy = errors.New("service: the session is running on another instance")
 
-// errClosed refuses a write once Close has removed this Instance's row. Its
-// code is conflict, as errLapsed's: an invalid_state error would match
-// ErrSessionExists.
-var errClosed = gotato.ErrorOf(gotato.CodeConflict, "service: the runner is closed")
+// errClosed refuses a write once Close has removed this Instance's row. It
+// is a conflict, as errLapsed is.
+var errClosed = lostRow("service: the runner is closed")
 
 // live makes sure this Runner's row is alive before it writes, beating once
 // and starting the renewals the first time.
@@ -272,9 +279,10 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 }
 
 // busyElsewhere refuses a Run on a Session that is running on another
-// Instance. It matches ErrBusy, and says when to retry.
+// Instance. It wraps ErrBusy, so errors.Is matches it, and says when to retry.
 func busyElsewhere(retryAfter time.Duration) error {
 	busy := gotato.ErrorOf(gotato.CodeBusy, "service: the session is running on another instance")
+	busy.Cause = ErrBusy
 	busy.Details = map[string]string{"retry_after_ms": strconv.FormatInt(retryAfter.Milliseconds(), 10)}
 	return busy
 }
