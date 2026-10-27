@@ -99,13 +99,7 @@ func partsText(m Message, kind ContentKind) string {
 
 func (m Message) Clone() Message {
 	out := m
-	out.Parts = make([]ContentPart, len(m.Parts))
-	for i, p := range m.Parts {
-		out.Parts[i] = p
-		out.Parts[i].Data = slices.Clone(p.Data)
-		out.Parts[i].Signature = slices.Clone(p.Signature)
-		out.Parts[i].Metadata = maps.Clone(p.Metadata)
-	}
+	out.Parts = cloneParts(m.Parts)
 	out.ToolCalls = cloneToolCalls(m.ToolCalls)
 	if m.ToolResult != nil {
 		tr := m.ToolResult.Clone()
@@ -162,13 +156,7 @@ type ToolResult struct {
 
 func (r ToolResult) Clone() ToolResult {
 	out := r
-	out.Content = make([]ContentPart, len(r.Content))
-	for i, p := range r.Content {
-		out.Content[i] = p
-		out.Content[i].Data = slices.Clone(p.Data)
-		out.Content[i].Signature = slices.Clone(p.Signature)
-		out.Content[i].Metadata = maps.Clone(p.Metadata)
-	}
+	out.Content = cloneParts(r.Content)
 	out.Metadata = maps.Clone(r.Metadata)
 	out.LoadedTools = slices.Clone(r.LoadedTools)
 	if r.Spilled != nil {

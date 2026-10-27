@@ -13,7 +13,7 @@ func cloneMessages(messages []Message) []Message {
 	return out
 }
 
-func cloneContent(content []ContentPart) []ContentPart {
+func cloneParts(content []ContentPart) []ContentPart {
 	out := make([]ContentPart, len(content))
 	for i, part := range content {
 		out[i] = part
@@ -24,7 +24,7 @@ func cloneContent(content []ContentPart) []ContentPart {
 	return out
 }
 
-func ptrToolResult(result ToolResult) *ToolResult { clone := result.Clone(); return &clone }
+func cloneToolResultPtr(result ToolResult) *ToolResult { clone := result.Clone(); return &clone }
 
 func cloneToolSpec(spec ToolSpec) ToolSpec {
 	out := spec

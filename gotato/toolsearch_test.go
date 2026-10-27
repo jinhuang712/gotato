@@ -71,7 +71,7 @@ func resultOf(t *testing.T, model *recordingModel, request int, callID string) T
 	for _, message := range model.requests[request] {
 		if message.ToolResult != nil && string(message.ToolResult.CallID) == callID {
 			result := message.ToolResult.Clone()
-			result.Content = cloneContent(message.Parts)
+			result.Content = cloneParts(message.Parts)
 			return result
 		}
 	}

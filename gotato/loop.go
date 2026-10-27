@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -354,10 +355,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			// The builder's Metadata keeps its own key, so it can never replace
 			// a count above with its string form.
 			if len(current.built.Metadata) > 0 {
-				contextBuilt.Metadata = make(map[string]string, len(current.built.Metadata))
-				for key, value := range current.built.Metadata {
-					contextBuilt.Metadata[key] = value
-				}
+				contextBuilt.Metadata = maps.Clone(current.built.Metadata)
 			}
 			// The model call is written before the Model is called, so a writer
 			// that can no longer write stops here, and the store's time stays out
@@ -389,10 +387,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			if assistant.StopReason == StopReasonCutOff && a.commitMessage(assistant) == nil {
 				a.stage(ReplyCutOff{Header: hd(turn), Message: assistant.Clone(), Cause: modelErr.Code})
 			}
-			a.stage(TurnEnded{
-				Header: hd(turn), StopReason: StopReasonCutOff, Usage: usage,
-				ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
-			})
+			a.stage(newTurnEnded(hd(turn), StopReasonCutOff, usage, turnStarted, turnText, turnReasoning))
 			if _, controlErr := a.consumeControl(runCtx, runID, turn, false); controlErr != nil {
 				return fail(controlErr)
 			}
@@ -447,10 +442,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 		}
 
 		if len(assistant.ToolCalls) == 0 {
-			a.stage(TurnEnded{
-				Header: hd(turn), StopReason: assistant.StopReason, Usage: usage,
-				ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
-			})
+			a.stage(newTurnEnded(hd(turn), assistant.StopReason, usage, turnStarted, turnText, turnReasoning))
 			// A TurnStopper runs after TurnEnded and before continuation
 			// selection. A stop preserves the Turn and settles the Run.
 			decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
@@ -529,8 +521,8 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 				if spillErr != nil {
 					return spillErr
 				}
-				content := cloneContent(toolResult.Content)
-				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: ptrToolResult(toolResult)}
+				content := cloneParts(toolResult.Content)
+				resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
 				if err := a.commitMessage(resultMessage); err != nil {
 					return asRuntimeError(err)
 				}
@@ -590,11 +582,9 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 			a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
 		}
 
-		a.stage(TurnEnded{
-			Header: hd(turn), StopReason: StopReasonToolCalls, Usage: usage,
-			ElapsedMS: millis(time.Since(turnStarted)), TextBytes: turnText, ReasoningBytes: turnReasoning,
-			ToolCalls: len(assistant.ToolCalls), Tools: toolOutcomes,
-		})
+		turnEnded := newTurnEnded(hd(turn), StopReasonToolCalls, usage, turnStarted, turnText, turnReasoning)
+		turnEnded.ToolCalls, turnEnded.Tools = len(assistant.ToolCalls), toolOutcomes
+		a.stage(turnEnded)
 		decision, stopErr := a.extensions.stopTurn(runCtx, TurnSnapshot{
 			SessionID: a.id, RunID: runID, Turn: turn, Assistant: assistant.Clone(), ToolResults: settledResults, StopReason: StopReasonToolCalls,
 		})
@@ -903,4 +893,12 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	assistant.Parts = coalesceDeltas(assistant.Parts)
 	assistant.Usage = usage
 	return assistant, usage, nil
+}
+
+// newTurnEnded builds the TurnEnded of a Turn that ran from started until now.
+func newTurnEnded(header Header, stop StopReason, usage Usage, started time.Time, textBytes, reasoningBytes uint64) TurnEnded {
+	return TurnEnded{
+		Header: header, StopReason: stop, Usage: usage,
+		ElapsedMS: millis(time.Since(started)), TextBytes: textBytes, ReasoningBytes: reasoningBytes,
+	}
 }

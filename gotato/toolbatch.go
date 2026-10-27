@@ -63,7 +63,7 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 			SafeError: text,
 			Executed:  known && outcome.Executed,
 		}
-		message := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: cloneContent(result.Content), ToolResult: ptrToolResult(result)}
+		message := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: cloneParts(result.Content), ToolResult: cloneToolResultPtr(result)}
 		if err := a.appendMessage(message, false); err != nil {
 			break
 		}

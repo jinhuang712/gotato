@@ -87,7 +87,7 @@ func toolResultFor(output any) (ToolResult, error) {
 	case string:
 		return ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindText, Text: typed}}}, nil
 	case []ContentPart:
-		return ToolResult{Status: ToolResultStatusOK, Content: cloneContent(typed)}, nil
+		return ToolResult{Status: ToolResultStatusOK, Content: cloneParts(typed)}, nil
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {

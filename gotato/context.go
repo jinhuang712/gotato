@@ -435,7 +435,7 @@ func ForModel(messages []Message) []Message {
 		}
 		if message.ToolResult != nil {
 			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: text.EscapeTags(message.ToolResult.SafeError), LoadedTools: slices.Clone(message.ToolResult.LoadedTools)}
-			result.Content = cloneContent(message.ToolResult.Content)
+			result.Content = cloneParts(message.ToolResult.Content)
 			for j := range result.Content {
 				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
 					result.Content[j].Text = escapePartText(result.Content[j])
