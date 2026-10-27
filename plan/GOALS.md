@@ -44,7 +44,7 @@ What Gotato measures, so that each principle in [DESIGNS.md](../DESIGNS.md) is a
 |---|---|---|---|
 | G-E01 | ⭐ The Recap keeps the facts | The Context is a bounded view | ⬜ |
 | G-B13 | Time to a first agent | Keep subtracting | ⬜ |
-| G-G06 | Breaking changes are written down | Stay inside the boundary | ⬜ |
+| G-G06 | Breaking changes are written down | Stay inside the boundary | 🚧 |
 
 ## How Gotato measures
 
@@ -288,4 +288,4 @@ Each evaluation needs a person or a real model, so it runs on demand.
 - **Serves:** [Stay inside the boundary](../DESIGNS.md#6-stay-inside-the-boundary)
 - **Measure:** 100% of breaking changes have a before-and-after entry in [CHANGELOG.md](../CHANGELOG.md), and a contract version bump when they touch HTTP or gRPC
 - **Method:** review at each release
-- **Status:** ⬜ Not audited.
+- **Status:** 🚧 Audited 2026-10-27, from the tree of commit `7730514` (the last commit of 2026-10-10; `dee6cce`, the first of 2026-10-11, follows it) to `HEAD`. Every break of the Go API of the core and the standard runtime packages (`apidiff` on `gotato-core`, `session`, `modelctx`, `service`, `service/httpapi`, `testkit`, `gateway`, `toolregistry` and `adapter/grpc`, with the old root package mapped to `gotato-core/`), of the CLI (commands, flags, README tables, exit codes), of the Event kinds, of the `.proto` and of the stored shapes is now named in CHANGELOG.md. The audit found a gap in the Event design's field-level moves (the payload keys inside the renamed kinds, `LifecycleKind`, the reuse of the name `EventSource`, the snapshots' `AgentID`), and the entry that closes it is in *Unreleased* → *Events*. What remains is the version half of the measure: the HTTP and gRPC contract version was raised to `"3"` on 2026-10-16 (`2e5faaa`, the panel) and to `"4"` the same day (`367a411`, the names), and the CLI contract version to `"2"` in `367a411`; the breaks after that (the typed Events of 2026-10-18, the refusals of the streaming routes, the error model, the Segment compaction, the `tool_loaded` Events and the removal of `message_withdrawn` on 2026-10-25 to 10-27) were not followed by a bump, and CHANGELOG.md says they share the bump of `"4"` and `"2"`. Pass when the first release raises the versions, or when the maintainer decides that one bump before the first release is the rule.
