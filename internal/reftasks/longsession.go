@@ -139,7 +139,7 @@ func (m longSessionModel) Stream(_ context.Context, request gotato.ModelRequest)
 		}
 	}
 	script[len(script)-1].Usage = gotato.Usage{InputTokens: uint64(RequestTokens(request)), OutputTokens: uint64(out)}
-	return &stream{events: script}, nil
+	return playScript(script), nil
 }
 
 func (m longSessionModel) play(request gotato.ModelRequest) testkit.Script {

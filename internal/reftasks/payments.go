@@ -142,28 +142,28 @@ func (m paymentsModel) Stream(_ context.Context, request gotato.ModelRequest) (g
 	messages := request.Messages
 	last := len(messages) - 1
 	if last < 0 {
-		return &stream{events: testkit.Text("nothing to do")}, nil
+		return playScript(testkit.Text("nothing to do")), nil
 	}
 	ask := gotato.TextOf(messages[last])
 	switch {
 	case messages[last].Role == gotato.RoleUser && strings.HasPrefix(ask, "Write a recap"):
-		return &stream{events: testkit.Text(m.recap(messages))}, nil
+		return playScript(testkit.Text(m.recap(messages))), nil
 	case messages[last].Role == gotato.RoleUser && strings.HasPrefix(ask, QuestionPrefix):
-		return &stream{events: testkit.Text(answerFrom(strings.TrimPrefix(ask, QuestionPrefix), requestText(messages)))}, nil
+		return playScript(testkit.Text(answerFrom(strings.TrimPrefix(ask, QuestionPrefix), requestText(messages)))), nil
 	case messages[last].Role == gotato.RoleToolResult:
-		return &stream{events: testkit.Text("Done.")}, nil
+		return playScript(testkit.Text("Done.")), nil
 	case strings.Contains(ask, "Why?"):
-		return &stream{events: testkit.ToolCalls(
+		return playScript(testkit.ToolCalls(
 			gotato.ToolCall{ID: "c1", ToolID: "payments.get_batch", Arguments: []byte(`{"batch_id":"B-20261018-07"}`)},
 			gotato.ToolCall{ID: "c2", ToolID: "logs.query", Arguments: []byte(`{"order":"O-88213"}`)},
 			gotato.ToolCall{ID: "c3", ToolID: "logs.query", Arguments: []byte(`{"order":"O-88347"}`)},
 			gotato.ToolCall{ID: "c4", ToolID: "logs.query", Arguments: []byte(`{"order":"O-88502"}`)},
 			gotato.ToolCall{ID: "c5", ToolID: "orders.search", Arguments: []byte(`{"ids":["O-88213","O-88347","O-88502"]}`)},
-		)}, nil
+		)), nil
 	case strings.Contains(ask, "Retry"):
-		return &stream{events: testkit.ToolCalls(gotato.ToolCall{ID: "c6", ToolID: "payments.retry", Arguments: []byte(`{"order":"O-88502"}`)})}, nil
+		return playScript(testkit.ToolCalls(gotato.ToolCall{ID: "c6", ToolID: "payments.retry", Arguments: []byte(`{"order":"O-88502"}`)})), nil
 	}
-	return &stream{events: testkit.Text("You are welcome.")}, nil
+	return playScript(testkit.Text("You are welcome.")), nil
 }
 
 // recap writes the Recap, from the Tool Results in the request when faithful.

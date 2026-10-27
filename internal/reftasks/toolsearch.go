@@ -224,7 +224,7 @@ type toolSearchModel struct{}
 
 // Stream implements gotato.Model.
 func (toolSearchModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	return &stream{events: playToolSearch(request)}, nil
+	return playScript(playToolSearch(request)), nil
 }
 
 func playToolSearch(request gotato.ModelRequest) testkit.Script {

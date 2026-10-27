@@ -218,7 +218,7 @@ var customerID = regexp.MustCompile(`\bC-\d+\b`)
 
 // Stream implements gotato.Model.
 func (supportModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	return &stream{events: playSupport(request)}, nil
+	return playScript(playSupport(request)), nil
 }
 
 func playSupport(request gotato.ModelRequest) testkit.Script {

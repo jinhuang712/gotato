@@ -237,7 +237,7 @@ var orderNumber = regexp.MustCompile(`(?i)\border (\d+)`)
 
 // Stream implements gotato.Model.
 func (m ordersModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	return &stream{events: m.play(request)}, nil
+	return playScript(m.play(request)), nil
 }
 
 func (m ordersModel) play(request gotato.ModelRequest) testkit.Script {
@@ -358,4 +358,21 @@ func answerMentions(word string) func([]string) error {
 
 func containsWord(text, word string) bool {
 	return regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`).MatchString(text)
+}
+
+// playScript serves a Script as a Model stream, the way a testkit.FakeModel
+// with that one Script does.
+func playScript(script testkit.Script) gotato.ModelStream {
+	stream, _ := testkit.NewFakeModel(script).Stream(context.Background(), gotato.ModelRequest{})
+	return stream
+}
+
+// promptText returns the first text part of a Message: the user's prompt.
+func promptText(message gotato.Message) string {
+	for _, part := range message.Parts {
+		if part.Kind == gotato.ContentKindText {
+			return part.Text
+		}
+	}
+	return ""
 }
