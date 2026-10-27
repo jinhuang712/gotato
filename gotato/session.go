@@ -69,6 +69,7 @@ func WithRunStart(fn func(RunID)) SessionOption {
 	return func(c *sessionConfig) error { c.onRunStart = fn; return nil }
 }
 
+// WithModel sets the Model the Session calls. NewSession fails when none is set.
 func WithModel(model Model) SessionOption {
 	return func(c *sessionConfig) error {
 		if model == nil {
@@ -79,6 +80,8 @@ func WithModel(model Model) SessionOption {
 	}
 }
 
+// WithInstruction sets the system instructions the Session sends with every
+// model call, before the ContextBuilder sees them.
 func WithInstruction(instruction string) SessionOption {
 	return func(c *sessionConfig) error { c.instruction = instruction; return nil }
 }
@@ -409,6 +412,10 @@ func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
 	return a.feed.Subscribe(ctx, NextRun()...)
 }
 
+// Prompt appends message as the user's Message and runs it to a settled
+// RunResult. It blocks until the Run ends. It returns CodeBusy at once when a
+// Run is already in flight, and an error of CodeSessionClosing or
+// CodeSessionClosed after Close. Canceling ctx aborts the Run.
 func (a *Session) Prompt(ctx context.Context, message Message) (RunResult, error) {
 	if err := validatePrompt(message); err != nil {
 		return RunResult{}, err
@@ -514,6 +521,10 @@ func (a *Session) admissionError(operation string) error {
 	}
 }
 
+// Close stops the Session: it takes no new Run, lets the one in flight finish
+// (Abort ends it sooner), and drops the messages still queued. It returns when
+// the Session's goroutine is done, or ctx.Err() if ctx ends first, and it is
+// safe to call more than once.
 func (a *Session) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -531,6 +542,8 @@ func (a *Session) Close(ctx context.Context) error {
 	}
 }
 
+// WaitForIdle blocks until the Session is idle. It returns ctx.Err() if ctx
+// ends first, and an error when the Session is closing or closed.
 func (a *Session) WaitForIdle(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

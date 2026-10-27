@@ -2,6 +2,10 @@ package gotato
 
 import "time"
 
+// CoreLimits bounds what a Session accepts and how long it waits. A zero
+// field means its default (see DefaultLimits). The Message and Transcript limits
+// are in bytes and counts of the committed Transcript; the deadlines apply to
+// one model call and one Tool call.
 type CoreLimits struct {
 	MaxMessages         uint32
 	MaxMessageBytes     uint64

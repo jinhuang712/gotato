@@ -4,10 +4,15 @@ import (
 	"context"
 )
 
+// Model is the interface Gotato calls for a reply, as a stream of events.
+// Stream starts a call and returns its ModelStream, or an error when the call
+// could not start. The ctx ends the call.
 type Model interface {
 	Stream(context.Context, ModelRequest) (ModelStream, error)
 }
 
+// ModelRequest is what the Model receives for one call: the Context a
+// ContextBuilder built, with the Tools to offer.
 type ModelRequest struct {
 	SystemInstructions string     `json:"system_instructions,omitempty"`
 	Messages           []Message  `json:"messages"`
@@ -64,11 +69,15 @@ type ModelConfig struct {
 	ReasoningSummary string   `json:"reasoning_summary,omitempty"`
 }
 
+// ModelStream is the events of one model call. One goroutine reads it: Recv
+// returns the next event, and io.EOF after the last. The caller always calls
+// Close, which releases the call.
 type ModelStream interface {
 	Recv(context.Context) (ModelEvent, error)
 	Close() error
 }
 
+// ModelEventKind says what a ModelEvent carries.
 type ModelEventKind string
 
 const (
@@ -82,6 +91,9 @@ const (
 	ModelEventKindDone          ModelEventKind = "done"
 )
 
+// ModelEvent is one piece of a reply: a delta of text or reasoning, a Tool
+// call, the Usage, or the end of the reply (ModelEventKindDone, with the
+// StopReason). Only the fields of its Kind are set.
 type ModelEvent struct {
 	Kind              ModelEventKind `json:"kind"`
 	Text              string         `json:"text,omitempty"`

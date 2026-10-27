@@ -9,12 +9,22 @@ import (
 	"sync/atomic"
 )
 
+// SessionID names a Session. It stays the same wherever the Session is loaded.
 type SessionID string
+
+// RunID names one Run of a Session.
 type RunID string
+
+// TurnNumber counts the Turns of a Run, from 1.
 type TurnNumber uint32
+
+// MessageID names a Message in the Transcript.
 type MessageID string
+
+// ToolCallID names one Tool call, and the ToolResult that answers it.
 type ToolCallID string
 
+// Role says who a Message is from.
 type Role string
 
 const (
@@ -26,6 +36,7 @@ const (
 	RoleNotice Role = "notice"
 )
 
+// ContentKind says what a ContentPart holds.
 type ContentKind string
 
 const (
@@ -35,6 +46,8 @@ const (
 	ContentKindJSON      ContentKind = "json"
 )
 
+// ContentPart is one piece of a Message or a ToolResult: text, reasoning, an
+// image or JSON. Text carries the text kinds; Data and MIMEType carry an image.
 type ContentPart struct {
 	Kind     ContentKind `json:"kind"`
 	Text     string      `json:"text,omitempty"`
@@ -47,6 +60,9 @@ type ContentPart struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
+// Message is one entry in the Transcript: user input, an assistant reply, a
+// tool result or a notice. Role says which, and the fields that do not fit a
+// Role stay empty.
 type Message struct {
 	ID MessageID `json:"id,omitempty"`
 	// RunID is the Run that committed the Message: its prompt, its replies,
@@ -70,10 +86,12 @@ type Message struct {
 	Notice *NoticeInfo `json:"notice,omitempty"`
 }
 
+// UserMessage returns a user Message of one text Part.
 func UserMessage(text string) Message {
 	return Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: text}}}
 }
 
+// AssistantMessage returns an assistant Message of one text Part.
 func AssistantMessage(text string) Message {
 	return Message{Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: text}}}
 }
@@ -97,6 +115,8 @@ func partsText(m Message, kind ContentKind) string {
 	return b.String()
 }
 
+// Clone returns a deep copy of m: changing the copy's Parts, ToolCalls,
+// ToolResult or Notice, or their byte slices and maps, never changes m.
 func (m Message) Clone() Message {
 	out := m
 	out.Parts = cloneParts(m.Parts)
@@ -112,6 +132,8 @@ func (m Message) Clone() Message {
 	return out
 }
 
+// ToolCall is a call the Model made to a Tool: the Tool's ID and the JSON
+// Arguments, which the Session validates against the Tool's input schema.
 type ToolCall struct {
 	ID        ToolCallID `json:"id"`
 	ToolID    string     `json:"tool_id"`
@@ -123,6 +145,7 @@ type ToolCall struct {
 	Signature []byte `json:"signature,omitempty"`
 }
 
+// ToolResultStatus says how a Tool call ended.
 type ToolResultStatus string
 
 const (
@@ -132,6 +155,9 @@ const (
 	ToolResultStatusCanceled ToolResultStatus = "canceled"
 )
 
+// ToolResult is what a Tool call returned, committed as a Message of the role
+// RoleToolResult. A Tool sets Status, Content and Metadata; the Session sets
+// CallID and Executed.
 type ToolResult struct {
 	CallID    ToolCallID        `json:"call_id"`
 	Status    ToolResultStatus  `json:"status"`
@@ -154,6 +180,8 @@ type ToolResult struct {
 	LoadedTools []string `json:"loaded_tools,omitempty"`
 }
 
+// Clone returns a deep copy of r: its Content, Metadata, LoadedTools and
+// Spilled are not shared with r.
 func (r ToolResult) Clone() ToolResult {
 	out := r
 	out.Content = cloneParts(r.Content)
@@ -196,6 +224,7 @@ const (
 	StopReasonCutOff StopReason = "cut_off"
 )
 
+// RunStatus is how a Run stands: running, or how it ended.
 type RunStatus string
 
 const (
@@ -206,6 +235,7 @@ const (
 	RunStatusFailed           RunStatus = "failed"
 )
 
+// RunMetrics counts what a Run did.
 type RunMetrics struct {
 	ElapsedMS      float64 `json:"elapsed_ms"`
 	Turns          uint32  `json:"turns"`
@@ -214,6 +244,8 @@ type RunMetrics struct {
 	ReasoningBytes uint64  `json:"reasoning_bytes"`
 }
 
+// RunResult is the settled result of a Run: its status, its final Message and
+// its total Usage. Error is set when the Run did not complete.
 type RunResult struct {
 	RunID        RunID         `json:"run_id"`
 	Status       RunStatus     `json:"status"`
@@ -223,6 +255,7 @@ type RunResult struct {
 	Error        *RuntimeError `json:"error,omitempty"`
 }
 
+// Clone returns a deep copy of r: its FinalMessage and Error are not shared with r.
 func (r RunResult) Clone() RunResult {
 	out := r
 	if r.FinalMessage != nil {

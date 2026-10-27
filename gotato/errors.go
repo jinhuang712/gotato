@@ -6,6 +6,9 @@ import (
 	"fmt"
 )
 
+// ErrorCode says what kind of failure a RuntimeError is. The values are the
+// Code constants, and the same strings appear in JSON, so a caller can match on
+// them.
 type ErrorCode string
 
 const (

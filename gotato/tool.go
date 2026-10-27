@@ -4,11 +4,23 @@ import (
 	"context"
 )
 
+// Tool is one capability a Session can call. Spec describes it; Execute runs it.
+//
+// Execute must honor ctx: the Session cancels it when the Run is aborted or the
+// call passes its deadline, and a Tool that ignores it holds the Run until it
+// returns. progress may be called from Execute to report text while the call
+// runs; the Session bounds how much it keeps. An error from Execute, or a panic,
+// becomes a failed ToolResult; a Tool reports a failure it wants the Model to
+// read by returning a ToolResult with a failed Status.
 type Tool interface {
 	Spec() ToolSpec
 	Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error)
 }
 
+// ToolSpec describes a Tool to the Model and to the Session. ID is the Tool's
+// unique name; InputSchema is the JSON Schema its arguments are checked against
+// before Execute runs. A Sequential Tool never runs beside another Tool of the
+// same Turn.
 type ToolSpec struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
@@ -87,6 +99,8 @@ func (t effectTool) Spec() ToolSpec {
 	return spec
 }
 
+// ToolUse is one call as Execute receives it: where in the Run it is, and the
+// Tool's ID and arguments.
 type ToolUse struct {
 	RunID       RunID      `json:"run_id"`
 	Turn        TurnNumber `json:"turn"`
@@ -99,4 +113,6 @@ type ToolUse struct {
 	Effect ToolEffect `json:"effect,omitempty"`
 }
 
+// ToolProgressFunc reports a piece of text about a running Tool call. It is
+// safe to call from the goroutine that runs Execute.
 type ToolProgressFunc func(string)
