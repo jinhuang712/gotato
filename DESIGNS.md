@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-27 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -485,6 +485,11 @@ Running a Session on many instances raises two kinds of problem: getting a reque
 - **Instead of:** built-in authentication, OAuth or a tenant model.
 - **Why:** every service already authenticates its callers in its own way, and decides in its own way who may touch which Session. Gotato passes the request's `context.Context`, with its values, to every store and extension call it makes for that request, so the application's own code sees the caller where it enforces its rule. A refusal is `not_found`: a store wrapper returns `session.ErrNotFound` for a Session the caller does not own, which answers 404 on HTTP, and does not reveal that the Session exists. Gotato adds no identity type, no "not allowed" error and no hook, and work it starts on its own, such as an idle compaction, has no caller ([FEATURES.md → G-N22](FEATURES.md#g-n22--access-control-belongs-to-applications)).
 
+### A caller's credential travels in the `context.Context`
+
+- **Instead of:** a credential store, or a token kept in an Agent or a Session.
+- **Why:** Gotato stores no credential of a caller, in the Record or anywhere else. The service puts the caller into the request's `context.Context` ([No authentication](#no-authentication)), and a Run's tool calls carry that `ctx`, so a tool reads the caller's credential from it when it calls out. The MCP adapter does this through the team's `http.Client`: a `RoundTripper` reads the caller from `req.Context()` on every `tools/call`, which is sent in the Run's `ctx`, while `initialize`, the standalone stream and the closing `DELETE` go in the `ctx` that made the connection ([FEATURES.md → Authenticating to a server](FEATURES.md#g-f12--the-mcp-adapter-)). The model's own credential is different: the gateway reads a provider's API key from its configuration once, and it is the service's, not the caller's. So a tool can act with the caller's authority and the model call runs with the service's.
+
 ### No global scheduling or quotas
 
 - **Instead of:** scheduling resources or provider quotas across services.
@@ -587,6 +592,11 @@ This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code):
 - **Instead of:** a central policy engine.
 - **Why:** a write that is safe for some arguments and not others is best judged by the code that knows them. The tools are the bounds, so they are written with care.
 
+### Tool output is data, not instruction
+
+- **Instead of:** trusting what a tool returns, or filtering it for hostile text.
+- **Why:** a Tool Result reaches the model as a tool-result message tied to its call, never as the system instruction or as a user message. The one thing Gotato enforces is that it cannot speak as the system: text in a result, in `SafeError`, in a user message or in the model's own reply that imitates one of Gotato's four tags (`notice`, `segment`, `tool_calls`, `recap`) is escaped when the request is built, while the Record keeps the original. This does not make a result safe to obey. A result can still hold words that persuade the model, and Gotato does not detect them. What limits the damage is the Agent's bounds: its named tools and its Effect cap, which a result cannot raise ([The bounds are in the definition](#the-bounds-are-in-the-definition)).
+
 ### No approval system — 2026-10-15
 
 Gotato is for purpose-built agents, whose tools the team chooses and writes (reason: [PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
@@ -671,6 +681,16 @@ A cloud Session runs with nobody watching each step. So it can be stopped at any
 
 - **Instead of:** a cancellation mechanism of Gotato's own.
 - **Why:** Go code already cancels through `ctx`, so every model call, tool call, store call and stream takes one, and stopping a Run reaches all of them.
+
+### The Record is the trace
+
+- **Instead of:** a separate audit log, or a trace the Session can write to.
+- **Why:** the Record already holds every step as an Entry, in order, and only the Session's `session.Writer` appends to it, under the Instance's Claim ([One writer per Session](#one-writer-per-session-claimed-in-the-store--2026-10-16)). Every append names the position it follows, so a writer that lost its Claim is refused. A tool gets its `ctx`, its call and a progress function, and the model gets only what the Loop commits, so neither has a way to write to the Record. This is a promise about Gotato's code, not about the store: whoever operates the store can still change or delete a Record (`Store.Delete` exists), and Entries are not signed. A team that needs more wraps the store, as for access control.
+
+### Stopping reaches one Run, and a group of Runs is the application's
+
+- **Instead of:** a kill switch for a group of Agents inside the runtime.
+- **Why:** `Abort` stops one Run (`Session.AbortRun`, `Runner.AbortSession`), and `Drain` then `Close` stops one Instance. Both end through `context.Context`, so a model call, a tool call and a stream stop together, and the Run settles as `canceled` with every Turn it committed. A Run on another live Instance is not stopped from here: `AbortSession` answers `not_writer` with the writer's advertised address, and the HTTP endpoints send the cancel there when forwarding is on. Which Runs belong together is a role, and roles belong to applications ([Agents are flat](#agents-are-flat)). So an application that keeps its group in `Session.Metadata` lists the Sessions (`Runner.Sessions` returns the Metadata and whether each is running), aborts each one, and revokes its own credentials. Gotato has no call that does this for a group.
 
 ### Each kind of Event is a type of its own
 
