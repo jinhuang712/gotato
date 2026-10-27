@@ -4,6 +4,16 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### An HTTP error body carries `code` and `message` only
+
+**Breaking**: before the first release nothing keeps an old field. The `error` field of an HTTP error body held the status text (`"Conflict"`, `"Not Found"`), which the response status already says. It is gone; `code` (when the error has one), `message`, and the optional `not_run`, `retryable`, `record_epoch` and `writer` stay. On a 5xx, `message` is still the status text. This holds for the `event: error` frame of a stream too.
+
+| Before | After |
+|---|---|
+| `{"error":"Conflict","code":"busy","message":"busy: session is running","not_run":true}` | `{"code":"busy","message":"busy: session is running","not_run":true}` |
+| `{"error":"Internal Server Error","message":"Internal Server Error"}` | `{"message":"Internal Server Error"}` |
+| a client reads `body.error` for the status text | reads the HTTP status; `code` names the cause |
+
 ### A notice_queued Event names the notice's kind `notice_kind`
 
 **Breaking**: before the first release nothing keeps an old name. `NoticeQueued.Label` held the notice's kind (`Message.Notice.Kind`). It cannot be called `Kind`, because `kind` in the Event JSON names the Event, so it is `NoticeKind`, and the key says the same.

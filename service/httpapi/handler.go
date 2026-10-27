@@ -207,7 +207,6 @@ type compactRequest struct {
 }
 
 type errorResponse struct {
-	Error   string `json:"error"`
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	// NotRun says the request did not run, so it can be sent again, also to
@@ -811,7 +810,7 @@ func StatusFor(err error) int {
 
 func failureOf(err error) errorResponse {
 	status := StatusFor(err)
-	out := errorResponse{Error: http.StatusText(status), NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
+	out := errorResponse{NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
@@ -821,7 +820,7 @@ func failureOf(err error) errorResponse {
 	if status >= http.StatusInternalServerError && !out.NotRun {
 		// Keep store and filesystem internals in the server log; the client
 		// gets a stable body.
-		log.Printf("httpapi: %d %s: %v", status, out.Error, err)
+		log.Printf("httpapi: %d %s: %v", status, http.StatusText(status), err)
 		out.Message = http.StatusText(status)
 		return out
 	}
@@ -869,7 +868,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	resp := errorResponse{Error: http.StatusText(status)}
+	var resp errorResponse
 	if status >= http.StatusInternalServerError {
 		resp = internalError(err)
 	} else {
@@ -883,7 +882,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 func internalError(err error) errorResponse {
 	log.Printf("httpapi: internal error: %v", err)
 	message := http.StatusText(http.StatusInternalServerError)
-	return errorResponse{Error: message, Message: message}
+	return errorResponse{Message: message}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -205,7 +205,7 @@ func TestForwardLoopIsNotCreated(t *testing.T) {
 		hits.Add(1)
 		forwarded.Store(r.Header.Get(httpapi.ForwardedHeader))
 		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, `{"error":{"code":"not_writer"}}`)
+		_, _ = io.WriteString(w, `{"code":"not_writer","message":"not_writer"}`)
 	}))
 	defer peer.Close()
 	b := &bot{log: logger(t), client: peer.Client(), label: "pod-b", model: "fake"}

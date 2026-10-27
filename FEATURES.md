@@ -1413,7 +1413,7 @@ POST   /v1/sessions/{id}/abort
 | 503 | the instance is draining (`draining`) or past its activation limit (`overloaded`), both marked not run; or the store failed |
 | 504 | the request's deadline passed |
 
-- Every code has its status in one table (`statusOfCode`); `StatusFor` only looks it up. Whether the request ran is not decided here: `Gotato-Not-Run: true` is set whenever `gotato.NotRun(err)`, on any status, and the error body carries `code`, `not_run` and `retryable`. A request refused with a mark may be sent again to another instance.
+- Every code has its status in one table (`statusOfCode`); `StatusFor` only looks it up. Whether the request ran is not decided here: `Gotato-Not-Run: true` is set whenever `gotato.NotRun(err)`, on any status, and the error body carries `code` (when the error has one), `message`, `not_run` and `retryable`, and no field repeating the status. A request refused with a mark may be sent again to another instance.
 
 **Streaming.** The `/stream` routes send each Event of the Run's stream as server-sent events (`event: <kind>`, `data:` one flat JSON object), and end with `event: result`. The handler reads a Subscription, so a client that reads slowly never slows the Run.
 
