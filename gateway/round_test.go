@@ -18,7 +18,7 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-var wireEncoders = map[string]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
+var wireEncoders = map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
 	APIChatCompletions:   encodeRequest,
 	APIResponses:         encodeResponsesRequest,
 	APIAnthropicMessages: encodeAnthropicRequest,
@@ -26,7 +26,7 @@ var wireEncoders = map[string]func(string, gotato.ModelRequest, providerRules) (
 
 // reasoningPart is a reasoning Part as each wire API keeps it: its text, and
 // the provider's own artifact where the wire API has one.
-func reasoningPart(api, label string) gotato.ContentPart {
+func reasoningPart(api API, label string) gotato.ContentPart {
 	part := gotato.ContentPart{Kind: gotato.ContentKindReasoning, Text: "think-" + label}
 	switch api {
 	case APIAnthropicMessages:
@@ -38,7 +38,7 @@ func reasoningPart(api, label string) gotato.ContentPart {
 }
 
 // sentReasoning is how a reasoning Part shows in an encoded request.
-func sentReasoning(api, label string) string {
+func sentReasoning(api API, label string) string {
 	switch api {
 	case APIAnthropicMessages:
 		return "sig-" + label
@@ -49,7 +49,7 @@ func sentReasoning(api, label string) string {
 	}
 }
 
-func reply(api, label, text string, calls ...gotato.ToolCall) gotato.Message {
+func reply(api API, label, text string, calls ...gotato.ToolCall) gotato.Message {
 	message := gotato.Message{Role: gotato.RoleAssistant, Parts: []gotato.ContentPart{reasoningPart(api, label)}, ToolCalls: calls}
 	if text != "" {
 		message.Parts = append(message.Parts, gotato.ContentPart{Kind: gotato.ContentKindText, Text: text})
@@ -69,7 +69,7 @@ func echoResult(id string) gotato.Message {
 // twoRounds is a history in its second Round's tool loop. The first Round, a
 // tool call and its answer, came before the last user Message; the second
 // Round's tool call after it.
-func twoRounds(api string) []gotato.Message {
+func twoRounds(api API) []gotato.Message {
 	return []gotato.Message{
 		gotato.UserMessage("q1"),
 		reply(api, "r1", "", echoCall("c1")),
@@ -83,7 +83,7 @@ func twoRounds(api string) []gotato.Message {
 
 // encodeWith encodes messages as a Turn lays them out, with the cache
 // markers and the tool a Session would send.
-func encodeWith(t *testing.T, api string, rules providerRules, messages []gotato.Message) string {
+func encodeWith(t *testing.T, api API, rules providerRules, messages []gotato.Message) string {
 	t.Helper()
 	request, _ := gotato.AssembleRequest(gotato.ModelContext{SystemInstructions: "sys", Messages: messages},
 		[]gotato.ToolSpec{{ID: "echo", Name: "echo", InputSchema: []byte(`{"type":"object"}`)}})
@@ -136,12 +136,15 @@ func cacheControls(t *testing.T, body string) []map[string]any {
 // window, and on the bill, for as long as the Session lives, which can be
 // weeks. Only the replies after the last user Message keep their reasoning.
 func TestRecognizedProvidersSendOnlyTheCurrentRoundsReasoning(t *testing.T) {
-	for _, tc := range []struct{ provider, api string }{
+	for _, tc := range []struct {
+		provider Provider
+		api      API
+	}{
 		{ProviderAnthropic, APIAnthropicMessages},
 		{ProviderOpenAI, APIResponses},
 		{ProviderOpenAI, APIChatCompletions},
 	} {
-		t.Run(tc.provider+"/"+tc.api, func(t *testing.T) {
+		t.Run(string(tc.provider)+"/"+string(tc.api), func(t *testing.T) {
 			rules := newProviderRules(tc.provider, tc.api, "m", 0, false)
 			body := encodeWith(t, tc.api, rules, twoRounds(tc.api))
 			for _, earlier := range []string{"r1", "r2"} {
@@ -186,9 +189,9 @@ func TestResponsesLeavesOutTheItemIDsOfEarlierRounds(t *testing.T) {
 // the same. Both get every reasoning artifact back, and no field or header the
 // gateway adds only for a recognized provider.
 func TestDeepSeekAndUnrecognizedProvidersGetEveryReasoningAndNothingElse(t *testing.T) {
-	for _, provider := range []string{ProviderDeepSeek, ""} {
+	for _, provider := range []Provider{ProviderDeepSeek, ""} {
 		for _, api := range wireAPIs {
-			t.Run(provider+"/"+api, func(t *testing.T) {
+			t.Run(string(provider)+"/"+string(api), func(t *testing.T) {
 				for _, model := range []string{"claude-opus-5-5", "gpt-6.1-sol"} {
 					body := encodeWith(t, api, newProviderRules(provider, api, model, 0, false), twoRounds(api))
 					for _, label := range []string{"r1", "r2", "r3"} {
@@ -318,7 +321,7 @@ func TestTheProviderIsConfiguredOrKnownByItsOfficialAddress(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		config Config
-		want   string
+		want   Provider
 	}{
 		{"Anthropic's address", Config{API: APIAnthropicMessages}, ProviderAnthropic},
 		{"OpenAI's address", Config{API: APIResponses}, ProviderOpenAI},
@@ -393,7 +396,8 @@ func TestAnthropicBindsThinkingOnlyWhereThePrefixIsChecked(t *testing.T) {
 // joins any anthropic-beta value the configuration already sends.
 func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 	for _, tc := range []struct {
-		provider, model, configured, want string
+		provider                Provider
+		model, configured, want string
 	}{
 		{ProviderAnthropic, "claude-opus-5-5", "", anthropicBindingBeta},
 		{ProviderAnthropic, "claude-opus-5-5", "files-api-2025-04-14", "files-api-2025-04-14," + anthropicBindingBeta},
@@ -438,9 +442,11 @@ func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 // their own default.
 func TestCacheRetentionIsTheProvidersLongestUnlessSetShorter(t *testing.T) {
 	for _, tc := range []struct {
-		provider, api, model string
-		retention            time.Duration
-		ttl                  string
+		provider  Provider
+		api       API
+		model     string
+		retention time.Duration
+		ttl       string
 	}{
 		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 0, "1h"},
 		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 2 * time.Hour, "1h"},
@@ -469,7 +475,7 @@ func TestCacheRetentionIsTheProvidersLongestUnlessSetShorter(t *testing.T) {
 
 // sentCacheTTL returns the cache ttl an encoded request asks for, and fails
 // when an Anthropic request's markers disagree.
-func sentCacheTTL(t *testing.T, api, body string) string {
+func sentCacheTTL(t *testing.T, api API, body string) string {
 	t.Helper()
 	switch api {
 	case APIAnthropicMessages:

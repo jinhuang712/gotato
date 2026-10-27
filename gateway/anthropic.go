@@ -16,7 +16,7 @@ import (
 )
 
 // APIAnthropicMessages selects the Anthropic Messages API.
-const APIAnthropicMessages = "anthropic-messages"
+const APIAnthropicMessages API = "anthropic-messages"
 
 const (
 	defaultAnthropicBaseURL   = "https://api.anthropic.com"

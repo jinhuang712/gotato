@@ -32,7 +32,7 @@ type windowedLogging struct {
 	log    *requestLog
 }
 
-func (m windowedLogging) ContextWindow() int { return m.window }
+func (m windowedLogging) ContextWindowTokens() int { return m.window }
 
 func (m windowedLogging) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
 	b, err := json.Marshal(request)

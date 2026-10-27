@@ -16,7 +16,7 @@ import (
 type yAMLConfig struct {
 	// API selects the wire protocol: openai-chat-completions (default),
 	// openai-responses, or anthropic-messages.
-	API      string            `yaml:"api"`
+	API      API               `yaml:"api"`
 	Endpoint string            `yaml:"endpoint"`
 	BaseURL  string            `yaml:"base_url"`
 	APIKey   string            `yaml:"api_key"`
@@ -31,17 +31,17 @@ type yAMLConfig struct {
 	RetryBackoff   string `yaml:"retry_backoff"`
 	// Provider, CacheRetention (a duration such as 1h) and NoDropBlock are
 	// Config's fields of the same names.
-	Provider       string `yaml:"provider"`
-	CacheRetention string `yaml:"cache_retention"`
-	NoDropBlock    bool   `yaml:"no_drop_block"`
-	// ContextWindow is the model's context window in tokens (Config's field
+	Provider       Provider `yaml:"provider"`
+	CacheRetention string   `yaml:"cache_retention"`
+	NoDropBlock    bool     `yaml:"no_drop_block"`
+	// ContextWindowTokens is the model's context window in tokens (Config's field
 	// of the same name).
-	ContextWindow int `yaml:"context_window"`
+	ContextWindowTokens int `yaml:"context_window_tokens"`
 	// OverflowPhrases adds the team's own wording for "the request was too
 	// long" to the defaults (Config's field of the same name).
 	OverflowPhrases []string `yaml:"overflow_phrases"`
 	// DeferredTools is "native" or "list" (Config's field of the same name).
-	DeferredTools string `yaml:"deferred_tools"`
+	DeferredTools DeferredForm `yaml:"deferred_tools"`
 }
 
 func LoadYAML(path string) (Config, error) {
@@ -71,19 +71,19 @@ func parseYAML(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	config := Config{
-		API:            fileConfig.API,
-		Endpoint:       fileConfig.Endpoint,
-		BaseURL:        fileConfig.BaseURL,
-		APIKey:         fileConfig.APIKey,
-		Model:          fileConfig.Model,
-		Headers:        fileConfig.Headers,
-		CacheKeyHeader: fileConfig.CacheKeyHeader,
-		CacheKeyField:  fileConfig.CacheKeyField,
-		MaxRetries:     fileConfig.MaxRetries,
-		NoRetries:      fileConfig.NoRetries,
-		Provider:       fileConfig.Provider,
-		NoDropBlock:    fileConfig.NoDropBlock,
-		ContextWindow:  fileConfig.ContextWindow,
+		API:                 fileConfig.API,
+		Endpoint:            fileConfig.Endpoint,
+		BaseURL:             fileConfig.BaseURL,
+		APIKey:              fileConfig.APIKey,
+		Model:               fileConfig.Model,
+		Headers:             fileConfig.Headers,
+		CacheKeyHeader:      fileConfig.CacheKeyHeader,
+		CacheKeyField:       fileConfig.CacheKeyField,
+		MaxRetries:          fileConfig.MaxRetries,
+		NoRetries:           fileConfig.NoRetries,
+		Provider:            fileConfig.Provider,
+		NoDropBlock:         fileConfig.NoDropBlock,
+		ContextWindowTokens: fileConfig.ContextWindowTokens,
 
 		OverflowPhrases: fileConfig.OverflowPhrases,
 		DeferredTools:   fileConfig.DeferredTools,

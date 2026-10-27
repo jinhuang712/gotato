@@ -39,9 +39,9 @@ func toolsField(t *testing.T, body []byte) string {
 func TestFakeNativeDeferredToolsEndToEnd(t *testing.T) {
 	for _, wire := range fakeWires[:2] {
 		t.Run(wire.name, func(t *testing.T) {
-			wire.config.DeferredTools = DeferredNative
+			wire.config.DeferredTools = DeferredFormNative
 			fake, client := newFake(t, wire)
-			if client.DeferredTools() != DeferredNative {
+			if client.DeferredTools() != DeferredFormNative {
 				t.Fatalf("form = %q", client.DeferredTools())
 			}
 			options := append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(reftasks.OrdersLookup())}, reftasks.ToolSearchOptions()...)

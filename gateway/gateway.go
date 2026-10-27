@@ -40,7 +40,7 @@ type Config struct {
 	// empty), APIResponses, or APIAnthropicMessages. The aliases
 	// openai-completions, openai-codex-responses, and anthropic are also
 	// accepted.
-	API string
+	API API
 	// Endpoint is the complete provider URL. When empty, BaseURL is used.
 	Endpoint string
 	// BaseURL may be an origin or an API base URL.
@@ -69,7 +69,7 @@ type Config struct {
 	// ProviderOpenAI, ProviderDeepSeek, or ProviderOther. Empty recognizes
 	// only the providers' own addresses (api.anthropic.com, api.openai.com,
 	// api.deepseek.com); behind any other address, name the provider here.
-	Provider string
+	Provider Provider
 	// CacheRetention is how long the provider should keep the prompt cache.
 	// Zero asks a recognized provider for its longest: an hour on Claude,
 	// and 30 minutes on OpenAI's Responses API from GPT-5.6 on. A shorter
@@ -80,10 +80,10 @@ type Config struct {
 	// changed (block_binding drop_block) on the models that check it; the
 	// provider then refuses such a request instead.
 	NoDropBlock bool
-	// ContextWindow is the model's context window in tokens. Zero means
+	// ContextWindowTokens is the model's context window in tokens. Zero means
 	// unknown: the gateway keeps no table of windows, and compaction then
 	// has no default ceiling. Negative is refused.
-	ContextWindow int
+	ContextWindowTokens int
 	// OverflowPhrases adds a team's own wording to the phrases by which an
 	// error says the request was longer than the model's context window.
 	// Each is a fragment of an error's message, code or type, matched
@@ -92,7 +92,7 @@ type Config struct {
 	// 413 that matches any of them is reported as a context overflow.
 	OverflowPhrases []string
 	// DeferredTools is how the wire API shows the tools a Session loads
-	// one by one from its catalog: DeferredNative or DeferredList. Empty
+	// one by one from its catalog: DeferredFormNative or DeferredFormList. Empty
 	// uses the wire API's default: native on openai-responses and
 	// anthropic-messages, list on openai-chat-completions. Native keeps the
 	// tool list of the request the same while tools load (every catalog
@@ -101,18 +101,21 @@ type Config struct {
 	// loaded so far, so the tool list grows when one loads. A wire API
 	// without a native form (openai-chat-completions) always uses list,
 	// whatever is set here; Client.DeferredTools reports what is used.
-	DeferredTools string
+	DeferredTools DeferredForm
 }
+
+// DeferredForm is how deferred tools reach the provider (Config.DeferredTools).
+type DeferredForm string
 
 // The forms of Config.DeferredTools.
 const (
-	DeferredNative = "native"
-	DeferredList   = "list"
+	DeferredFormNative DeferredForm = "native"
+	DeferredFormList   DeferredForm = "list"
 )
 
 type Client struct {
 	overflow       overflowMatcher
-	api            string
+	api            API
 	endpoint       string
 	apiKey         string
 	model          string
@@ -122,7 +125,7 @@ type Client struct {
 	cacheKeyField  string
 	maxRetries     int
 	retryBackoff   time.Duration
-	provider       string
+	provider       Provider
 	rules          providerRules
 	contextWindow  int
 }
@@ -168,8 +171,8 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.ContextWindow < 0 {
-		return nil, fmt.Errorf("gateway: ContextWindow cannot be negative")
+	if config.ContextWindowTokens < 0 {
+		return nil, fmt.Errorf("gateway: ContextWindowTokens cannot be negative")
 	}
 	if config.MaxRetries < 0 {
 		return nil, fmt.Errorf("gateway: MaxRetries cannot be negative")
@@ -225,7 +228,7 @@ func New(config Config) (*Client, error) {
 		}
 	}
 	rules := newProviderRules(provider, api, config.Model, retention, config.NoDropBlock)
-	rules.deferredNative = deferred == DeferredNative
+	rules.deferredNative = deferred == DeferredFormNative
 	return &Client{
 		api:            api,
 		endpoint:       endpoint,
@@ -239,7 +242,7 @@ func New(config Config) (*Client, error) {
 		retryBackoff:   backoff,
 		provider:       provider,
 		rules:          rules,
-		contextWindow:  config.ContextWindow,
+		contextWindow:  config.ContextWindowTokens,
 		overflow:       newOverflowMatcher(config.OverflowPhrases),
 	}, nil
 }
@@ -247,34 +250,34 @@ func New(config Config) (*Client, error) {
 // resolveDeferredTools returns the form a wire API uses for deferred tools:
 // the configured one when the wire API has it, its default when none is
 // configured, and list for a wire API without a native form.
-func resolveDeferredTools(configured, api string) (string, error) {
-	form := strings.ToLower(strings.TrimSpace(configured))
+func resolveDeferredTools(configured DeferredForm, api API) (DeferredForm, error) {
+	form := DeferredForm(strings.ToLower(strings.TrimSpace(string(configured))))
 	switch form {
-	case "", DeferredNative, DeferredList:
+	case "", DeferredFormNative, DeferredFormList:
 	default:
-		return "", fmt.Errorf("gateway: unsupported DeferredTools %q (use %s or %s)", configured, DeferredNative, DeferredList)
+		return "", fmt.Errorf("gateway: unsupported DeferredTools %q (use %s or %s)", configured, DeferredFormNative, DeferredFormList)
 	}
 	if api == APIChatCompletions {
-		return DeferredList, nil
+		return DeferredFormList, nil
 	}
 	if form == "" {
-		return DeferredNative, nil
+		return DeferredFormNative, nil
 	}
 	return form, nil
 }
 
 // DeferredTools reports the form this Client sends deferred tools in:
-// DeferredNative or DeferredList.
-func (c *Client) DeferredTools() string {
+// DeferredFormNative or DeferredFormList.
+func (c *Client) DeferredTools() DeferredForm {
 	if c.rules.deferredNative {
-		return DeferredNative
+		return DeferredFormNative
 	}
-	return DeferredList
+	return DeferredFormList
 }
 
-// ContextWindow returns the model's context window in tokens as configured,
+// ContextWindowTokens returns the model's context window in tokens as configured,
 // or 0 when it is not. The gateway keeps no table of windows.
-func (c *Client) ContextWindow() int { return c.contextWindow }
+func (c *Client) ContextWindowTokens() int { return c.contextWindow }
 
 // CacheRetention returns how long the provider keeps the prompt cache after a
 // request, as far as this client knows: the cache_control ttl it sends on
@@ -295,13 +298,16 @@ func (c *Client) CacheRetention() time.Duration {
 }
 
 // Supported wire protocols. Legacy spellings are accepted as aliases.
+// API is a wire protocol (Config.API).
+type API string
+
 const (
-	APIChatCompletions = "openai-chat-completions"
-	APIResponses       = "openai-responses"
+	APIChatCompletions API = "openai-chat-completions"
+	APIResponses       API = "openai-responses"
 )
 
-func normalizeAPI(api string) (string, error) {
-	switch strings.TrimSpace(api) {
+func normalizeAPI(api API) (API, error) {
+	switch API(strings.TrimSpace(string(api))) {
 	case "", APIChatCompletions, "openai-completions":
 		return APIChatCompletions, nil
 	case APIResponses, "openai-codex-responses":

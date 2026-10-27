@@ -16,18 +16,21 @@ import (
 // provider the gateway does not recognize, gets every reasoning artifact back
 // and no field or header beyond the request, which every compatible server
 // accepts.
+// Provider names who serves a model (Config.Provider).
+type Provider string
+
 const (
-	ProviderAnthropic = "anthropic"
-	ProviderOpenAI    = "openai"
-	ProviderDeepSeek  = "deepseek"
+	ProviderAnthropic Provider = "anthropic"
+	ProviderOpenAI    Provider = "openai"
+	ProviderDeepSeek  Provider = "deepseek"
 	// ProviderOther turns recognition off, even on a provider's own address.
-	ProviderOther = "other"
+	ProviderOther Provider = "other"
 )
 
 // officialHosts are the providers' own addresses. Without a configured
 // provider, only these are recognized: a gateway in front of the providers
 // may serve any model under any name, so a model name is never used to guess.
-var officialHosts = map[string]string{
+var officialHosts = map[string]Provider{
 	"api.anthropic.com": ProviderAnthropic,
 	"api.openai.com":    ProviderOpenAI,
 	"api.deepseek.com":  ProviderDeepSeek,
@@ -76,8 +79,8 @@ type providerRules struct {
 
 // resolveProvider returns the provider configured, or the one whose own
 // address endpoint is, or "" for a provider the gateway does not recognize.
-func resolveProvider(configured, endpoint string) (string, error) {
-	switch provider := strings.ToLower(strings.TrimSpace(configured)); provider {
+func resolveProvider(configured Provider, endpoint string) (Provider, error) {
+	switch provider := Provider(strings.ToLower(strings.TrimSpace(string(configured)))); provider {
 	case ProviderAnthropic, ProviderOpenAI, ProviderDeepSeek:
 		return provider, nil
 	case ProviderOther:
@@ -104,7 +107,7 @@ func cacheRetention(configured time.Duration) (time.Duration, error) {
 
 // newProviderRules derives the rules for one model. A retention shorter than
 // a provider's longer option gets the provider's default, its shortest.
-func newProviderRules(provider, api, model string, retention time.Duration, noDropBlock bool) providerRules {
+func newProviderRules(provider Provider, api API, model string, retention time.Duration, noDropBlock bool) providerRules {
 	long := func(option time.Duration) bool { return retention == 0 || retention >= option }
 	var rules providerRules
 	switch provider {

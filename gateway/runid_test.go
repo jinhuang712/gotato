@@ -11,7 +11,7 @@ import (
 // A Message's RunID is a record. No wire API may send it: the request bytes
 // are the same with a RunID and without, whatever the encoder is given.
 func TestRunIDNeverReachesAWireRequest(t *testing.T) {
-	encoders := map[string]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
+	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
 		APIChatCompletions:   encodeRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,
@@ -30,7 +30,7 @@ func TestRunIDNeverReachesAWireRequest(t *testing.T) {
 		return gotato.ModelRequest{Messages: messages, Tools: []gotato.ToolSpec{{ID: "echo"}}}
 	}
 	for api, encode := range encoders {
-		t.Run(api, func(t *testing.T) {
+		t.Run(string(api), func(t *testing.T) {
 			with, _, err := encode("m", build("run-secret-7"), providerRules{})
 			if err != nil {
 				t.Fatal(err)

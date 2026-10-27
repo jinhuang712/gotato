@@ -27,7 +27,7 @@ import (
 
 // wireEncoder encodes requests with a gateway Client, as it would send them.
 type wireEncoder struct {
-	api  string
+	api  gateway.API
 	mu   sync.Mutex
 	last map[string]any
 	key  string
@@ -35,7 +35,9 @@ type wireEncoder struct {
 }
 
 type wireKind struct {
-	api, provider, model string
+	api      gateway.API
+	provider gateway.Provider
+	model    string
 }
 
 var wireKinds = []wireKind{
@@ -274,7 +276,7 @@ func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 				t.Fatalf("%d closings and %d merges: the play must compact and merge", closings, merges)
 			}
 			for _, kind := range wireKinds {
-				t.Run(kind.api, func(t *testing.T) {
+				t.Run(string(kind.api), func(t *testing.T) {
 					enc := newWireEncoder(t, kind)
 					wires := make([]wireRequest, len(requests))
 					for i, request := range requests {

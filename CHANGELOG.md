@@ -4,6 +4,18 @@ What changed in Gotato, from the user's side. Newest first. Gotato has made no r
 
 ## Unreleased
 
+### Gateway settings name their unit and type
+
+A setting that holds a number says its unit, and a setting with a family of constants has its own type, so the constants carry the type's name. Before, `Config.API`, `Config.Provider` and `Config.DeferredTools` were plain strings and the deferred forms were `DeferredNative` and `DeferredList`. The YAML strings that `api`, `provider` and `deferred_tools` take are the same, and an unknown value is refused as before.
+
+| Before | After |
+|---|---|
+| YAML `context_window: 200000` (the loader is strict, so the old key now fails and names `context_window`) | `context_window_tokens: 200000` |
+| `Config.ContextWindow`, `Client.ContextWindow()`, the `modelctx` interface method `ContextWindow() int` | `Config.ContextWindowTokens`, `Client.ContextWindowTokens()`, `ContextWindowTokens() int` |
+| `Config{API: "anthropic-messages"}` (`string`) | `Config{API: gateway.APIAnthropicMessages}`; `Config.API` is a `gateway.API`, and `APIChatCompletions`, `APIResponses`, `APIAnthropicMessages` are typed constants |
+| `Config{Provider: "anthropic"}` (`string`) | `Config{Provider: gateway.ProviderAnthropic}`; `Config.Provider` is a `gateway.Provider`, with typed `ProviderAnthropic`, `ProviderOpenAI`, `ProviderDeepSeek`, `ProviderOther` |
+| `Config.DeferredTools string`, `DeferredNative`, `DeferredList`, `Client.DeferredTools() string` | `Config.DeferredTools gateway.DeferredForm`, `DeferredFormNative`, `DeferredFormList`, `Client.DeferredTools() gateway.DeferredForm` |
+
 ### Event fields written one way
 
 The same thing is written the same way in Go and on the wire. Before, a duration was an `int64` on some Events and a `float64` on others, a Tool was `tool` here and `tool_id` there, and a list of loaded Tools had four names. A client that reads Event JSON, a stored Record or a Tool implementation changes the keys below; a stored Record written before this change does not read back.

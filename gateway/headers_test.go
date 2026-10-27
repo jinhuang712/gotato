@@ -120,8 +120,8 @@ func TestChatCacheReadTokens(t *testing.T) {
 // TestRequestHeadersReachEveryWireAPI: per-request and configured headers go
 // out on every wire API, and none of them replaces authentication.
 func TestRequestHeadersReachEveryWireAPI(t *testing.T) {
-	for _, api := range []string{APIChatCompletions, APIResponses, APIAnthropicMessages} {
-		t.Run(api, func(t *testing.T) {
+	for _, api := range []API{APIChatCompletions, APIResponses, APIAnthropicMessages} {
+		t.Run(string(api), func(t *testing.T) {
 			var seen http.Header
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				seen = r.Header.Clone()

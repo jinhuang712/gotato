@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func refusingServer(status int, body string, calls *atomic.Int32) *httptest.Serv
 func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 	cases := []struct {
 		name   string
-		api    string
+		api    API
 		status int
 		body   string
 		want   bool
@@ -255,19 +256,28 @@ func TestContextWindowFromConfigAndYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.ContextWindow() != 0 {
-		t.Fatalf("unset window = %d", client.ContextWindow())
+	if client.ContextWindowTokens() != 0 {
+		t.Fatalf("unset window = %d", client.ContextWindowTokens())
 	}
-	client, err = New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindow: 200000})
-	if err != nil || client.ContextWindow() != 200000 {
+	client, err = New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: 200000})
+	if err != nil || client.ContextWindowTokens() != 200000 {
 		t.Fatalf("window = %v, err %v", client, err)
 	}
-	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindow: -1}); err == nil {
+	if _, err := New(Config{BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: -1}); err == nil {
 		t.Fatal("a negative window was accepted")
 	}
-	config, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
-	if err != nil || config.ContextWindow != 128000 {
+	config, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window_tokens: 128000\n"))
+	if err != nil || config.ContextWindowTokens != 128000 {
 		t.Fatalf("config = %+v, err %v", config, err)
+	}
+}
+
+// The key was renamed from context_window: the loader is strict, so an old
+// file fails and names the key instead of silently losing the window.
+func TestOldContextWindowKeyIsRefused(t *testing.T) {
+	_, err := parseYAML([]byte("base_url: https://gw.example.com\nmodel: m\ncontext_window: 128000\n"))
+	if err == nil || !strings.Contains(err.Error(), "context_window") {
+		t.Fatalf("err = %v, want a refusal naming context_window", err)
 	}
 }
 

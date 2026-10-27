@@ -94,7 +94,7 @@ func checkToolLoading(t *testing.T, pair string, prev, next gotato.ModelRequest)
 
 // wireBodies encodes every request with the gateway for one wire API and
 // deferred form, as the gateway would send it, and returns the JSON bodies and the form the Client used.
-func wireBodies(t *testing.T, api, form string, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, string) {
+func wireBodies(t *testing.T, api gateway.API, form gateway.DeferredForm, requests []gotato.ModelRequest) ([]map[string]json.RawMessage, gateway.DeferredForm) {
 	t.Helper()
 	var mu sync.Mutex
 	var bodies []map[string]json.RawMessage
@@ -194,7 +194,8 @@ func TestToolSearchRequestOnlyGrowsAtItsEnd(t *testing.T) {
 // A task without a catalog never changes its tool list, in either form.
 func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 	wires := []struct {
-		api, system, tools, messages string
+		api                     gateway.API
+		system, tools, messages string
 	}{
 		{gateway.APIAnthropicMessages, "system", "tools", "messages"},
 		{gateway.APIResponses, "instructions", "tools", "input"},
@@ -204,8 +205,8 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 		_, sent := playAcross(t, session.NewMemoryStore(), task, playOptions{})
 		requests := decodeRequests(t, sent)
 		for _, wire := range wires {
-			for _, form := range []string{gateway.DeferredNative, gateway.DeferredList} {
-				t.Run(task.Name+"/"+wire.api+"/"+form, func(t *testing.T) {
+			for _, form := range []gateway.DeferredForm{gateway.DeferredFormNative, gateway.DeferredFormList} {
+				t.Run(task.Name+"/"+string(wire.api)+"/"+string(form), func(t *testing.T) {
 					bodies, used := wireBodies(t, wire.api, form, requests)
 					changed := 0
 					for n := 1; n < len(bodies); n++ {
@@ -217,9 +218,9 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 						loaded := len(loadsBetween(requests[n-1], requests[n])) > 0
 						same := bytes.Equal(prev[wire.tools], next[wire.tools])
 						switch {
-						case used == gateway.DeferredNative && !same:
+						case used == gateway.DeferredFormNative && !same:
 							t.Errorf("%s: the tool list changed in the native form\nbefore: %s\n after: %s", pair, prev[wire.tools], next[wire.tools])
-						case used == gateway.DeferredList && same == loaded:
+						case used == gateway.DeferredFormList && same == loaded:
 							t.Errorf("%s: the tool list unchanged = %t, but a Tool loaded = %t", pair, same, loaded)
 						}
 						if !same {
@@ -236,7 +237,7 @@ func TestWireRequestOnlyGrowsAtItsEnd(t *testing.T) {
 							t.Errorf("%s: the Messages of the earlier request do not come first, byte for byte", pair)
 						}
 					}
-					if task.Name == reftasks.ToolSearchName && used == gateway.DeferredList && changed == 0 {
+					if task.Name == reftasks.ToolSearchName && used == gateway.DeferredFormList && changed == 0 {
 						t.Errorf("the list form never changed its tool list while Tools loaded")
 					}
 				})

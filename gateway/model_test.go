@@ -11,7 +11,7 @@ import (
 
 // fallbackReply scripts, per wire API, a reply in which the provider reports
 // another model than the one requested, as a gateway with fallbacks does.
-var fallbackReply = map[string][]string{
+var fallbackReply = map[API][]string{
 	APIChatCompletions: {
 		`{"model":"fallback-model","choices":[{"delta":{"content":"ok"}}]}`,
 		`{"model":"fallback-model","choices":[{"delta":{},"finish_reason":"stop"}]}`,
@@ -37,7 +37,7 @@ var fallbackReply = map[string][]string{
 // a gateway knows which model answered, and it is never sent back.
 func TestReplyRecordsTheModelThatAnswered(t *testing.T) {
 	for _, api := range wireAPIs {
-		t.Run(api, func(t *testing.T) {
+		t.Run(string(api), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				writeReply(t, w, fallbackReply[api])
 			}))

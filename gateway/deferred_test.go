@@ -49,8 +49,8 @@ func loadingTurns() (first, second gotato.ModelRequest) {
 
 type bodyEncoder func(*Client, gotato.ModelRequest) ([]byte, error)
 
-func encodersByAPI() map[string]bodyEncoder {
-	return map[string]bodyEncoder{
+func encodersByAPI() map[API]bodyEncoder {
+	return map[API]bodyEncoder{
 		APIAnthropicMessages: func(c *Client, r gotato.ModelRequest) ([]byte, error) {
 			body, _, err := encodeAnthropicRequest(c.model, r, c.rules)
 			return body, err
@@ -77,7 +77,7 @@ func rawTools(t *testing.T, body []byte) []byte {
 	return envelope.Tools
 }
 
-func newDeferredClient(t *testing.T, api, form string) *Client {
+func newDeferredClient(t *testing.T, api API, form DeferredForm) *Client {
 	t.Helper()
 	client, err := New(Config{API: api, Model: "m", BaseURL: "https://gw.example.com", DeferredTools: form})
 	if err != nil {
@@ -91,7 +91,7 @@ func newDeferredClient(t *testing.T, api, form string) *Client {
 func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
 	first, second := loadingTurns()
 	for api, encode := range encodersByAPI() {
-		for _, form := range []string{DeferredNative, DeferredList, ""} {
+		for _, form := range []DeferredForm{DeferredFormNative, DeferredFormList, ""} {
 			client := newDeferredClient(t, api, form)
 			a, err := encode(client, first)
 			if err != nil {
@@ -102,7 +102,7 @@ func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
 				t.Fatal(err)
 			}
 			same := bytes.Equal(rawTools(t, a), rawTools(t, b))
-			if want := client.DeferredTools() == DeferredNative; same != want {
+			if want := client.DeferredTools() == DeferredFormNative; same != want {
 				t.Errorf("%s with %q (%s): tool list unchanged = %v, want %v\n%s\n%s", api, form, client.DeferredTools(), same, want, rawTools(t, a), rawTools(t, b))
 			}
 		}
@@ -110,17 +110,20 @@ func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
 }
 
 func TestDeferredToolsDefaultsPerWireAPI(t *testing.T) {
-	cases := []struct{ api, configured, want string }{
-		{APIAnthropicMessages, "", DeferredNative},
-		{APIResponses, "", DeferredNative},
-		{APIChatCompletions, "", DeferredList},
-		{APIAnthropicMessages, "list", DeferredList},
-		{APIResponses, "list", DeferredList},
-		{APIResponses, "native", DeferredNative},
+	cases := []struct {
+		api              API
+		configured, want DeferredForm
+	}{
+		{APIAnthropicMessages, "", DeferredFormNative},
+		{APIResponses, "", DeferredFormNative},
+		{APIChatCompletions, "", DeferredFormList},
+		{APIAnthropicMessages, "list", DeferredFormList},
+		{APIResponses, "list", DeferredFormList},
+		{APIResponses, "native", DeferredFormNative},
 		// Chat Completions has no native form: it uses list whatever is set.
-		{APIChatCompletions, "native", DeferredList},
-		{APIChatCompletions, "list", DeferredList},
-		{"", "native", DeferredList},
+		{APIChatCompletions, "native", DeferredFormList},
+		{APIChatCompletions, "list", DeferredFormList},
+		{"", "native", DeferredFormList},
 	}
 	for _, c := range cases {
 		client, err := New(Config{API: c.api, Model: "m", BaseURL: "https://gw.example.com", DeferredTools: c.configured})

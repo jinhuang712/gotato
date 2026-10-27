@@ -7,11 +7,11 @@ import (
 )
 
 // ContextWindower is a Model that knows its context window in tokens.
-// gateway.Client is one, from the model's context_window in its
+// gateway.Client is one, from the model's context_window_tokens in its
 // configuration. Gotato keeps no table of windows, so a Model that does not
 // say has none.
 type ContextWindower interface {
-	ContextWindow() int
+	ContextWindowTokens() int
 }
 
 // CacheRetainer is a Model that knows how long its provider keeps the prompt
@@ -24,7 +24,7 @@ type CacheRetainer interface {
 // model does not say or says none.
 func WindowOf(model gotato.Model) int {
 	if windower, ok := model.(ContextWindower); ok {
-		return max(windower.ContextWindow(), 0)
+		return max(windower.ContextWindowTokens(), 0)
 	}
 	return 0
 }

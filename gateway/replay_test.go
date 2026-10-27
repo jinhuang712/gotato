@@ -14,11 +14,11 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-var wireAPIs = []string{APIChatCompletions, APIResponses, APIAnthropicMessages}
+var wireAPIs = []API{APIChatCompletions, APIResponses, APIAnthropicMessages}
 
 // badToolCallReply scripts, per wire API, a reply whose one Tool Call carries
 // arguments that are not valid JSON, as a call the output limit cut off does.
-var badToolCallReply = map[string][]string{
+var badToolCallReply = map[API][]string{
 	APIChatCompletions: {
 		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"echo","arguments":"{\"q\":\"ab"}}]}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
@@ -41,7 +41,7 @@ var badToolCallReply = map[string][]string{
 }
 
 // textReply scripts, per wire API, a reply that answers "ok" and stops.
-var textReply = map[string][]string{
+var textReply = map[API][]string{
 	APIChatCompletions: {
 		`{"choices":[{"delta":{"content":"ok"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
@@ -72,7 +72,7 @@ func writeReply(t *testing.T, w http.ResponseWriter, lines []string) {
 
 // replayedArguments returns the arguments of every Tool Call an encoded
 // request sends back, in the form each wire API carries them.
-func replayedArguments(t *testing.T, api string, body []byte) []string {
+func replayedArguments(t *testing.T, api API, body []byte) []string {
 	t.Helper()
 	var arguments []string
 	switch api {
@@ -125,7 +125,7 @@ func replayedArguments(t *testing.T, api string, body []byte) []string {
 // was sent back, which ended the Run after all.
 func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 	for _, api := range wireAPIs {
-		t.Run(api, func(t *testing.T) {
+		t.Run(string(api), func(t *testing.T) {
 			var mu sync.Mutex
 			var bodies [][]byte
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +177,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 // Every wire API sends a past call's arguments back as they were when they
 // are a JSON object, and as {} otherwise.
 func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
-	encoders := map[string]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
+	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
 		APIChatCompletions:   encodeRequest,
 		APIResponses:         encodeResponsesRequest,
 		APIAnthropicMessages: encodeAnthropicRequest,

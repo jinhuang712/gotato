@@ -19,7 +19,7 @@ type sizedModel struct {
 func (sizedModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
 	return nil, nil
 }
-func (m sizedModel) ContextWindow() int            { return m.window }
+func (m sizedModel) ContextWindowTokens() int      { return m.window }
 func (m sizedModel) CacheRetention() time.Duration { return m.retention }
 
 func TestWindowOfAndRetentionOf(t *testing.T) {
@@ -44,7 +44,7 @@ func TestWindowOfAndRetentionOf(t *testing.T) {
 }
 
 func TestGatewayClientIsAContextWindowerAndCacheRetainer(t *testing.T) {
-	client, err := gateway.New(gateway.Config{API: gateway.APIAnthropicMessages, Provider: gateway.ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", ContextWindow: 200000})
+	client, err := gateway.New(gateway.Config{API: gateway.APIAnthropicMessages, Provider: gateway.ProviderAnthropic, BaseURL: "https://gw.example.com", Model: "m", ContextWindowTokens: 200000})
 	if err != nil {
 		t.Fatal(err)
 	}
