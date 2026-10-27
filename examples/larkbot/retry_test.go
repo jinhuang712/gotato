@@ -162,9 +162,11 @@ func TestRetryKeepsOrder(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); b.bot.handle(ctx, chat, rootMsg, "om_2", "second") }()
-	time.Sleep(80 * time.Millisecond)
+	// The second message has been refused once and holds the gate.
+	waitFor(t, "the second message to retry", func() bool { return b.bot.gated(id) >= 1 })
 	go func() { defer wg.Done(); b.bot.handle(ctx, chat, rootMsg, "om_3", "third") }()
-	time.Sleep(80 * time.Millisecond)
+	// The third waits behind it.
+	waitFor(t, "the third message to wait behind the second", func() bool { return b.bot.gated(id) >= 2 })
 	close(release)
 	<-aDone
 	wg.Wait()
@@ -174,4 +176,15 @@ func TestRetryKeepsOrder(t *testing.T) {
 	if len(users) != 3 || users[1] != "second" || users[2] != "third" {
 		t.Fatalf("user messages = %q, want first, second, third", users)
 	}
+}
+
+// gated is the number of messages of a Session at the retry gate: one that
+// retries, and those that wait behind it.
+func (b *bot) gated(session string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if g := b.gates[session]; g != nil {
+		return g.n
+	}
+	return 0
 }

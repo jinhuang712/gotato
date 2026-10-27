@@ -249,7 +249,8 @@ func TestRedeliveryToAnotherInstanceCurrentlyDuplicates(t *testing.T) {
 		}
 		id := sessionIDFor(sent.MessageID)
 		waitFor(t, "the Run to end", func() bool { return a.runsEnded.Load()+b.runsEnded.Load() >= 1 })
-		time.Sleep(500 * time.Millisecond)
+		waitFor(t, "the text in the Transcript twice", func() bool { return len(userTexts(t, a.runner, id)) >= 2 })
+		time.Sleep(500 * time.Millisecond) // a further Run or card would show up by now
 		users := userTexts(t, a.runner, id)
 		cards := fl.Cards("", "", time.Time{})
 		t.Logf("runs=%d cards=%d transcript=%q", a.runsEnded.Load()+b.runsEnded.Load(), len(cards), users)
@@ -269,7 +270,8 @@ func TestRedeliveryToAnotherInstanceCurrentlyDuplicates(t *testing.T) {
 		}
 		id := sessionIDFor(sent.MessageID)
 		waitFor(t, "both cards", func() bool { return len(fl.Cards("", "", time.Time{})) >= 2 })
-		time.Sleep(300 * time.Millisecond)
+		waitFor(t, "the text in the Transcript twice", func() bool { return len(userTexts(t, a.runner, id)) >= 2 })
+		time.Sleep(300 * time.Millisecond) // a third card would show up by now
 		cards := fl.Cards("", "", time.Time{})
 		users := userTexts(t, a.runner, id)
 		t.Logf("runs=%d cards=%d transcript=%q", a.runsEnded.Load()+b.runsEnded.Load(), len(cards), users)
