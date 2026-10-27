@@ -207,7 +207,7 @@ func TestCompactionAppendsStartedThenOneCheckpoint(t *testing.T) {
 	}
 }
 
-func TestUnknownEntryKindIsRefused(t *testing.T) {
+func TestUnknownKindIsRefused(t *testing.T) {
 	r := session.New()
 	session.StartLog(r)
 	entries := session.TakePending(r)
