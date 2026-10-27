@@ -42,8 +42,8 @@ func sameState(t *testing.T, got, want *session.Record) {
 	}
 }
 
-func layers(entries []session.Entry) map[session.EntryKind]session.Layer {
-	out := map[session.EntryKind]session.Layer{}
+func layers(entries []session.Entry) map[gotato.EventKind]session.Layer {
+	out := map[gotato.EventKind]session.Layer{}
 	for _, entry := range entries {
 		out[entry.Kind] = entry.Layer
 	}
@@ -83,7 +83,7 @@ func TestEntriesRebuildEveryChange(t *testing.T) {
 		}
 	}
 	got := layers(entries)
-	want := map[session.EntryKind]session.Layer{
+	want := map[gotato.EventKind]session.Layer{
 		gotato.KindSessionCreated: session.LayerFact, gotato.KindMessageCommitted: session.LayerFact,
 		gotato.KindMetadataChanged: session.LayerFact, gotato.KindReplyEnded: session.LayerFact,
 		gotato.KindRunStarted: session.LayerLog, gotato.KindRunEnded: session.LayerLog,

@@ -256,8 +256,8 @@ func NewSessionContext(ctx context.Context, options ...Option) (*Session, error)
 }
 
 // Session is a live Session: one conversation running one Agent. Prompt,
-// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe, SubscribeRun
-// and SubscribeFrom stream its Events; Status and Done report its life; Tools
+// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe and
+// SubscribeRun stream its Events; Status and Done report its life; Tools
 // and InspectContext show what its next Turn would send.
 //
 // The Runner builds one from a session.Record for each Run and closes it
@@ -411,15 +411,6 @@ func (a *Session) Published() uint64 { return a.feed.Published() }
 // Session's stream gives them. Call it before Prompt.
 func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
 	return a.feed.Subscribe(ctx, NextRun()...)
-}
-
-// SubscribeFrom starts a Subscription to the Session's stream after the
-// stored Event numbered after: the later Events first, from the Record, and
-// then the live ones. A client that was cut off reconnects with the Number of
-// the last Event it saw. SubscribeFrom(ctx, 0) starts at the Session's first
-// Event.
-func (a *Session) SubscribeFrom(ctx context.Context, after uint64) (Subscription, error) {
-	return a.feed.Subscribe(ctx, SubscribeAfter(after))
 }
 
 func (a *Session) Prompt(ctx context.Context, message Message) (RunResult, error) {

@@ -33,7 +33,7 @@ func TestSessionStreamHasNoGapAfterAnotherInstanceWrote(t *testing.T) {
 	}
 	head := before[len(before)-1].Head().Number
 	emptyBefore := store.emptyReads.Load()
-	sub, err := a.SubscribeSession(ctx, s.ID(), head)
+	sub, err := a.StreamSession(ctx, s.ID(), service.StreamFrom{After: head})
 	if err != nil {
 		t.Fatal(err)
 	}

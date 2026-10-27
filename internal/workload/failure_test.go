@@ -452,7 +452,7 @@ func TestFailureLeavesTheSessionUsable(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = instance.Close() })
-		stream, err := r.runner.SubscribeSession(ctx, id, 0)
+		stream, err := r.runner.StreamSession(ctx, id, service.StreamFrom{After: 0})
 		if err != nil {
 			t.Fatal(err)
 		}

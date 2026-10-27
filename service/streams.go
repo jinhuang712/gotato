@@ -136,7 +136,7 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 }
 
 // StreamSession opens a Session's stream for a client that reconnects, on any
-// instance. It starts after from.After, as SubscribeSession does, and first
+// instance. It starts after from.After, like a Subscription's SubscribeAfter, and first
 // checks that the position still means what the client thinks: the Session
 // must exist (session.ErrNotFound), and the client's epoch and number must be
 // the Record's (ErrCannotResume). An idle stream looks in the store for Events

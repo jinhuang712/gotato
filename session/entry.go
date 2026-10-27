@@ -21,10 +21,6 @@ const (
 	LayerLog  Layer = "log"
 )
 
-// EntryKind names what an Entry holds. Every Entry is a stored Event, so its
-// kind is the Event's kind, such as "message_committed".
-type EntryKind = gotato.EventKind
-
 // factKinds are the Events a rebuild reads.
 var factKinds = map[gotato.EventKind]bool{
 	gotato.KindSessionCreated:      true,
@@ -44,7 +40,7 @@ var factKinds = map[gotato.EventKind]bool{
 
 // LayerOf returns the Layer of Entries of a kind: the Events a rebuild reads
 // are facts, and every other Event is a log Entry.
-func LayerOf(kind EntryKind) Layer {
+func LayerOf(kind gotato.EventKind) Layer {
 	if factKinds[kind] {
 		return LayerFact
 	}
@@ -56,12 +52,12 @@ func LayerOf(kind EntryKind) Layer {
 // keeps an Entry as it is and reads nothing in it but Seq, Kind and Layer, and
 // IsCheckpoint to find where a load starts.
 type Entry struct {
-	Seq      uint64          `json:"seq"`
-	Kind     EntryKind       `json:"kind"`
-	Layer    Layer           `json:"layer"`
-	At       time.Time       `json:"at"`
-	Instance string          `json:"instance,omitempty"`
-	Data     json.RawMessage `json:"data,omitempty"`
+	Seq      uint64           `json:"seq"`
+	Kind     gotato.EventKind `json:"kind"`
+	Layer    Layer            `json:"layer"`
+	At       time.Time        `json:"at"`
+	Instance string           `json:"instance,omitempty"`
+	Data     json.RawMessage  `json:"data,omitempty"`
 }
 
 // IsCheckpoint reports whether the Entry holds the whole state of the

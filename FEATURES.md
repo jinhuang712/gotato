@@ -1427,10 +1427,10 @@ POST   /v1/sessions/{id}/cancel
   - **A Session deleted, or created again, under the stream.** A stream follows the Record it opened, the one its epoch names, and never delivers an Event of another Record under the same ID. It ends instead, with `event: error`. A Session that is gone gives 404 with `"code": "not_found"` and `"not_run": true`, and one created again gives `cannot_resume`. What was queued for it is dropped.
     - **On the instance that deletes the Session, opens or creates the new Record** (a Run, a tool change, a compaction, a create), **or opens a stream on it**, the old stream ends at once. A stream that read the old epoch while that happened reads the epoch again before it starts, and is refused: with 404 if the Session is gone, with 409 `cannot_resume` if it was created again. The open or create cuts only the streams that started before it read the Record, or wrote it, and that are of another Record. A stream that started after may be of a newer Record, since another instance can delete and create the Session again after the claim was written; the open reads the Record once more, and cuts such a stream only if its epoch is not the Record's now.
     - **On any other instance**, it ends at the first look that finds the Session gone, or at the first read that returns Events of the new Record. Until then it stays open and delivers nothing: a new Record that is no longer than what the stream has seen is noticed only once it grows past that, because an idle look reads only the Events after the stream's number.
-    - **What makes it so.** Each Record has a Feed of its own on an instance, named by its Session ID and epoch, so a stream is never handed the live Events of another Record, and the stream of a new Record never waits for the old Record's numbers. Every read of the Record that returns Events is checked against the stream's epoch before they are delivered. A stream is registered before it reads the Record, so what the instance does to the Record meanwhile reaches it. `Runner.SubscribeSession` is the same stream.
+    - **What makes it so.** Each Record has a Feed of its own on an instance, named by its Session ID and epoch, so a stream is never handed the live Events of another Record, and the stream of a new Record never waits for the old Record's numbers. Every read of the Record that returns Events is checked against the stream's epoch before they are delivered. A stream is registered before it reads the Record, so what the instance does to the Record meanwhile reaches it.
   - **Which instance.** A stream on the Session's writer receives its Events as they are written. On any other instance it also receives them, from the Record, when its next look at the store finds them (`Config.StreamPoll`, one second by default), so a load balancer that sends a reconnect elsewhere still works, a little later. An idle stream costs one read of the Record after its number per look (`Log`, which is empty when nothing was written), on every instance, because between Runs no instance is the writer; the Record's epoch is read again (`Load`) only after a look that returned Events.
 
-**Go API.** Call the Runner directly, and subscribe to Events as they happen: `Runner.StreamRun` for one Run, `Runner.SubscribeSession` for a Session from any number, and `Runner.SubscribeInstance` for the Instance ([G-F13](#g-f13--events-)).
+**Go API.** Call the Runner directly, and subscribe to Events as they happen: `Runner.StreamRun` for one Run, `Runner.StreamSession` for a Session from any number, and `Runner.SubscribeInstance` for the Instance ([G-F13](#g-f13--events-)).
 
 **For both:**
 
@@ -1532,14 +1532,14 @@ Each Event is kept in one of three places: in the **Record**, which a subscriber
 | Subscription | For | What it carries |
 |---|---|---|
 | A Run's stream | the caller of a Run: `Session.SubscribeRun`, `Runner.StreamRun`, `/runs/stream` | the Run's Events and deltas; it is the Session's stream from the Run's first Event to its last, with the same numbers. For a Run the Runner starts, the first Event is the claim, or the creation of the Session, that the Run caused |
-| A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live. `Session.SubscribeFrom`, `Runner.SubscribeSession` |
+| A Session's stream | an application that shows a conversation, and a client that reconnects | every Event of the Session across its Runs, after any number: first from the Record, then live. `Session.Subscribe(ctx, gotato.SubscribeAfter(n))`, `Runner.StreamSession` |
 | An Instance's stream | the service's own telemetry | every Event of every Session on the Instance, and its Instance Events; a subscriber can keep only some Agents (`service.ForAgents`). `Runner.SubscribeInstance` |
 
-**Following one Session.** A chat bot, or any code that answers a person in a Session, follows that Session's stream and reads the reply from it. The shortest correct way is `Runner.SubscribeSession` from the Session's head as it is now, which reads the Record first and then the live Events, on any instance:
+**Following one Session.** A chat bot, or any code that answers a person in a Session, follows that Session's stream and reads the reply from it. The shortest correct way is `Runner.StreamSession` from the Session's head as it is now, which reads the Record first and then the live Events, on any instance:
 
 ```go
 record, _ := runner.Session(ctx, id)
-sub, _ := runner.SubscribeSession(ctx, id, record.Head()) // only Events after now
+sub, _ := runner.StreamSession(ctx, id, service.StreamFrom{After: record.Head()}) // only Events after now
 defer sub.Close()
 var reply string
 for {

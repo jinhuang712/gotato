@@ -110,7 +110,7 @@ func runCheck(ctx context.Context, backing Backing, c check) (err error) {
 
 // entry builds an Entry whose Data names its position, so a check can tell
 // which writer's Entry a store kept.
-func entry(seq uint64, kind session.EntryKind, layer session.Layer, writer string) session.Entry {
+func entry(seq uint64, kind gotato.EventKind, layer session.Layer, writer string) session.Entry {
 	data, _ := json.Marshal(map[string]any{"seq": seq, "writer": writer})
 	return session.Entry{Seq: seq, Kind: kind, Layer: layer, At: time.Date(2026, 10, 17, 0, 0, int(seq), 0, time.UTC), Data: data}
 }

@@ -28,7 +28,7 @@ func TestStreamBeforeTheWindowOfAnUnstoredRecordIsLost(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sub, err := s.SubscribeFrom(ctx, 0)
+	sub, err := s.Subscribe(ctx, gotato.SubscribeAfter(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,17 +36,17 @@ func TestStreamBeforeTheWindowOfAnUnstoredRecordIsLost(t *testing.T) {
 	read, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if event, err := sub.Next(read); !errors.Is(err, gotato.ErrEventsLost) {
-		t.Fatalf("SubscribeFrom(0) after the window = %v, %v; want ErrEventsLost", event, err)
+		t.Fatalf("Subscribe(SubscribeAfter(0)) after the window = %v, %v; want ErrEventsLost", event, err)
 	}
 	// A stream that starts inside the window is fine.
 	events := r.Events()
 	from := events[len(events)/2].Head().Number
-	inside, err := s.SubscribeFrom(ctx, from)
+	inside, err := s.Subscribe(ctx, gotato.SubscribeAfter(from))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = inside.Close() }()
 	if event, err := inside.Next(read); err != nil || event.Head().Number != from+1 {
-		t.Fatalf("SubscribeFrom(%d) = %v, %v; want %d", from, event, err, from+1)
+		t.Fatalf("Subscribe(SubscribeAfter(%d)) = %v, %v; want %d", from, event, err, from+1)
 	}
 }

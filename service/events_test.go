@@ -220,10 +220,10 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 	}
 }
 
-// SubscribeSession starts after a number: the later stored Events come first,
+// StreamSession starts after a number: the later stored Events come first,
 // read from the Record, and the live Events of a later Run follow with no gap
 // and no duplicate.
-func TestSubscribeSessionCatchesUpThenGoesLive(t *testing.T) {
+func TestStreamSessionCatchesUpThenGoesLive(t *testing.T) {
 	runner, _ := newRunner(t)
 	ctx := context.Background()
 	first, err := runner.Run(ctx, service.RunRequest{Prompt: "one"})
@@ -244,7 +244,7 @@ func TestSubscribeSessionCatchesUpThenGoesLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sub, err := runner.SubscribeSession(ctx, first.SessionID, after)
+	sub, err := runner.StreamSession(ctx, first.SessionID, service.StreamFrom{After: after})
 	if err != nil {
 		t.Fatal(err)
 	}

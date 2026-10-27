@@ -133,25 +133,6 @@ func ForAgents(agents ...string) gotato.SubscribeOption {
 	})
 }
 
-// SubscribeSession starts a Subscription to a Session's stream after the stored
-// Event numbered after: the later Events first, read from the Record, and then
-// the live ones, across Runs, with the same numbers on every Instance. A
-// client that was cut off reconnects with the number of the last Event it saw.
-// after 0 starts at the Session's first Event. It is StreamSession without the
-// epoch the client saw, so it ends as that stream does: it fails with
-// session.ErrNotFound when the Session does not exist, and with
-// ErrCannotResume when after is past the Record's last Event; it never
-// delivers an Event of a Record created again under the same ID, and ends with
-// ErrCannotResume or session.ErrNotFound instead (see StreamSession for when);
-// and it ends with io.EOF once this Instance's drain is over.
-func (r *Runner) SubscribeSession(ctx context.Context, sessionID string, after uint64) (gotato.Subscription, error) {
-	stream, err := r.StreamSession(ctx, sessionID, StreamFrom{After: after})
-	if err != nil {
-		return nil, err
-	}
-	return stream, nil
-}
-
 // feedSubscription gives a Session's Feed back when its Subscription ends.
 type feedSubscription struct {
 	gotato.Subscription

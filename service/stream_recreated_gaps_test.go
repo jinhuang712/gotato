@@ -182,8 +182,8 @@ func TestFirstCatchUpChecksTheEpochAfterItsRead(t *testing.T) {
 	endsWithoutNewEvents(t, stream)
 }
 
-// (d) The Go API's SubscribeSession ends the same way.
-func TestSubscribeSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
+// (d) The Go API's StreamSession ends the same way.
+func TestStreamSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
 	store := session.NewMemoryStore()
 	a := recreatedRunner(t, "a", store, -1)
 	ctx := context.Background()
@@ -195,7 +195,7 @@ func TestSubscribeSessionEndsWhenTheSessionIsCreatedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := a.SubscribeSession(ctx, first.SessionID, record.Head())
+	sub, err := a.StreamSession(ctx, first.SessionID, service.StreamFrom{After: record.Head()})
 	if err != nil {
 		t.Fatal(err)
 	}

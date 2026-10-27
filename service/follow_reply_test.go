@@ -50,7 +50,7 @@ func TestSessionStreamSnippetReadsTheFinalReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := runner.SubscribeSession(ctx, s.ID(), record.Head())
+	sub, err := runner.StreamSession(ctx, s.ID(), service.StreamFrom{After: record.Head()})
 	if err != nil {
 		t.Fatal(err)
 	}
