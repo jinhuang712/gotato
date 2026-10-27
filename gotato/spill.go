@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // A Tool Result whose text is longer than one page is spilled: its full text
@@ -20,7 +22,7 @@ const (
 	// Context: about 2K tokens (bytes ÷ 4), cut on a rune boundary.
 	SpillPreviewBytes = 8000
 	// SpillRefPrefix starts the ref of a spilled result, `result:<call_id>`.
-	SpillRefPrefix = "result:"
+	SpillRefPrefix = text.SpillRefPrefix
 	// ReadResultToolID is the ID of the built-in tool that reads a spilled
 	// result back, a sibling of read_segment.
 	ReadResultToolID = "read_result"
@@ -40,58 +42,6 @@ type SpilledResult struct {
 // committed whole, as before.
 type SpillKeeper interface {
 	KeepsSpilledResults() bool
-}
-
-// SpillRef returns the ref of the spilled result of a Tool call.
-func SpillRef(call ToolCallID) string { return SpillRefPrefix + string(call) }
-
-// CallOfRef returns the Tool call a ref names, and false for a string that is
-// not a ref.
-func CallOfRef(ref string) (ToolCallID, bool) {
-	call, ok := strings.CutPrefix(strings.TrimSpace(ref), SpillRefPrefix)
-	return ToolCallID(call), ok && call != ""
-}
-
-// SplitLines splits text at its line breaks, and cuts a line longer than limit
-// bytes into pieces of at most that many, on a rune boundary.
-func SplitLines(text string, limit int) []string {
-	if text == "" {
-		return nil
-	}
-	var out []string
-	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
-		for len(line) > limit {
-			cut := limit
-			for cut > 0 && !utf8.RuneStart(line[cut]) {
-				cut--
-			}
-			out = append(out, line[:cut])
-			line = line[cut:]
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
-// Paginate groups lines into pages of at most limit bytes, each line whole.
-// read_segment and read_result page with it, and the preview of a spilled
-// result counts its pages with it.
-func Paginate(lines []string, limit int) [][]string {
-	var pages [][]string
-	var current []string
-	size := 0
-	for _, line := range lines {
-		if len(current) > 0 && size+len(line)+1 > limit {
-			pages = append(pages, current)
-			current, size = nil, 0
-		}
-		current = append(current, line)
-		size += len(line) + 1
-	}
-	if len(current) > 0 || len(pages) == 0 {
-		pages = append(pages, current)
-	}
-	return pages
 }
 
 // cutRunes returns the first n bytes of s, less a rune cut in half.
@@ -121,13 +71,13 @@ func spillBody(content []ContentPart) string {
 // the body and a line that says how much was cut and how to read the rest. The
 // same body gives the same preview on every Instance.
 func spillPreview(call ToolCallID, toolID, body string) string {
-	pages := len(Paginate(SplitLines(body, SpillPageBytes), SpillPageBytes))
+	pages := len(text.Paginate(text.SplitLines(body, SpillPageBytes), SpillPageBytes))
 	var b strings.Builder
 	b.WriteString(cutRunes(body, SpillPreviewBytes))
 	if !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read the rest with %s(ref=%q, page=2).]", humanBytes(len(body)), pages, ReadResultToolID, SpillRef(call))
+	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read the rest with %s(ref=%q, page=2).]", humanBytes(len(body)), pages, ReadResultToolID, text.SpillRef(string(call)))
 	return b.String()
 }
 

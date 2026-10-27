@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -153,7 +154,7 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 		loc = time.UTC
 	}
 	limit := opts.pageBytes()
-	pages := paginate(renderOriginals(messages, limit/2), limit)
+	pages := text.Paginate(renderOriginals(messages, limit/2), limit)
 	if page > len(pages) {
 		return "", fmt.Errorf("segment %d has %d pages; there is no page %d", ref.number, len(pages), page)
 	}
@@ -179,10 +180,6 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	return b.String(), nil
 }
 
-// paginate groups lines into pages of at most limit bytes, each line whole;
-// read_result pages with the same code.
-func paginate(lines []string, limit int) [][]string { return gotato.Paginate(lines, limit) }
-
 // rolePrefix matches the start of a line that looks like the prefix of a
 // Message: a bracketed role (or the kind of a call, a tool result, a notice or
 // a tag word), after any backslashes an earlier escape put there.
@@ -192,7 +189,7 @@ var rolePrefix = regexp.MustCompile(`(?i)^(\\*)\[(user|assistant|system|develope
 // start or end of one of the four tags, and a prefix that imitates a Message's
 // own, which gets a backslash in front of it.
 func escapeLine(line string) string {
-	line = gotato.EscapeTags(line)
+	line = text.EscapeTags(line)
 	if rolePrefix.MatchString(line) {
 		return `\` + line
 	}
@@ -210,8 +207,8 @@ func renderOriginals(messages []gotato.Message, maxLine int) []string {
 		}
 	}
 	var lines []string
-	emit := func(label, text string) {
-		parts := splitLines(text, maxLine)
+	emit := func(label, body string) {
+		parts := text.SplitLines(body, maxLine)
 		if len(parts) == 0 {
 			lines = append(lines, label)
 			return
@@ -276,7 +273,7 @@ func toolLabel(toolID, callID string) string {
 	if toolID == "" {
 		toolID = "call " + callID
 	}
-	return gotato.EscapeTags(strings.NewReplacer("]", ")", "\n", " ").Replace(oneLine(toolID)))
+	return text.EscapeTags(strings.NewReplacer("]", ")", "\n", " ").Replace(oneLine(toolID)))
 }
 
 // textOfPart is the text of a Part, with a placeholder for an image or a file;
@@ -296,7 +293,3 @@ func textOfPart(part gotato.ContentPart) string {
 func cutArgsFull(arguments []byte) string {
 	return cutArgs(arguments, 1<<30)
 }
-
-// splitLines splits text at its line breaks, and cuts a line longer than limit
-// bytes into pieces of at most that many, on a rune boundary.
-func splitLines(text string, limit int) []string { return gotato.SplitLines(text, limit) }

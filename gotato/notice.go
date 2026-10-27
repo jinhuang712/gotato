@@ -3,6 +3,8 @@ package gotato
 import (
 	"context"
 	"strings"
+
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // NoticeSource says who wrote a notice.
@@ -82,7 +84,7 @@ func renderNotice(message Message) string {
 		kind = message.Notice.Kind
 	}
 	kind = strings.NewReplacer(`"`, "&quot;", "<", "&lt;", ">", "&gt;", "\n", " ").Replace(kind)
-	return "<" + TagNotice + ` kind="` + kind + `">` + EscapeTags(TextOf(message)) + "</" + TagNotice + ">"
+	return "<" + TagNotice + ` kind="` + kind + `">` + text.EscapeTags(TextOf(message)) + "</" + TagNotice + ">"
 }
 
 // Notice queues a notice from your service or an extension and returns the

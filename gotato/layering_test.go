@@ -6,11 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
 
 const modulePath = "github.com/jinhuang712/gotato"
+
+// sharedInternal lists the shared packages under internal/: standard library
+// only, so any shipped package, the core included, may import them. The rest
+// of internal/ is our test tools, which no shipped package may import.
+var sharedInternal = []string{modulePath + "/internal/text"}
 
 // TestLayering enforces DESIGNS.md → Dependencies point inward: the core
 // package (gotato/) imports only the standard library, the
@@ -30,14 +36,26 @@ func TestLayering(t *testing.T) {
 		}
 		return pkg.Imports
 	}
+	for _, shared := range sharedInternal {
+		dir := filepath.Join(root, strings.TrimPrefix(shared, modulePath+"/"))
+		for _, imported := range imports(dir) {
+			if strings.Contains(imported, ".") {
+				t.Fatalf("shared package %s imports %q; it may import only the standard library", shared, imported)
+			}
+		}
+	}
 	for _, imported := range imports(core) {
+		if slices.Contains(sharedInternal, imported) {
+			continue
+		}
 		if strings.HasPrefix(imported, modulePath) || strings.Contains(imported, ".") {
-			t.Fatalf("the core package imports %q; it may import only the standard library", imported)
+			t.Fatalf("the core package imports %q; it may import only the standard library and the shared packages of internal/", imported)
 		}
 	}
 	forbiddenForInner := []string{modulePath + "/service"}
-	// internal/ holds our own test tools (the reference tasks, the workload
-	// driver, the fake gateway): no shipped package may depend on them.
+	// internal/ holds shared packages (sharedInternal, allowed) and our own test
+	// tools (the reference tasks, the workload driver, the fake gateway): no
+	// shipped package may depend on the tools.
 	forbiddenForAll := []string{modulePath + "/adapter", modulePath + "/internal"}
 
 	// Standard runtime and provider-adapter packages depend inward only: they
@@ -59,6 +77,9 @@ func TestLayering(t *testing.T) {
 			forbidden = forbiddenForAll
 		}
 		for _, imported := range imports(dir) {
+			if slices.Contains(sharedInternal, imported) {
+				continue
+			}
 			for _, bad := range forbidden {
 				if strings.HasPrefix(imported, bad) {
 					t.Fatalf("%s imports %q; runtime packages must depend inward", rel, imported)

@@ -56,6 +56,18 @@ Sentinels that had no code gain one. `errors.Is` now matches a sentinel by ident
 | `testkit.ErrScriptExhausted` | no code (wraps `io.ErrUnexpectedEOF`) | `model_failure` (still wraps `io.ErrUnexpectedEOF`) |
 | `gotato.ErrEventsLost` | no code | `cannot_resume` |
 
+### String helpers move to `internal/text`
+
+Five string helpers were exported only because sibling packages used them. They now live in `internal/text`, which only Gotato's own packages can import. **Breaking** for code that called them; none has a replacement, because none is part of a contract.
+
+```text
+before  gotato.EscapeTags(s), gotato.Paginate(lines, limit), gotato.SplitLines(text, limit),
+        gotato.SpillRef(id), gotato.CallOfRef(ref)
+after   none; they are internal
+```
+
+`gotato.SpillRefPrefix` and `gotato.ReadResultToolID` stay, since a ref is what the model reads and passes back.
+
 ### Implementation helpers leave the public API
 
 These exports were steps used only inside their own package. They are unexported. **Breaking** for code that called them; none has a replacement, because none is part of a contract.

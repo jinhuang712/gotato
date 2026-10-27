@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -60,7 +61,7 @@ type readResultInput struct {
 // of them fails as a Tool Result that lists the refs it can read. Its Effect is
 // read, so every Effect cap keeps it.
 //
-// The pages are those of read_segment (gotato.Paginate), and the text carries
+// The pages are those of read_segment (text.Paginate), and the text carries
 // no tag of its own: like any Tool Result it has the four tags escaped when it
 // goes into a request.
 func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResultOptions) gotato.Tool {
@@ -77,10 +78,11 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 }
 
 func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultOptions, in readResultInput) (string, error) {
-	call, ok := gotato.CallOfRef(in.Ref)
+	callID, ok := text.CallOfRef(in.Ref)
 	if !ok {
-		return "", fmt.Errorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, gotato.SpillRefPrefix, listRefs(record))
+		return "", fmt.Errorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, text.SpillRefPrefix, listRefs(record))
 	}
+	call := gotato.ToolCallID(callID)
 	_, byCall := record.SpilledResults()
 	spilled, found := byCall[call]
 	if !found && len(record.Segments()) > 0 {
@@ -93,23 +95,23 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		}
 	}
 	if !found {
-		return "", fmt.Errorf("there is no spilled result %s in this conversation%s", gotato.SpillRef(call), listRefs(record))
+		return "", fmt.Errorf("there is no spilled result %s in this conversation%s", text.SpillRef(string(call)), listRefs(record))
 	}
 	body, pruned, err := record.SpilledBody(ctx, log, spilled)
 	if errors.Is(err, session.ErrNotFound) {
 		pruned, err = true, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("%s could not be read: %w", gotato.SpillRef(call), err)
+		return "", fmt.Errorf("%s could not be read: %w", text.SpillRef(string(call)), err)
 	}
 	if pruned {
-		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", gotato.SpillRef(call)), nil
+		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", text.SpillRef(string(call))), nil
 	}
 
 	page := max(in.Page, 1)
 	limit := opts.pageBytes()
-	pages := gotato.Paginate(gotato.SplitLines(body, limit), limit)
-	ref := gotato.SpillRef(call)
+	pages := text.Paginate(text.SplitLines(body, limit), limit)
+	ref := text.SpillRef(string(call))
 	if page > len(pages) {
 		return "", fmt.Errorf("%s has %d pages; there is no page %d", ref, len(pages), page)
 	}
@@ -133,7 +135,7 @@ func listRefs(record *session.Record) string {
 	}
 	refs := make([]string, len(calls))
 	for i, call := range calls {
-		refs[i] = gotato.SpillRef(call)
+		refs[i] = text.SpillRef(string(call))
 	}
 	return "; the results you can read are " + strings.Join(refs, ", ")
 }

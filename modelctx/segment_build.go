@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // The defaults of a Segment built by code (FEATURES.md → G-F06, Settings).
@@ -119,7 +120,7 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 		out.add(gotato.RoleAssistant, taggedPart(gotato.TagToolCalls, nil, strings.Join(text, "\n")))
 	}
 	if recap != "" {
-		out.add(gotato.RoleUser, taggedPart(gotato.TagRecap, numberAttr(number), gotato.EscapeTags(recap)))
+		out.add(gotato.RoleUser, taggedPart(gotato.TagRecap, numberAttr(number), text.EscapeTags(recap)))
 	}
 	for i := range out.messages {
 		out.messages[i].ID = gotato.MessageID(fmt.Sprintf("segment-%d-%d", number, i+1))
@@ -276,13 +277,13 @@ func sameCall(a, b gotato.ToolCallLine) bool {
 // noticePart is a service's notice as a Segment keeps it: its kind and its
 // text, with the text escaped like any other.
 func noticePart(kind string, parts []gotato.ContentPart) gotato.ContentPart {
-	var text strings.Builder
+	var body strings.Builder
 	for _, part := range parts {
 		if isText(part) {
-			text.WriteString(part.Text)
+			body.WriteString(part.Text)
 		}
 	}
-	return taggedPart(gotato.TagNotice, [][2]string{{"kind", kind}}, gotato.EscapeTags(text.String()))
+	return taggedPart(gotato.TagNotice, [][2]string{{"kind", kind}}, text.EscapeTags(body.String()))
 }
 
 // skipUser reports whether a user Message is left out of a Segment: the
@@ -427,17 +428,17 @@ func renderLine(line gotato.ToolCallLine, loc *time.Location) string {
 	case line.Status == statusUnanswered:
 		outcome = string(statusUnanswered)
 	case line.Code != "":
-		outcome = "error " + gotato.EscapeTags(oneLine(line.Code))
+		outcome = "error " + text.EscapeTags(oneLine(line.Code))
 	}
-	text := clock + " " + gotato.EscapeTags(oneLine(line.ToolID))
+	out := clock + " " + text.EscapeTags(oneLine(line.ToolID))
 	if line.Args != "" {
-		text += " " + gotato.EscapeTags(line.Args)
+		out += " " + text.EscapeTags(line.Args)
 	}
-	text += " → " + outcome
+	out += " → " + outcome
 	if line.Count > 1 {
-		text += fmt.Sprintf(" ×%d", line.Count)
+		out += fmt.Sprintf(" ×%d", line.Count)
 	}
-	return text
+	return out
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -477,7 +478,7 @@ func limitLines(items []item, limit int) {
 	counts := make([]string, 0, len(names))
 	total := 0
 	for _, name := range names {
-		counts = append(counts, fmt.Sprintf("%s ×%d", gotato.EscapeTags(oneLine(name)), over[name]))
+		counts = append(counts, fmt.Sprintf("%s ×%d", text.EscapeTags(oneLine(name)), over[name]))
 		total += over[name]
 	}
 	items[last].overflow = fmt.Sprintf("… %d more calls: %s", total, strings.Join(counts, ", "))

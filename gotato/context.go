@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // Transcript is the committed history a Session runs against: it is the
@@ -432,7 +434,7 @@ func ForModel(messages []Message) []Message {
 			m.Parts = append(m.Parts, part)
 		}
 		if message.ToolResult != nil {
-			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: EscapeTags(message.ToolResult.SafeError), Loaded: slices.Clone(message.ToolResult.Loaded)}
+			result := ToolResult{CallID: message.ToolResult.CallID, Status: message.ToolResult.Status, SafeError: text.EscapeTags(message.ToolResult.SafeError), Loaded: slices.Clone(message.ToolResult.Loaded)}
 			result.Content = cloneContent(message.ToolResult.Content)
 			for j := range result.Content {
 				if _, tagged := result.Content[j].Metadata[MetaTag]; !tagged {
@@ -453,9 +455,9 @@ func ForModel(messages []Message) []Message {
 func escapePartText(part ContentPart) string {
 	switch part.Kind {
 	case ContentText:
-		return EscapeTags(part.Text)
+		return text.EscapeTags(part.Text)
 	case ContentJSON:
-		return escapeTags(part.Text, jsonLessThan)
+		return text.EscapeTagsAs(part.Text, jsonLessThan)
 	}
 	return part.Text
 }

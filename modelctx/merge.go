@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -333,7 +334,7 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 	var out messageList
 	out.add(gotato.RoleUser, taggedPart(gotato.TagSegment, attrs,
 		fmt.Sprintf("Segments %s, merged. Only their recap is kept here; the conversation, reasoning, intermediate\nsteps and tool results were left out. read_segment(n) returns each of them in full, for n in %s.", label, label)))
-	out.add(gotato.RoleUser, taggedPart(gotato.TagRecap, [][2]string{{"n", label}}, gotato.EscapeTags(recap)))
+	out.add(gotato.RoleUser, taggedPart(gotato.TagRecap, [][2]string{{"n", label}}, text.EscapeTags(recap)))
 	for i := range out.messages {
 		out.messages[i].ID = gotato.MessageID(fmt.Sprintf("segment-%d-%d", number, i+1))
 	}

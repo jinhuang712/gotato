@@ -16,7 +16,9 @@ github.com/jinhuang712/gotato
 ├── session/
 │   └── storetest/     the Store contract suite
 ├── modelctx/  gateway/  service/  service/httpapi/  testkit/
-├── internal/          our own test tools, the test CLI (internal/cmd/gotato) among them
+├── internal/          text: string helpers shared by the packages above (standard library only);
+│                      the rest are our own test tools, the test CLI (internal/cmd/gotato) among them,
+│                      which no shipped package imports
 ├── adapter/mcp/       a module of its own
 ├── examples/larkbot/  a module of its own
 └── bench/refservice/  a module of its own
