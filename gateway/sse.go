@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
+	"sync"
 )
 
 // SSE framing limits. They bound what one upstream line or event can allocate,
@@ -64,4 +66,35 @@ func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
 			return "", err
 		}
 	}
+}
+
+// sseBody is what the three streams share: the response being read and the
+// reader over its body. Closing it twice is safe.
+type sseBody struct {
+	response  *http.Response
+	reader    *bufio.Reader
+	closeOnce sync.Once
+}
+
+func newSSEBody(response *http.Response) sseBody {
+	return sseBody{response: response, reader: bufio.NewReader(response.Body)}
+}
+
+// replace continues on a re-issued response and closes the interrupted one.
+func (b *sseBody) replace(response *http.Response) {
+	if b.response != nil && b.response.Body != nil {
+		_ = b.response.Body.Close()
+	}
+	b.response = response
+	b.reader = bufio.NewReader(response.Body)
+}
+
+// Close closes the response body.
+func (b *sseBody) Close() error {
+	b.closeOnce.Do(func() {
+		if b.response != nil && b.response.Body != nil {
+			_ = b.response.Body.Close()
+		}
+	})
+	return nil
 }

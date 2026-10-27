@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -38,8 +36,7 @@ func (c *Client) streamAnthropic(ctx context.Context, request gotato.ModelReques
 		return nil, err
 	}
 	return &anthropicStream{
-		response: response,
-		reader:   bufio.NewReader(response.Body),
+		sseBody:  newSSEBody(response),
 		nameMap:  names,
 		blocks:   make(map[int]*anthropicBlockState),
 		restart:  restarter{client: c, body: body, open: open},
@@ -399,18 +396,16 @@ type anthropicBlockState struct {
 }
 
 type anthropicStream struct {
-	response  *http.Response
-	reader    *bufio.Reader
-	nameMap   map[string]string
-	blocks    map[int]*anthropicBlockState
-	queue     []gotato.ModelEvent
-	usage     anthropicUsage
-	stop      gotato.StopReason
-	model     string
-	finished  bool
-	restart   restarter
-	overflow  overflowMatcher
-	closeOnce sync.Once
+	sseBody
+	nameMap  map[string]string
+	blocks   map[int]*anthropicBlockState
+	queue    []gotato.ModelEvent
+	usage    anthropicUsage
+	stop     gotato.StopReason
+	model    string
+	finished bool
+	restart  restarter
+	overflow overflowMatcher
 }
 
 func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
@@ -454,11 +449,7 @@ func (s *anthropicStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 // reopen continues on a re-issued response, discarding everything decoded
 // from the interrupted one (nothing of it reached the caller).
 func (s *anthropicStream) reopen(response *http.Response) {
-	if s.response != nil && s.response.Body != nil {
-		_ = s.response.Body.Close()
-	}
-	s.response = response
-	s.reader = bufio.NewReader(response.Body)
+	s.replace(response)
 	s.blocks = make(map[int]*anthropicBlockState)
 	s.queue = nil
 	s.usage = anthropicUsage{}
@@ -612,15 +603,6 @@ func (s *anthropicStream) gotatoUsage() gotato.Usage {
 		CacheReadTokens:  s.usage.CacheReadInputTokens,
 		CacheWriteTokens: s.usage.CacheCreationInputTokens,
 	}
-}
-
-func (s *anthropicStream) Close() error {
-	s.closeOnce.Do(func() {
-		if s.response != nil && s.response.Body != nil {
-			_ = s.response.Body.Close()
-		}
-	})
-	return nil
 }
 
 func anthropicStopReason(reason string) gotato.StopReason {

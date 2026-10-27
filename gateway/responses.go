@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -12,7 +11,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -38,8 +36,7 @@ func (c *Client) streamResponses(ctx context.Context, request gotato.ModelReques
 		return nil, err
 	}
 	return &responsesStream{
-		response: response,
-		reader:   bufio.NewReader(response.Body),
+		sseBody:  newSSEBody(response),
 		nameMap:  names,
 		calls:    make(map[int]*responsesCall),
 		texts:    make(map[int]bool),
@@ -399,18 +396,16 @@ func splitResponsesCallID(id string) (callID, itemID string) {
 }
 
 type responsesStream struct {
-	response  *http.Response
-	reader    *bufio.Reader
-	nameMap   map[string]string
-	calls     map[int]*responsesCall
-	texts     map[int]bool
-	queue     []gotato.ModelEvent
-	model     string
-	finished  bool
-	terminal  error
-	restart   restarter
-	overflow  overflowMatcher
-	closeOnce sync.Once
+	sseBody
+	nameMap  map[string]string
+	calls    map[int]*responsesCall
+	texts    map[int]bool
+	queue    []gotato.ModelEvent
+	model    string
+	finished bool
+	terminal error
+	restart  restarter
+	overflow overflowMatcher
 }
 
 type responsesCall struct {
@@ -519,11 +514,7 @@ func (s *responsesStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 // reopen continues on a re-issued response, discarding everything decoded
 // from the interrupted one (nothing of it reached the caller).
 func (s *responsesStream) reopen(response *http.Response) {
-	if s.response != nil && s.response.Body != nil {
-		_ = s.response.Body.Close()
-	}
-	s.response = response
-	s.reader = bufio.NewReader(response.Body)
+	s.replace(response)
 	s.calls = make(map[int]*responsesCall)
 	s.texts = make(map[int]bool)
 	s.queue = nil
@@ -766,13 +757,4 @@ func (s *responsesStream) finishWithError(err error) {
 	}
 	s.finished = true
 	s.terminal = err
-}
-
-func (s *responsesStream) Close() error {
-	s.closeOnce.Do(func() {
-		if s.response != nil && s.response.Body != nil {
-			_ = s.response.Body.Close()
-		}
-	})
-	return nil
 }

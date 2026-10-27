@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -28,8 +26,7 @@ func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (g
 		return nil, err
 	}
 	return &chatStream{
-		response: response,
-		reader:   bufio.NewReader(response.Body),
+		sseBody:  newSSEBody(response),
 		nameMap:  names,
 		byIndex:  make(map[int]*chatCall),
 		restart:  restarter{client: c, body: body, open: open},
@@ -174,23 +171,21 @@ type chatFunctionCall struct {
 }
 
 type chatStream struct {
-	response *http.Response
-	reader   *bufio.Reader
-	nameMap  map[string]string
+	sseBody
+	nameMap map[string]string
 	// calls are the Tool calls in the order they first appeared; byIndex
 	// is the call each provider index names now, and last the call the
 	// latest delta added to.
-	calls     []*chatCall
-	byIndex   map[int]*chatCall
-	last      *chatCall
-	queue     []gotato.ModelEvent
-	finish    gotato.StopReason
-	usage     gotato.Usage
-	model     string
-	finished  bool
-	restart   restarter
-	overflow  overflowMatcher
-	closeOnce sync.Once
+	calls    []*chatCall
+	byIndex  map[int]*chatCall
+	last     *chatCall
+	queue    []gotato.ModelEvent
+	finish   gotato.StopReason
+	usage    gotato.Usage
+	model    string
+	finished bool
+	restart  restarter
+	overflow overflowMatcher
 }
 
 type chatCall struct {
@@ -293,11 +288,7 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 // reopen continues on a re-issued response, discarding everything decoded
 // from the interrupted one (nothing of it reached the caller).
 func (s *chatStream) reopen(response *http.Response) {
-	if s.response != nil && s.response.Body != nil {
-		_ = s.response.Body.Close()
-	}
-	s.response = response
-	s.reader = bufio.NewReader(response.Body)
+	s.replace(response)
 	s.calls = nil
 	s.byIndex = make(map[int]*chatCall)
 	s.last = nil
@@ -387,15 +378,6 @@ func (s *chatStream) finishStream() {
 	}
 	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.finish, Usage: s.usage, Model: s.model})
 	s.finished = true
-}
-
-func (s *chatStream) Close() error {
-	s.closeOnce.Do(func() {
-		if s.response != nil && s.response.Body != nil {
-			_ = s.response.Body.Close()
-		}
-	})
-	return nil
 }
 
 func chatStopReason(reason string) gotato.StopReason {
