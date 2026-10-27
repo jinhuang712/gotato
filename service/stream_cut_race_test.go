@@ -13,27 +13,29 @@ import (
 
 // holdStore holds one call of a store, once armed, and says when it is held.
 // A held Append has written already: it is held on its way back to the caller.
-// A held Load has read already, too.
+// A held Load has read already, too. Each kind of call has its own release, so
+// that a call is let go by the test that means it, whichever of the two reaches
+// its wait first: a goroutine that has said it is held may be slow to wait.
 type holdStore struct {
 	session.Store
-	armAppend, armLoad atomic.Bool
-	held               chan struct{}
-	release            chan struct{}
+	armAppend, armLoad         atomic.Bool
+	held                       chan struct{}
+	releaseAppend, releaseLoad chan struct{}
 }
 
 func newHoldStore(store session.Store) *holdStore {
-	return &holdStore{Store: store, held: make(chan struct{}, 4), release: make(chan struct{})}
+	return &holdStore{Store: store, held: make(chan struct{}, 4), releaseAppend: make(chan struct{}), releaseLoad: make(chan struct{})}
 }
 
-func (h *holdStore) hold() {
+func (h *holdStore) hold(release <-chan struct{}) {
 	h.held <- struct{}{}
-	<-h.release
+	<-release
 }
 
 func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.Summary) error {
 	err := h.Store.Append(ctx, id, after, entries, summary)
 	if err == nil && h.armAppend.CompareAndSwap(true, false) {
-		h.hold()
+		h.hold(h.releaseAppend)
 	}
 	return err
 }
@@ -41,7 +43,7 @@ func (h *holdStore) Append(ctx context.Context, id string, after uint64, entries
 func (h *holdStore) Load(ctx context.Context, id string) (session.Loaded, error) {
 	loaded, err := h.Store.Load(ctx, id)
 	if err == nil && h.armLoad.CompareAndSwap(true, false) {
-		h.hold()
+		h.hold(h.releaseLoad)
 	}
 	return loaded, err
 }
@@ -110,7 +112,7 @@ func TestOpenDoesNotCutAStreamOfANewerRecord(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	close(held.release)
+	close(held.releaseAppend)
 	<-opened // a's Run ended; its error is not what is tested
 	notCut(t, stream)
 }
@@ -152,14 +154,14 @@ func TestOpenCutsAStreamOfAnOlderRecordThatStartsLate(t *testing.T) {
 	<-held.held
 
 	// The stream goes on and starts, with the epoch it read, before the open cuts.
-	held.release <- struct{}{}
+	held.releaseLoad <- struct{}{}
 	got := <-started
 	if got.err != nil {
 		t.Fatal(got.err)
 	}
 	defer func() { _ = got.stream.Close() }()
 
-	held.release <- struct{}{}
+	held.releaseAppend <- struct{}{}
 	<-opened
 	cut(t, got.stream)
 }
