@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // stream plays a Script event by event.

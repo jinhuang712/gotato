@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {

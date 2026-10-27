@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // streamedCalls plays chunks as a chat stream and returns the Tool calls the

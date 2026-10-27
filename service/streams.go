@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // defaultStreamPoll is how often an idle Session stream looks in the store for

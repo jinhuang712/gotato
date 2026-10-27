@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // The defaults of a Segment built by code (FEATURES.md → G-F06, Settings).

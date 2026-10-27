@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // DefaultRecapMaxTokens is the output limit of the model call that writes a

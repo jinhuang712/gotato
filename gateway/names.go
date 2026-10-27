@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // maxFunctionName is the provider limit on function names

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jinhuang712/gotato/testkit"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // The long_session task (GOALS.md G-G10 and G-B14): one Session played for

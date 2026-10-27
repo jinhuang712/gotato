@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // A streaming response can fail after its headers arrived: a provider or a

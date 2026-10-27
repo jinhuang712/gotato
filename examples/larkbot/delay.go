@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // delayModel sleeps before every model call, so a test can keep a Run in flight.

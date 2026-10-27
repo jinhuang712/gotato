@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Pure card building: the Lark `content` JSON of an interactive message

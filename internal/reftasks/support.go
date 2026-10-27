@@ -12,7 +12,7 @@ import (
 
 	"github.com/jinhuang712/gotato/testkit"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // The support case's Tools.

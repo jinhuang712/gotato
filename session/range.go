@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // EntryLog is the part of a Store that reads a Record's log. Every Store is

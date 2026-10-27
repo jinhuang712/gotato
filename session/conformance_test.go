@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/session"
-	"github.com/jinhuang712/gotato/testkit/storetest"
+	"github.com/jinhuang712/gotato/session/storetest"
 )
 
 func TestMemoryStoreConformance(t *testing.T) {

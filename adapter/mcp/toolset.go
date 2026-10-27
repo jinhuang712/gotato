@@ -42,7 +42,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

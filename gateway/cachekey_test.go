@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // sent is what one request to a recording server carried.

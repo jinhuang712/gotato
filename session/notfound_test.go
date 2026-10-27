@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // ErrNotFound is one of the runtime's errors: it carries the code not_found

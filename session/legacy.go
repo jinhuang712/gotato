@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // A Record written before the Event design holds Entries of the kinds below:

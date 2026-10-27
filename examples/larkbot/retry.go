@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // The retry rule: a message is sent again only when it is known not to have

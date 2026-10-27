@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // A Message's RunID is a record. No wire API may send it: the request bytes

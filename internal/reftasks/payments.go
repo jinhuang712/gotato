@@ -7,7 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/testkit"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // RecapCheck is the payments example of GOALS.md G-E01: an operations

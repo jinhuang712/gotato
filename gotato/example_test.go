@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gateway"
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/fakegateway"
 	"github.com/jinhuang712/gotato/testkit"
 )

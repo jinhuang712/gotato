@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // FuncModel decides each Model call from the request it receives. Use it

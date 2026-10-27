@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/session"
-	"github.com/jinhuang712/gotato/testkit/storetest"
+	"github.com/jinhuang712/gotato/session/storetest"
 )
 
 // rebasing moves a stale write onto the head instead of refusing it, so a

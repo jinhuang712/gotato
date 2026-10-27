@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Segments returns the Segments the Context starts with, in order, with the

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 func collectEvents(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent, error) {

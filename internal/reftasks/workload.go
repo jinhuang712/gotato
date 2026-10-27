@@ -11,7 +11,7 @@ import (
 
 	"github.com/jinhuang712/gotato/testkit"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Task is one task of the reference workload that GOALS.md measures: the

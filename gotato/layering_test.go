@@ -13,7 +13,7 @@ import (
 const modulePath = "github.com/jinhuang712/gotato"
 
 // TestLayering enforces DESIGNS.md → Dependencies point inward: the core
-// package (gotato-core, named gotato) imports only the standard library, the
+// package (gotato/) imports only the standard library, the
 // module root holds no Go package, and standard runtime packages never import
 // the optional service layer or the CLI.
 func TestLayering(t *testing.T) {

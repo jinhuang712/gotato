@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Providers the gateway recognizes. A recognized provider is sent what its

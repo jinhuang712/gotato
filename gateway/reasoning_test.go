@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Observed in Mow: a DeepSeek Worker failed after 70 turns with HTTP 400

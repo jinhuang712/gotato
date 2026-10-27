@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // summaryTime is how a Summary writes a time.
@@ -115,7 +115,7 @@ type InstanceState struct {
 // a batch of Entries all or nothing, and only to positions that are still
 // free, so an adapter maps them to an insert on a unique (session, seq) key.
 // Implementations must be safe for concurrent use, also by several Instances
-// sharing one store. The conformance suite in testkit/storetest checks all of
+// sharing one store. The conformance suite in session/storetest checks all of
 // it.
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a

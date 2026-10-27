@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // dropConnection writes a chunked SSE response head and the given raw bytes,

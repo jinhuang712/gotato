@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // refusingServer answers every request with status and body, and counts them.

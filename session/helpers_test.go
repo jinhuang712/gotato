@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // journaled is what a Record and a Writer both are: a Transcript that keeps the

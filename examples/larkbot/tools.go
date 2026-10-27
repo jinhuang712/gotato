@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
-	gotato "github.com/jinhuang712/gotato/gotato-core"
+	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
 )
