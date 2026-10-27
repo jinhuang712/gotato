@@ -15,6 +15,15 @@ before  go install github.com/jinhuang712/gotato/cmd/gotato@latest
 after   none; in this repository: go run ./internal/cmd/gotato
 ```
 
+### mcp.WithClientInfo is removed
+
+Nobody set the name and version the MCP client tells a server; the client keeps its default.
+
+```text
+before  mcp.NewToolSet("crm", t, mcp.WithClientInfo("svc", "1.2"))
+after   mcp.NewToolSet("crm", t)
+```
+
 ### An Agent's reference text is part of its instruction
 
 The "Static block" is gone. Reference text an Agent carries, such as a schema or a runbook, is written into its instruction. `modelctx.FullHistory()` was an alias of the core builder. `ErrOldSummary` refused a Record compacted before Segments existed; no such Record exists.

@@ -108,8 +108,6 @@ type config struct {
 	description string
 	effects     map[string]gotato.ToolEffect
 	cacheTTL    time.Duration
-	clientName  string
-	clientVer   string
 }
 
 // WithDescription sets the ToolSet's description, which the catalog shows.
@@ -129,11 +127,6 @@ func WithToolEffect(tool string, effect gotato.ToolEffect) Option {
 // which sees a change even when the server cannot notify.
 func WithListCache(ttl time.Duration) Option {
 	return func(c *config) { c.cacheTTL = ttl }
-}
-
-// WithClientInfo sets the name and version this client tells the server.
-func WithClientInfo(name, version string) Option {
-	return func(c *config) { c.clientName, c.clientVer = name, version }
 }
 
 // ToolSet is an MCP server as a gotato.ToolSet. Make one with NewToolSet and
@@ -178,7 +171,7 @@ func NewToolSet(name string, transport Transport, options ...Option) (*ToolSet, 
 		return nil, errors.New("mcp: transport is nil")
 	}
 	s := &ToolSet{name: name, transport: transport, cfg: config{
-		effects: map[string]gotato.ToolEffect{}, clientName: "gotato", clientVer: "0",
+		effects: map[string]gotato.ToolEffect{},
 	}}
 	for _, option := range options {
 		if option != nil {
@@ -190,7 +183,7 @@ func NewToolSet(name string, transport Transport, options ...Option) (*ToolSet, 
 			return nil, fmt.Errorf("mcp: unknown Effect %q for tool %q", effect, tool)
 		}
 	}
-	s.client = sdk.NewClient(&sdk.Implementation{Name: s.cfg.clientName, Version: s.cfg.clientVer}, &sdk.ClientOptions{
+	s.client = sdk.NewClient(&sdk.Implementation{Name: "gotato", Version: "0"}, &sdk.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.changed.Store(true) },
 		// A server that asks for input in the middle of a call gets no answer:
 		// there is no user and no model to ask. The SDK's automatic answer is
