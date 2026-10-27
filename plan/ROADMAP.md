@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-28 -->
+<!-- what-we-build: approved 2026-10-28 -->
 # Gotato — Roadmap
 
 What gets built next, in what order, and how we know each step is done. The roadmap adds no new feature. It schedules what [GOALS.md](GOALS.md) measures, what [FEATURES.md](../FEATURES.md) marks as planned (⬜) or names as a gap (🚧), and the design questions still open, which it places at the start of the phase that needs them. The principles that answer them are in [DESIGNS.md](../DESIGNS.md). Terms are in [GLOSSARY.md](../GLOSSARY.md).

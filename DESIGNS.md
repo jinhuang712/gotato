@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-28 -->
+<!-- what-we-build: approved 2026-10-28 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
