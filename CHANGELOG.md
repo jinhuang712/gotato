@@ -1,14 +1,64 @@
 # Changelog
 
-What changed in Gotato, from the user's side. Newest first. Gotato has made no release yet, so *Unreleased* holds the changes since 2026-10-16, and the dated sections below it hold the work before that. When the first release is cut, it gets its own section. A breaking change carries a before/after note, so you can move your code in one pass. Additive changes may be listed, but breaking ones must be.
+What changed in Gotato, from the user's side. Newest first. A breaking change carries a before/after note, so you can move your code in one pass. Additive changes may be listed, but breaking ones must be.
 
 ## Unreleased
 
-### A following Run that fails drops its messages as `run_failed`
+## 0.1.0 — YYYY-MM-DD
+
+Gotato 0.1.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).
+
+**In this release**
+
+- **What ships:** the core and the packages around it, and one adapter module.
+- **What it promises:** from this release on, a break is written down.
+- **What was never checked:** everything that only a real provider or a real model can show.
+
+### What ships
+
+| Package | What it is |
+|---|---|
+| `gotato` | The core: Agent, Session, Tool, Model, Event. Standard library only; it runs by itself, with the conversation in memory. |
+| `session`, `session/storetest` | The Record and its Store (memory and file), and the suite that proves a Store adapter keeps the store contract. |
+| `modelctx` | The ContextBuilder and compaction: the model receives a built, bounded view, not the full history. |
+| `gateway` | A provider is YAML, not code: the OpenAI Chat Completions, OpenAI Responses and Anthropic Messages wire APIs. |
+| `service`, `service/httpapi` | The Runner that runs Sessions on many instances over one Store, and its HTTP and streaming surface under `/v1/sessions`. |
+| `testkit` | Fake and replay models and tools, and Event recorders, for deterministic tests. |
+| `adapter/mcp` | A module of its own: an MCP server's tools as a `ToolSet`. Tagged `adapter/mcp/v0.1.0`. |
+
+The test CLI (`internal/cmd/gotato`), the workload tools, `examples/larkbot` and `bench/refservice` are in the repository but are not part of the release's promise. The CLI is our test tool and keeps no contract.
+
+### What it promises from now on
+
+- A breaking change to the Go API, the HTTP contract or the Event kinds has a CHANGELOG entry with a before and after.
+- Where the cost is low, the old symbol stays for at least one release with a `// Deprecated:` comment.
+- Before this release nothing kept an old form. The changes made on the way here are kept under *Before 0.1.0* in [CHANGELOG.md](CHANGELOG.md) as history; they describe states no user ever had.
+
+### What was never checked against a real provider
+
+Gotato runs no tests against real providers, and CI has no provider credentials. A provider's behavior is played by a fake gateway (`internal/fakegateway`) built from the providers' public wire formats. One live run exists (2026-10-16, one model, before later changes, G-F22); it was not repeated for this release. The list below is for a team to check on its own gateway.
+
+- **The wire APIs ([G-F07](FEATURES.md#g-f07--models-and-providers-)).** `openai-chat-completions`, `openai-responses` and `anthropic-messages` are tested on request bytes and against the fake gateway, which refuses a request shaped otherwise than the documentation. Its quirks (a refusal as too long, a cut stream, cached tokens, a reasoning replay, a mid-conversation message, a slow reply) follow the documented shapes, not a provider's live answers.
+- **The wording of a refusal as too long ([G-F07](FEATURES.md#g-f07--models-and-providers-), TODO "Do the providers word a refusal as too long as the fake gateway does?").** The wordings are the ones the providers are reported to return, and the public documentation quotes none. A team adds another with `overflow_phrases`.
+- **Native tool search ([G-F34](FEATURES.md#g-f34--tool-search-)).** How a provider expands a `tool_reference`, and whether it takes a `cache_control` mark on a tool list that ends in deferred tools. A team whose gateway refuses `native` sets `list`.
+- **Runtime notices ([G-F29](FEATURES.md#g-f29--runtime-notices-)).** Whether a provider answers a user turn that holds only a notice.
+- **Compaction ([G-F06](FEATURES.md#g-f06--compaction-)).** How a model reads a `<tool_calls>` block between a user message and the reply; what Claude and OpenAI need of the reasoning in a tail kept mid-Run; whether Claude reads the Segments from the cache with Gotato's marks; whether `tool_choice: none` keeps the cache on Anthropic; how long a model-written Recap takes against `ModelCallDeadline`.
+- **The Recap's quality ([G-E01](plan/GOALS.md#g-e01--the-recap-keeps-the-facts-), not measured).** The payments check ships and a team runs it on its own gateway: `go run ./internal/cmd/gotato-workload -recap-check -live -gateway-config gateway.yaml`. No gateway has run it yet, so the model-written Recap is off by default.
+- **Cache and cost numbers.** [G-B14](plan/GOALS.md#g-b14--context-size-and-cost-per-turn-by-the-sessions-age-) (cost per Turn by the Session's age), [G-B15](plan/GOALS.md#g-b15--the-first-request-after-an-idle-return-) (the first request after an idle return, not measured) and [G-B16](plan/GOALS.md#g-b16--cost-of-a-compaction) (the cost and time of a compaction) need a provider's cache and prices; the sizes and tokens come from a fake model. [G-B01]X (cache hit rate) has its number from the one live run only.
+- **MCP servers ([G-F12](FEATURES.md#g-f12--the-mcp-adapter-)).** The tests use the MCP SDK's own server; no other server was tried, and none of the specification's multi round-trip revision.
+- **Time to a first agent ([G-B13]X).** Not measured; it needs developers new to Gotato.
+
+## Before 0.1.0 (development history)
+
+These sections record changes between development states that no release ever held. They are kept as history, and a before/after note in them does not describe a move any user made.
+
+### Since 2026-10-16
+
+#### A following Run that fails drops its messages as `run_failed`
 
 A message `Send` reported as queued, left over when its Run settled, vanished without a trace when the following Run failed before its live Session took it (the store failed to open the Session, the Session was deleted, its Agent was no longer configured). Each such message now gets a `message_dropped` Event with the new Why `run_failed`, in the Record when it can be written, else on the Instance's stream alone.
 
-### A Fork whose ID is taken is `ErrSessionExists`
+#### A Fork whose ID is taken is `ErrSessionExists`
 
 **Breaking**: `Runner.Fork` with an explicit ID that a Session already holds answered `invalid_argument`, while `CreateSessionExclusive` answers `ErrSessionExists` for the same fault. Both answer `ErrSessionExists` now (`invalid_state`, HTTP 409).
 
@@ -17,7 +67,7 @@ A message `Send` reported as queued, left over when its Run settled, vanished wi
 | `Fork(ctx, id, "taken")` returns `invalid_argument` ("session taken already exists") | it returns `service.ErrSessionExists` (`invalid_state`) |
 | a caller tests `gotato.IsCode(err, gotato.CodeInvalidArgument)` | it tests `errors.Is(err, service.ErrSessionExists)` |
 
-### A Continue with a Prompt is refused
+#### A Continue with a Prompt is refused
 
 **Breaking**: `RunRequest.Continue` resumes a Session without a new Message, and a `Prompt` set beside it was dropped without a word. The request is refused now, before any Run, as `invalid_argument` (`NotRun`); over HTTP it is a 400.
 
@@ -26,15 +76,15 @@ A message `Send` reported as queued, left over when its Run settled, vanished wi
 | `RunRequest{Prompt: "hi", Continue: true}` resumes the loop and ignores `"hi"` | it returns `invalid_argument` ("continue takes no prompt") and runs nothing |
 | `POST .../runs` with `{"prompt": "hi", "continue": true}` runs a Continue | it answers 400 with the code `invalid_argument` |
 
-### A Run refused for its Agent writes nothing
+#### A Run refused for its Agent writes nothing
 
 `RunRequest.Update` was applied to the Session's Record before the Agent was resolved, so a Run on an existing Session with an unknown Agent returned `ErrUnknownAgent` and still saved the Update when the Session was released. The Agent is resolved first now: a refused Run leaves the stored Record as it was. An `Update` of `gotato.agent` still selects the Agent, as before.
 
-### A Responses retry is reported as `model_retried`
+#### A Responses retry is reported as `model_retried`
 
 The gateway repeated a Responses API request after a transport error or a 429/5xx without telling the Session, so no `model_retried` Event was stored. It now reports each retry, with the attempt, the wait and why, as the Chat Completions and Anthropic Messages calls already did.
 
-### The gateway takes the three wire protocols by their own names
+#### The gateway takes the three wire protocols by their own names
 
 **Breaking**: before the first release nothing keeps an old spelling. `Config.API` and the `api:` key of the YAML file accepted three aliases. They are refused now, with the error that names the supported values.
 
@@ -44,7 +94,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `api: openai-codex-responses` | `api: openai-responses` |
 | `api: anthropic` | `api: anthropic-messages` |
 
-### A Record's epoch is always its own
+#### A Record's epoch is always its own
 
 **Breaking**: before the first release nothing keeps an old form. Every Record gets an epoch when it is created, so the epoch made of the creation time (`created-<time>`), which stood in for a Record written before epochs, is gone. `RecordInfo.Epoch()` was only a getter after that, so it goes too.
 
@@ -53,7 +103,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `RecordInfo.Epoch()` returned `RecordEpoch`, or `created-<creation time>` when it was empty | read `RecordInfo.RecordEpoch` |
 | a Record whose stored epoch is empty reported `created-<creation time>` on every surface | it reports an empty epoch; `session_created` of a Record that has none gets a new one |
 
-### The file store has one layout and no `ErrOldLayout`
+#### The file store has one layout and no `ErrOldLayout`
 
 **Breaking**: before the first release nothing keeps an old layout. The file store no longer recognizes a directory `<id>/<position>.json` or a session document `<id>.json`.
 
@@ -63,7 +113,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | a file directly in a Record's directory is `ErrOldLayout` | a plain error that names the path (`session: unexpected file ... in the file store`) |
 | `FileStore.Delete` also removes `<id>.json` | it removes the Record's directory only |
 
-### Report fields that count tokens end in `Tokens`
+#### Report fields that count tokens end in `Tokens`
 
 **Breaking**: before the first release nothing keeps an old name. Three fields held a count of tokens without saying so. Each now ends in `Tokens`, in Go and in JSON alike: the merge result of `gotato context compact`, the context report (`context inspect`, `GET /v1/sessions/{id}/context`), and the `Compaction` that Events carry and the Record stores. A Record written before this change reads `ceiling` as unknown.
 
@@ -73,7 +123,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `Report.CompactCeiling`, JSON `compact_ceiling` | `Report.CompactCeilingTokens`, `compact_ceiling_tokens` |
 | `gotato.Compaction.Ceiling`, JSON `ceiling` | `gotato.Compaction.CeilingTokens`, `ceiling_tokens` |
 
-### An HTTP error body carries `code` and `message` only
+#### An HTTP error body carries `code` and `message` only
 
 **Breaking**: before the first release nothing keeps an old field. The `error` field of an HTTP error body held the status text (`"Conflict"`, `"Not Found"`), which the response status already says. It is gone; `code` (when the error has one), `message`, and the optional `not_run`, `retryable`, `record_epoch` and `writer` stay. On a 5xx, `message` is still the status text. This holds for the `event: error` frame of a stream too.
 
@@ -83,7 +133,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `{"error":"Internal Server Error","message":"Internal Server Error"}` | `{"message":"Internal Server Error"}` |
 | a client reads `body.error` for the status text | reads the HTTP status; `code` names the cause |
 
-### A notice_queued Event names the notice's kind `notice_kind`
+#### A notice_queued Event names the notice's kind `notice_kind`
 
 **Breaking**: before the first release nothing keeps an old name. `NoticeQueued.Label` held the notice's kind (`Message.Notice.Kind`). It cannot be called `Kind`, because `kind` in the Event JSON names the Event, so it is `NoticeKind`, and the key says the same.
 
@@ -91,7 +141,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 |---|---|
 | `NoticeQueued.Label` (`label`) | `NoticeQueued.NoticeKind` (`notice_kind`) |
 
-### A RecordInfo's times are `time.Time`
+#### A RecordInfo's times are `time.Time`
 
 **Breaking**: before the first release nothing keeps an old form. `session.RecordInfo` held its times as strings in a fixed millisecond format, while `Record.CreatedAt()`, `UpdatedAt()` and `LastRunEnd()` returned `time.Time`. The three fields are `time.Time` now. On the wire (a store's JSON, `GET /v1/sessions`, a Session summary) they are RFC 3339 with as many fraction digits as the time has, where they had three. `last_run_end` is left out when no Run has ended (`omitzero`).
 
@@ -101,7 +151,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `info.UpdatedAt > other.UpdatedAt` | `info.UpdatedAt.After(other.UpdatedAt)` |
 | a store adapter keeps three strings | keeps three times; `storetest.Run` compares them with `Equal`, so a store may change the zone but not the instant |
 
-### The kept tail has one token setting, and counts name their unit
+#### The kept tail has one token setting, and counts name their unit
 
 **Breaking**: before the first release nothing keeps an old name. The kept tail of a compaction was sized three ways: `Keep` in Messages, `Floor` in tokens (which ignored the Run boundary and the quarter-window cap), and the default, `SegmentSettings.TailTokens`. `Floor` is gone; `TailTokens` is the one token setting, and a tail it sizes now always stays within the latest Run and under the quarter cap. The compaction settings that hold a count of tokens or Messages say so in their names.
 
@@ -116,7 +166,7 @@ The gateway repeated a Responses API request after a transport error or a 429/5x
 | `AutoCompactor.Ceiling()`, `CompactPolicy.EffectiveCeiling()` | `CeilingTokens()`, `EffectiveCeilingTokens()` |
 | `POST /v1/sessions/{id}/compact` with `{"keep": 2}` | `{"keep_messages": 2}` |
 
-### Gateway settings name their unit and type
+#### Gateway settings name their unit and type
 
 A setting that holds a number says its unit, and a setting with a family of constants has its own type, so the constants carry the type's name. Before, `Config.API`, `Config.Provider` and `Config.DeferredTools` were plain strings and the deferred forms were `DeferredNative` and `DeferredList`. The YAML strings that `api`, `provider` and `deferred_tools` take are the same, and an unknown value is refused as before.
 
@@ -128,7 +178,7 @@ A setting that holds a number says its unit, and a setting with a family of cons
 | `Config{Provider: "anthropic"}` (`string`) | `Config{Provider: gateway.ProviderAnthropic}`; `Config.Provider` is a `gateway.Provider`, with typed `ProviderAnthropic`, `ProviderOpenAI`, `ProviderDeepSeek`, `ProviderOther` |
 | `Config.DeferredTools string`, `DeferredNative`, `DeferredList`, `Client.DeferredTools() string` | `Config.DeferredTools gateway.DeferredForm`, `DeferredFormNative`, `DeferredFormList`, `Client.DeferredTools() gateway.DeferredForm` |
 
-### Event fields written one way
+#### Event fields written one way
 
 The same thing is written the same way in Go and on the wire. Before, a duration was an `int64` on some Events and a `float64` on others, a Tool was `tool` here and `tool_id` there, and a list of loaded Tools had four names. A client that reads Event JSON, a stored Record or a Tool implementation changes the keys below; a stored Record written before this change does not read back.
 
@@ -147,7 +197,7 @@ A Tool that reads its call changes `use.QualifiedID` to `use.ToolID` and `use.Ar
 
 Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names, every step of a Run written as it happens, one writer per Session, the drain, the Event design with the Claim Events, the load balancer's part, stream resume on any instance, and the multi-instance harness. The Effect cap is an addition. The names ship as one planned break. The store contract changes too, and every defect in [TODO.md](plan/TODO.md) is fixed; the breaking changes among them each carry a before and after below. It also fixes how a Run ends when it fails or is canceled during a tool batch, and what the Runner returns for a canceled Run.
 
-### Fields that carried nothing
+#### Fields that carried nothing
 
 **Breaking**: before the first release nothing keeps an old field. Each row is a field that was never read, or that only a test or a compatibility fallback used.
 
@@ -160,7 +210,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names
 | `modelctx.CompactConfig.Now`, `CompactPolicy.Now`, `MergeConfig.Now` | gone; they use the wall clock, and no test set them |
 | `service.NoticeResult.Queued`; `queued: true` in the notice answer of the HTTP route (`POST /v1/sessions/{id}/notices`) and of `gotato session notice --json` | gone; the answer is `{"session_id", "number", "message_id"}`, and a 202 or exit 0 says the notice was queued |
 
-### Names follow one set of rules (batch 3)
+#### Names follow one set of rules (batch 3)
 
 [AGENTS.md → Naming](AGENTS.md#naming) applied to constants, settings structs and the retryable convention. **Breaking**: nothing keeps an old name; wire strings do not change, and `ErrorCode` constants stay `Code…`.
 
@@ -215,7 +265,7 @@ Phases 2, 3, 4 and 5 of [ROADMAP.md](plan/ROADMAP.md): the Effect cap, the names
 
 `gotato.RuntimeError.Retryable` and `gotato.Retryable(err)` keep their names.
 
-### Names follow one set of rules (batch 2)
+#### Names follow one set of rules (batch 2)
 
 The rules of [AGENTS.md → Naming](AGENTS.md#naming) applied to names that did not yet follow them: a name is the glossary's, `Load` reads from a store, `Parse` from bytes and `From…` builds from a value in memory. **Breaking**: nothing keeps an old name.
 
@@ -233,7 +283,7 @@ The rules of [AGENTS.md → Naming](AGENTS.md#naming) applied to names that did 
 
 `session.Entry.IsCheckpoint()` keeps its name: "checkpoint" is a noun, and the standard library keeps `Is` for a noun (`fs.FileMode.IsDir`).
 
-### Names follow one set of rules (batch 1)
+#### Names follow one set of rules (batch 1)
 
 [AGENTS.md → Naming](AGENTS.md#naming) fixes the rules exported names follow. This batch applies three of them. **Breaking**: nothing keeps an old name, and no old wire string is accepted.
 
@@ -283,7 +333,7 @@ Sentinels that had no code gain one. `errors.Is` now matches a sentinel by ident
 | `testkit.ErrScriptExhausted` | no code (wraps `io.ErrUnexpectedEOF`) | `model_failure` (still wraps `io.ErrUnexpectedEOF`) |
 | `gotato.ErrEventsLost` | no code | `cannot_resume` |
 
-### String helpers move to `internal/text`
+#### String helpers move to `internal/text`
 
 Five string helpers were exported only because sibling packages used them. They now live in `internal/text`, which only Gotato's own packages can import. **Breaking** for code that called them; none has a replacement, because none is part of a contract.
 
@@ -295,7 +345,7 @@ after   none; they are internal
 
 `gotato.SpillRefPrefix` and `gotato.ReadResultToolID` stay, since a ref is what the model reads and passes back.
 
-### Implementation helpers leave the public API
+#### Implementation helpers leave the public API
 
 These exports were steps used only inside their own package. They are unexported. **Breaking** for code that called them; none has a replacement, because none is part of a contract.
 
@@ -313,7 +363,7 @@ after   none; they are internal
 
 `Record.CloseSegmentAndCheckpoint`, `Record.MergeSegments` and `Compact` close and list Segments; read a rebuilt Record with `session.Open` or `session.View`.
 
-### The CLI is a test tool, not a deliverable
+#### The CLI is a test tool, not a deliverable
 
 `gotato` is no longer shipped or versioned. It moved to `internal/cmd/gotato` and is our own test tool, a thin client of the packages. Its commands, flags, JSON fields and exit codes promise nothing. **Breaking** for anything that installed it.
 
@@ -322,7 +372,7 @@ before  go install github.com/jinhuang712/gotato/cmd/gotato@latest
 after   none; in this repository: go run ./internal/cmd/gotato
 ```
 
-### One way to subscribe; EntryKind is EventKind
+#### One way to subscribe; EntryKind is EventKind
 
 `Session.SubscribeFrom` and `Runner.SubscribeSession` did what `Subscribe` with `SubscribeAfter` and `StreamSession` do. `session.EntryKind` was an alias of `gotato.EventKind`. All three are removed. **Breaking.**
 
@@ -337,7 +387,7 @@ before  session.EntryKind
 after   gotato.EventKind
 ```
 
-### An Agent's reference text is part of its instruction
+#### An Agent's reference text is part of its instruction
 
 The "Static block" is gone. Reference text an Agent carries, such as a schema or a runbook, is written into its instruction. `modelctx.FullHistory()` was an alias of the core builder. `ErrOldSummary` refused a Record compacted before Segments existed; no such Record exists.
 
@@ -353,7 +403,7 @@ before  modelctx.ErrOldSummary, modelctx.MetadataCompaction; Compact refused suc
 after   gone; the Report's metadata no longer has static_blocks
 ```
 
-### Hooks that only tests used leave the public API
+#### Hooks that only tests used leave the public API
 
 Six exported names existed for tests alone. They are gone from the public API; the tests of each package reach them through an `export_test.go`. `service.Config.Liveness` and `service.Config.StreamPoll` stay: they are settings of a running service.
 
@@ -371,7 +421,7 @@ before  session.NewMemoryStore(session.WithStoreClock(now)), session.NewFileStor
 after   session.NewMemoryStore(), session.NewFileStore(dir)
 ```
 
-### A zero limit always means its default
+#### A zero limit always means its default
 
 `CoreLimits` read a zero field two ways. Without `WithLimits` a zero was the default; once `WithLimits` was called, a zero size limit admitted nothing, a zero progress cap suppressed progress, a zero `MaxNotices`, `MaxSteerMessages` or `MaxFollowUpMessages` refused that control message, and a zero deadline disabled it. `WithLimits(CoreLimits{MaxParallelTools: 4})` gave a Session that admitted no message. Now a zero field is its default, for every field, with or without `WithLimits`. Nothing is kept for the old reading.
 
@@ -384,7 +434,7 @@ after   session.NewMemoryStore(), session.NewFileStore(dir)
 | `service.Agent.Limits` with `MaxNotices: 0` refused `POST …/notices` | the default queue size (16) |
 
 
-### Every HTTP route is under `/v1/sessions`
+#### Every HTTP route is under `/v1/sessions`
 
 Gotato's HTTP API had two ways to do some things. `POST /v1/runs` and `POST /v1/runs/stream` created a Session and ran it in one call, which `POST /v1/sessions` followed by `POST /v1/sessions/{id}/runs` already does. `POST /v1/runs/{run_id}/cancel` duplicated `POST /v1/sessions/{id}/cancel`, but was not scoped by Session: it never reached the Run's writer, so it was wrong on more than one instance. Both are removed, and with them `service.Runner.CancelRun`. A run request no longer takes `agent` or `metadata`: they applied only when a run created the Session, and `POST /v1/sessions` takes them.
 
@@ -400,7 +450,7 @@ before  runner.CancelRun(ctx, runID)
 after   runner.CancelSession(ctx, sessionID)
 ```
 
-### The gateway is configured by its YAML file only
+#### The gateway is configured by its YAML file only
 
 The gateway had three ways to be configured: a YAML file, environment variables read by `gateway.NewFromEnv()`, and `GOTATO_GATEWAY_CACHE_RETENTION`, which won over the file. Now there is the YAML file. A secret reaches it through `${NAME}`, which the loader expands from the environment. `GOTATO_GATEWAY_CONFIG`, the CLI's path to the file, stays. The `auth` section is removed too: `api_key` was its only scheme. The loader rejects unknown keys, so an old `auth:` key fails with `field auth not found`.
 
@@ -411,7 +461,7 @@ The gateway had three ways to be configured: a YAML file, environment variables 
 | `GOTATO_GATEWAY_CACHE_RETENTION=5m`, over each model's own | `cache_retention: 5m` in the model's file; `gateway.CacheRetentionEnv` is removed |
 | `auth: {type: api_key}`; `gateway.AuthConfig`, `Config.Auth` | nothing: delete the key |
 
-### One way to give a Session its tools; unused options go
+#### One way to give a Session its tools; unused options go
 
 Each thing now has one way. `WithTool` is folded into the variadic `WithTools`; `WithFunc` is `NewFuncTool` plus `WithTools`; `WithDeadlines` is a field pair of `CoreLimits`; `WithRootNamespace` had no caller. No old name is kept.
 
@@ -422,7 +472,7 @@ Each thing now has one way. `WithTool` is folded into the variadic `WithTools`; 
 | `gotato.WithDeadlines(m, t)`: only the two deadlines, other limits keep their defaults | `gotato.WithLimits(gotato.CoreLimits{ModelCallDeadline: m, ToolCallDeadline: t})` |
 | `gotato.WithRootNamespace("ns")` | none; a root Tool keeps its declared ID |
 
-### The core lives in `gotato/`, and `storetest` next to the Store
+#### The core lives in `gotato/`, and `storetest` next to the Store
 
 The package layout follows three rules: the module root holds no Go code; a directory's name is its package's name, so no import needs an alias; a test-helper package sits next to what it tests. The core directory `gotato-core` is now `gotato`, and the Store contract suite moved beside `session`. `gotato.NewSession` and every other call stay as they were; only two import paths change, and the alias is no longer needed. `gotato/layering_test.go` (was `gotato-core/layering_test.go`) keeps the rules.
 
@@ -439,7 +489,7 @@ import (
 )
 ```
 
-### Our test tools leave the public surface
+#### Our test tools leave the public surface
 
 The reference tasks, the workload driver and the fake gateway are tools for testing Gotato itself. They moved under `internal/`, so they promise nothing to a team. `testkit` keeps the fakes and recorders: `FakeModel`, `ReplayModel`, `FuncModel`, `FakeTool`, `EventRecorder`, `NewRecord`, and the echo and demo models. `examples/larkbot` and `bench/refservice` still build, since Go's `internal/` rule is by import path and larkbot's path sits under the root module's.
 
@@ -453,7 +503,7 @@ The reference tasks, the workload driver and the fake gateway are tools for test
 
 `LogsRead`, `RecapQuestion`, `DemoRecap`, `DemoBigBytes`, `PaymentsInstruction`, `SupportInstruction`, `SupportCasePrompt`, `ToolSearchInstruction`, `WorkloadInstruction` and `OrdersLookupID` are no longer exported: nothing outside their own package used them. `gotato-core/layering_test.go` now also fails when a shipped package imports `internal/`.
 
-### `toolregistry` is removed
+#### `toolregistry` is removed
 
 Nothing used the package besides the README quickstart, the getting-started guide and one example. `gotato.WithTools` gives a Session its tools, a `ToolSource` can change them between Turns, ToolSets group them, and `Runner.SetToolActive` switches one on or off for a Session.
 
@@ -468,7 +518,7 @@ gotato.WithTools(weather)
 
 FEATURES.md renames G-F10 from "Tool sets and the registry" to "Tool sets", and the Glossary drops the Tool Registry term.
 
-### Contract versions
+#### Contract versions
 
 Gotato has made no release, so no consumer has seen a contract version. The numbers that the development builds carried (the HTTP `ContractVersion` `"2"` to `"4"`) were counters of the builds, not versions of a release. They are reset: the contract is version `"1"` at the first release, and from then on every break raises it. Until then nothing is versioned except by this changelog, and every break has its entry here.
 
@@ -476,7 +526,7 @@ Gotato has made no release, so no consumer has seen a contract version. The numb
 |---|---|---|
 | HTTP `ContractVersion` (`GET /healthz` `contract`, `gotato serve` `contract`) | `"4"` | `"1"` |
 
-### Removed
+#### Removed
 
 - **The reader of pre-Event Record entries is removed** (`session/legacy.go`). Gotato has made no release, so no Record written before the Event design exists. **Breaking** for a store that still holds one. Before: a Record whose Entries had the old kinds (`checkpoint`, `message`, `log_snapshot`, `run_start`, ...) still loaded, and `session.StoredEvents` mapped them onto Events. After: such an Entry is refused as an unknown kind, never misread. The Store suite in `session/storetest` no longer checks a `checkpoint` Entry. `session.ErrOldLayout` stays: it refuses an older on-disk layout.
 
@@ -487,24 +537,24 @@ Gotato has made no release, so no consumer has seen a contract version. The numb
   | `import grpcadapter "github.com/jinhuang712/gotato/adapter/grpc"`, `grpcadapter.New(runner)` | serve `service/httpapi`, or map `service.Runner` onto your own gRPC service |
   | `gotato-grpc` (`go run ./cmd/gotato-grpc` in `adapter/grpc`) | `gotato serve` |
 
-### Examples
+#### Examples
 
 - **A chat-bot example, `examples/larkbot`.** A Lark chat bot that runs several Gotato instances, with a fake Lark and a local kind cluster that plays seven scenarios. It is a module of its own and adds nothing to the root module. Guide: [Example: a chat bot](guides/example-chat-bot.md).
 
-### MCP
+#### MCP
 
 - **An MCP tool's progress, a server's instructions, and a tool that asks for input.** Progress notifications reach the Tool's progress function, so they are `tool_progress` Events; before, they were dropped. A server's `instructions` (first paragraph) is the ToolSet's description when `WithDescription` is not set; before, the description was empty. A tool that asks for input mid-call (elicitation, sampling) ends with a failed Tool Result that says so; before, the call failed with the SDK's error text.
 - **A restarted MCP server is reached again at once.** When a server forgets the ToolSet's session (it restarted, and answers 404 to the old session ID), `adapter/mcp` now starts a new session and sends the resolution or the call again once; the server did not run it. Before, the first resolution after the restart failed with `session not found`, so a Run that began then had no tools from that server, and the first call failed twice before the third succeeded. After, both succeed on the first try. A call whose connection closed during it is still not sent again, since the server may have run it.
 
-### Layout
+#### Layout
 
 - **The core package moved from the module root to `gotato-core/`.** The package is still named `gotato`, so `gotato.NewSession` and every other call stay as they were; only the import path changes. The module root now holds no Go file, and `gotato-core/layering_test.go` keeps it so. `gateway.example.yaml` moved to `gateway/`. Before, a program imported `github.com/jinhuang712/gotato`. After, it imports `github.com/jinhuang712/gotato/gotato-core`; give it the name `gotato` in the import, as in `gotato "github.com/jinhuang712/gotato/gotato-core"`. The other packages and the three adapter modules keep their paths. The module path `github.com/jinhuang712/gotato` is unchanged.
 
-### Instance names
+#### Instance names
 
 - **`service.Config.Instance` is a label, and each start makes its own store identity.** The Runner appends a random suffix, so `pod-0` is written as `pod-0-3fa9c1d2` in the Liveness row, the Claims, `session_claimed` Events and the advertised-address row, and `Runner.Instance()` returns that form. Before, the name was the identity, and a name had to be new for each process start: a restarted process under the same name used the expired row and every write failed with `session.ErrExpired`; a new process with the name of a live one took its Claim as its own, with no holder check and the same Epoch; and the old process's late `Close` removed the new process's row. After, none of these can happen: a restarted process writes at once, a process that overlaps another is refused as busy or `not_writer` like any other instance, and `Close` removes only its own row. With no name set, nothing changes. If you compared `Runner.Instance()` or a Claim's `instance` to the name you configured, compare its prefix, or read `Runner.Instance()` ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
 
-### Tool search
+#### Tool search
 
 - **A Session's tools can be listed and switched by ID for ToolSet tools too.** `Runner.SetToolActive` and `gotato tools activate|deactivate` now accept the qualified ID of a tool of the Agent's ToolSets (`files.read`) and still write only `gotato.tool.<id>`. `Runner.Tools` with a Session and `gotato tools list --session` list every tool of every ToolSet, loaded or not, with `toolset`, `loaded` and `active`, and show a ToolSet that did not resolve as one `unavailable` entry. The core package adds `Session.ToolSets()`, which reports the installed ToolSets and their tools. Before, a ToolSet tool was switched off only by writing the metadata key by hand, and the listing showed `search_tools` and the loaded tools; `activate` of a ToolSet tool exited `3`. After, it succeeds (exit `0`) and the listing is complete. The new `tools list` fields are additions and are omitted when empty.
 
@@ -541,7 +591,7 @@ Gotato has made no release, so no consumer has seen a contract version. The numb
   | a ToolSet that returned an invalid or duplicate Tool failed `NewSession` with `invalid_argument` | the same ToolSet is unavailable; a bad name, a dotted name or a duplicate ToolSet name still fail `NewSession` |
   | the catalog was fixed for the life of the Session | the catalog is fixed within a Run and read again at the start of the next |
 
-### Messages from any endpoint
+#### Messages from any endpoint
 
 Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATURES.md#g-f26--steering-a-run-)). All of it is addition, except two answers that change for a Stop and for a message left behind, in the table.
 
@@ -578,7 +628,7 @@ Phase 8, step 3 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F26](FEATUR
   | `Runner.CancelSession` and `POST …/cancel` on a Session whose Run another live instance writes: `invalid_state` ("no active run"), 409 | `not_writer`, 409, with the writer's address |
 
 
-### Runtime notices
+#### Runtime notices
 
 Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATURES.md#g-f29--runtime-notices-)). Most of it is addition; the two breaks are in the table.
 
@@ -609,7 +659,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `gotato.NoticeSettingsChanged` and `gotato.NoticeRunInterrupted` were reserved: `Session.Notice`, `Runner.Notice`, HTTP and the CLI refused `settings_changed` and `run_interrupted` as `invalid_argument` | removed; only `continue` and `time_away` are reserved, and the two names are free for a service |
   | FEATURES.md planned a `system` message in the middle of a conversation (Anthropic Messages) and a `developer` message (OpenAI Responses) for a notice | not planned; a notice is tagged text in a user turn on every wire API, as it was. The gateway never had a setting for it |
 
-### Limits
+#### Limits
 
 - **The core counts no Turns or Tool calls, caps no Tool Result and sets no Run deadline.** A limit stays only where it guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)). A Run ends by its model's final reply, by its `ctx`, by a `TurnStopper` or by the compaction ceiling. Step 1 of Phase 7 in [ROADMAP.md](plan/ROADMAP.md). No old name is kept.
 
@@ -625,7 +675,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 
   `MaxMessageBytes`, `ModelCallDeadline` and `ToolCallDeadline` are unchanged (`MaxActiveToolSets` goes in *Tool search*, below). `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits.
 
-### Large Tool Results
+#### Large Tool Results
 
 - **A Tool Result over one page is spilled into the Record, and the model reads the rest with `read_result`.** The text of a result longer than 32 KiB (`gotato.SpillPageBytes`, about 8K tokens) is stored in full as a `tool_result_spilled` log Entry, written just before the Tool Result Message. The Message, and so every Context built from it, holds the first 8,000 bytes (about 2K tokens, cut on a rune boundary), the ref `result:<call_id>` and a line that says how to read the rest. `read_result(ref, page?)` is offered to every Agent that has a tool, declares `read`, and pages as `read_segment` does (the paging is now `gotato.Paginate`, shared). A live Record keeps the bodies it wrote or read (stored ones are dropped past 16 MiB, oldest first); a load reads no body. A result of several MiB no longer fails the Run on `MaxMessageBytes`. An image or a file in a result stays in the Message. A Session over a Transcript that is not a `session.Record` or `session.Writer` spills nothing (`gotato.SpillKeeper`).
 
@@ -640,7 +690,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 
   The `storetest` suite gains a check that a log Entry of a megabyte is kept whole, read at its position, and not loaded; every `session.Store` adapter must pass it. Every change here is an addition.
 
-### Access control
+#### Access control
 
 - **Every request-driven call reads through the store, so a store wrapper can refuse a caller** ([FEATURES.md → G-N22](FEATURES.md#g-n22--access-control-belongs-to-applications)). `Runner.CancelSession`, `Runner.Send` and `Runner.Notice` read the Record with the request's `ctx` before they act on a Run live on the Instance.
 
@@ -649,7 +699,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | canceling, steering or sending a notice to a Run live on this Instance touched no store, so a wrapper could not refuse the caller | the call reads the Record first, and a wrapper's `not_found` is returned as it is |
   | `CancelSession` (HTTP `POST /v1/sessions/{id}/cancel`) for a Session the store does not know: `ErrNoRun`, HTTP 409 `invalid_state` | `not_found`: HTTP 404, CLI exit 3 |
 
-### Errors
+#### Errors
 
 - **Every error says whether it ran and whether a retry may succeed, and the runtime decides.** `RuntimeError` gains `NotRun` (JSON `not_run`), and `gotato.NotRun(err)` and `gotato.Retryable(err)` read both through wrapped errors. `gotato.ErrorCodes()` lists every code. HTTP and the CLI keep one table from each code to their status, and a test fails when a code has none. A model failure the provider calls transient (a rate limit, an overload, a broken stream) is a `model_failure` with `retryable: true`; the gateway's `Error` says so through `IsRetryable()`. **Breaking:**
 
@@ -665,7 +715,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 
  
 
-### Names
+#### Names
 
 - **The code now uses the names in [GLOSSARY.md](GLOSSARY.md).** The Agent is a definition, `service.Agent`. The object you build and talk to is the live Session, `gotato.Session`: one concrete type, with the interfaces the old `gotato.Agent` was split into removed, because nothing implemented them but the core. What the store keeps is the Session's Record, `session.Record`. The Loop stays a concept. No `// Deprecated:` aliases are kept. **Breaking:**
 
@@ -707,7 +757,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `gotato context compact --summarizer truncate\|model` | `gotato context compact --recap truncate\|model` |
 
 
-### Runtime
+#### Runtime
 
 - **A Session is compacted before any model call, past the ceiling and on an overflow.** The Loop calls a `gotato.TurnPreparer` (`PrepareTurn(ctx, PendingTurn) (TurnPrepared, error)`) on the Session's goroutine before every model call, with no Tool call open, and once more when the provider refused a call as too long before any output. `modelctx.AutoCompactor` is a `TurnPreparer`. It compacts when the Context is past the ceiling (`past_ceiling`), mid-Run included, and on an overflow (`overflow`), and sends the call again once. The ceiling is the model's `context_window` less max(10% of it, 16K tokens) when the gateway knows the window, so a model with a window is now compacted by default; `CompactPolicy.Ceiling` and `gotato.compact_ceiling` override it, and a negative `CompactPolicy.Ceiling` turns it off. A Turn compacts at most once. Still past the ceiling after it, the Run ends with `limit_exceeded`; still refused, with `context_overflow`. The size is the usage the last model call reported plus an estimate of what came after, and a compaction clears the usage of the Messages it keeps. The Runner installs the compactor for every Agent. `ModelRecap` reads the request about to be sent from the cache. **Breaking** for a library user of `RunPreparer` or `CompactPolicy.Context`:
 
@@ -773,7 +823,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 - **`Record.Set` with an unchanged value changes nothing.** It no longer moves `UpdatedAt`.
 - **Text that imitates Gotato's own tags is escaped.** `ForModel` writes the `<` that starts or ends `<notice>`, `<segment>`, `<tool_calls>` or `<recap>` (any case) as `&lt;` in user and assistant text, Tool Result content and `SafeError`, so a user, outside data or the model's own words cannot speak as the system. Before: a user message `<recap>x</recap>` reached the model unchanged. After: `&lt;recap>x&lt;/recap>`. New in the root package: `EscapeTags`, the tag names, `MetaTag` (a Part with this metadata is Gotato's own tagged text and is left alone) and `TagsSentence`, which `AssembleRequest` adds to the system part only when a request holds a marked Part. Requests without those are byte for byte as before.
 
-### Sessions and stores
+#### Sessions and stores
 
 - **A writer of a deleted Record is refused by the Record created again.** `Store.Append` took only a position, so a writer that loaded a Record, which was then deleted and created again under the same ID at the same length, wrote into the new Record, and the new Record's Summary named the old epoch. On a file store shared by two processes, a position could be written twice. The Summary that `Append` already takes now carries the writer's epoch (`Summary.RecordEpoch`, read with `Summary.Epoch`), and a store refuses with `ErrNotFound` when the Record's epoch is another. The signature does not change. `MemoryStore` and `FileStore` do it, and `testkit/storetest` adds a check, so an adapter that compares only the length now fails the suite. The file store does it with a directory per epoch, so no window is left between a writer's check and its write (next entry). **Breaking** for a store adapter only:
 
@@ -867,7 +917,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
 
 - **A `Document` carries a Segment's Messages twice, for now.** Once a Segment exists, `messages` holds its rendered Messages and `segments` holds them again, so a Document with Segments is larger. Compaction closes Segments now, so a compacted Session's Document is larger than before; we revisit it if the size matters.
 
-### Providers
+#### Providers
 
 - **A Chat Completions stream that carries `{"error": {...}}` in place of a chunk fails with that error.** Before, the decoder ignored the object, saw the stream end with no finish, took it for a cut stream, and sent the request again. Now the Run fails with the provider's message, once, and an error that names a context overflow answers `ContextOverflow()` as the Responses API's `error` event does. Found by playing it on the fake gateway (`test/fakegateway`).
 
@@ -917,7 +967,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   A Claude reply that stops with `model_context_window_exceeded` was read as a finished one. It now fails the Run with `context_overflow` too, keeps the text received as a cut-off reply, and is never continued as an output-limit stop (`MaxTruncatedContinuations` does not apply), since a continuation would ask the model again on a full window. HTTP maps an error with this code to `422` where it is returned as a call's error; a Run that fails with it is still a `200` with the code in `result.error`.
 - **A model's context window and cache retention are known to the gateway.** The new `context_window` key (`Config.ContextWindow`, in tokens; 0 is unknown, and gotato keeps no table of windows) is read back by `Client.ContextWindow()`. `Client.CacheRetention()` says how long the provider keeps the prompt cache as the client asks for it: 1 hour or 5 minutes on Claude's Messages API, 30 minutes on Responses when it sends a ttl, and 0 (unknown) elsewhere. `modelctx.WindowOf` and `modelctx.RetentionOf` read both from any `gotato.Model` that has the methods.
 
-### Events
+#### Events
 
 The Event design of [DESIGNS.md → Every step is an Event, and a stored Event is an Entry](DESIGNS.md#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18) is built, against the build of 2026-10-16. It is one break. It is part of the same pre-release break as the changes above.
 
@@ -1037,7 +1087,7 @@ The Event design of [DESIGNS.md → Every step is an Event, and a stored Event i
   | `gotato.LifecycleKind`, the kind of a `LifecycleEvent` | removed with `LifecycleEvent`; `session_created` and `session_unloaded` are Events |
   | `gotato.EventSource`, with `Subscribe(ctx) (EventStream, error)` | the name now belongs to a source of stored Events, `EventsAfter(ctx, after, limit) ([]Event, error)`, which `gotato.Feed` reads; the old method is gone: call `Session.Subscribe` |
 
-### Many instances
+#### Many instances
 
 These are additions, but for one break: the streaming routes answer a refusal at admission with a status, before the stream starts.
 
@@ -1077,24 +1127,24 @@ These are additions, but for one break: the streaming routes answer a refusal at
   | `Runner.ActiveSessions` | unchanged: it still counts the Sessions with a Run; `Runner.WarmSessions` counts the idle ones |
 - **An open or a create no longer cuts the stream of a newer Record.** When the Record was deleted and created again on another instance just after this instance wrote its claim, and a client had already streamed the new Record here, the stream ended with `cannot_resume`. A stream is now cut only when it is shown to be of a replaced Record. No field or code changes.
 
-### Measurement
+#### Measurement
 
 - **The fake gateway plays the native form of deferred tools.** `test/fakegateway` accepts `defer_loading` and `tool_reference` on `/v1/messages`, and a client `tool_search` with `tool_search_call` and `tool_search_output` on `/v1/responses`, from the documented shapes, and refuses what they refuse (every tool deferred, a `cache_control` on a deferred tool, a reference to a tool that is not deferred, a search call with no output). The new quirk `load=<tool ID>` makes the model search for the tool, call it once loaded, and answer. It plays the documented shape, not a real provider. Nothing changes for a team that does not use the fake.
 - **The gateway's request bytes are checked at a compaction, at a merge and with reasoning in the replies (G-G07).** `TestWireRequestOnlyGrowsAtItsEndAcrossCompactions` encodes the `long_session` requests for each wire API, and `TestFakeRequestOnlyGrowsAtItsEndWithReasoning` plays a Session with reasoning against the fake gateway. Both pass. FEATURES.md no longer says that the gateway moves the cache mark to the end of the last Segment after a compaction: it never did, and the marks of G-F04 carry the Segments. Tests and text only: no behavior of the runtime changed.
 - **The long_session task measures a long Session.** `testkit.LongSessionTask` plays 2,000 Turns of 20 KB Tool Results in 100 Runs on one Session against a fake model with a 128K-token window (`testkit.LongSession` sets the size, `LongSessionRecapTask` turns the model's Recap on). `testkit.Task` gains `Window` and `Recap`; the driver gives the Model the window, counts every request against it, refuses one over it, and `workload.TaskReport` gains `window`: the requests, those over the window, the largest, the size at Turns 1, 10, 100, 1000 and 2000, the compactions and merges, and the Recap's tokens against what each compaction took out. `gotato-workload -tasks long_session` plays it; the default workload does not hold it. G-G10 passes on it; see [GOALS.md](plan/GOALS.md).
 - **The payments check of G-E01 ships.** `testkit.PaymentsRecapCheck` is a conversation whose facts only Tool Results held, with five questions about them and a fake model. `workload.RunRecapCheck` compacts the Session with the model's Recap and asks the questions before and after, unsaved and with the tools switched off. `gotato-workload -recap-check` prints the report (`-live` plays it on your gateway; `-min-share` makes the exit code 3 below a share), and never runs in CI against a provider. `testkit.DemoModel` answers a Recap's ask, so `gotato context compact --model demo --recap model` runs without a provider.
 
-### Contracts
+#### Contracts
 
 - Additions to both, `gotato context compact --json` and `POST /v1/sessions/{id}/compact` report a merge of the oldest Segments as `merge`; `Compaction` adds `merged`, and a Session's tool list holds `read_segment` once it has a Segment. A compaction's `why` may now be `past_budget`.
 - HTTP: every Event in a stream or in `GET …/events` has `session_id` where it had `agent_id`, and is the flat object that Events describes. `GET /v1/agents` adds `max_effect`, an object from Agent name to cap; an Agent without a cap has no entry. A stream whose Run the drain stopped ends with `event: result` and then `event: reconnect`, which carries an SSE `retry:` field and `{"retry_after_ms": N, "why": "draining"}`; a run result adds `reconnect` and `record_epoch`. The streaming routes `POST /v1/runs/stream` and `POST /v1/sessions/{id}/runs/stream` answer a refusal at admission with its status before the stream starts: draining 409 and capacity 429, where they answered 200 and an in-band `event: error` (**Breaking**, see Many instances for the before and after), and the new activation limit 503. The other additions of Many instances are not a break, so the version stays: the route `GET /v1/sessions/{id}/stream`, the `id:` of stored Events, the `session-id` header, `Gotato-Not-Run`, 503 `overloaded`, 409 `cannot_resume`, `record_epoch`, and `active_sessions` on `/readyz`.
 - CLI: `events` and `run --events jsonl` print the flat Events that Events describes, with `session_id`. `tools list --json` and `tools active --json` add `max_effect` when the agent has a cap, and `tools` is now `[]` rather than `null` when no tool is listed.
 
-## Before the first release — 2026-10-16
+### 2026-10-16
 
 Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the live run, and a number for every benchmark in [GOALS.md](plan/GOALS.md) but G-B13.
 
-### Runtime
+#### Runtime
 
 - **The panel is gone.** It re-rendered small content that changes every Turn, such as the time, onto the last message of every request. Such content is never cached, so it cost its full price on every Turn, and after a tool call it was appended to the tool's output. A request is now the system prompt, the tools and the history. A fact the model needs now, such as the current time, comes from a tool it calls. A Session that still carries `gotato.panel` in its metadata runs as before, without a panel. **Breaking:**
   - Go: `ModelContext.Panel`, `ModelContext.RenderPanel`, `gotato.PanelTag`, `modelctx.WithPanel`, `modelctx.PanelFunc`, `modelctx.Time`, `modelctx.Report.PanelBytes`, `service.MetaPanel`, `service.PanelFromSpec`, `service.InspectOptions.Panel` and `service.Config.Now`, which only the time panel read, are removed.
@@ -1131,7 +1181,7 @@ Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the l
 - **Every request carries the Session's prompt cache key.** `ModelRequest.CacheKey` groups the requests that share a cacheable prefix; like the cache breakpoints, it never changes the prompt or the prefix hash. `gotato.WithCacheKey` sets it on an Agent, and the Runner gives each Session its own, `service.CacheKey(sessionID)`, a hash of the ID so a caller's ID never reaches the provider. A Spec's `Options` may set another. Context inspection shows it as `request.cache_key`. `Runner.Fork` gives the child its parent's key in `gotato.cache_key` (`service.MetaCacheKey`), so a fork reads its parent's cached prefix, and the Runner sends that key for any Session that has one.
 - **The message cache breakpoint is on the last message.** `AssembleRequest` marked the message before the last one, so on Anthropic each Turn left its newest message out of the cache. The marker is now on the last message, a one-message request included, so the whole request is cached for the next Turn. **Breaking** only for code that read `CacheBreakpoints` and expected `Index` to be `len(Messages)-2`.
 
-### Measurement
+#### Measurement
 
 - **The reference workload has a task whose tools load and unload.** `testkit.ToolSearchTask` (`tool_search`) is seven Runs on one Session with a base tool and three ToolSets, a dozen tools in all (two listed, one folded). The model loads tools by name, by a query and by listing the folded ToolSet, calls one before it is loaded and again once it is, and a compaction unloads one that no Run called. `testkit.Task` gains `Options`, added to the Agent after its tools, and `testkit.WithLoadedToolsOf(messages)` is a `session.Option` that copies the loads of a history, which `session.WithMessages` leaves out. G-G07 and G-G09 are checked on it, and G-G07 now also on the gateway's bytes for every task (GOALS.md).
 - **A load is written with the Tool Result that lists it.** `tool_loaded` was written at the end of the batch, after the `search_tools` result, so a crash between the two left a result that said "Loaded" for a tool the Record did not hold as loaded, and the next instance built another request. Both are now one write; in the Event log `tool_loaded` follows the `tool_result_committed` it belongs to, as before, but a later result of the same batch now follows it. Found by the crash test over `tool_search`.
@@ -1140,7 +1190,7 @@ Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the l
 - **The store's time and the time to the first token come from Events.** `service/workload` reads the store's time from `session_loaded` and `session_saved` instead of a timer around the store, and reports `before_request_per_run_ms` (from a Run's start to its first request) next to `model_first_token_ms` (the model's own time to its first text token), for G-B06.
 - **The reference workload and the live run.** `testkit.ReferenceTasks` returns the tasks GOALS.md measures, each with a fake model and a check of its answers: a lookup, a 10-prompt conversation, a tool error and its recovery, and lookups in Sessions of 10, 100 and 1,000 messages. `service/workload` plays them through a Runner, one at a time or under load, and reports failures by cause, token usage and cost, the cache hit rate, Gotato's time per Turn next to the model's, the time to load a Session, and whether each Turn's Context matches its inspection. `gotato-workload` prints that report as JSON, and with `-live` plays the tasks against the provider in your gateway configuration, at the price you pass with `-price`.
 
-### Providers
+#### Providers
 
 - **The gateway sends the prompt cache key.** `cache_key_field` names the body field that carries `ModelRequest.CacheKey`, and `cache_key_header` the header (`Config.CacheKeyField`, `Config.CacheKeyHeader`). On `openai-responses` the field defaults to `prompt_cache_key`; set `cache_key_field: none` to send none. Chat completions send no field unless you name one, and `anthropic-messages` refuses a field, because it caches by `cache_control`. A provider that keys its cache by a session header needs `cache_key_header`, such as `session-id`: on such an endpoint, the reference workload's `history_100` went from no cached input to 93% from the second Turn on, over five plays. A restarted stream keeps the header. Requests to `openai-responses` now carry `prompt_cache_key` whenever the Agent has a cache key, which every Run through a Runner has.
 - **Tool names on the wire stay readable.** Every adapter sends a Tool ID that providers accept (`^[a-zA-Z0-9_-]{1,64}$`) unchanged, and replaces each other character with `_`, so `demo.echo` goes out as `demo_echo`. When two IDs end up with the same name, an ID that providers accept keeps it, and the other gets a readable prefix plus a short hash; so does an ID longer than 64 characters. Unsafe IDs used to go out as `gotato_` plus their base64 encoding, which models copied back wrong. Mapping a name back to its Tool ID is unchanged.
@@ -1149,21 +1199,21 @@ Phase 1 of [ROADMAP.md](plan/ROADMAP.md), Measure: the reference workload, the l
 - **Per-request headers.** `gateway.WithRequestHeaders(ctx, headers)` adds headers to the requests of one Run, for a provider that routes each conversation by a header. Configured and per-request headers can set `User-Agent` (default `gotato/0.1`) but never the authentication, content-type or streaming headers.
 - **The chat gateway counts cache reads.** `Usage.CacheReadTokens` is filled from `prompt_tokens_details.cached_tokens` and DeepSeek's `prompt_cache_hit_tokens`, as the Responses and Anthropic adapters already did.
 
-## Before the first release — 2026-10-15
+### 2026-10-15
 
-### Runtime
+#### Runtime
 
 - **A reply that the output limit cut off keeps `StopMaxTokens`, even when it holds Tool calls.** The Tools that finished still run, and a `TurnStopper` sees the cut-off in `TurnSnapshot.Assistant.StopReason`. `TurnSnapshot.StopReason` stays the Turn's own reason, which is `StopToolCalls` once Tools ran. **Breaking:** code that read `Message.StopReason == StopToolCalls` to find Tool calls must read `len(Message.ToolCalls) > 0` instead.
 
-### Providers
+#### Providers
 
 - **The Responses gateway no longer delivers a Tool call that the output limit cut short,** because its arguments are incomplete. It used to deliver the call with those arguments and report `StopToolCalls`.
 
-## Before the first release — 2026-10-11
+### 2026-10-11
 
 The notes below list the breaking changes from the development builds before 2026-10-11.
 
-### Tool Registry
+#### Tool Registry
 
 - **`toolregistry.New` returns an error.** `toolregistry.New(tools...)` now returns `(*Registry, error)` and fails on the first invalid or duplicate Tool. It used to drop that Tool silently. Call `New` and check the error, or use `MustNew(tools...)` for Tools known to be valid.
 
@@ -1179,12 +1229,12 @@ The notes below list the breaking changes from the development builds before 202
 
 - **Registry errors name the Tool.** `Registry.Register`, `Unregister`, `Activate` and `Deactivate` wrap `ErrDuplicate` and `ErrNotFound` with the offending ID, and `errors.Is` still matches. `List`, `Describe` and `Active` return copied specs. A Tool registered with a whitespace-padded ID is stored under the trimmed ID, so `Describe(" spaced ")` no longer finds a Tool registered as `"spaced"`. A zero-value `Registry` now accepts `Register`.
 
-### Sessions and stores
+#### Sessions and stores
 
 - **`FileStore.Save` is durable.** It fsyncs the temp file and the store directory before it returns, so a successful `Save` survives a crash or a power loss.
 - **`FileStore.List` reports unreadable files.** It returns an error when any session file is unreadable. It used to omit that file silently. One corrupt file now fails the listing.
 
-### Runtime
+#### Runtime
 
 - **`internal/testmodel` became `testkit`.** `EchoModel` and `DemoModel` are now exported from `testkit`, together with `FakeModel`, `ReplayModel`, `FakeTool`, `EventRecorder` and session fixtures. The old package was internal, so no external code could import it.
 
@@ -1214,11 +1264,11 @@ The notes below list the breaking changes from the development builds before 202
 - **Blank prompts are rejected.** `Prompt`, `Steer` and `FollowUp` reject a message whose parts are all blank text, such as `UserMessage("")` or `UserMessage("  ")`, with `invalid_argument`. Messages with binary or JSON parts are accepted as before.
 - **What stayed the same:** the `Agent` interface, `NewAgent` and every existing `With*` option, the message, tool, model and extension types, and the meaning of `CoreLimits`. `DefaultLimits()` is newly exported, so you can override part of the limits.
 
-### Context
+#### Context
 
 - **Compaction results changed shape.** `modelctx.Compact` sets `MessagesBefore` on the no-op path too, where it used to be 0. `Result.Compaction` is a `*session.Compaction`, present only when `replaced` is true. A no-op compaction no longer emits an all-zero `compaction` object in the CLI or HTTP JSON.
 
-### Service
+#### Service
 
 - **`orchestration` and `host` became `service`, with a new wire contract.** `orchestration`, `host` and `cmd/gotato-agent` are removed. The service is `service.Runner`: a Session store plus an Agent created for each Run. `service/httpapi` serves it over HTTP (`ContractVersion`). The Session ID is the unit of identity. Conversation keys, agent generations, retirement and spawn groups are gone. Derived work is `session.Fork` plus another Run.
 
@@ -1238,10 +1288,10 @@ The notes below list the breaking changes from the development builds before 202
 - **Creating a session with an explicit ID is atomic.** `POST /v1/sessions` with an ID returns `409` when the ID exists, instead of racing a concurrent create.
 - **`Runner.Fork` and `Runner.Inspect` signatures changed.** `Runner.Fork(ctx, sessionID, newID string)` takes an explicit new ID, empty for a random one, and rejects an existing ID instead of overwriting it. `Runner.Inspect(ctx, sessionID, options ...InspectOptions)` accepts `Instruction` and `Panel` overrides for one inspection. `service.RunRequest` gained `SkipSave`.
 
-### Providers
+#### Providers
 
 - **The gateway authenticates with an API key only, and Responses replaces Codex.** The `pi_oauth` auth type, the `chatgpt.com/backend-api` default, the `originator: pi` and `chatgpt-account-id` headers, and every read or write of `~/.pi/agent/auth.json` are removed. `api: openai-codex-responses` is accepted as an alias for `api: openai-responses`, which now targets `https://api.openai.com/v1/responses` by default. `api: openai-completions` is an alias for `openai-chat-completions`. A YAML file with `auth.type: pi_oauth` fails to load with an explicit message.
 
-### CLI
+#### CLI
 
 - **`run --context SPEC` is gone,** together with the `window:N` and `summary:N` strategies. Within a session the model sees the whole history. Use `--compact-ceiling N` for automatic compaction and `--panel time,cwd` for content that changes every turn. The run outcome field `context` is replaced by `compacted`.
