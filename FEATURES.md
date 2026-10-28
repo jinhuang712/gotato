@@ -1152,9 +1152,12 @@ All the settings in the YAML file:
 | `deferred_tools` | `native` on `anthropic-messages` and `openai-responses`, `list` on `openai-chat-completions` | `native` or `list`: how the tools the model loads from a catalog reach the provider ([G-F34](#g-f34--tool-search-)). `native` on Chat Completions falls back to `list`. `Client.DeferredTools()` reports the form in use. |
 | `max_retries` | 2 retries; `-1` for none | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
+| `max_retry_wait` | 60 s | the longest wait before a retry; a provider's `Retry-After` is capped by it, so `Retry-After: 3600` does not hold a Run for an hour |
+| `connect_timeout` | 10 s | how long opening a connection may take (the dial and the TLS handshake, each) |
+| `response_header_timeout` | 60 s | how long to wait for the response headers after the request is sent; raise it for a model behind a proxy that sends headers only with its first token |
 | `provider` | recognized from the provider's own address, else none | `anthropic`, `openai`, `deepseek` or `other`: whose rules for reasoning and the cache apply |
 | `cache_retention` | the recognized provider's longest | how long the provider keeps the prompt cache, such as `5m` to keep Claude's default and its lower write price. |
-| `no_drop_block` | false | stops asking Claude to drop a thinking block whose prefix changed, so such a request is refused instead |
+| `no_drop_block` | false | stops asking Claude to drop a thinking block whose prefix changed, so such a request is refused instead. The gateway picks `block_binding` by model name (`thinkingPrefixModels` in `gateway/reasoning_replay.go`), and this is the one opt-out; a Claude model that table does not list yet is sent none. |
 | `overflow_phrases` | none | a list of the team's own phrases, or codes, added to the gateway's short default list. A 400 or 413 whose error `message`, `code` or `type` contains one (without regard to case) is reported as `context_overflow` (`Config.OverflowPhrases`). |
 
 The YAML file is the only way to configure the gateway. A secret reaches it through `${NAME}`, which the loader expands from the environment, and a key the file format does not know is an error that names it. `gateway.LoadYAML(path)` reads a file.

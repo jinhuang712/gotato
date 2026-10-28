@@ -28,6 +28,11 @@ type yAMLConfig struct {
 	CacheKeyField  string `yaml:"cache_key_field"`
 	MaxRetries     int    `yaml:"max_retries"`
 	RetryBackoff   string `yaml:"retry_backoff"`
+	// MaxRetryWait, ConnectTimeout and ResponseHeaderTimeout are Config's
+	// fields of the same names, as Go durations.
+	MaxRetryWait          string `yaml:"max_retry_wait"`
+	ConnectTimeout        string `yaml:"connect_timeout"`
+	ResponseHeaderTimeout string `yaml:"response_header_timeout"`
 	// Provider, CacheRetention (a duration such as 1h) and NoDropBlock are
 	// Config's fields of the same names.
 	Provider       Provider `yaml:"provider"`
@@ -100,6 +105,24 @@ func parseYAML(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("invalid retry_backoff %q: %w", fileConfig.RetryBackoff, err)
 		}
 		config.RetryBackoff = backoff
+	}
+	for _, field := range []struct {
+		key   string
+		value string
+		into  *time.Duration
+	}{
+		{"max_retry_wait", fileConfig.MaxRetryWait, &config.MaxRetryWait},
+		{"connect_timeout", fileConfig.ConnectTimeout, &config.ConnectTimeout},
+		{"response_header_timeout", fileConfig.ResponseHeaderTimeout, &config.ResponseHeaderTimeout},
+	} {
+		if field.value == "" {
+			continue
+		}
+		duration, err := time.ParseDuration(strings.TrimSpace(field.value))
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid %s %q: %w", field.key, field.value, err)
+		}
+		*field.into = duration
 	}
 	if _, err := New(config); err != nil {
 		return Config{}, err

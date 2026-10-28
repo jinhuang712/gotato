@@ -61,6 +61,19 @@ type Config struct {
 	// default; -1 turns retries off. Any other negative value is refused.
 	MaxRetries   int
 	RetryBackoff time.Duration
+	// MaxRetryWait caps the wait before a retry, including a provider's
+	// Retry-After. 0 means 60 seconds; negative is refused.
+	MaxRetryWait time.Duration
+	// ConnectTimeout bounds opening a connection: the dial and the TLS
+	// handshake each. 0 means 10 seconds; negative is refused. It, and
+	// ResponseHeaderTimeout, apply to the HTTP client the gateway makes; a
+	// Config.HTTPClient is used as it is and keeps its own.
+	ConnectTimeout time.Duration
+	// ResponseHeaderTimeout bounds the wait for the response headers after
+	// the request is sent. A model behind a proxy that sends headers only
+	// with its first token may need more. 0 means 60 seconds; negative is
+	// refused. The stream that follows is bounded by the caller's context.
+	ResponseHeaderTimeout time.Duration
 	// Provider names who serves the model: ProviderAnthropic,
 	// ProviderOpenAI, ProviderDeepSeek, or ProviderOther. Empty recognizes
 	// only the providers' own addresses (api.anthropic.com, api.openai.com,
@@ -74,7 +87,9 @@ type Config struct {
 	CacheRetention time.Duration
 	// NoDropBlock stops asking Claude to drop a thinking block whose prefix
 	// changed (block_binding drop_block) on the models that check it; the
-	// provider then refuses such a request instead.
+	// provider then refuses such a request instead. The models that take
+	// block_binding are chosen by name (thinkingPrefixModels in
+	// reasoning_replay.go); this is the opt-out.
 	NoDropBlock bool
 	// ContextWindowTokens is the model's context window in tokens. Zero means
 	// unknown: the gateway keeps no table of windows, and compaction then
@@ -115,6 +130,7 @@ type Client struct {
 	cacheKeyField  string
 	maxRetries     int
 	retryBackoff   time.Duration
+	maxRetryWait   time.Duration
 	provider       Provider
 	rules          providerRules
 	contextWindow  int
@@ -165,9 +181,13 @@ func New(config Config) (*Client, error) {
 	if backoff < 0 {
 		return nil, fmt.Errorf("gateway: RetryBackoff cannot be negative")
 	}
+	maxRetryWait, connect, headerWait, err := resolveHTTPLimits(config)
+	if err != nil {
+		return nil, err
+	}
 	client := config.HTTPClient
 	if client == nil {
-		client = defaultHTTPClient()
+		client = newHTTPClient(connect, headerWait)
 	}
 	rules := newProviderRules(provider, api, config.Model, retention, config.NoDropBlock)
 	rules.deferredNative = deferred == DeferredFormNative
@@ -182,6 +202,7 @@ func New(config Config) (*Client, error) {
 		cacheKeyField:  cacheKeyField,
 		maxRetries:     maxRetries,
 		retryBackoff:   backoff,
+		maxRetryWait:   maxRetryWait,
 		provider:       provider,
 		rules:          rules,
 		contextWindow:  config.ContextWindowTokens,
@@ -254,17 +275,43 @@ func resolveCacheKey(config Config, api API) (header, field string, err error) {
 	return header, field, nil
 }
 
-// defaultHTTPClient is the client used when Config.HTTPClient is nil. A
+// The limits the gateway uses when Config sets none.
+const (
+	defaultMaxRetryWait          = 60 * time.Second
+	defaultConnectTimeout        = 10 * time.Second
+	defaultResponseHeaderTimeout = 60 * time.Second
+)
+
+// resolveHTTPLimits returns MaxRetryWait, ConnectTimeout and
+// ResponseHeaderTimeout with their defaults for zero.
+func resolveHTTPLimits(config Config) (retryWait, connect, header time.Duration, err error) {
+	if config.MaxRetryWait < 0 || config.ConnectTimeout < 0 || config.ResponseHeaderTimeout < 0 {
+		return 0, 0, 0, fmt.Errorf("gateway: MaxRetryWait, ConnectTimeout and ResponseHeaderTimeout cannot be negative")
+	}
+	retryWait, connect, header = config.MaxRetryWait, config.ConnectTimeout, config.ResponseHeaderTimeout
+	if retryWait == 0 {
+		retryWait = defaultMaxRetryWait
+	}
+	if connect == 0 {
+		connect = defaultConnectTimeout
+	}
+	if header == 0 {
+		header = defaultResponseHeaderTimeout
+	}
+	return retryWait, connect, header, nil
+}
+
+// newHTTPClient is the client used when Config.HTTPClient is nil. A
 // stalled upstream must not hold a Run open forever. Overall stream duration
 // stays governed by the caller's context; these bound only connection setup
 // and the wait for response headers.
-func defaultHTTPClient() *http.Client {
+func newHTTPClient(connect, header time.Duration) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 60 * time.Second,
+			DialContext:           (&net.Dialer{Timeout: connect, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   connect,
+			ResponseHeaderTimeout: header,
 			ExpectContinueTimeout: time.Second,
 			IdleConnTimeout:       90 * time.Second,
 		},

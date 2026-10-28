@@ -77,12 +77,15 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 
 // retryDelay returns how long to wait before the next attempt. A provider
 // Retry-After/retry-after-ms header wins; otherwise the configured backoff
-// grows linearly with the attempt and carries jitter.
+// grows linearly with the attempt and carries jitter. Either is capped by
+// Config.MaxRetryWait.
 func (c *Client) retryDelay(header http.Header, attempt int) time.Duration {
+	delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
 	if retryAfter := retryAfterDuration(header); retryAfter >= 0 {
-		return retryAfter
+		delay = retryAfter
 	}
-	return withJitter(c.retryBackoff * time.Duration(attempt+1))
+	// A provider that asks for an hour does not hold the Run for one.
+	return min(delay, c.maxRetryWait)
 }
 
 // withJitter adds up to 25% to a backoff so a fleet recovering from the same

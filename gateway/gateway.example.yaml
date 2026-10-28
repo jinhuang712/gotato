@@ -35,6 +35,17 @@ max_retries: 2
 # duration. Default: 200ms.
 retry_backoff: 200ms
 
+# The longest wait before a retry, whatever a provider's Retry-After asks.
+# A Go duration. Default: 60s.
+# max_retry_wait: 60s
+
+# How long to open a connection (the dial and the TLS handshake, each), and
+# how long to wait for the response headers after the request is sent. A
+# model behind a proxy that sends headers only with its first token may need
+# more. Go durations. Defaults: 10s and 60s.
+# connect_timeout: 10s
+# response_header_timeout: 60s
+
 # Headers some providers or proxies require. They cannot replace the
 # authentication, content-type or streaming headers. Default: none
 # (User-Agent is gotato/0.1).

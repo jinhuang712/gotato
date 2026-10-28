@@ -43,13 +43,14 @@ func WithRequestHeaders(ctx context.Context, headers map[string]string) context.
 	return context.WithValue(ctx, requestHeadersKey{}, merged)
 }
 
-// RequestHeaders returns the per-request headers attached to ctx, or nil.
+// RequestHeaders returns a copy of the per-request headers attached to ctx, or
+// nil. Writing to it changes nothing in ctx.
 func RequestHeaders(ctx context.Context) map[string]string {
 	if ctx == nil {
 		return nil
 	}
 	headers, _ := ctx.Value(requestHeadersKey{}).(map[string]string)
-	return headers
+	return maps.Clone(headers)
 }
 
 // addAnthropicBeta adds a beta to the anthropic-beta header, after any

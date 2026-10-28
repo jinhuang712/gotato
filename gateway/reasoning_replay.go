@@ -7,7 +7,13 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// thinkingPrefixModels check the prefix each thinking block was written
+// thinkingPrefixModels is the one table by which the gateway decides, from the
+// model's name, that a model takes block_binding. A model behind another name
+// (a gateway's alias) or one newer than this list is sent none, and Config.
+// NoDropBlock is the only opt-out for a model that is listed. Add a model
+// here when it ships.
+//
+// These models check the prefix each thinking block was written
 // under: the system prompt, the tools and every Message before it. Only they
 // take block_binding, and only with thinking.type "adaptive", which is their
 // default. Sending "adaptive" to another Claude model would turn its thinking
