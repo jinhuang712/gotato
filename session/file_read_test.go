@@ -59,3 +59,40 @@ func TestFileStoreListReadsOnlyTheLastWrite(t *testing.T) {
 		t.Fatalf("List = %+v (%v), want one Record at seq 4", infos, err)
 	}
 }
+
+// A heartbeat held on a slow disk does not stall the writes of a Record.
+func TestFileStoreBeatDoesNotBlockAppend(t *testing.T) {
+	ctx := context.Background()
+	store, err := session.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+		t.Fatal(err)
+	}
+	inBeat, release := make(chan struct{}), make(chan struct{})
+	session.SetDuringBeat(store, func() {
+		close(inBeat)
+		<-release
+	})
+	beaten := make(chan error, 1)
+	go func() { beaten <- store.Beat(ctx, session.InstanceRow{ID: "i"}, time.Hour) }()
+	<-inBeat
+	appended := make(chan error, 1)
+	go func() {
+		appended <- store.Append(ctx, "r", 1, []session.Entry{fileEntry(2, gotato.EventKindMessageCommitted)}, fileSummary(2))
+	}()
+	select {
+	case err := <-appended:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("an Append waited for a heartbeat")
+		appended = nil
+	}
+	close(release)
+	if err := <-beaten; err != nil {
+		t.Fatal(err)
+	}
+}

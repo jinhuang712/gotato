@@ -43,9 +43,14 @@ type FileStore struct {
 	mu    sync.Mutex
 	heads map[string]fileHead
 
+	beatMu sync.Mutex // orders the heartbeats of this handle; never held with mu
+
 	// beforeWrite, when set, runs at the start of writeBatch, after Append has
 	// checked the writer: a test seam that holds a write in that window.
 	beforeWrite func()
+	// duringBeat, when set, runs in Beat where it starts its file work: a test
+	// seam that holds a heartbeat there, as a slow disk would.
+	duringBeat func()
 }
 
 // fileHead is what this process last saw of a Record's last write: its last
@@ -642,8 +647,13 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	if err := checkID(row.ID); err != nil {
 		return err
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	// Beat has a lock of its own: f.mu guards the head cache that every
+	// Append reads, and a heartbeat on a slow disk must not hold it.
+	f.beatMu.Lock()
+	defer f.beatMu.Unlock()
+	if f.duringBeat != nil {
+		f.duringBeat()
+	}
 	path := f.instancePath(row.ID)
 	if ttl <= 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

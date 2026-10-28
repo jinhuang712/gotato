@@ -44,6 +44,9 @@ func TakePending(r *Record) []Entry {
 // Append has checked its writer.
 func SetBeforeWrite(f *FileStore, fn func()) { f.beforeWrite = fn }
 
+// SetDuringBeat makes f call fn in every Beat, where its file work starts.
+func SetDuringBeat(f *FileStore, fn func()) { f.duringBeat = fn }
+
 // DefaultEventLimit is the number of Events a Record keeps in memory.
 const DefaultEventLimit = defaultEventLimit
 
