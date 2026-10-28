@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
+
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // sessionLocks serializes Runs per Session inside one process. Continuity
@@ -90,4 +93,35 @@ func (l *sessionLocks) release(id string) {
 	}
 	lock.held = false
 	delete(l.locks, id)
+}
+
+// withSessionLock runs fn while holding the Session's single-flight lock. The
+// admission queue policy decides whether a busy Session fails (ErrBusy) or the
+// caller waits. Every Session mutation goes through it: Runs, compaction,
+// tool activation, and deletion.
+func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func() error) error {
+	return r.sessionLock(ctx, sessionID, false, fn)
+}
+
+// sessionLock is withSessionLock; forceWait makes the caller wait for a busy
+// Session whatever the admission policy, as the Run that follows another does.
+func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bool, fn func() error) error {
+	// A message that arrives while the Session compacts while idle cancels
+	// that compaction and is served first, so it never finds the Session busy.
+	unhold, err := r.holdWarm(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	defer unhold()
+	onWait := func() {
+		r.notice(gotato.RunWaiting{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+	}
+	if err := r.locks.acquire(ctx, sessionID, forceWait || r.admission.Queue == QueuePolicyWait, onWait); err != nil {
+		if errors.Is(err, ErrBusy) {
+			r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0), Why: "busy"}, "")
+		}
+		return err
+	}
+	defer r.locks.release(sessionID)
+	return fn()
 }
