@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,108 +17,6 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-// gate answers its first call once released, and tells when it starts.
-type gate struct {
-	started chan struct{}
-	release chan struct{}
-}
-
-func (g *gate) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	if len(request.Messages) == 1 {
-		g.started <- struct{}{}
-		select {
-		case <-g.release:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	return testkit.NewFakeModel(testkit.Text("reply to "+strings.TrimSpace(testkit.UserText(request)))).Stream(ctx, request)
-}
-
-// instance is one server over a Runner, on a store it shares.
-type instance struct {
-	server   *httptest.Server
-	runner   *service.Runner
-	requests atomic.Int64
-}
-
-func newInstance(t *testing.T, store session.Store, name string, model gotato.Model, advertise bool, options ...httpapi.Option) *instance {
-	t.Helper()
-	in := &instance{}
-	in.server = httptest.NewUnstartedServer(nil)
-	address := ""
-	if advertise {
-		address = "http://" + in.server.Listener.Addr().String()
-	}
-	runner, err := service.New(service.Config{
-		Store: store, Instance: name, Address: address,
-		Liveness: service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second},
-		Agents:   []service.Agent{{Name: "echo", Model: model}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.runner = runner
-	handler := httpapi.New(runner, options...)
-	in.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		in.requests.Add(1)
-		handler.ServeHTTP(w, r)
-	})
-	in.server.Start()
-	t.Cleanup(func() {
-		in.server.Close()
-		_ = runner.Close(context.Background())
-	})
-	return in
-}
-
-func (in *instance) post(t *testing.T, path string, body any, headers ...string) (*http.Response, []byte) {
-	t.Helper()
-	data, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, in.server.URL+path, bytes.NewReader(data))
-	req.Header.Set("Content-Type", "application/json")
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var out bytes.Buffer
-	_, _ = out.ReadFrom(resp.Body)
-	return resp, out.Bytes()
-}
-
-// running starts a Run on the instance that the model holds, and returns the
-// Session and a function that waits for the Run.
-func running(t *testing.T, in *instance, g *gate) (string, func() service.RunResponse) {
-	t.Helper()
-	s, err := in.runner.CreateSession(context.Background(), "echo", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan service.RunResponse, 1)
-	go func() {
-		result, _ := in.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
-		done <- result
-	}()
-	select {
-	case <-g.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the Run never reached the model")
-	}
-	return s.ID(), func() service.RunResponse {
-		select {
-		case result := <-done:
-			return result
-		case <-time.After(5 * time.Second):
-			t.Fatal("the Run did not settle")
-			return service.RunResponse{}
-		}
-	}
-}
 
 func transcript(t *testing.T, in *instance, id string) string {
 	t.Helper()
@@ -133,8 +30,6 @@ func transcript(t *testing.T, in *instance, id string) string {
 	}
 	return strings.Join(parts, "|")
 }
-
-func newGate() *gate { return &gate{started: make(chan struct{}, 4), release: make(chan struct{})} }
 
 func TestMessageIsQueuedForTheRunInFlight(t *testing.T) {
 	store := session.NewMemoryStore()
@@ -332,6 +227,149 @@ func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
 	}
 	if resp.Header.Get("X-Kept") != "yes" {
 		t.Fatalf("an end-to-end header was lost: %v", resp.Header)
+	}
+	close(g.release)
+	wait()
+}
+
+// releaseGate holds the write that releases the Session, once, so a Run is held
+// after run_ended, when it takes no message and still owns the Session.
+type releaseGate struct {
+	session.Store
+	reached chan struct{}
+	proceed chan struct{}
+	once    sync.Once
+}
+
+func (g *releaseGate) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+	for _, entry := range entries {
+		if entry.Kind == "session_released" {
+			g.once.Do(func() {
+				close(g.reached)
+				<-g.proceed
+			})
+		}
+	}
+	return g.Store.Append(ctx, id, after, entries, summary)
+}
+
+// A message posted after run_ended and before the Run releases the Session
+// waits for the release and runs in a following Run, instead of answering busy.
+func TestMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
+	gate := &releaseGate{Store: session.NewMemoryStore(), reached: make(chan struct{}), proceed: make(chan struct{})}
+	a := newInstance(t, gate, "instance-a", testkit.EchoModel{}, false)
+	s, err := a.runner.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = a.runner.Run(context.Background(), service.RunRequest{SessionID: s.ID(), Prompt: "hello"})
+	}()
+	select {
+	case <-gate.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Run never reached its release")
+	}
+	type answer struct {
+		status int
+		body   []byte
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		resp, body := a.post(t, "/v1/sessions/"+s.ID()+"/messages", map[string]string{"kind": "follow_up", "text": "again"})
+		answered <- answer{resp.StatusCode, body}
+	}()
+	select {
+	case got := <-answered:
+		t.Fatalf("the message was answered before the release: %d %s", got.status, got.body)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate.proceed)
+	select {
+	case got := <-answered:
+		var out struct {
+			Queued bool `json:"queued"`
+			Run    *struct {
+				FinalText string `json:"final_text"`
+			} `json:"run"`
+		}
+		if err := json.Unmarshal(got.body, &out); err != nil || got.status != http.StatusOK || out.Queued || out.Run == nil || out.Run.FinalText != "echo: again" {
+			t.Fatalf("message = %d %s, want 200 with a following Run answering \"echo: again\"", got.status, got.body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the message never answered")
+	}
+}
+
+type noticeAnswer struct {
+	SessionID string `json:"session_id"`
+	Number    uint64 `json:"number"`
+	MessageID string `json:"message_id"`
+}
+
+// A notice sent to a Run is answered 202 with the number of its notice_queued
+// Event; it starts no Run, and goes in right before the model call of the
+// Session's next Run, after its prompt.
+func TestNoticeIsQueuedForTheNextModelCall(t *testing.T) {
+	g := newGate()
+	a := newInstance(t, session.NewMemoryStore(), "instance-a", g, true)
+	id, wait := running(t, a, g)
+
+	resp, body := a.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "order_update", "text": "Order 42 was delivered."})
+	var answer noticeAnswer
+	if err := json.Unmarshal(body, &answer); err != nil || resp.StatusCode != http.StatusAccepted || answer.Number == 0 || answer.MessageID == "" || answer.SessionID != id {
+		t.Fatalf("notice = %d %s, want 202 with a number", resp.StatusCode, body)
+	}
+	close(g.release)
+	wait()
+	// The Run settled without it: a notice keeps no Run going.
+	if got := transcript(t, a, id); got != "user:hello|assistant:reply to hello" {
+		t.Fatalf("transcript = %q", got)
+	}
+	resp, body = a.post(t, "/v1/sessions/"+id+"/runs", map[string]string{"prompt": "again"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("run = %d %s", resp.StatusCode, body)
+	}
+	if got := transcript(t, a, id); !strings.Contains(got, "user:again|notice:Order 42 was delivered.|assistant:") {
+		t.Fatalf("transcript = %q, want the notice after the prompt", got)
+	}
+}
+
+func TestNoticeValidation(t *testing.T) {
+	a := newInstance(t, session.NewMemoryStore(), "instance-a", testkit.EchoModel{}, false)
+	s, _ := a.runner.CreateSession(context.Background(), "echo", nil)
+	for name, body := range map[string]map[string]string{
+		"no kind":       {"text": "hi"},
+		"a reserved":    {"kind": "time_away", "text": "hi"},
+		"no text":       {"kind": "k"},
+		"a blank text ": {"kind": "k", "text": "  "},
+	} {
+		resp, out := a.post(t, "/v1/sessions/"+s.ID()+"/notices", body)
+		if resp.StatusCode != http.StatusBadRequest || resp.Header.Get(httpapi.NotRunHeader) != "true" {
+			t.Fatalf("%s: %d %s, want 400, not run", name, resp.StatusCode, out)
+		}
+	}
+	if resp, _ := a.post(t, "/v1/sessions/missing/notices", map[string]string{"kind": "k", "text": "hi"}); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("a notice for a missing Session = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestNoticeForARunElsewhereAnswersNotWriterOrIsForwarded(t *testing.T) {
+	store := session.NewMemoryStore()
+	g := newGate()
+	a := newInstance(t, store, "instance-a", g, true)
+	plain := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
+	forwarding := newInstance(t, store, "instance-c", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
+	id, wait := running(t, a, g)
+
+	resp, body := plain.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "k", "text": "from b"})
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), `"code":"not_writer"`) || resp.Header.Get(httpapi.WriterHeader) != a.server.URL || resp.Header.Get(httpapi.NotRunHeader) != "true" {
+		t.Fatalf("%d %v %s, want 409 not_writer naming the writer", resp.StatusCode, resp.Header, body)
+	}
+	before := a.requests.Load()
+	resp, body = forwarding.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "k", "text": "via c"})
+	if resp.StatusCode != http.StatusAccepted || !strings.Contains(string(body), `"number":`) || a.requests.Load() != before+1 {
+		t.Fatalf("forwarded notice = %d %s (%d requests at the writer)", resp.StatusCode, body, a.requests.Load()-before)
 	}
 	close(g.release)
 	wait()

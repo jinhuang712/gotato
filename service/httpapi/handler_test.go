@@ -6,71 +6,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/service/httpapi"
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-func newServer(t *testing.T) (*httptest.Server, *service.Runner) {
-	t.Helper()
-	runner, err := service.New(service.Config{
-		Store: session.NewMemoryStore(),
-		Agents: []service.Agent{
-			{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"},
-			{Name: "demo", Model: testkit.DemoModel{}, ModelName: "demo", Tools: []gotato.Tool{testkit.DemoEchoTool()}},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(httpapi.New(runner))
-	t.Cleanup(server.Close)
-	return server, runner
-}
-
-func call(t *testing.T, server *httptest.Server, method, path string, body any) (int, []byte) {
-	t.Helper()
-	var reader *bytes.Reader
-	if body != nil {
-		data, _ := json.Marshal(body)
-		reader = bytes.NewReader(data)
-	} else {
-		reader = bytes.NewReader(nil)
-	}
-	req, _ := http.NewRequest(method, server.URL+path, reader)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var out bytes.Buffer
-	_, _ = out.ReadFrom(resp.Body)
-	return resp.StatusCode, out.Bytes()
-}
-
-// newSession creates a Session over HTTP and returns its ID.
-func newSession(t *testing.T, server *httptest.Server, agent string) string {
-	t.Helper()
-	status, body := call(t, server, http.MethodPost, "/v1/sessions", map[string]any{"agent": agent})
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &created); err != nil || status != http.StatusCreated || created.ID == "" {
-		t.Fatalf("create session = %d %s (%v)", status, body, err)
-	}
-	return created.ID
-}
 
 func TestReadyzReportsDraining(t *testing.T) {
 	block := make(chan struct{})
@@ -465,5 +417,258 @@ func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 	// The same error, returned as a call's error, is 422.
 	if got := httpapi.StatusFor(gotato.ErrorOf(gotato.CodeContextOverflow, "prompt is too long")); got != http.StatusUnprocessableEntity {
 		t.Fatalf("StatusFor(context_overflow) = %d, want 422", got)
+	}
+}
+
+// WithForwarding promises that "a forward goes only to an address
+// for which allow returns true; Gotato connects to nothing else". The default
+// client follows redirects, so an allowed writer that answers 307 sends the
+// caller's headers (its credentials) and the body to a host allow never saw.
+func TestForwardDoesNotFollowARedirectOutOfTheAllowList(t *testing.T) {
+	var elsewhere atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer other.Close()
+	writerAddr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer writerAddr.Close()
+
+	store := session.NewMemoryStore()
+	entered, release := make(chan struct{}), make(chan struct{})
+	slow := testkit.NewFuncModel(func(ctx context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
+		close(entered)
+		select {
+		case <-release:
+			return testkit.Text("done"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	a := forwardRunner(t, store, service.Agent{Name: "a", Model: slow}, func(c *service.Config) { c.Instance = "a"; c.Address = writerAddr.URL })
+	b := forwardRunner(t, store, service.Agent{Name: "a", Model: testkit.EchoModel{}}, func(c *service.Config) { c.Instance = "b" })
+	handlerB := httpapi.New(b, httpapi.WithForwarding(nil, func(address string) bool { return address == writerAddr.URL }))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := a.CreateSession(ctx, "a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "go"}) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the writer's model call")
+	}
+	defer close(release)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+s.ID()+"/messages", bytes.NewBufferString(`{"text":"hi"}`))
+	req.Header.Set("X-Api-Key", "secret-of-the-caller")
+	rec := httptest.NewRecorder()
+	handlerB.ServeHTTP(rec, req)
+	if n := elsewhere.Load(); n != 0 {
+		t.Errorf("the forward reached a host outside the allow list %d time(s) (answer %d)", n, rec.Code)
+	}
+}
+
+func forwardRunner(t *testing.T, store session.Store, agent service.Agent, mutate func(*service.Config)) *service.Runner {
+	t.Helper()
+	cfg := service.Config{Store: store, Agents: []service.Agent{agent}, Liveness: service.Liveness{TTL: time.Second, Wait: 30 * time.Millisecond}}
+	mutate(&cfg)
+	r, err := service.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(context.Background()) })
+	return r
+}
+
+// forwardMessage is the snippet FEATURES.md (G-F26) shows an embedder that
+// forwards a message it was not the writer of, with its own HTTP client.
+func forwardMessage(ctx context.Context, runner *service.Runner, client *http.Client, req service.MessageRequest, forwarded bool) (*http.Response, error) {
+	_, err := runner.Send(ctx, req)
+	addr, ok := service.WriterOf(err)
+	if !ok || addr == "" || forwarded {
+		return nil, err // not a not_writer, nowhere to go, or already forwarded once
+	}
+	body, _ := json.Marshal(map[string]string{"kind": string(req.Kind), "text": req.Text})
+	hr, _ := http.NewRequestWithContext(ctx, http.MethodPost, addr+"/v1/sessions/"+req.SessionID+"/messages", bytes.NewReader(body))
+	hr.Header.Set("Content-Type", "application/json")
+	hr.Header.Set(httpapi.ForwardedHeader, "true") // the writer never forwards it again
+	return client.Do(hr)                           // your own client, timeout and credentials
+}
+
+func TestEmbedderForwardsANotWriterMessageWithItsOwnClient(t *testing.T) {
+	store := session.NewMemoryStore()
+	g := newGate()
+	a := newInstance(t, store, "instance-a", g, true)
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
+	id, wait := running(t, a, g)
+
+	resp, err := forwardMessage(context.Background(), b.runner, http.DefaultClient, service.MessageRequest{SessionID: id, Kind: service.MessageKindSteer, Text: "via the embedder"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("forwarded message = %d, want the writer's 202", resp.StatusCode)
+	}
+	close(g.release)
+	wait()
+}
+
+const panicSentinel = "password=panic-sentinel"
+
+type panickingStopper struct{}
+
+func (panickingStopper) Stop(context.Context, gotato.TurnSnapshot) (gotato.StopDecision, error) {
+	panic(panicSentinel)
+}
+
+// What an Extension panicked with does not reach the client of a Run.
+func TestExtensionPanicTextDoesNotReachTheClient(t *testing.T) {
+	r, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Options: []gotato.SessionOption{gotato.WithExtension(panickingStopper{})}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close(context.Background()) }()
+	s, err := r.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	httpapi.New(r).ServeHTTP(w, httptest.NewRequest("POST", "/v1/sessions/"+s.ID()+"/runs", strings.NewReader(`{"prompt":"hello"}`)))
+	if !strings.Contains(w.Body.String(), "extension_failure") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), panicSentinel) {
+		t.Fatalf("the panic text reached the client: %s", w.Body.String())
+	}
+}
+
+// A JSON body is one value: data after it is refused, and the request does not
+// run. A chunked body, which has no length to check first, is bound the same.
+func TestABodyWithTrailingDataIsRefused(t *testing.T) {
+	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = runner.Close(context.Background()) }()
+	rec, err := runner.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := httpapi.New(runner, httpapi.WithMaxBody(256))
+	for name, tc := range map[string]struct {
+		body   string
+		chunks bool
+		want   int
+	}{
+		"a second object":                 {body: `{"prompt":"hello"}{"prompt":"again"}`, want: http.StatusBadRequest},
+		"garbage":                         {body: `{"prompt":"hello"} nonsense`, want: http.StatusBadRequest},
+		"white space":                     {body: "{\"prompt\":\"hello\"}\n  \n", want: http.StatusOK},
+		"trailing data in a chunked body": {body: `{"prompt":"hello"}{}`, chunks: true, want: http.StatusBadRequest},
+		"a chunked tail past the limit":   {body: `{"prompt":"hello"}` + strings.Repeat(" ", 512) + `x`, chunks: true, want: http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var body io.Reader = strings.NewReader(tc.body)
+			if tc.chunks {
+				body = io.MultiReader(strings.NewReader(tc.body)) // hides the length: ContentLength is -1
+			}
+			request := httptest.NewRequest("POST", "/v1/sessions/"+rec.ID()+"/runs", body)
+			request.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, request)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tc.want, w.Body.String())
+			}
+		})
+	}
+}
+
+// {"min_tokens":N} skips a stretch estimated below N and says so; with no
+// "keep_messages" the latest Run's Turns stay.
+func TestCompactTakesMinTokensAndKeepsTheLatestRun(t *testing.T) {
+	ctx := context.Background()
+	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for _, prompt := range []string{"one", "two", "three"} {
+		result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "echo", Prompt: prompt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = result.SessionID
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	defer server.Close()
+	decode := func(body []byte) map[string]any {
+		var out map[string]any
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("%v: %s", err, body)
+		}
+		return out
+	}
+	status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{"min_tokens": 100000})
+	skipped := decode(body)
+	if status != http.StatusOK || skipped["replaced"] != false || skipped["reason"] != "below_min_tokens" || skipped["messages_after"] != float64(6) {
+		t.Fatalf("below min_tokens = %d %v", status, skipped)
+	}
+	if status, _ = call(t, server, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{"min_tokens": -1}); status != http.StatusBadRequest {
+		t.Fatalf("a negative min_tokens = %d, want 400", status)
+	}
+	status, body = call(t, server, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{"min_tokens": 1})
+	done := decode(body)
+	if status != http.StatusOK || done["replaced"] != true || done["messages_after"] != float64(6) {
+		t.Fatalf("compact = %d %v", status, done)
+	}
+	if compaction, _ := done["compaction"].(map[string]any); compaction["segment"] != float64(1) || compaction["recap"] != "none" || compaction["replaced_messages"] != float64(4) {
+		t.Fatalf("compaction = %v", done["compaction"])
+	}
+}
+
+// The compact route says when it merged the oldest Segments.
+func TestCompactAnswersWithTheMergeOfTheOldestSegments(t *testing.T) {
+	ctx := context.Background()
+	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{
+		Name: "echo", Model: testkit.EchoModel{}, ModelName: "echo", Compact: modelctx.CompactPolicy{SegmentBudgetTokens: 1},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	run := func(prompts ...string) {
+		for _, prompt := range prompts {
+			result, err := runner.Run(ctx, service.RunRequest{SessionID: id, Agent: "echo", Prompt: prompt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id = result.SessionID
+		}
+	}
+	server := httptest.NewServer(httpapi.New(runner))
+	defer server.Close()
+	compact := func() map[string]any {
+		status, body := call(t, server, http.MethodPost, "/v1/sessions/"+id+"/compact", map[string]any{})
+		var out map[string]any
+		if err := json.Unmarshal(body, &out); err != nil || status != http.StatusOK {
+			t.Fatalf("compact = %d %s (%v)", status, body, err)
+		}
+		return out
+	}
+	run("one", "two", "three")
+	if first := compact(); first["replaced"] != true || first["merge"] != nil {
+		t.Fatalf("the first compaction: %v", first)
+	}
+	run("four", "five")
+	second := compact()
+	merge, _ := second["merge"].(map[string]any)
+	if second["replaced"] != true || merge["merged"] != true || merge["recap"] != "digest" || len(merge["replaced"].([]any)) != 2 {
+		t.Fatalf("the second compaction: %v", second)
 	}
 }
