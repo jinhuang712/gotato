@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"time"
@@ -273,8 +274,18 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			}
 			content := cloneParts(toolResult.Content)
 			resultMessage := Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleToolResult, Parts: content, ToolResult: cloneToolResultPtr(toolResult)}
-			if err := a.commitMessage(resultMessage); err != nil {
-				return asRuntimeError(err)
+			commitErr := a.commitMessage(resultMessage)
+			if isMessageTooLarge(commitErr) {
+				// The Tool already ran: the Model is told why its output is
+				// missing, and the Run goes on.
+				size, _ := json.Marshal(resultMessage)
+				toolResult = oversizedResult(toolResult, len(size), a.limits.MaxMessageBytes)
+				resultMessage.Parts = cloneParts(toolResult.Content)
+				resultMessage.ToolResult = cloneToolResultPtr(toolResult)
+				commitErr = a.commitMessage(resultMessage)
+			}
+			if commitErr != nil {
+				return asRuntimeError(commitErr)
 			}
 			st.batch.next = committed + 1
 			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})

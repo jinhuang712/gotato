@@ -2,7 +2,34 @@ package gotato
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 )
+
+// limitMessageBytes is the Details["limit"] of the error for a Message over
+// CoreLimits.MaxMessageBytes.
+const limitMessageBytes = "MaxMessageBytes"
+
+// isMessageTooLarge reports whether err is the refusal of a Message over
+// CoreLimits.MaxMessageBytes.
+func isMessageTooLarge(err error) bool {
+	var re *RuntimeError
+	return errors.As(err, &re) && re != nil && re.Code == CodeLimitExceeded && re.Details["limit"] == limitMessageBytes
+}
+
+// oversizedResult is the failed Result that stands in for a Tool Result too
+// large for one Message: the Tool ran (Executed stays true), and the Model
+// reads why its output is not there.
+func oversizedResult(result ToolResult, size int, limit uint64) ToolResult {
+	text := fmt.Sprintf("tool result too large: %d bytes, limit %d bytes; the Tool ran, its output was not kept", size, limit)
+	return ToolResult{
+		CallID:    result.CallID,
+		Status:    ToolResultStatusFailed,
+		Content:   []ContentPart{{Kind: ContentKindText, Text: text}},
+		SafeError: text,
+		Executed:  result.Executed,
+	}
+}
 
 // commitMessage commits one Message under the Message and transcript limits.
 func (a *Session) commitMessage(message Message) error {
@@ -25,7 +52,9 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
 	if enforce && limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(bytes))) {
-		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
+		e := runtimeError(CodeLimitExceeded, "commitMessage", "maximum Message bytes exceeded", nil)
+		e.Details = map[string]string{"limit": limitMessageBytes}
+		return e
 	}
 	// The transcript bound is tracked incrementally: one JSON array of n
 	// elements costs the elements plus n-1 separators and two brackets.
