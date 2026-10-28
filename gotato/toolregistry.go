@@ -9,19 +9,6 @@ import (
 	"sync"
 )
 
-// toolSetState tracks one installed ToolSet. Its Tools are resolved at
-// NewSession and again at the start of every Run, never inside a Run, so the
-// catalog is the same on every request of a Run.
-type toolSetState struct {
-	set      ToolSet
-	spec     ToolSetSpec
-	mode     installMode
-	resolved []Tool
-	// failure is why the last resolution failed; nil when the ToolSet is
-	// available. An unavailable ToolSet holds no Tools.
-	failure error
-}
-
 // catalogTool is one Tool of an installed ToolSet under its qualified ID.
 type catalogTool struct {
 	id   string
