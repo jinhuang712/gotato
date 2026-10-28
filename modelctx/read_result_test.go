@@ -325,7 +325,7 @@ func TestFollowingThePreviewReadsEveryByte(t *testing.T) {
 	tool := modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})
 	next := regexp.MustCompile(`read_result\(ref="(result:[^"]+)", page=(\d+)\)`)
 	seen := preview
-	for step := 0; step < 10; step++ {
+	for range 10 {
 		m := next.FindStringSubmatch(seen[max(0, len(seen)-300):])
 		if m == nil {
 			break
