@@ -2,7 +2,6 @@ package gotato
 
 import (
 	"context"
-	"errors"
 	"io"
 	"sync"
 	"time"
@@ -13,7 +12,9 @@ import (
 // subscriber that reads slowly slows only itself.
 type Subscription interface {
 	// Next returns the next Event. It returns io.EOF once the stream has
-	// ended, and ctx's error when ctx ends first.
+	// ended, and ctx's error when ctx ends first. A stream that ends because
+	// the context given to Subscribe ended returns that context's error (also
+	// context.Canceled), never io.EOF: io.EOF is a clean end only.
 	Next(ctx context.Context) (Event, error)
 	// Close ends the subscription at once, and drops what is queued.
 	Close() error
@@ -489,7 +490,7 @@ func (s *subscription) end() {
 func (s *subscription) finish(err error) {
 	s.once.Do(func() {
 		s.mu.Lock()
-		if err != nil && !errors.Is(err, context.Canceled) {
+		if err != nil {
 			s.err = err
 		}
 		s.mu.Unlock()
