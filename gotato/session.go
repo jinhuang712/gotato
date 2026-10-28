@@ -371,3 +371,14 @@ func notRunBeforeAdmission(cause error, operation string) *RuntimeError {
 // settleGrace is how long Prompt and Continue wait, after their ctx ends, for
 // the Run to settle under it.
 const settleGrace = 5 * time.Second
+
+// Transcript returns the Transcript this Session commits to.
+func (a *Session) Transcript() Transcript { return a.transcript }
+
+// isDurable reports whether the Session's Events are stored.
+func (a *Session) isDurable() bool {
+	if d, ok := a.transcript.(durable); ok {
+		return d.Durable()
+	}
+	return a.durable
+}

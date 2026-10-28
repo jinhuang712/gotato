@@ -54,14 +54,6 @@ var (
 // loses at most the last of them.
 type durable interface{ Durable() bool }
 
-// isDurable reports whether the Session's Events are stored.
-func (a *Session) isDurable() bool {
-	if d, ok := a.transcript.(durable); ok {
-		return d.Durable()
-	}
-	return a.durable
-}
-
 // memoryJournal numbers the Events of a Session whose Transcript keeps none.
 type memoryJournal struct {
 	mu   sync.Mutex

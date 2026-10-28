@@ -50,6 +50,3 @@ func (t *memoryTranscript) Append(message Message) error {
 	t.messages = append(t.messages, message)
 	return nil
 }
-
-// Transcript returns the Transcript this Session commits to.
-func (a *Session) Transcript() Transcript { return a.transcript }
