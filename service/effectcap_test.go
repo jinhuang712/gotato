@@ -76,3 +76,22 @@ func TestNewRejectsAnUnknownMaxEffect(t *testing.T) {
 		t.Fatal("New accepted an unknown MaxEffect")
 	}
 }
+
+// A Tool that an Agent's Tools and one of its ToolSources both list is one
+// entry of Runner.Tools, not two.
+func TestRunnerToolsListsATwiceNamedToolOnce(t *testing.T) {
+	lookup := testkit.NewFakeTool("lookup", "found")
+	runner, _ := newRunner(t, service.Agent{
+		Name:        "twice",
+		Model:       testkit.NewFakeModel(testkit.Text("done")),
+		Tools:       []gotato.Tool{lookup},
+		ToolSources: []gotato.ToolSource{toolList{lookup}},
+	})
+	entries, err := runner.Tools(context.Background(), "twice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Runner.Tools = %+v, want lookup once", entries)
+	}
+}

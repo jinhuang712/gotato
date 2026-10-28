@@ -186,34 +186,28 @@ func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
 
 func (t *sessionTools) Tools() []gotato.Tool {
 	var tools []gotato.Tool
-	for _, tool := range t.spec.Tools {
-		if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
-			tools = append(tools, tool)
-		}
-	}
-	for _, source := range t.spec.ToolSources {
-		for _, tool := range source.Tools() {
-			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
+	seen := map[string]bool{}
+	add := func(list []gotato.Tool) {
+		for _, tool := range list {
+			id := tool.Spec().ID
+			if !seen[id] && t.allowed(tool.Spec()) && t.active(id) {
+				seen[id] = true
 				tools = append(tools, tool)
 			}
 		}
+	}
+	add(t.spec.Tools)
+	for _, source := range t.spec.ToolSources {
+		add(source.Tools())
 	}
 	// read_result is offered whenever the Agent has a tool, its own or a
 	// ToolSet's, so the tool list does not change on the Turn a result is
 	// first spilled.
 	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) {
-		for _, tool := range t.results.Tools() {
-			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
-				tools = append(tools, tool)
-			}
-		}
+		add(t.results.Tools())
 	}
 	if t.segments != nil {
-		for _, tool := range t.segments.Tools() {
-			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
-				tools = append(tools, tool)
-			}
-		}
+		add(t.segments.Tools())
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Spec().ID < tools[j].Spec().ID })
 	return tools
