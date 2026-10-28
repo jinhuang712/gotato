@@ -2,8 +2,6 @@ package gotato
 
 import (
 	"context"
-	"fmt"
-	"runtime/debug"
 )
 
 // ToolSetSpec identifies a ToolSet. The name must be stable and unique.
@@ -96,26 +94,21 @@ type toolSetConfig struct {
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
 // RuntimeError so a broken ToolSet fails NewSession instead of crashing the process.
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeExtensionFailure, "ToolSet", "ToolSet.Spec panicked", fmt.Errorf("ToolSet.Spec panicked: %v\n%s", recovered, debug.Stack()))
-		}
-	}()
-	return set.Spec(), nil
+	if failure := callHost("ToolSet.Spec", func() error {
+		spec = set.Spec()
+		return nil
+	}); failure != nil {
+		return ToolSetSpec{}, runtimeError(CodeExtensionFailure, "ToolSet", publicMessage(failure, "ToolSet.Spec failed"), failure)
+	}
+	return spec, nil
 }
 
 func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	var tools []Tool
-	err := func() (err error) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("ToolSet %s panicked: %v\n%s", state.spec.Name, recovered, debug.Stack())
-			}
-		}()
-		resolved, failure := state.set.Tools(ctx)
-		tools = resolved
+	err := callHost("ToolSet", func() (failure error) {
+		tools, failure = state.set.Tools(ctx)
 		return failure
-	}()
+	})
 	if err != nil {
 		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", publicMessage(err, "cannot resolve ToolSet "+state.spec.Name), err)
 	}

@@ -3,7 +3,6 @@ package gotato
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -445,15 +444,14 @@ func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 
 // collectSources asks every ToolSource for its Tools. A nil Tool or a panic
 // is a resolution failure, exactly as for a ToolSet.
-func (r *toolRegistry) collectSources(ctx context.Context) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeToolResolutionFailure, "ToolSource", "ToolSource panicked", fmt.Errorf("ToolSource panicked: %v\n%s", recovered, debug.Stack()))
-		}
-	}()
+func (r *toolRegistry) collectSources(ctx context.Context) error {
 	var tools []Tool
 	for _, source := range r.sources {
-		supplied, sourceErr := source.Tools(ctx)
+		var supplied []Tool
+		sourceErr := callHost("ToolSource", func() (failure error) {
+			supplied, failure = source.Tools(ctx)
+			return failure
+		})
 		if sourceErr != nil {
 			if failure := contextFailure(ctx, "ToolSource"); failure != nil {
 				return failure
@@ -717,12 +715,11 @@ func (r *toolRegistry) rank(ctx context.Context, query string) (ids []string, er
 	if len(candidates) == 0 || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeExtensionFailure, SearchToolName, "ToolSearcher panicked", fmt.Errorf("ToolSearcher panicked: %v\n%s", recovered, debug.Stack()))
-		}
-	}()
-	ranked, searchErr := r.searcher.Search(ctx, query, candidates)
+	var ranked []string
+	searchErr := callHost("ToolSearcher", func() (failure error) {
+		ranked, failure = r.searcher.Search(ctx, query, candidates)
+		return failure
+	})
 	if searchErr != nil {
 		return nil, runtimeError(CodeExtensionFailure, SearchToolName, publicMessage(searchErr, "ToolSearcher failed"), searchErr)
 	}

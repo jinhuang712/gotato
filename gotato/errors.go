@@ -328,3 +328,10 @@ func recoverPanic(what string, err *error) {
 		*err = &panicError{what: what, value: recovered, stack: debug.Stack()}
 	}
 }
+
+// callHost runs one call into host code; a panic in it is the error it
+// returns, a *panicError whose Public text is "<what> panic".
+func callHost(what string, call func() error) (err error) {
+	defer recoverPanic(what, &err)
+	return call()
+}

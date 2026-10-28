@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -417,17 +416,17 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 
 // executeToolSafely runs a Tool and turns a panic into a failure of the call.
 func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			// Match the Extension guard: a fixed, client-safe Message. What
-			// the Tool panicked with, and the stack, stay on the Cause for
-			// logs.
-			err = runtimeError(CodeToolExecutionFailure, "Tool",
-				"tool panic",
-				fmt.Errorf("tool panic: %v\n%s", recovered, debug.Stack()))
-		}
-	}()
-	return tool.Execute(ctx, use, progress)
+	err = callHost("tool", func() (failure error) {
+		result, failure = tool.Execute(ctx, use, progress)
+		return failure
+	})
+	if panicked, ok := err.(*panicError); ok {
+		// Match the Extension guard: a fixed, client-safe Message. What the
+		// Tool panicked with, and the stack, stay on the Cause for logs; the
+		// code stays in the text of the failed Result.
+		return ToolResult{}, runtimeError(CodeToolExecutionFailure, "Tool", panicked.Public(), errors.New(panicked.Error()))
+	}
+	return result, err
 }
 
 // safeError is the text of a context error for a Tool Result, or "" for nil.

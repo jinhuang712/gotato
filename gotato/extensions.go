@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime/debug"
 	"slices"
 )
 
@@ -234,20 +233,11 @@ func publicMessage(failure error, fallback string) string {
 
 // guard runs one Extension stage, converting a panic into an ordinary error so
 // a misbehaving Extension cannot take down the Session goroutine.
-func guard(stage string, call func() error) (err *RuntimeError) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			// What it panicked with and the stack stay on the Cause for
-			// logs; Message is fixed because the service layer returns it
-			// to HTTP clients.
-			err = runtimeError(CodeExtensionFailure, stage,
-				"extension panic",
-				fmt.Errorf("extension panic: %v\n%s", recovered, debug.Stack()))
-		}
-	}()
-	if failure := call(); failure != nil {
-		// The extension's own text stays on the Cause: Message reaches HTTP
-		// clients, and a foreign error may carry what they must not read.
+func guard(stage string, call func() error) *RuntimeError {
+	if failure := callHost("extension", call); failure != nil {
+		// The extension's own text, or what it panicked with, stays on the
+		// Cause: Message reaches HTTP clients, and a foreign error may carry
+		// what they must not read.
 		return runtimeError(CodeExtensionFailure, stage, publicMessage(failure, "extension failed"), failure)
 	}
 	return nil
