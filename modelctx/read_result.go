@@ -91,7 +91,7 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		// The Context no longer holds the Message of a call that a Segment
 		// closed over; its Entry is still in the log.
 		var err error
-		spilled, found, err = session.FindSpilled(ctx, log, record.ID(), call)
+		spilled, found, err = record.FindSpilled(ctx, log, call)
 		if err != nil && !errors.Is(err, session.ErrNotFound) {
 			return "", readErrorf("%s could not be read", in.Ref)
 		}

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -118,12 +119,55 @@ func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.S
 // closed over it. ok is false when the Record has none. A model may use the same
 // call ID in two Turns; the result is then the latest one, as in SpilledResults.
 func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolCallID) (spilled gotato.SpilledResult, ok bool, err error) {
+	return findSpilled(ctx, log, id, call, 0)
+}
+
+// FindSpilled finds the spilled result of a Tool call that a Segment of the
+// Record closed over: in the Record's own log first, then in the log of each
+// source Session of its Segments, newest Segment first, within the Entries the
+// Segment covers (a fork inherits Segments whose Entries are its parent's). The
+// result names that Session in SessionID, so SpilledBody reads it there.
+func (s *Record) FindSpilled(ctx context.Context, log EntryLog, call gotato.ToolCallID) (spilled gotato.SpilledResult, ok bool, err error) {
+	spilled, ok, err = findSpilled(ctx, log, s.ID(), call, 0)
+	if err != nil || ok {
+		return spilled, ok, err
+	}
+	segments := s.Segments()
+	for _, segment := range slices.Backward(segments) {
+		sources := []gotato.SegmentSource{segment.Source}
+		if len(segment.Merged) > 0 {
+			sources = sources[:0]
+			for _, merged := range slices.Backward(segment.Merged) {
+				sources = append(sources, merged.Source)
+			}
+		}
+		for _, source := range sources {
+			from := string(source.SessionID)
+			if from == "" || from == s.ID() {
+				continue
+			}
+			spilled, ok, err = findSpilled(ctx, log, from, call, source.ToNumber)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return gotato.SpilledResult{}, false, err
+			}
+			if ok {
+				spilled.SessionID = source.SessionID
+				return spilled, true, nil
+			}
+		}
+	}
+	return gotato.SpilledResult{}, false, nil
+}
+
+// findSpilled searches the log of Record id for the latest spilled result of
+// call, among the Entries up to maxSeq (all of them when it is 0).
+func findSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolCallID, maxSeq uint64) (spilled gotato.SpilledResult, ok bool, err error) {
 	entries, err := log.Log(ctx, id, 0, 0)
 	if err != nil {
 		return gotato.SpilledResult{}, false, err
 	}
 	for _, entry := range slices.Backward(entries) {
-		if entry.Kind != gotato.EventKindToolResultSpilled {
+		if entry.Kind != gotato.EventKindToolResultSpilled || (maxSeq > 0 && entry.Seq > maxSeq) {
 			continue
 		}
 		event, known, err := eventOf(entry, gotato.SessionID(id))
