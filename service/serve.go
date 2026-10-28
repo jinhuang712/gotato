@@ -146,8 +146,9 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 	st.dropFollow(runCtx)
 	if st.writer != nil {
 		releaseCtx, cancelRelease := persistContext(runCtx)
-		_ = st.writer.Release(releaseCtx)
+		releaseErr := st.writer.Release(releaseCtx)
 		cancelRelease()
+		st.r.settle(st.writer, releaseErr)
 	}
 	return err
 }

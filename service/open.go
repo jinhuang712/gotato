@@ -85,6 +85,10 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 			return writer, early, nil
 		}
 		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
+			if gotato.IsCode(err, gotato.CodeStoreFailure) {
+				// The claim write may have landed, with no Writer to release it.
+				r.markUnreleased(sessionID)
+			}
 			return nil, nil, storeFailureOf(ctx, notRunIfLapsed(err), true)
 		}
 		remaining := time.Until(deadline)
@@ -149,6 +153,8 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			// to a load. Any other failure is the Run's, as it is for a Session
 			// that was never warm.
 			if !lostRace(err) {
+				// The claim may have been written, and the Writer stopped.
+				r.settle(w, err)
 				r.noteFailure(err, sessionID, entry.agent)
 				r.unloaded(sessionID, entry.agent, "failed")
 				return nil, nil, nil, err

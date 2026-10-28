@@ -44,6 +44,7 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		}
 		result, err = modelctx.Compact(ctx, writer.Record(), opts, compactOpts...)
 		releaseErr := writer.Release(ctx)
+		r.settle(writer, releaseErr)
 		if known && releaseErr == nil {
 			r.keepWarm(writer, spec)
 		}

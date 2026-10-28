@@ -75,19 +75,17 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 	cancelSave()
 	r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(st.saved), saveErr), spec.Name)
 	r.noteFailure(saveErr, s.ID(), spec.Name)
+	r.settle(writer, saveErr)
 	if saveErr == nil && wroteAll {
 		// The Session stays in memory, as a cache the store can always
 		// replace; the next Run checks its head.
 		r.keepWarm(writer, spec)
 	}
-	// Only the release failed: every fact of the Run is stored, so the
-	// Run keeps its status. The warning Events above tell the operator.
-	// The Session is still marked busy, and this Instance is alive, so its
-	// Liveness row would never end the Claim: the heartbeat writes the
-	// release again (repairReleases).
-	if saveErr != nil && wroteAll {
-		r.markUnreleased(s.ID())
-	}
+	// A failed release or step leaves the Session busy under this Instance,
+	// whose Liveness row goes on renewing: settle has the heartbeat open it
+	// again and release it (repairReleases). When only the release failed,
+	// every fact of the Run is stored, so the Run keeps its status; the
+	// warning Events above tell the operator.
 	if saveErr != nil && !wroteAll {
 		// An earlier write of the Run failed, and the Writer refuses
 		// the release too: keep the Run error and add the persistence

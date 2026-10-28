@@ -289,14 +289,6 @@ func (r *Runner) unloaded(id, agent, why string) {
 	r.notice(gotato.SessionUnloaded{Header: gotato.NewHeader(gotato.SessionID(id), "", 0), Why: why}, agent)
 }
 
-// dropWarm lets go of a Session's warm copy, with why, when this Instance has
-// one. The caller holds the Session lock.
-func (r *Runner) dropWarm(id, why string) {
-	if entry := r.takeWarm(id); entry != nil {
-		r.unloaded(id, entry.agent, why)
-	}
-}
-
 // dropAllWarm lets go of every warm copy, with why, canceling any idle
 // compaction first. An idle copy holds no Claim, so nothing is released.
 func (r *Runner) dropAllWarm(why string) {
@@ -434,6 +426,9 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 		return
 	}
 	if err := writer.Resume(ctx); err != nil {
+		if !lostRace(err) {
+			r.settle(writer, err)
+		}
 		if r.removeWarm(entry) {
 			reason := "failed"
 			if lostRace(err) {
@@ -454,6 +449,7 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 	saveCtx, cancelSave := persistContext(ctx)
 	releaseErr := writer.Release(saveCtx)
 	cancelSave()
+	r.settle(writer, releaseErr)
 	if releaseErr != nil || writer.Failed() != nil {
 		r.noteFailure(releaseErr, entry.id, entry.agent)
 		if r.removeWarm(entry) {

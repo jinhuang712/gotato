@@ -78,6 +78,11 @@ func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, err
 	}
 	if st.writer != nil {
 		if err := st.joinFeed(ctx, runCtx); err != nil {
+			// The Session is claimed and no Run follows: give it back.
+			releaseCtx, cancelRelease := persistContext(runCtx)
+			releaseErr := st.writer.Release(releaseCtx)
+			cancelRelease()
+			r.settle(st.writer, releaseErr)
 			return opened, err
 		}
 	}
