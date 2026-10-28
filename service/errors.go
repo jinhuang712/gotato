@@ -1,6 +1,11 @@
 package service
 
-import "github.com/jinhuang712/gotato/gotato"
+import (
+	"context"
+	"errors"
+
+	"github.com/jinhuang712/gotato/gotato"
+)
 
 var (
 	// ErrBusy is returned when a Session already has a Run in flight and the
@@ -76,3 +81,28 @@ type notPersisted struct{ cause error }
 
 func (e notPersisted) Error() string   { return ErrNotPersisted.Error() + ": " + e.cause.Error() }
 func (e notPersisted) Unwrap() []error { return []error{e.cause, ErrNotPersisted} }
+
+// storeFailureOf classifies an error of a store call that made no Run write:
+// a load, a create, a heartbeat, a delete. A store's raw error becomes
+// store_failure, retryable, and marked not run when nothing of a Run had
+// happened (notRun), so a caller can send the request elsewhere. A failure
+// that is typed already keeps its code (not_found and conflict are the
+// store's answers); a store_failure from a write that landed no Run step gets
+// the not-run mark. An error of the caller's own context is returned as it is.
+func storeFailureOf(ctx context.Context, err error, notRun bool) error {
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	var typed *gotato.RuntimeError
+	if errors.As(err, &typed) {
+		if typed.Code != gotato.CodeStoreFailure || typed.NotRun || !notRun {
+			return err
+		}
+		marked := *typed
+		marked.NotRun = true
+		return &marked
+	}
+	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "service: the store could not be reached")
+	failure.Operation, failure.Cause, failure.NotRun = "service.Store", err, notRun
+	return failure
+}

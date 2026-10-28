@@ -47,6 +47,9 @@ type heartbeat struct {
 	closed   bool
 	lastSent time.Time
 	expired  bool
+	// instance is the name this Runner writes with. It changes when the row
+	// expired and the Runner registered a new one (see renew).
+	instance string
 	// reported says liveness_lapsed was published once already.
 	reported bool
 	stop     chan struct{}
@@ -56,6 +59,14 @@ type heartbeat struct {
 // errLapsed refuses a write once this Instance cannot show that its row is
 // alive: another Instance may hold its Sessions by now.
 var errLapsed = lostRow("service: this instance's liveness row may have expired")
+
+// errLapsedNotRun is errLapsed as open and create return it: the guard refused
+// the Claim, the first write, so nothing was written and nothing ran.
+var errLapsedNotRun = func() *gotato.RuntimeError {
+	e := lostRow(errLapsed.Message)
+	e.NotRun = true
+	return e
+}()
 
 // lostRow builds a refusal of a write that carries conflict and wraps
 // session.ErrConflict, so the checks for a lost race match it as they match a
@@ -70,7 +81,46 @@ func lostRow(message string) *gotato.RuntimeError {
 // errClosed or a store's conflict, which all match session.ErrConflict.
 func lapsed(err error) bool {
 	var runtimeErr *gotato.RuntimeError
-	return errors.As(err, &runtimeErr) && runtimeErr == errLapsed
+	return errors.As(err, &runtimeErr) && (runtimeErr == errLapsed || runtimeErr == errLapsedNotRun)
+}
+
+// notRunIfLapsed marks a refusal of the Claim by the guard as not run: it is the
+// first write, so nothing was written. Any other error is returned as it is.
+func notRunIfLapsed(err error) error {
+	if lapsed(err) {
+		return errLapsedNotRun
+	}
+	return err
+}
+
+// id returns the name this Runner writes with now.
+func (r *Runner) id() string {
+	r.beat.mu.Lock()
+	defer r.beat.mu.Unlock()
+	return r.beat.instance
+}
+
+// newName makes a name for an Instance: the label and a random suffix, or a
+// whole generated name when there is no label.
+func (r *Runner) newName() string {
+	if r.label == "" {
+		return session.NewID()
+	}
+	return r.label + "-" + session.NewID()[:8]
+}
+
+// Lapsed reports whether this Runner cannot show now that its Liveness row is
+// alive: the last renewal is too old, or the row expired and no new one has
+// been registered yet. It is false for a Runner that has not written. A Runner
+// recovers by itself when the store answers again (see renew); until then it
+// refuses writes, so a readiness probe should report it as not ready.
+func (r *Runner) Lapsed() bool {
+	r.beat.mu.Lock()
+	defer r.beat.mu.Unlock()
+	if !r.beat.started || r.beat.closed {
+		return false
+	}
+	return r.beat.expired || time.Since(r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5
 }
 
 // errHolderBusy reports, inside open, a Session running on another live
@@ -94,14 +144,14 @@ func (r *Runner) live(ctx context.Context) error {
 		return nil
 	}
 	if err := r.renew(ctx); err != nil {
-		return err
+		return storeFailureOf(ctx, err, true)
 	}
 	r.beat.mu.Lock()
 	defer r.beat.mu.Unlock()
 	if r.beat.closed {
 		// Closed while this first renewal was on its way: remove the row it
 		// may have written.
-		_ = r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
+		_ = r.store.Beat(ctx, session.InstanceRow{ID: r.beat.instance}, 0)
 		return errClosed
 	}
 	if r.beat.started {
@@ -116,21 +166,61 @@ func (r *Runner) live(ctx context.Context) error {
 
 // renew renews the row once. The time it was sent, not answered, is what the
 // guard counts from, since the store may have timed it as early as that.
+//
+// A row that expired never comes back (session.ErrExpired), and the Sessions
+// it held may belong to other Instances by now. A store that was out of reach
+// longer than the TTL therefore ends this name, and renew registers a new one
+// instead of leaving the Runner without writes for good: the Runs and warm
+// copies of the old name are refused or dropped, and the Claims it left are
+// dead, so any Instance may take those Sessions over. Until the new row is
+// written, the Runner is Lapsed.
 func (r *Runner) renew(ctx context.Context) error {
 	r.beat.mu.Lock()
-	row := session.InstanceRow{ID: r.instance, Draining: r.beat.draining, Address: r.address}
+	row := session.InstanceRow{ID: r.beat.instance, Draining: r.beat.draining, Address: r.address}
 	r.beat.mu.Unlock()
 	sent := time.Now()
 	err := r.store.Beat(ctx, row, r.liveness.TTL)
 	r.beat.mu.Lock()
-	defer r.beat.mu.Unlock()
 	switch {
 	case errors.Is(err, session.ErrExpired):
 		r.beat.expired = true
 	case err == nil && sent.After(r.beat.lastSent):
 		r.beat.lastSent = sent
 	}
+	closed := r.beat.closed
+	r.beat.mu.Unlock()
+	if errors.Is(err, session.ErrExpired) && !closed {
+		return r.reregister(ctx, row)
+	}
 	return err
+}
+
+// reregister gives the Runner a new name after its row expired, and writes
+// that name's row. The old name's expired row is removed, best effort.
+func (r *Runner) reregister(ctx context.Context, old session.InstanceRow) error {
+	row := old
+	row.ID = r.newName()
+	sent := time.Now()
+	if err := r.store.Beat(ctx, row, r.liveness.TTL); err != nil {
+		return err
+	}
+	r.beat.mu.Lock()
+	if r.beat.closed || r.beat.instance != old.ID {
+		// Closed meanwhile, or another renewal registered a name first: the
+		// row just written belongs to no one.
+		r.beat.mu.Unlock()
+		_ = r.store.Beat(ctx, session.InstanceRow{ID: row.ID}, 0)
+		return nil
+	}
+	r.beat.instance = row.ID
+	r.beat.expired = false
+	r.beat.reported = false
+	r.beat.lastSent = sent
+	r.beat.mu.Unlock()
+	_ = r.store.Beat(ctx, session.InstanceRow{ID: old.ID}, 0)
+	// A warm copy holds no Claim, but resumes with the old name.
+	r.dropAllWarm("liveness_lapsed")
+	return nil
 }
 
 func (r *Runner) renewals(stop, done chan struct{}) {
@@ -152,13 +242,18 @@ func (r *Runner) renewals(stop, done chan struct{}) {
 // guard refuses a write once the last renewal is older than the TTL less a
 // margin, or the row has expired, so a paused or cut-off Instance stops
 // before the store could have let another Instance take its Sessions.
-func (r *Runner) guard() error {
+// guardFor is guard for the Writer of one name: once the Runner has a new name,
+// the Writers of the old one are refused for good, as their Claims are dead.
+func (r *Runner) guardFor(name string) error {
 	r.beat.mu.Lock()
 	defer r.beat.mu.Unlock()
+	if name != "" && name != r.beat.instance {
+		return errLapsed
+	}
 	if r.beat.expired || time.Since(r.beat.lastSent) > r.liveness.TTL-r.liveness.TTL/5 {
 		if !r.beat.reported && !r.beat.closed {
 			r.beat.reported = true
-			r.notice(gotato.LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: r.instance}, "")
+			r.notice(gotato.LivenessLapsed{Header: gotato.NewHeader("", "", 0), Instance: r.beat.instance}, "")
 		}
 		return errLapsed
 	}
@@ -203,13 +298,14 @@ func (r *Runner) Close(ctx context.Context) error {
 	r.beat.started = false
 	r.beat.closed = true
 	r.beat.expired = true
+	name := r.beat.instance
 	r.beat.mu.Unlock()
 	if !started {
 		return nil
 	}
 	close(stop)
 	<-done
-	err := r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
+	err := r.store.Beat(ctx, session.InstanceRow{ID: name}, 0)
 	if errors.Is(err, session.ErrExpired) {
 		// A store that keeps an ended row refuses an expired one.
 		return nil

@@ -39,17 +39,18 @@ func (r *Runner) create(ctx context.Context, s *session.Record, agent string, op
 	if err := r.live(ctx); err != nil {
 		return nil, err
 	}
+	name := r.id()
 	mark := r.streamMark()
 	publish := r.publisher(feedKey{s.ID(), s.RecordEpoch()}, agent)
-	options = append([]session.WriterOption{session.WithGuard(r.guard), session.WithPublisher(publish)}, options...)
-	writer, err := session.CreateWriter(ctx, r.store, s, r.instance, options...)
+	options = append([]session.WriterOption{session.WithGuard(func() error { return r.guardFor(name) }), session.WithPublisher(publish)}, options...)
+	writer, err := session.CreateWriter(ctx, r.store, s, name, options...)
 	if errors.Is(err, session.ErrExists) {
 		return nil, ErrSessionExists
 	}
 	if err == nil {
 		r.cutStreams(ctx, s.ID(), s.RecordEpoch(), s.Head(), mark)
 	}
-	return writer, err
+	return writer, storeFailureOf(ctx, notRunIfLapsed(err), true)
 }
 
 // open opens a stored Session for writing as this Runner's Instance. When the
@@ -68,14 +69,15 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 	pause := 20 * time.Millisecond
 	waited := false
 	for {
+		name := r.id()
 		var early []gotato.Event
 		keep := func(event gotato.Event) { early = append(early, event) }
-		options := []session.WriterOption{session.WithGuard(r.guard), session.WithHolderCheck(r.holderCheck), session.WithPublisher(keep)}
+		options := []session.WriterOption{session.WithGuard(func() error { return r.guardFor(name) }), session.WithHolderCheck(r.holderCheck), session.WithPublisher(keep)}
 		if waited {
 			options = append(options, session.WithWaited())
 		}
 		mark := r.streamMark()
-		writer, err := session.OpenWriter(ctx, r.store, sessionID, r.instance, options...)
+		writer, err := session.OpenWriter(ctx, r.store, sessionID, name, options...)
 		// A conflict here means another Instance claimed or wrote first:
 		// look again, as for a busy holder.
 		if err == nil {
@@ -83,7 +85,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 			return writer, early, nil
 		}
 		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
-			return nil, nil, err
+			return nil, nil, storeFailureOf(ctx, notRunIfLapsed(err), true)
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {

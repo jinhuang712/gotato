@@ -158,7 +158,7 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	header := gotato.NewHeader(gotato.SessionID(sessionID), "", 0)
 	switch {
 	case errors.Is(err, session.ErrConflict):
-		r.notice(gotato.SessionFenced{Header: header, Instance: r.instance}, agent)
+		r.notice(gotato.SessionFenced{Header: header, Instance: r.id()}, agent)
 	case gotato.IsCode(err, gotato.CodeStoreFailure):
 		r.notice(gotato.StoreWriteFailed{Header: header, Code: gotato.CodeStoreFailure}, agent)
 	}

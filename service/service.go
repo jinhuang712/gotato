@@ -227,7 +227,7 @@ type Config struct {
 // Runner serves Runs against Sessions.
 type Runner struct {
 	store     session.Store
-	instance  string
+	label     string
 	liveness  Liveness
 	address   string
 	beat      heartbeat
@@ -292,7 +292,7 @@ func New(cfg Config) (*Runner, error) {
 	}
 	r := &Runner{
 		store:          cfg.Store,
-		instance:       strings.TrimSpace(cfg.Instance),
+		label:          strings.TrimSpace(cfg.Instance),
 		liveness:       cfg.Liveness.withDefaults(),
 		address:        strings.TrimSpace(cfg.Address),
 		streamPoll:     cfg.StreamPoll,
@@ -308,11 +308,7 @@ func New(cfg Config) (*Runner, error) {
 	// The label is never the identity: the suffix makes the name unique per
 	// start, so a restarted or overlapping process cannot share a Liveness
 	// row or a Claim with the one it replaces.
-	if r.instance == "" {
-		r.instance = session.NewID()
-	} else {
-		r.instance += "-" + session.NewID()[:8]
-	}
+	r.beat.instance = r.newName()
 	if r.clock == nil {
 		r.clock = systemClock{}
 	}
@@ -356,8 +352,9 @@ func (r *Runner) Store() session.Store { return r.store }
 
 // Instance returns the name this Runner writes its Claims with: Config.Instance
 // and a random suffix, or a generated name when none was set. It is new for
-// each start.
-func (r *Runner) Instance() string { return r.instance }
+// each start, and new again when the Runner took a new name after its Liveness
+// row expired (see Lapsed).
+func (r *Runner) Instance() string { return r.id() }
 
 // Record reads a Record's whole Record from the store: its facts, Runs,
 // usage and Events. It changes nothing.

@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-25 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Runbook
 
 What to do when a service built on Gotato misbehaves, found by what you see. Gotato is a library and sends no alerts of its own, so this runbook starts from the code, status or Event you see, not from an alert name. Your team owns on-call and paging.
@@ -40,6 +40,7 @@ A dead instance cannot release its Sessions, but it holds them only through its 
 
 - **Wait for the row to expire.** An instance renews its row every third of the row's TTL, so the row lapses one TTL after the last renewal. A request to a Session whose writer is gone is served by the next instance that gets it.
 - **A Session whose writer is alive** makes a request wait for it, up to a bound, then claim it or answer `busy`.
+- **If `/readyz` answers 503 with `"lapsed": true`**, the instance could not renew its row in time, usually because the store was out of reach. It refuses writes, and answers every Run as not run, so the load balancer can send it elsewhere. When the store answers again it registers a new name by itself and `/readyz` returns to 200; no restart is needed.
 - **A write from the old instance cannot corrupt the Record.** It lost its Claim, so the Store refuses it (the Epoch).
 
 ## A Run was interrupted

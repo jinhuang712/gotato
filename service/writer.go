@@ -60,7 +60,7 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 		return err
 	}
 	claim, busy := record.Holder()
-	if !busy || claim.Instance == "" || claim.Instance == r.instance {
+	if !busy || claim.Instance == "" || claim.Instance == r.id() {
 		return nil
 	}
 	state, err := r.store.Instance(ctx, claim.Instance)

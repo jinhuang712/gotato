@@ -199,6 +199,13 @@ func (h *Handler) ready(w http.ResponseWriter, _ *http.Request) {
 		body["ok"] = false
 		body["draining"] = true
 	}
+	// A Runner whose Liveness row lapsed refuses writes until the store answers
+	// again and it registers a new one (Runner.Lapsed).
+	if h.runner.Lapsed() {
+		status = http.StatusServiceUnavailable
+		body["ok"] = false
+		body["lapsed"] = true
+	}
 	writeJSON(w, status, body)
 }
 
