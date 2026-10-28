@@ -91,10 +91,16 @@ func (s *Record) SpilledResults() (calls []gotato.ToolCallID, byCall map[gotato.
 
 // SpilledBody returns the full text of a spilled result: from the cache of this
 // live Record, or else read from the Entry at spilled.Seq in log, the store of
-// the Record. pruned is true when the Entry is no longer there, which a team
-// does when it prunes the log. A body read is cached, within
+// the Record (or of spilled.SessionID, when the result was inherited from a
+// parent). pruned is true when the Entry is no longer there, which a team does
+// when it prunes the log or deletes the parent. A body read is cached, within
 // defaultSpillCacheBytes of the bodies the store holds.
 func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.SpilledResult) (body string, pruned bool, err error) {
+	if from := string(spilled.SessionID); from != "" && from != s.ID() {
+		// An Entry of another Record (a fork's parent): its position means
+		// nothing in this Record's cache.
+		return readSpilled(ctx, log, from, spilled.Seq)
+	}
 	if body, ok := s.spilled.get(spilled.Seq); ok {
 		return body, false, nil
 	}

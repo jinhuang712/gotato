@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-28 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -1062,6 +1062,7 @@ O-88501,paid,41.20,…
 - **Why a sibling.** `read_segment` is named in the bytes of every Segment already written, which never change, so its name and its arguments stay. The two read different things.
 - **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it wrote or read in memory, and drops them with the Session. Bodies the store holds are dropped oldest first past 16 MiB; a body the store does not hold yet, or a Record with no store, is never dropped. Any instance reads the same body from the Record. A live Session counts its cache apart from the warm-Session limit of Phase 8.
 - **Pruned.** When the team has pruned the Entry, `read_result` says the body was removed, as `read_segment` does.
+- **A fork reads the bodies from its parent.** A fork copies the Messages of its parent, so it copies their refs; the bodies stay in the parent's log, as the Segments of a fork do. Fork names the parent in `ToolResult.Spilled.session_id` (a grandchild keeps the first one), and `read_result` reads that Record's Entry. Deleting the parent therefore prunes the bodies its forks point to, which reads as pruned.
 - **The spill depends on size alone.** It is made when the result is committed, so every instance builds the same Message from the same Record.
 - **Subscribers and `events` get no body.** A subscriber, the retained window and the HTTP events see `tool_result_spilled` with `call_id`, `tool_id` and `bytes`; the body is only in the stored Entry and comes back with `read_result`.
 - **Only over a Record.** A Session spills when its Transcript keeps Entries (`gotato.SpillKeeper`: a `session.Record` or `session.Writer`). A Session over the plain in-memory Transcript has nowhere to read the body from, and commits the result whole.

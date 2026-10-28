@@ -4,6 +4,8 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
+- **A fork can read the spilled Tool Results it inherits.** `ToolResult.Spilled` gains `session_id` (omitted when empty): `Fork` sets it to the parent for the results the fork inherits, and `read_result` reads the body from that Record's log. Before, a fork's `read_result` looked for the body at the same position in its own log and reported it removed. Deleting the parent still removes the bodies; the fork then reads them as pruned.
+
 ## 0.2.0 — 2026-10-28
 
 Gotato 0.2.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).

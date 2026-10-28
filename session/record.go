@@ -384,6 +384,32 @@ func forkedRepairs(messages []gotato.Message) []gotato.Message {
 	return out
 }
 
+// forkedSpills returns messages with every spilled result that does not name a
+// Record yet naming parentID: the body is an Entry of the parent's log, and
+// the fork's own log does not hold it. The messages are copied when one
+// changes.
+func forkedSpills(messages []gotato.Message, parentID string) []gotato.Message {
+	var out []gotato.Message
+	for i, message := range messages {
+		result := message.ToolResult
+		if result == nil || result.Spilled == nil || result.Spilled.SessionID != "" {
+			continue
+		}
+		if out == nil {
+			out = slices.Clone(messages)
+		}
+		spilled := *result.Spilled
+		spilled.SessionID = gotato.SessionID(parentID)
+		copied := *result
+		copied.Spilled = &spilled
+		out[i].ToolResult = &copied
+	}
+	if out == nil {
+		return messages
+	}
+	return out
+}
+
 // Fork creates the Record of a new Session from the current state of parent.
 // The fork has its own ID, records the parent ID and the point of the
 // parent's log it branches at, copies Messages, Segments, Usage, Compactions,
@@ -403,7 +429,7 @@ func Fork(parent *Record, options ...RecordOption) *Record {
 	defer child.mu.Unlock()
 	child.parentID = doc.ID
 	child.parentSeq = parentSeq
-	child.messages = doc.Messages
+	child.messages = forkedSpills(doc.Messages, doc.ID)
 	parent.mu.RLock()
 	midRun := parent.running != ""
 	parent.mu.RUnlock()
