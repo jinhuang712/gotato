@@ -78,14 +78,12 @@ func WithInstruction(instruction string) SessionOption {
 // every model call. Provider adapters map the fields they support.
 func WithModelConfig(options ModelConfig) SessionOption {
 	return func(c *sessionConfig) error {
-		if options.Temperature != nil && (math.IsNaN(*options.Temperature) || math.IsInf(*options.Temperature, 0)) {
-			return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is not a finite number", nil)
-		}
-		if options.Temperature != nil && *options.Temperature < 0 {
-			return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is negative", nil)
-		}
 		if options.Temperature != nil {
 			temperature := *options.Temperature
+			// NaN fails the first comparison; negative and infinite are out of range.
+			if !(temperature >= 0) || math.IsInf(temperature, 1) {
+				return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is not a finite number of at least 0", nil)
+			}
 			options.Temperature = &temperature
 		}
 		c.modelConfig = options
