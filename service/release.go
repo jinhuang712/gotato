@@ -51,10 +51,13 @@ func (r *Runner) repairReleases() {
 	ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
 	defer cancel()
 	for _, id := range ids {
-		if r.repairRelease(ctx, id) {
-			r.releaseMu.Lock()
-			delete(r.unreleased, id)
-			r.releaseMu.Unlock()
+		// Clear the mark before the attempt: a mark set meanwhile is a new
+		// failure and stays. An attempt that is not done marks it again.
+		r.releaseMu.Lock()
+		delete(r.unreleased, id)
+		r.releaseMu.Unlock()
+		if !r.repairRelease(ctx, id) {
+			r.markUnreleased(id)
 		}
 	}
 }
