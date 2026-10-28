@@ -72,30 +72,6 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 	}
 }
 
-// setProtocolHeaders sets the headers that belong to the wire API: the
-// credential, and for Anthropic Messages the version and beta flags.
-func (c *Client) setProtocolHeaders(req *http.Request) {
-	switch c.api {
-	case APIAnthropicMessages:
-		// A configured anthropic-version header pins another API version.
-		if req.Header.Get("anthropic-version") == "" {
-			req.Header.Set("anthropic-version", anthropicVersion)
-		}
-		if c.rules.blockBinding {
-			addAnthropicBeta(req.Header, anthropicBindingBeta)
-		}
-		if c.apiKey != "" {
-			req.Header.Set("x-api-key", c.apiKey)
-		}
-	case APIResponses:
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	default:
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
-	}
-}
-
 // retryDelay returns how long to wait before the next attempt. A provider
 // Retry-After/retry-after-ms header wins; otherwise the configured backoff
 // grows linearly with the attempt and carries jitter.

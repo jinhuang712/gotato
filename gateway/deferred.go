@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -126,4 +127,32 @@ func orderedTools(layout *deferredLayout, request gotato.ModelRequest) []layoutT
 		ordered = append(ordered, layoutTool{spec: spec})
 	}
 	return ordered
+}
+
+// DeferredForm is how deferred tools reach the provider (Config.DeferredTools).
+type DeferredForm string
+
+// The forms of Config.DeferredTools.
+const (
+	DeferredFormNative DeferredForm = "native"
+	DeferredFormList   DeferredForm = "list"
+)
+
+// resolveDeferredTools returns the form a wire API uses for deferred tools:
+// the configured one when the wire API has it, its default when none is
+// configured, and list for a wire API without a native form.
+func resolveDeferredTools(configured DeferredForm, api API) (DeferredForm, error) {
+	form := DeferredForm(strings.ToLower(strings.TrimSpace(string(configured))))
+	switch form {
+	case "", DeferredFormNative, DeferredFormList:
+	default:
+		return "", fmt.Errorf("gateway: unsupported DeferredTools %q (use %s or %s)", configured, DeferredFormNative, DeferredFormList)
+	}
+	if api == APIChatCompletions {
+		return DeferredFormList, nil
+	}
+	if form == "" {
+		return DeferredFormNative, nil
+	}
+	return form, nil
 }
