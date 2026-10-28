@@ -56,7 +56,7 @@ func main() {
 
 ## 2. Create a Session and run a prompt
 
-A Session is created first, and a Run is a `POST` to it. Both answer JSON.
+A Session is created first, and a Run is a `POST` to it. Both answer JSON. The URL names an existing Session: a Run on an ID that was never created answers 404 `not_found`. (In Go, `Runner.Run` with an empty `SessionID` creates one for you; over HTTP you create it yourself.)
 
 ```bash
 curl -s -XPOST localhost:8080/v1/sessions -d '{"id":"s1"}'
