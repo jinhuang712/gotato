@@ -69,12 +69,8 @@ func encodeChatRequest(model string, request gotato.ModelRequest, rules provider
 		tools = append(tools, chatTool{Type: "function", Function: chatFunction{Name: name, Description: spec.Description, Parameters: parameters}})
 	}
 	payload := chatRequest{Model: model, Messages: messages, Tools: tools, Stream: true, StreamOptions: &chatStreamOptions{IncludeUsage: true}}
-	if request.Config.Temperature != nil || request.Config.MaxTokens != 0 {
-		payload.Temperature = request.Config.Temperature
-		if request.Config.MaxTokens != 0 {
-			payload.MaxTokens = request.Config.MaxTokens
-		}
-	}
+	payload.Temperature = request.Config.Temperature
+	payload.MaxTokens = request.Config.MaxTokens
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway: encode request: %w", err)
@@ -94,8 +90,8 @@ func convertChatMessage(message gotato.Message, names map[string]string, keepRea
 	}
 	if message.Role == gotato.RoleNotice {
 		// Chat Completions has no system message mid-conversation: a notice
-		// (G-F29) goes as a user message on the wire, tagged text, and the
-		// Record keeps it a notice.
+		// (G-F29) goes as a user message on the wire, and the Record keeps
+		// it a notice. Its tag comes from where the notice is built.
 		role = string(gotato.RoleUser)
 	}
 	if role != string(gotato.RoleUser) && role != string(gotato.RoleAssistant) {
@@ -184,6 +180,9 @@ type chatStream struct {
 	usage    gotato.Usage
 	model    string
 	finished bool
+	// err is the stream error a chunk carried, returned again by every Recv
+	// after it, so a second call never reads as a clean end.
+	err      error
 	restart  restarter
 	overflow overflowMatcher
 }
@@ -242,6 +241,9 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if s.err != nil {
+		return gotato.ModelEvent{}, s.err
+	}
 	for len(s.queue) == 0 {
 		if s.finished {
 			return gotato.ModelEvent{}, io.EOF
@@ -280,7 +282,8 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 			if message == "" {
 				message = chunk.Error.Type
 			}
-			return gotato.ModelEvent{}, s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
+			s.err = s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
+			return gotato.ModelEvent{}, s.err
 		}
 		s.processChunk(chunk)
 	}
@@ -300,6 +303,7 @@ func (s *chatStream) reopen(response *http.Response) {
 	s.queue = nil
 	s.finish = ""
 	s.usage = gotato.Usage{}
+	s.model = ""
 }
 
 func (s *chatStream) processChunk(chunk chatChunk) {
@@ -393,8 +397,6 @@ func chatStopReason(reason string) gotato.StopReason {
 		return gotato.StopReasonMaxTokens
 	case "content_filter":
 		return gotato.StopReasonError
-	case "stop", "":
-		return gotato.StopReasonEndTurn
 	default:
 		return gotato.StopReasonEndTurn
 	}
