@@ -255,6 +255,12 @@ type Runner struct {
 	warmClosed    bool
 	warmSeq       uint64
 
+	// unreleased holds the Sessions whose release write failed. The Claim
+	// still names this Instance, so the Session is marked busy under a live
+	// holder until the heartbeat writes the release again (repairReleases).
+	releaseMu  sync.Mutex
+	unreleased map[string]struct{}
+
 	// instanceFeed is the Instance's stream; feeds are the Feeds of the
 	// Records in use, one per Session ID and epoch, each mirrored to it (see
 	// events.go).

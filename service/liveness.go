@@ -235,6 +235,7 @@ func (r *Runner) renewals(stop, done chan struct{}) {
 			ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
 			_ = r.renew(ctx)
 			cancel()
+			r.repairReleases()
 		}
 	}
 }

@@ -81,8 +81,13 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 		r.keepWarm(writer, spec)
 	}
 	// Only the release failed: every fact of the Run is stored, so the
-	// Run keeps its status. The warning Events above tell the operator,
-	// and the Claim lapses with the Liveness row.
+	// Run keeps its status. The warning Events above tell the operator.
+	// The Session is still marked busy, and this Instance is alive, so its
+	// Liveness row would never end the Claim: the heartbeat writes the
+	// release again (repairReleases).
+	if saveErr != nil && wroteAll {
+		r.markUnreleased(s.ID())
+	}
 	if saveErr != nil && !wroteAll {
 		// An earlier write of the Run failed, and the Writer refuses
 		// the release too: keep the Run error and add the persistence
