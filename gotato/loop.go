@@ -268,7 +268,10 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 				return postErr
 			}
 			toolResult = finalized
-			toolResult, spillErr := a.spill(runCtx, runID, turn, call.ToolID, toolResult)
+			// The Tool already ran: a canceled Run still stores its body.
+			spillCtx, cancelSpill := finalContext(runCtx)
+			toolResult, spillErr := a.spill(spillCtx, runID, turn, call.ToolID, toolResult)
+			cancelSpill()
 			if spillErr != nil {
 				return spillErr
 			}
