@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,130 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
+
+func TestTwoInstancesForwardToTheWriter(t *testing.T) {
+	store, err := session.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	a := newInstance(t, store, "pod-a", gatedModel(started, release))
+	b := newInstance(t, store, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
+		t.Error("instance B must not call its model")
+		return testkit.Text("wrong"), nil
+	}))
+
+	ctx := context.Background()
+	id := sessionIDFor(rootMsg)
+	if _, err := a.runner.CreateSessionExclusive(ctx, "fake", id, map[string]string{metaChatID: chat, metaThread: rootMsg}); err != nil {
+		t.Fatal(err)
+	}
+	// A's Run starts without A's bot seeing a Lark message, so A has no
+	// message to reply to: its reply goes to the thread's root (metadata fallback).
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		_, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"})
+	}()
+	<-started
+
+	// The Lark event for the same chat lands on B.
+	b.bot.handle(ctx, chat, rootMsg, "om_2", "second")
+
+	close(release)
+	<-runDone
+	waitFor(t, "A's reply", func() bool { return len(a.sender.all()) >= 1 })
+	time.Sleep(200 * time.Millisecond) // a second post would show up by now
+
+	got := a.sender.all()
+	if len(got) != 1 {
+		t.Fatalf("A posted %d messages, want 1: %+v", len(got), got)
+	}
+	if got[0].replyTo != rootMsg {
+		t.Fatalf("A did not fall back to the thread's root message: %+v", got[0])
+	}
+	card := parseCard(t, got[0].content)
+	if want := "session " + shortID(id) + " · instance pod-a · fake"; card.Elements[1].Elements[0].Content != want {
+		t.Fatalf("footer = %q, want %q", card.Elements[1].Elements[0].Content, want)
+	}
+	if n := len(b.sender.all()); n != 0 {
+		t.Fatalf("B posted %d messages, want 0", n)
+	}
+	// The forwarded text reached A's Run as a follow-up user message, after "first".
+	rec, err := a.runner.Record(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var users []string
+	for _, m := range rec.Messages() {
+		if m.Role == gotato.RoleUser {
+			users = append(users, gotato.TextOf(m))
+		}
+	}
+	if len(users) != 2 || users[0] != "first" || users[1] != "second" {
+		t.Fatalf("user messages in the Transcript = %q", users)
+	}
+	if b.model.Calls() != 0 {
+		t.Fatal("B called its model")
+	}
+}
+
+// A writer whose handler answers not_writer again must not be forwarded to a second time, and the user hears it once.
+func TestForwardLoopIsNotCreated(t *testing.T) {
+	var hits atomic.Int32
+	var forwarded atomic.Value
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		forwarded.Store(r.Header.Get(httpapi.ForwardedHeader))
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"code":"not_writer","message":"not_writer"}`)
+	}))
+	defer peer.Close()
+	b := &bot{log: logger(t), client: peer.Client(), label: "pod-b", model: "fake"}
+	snd := &fakeSender{}
+	b.send = snd
+	if err := b.forward(context.Background(), peer.URL, "lark-x", "hi"); err == nil {
+		t.Fatal("a second not_writer must be an error")
+	}
+	if hits.Load() != 1 || forwarded.Load() != "true" {
+		t.Fatalf("hits=%d forwarded header=%v", hits.Load(), forwarded.Load())
+	}
+}
+
+func TestFailedForwardTellsTheUserOnce(t *testing.T) {
+	store, err := session.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	a := newInstance(t, store, "pod-a", gatedModel(started, release))
+	b := newInstance(t, store, "pod-b", testkit.NewFuncModel(func(context.Context, gotato.ModelRequest) (testkit.Script, error) {
+		return testkit.Text("wrong"), nil
+	}))
+	b.bot.retry = retryPolicy{} // no retry: the failed forward is told at once
+	ctx := context.Background()
+	id := sessionIDFor(rootMsg)
+	if _, err := a.runner.CreateSessionExclusive(ctx, "fake", id, map[string]string{metaChatID: chat, metaThread: rootMsg}); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = a.runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "first"}) }()
+	<-started
+	a.srv.Close() // the writer is alive in the store, but its endpoint is gone
+
+	b.bot.handle(ctx, chat, rootMsg, "om_2", "second")
+
+	got := b.sender.all()
+	if len(got) != 1 || got[0].replyTo != "om_2" {
+		t.Fatalf("B sent %+v, want one reply to om_2", got)
+	}
+	if body := parseCard(t, got[0].content).Elements[0].Content; body != busyNotice {
+		t.Fatalf("notice = %q", body)
+	}
+	if n := len(a.sender.all()); n != 0 {
+		t.Fatalf("A posted %d, want 0", n)
+	}
+}
 
 // larkInstance is one bot in `-lark-events http` mode: it receives events on
 // /lark/event and posts cards through the Lark client pointed at the fake.

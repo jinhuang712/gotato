@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -77,27 +76,6 @@ func TestSeenSet(t *testing.T) {
 	if !s.add("a") || s.add("a") || !s.add("b") || !s.add("c") || !s.add("a") {
 		t.Fatal("seen set order/eviction wrong")
 	}
-}
-
-type testCard struct {
-	Header struct {
-		Template string
-		Title    struct{ Content string }
-	}
-	Elements []struct {
-		Tag      string
-		Content  string
-		Elements []struct{ Tag, Content string }
-	}
-}
-
-func parseCard(t *testing.T, content string) testCard {
-	t.Helper()
-	var c testCard
-	if err := json.Unmarshal([]byte(content), &c); err != nil {
-		t.Fatalf("card is not JSON: %v", err)
-	}
-	return c
 }
 
 var testInfo = cardInfo{Session: "lark-oc_1", Instance: "pod-a", Model: "demo"}
