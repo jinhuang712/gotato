@@ -354,3 +354,184 @@ func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
 		t.Fatalf("transcript = %v", got)
 	}
 }
+
+// holdBeforeRelease starts a Run and holds it after run_ended, when it takes no
+// message any more and still holds the Session.
+func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
+	t.Helper()
+	return holdBeforeReleaseOn(t, session.NewMemoryStore())
+}
+
+// holdBeforeReleaseOn is holdBeforeRelease over the given Store.
+func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
+	t.Helper()
+	runner, err := service.New(service.Config{
+		Store:  store,
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	hold = newHold()
+	runner.SetBeforeRelease(hold.hook)
+	s, err := runner.CreateSession(context.Background(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id = s.ID()
+	done = make(chan service.RunResponse, 1)
+	go func() {
+		result, _ := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "hello"})
+		done <- result
+	}()
+	select {
+	case <-hold.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Run never reached the end")
+	}
+	return runner, id, hold, done
+}
+
+// A message that arrives after run_ended and before the Run releases the
+// Session waits for the release and runs in the next Run; it is not busy.
+func TestAMessageWhileARunIsEndingRunsInTheNextRun(t *testing.T) {
+	runner, id, hold, done := holdBeforeRelease(t)
+	type sent struct {
+		result service.MessageResult
+		err    error
+	}
+	answered := make(chan sent, 1)
+	go func() {
+		result, err := runner.Send(context.Background(), service.MessageRequest{SessionID: id, Kind: service.MessageKindFollowUp, Text: "again"})
+		answered <- sent{result, err}
+	}()
+	select {
+	case got := <-answered:
+		t.Fatalf("Send answered before the Run released the Session: %+v, %v", got.result, got.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(hold.proceed)
+	if first := <-done; first.FinalText != "echo: hello" {
+		t.Fatalf("first Run = %q", first.FinalText)
+	}
+	select {
+	case got := <-answered:
+		if got.err != nil || got.result.Queued || got.result.Run == nil || got.result.Run.FinalText != "echo: again" {
+			t.Fatalf("Send = %+v, %v; want a following Run answering \"echo: again\"", got.result, got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send never answered")
+	}
+}
+
+// The wait is bounded by the caller's context.
+func TestAMessageWhileARunIsEndingGivesUpWithItsContext(t *testing.T) {
+	runner, id, hold, done := holdBeforeRelease(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := runner.Send(ctx, service.MessageRequest{SessionID: id, Kind: service.MessageKindSteer, Text: "again"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Send = %v; want the context's deadline", err)
+	}
+	close(hold.proceed)
+	<-done
+}
+
+// A Stop in the same window finds no Run to stop, and a notice waits for the
+// next Run like any notice between Runs.
+func TestAStopAndANoticeWhileARunIsEnding(t *testing.T) {
+	runner, id, hold, done := holdBeforeRelease(t)
+	err := runner.AbortSession(context.Background(), id)
+	t.Logf("AbortSession in the window: %v", err)
+	if err != nil && !errors.Is(err, service.ErrNoRun) {
+		t.Fatalf("AbortSession = %v; want nil or ErrNoRun", err)
+	}
+	answered := make(chan error, 1)
+	go func() {
+		_, err := runner.Notice(context.Background(), service.NoticeRequest{SessionID: id, Kind: "info", Text: "fyi"})
+		answered <- err
+	}()
+	close(hold.proceed)
+	<-done
+	if err := <-answered; err != nil {
+		t.Fatalf("Notice = %v", err)
+	}
+}
+
+// AbortRun(first) names a Run that already settled (its end is
+// stored, only its save is pending). Its documented answer is ErrNoRun, "already
+// stopped". The handle still carries the first Run's ID and its stopped flag
+// is never cleared by rearm, so the call succeeds and cancels the Run that
+// follows with the messages the first one left.
+func TestAbortOfSettledRunMustNotStopTheFollowOnRun(t *testing.T) {
+	store := newKindGate(session.NewMemoryStore(), gotato.EventKindSessionReleased)
+	releaseHold := store.holds[gotato.EventKindSessionReleased]
+	inFirst, failFirst := make(chan struct{}), make(chan struct{})
+	inSecond, leaveSecond := make(chan struct{}), make(chan struct{})
+	var model *testkit.FuncModel
+	model = testkit.NewFuncModel(func(ctx context.Context, _ gotato.ModelRequest) (testkit.Script, error) {
+		if model.Calls() == 1 {
+			close(inFirst)
+			<-failFirst
+			return nil, errors.New("provider down")
+		}
+		close(inSecond)
+		select {
+		case <-leaveSecond:
+			return testkit.Text("second"), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	runner := newRunnerOn(t, store, service.Agent{Name: "a", Model: model, Warm: service.WarmPolicy{TTL: -1}})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	s, err := runner.CreateSession(ctx, "a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := runner.SubscribeInstance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := testkit.RecordSubscription(sub)
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "one"}) }()
+	waitChan(t, "the first model call", inFirst)
+	// A message the first Run will not take before it fails: it is left for
+	// the Run that follows.
+	if r, err := runner.Send(ctx, service.MessageRequest{SessionID: s.ID(), Kind: service.MessageKindSteer, Text: "late"}); err != nil || !r.Queued {
+		t.Fatalf("Send = %+v, %v", r, err)
+	}
+	var first gotato.RunID
+	rec.Wait(5*time.Second, func(e gotato.Event) bool {
+		if e.Kind() == gotato.EventKindRunStarted {
+			first = e.Head().RunID
+		}
+		return first != ""
+	})
+	close(failFirst)
+	waitChan(t, "the first Run's release write", releaseHold.entered)
+	// The first Run is settled and its end is stored; only its save is held.
+	abortErr := runner.AbortSession(ctx, s.ID(), service.AbortRun(first))
+	close(releaseHold.proceed)
+	if !errors.Is(abortErr, service.ErrNoRun) {
+		t.Errorf("AbortRun(settled run) = %v, want ErrNoRun", abortErr)
+	}
+	waitChan(t, "second model call", inSecond)
+	close(leaveSecond)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ended := rec.OfKind(gotato.EventKindRunEnded)
+		if len(ended) >= 2 {
+			if second := ended[1].(gotato.RunEnded); second.Status != gotato.RunStatusCompleted {
+				t.Fatalf("the follow-on Run ended %q, want completed (it was never the target of the abort)", second.Status)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("follow-on Run never ended; kinds %v, model calls %d", rec.Kinds(), model.Calls())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
