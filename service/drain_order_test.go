@@ -159,3 +159,46 @@ func TestDrainTimeoutDefaultsToTenSeconds(t *testing.T) {
 		t.Fatalf("DefaultDrainTimeout = %v, want 10s", service.DefaultDrainTimeout)
 	}
 }
+
+// stubbornModel blocks in Stream until released, whatever its context says.
+type stubbornModel struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *stubbornModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
+	close(m.started)
+	<-m.release
+	return testkit.NewFakeModel(testkit.Text("late")).Stream(context.Background(), gotato.ModelRequest{})
+}
+
+// A model call that ignores its context keeps the Run going after Drain
+// stopped it; Drain still returns after the stop wait.
+func TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext(t *testing.T) {
+	ctx := context.Background()
+	model := &stubbornModel{started: make(chan struct{}), release: make(chan struct{})}
+	a, err := service.New(service.Config{
+		Store: session.NewMemoryStore(), Liveness: steadyLiveness,
+		Agents: []service.Agent{{Name: "echo", Model: model}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { close(model.release); _ = a.Close(ctx) })
+	a.SetDrainStopWait(300 * time.Millisecond)
+	go func() { _, _ = a.Run(ctx, service.RunRequest{Prompt: "go"}) }()
+	<-model.started
+
+	drainCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Drain(drainCtx) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Drain = %v, want its context's error", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Drain is held by a model call that ignores its context")
+	}
+}

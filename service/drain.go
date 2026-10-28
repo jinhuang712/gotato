@@ -103,7 +103,7 @@ func (r *Runner) Drain(ctx context.Context) error {
 		r.stopAll()
 		select {
 		case <-drained:
-		// [LIVENESS] Drain waits for stopped Runs only so long.
+		// [LIVENESS] a Run that ignores its stop would hold Drain for good. Test: TestDrainReturnsAfterTheStopWaitForAModelThatIgnoresItsContext
 		case <-time.After(r.stopWait()):
 		}
 		r.dropAllWarm("drain")
