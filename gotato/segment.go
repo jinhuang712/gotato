@@ -65,16 +65,25 @@ func (s Segment) Numbers() []int {
 	return out
 }
 
-// SegmentSource says which part of which Record a Segment covers.
-type SegmentSource struct {
+// RecordRef names the Record that holds some Entries, and the epoch the
+// reference was made in. It is the "which Record" of a SegmentSource and of a
+// SpilledResult, and it is flat in JSON.
+type RecordRef struct {
 	// SessionID names the Session whose Record holds the Entries, or is
-	// empty when it is the Record the Segment is in. A Segment a fork
-	// inherits names its parent here.
+	// empty when it is the Record the reference is in. What a fork inherits
+	// names its parent here.
 	SessionID SessionID `json:"session_id,omitempty"`
 	// RecordEpoch is the epoch of that Record when SessionID is set. A read
 	// treats the Entries as removed when the Record under SessionID has another
-	// epoch, since it was deleted and created again.
+	// epoch, since it was deleted and created again, so a fork never reads
+	// another Session's Entry as its own history.
 	RecordEpoch string `json:"record_epoch,omitempty"`
+}
+
+// SegmentSource says which part of which Record a Segment covers. The Record is
+// the RecordRef: a Segment a fork inherits names its parent.
+type SegmentSource struct {
+	RecordRef
 	// FromNumber and ToNumber are the numbers of the first and the last
 	// Entry of the stretch, both included.
 	FromNumber uint64 `json:"from_number,omitempty"`

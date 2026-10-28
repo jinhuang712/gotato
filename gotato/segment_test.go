@@ -12,7 +12,7 @@ func TestSegmentClosedRoundTrips(t *testing.T) {
 	at := time.Date(2026, 10, 24, 10, 2, 0, 0, time.UTC)
 	segment := gotato.Segment{
 		Number: 2, From: at, To: at.Add(time.Hour),
-		Source:   gotato.SegmentSource{SessionID: "parent", FromNumber: 3, ToNumber: 40},
+		Source:   gotato.SegmentSource{RecordRef: gotato.RecordRef{SessionID: "parent"}, FromNumber: 3, ToNumber: 40},
 		Messages: []gotato.Message{{ID: "m1", Role: gotato.RoleUser, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "hi"}}}},
 		Rendered: 1,
 		ToolCalls: []gotato.ToolCallLine{
@@ -53,7 +53,7 @@ func TestMergedSegmentNamesWhatItStandsFor(t *testing.T) {
 	at := time.Date(2026, 10, 24, 10, 2, 0, 0, time.UTC)
 	merged := gotato.Segment{Number: 7, Merged: []gotato.MergedSegment{
 		{Number: 1, From: at, To: at.Add(time.Hour), Source: gotato.SegmentSource{FromNumber: 3, ToNumber: 40}},
-		{Number: 2, Source: gotato.SegmentSource{SessionID: "parent", FromNumber: 41, ToNumber: 60}},
+		{Number: 2, Source: gotato.SegmentSource{RecordRef: gotato.RecordRef{SessionID: "parent"}, FromNumber: 41, ToNumber: 60}},
 	}}
 	if got := merged.Numbers(); !reflect.DeepEqual(got, []int{1, 2}) {
 		t.Fatalf("Numbers = %v, want [1 2]", got)
