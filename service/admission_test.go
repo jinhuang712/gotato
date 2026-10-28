@@ -212,3 +212,11 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 		t.Fatal("Run did not return after AbortSession")
 	}
 }
+
+// A negative limit is a mistake in the Config, for runs as it is for Sessions.
+func TestNewRefusesANegativeMaxActiveRuns(t *testing.T) {
+	_, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{{Name: "a", Model: testkit.EchoModel{}}}, Admission: service.Admission{MaxActiveRuns: -1}})
+	if err == nil {
+		t.Fatal("New accepted MaxActiveRuns -1")
+	}
+}

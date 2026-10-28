@@ -163,6 +163,8 @@ const (
 
 // Admission bounds concurrent work. Zero values disable a bound.
 type Admission struct {
+	// MaxActiveRuns is the limit on the Runs this Instance has in flight. Zero
+	// means no limit; a negative value is refused by New.
 	MaxActiveRuns int
 	// MaxActiveSessions is the hard limit on the Sessions this Instance
 	// keeps: those a Run holds, counted once however many Runs wait on them,
@@ -350,6 +352,9 @@ func New(cfg Config) (*Runner, error) {
 	r.beat.instance = r.newName()
 	if r.clock == nil {
 		r.clock = systemClock{}
+	}
+	if r.admission.MaxActiveRuns < 0 {
+		return nil, errors.New("service: MaxActiveRuns cannot be negative")
 	}
 	if r.admission.MaxActiveSessions < 0 {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
