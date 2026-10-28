@@ -60,7 +60,7 @@ func (r *Runner) repairReleases() {
 }
 
 // repairRelease releases one Session, under the Session lock when it is free;
-// a Session with a Run on it is not waited for. It reports whether the Session
+// a Session with a Run on it is not waited for and stays marked. It reports whether the Session
 // needs no more attempts.
 func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	record, err := session.Open(ctx, r.store, sessionID)
@@ -72,8 +72,9 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 		return true
 	}
 	if err := r.locks.acquire(ctx, sessionID, false, nil); err != nil {
-		// A Session with a Run on it again is released by that Run.
-		return errors.Is(err, ErrBusy)
+		// A Session with a Run on it may have been marked by that Run, which
+		// settles inside the lock: keep the mark and try again next tick.
+		return false
 	}
 	defer r.locks.release(sessionID)
 	writer, early, _, err := r.acquire(ctx, sessionID)

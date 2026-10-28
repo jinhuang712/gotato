@@ -19,6 +19,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **Fixed: a failed write could leave a Session busy under a healthy instance for good.** Every exit that holds a Claim (a Run, Compact, Notice, SetToolActive, the idle compaction, a Run that cannot start, a delete) now has the heartbeat open the Session again and release it when a write or the release failed, not only when the release alone failed.
 - **Fixed: `AbortSession` skipped the store while a Run was still loading.** It now reads the Session through the store with the caller's context at every stage of the Run, so a caller the store refuses cannot stop a Run that has no live Session yet. An abort of a Run on a Session the store does not know is `not_found`.
 - **Fixed: a delete could remove a Session that another instance had just started a Run on.** `DeleteSession` now claims the Session, as a Run does, before it deletes: an instance that claims it after the delete looked is refused as busy, or wins and keeps its Session. The `Store` interface and its contract do not change.
+- **Fixed: the heartbeat no longer forgets a Session whose Run still holds it.** A repair pass that found the Session busy under a Run dropped its mark, though that Run may have set the mark itself. Now the mark stays and the next tick tries again.
 
 ## 0.2.0 — 2026-10-28
 
