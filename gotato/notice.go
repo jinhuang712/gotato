@@ -129,27 +129,30 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: MessageSourceNotice, Why: why})
 		return 0, err
 	}
-	if a.noticeLen() >= a.noticeLimit {
+	// The check and the claim of the place are one step: the Event is written
+	// outside the lock, and the place is held meanwhile.
+	a.noticeMu.Lock()
+	full := len(a.notices)+a.noticeHeld >= a.noticeLimit
+	if !full {
+		a.noticeHeld++
+	}
+	a.noticeMu.Unlock()
+	if full {
 		return reject("queue_full", runtimeError(CodeLimitExceeded, "Notice", "notice queue is full", nil))
 	}
 	written, werr := a.writeEvents(ctx, []Event{NoticeQueued{
 		Header: a.nowHeader(), MessageID: message.ID, NoticeKind: message.Notice.Kind,
 		Source: message.Notice.Source, Text: TextOf(message),
 	}})
+	a.noticeMu.Lock()
+	defer a.noticeMu.Unlock()
+	a.noticeHeld--
 	if werr != nil {
 		return 0, werr
 	}
 	number := written[0].Head().Number
-	a.noticeMu.Lock()
 	a.notices = append(a.notices, control{message: message, source: MessageSourceNotice, seq: a.ctlSeq.Add(1), number: number})
-	a.noticeMu.Unlock()
 	return number, nil
-}
-
-func (a *Session) noticeLen() int {
-	a.noticeMu.Lock()
-	defer a.noticeMu.Unlock()
-	return len(a.notices)
 }
 
 // takeNotices removes and returns the queued notices, in order.

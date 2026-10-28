@@ -188,6 +188,11 @@ type Session struct {
 	noticeMu    sync.Mutex
 	notices     []control
 	noticeLimit int
+	// noticeHeld counts the places in notices that a Notice has claimed and
+	// not yet filled: its notice_queued Event is being written. The limit
+	// counts them, so two Notices cannot both pass a check that the first has
+	// not yet filled.
+	noticeHeld int
 
 	// intrMu guards the Interrupts that wait in steer (intrPending), and the
 	// cancellation of the model call in flight (callCancel).

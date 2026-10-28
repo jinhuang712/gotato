@@ -200,7 +200,7 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1), number: m.number}
 		if source == MessageSourceNotice {
 			a.noticeMu.Lock()
-			fits := len(a.notices) < a.noticeLimit
+			fits := len(a.notices)+a.noticeHeld < a.noticeLimit
 			if fits {
 				a.notices = append(a.notices, queued)
 			}
