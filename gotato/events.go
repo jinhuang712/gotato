@@ -166,8 +166,13 @@ type ToolOutcome struct {
 
 // ---- Runs and replies -------------------------------------------------------
 
-// RunStarted is published when a Run starts.
-type RunStarted struct{ Header }
+// RunStarted is published when a Run starts. RequestID is the caller's
+// identifier of the request that started the Run (WithRequestID), absent when
+// it gave none.
+type RunStarted struct {
+	Header
+	RequestID string `json:"request_id,omitempty"`
+}
 
 // RunEnded is published when a Run settles, with its status, its cause and its
 // stop reason. It does not carry the final text, which can be long: read it

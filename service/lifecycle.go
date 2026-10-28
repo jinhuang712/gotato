@@ -102,7 +102,18 @@ func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Re
 // returns not_writer (NotRun, Retryable) with the writer's advertised address,
 // as Send does. With no Run going anywhere it returns ErrNoRun, and for a
 // Session the store does not know (or refuses the caller), not_found.
-func (r *Runner) AbortSession(ctx context.Context, sessionID string) error {
+//
+// The call names a Session, so a repeat of an abort whose answer was lost
+// stops whatever Run is going now, which may be the next one. A caller that
+// retries passes AbortRun with the Run's ID: only that Run is stopped, and a
+// Run that is over already is ErrNoRun, which then means "already stopped".
+func (r *Runner) AbortSession(ctx context.Context, sessionID string, opts ...AbortOption) error {
+	var config abortConfig
+	for _, option := range opts {
+		if option != nil {
+			option(&config)
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -119,7 +130,7 @@ func (r *Runner) AbortSession(ctx context.Context, sessionID string) error {
 			return err
 		}
 	}
-	if r.abortSession(sessionID) {
+	if r.abortSession(sessionID, config.runID) {
 		return nil
 	}
 	if err := r.checkWriter(ctx, sessionID); err != nil {
@@ -129,22 +140,23 @@ func (r *Runner) AbortSession(ctx context.Context, sessionID string) error {
 }
 
 // abortSession cancels the started Run for a Session, or the oldest Run still
-// waiting for its lock when none has started.
-func (r *Runner) abortSession(sessionID string) bool {
+// waiting for its lock when none has started. With runID it cancels that Run
+// only, and nothing when it is not going here.
+func (r *Runner) abortSession(sessionID string, runID gotato.RunID) bool {
 	r.mu.Lock()
 	waiting := append([]*runHandle(nil), r.handles[sessionID]...)
 	r.mu.Unlock()
 	var chosen *runHandle
 	for _, handle := range waiting {
 		handle.mu.Lock()
-		started := handle.runID != ""
+		started, named := handle.runID != "", handle.runID == runID
 		handle.mu.Unlock()
-		if started {
+		if started && (runID == "" || named) {
 			chosen = handle
 			break
 		}
 	}
-	if chosen == nil && len(waiting) > 0 {
+	if chosen == nil && runID == "" && len(waiting) > 0 {
 		chosen = waiting[0]
 	}
 	if chosen == nil {

@@ -67,6 +67,10 @@ const (
 	// writer, whose advertised address is in Details["writer"] when it has
 	// one, it may succeed.
 	CodeNotWriter ErrorCode = "not_writer"
+	// CodeAlreadyExists means a Session with the ID the caller chose exists
+	// already, so a create or a fork with that ID did nothing. The ID is taken:
+	// choose another, or use the Session that has it.
+	CodeAlreadyExists ErrorCode = "already_exists"
 )
 
 // ErrorCodes lists every ErrorCode, so a layer that maps codes (a transport, a
@@ -80,6 +84,7 @@ func ErrorCodes() []ErrorCode {
 		CodeExtensionFailure, CodeLimitExceeded, CodeCanceled, CodeDeadlineExceeded,
 		CodeInternalInvariant, CodeNotSupported, CodeConflict, CodeStoreFailure,
 		CodeOverloaded, CodeDraining, CodeNotFound, CodeCannotResume, CodeNotWriter,
+		CodeAlreadyExists,
 	}
 }
 

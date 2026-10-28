@@ -22,6 +22,7 @@ type sessionConfig struct {
 	feed           *Feed
 	onRunStart     func(RunID)
 	handoff        bool
+	requestID      string
 }
 
 // WithFeed has the Session publish its Events to feed instead of a Feed of
@@ -37,6 +38,13 @@ func WithFeed(feed *Feed) SessionOption {
 		c.feed = feed
 		return nil
 	}
+}
+
+// WithRequestID sets the caller's identifier of the request that makes the
+// Session run. Every RunStarted of the Session carries it. The runtime records
+// it and does nothing else with it: it does not look for a repeated one.
+func WithRequestID(id string) SessionOption {
+	return func(c *sessionConfig) error { c.requestID = id; return nil }
 }
 
 // WithRunStart calls fn on the Session's goroutine with each Run's ID, as the

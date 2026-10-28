@@ -41,6 +41,7 @@ var statusOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeConflict:         http.StatusConflict,
 	gotato.CodeCannotResume:     http.StatusConflict,
 	gotato.CodeNotWriter:        http.StatusConflict,
+	gotato.CodeAlreadyExists:    http.StatusConflict,
 	gotato.CodeStoreFailure:     http.StatusServiceUnavailable,
 	gotato.CodeOverloaded:       http.StatusServiceUnavailable,
 	gotato.CodeDraining:         http.StatusServiceUnavailable,

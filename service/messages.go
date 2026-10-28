@@ -35,10 +35,20 @@ type MessageRequest struct {
 	// Kind defaults to MessageKindSteer.
 	Kind MessageKind
 	Text string
+	// RequestID is the caller's own identifier of this request, echoed in
+	// MessageResult.RequestID. When the message starts a Run it is recorded in
+	// that Run's run_started Event, as RunRequest.RequestID is. A message that a
+	// Run in flight takes is answered with the RequestID and the message's ID
+	// (MessageResult.MessageID), and the Record names the message by that ID
+	// alone. Gotato does not deduplicate: a message sent again with the same
+	// RequestID is a second message.
+	RequestID string
 }
 
 // MessageResult says what became of a message.
 type MessageResult struct {
+	// RequestID echoes MessageRequest.RequestID.
+	RequestID string `json:"request_id,omitempty"`
 	SessionID string `json:"session_id"`
 	// MessageID names the message in the Events that follow it
 	// (message_queued, message_committed, message_dropped), when a Run in
@@ -97,7 +107,7 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	if invalid := request.validate(); invalid != nil {
 		return MessageResult{}, notRunError(invalid)
 	}
-	result := MessageResult{SessionID: request.SessionID}
+	result := MessageResult{SessionID: request.SessionID, RequestID: request.RequestID}
 	message := gotato.UserMessage(request.Text)
 	message.ID = newMessageID()
 	queued, waited, err := r.queueToLiveRun(ctx, request, message)
@@ -111,7 +121,7 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	if err := r.checkWriter(ctx, request.SessionID); err != nil {
 		return result, err
 	}
-	run, err := r.runWith(ctx, RunRequest{SessionID: request.SessionID, Prompt: request.Text}, nil, waited)
+	run, err := r.runWith(ctx, RunRequest{SessionID: request.SessionID, Prompt: request.Text, RequestID: request.RequestID}, nil, waited)
 	// A Run that was refused before it ran (a missing Session, a drain, a full
 	// Instance) has no response to give: Run stays nil.
 	if err == nil || run.SessionID != "" {

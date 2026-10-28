@@ -91,6 +91,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
 		handoff:        cfg.handoff,
+		requestID:      cfg.requestID,
 	}
 	if journal, ok := cfg.transcript.(Journal); ok {
 		a.journal = journal
@@ -163,7 +164,9 @@ type Session struct {
 	// handoff keeps the messages still queued when a Run completes or fails,
 	// for the host to take (TakeQueued); see WithQueueHandoff.
 	handoff bool
-	ctlSeq  atomic.Uint64
+	// requestID is the caller's request identifier, recorded in RunStarted.
+	requestID string
+	ctlSeq    atomic.Uint64
 
 	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
 	// is written after them.

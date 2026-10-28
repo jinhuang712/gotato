@@ -371,13 +371,25 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record,
 
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
-func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
+func (r *Runner) Events(ctx context.Context, sessionID string, opts ...EventsOption) ([]gotato.Event, error) {
+	var config eventsConfig
+	for _, option := range opts {
+		if option != nil {
+			option(&config)
+		}
+	}
 	events, err := session.StoredEvents(ctx, r.store, sessionID, 0, 0)
 	return events, storeFailureOf(ctx, err, true)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first.
-func (r *Runner) Sessions(ctx context.Context) ([]session.RecordInfo, error) {
+func (r *Runner) Sessions(ctx context.Context, opts ...ListOption) ([]session.RecordInfo, error) {
+	var config listConfig
+	for _, option := range opts {
+		if option != nil {
+			option(&config)
+		}
+	}
 	list, err := r.store.List(ctx)
 	return list, storeFailureOf(ctx, err, true)
 }

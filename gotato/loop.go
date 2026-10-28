@@ -378,7 +378,7 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	defer endRun()
 
 	st := &runState{a: a, ctx: ctx, runCtx: runCtx, runID: runID, started: time.Now()}
-	a.stage(RunStarted{Header: st.header(0)})
+	a.stage(RunStarted{Header: st.header(0), RequestID: a.requestID})
 	if err := a.refreshToolSets(runCtx, st.header(0)); err != nil {
 		return st.fail(err)
 	}

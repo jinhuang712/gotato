@@ -27,7 +27,9 @@ var (
 	ErrUnknownAgent = notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown agent"))
 
 	// ErrSessionExists is returned when an explicit Session ID is already taken.
-	ErrSessionExists = gotato.ErrorOf(gotato.CodeInvalidState, "service: session already exists")
+	// It has its own code, already_exists, so a client can tell "the ID is
+	// taken" from the other invalid_state answers without reading the message.
+	ErrSessionExists = gotato.ErrorOf(gotato.CodeAlreadyExists, "service: session already exists")
 
 	// ErrDraining refuses a new Run, and taking a Session over from another
 	// Instance, once the Runner drains.

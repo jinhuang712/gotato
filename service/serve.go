@@ -161,7 +161,7 @@ func (st *runState) startRun(ctx context.Context, spec Agent) (*gotato.Session, 
 		handle.attachRunID(runID)
 		handle.abortIfStopped()
 	})
-	live, auto, err := r.buildSession(ctx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff())
+	live, auto, err := r.buildSession(ctx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff(), gotato.WithRequestID(st.request.RequestID))
 	if err != nil {
 		return nil, nil, err
 	}

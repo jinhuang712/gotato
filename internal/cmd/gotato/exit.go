@@ -83,6 +83,7 @@ var exitOfCode = map[gotato.ErrorCode]int{
 	gotato.CodeDraining:              ExitError,
 	gotato.CodeCannotResume:          ExitError,
 	gotato.CodeNotWriter:             ExitError,
+	gotato.CodeAlreadyExists:         ExitError,
 }
 
 // failErr reports an error and returns the exit code of its code.

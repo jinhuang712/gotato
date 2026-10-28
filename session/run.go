@@ -19,10 +19,13 @@ type RunInfo struct {
 	ToolCalls  uint32           `json:"tool_calls"`
 	Usage      gotato.Usage     `json:"usage"`
 	StopReason string           `json:"stop_reason,omitempty"`
+	// RequestID is the caller's identifier of the request that started the
+	// Run (RunStarted.RequestID).
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func runStarted(e gotato.RunStarted) RunInfo {
-	return RunInfo{RunID: e.RunID, Status: gotato.RunStatusRunning, StartedAt: e.Time.UTC()}
+	return RunInfo{RunID: e.RunID, Status: gotato.RunStatusRunning, StartedAt: e.Time.UTC(), RequestID: e.RequestID}
 }
 
 func runEnded(e gotato.RunEnded) RunInfo {
@@ -57,6 +60,7 @@ func (s *Record) endRun(run RunInfo) {
 			continue
 		}
 		run.StartedAt = s.runs[i].StartedAt
+		run.RequestID = s.runs[i].RequestID
 		s.runs[i] = run
 		found = true
 		break

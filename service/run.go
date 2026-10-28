@@ -37,10 +37,20 @@ type RunRequest struct {
 	// only: a Run that follows with the messages this one left keeps the
 	// Agent's RunTimeout.
 	Timeout time.Duration
+	// RequestID is the caller's own identifier of this request, such as one
+	// it keeps for its retries. It is recorded in the Record, in the Run's
+	// run_started Event (and so in its RunInfo), and echoed in
+	// RunResponse.RequestID. Gotato does not deduplicate: a request sent again
+	// with the same RequestID runs again, and the caller finds the earlier one
+	// by reading the Record. It is for observing a request, not yet for
+	// retrying it safely.
+	RequestID string
 }
 
 // RunResponse is the outcome of one Run plus the Session state it left.
 type RunResponse struct {
+	// RequestID echoes RunRequest.RequestID, set when the Run was admitted.
+	RequestID string           `json:"request_id,omitempty"`
 	SessionID string           `json:"session_id"`
 	Agent     string           `json:"agent"`
 	Model     string           `json:"model,omitempty"`
@@ -59,7 +69,23 @@ type RunResponse struct {
 	Reconnect *Reconnect `json:"reconnect,omitempty"`
 }
 
-// Run executes one Run synchronously.
+// Run executes one Run synchronously. It returns a response and an error
+// together, and the two answer different questions:
+//
+//   - err says whether the request succeeded as a whole: nil, a refusal before
+//     the Run started (the response is the zero RunResponse and the error says
+//     NotRun), or a failure of the Run itself or of saving it.
+//   - A Run that started is settled in the response whatever err is: its
+//     Result.Status, Result.Error, final text and usage describe it. A caller
+//     that returns early on err != nil discards a settled Run, tools run and
+//     all; read the response first when response.SessionID is not empty.
+//   - err is non-nil for a Run that failed or was canceled, with the same error
+//     as Result.Error, and for a Run whose Record could not be written
+//     (ErrNotPersisted, with Result.Status failed). A Run that completed has
+//     err nil, also when only the release of its Session failed.
+//
+// The zero response, with an empty SessionID, therefore means the request did
+// not run; a non-empty SessionID means a Run started and settled.
 func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResponse, error) {
 	return r.run(ctx, request, nil)
 }
@@ -72,8 +98,8 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResponse, erro
 // the sink falls behind on is read again from the Record. A sink error is
 // advisory: it stops delivery, not the Run. StreamRun returns after the Run
 // settles and its last Event has been delivered.
-func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error) (RunResponse, error) {
-	return r.StreamRunAdmitted(ctx, request, nil, sink)
+func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
+	return r.StreamRunAdmitted(ctx, request, nil, sink, opts...)
 }
 
 // StreamRunAdmitted is StreamRun with a call, on the caller's goroutine, once
@@ -82,7 +108,13 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 // returns its error without the call, so an endpoint can still answer the
 // request with a status of its own before it starts to stream. A nil sink
 // still gets the call, and its Events are not delivered.
-func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error) (RunResponse, error) {
+func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
+	var config streamRunConfig
+	for _, option := range opts {
+		if option != nil {
+			option(&config)
+		}
+	}
 	if sink == nil {
 		if admitted == nil {
 			return r.run(ctx, request, nil)
@@ -195,6 +227,9 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		}
 	}()
 	out, err := r.serve(ctx, runCtx, request, stream, handle, nil)
+	if out.SessionID != "" {
+		out.RequestID = request.RequestID
+	}
 	if next := handle.takeNext(); len(next) > 0 {
 		// Messages the Run accepted after its last point of taking them run in
 		// a Run that follows it, on this Instance and under the same

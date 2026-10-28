@@ -167,7 +167,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Telemetry adapters | an Instance's Events mapped onto OpenTelemetry | — | later |
 | Model catalog | model names and prices | — | later |
 | Provider rate-limit information | limits and reset time, reported with usage | — | later |
-| Request IDs and idempotency keys | on the HTTP endpoints | — | later |
+| Idempotency keys | a repeated request ID is not run twice; a `RequestID` is recorded and echoed already, and nothing looks for a repeat | — | later |
 | Examples | small programs for common uses, such as a persistent Session or forks | G-F24 | later |
 | Token budget per Run | a cap on the tokens one Run may spend; a `TurnStopper` does it today | — | later |
 | Paging and filtering the Session list | for services with many Sessions | — | later |
@@ -277,12 +277,16 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 | `not_writer` ([G-F26](#g-f26--steering-a-run-)) | yes | yes, at the writer named in the error | a message or a Stop for a Run that another instance writes. The error carries the writer's advertised address (`Details["writer"]`, read with `service.WriterOf`), when it has one. |
 | `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` carries it. |
 | `session_closing`, `session_closed` | yes | no | the live Session takes no more calls |
+| `already_exists` | not marked | no | the Session ID the caller chose is taken (`service.ErrSessionExists`). It is its own code, so a client tells it from the other `invalid_state` answers without reading the message. |
 | `store_failure` | not known for a write of a Run's step; yes for a load, a create, a delete, a read or a renewal of the Liveness row, and for the Claim that opens a Run | yes | the store could not write or read. The store's own error is its `Cause`. |
 | `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `Retryable() bool` |
 | `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
 
 - A code is a `gotato.Code…` constant of type `ErrorCode`, and its name matches its string: `gotato.CodeBusy` is `busy`. A sentinel error is an `Err…` variable that carries a code: `service.ErrBusy` has `busy`, and `session.ErrExists`, `session.ErrExpired`, `service.ErrNotPersisted`, `modelctx.ErrBadRecap` and the other sentinels carry a code too.
 - `errors.Is(err, sentinel)` matches the sentinel itself or an error that wraps it, so two sentinels that share a code (`session.ErrExists` and `session.ErrExpired` are both `invalid_state`) are told apart. `gotato.IsCode(err, code)` matches any error of a code. A variant of a sentinel with a message of its own sets its `Cause` to the sentinel. Both functions look through wrapped and joined errors.
+- **`Runner.Run` returns a response and an error together.** `err` says whether the request succeeded as a whole; the response describes a Run that started, whatever `err` is. A refusal before the Run started is the zero response with an error marked not run; a non-empty `SessionID` means a Run started and settled, so a caller that returns on `err != nil` before it reads the response discards a settled Run. The doc of `Run` has the three cases.
+- **A request can carry the caller's own ID.** `RunRequest.RequestID` and `MessageRequest.RequestID` are recorded in the `run_started` Event (and the Run's `RunInfo`) of the Run the request starts, and echoed in the response. Gotato does not deduplicate in 0.2.0: a repeated ID runs again. A message that a Run in flight takes is echoed and named by its message ID; the Record does not hold its request ID.
+- **Calls that will grow take an options tail.** `AbortSession`, `Sessions`, `Events`, `StreamRun`, `StreamRunAdmitted` and `StreamSession` end with `opts ...Option` (`AbortOption`, `ListOption`, `EventsOption`, `StreamRunOption`, `SessionStreamOption`), so a later release adds an option and no caller changes. Only `AbortRun` exists today.
 - `gotato.ErrorCodes()` lists every code, and each surface keeps one table from code to its status, so a new code fails a test until every surface maps it.
 - `not_writer` is the one code whose retry has a place to go: the writer's address, which the writer advertised in its Liveness row ([G-F27](#g-f27--service-many-instances-)). HTTP maps it and carries the address (*A message for a Run that another instance writes*, in G-F26).
 - HTTP only translates ([G-F14](#g-f14--http-and-streaming-)). A service that embeds the Runner reads the same answers from `err` and `RunResponse`:
@@ -336,7 +340,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
 
 | Surface | Message | Stop |
 |---|---|---|
-| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageKindSteer` (the default), `MessageKindFollowUp` or `MessageKindInterrupt` | `Runner.AbortSession` |
+| Go API | `Runner.Send(ctx, service.MessageRequest{SessionID, Kind, Text})`, with `Kind` `service.MessageKindSteer` (the default), `MessageKindFollowUp` or `MessageKindInterrupt` | `Runner.AbortSession(ctx, id, opts...)`; `service.AbortRun(runID)` stops that Run only |
 | HTTP | `POST /v1/sessions/{id}/messages` with `{"kind", "text"}` | `POST /v1/sessions/{id}/abort` |
 
 - A Run in flight on this instance takes the message: the answer is that it is queued, with the message's ID (HTTP 202). The Events that follow it (`message_queued`, `message_committed`, `message_dropped`) are in the Session's stream, on every endpoint ([G-F13](#g-f13--events-)). The Go API's own `gotato.Session` takes the same messages with `Steer`, `FollowUp`, `Interrupt` and `Abort`.
@@ -352,7 +356,7 @@ Turn 1 ──► Turn 2 ──► Turn 3 ──► (would settle) ──► Turn
   - it takes the Session lock like a Run that waits for it, whatever the busy policy, so the one-Run-per-Session rule holds. It counts as the admitted Run until the last following Run ends, so a drain waits for it and `MaxActiveRuns` does not count it twice;
   - the caller of the first Run gets that Run's result, as before, and the caller of `Send` got its 202. Neither gets the following Run's: it is in the Session's stream and the Instance's stream (`run_started`, `message_committed`, `run_ended`) and in the Record. A Stop reaches it like any Run.
 - **When leftovers are dropped instead.** Only for a cause that ends the work: the Run was stopped, canceled or past its deadline (`message_dropped`, `run_ended`); the instance is draining (`draining`); the Run's writer failed (`writer_failed`); the following Run's queues are full (`queue_full`); the following Run failed before its live Session took them (`run_failed`: the store failed to open the Session, it was deleted, its Agent is no longer configured, the writer was fenced); or the Session was closed with the message still in a queue (`session_closed`, a safety net for a Go user of `gotato.Session` who set `WithQueueHandoff` and did not take them). A `run_failed` drop is written in the Record when the following Run opened it and can still write, and reaches the Session's and the Instance's streams; when nothing can be written (the store is down, the Session is gone), it reaches the Instance's stream alone and is not stored. A writer that dies loses them with it, as it loses any accepted message, but the Record does not keep them open: the instance that takes the Session over writes a `message_dropped` with `writer_gone` for each `message_queued` the dead writer left, before it ends the interrupted Run, so a sender who holds a 202 can learn the message did not take effect. The drop reads the Record since its last Checkpoint; a message queued before a compaction in the same Run is not seen.
-- A Stop with no Run going anywhere fails with `invalid_state` (`service.ErrNoRun`).
+- A Stop with no Run going anywhere fails with `invalid_state` (`service.ErrNoRun`). A Stop names a Session, so a repeat of one whose answer was lost stops whatever Run is going now, which may be the next one; a caller that retries names the Run (`service.AbortRun(runID)`), and a named Run that is over is `ErrNoRun` too, which then means "already stopped, safe to ignore".
 
 Each kind takes effect at its own point:
 
@@ -1494,7 +1498,7 @@ The same thing is written the same way on every Event. A duration is a number of
 
 | Event | When | Kept |
 |---|---|---|
-| `run_started`, `run_ended` | a Run starts, and settles with its status, its cause and its stop reason | Record |
+| `run_started`, `run_ended` | a Run starts (with the caller's `request_id`, when it gave one), and settles with its status, its cause and its stop reason | Record |
 | `turn_started`, `turn_ended` | a Turn starts, and ends with its usage | Record |
 | `context_built` | a Turn's Context is built, with its prefix hash and sizes | Record |
 | `reply_started`, `reply_ended` | the model's reply starts, and ends with the Message, the model that answered and why it stopped; a call that fails or is refused before any output ends at the next `reply_started`, `turn_ended` or `run_ended`, with no `reply_ended` | Record |
@@ -1727,7 +1731,7 @@ Ideas worth building once they are needed. None has a milestone yet.
 | Telemetry adapters | a package that subscribes to an Instance's Events and maps them onto OpenTelemetry. Teams can write their own today ([G-N11](#g-n11--telemetry-backends-belong-to-applications)). |
 | Model catalog | model names and prices next to the providers. A model's window is never looked up: it comes from `context_window_tokens` in its gateway configuration (G-F07). |
 | Provider rate-limit information | limits, remaining calls and reset time reported with usage, so a service can slow itself down |
-| Request IDs and idempotency keys | on the HTTP endpoints |
+| Idempotency keys | a repeated request ID is not run twice (a `RequestID` is recorded and echoed already) |
 | G-F24 — Examples | one-shot use, a persistent Session, compaction, forks, dynamic tools |
 | Token budget per Run | a `TurnStopper` can already cap the tokens one Run spends |
 | Paging and filtering the Session list | matters at population scale, after one writer per Session across instances |
