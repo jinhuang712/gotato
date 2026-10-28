@@ -141,3 +141,23 @@ func toolCounts(lines []gotato.ToolCallLine) string {
 	}
 	return fmt.Sprintf("%d tool calls: %s", total, strings.Join(parts, ", "))
 }
+
+// clip cuts s at limit characters with an ellipsis.
+func clip(s string, limit int) string {
+	if runes := []rune(s); len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return s
+}
+
+// withoutHeading returns a Recap on one line, without the `## ` headings.
+func withoutHeading(recap string) string {
+	var kept []string
+	for line := range strings.SplitSeq(recap, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			continue
+		}
+		kept = append(kept, strings.TrimPrefix(strings.TrimSpace(line), "- "))
+	}
+	return oneLine(strings.Join(kept, " "))
+}
