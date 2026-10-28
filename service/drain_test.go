@@ -268,3 +268,76 @@ func TestDrainDeadlineStopsRunsAndSaysReconnect(t *testing.T) {
 		checkReleased(t, store, id, "instance-a")
 	}
 }
+
+func TestCapacityAndDrain(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	store := session.NewMemoryStore()
+	runner, _ := service.New(service.Config{
+		Store:     store,
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
+		Admission: service.Admission{MaxActiveRuns: 1},
+	})
+	ctx := context.Background()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = runner.Run(ctx, service.RunRequest{Prompt: "first"})
+	}()
+	waitFor(t, func() bool { return runner.ActiveRuns() == 1 })
+	if _, err := runner.Run(ctx, service.RunRequest{Prompt: "second"}); !errors.Is(err, service.ErrCapacity) {
+		t.Fatalf("capacity err = %v", err)
+	}
+	drainCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if err := runner.Drain(drainCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("drain err = %v, want deadline (run was canceled after grace)", err)
+	}
+	<-done
+	if _, err := runner.Run(ctx, service.RunRequest{Prompt: "after"}); !errors.Is(err, service.ErrDraining) {
+		t.Fatalf("after drain err = %v", err)
+	}
+}
+
+func TestDrainCancelsQueuedRun(t *testing.T) {
+	block := make(chan struct{})
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	model.Block = block
+	runner, _ := service.New(service.Config{
+		Store:     session.NewMemoryStore(),
+		Agents:    []service.Agent{{Name: "slow", Model: model}},
+		Admission: service.Admission{Queue: service.QueuePolicyWait, MaxActiveRuns: 4},
+	})
+	ctx := context.Background()
+	s, _ := runner.CreateSession(ctx, "slow", nil)
+
+	go func() { _, _ = runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "first"}) }()
+	waitFor(t, func() bool { return model.Calls() == 1 })
+
+	queued := make(chan service.RunResponse, 1)
+	go func() {
+		result, _ := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "second"})
+		queued <- result
+	}()
+	waitFor(t, func() bool { return runner.ActiveRuns() == 2 })
+
+	drainCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := runner.Drain(drainCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("drain err = %v, want deadline", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("drain waited %v for a queued run", elapsed)
+	}
+	select {
+	case result := <-queued:
+		if result.Result.Status != gotato.RunStatusCanceled {
+			t.Fatalf("queued status = %q, want canceled", result.Result.Status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain left the queued run running")
+	}
+	close(block)
+}

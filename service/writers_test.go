@@ -537,3 +537,206 @@ func commit(t *testing.T, w *session.Writer, message gotato.Message) {
 		t.Fatal(err)
 	}
 }
+
+// claimsOf returns the session_claimed Events of the Record.
+func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.SessionClaimed {
+	t.Helper()
+	record, err := runner.Record(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims []gotato.SessionClaimed
+	for _, event := range record.Events() {
+		if claimed, ok := event.(gotato.SessionClaimed); ok {
+			claims = append(claims, claimed)
+		}
+	}
+	return claims
+}
+
+// The first Run of a new Session writes session_claimed (new_session) before
+// the Run's own Events; a Run on an existing Session claims it again (idle),
+// and the end of that Run writes session_released.
+func TestRunWritesClaimAndRelease(t *testing.T) {
+	store := session.NewMemoryStore()
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	ctx := context.Background()
+	first, err := a.Run(ctx, service.RunRequest{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims := claimsOf(t, a, first.SessionID); len(claims) != 1 || claims[0].Why != gotato.ClaimWhyNewSession ||
+		!isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].From != "" {
+		t.Fatalf("claims = %+v, want one: instance-a at epoch 1 for a new_session", claims)
+	}
+	// The first Run of a new Session releases it too: it is busy from its
+	// creation until then.
+	if firstRecord, err := a.Record(ctx, first.SessionID); err != nil {
+		t.Fatal(err)
+	} else if events := firstRecord.Events(); events[len(events)-1].Kind() != gotato.EventKindSessionReleased {
+		t.Fatalf("the first Run left the Record at %v, want session_released last", numbered(events))
+	}
+	result, err := a.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "again"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := a.Record(ctx, result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := record.Events()
+	claimed, started, ended, released := -1, -1, -1, -1
+	for i, event := range events {
+		switch event.Kind() {
+		case gotato.EventKindSessionClaimed:
+			claimed = i
+		case gotato.EventKindRunStarted:
+			started = i
+		case gotato.EventKindRunEnded:
+			ended = i
+		case gotato.EventKindSessionReleased:
+			released = i
+		}
+	}
+	if claimed < 0 || started < 0 || ended < 0 || released < 0 || claimed >= started || started >= ended || ended >= released {
+		t.Fatalf("Events = %v, want session_claimed, run_started, run_ended, session_released in that order", numbered(events))
+	}
+	claim := events[claimed].(gotato.SessionClaimed)
+	if claim.Why != gotato.ClaimWhyIdle || !isInstance(claim.Instance, "instance-a") || claim.Epoch != 1 {
+		t.Fatalf("claim = %+v, want instance-a at epoch 1, why idle", claim)
+	}
+	release := events[released].(gotato.SessionReleased)
+	if !isInstance(release.Instance, "instance-a") || release.Epoch != 1 {
+		t.Fatalf("release = %+v, want instance-a at epoch 1", release)
+	}
+	if released != len(events)-1 {
+		t.Fatalf("the Record goes on after session_released: %v", numbered(events))
+	}
+}
+
+// Another Instance that takes over an idle Session writes session_claimed at
+// the next Epoch and names the Instance it took the Session from.
+func TestTakeoverWritesClaimWithNextEpochAndFrom(t *testing.T) {
+	store := session.NewMemoryStore()
+	a := instanceRunner(t, store, "instance-a", testkit.EchoModel{}, steadyLiveness)
+	b := instanceRunner(t, store, "instance-b", testkit.EchoModel{}, steadyLiveness)
+	ctx := context.Background()
+	first, err := a.Run(ctx, service.RunRequest{Prompt: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	claims := claimsOf(t, b, first.SessionID)
+	if len(claims) != 2 {
+		t.Fatalf("claims = %+v, want two", claims)
+	}
+	if !isInstance(claims[0].Instance, "instance-a") || claims[0].Epoch != 1 || claims[0].Why != gotato.ClaimWhyNewSession {
+		t.Fatalf("first claim = %+v", claims[0])
+	}
+	if got := claims[1]; !isInstance(got.Instance, "instance-b") || got.Epoch != 2 || !isInstance(got.From, "instance-a") || got.Why != gotato.ClaimWhyIdle {
+		t.Fatalf("takeover claim = %+v, want instance-b at epoch 2, from instance-a, why idle", got)
+	}
+}
+
+// deadHolders makes an Instance see every other Instance as not alive, as if
+// their Liveness rows had expired, so it takes over a Session that is busy.
+type deadHolders struct {
+	session.Store
+	self string
+}
+
+func (s deadHolders) Instance(ctx context.Context, id string) (session.InstanceState, error) {
+	if !isInstance(id, s.self) {
+		return session.InstanceState{ID: id}, nil
+	}
+	return s.Store.Instance(ctx, id)
+}
+
+// A write the store refuses because another Instance took the Claim is
+// published as a session_fenced Instance Event, and the fenced Instance writes
+// nothing more.
+func TestFencedWritePublishesSessionFenced(t *testing.T) {
+	ctx := context.Background()
+	backing := session.NewMemoryStore()
+	held := &gateModel{gate: make(chan struct{}), started: make(chan struct{})}
+	a := instanceRunner(t, backing, "instance-a", held, steadyLiveness)
+	b := instanceRunner(t, deadHolders{Store: backing, self: "instance-b"}, "instance-b", testkit.EchoModel{}, steadyLiveness)
+	fenced := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
+		return event.Kind() == gotato.EventKindSessionFenced
+	}))
+	s, err := a.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "slow"})
+		done <- err
+	}()
+	<-held.started
+	if _, err := b.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "taken"}); err != nil {
+		t.Fatalf("instance-b taking over the Session = %v", err)
+	}
+	close(held.gate)
+	if err := <-done; err == nil {
+		t.Fatal("the fenced Run succeeded")
+	}
+	if !fenced.Wait(5*time.Second, func(event gotato.Event) bool { return true }) {
+		t.Fatal("no session_fenced was published to instance-a's Instance stream")
+	}
+	event, ok := fenced.Events()[0].(gotato.SessionFenced)
+	if !ok || !isInstance(event.Instance, "instance-a") || string(event.SessionID) != s.ID() {
+		t.Fatalf("event = %+v, want session_fenced by instance-a for %s", fenced.Events()[0], s.ID())
+	}
+	// The fenced Instance wrote nothing after the takeover: its reply is not
+	// in the Record.
+	record, err := b.Record(ctx, s.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range record.Messages() {
+		if gotato.TextOf(message) == "released" {
+			t.Fatalf("the fenced Instance's reply is in the Record: %v", record.Messages())
+		}
+	}
+}
+
+// A Liveness row that lapsed publishes liveness_lapsed once, however many
+// writes are then refused.
+func TestLapsedLivenessPublishesOnce(t *testing.T) {
+	ctx := context.Background()
+	backing := session.NewMemoryStore()
+	paused := &pausableStore{Store: backing}
+	a := instanceRunner(t, paused, "instance-a", testkit.EchoModel{}, fastLiveness)
+	lapsed := instanceRecorder(t, a, gotato.SubscribeFilter(func(event gotato.Event) bool {
+		return event.Kind() == gotato.EventKindLivenessLapsed
+	}))
+	s, err := a.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused.paused.Store(true)
+	time.Sleep(2 * fastLiveness.TTL)
+	var refused atomic.Int32
+	for range 3 {
+		if _, err := a.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "late"}); err != nil && !errors.Is(err, context.Canceled) {
+			refused.Add(1)
+		}
+	}
+	if refused.Load() != 3 {
+		t.Fatalf("%d of 3 late Runs were refused", refused.Load())
+	}
+	if !lapsed.Wait(5*time.Second, func(gotato.Event) bool { return true }) {
+		t.Fatal("no liveness_lapsed was published")
+	}
+	time.Sleep(100 * time.Millisecond)
+	events := lapsed.Events()
+	if len(events) != 1 {
+		t.Fatalf("liveness_lapsed was published %d times, want once", len(events))
+	}
+	if event, ok := events[0].(gotato.LivenessLapsed); !ok || !isInstance(event.Instance, "instance-a") {
+		t.Fatalf("event = %+v, want liveness_lapsed of instance-a", events[0])
+	}
+}
