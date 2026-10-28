@@ -103,6 +103,7 @@ func (r *Runner) Drain(ctx context.Context) error {
 		r.stopAll()
 		select {
 		case <-drained:
+		// [LIVENESS] Drain waits for stopped Runs only so long.
 		case <-time.After(r.stopWait()):
 		}
 		r.dropAllWarm("drain")

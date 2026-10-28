@@ -46,6 +46,7 @@ import (
 // the terminal Session write and the cleanup delete, as the Writer bounds each
 // of its own writes.
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	// [DATA-LOSS] the terminal write of a canceled Run still happens, and a stalled Store cannot hold it for good.
 	return context.WithTimeout(context.WithoutCancel(ctx), session.WriteTimeout)
 }
 
@@ -353,6 +354,7 @@ func New(cfg Config) (*Runner, error) {
 	if r.clock == nil {
 		r.clock = systemClock{}
 	}
+	// [CONTRACT] a negative MaxActiveRuns is refused, as MaxActiveSessions is, so a typo does not read as no limit.
 	if r.admission.MaxActiveRuns < 0 {
 		return nil, errors.New("service: MaxActiveRuns cannot be negative")
 	}

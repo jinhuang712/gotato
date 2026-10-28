@@ -27,6 +27,7 @@ func (r *Runner) settle(writer *session.Writer, releaseErr error) {
 	if releaseErr == nil && writer.Failed() == nil {
 		return
 	}
+	// [OWNERSHIP] a Record that another Instance holds or that is gone is not ours to give back.
 	if lostRace(releaseErr) && !lapsed(releaseErr) {
 		// Another Instance holds the Record, or it is gone: nothing is ours to give back.
 		return
@@ -56,6 +57,7 @@ func (r *Runner) repairReleases() {
 	r.releaseMu.Unlock()
 	// One bound for the whole pass, so that a slow store cannot hold back the
 	// next renewal.
+	// [LIVENESS] a slow store cannot hold back the next Liveness renewal.
 	ctx, cancel := context.WithTimeout(context.Background(), r.liveness.TTL/3)
 	defer cancel()
 	for _, id := range ids {
@@ -79,9 +81,11 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 		// A Session that is gone has nothing to release.
 		return errors.Is(err, session.ErrNotFound)
 	}
+	// [OWNERSHIP] only a Claim held by this Instance is released here.
 	if claim, busy := record.Holder(); !busy || claim.Instance != r.id() {
 		return true
 	}
+	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick.
 	if err := r.locks.acquire(ctx, sessionID, false, nil); err != nil {
 		// A Session with a Run on it may have been marked by that Run, which
 		// settles inside the lock: keep the mark and try again next tick.

@@ -86,6 +86,7 @@ func (r *Runner) open(ctx context.Context, sessionID string) (*session.Writer, [
 		}
 		if (!errors.Is(err, errHolderBusy) && !errors.Is(err, session.ErrConflict)) || lapsed(err) {
 			if gotato.IsCode(err, gotato.CodeStoreFailure) {
+				// [LIVENESS] a Claim that landed with no Writer would hold the Session busy under this Instance for good.
 				// The claim write may have landed, with no Writer to release it.
 				r.markUnreleased(sessionID)
 			}
