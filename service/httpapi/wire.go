@@ -44,19 +44,29 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(into); err != nil {
-		if errors.Is(err, io.EOF) {
-			// An absent body, including a chunked request with no data, is not
-			// malformed JSON.
-			return nil
-		}
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			return errBodyTooLarge
-		}
-		return fmt.Errorf("invalid JSON body: %w", err)
+	err := decoder.Decode(into)
+	if errors.Is(err, io.EOF) {
+		// An absent body, including a chunked request with no data, is not
+		// malformed JSON.
+		return nil
 	}
-	return nil
+	if err == nil {
+		// The body is one value: anything after it but white space is
+		// refused, so a request is not run on a body that says more than it
+		// was read for.
+		var next json.RawMessage
+		switch err = decoder.Decode(&next); {
+		case errors.Is(err, io.EOF):
+			return nil
+		case err == nil:
+			err = errors.New("data after the JSON value")
+		}
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return errBodyTooLarge
+	}
+	return fmt.Errorf("invalid JSON body: %w", err)
 }
 
 // writeDecodeError reports a request-parsing failure: 413 for an oversized
