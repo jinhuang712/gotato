@@ -16,15 +16,15 @@ import (
 // ReadSegmentID is the ID of the built-in tool that reads a Segment back.
 const ReadSegmentID = "read_segment"
 
-// DefaultReadSegmentPageBytes is the most one page of a read_segment result
+// defaultReadSegmentPageBytes is the most one page of a read_segment result
 // holds, in bytes of text: about 8K tokens, so a
 // long Segment is read page by page and one call never fills the Context.
-const DefaultReadSegmentPageBytes = gotato.SpillPageBytes
+const defaultReadSegmentPageBytes = gotato.SpillPageBytes
 
 // ReadSegmentConfig controls ReadSegmentTool.
 type ReadSegmentConfig struct {
 	// PageBytes is the most one page holds, in bytes. 0 means
-	// DefaultReadSegmentPageBytes.
+	// defaultReadSegmentPageBytes.
 	PageBytes int
 	// Location is the time zone of the times in the result; nil means UTC.
 	Location *time.Location
@@ -32,7 +32,7 @@ type ReadSegmentConfig struct {
 
 func (c ReadSegmentConfig) pageBytes() int {
 	if c.PageBytes <= 0 {
-		return DefaultReadSegmentPageBytes
+		return defaultReadSegmentPageBytes
 	}
 	return max(c.PageBytes, 256)
 }

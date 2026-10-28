@@ -20,7 +20,7 @@ func tailStart(stretch []gotato.Message, cfg CompactConfig) int {
 	case cfg.KeepMessages > 0:
 		cut = turnCut(stretch, len(stretch)-cfg.KeepMessages)
 	default:
-		budget := orDefault(cfg.TailTokens, DefaultTailTokens)
+		budget := orDefault(cfg.TailTokens, defaultTailTokens)
 		base := cfg.WindowTokens
 		if base <= 0 {
 			base = cfg.CeilingTokens

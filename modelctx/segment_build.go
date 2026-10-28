@@ -16,18 +16,18 @@ import (
 
 // The defaults of a Segment built by code (FEATURES.md → G-F06, Settings).
 const (
-	// DefaultMessageTokens is how long a user Message or a final reply may be
+	// defaultMessageTokens is how long a user Message or a final reply may be
 	// in a Segment before it is cut, in estimated tokens (bytes ÷ 4).
-	DefaultMessageTokens = 2000
-	// DefaultToolLines is how many tool call lines a Segment shows before it
+	defaultMessageTokens = 2000
+	// defaultToolLines is how many tool call lines a Segment shows before it
 	// counts the rest by tool name.
-	DefaultToolLines = 100
-	// DefaultArgChars is how many characters of a tool call's arguments a
+	defaultToolLines = 100
+	// defaultArgChars is how many characters of a tool call's arguments a
 	// line quotes.
-	DefaultArgChars = 200
-	// DefaultTailTokens is the most the kept tail holds when a compaction
+	defaultArgChars = 200
+	// defaultTailTokens is the most the kept tail holds when a compaction
 	// names no KeepMessages and no TailTokens.
-	DefaultTailTokens = 20000
+	defaultTailTokens = 20000
 )
 
 // SegmentSettings are the settings of a Segment built by code. A zero value
@@ -95,7 +95,7 @@ func buildSegment(number int, closed []gotato.Message, recap string, settings Se
 	segment.Source = gotato.SegmentSource{FromNumber: first.Number, ToNumber: last.Number}
 
 	items := collect(closed, settings, number, position)
-	limitLines(items, orDefault(settings.ToolLines, DefaultToolLines))
+	limitLines(items, orDefault(settings.ToolLines, defaultToolLines))
 	for _, it := range items {
 		segment.ToolCalls = append(segment.ToolCalls, it.lines...)
 	}
@@ -204,8 +204,8 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 		}
 	}
 	final := finalReplies(closed)
-	argChars := orDefault(settings.ArgChars, DefaultArgChars)
-	limit := orDefault(settings.MessageTokens, DefaultMessageTokens)
+	argChars := orDefault(settings.ArgChars, defaultArgChars)
+	limit := orDefault(settings.MessageTokens, defaultMessageTokens)
 
 	var items []item
 	var pending []gotato.ToolCallLine

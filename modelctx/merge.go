@@ -14,26 +14,26 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// DefaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most
+// defaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most
 // the Segments together may hold, in estimated tokens (bytes ÷ 4), when the
 // model has no known window and neither the Agent nor the Session sets a
-// ceiling. With a ceiling, the budget is half of it (SegmentsBudget).
-const DefaultSegmentsBudgetTokens = 32000
+// ceiling. With a ceiling, the budget is half of it (segmentsBudget).
+const defaultSegmentsBudgetTokens = 32000
 
-// SegmentsBudget returns the most the Segments of a Context may hold, in
+// segmentsBudget returns the most the Segments of a Context may hold, in
 // estimated tokens, under the ceiling in force: half of it, or
-// DefaultSegmentsBudgetTokens when there is no ceiling (ceiling 0). When the
-// Segments pass it, the oldest are merged (MergeSegments).
-func SegmentsBudget(ceiling int) int {
+// defaultSegmentsBudgetTokens when there is no ceiling (ceiling 0). When the
+// Segments pass it, the oldest are merged (a merge).
+func segmentsBudget(ceiling int) int {
 	if ceiling > 0 {
 		return max(ceiling/2, 1)
 	}
-	return DefaultSegmentsBudgetTokens
+	return defaultSegmentsBudgetTokens
 }
 
 // MergeRecapWriter is a RecapWriter that also writes the Recap of a merge of
 // the oldest Segments, from their Recaps alone. A writer that is not one, such
-// as NoRecap and TruncateRecap, leaves the merged Segment with a digest built
+// as TruncateRecap, leaves the merged Segment with a digest built
 // by code (mergeDigest). ModelRecap is one.
 type MergeRecapWriter interface {
 	RecapWriter
@@ -71,14 +71,14 @@ const (
 	MergeReasonWriteFailed MergeReason = "write_failed"
 )
 
-// MergeDigestName is the Recap name recorded for a merge whose Recap is the
+// mergeDigestName is the Recap name recorded for a merge whose Recap is the
 // digest built by code.
-const MergeDigestName = "digest"
+const mergeDigestName = "digest"
 
-// MergeConfig controls MergeSegments.
+// MergeConfig controls a merge of the oldest Segments.
 type MergeConfig struct {
 	// BudgetTokens is the most the Segments together may hold, in estimated
-	// tokens. 0 means SegmentsBudget(CeilingTokens).
+	// tokens. 0 means segmentsBudget(CeilingTokens).
 	BudgetTokens int
 	// CeilingTokens is the ceiling in force, 0 for none, which sets the
 	// default BudgetTokens and is recorded.
@@ -93,7 +93,7 @@ type MergeConfig struct {
 	Location *time.Location
 }
 
-// MergeResult reports a MergeSegments call. Merged is true only when the
+// MergeResult reports a merge. Merged is true only when the
 // Segments were merged; Reason says why not otherwise.
 type MergeResult struct {
 	Merged bool        `json:"merged"`
@@ -122,7 +122,7 @@ type MergeResult struct {
 // too, so the seam is the one place a test can fault both paths.
 var mergeSegments = (*session.Record).MergeSegments
 
-// MergeSegments merges the oldest Segments of the Context into one merged
+// mergeOldest merges the oldest Segments of the Context into one merged
 // Segment when the Segments together pass their budget (cfg.BudgetTokens). It
 // takes the oldest until the Segments left fit in half the budget, and at least
 // two, and the merged Segment, which keeps their numbers in <segment n="1-3">,
@@ -139,13 +139,13 @@ var mergeSegments = (*session.Record).MergeSegments
 // compaction_started and a compaction_ended Event, or a compaction_failed.
 //
 // It must not run while a Run is using the Session.
-func MergeSegments(ctx context.Context, s *session.Record, cfg MergeConfig) (MergeResult, error) {
+func mergeOldest(ctx context.Context, s *session.Record, cfg MergeConfig) (MergeResult, error) {
 	if s == nil {
 		return MergeResult{}, errors.New("modelctx: session is nil")
 	}
 	budget := cfg.BudgetTokens
 	if budget <= 0 {
-		budget = SegmentsBudget(cfg.CeilingTokens)
+		budget = segmentsBudget(cfg.CeilingTokens)
 	}
 	result := MergeResult{BudgetTokens: budget}
 	segments := s.Segments()
@@ -209,7 +209,7 @@ func pickOldest(segments []gotato.Segment, budget int, result *MergeResult) int 
 func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replaced []gotato.Segment, why gotato.CompactionWhy, result *MergeResult) (name, recap string, recapErr, err error) {
 	writer, ok := cfg.Recap.(MergeRecapWriter)
 	if !ok {
-		return MergeDigestName, mergeDigest(replaced, cfg.Location), nil, nil
+		return mergeDigestName, mergeDigest(replaced, cfg.Location), nil, nil
 	}
 	message, writeErr := writer.WriteMergeRecap(ctx, MergeRequest{Segments: replaced, Location: cfg.Location})
 	if ctxErr := ctx.Err(); ctxErr != nil {

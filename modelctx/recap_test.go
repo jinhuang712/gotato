@@ -205,15 +205,6 @@ func TestTheModelsRecapIsOffByDefault(t *testing.T) {
 	if result.Compaction.Recap != "none" || f.rec.Segments()[0].Recap != "" || calls != 0 {
 		t.Fatalf("recap = %q, Context built %d times; no writer is set", result.Compaction.Recap, calls)
 	}
-	if (modelctx.NoRecap{}).Name() != "none" {
-		t.Errorf("NoRecap name = %q", modelctx.NoRecap{}.Name())
-	}
-	f = newFixture(t)
-	threeRuns(f)
-	result = mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.NoRecap{}})
-	if result.Compaction.Recap != "none" || f.rec.Segments()[0].Recap != "" {
-		t.Fatalf("NoRecap wrote a Recap: %+v", result.Compaction)
-	}
 }
 
 func TestTheRecapOutputLimitIsConfigurable(t *testing.T) {

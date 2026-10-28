@@ -44,19 +44,6 @@ type RecapWriter interface {
 	WriteRecap(context.Context, RecapRequest) (gotato.Message, error)
 }
 
-// NoRecap writes none: the Segment is its conversation and its tool call
-// lines. It is what a compaction does when no writer is set, so a model's
-// Recap is always a choice.
-type NoRecap struct{}
-
-// Name implements RecapWriter.
-func (NoRecap) Name() string { return "none" }
-
-// WriteRecap implements RecapWriter.
-func (NoRecap) WriteRecap(context.Context, RecapRequest) (gotato.Message, error) {
-	return gotato.Message{}, nil
-}
-
 // TruncateRecap is the deterministic writer for tests and for use without a
 // Model: it lists the text of the closed Messages by role and truncates to
 // MaxChars (default 2000).

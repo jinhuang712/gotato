@@ -63,7 +63,7 @@ func sizes(segments []gotato.Segment) (out []int, total int) {
 
 func mustMerge(t *testing.T, rec *session.Record, opts modelctx.MergeConfig) modelctx.MergeResult {
 	t.Helper()
-	result, err := modelctx.MergeSegments(context.Background(), rec, opts)
+	result, err := modelctx.MergeOldest(context.Background(), rec, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestTheNextMergeTakesTheMergedSegmentWithTheOldestAfterIt(t *testing.T) {
 // cannot write a merge, and it is deterministic.
 func TestAMergeWithoutAModelWritesADigestByCode(t *testing.T) {
 	var digests []string
-	for _, writer := range []modelctx.RecapWriter{nil, modelctx.NoRecap{}, modelctx.TruncateRecap{}} {
+	for _, writer := range []modelctx.RecapWriter{nil, modelctx.TruncateRecap{}} {
 		f := newFixture(t)
 		threeRuns(f)
 		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentBudgetTokens: 1 << 30, SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}})
@@ -294,9 +294,6 @@ func TestSegmentsUnderTheirBudgetOrAloneAreNotMerged(t *testing.T) {
 
 // The budget is half the ceiling, or a default with no ceiling.
 func TestTheSegmentsBudgetIsHalfTheCeilingOrADefault(t *testing.T) {
-	if modelctx.DefaultSegmentsBudgetTokens != 32000 {
-		t.Errorf("the default budget is %d, want 32000", modelctx.DefaultSegmentsBudgetTokens)
-	}
 	for _, tc := range []struct {
 		name   string
 		policy modelctx.CompactPolicy
@@ -312,7 +309,7 @@ func TestTheSegmentsBudgetIsHalfTheCeilingOrADefault(t *testing.T) {
 			t.Errorf("%s: budget = %d, want %d", tc.name, got, tc.want)
 		}
 	}
-	if modelctx.SegmentsBudget(0) != modelctx.DefaultSegmentsBudgetTokens || modelctx.SegmentsBudget(1000) != 500 {
+	if modelctx.SegmentsBudget(0) != 32000 || modelctx.SegmentsBudget(1000) != 500 {
 		t.Error("SegmentsBudget does not halve the ceiling, or lacks a default")
 	}
 }
@@ -435,7 +432,7 @@ func TestAMergeWhoseRecapFailsMergesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := segmentsFixture(t, 4, numberedRecap{})
 			beforeMessages, beforeSegments := bytesOf(t, f.rec.Messages()), len(f.rec.Segments())
-			result, err := modelctx.MergeSegments(f.ctx, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}})
+			result, err := modelctx.MergeOldest(f.ctx, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}})
 			if err != nil || result.Merged || result.Reason != modelctx.MergeReasonRecapFailed || result.Error == "" {
 				t.Fatalf("result = %+v, err = %v", result, err)
 			}
@@ -475,7 +472,7 @@ func TestAMergeWhoseModelFailsOrIsStoppedMergesNothing(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := modelctx.MergeSegments(ctx, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: errModel{ctx.Err()}}})
+	_, err := modelctx.MergeOldest(ctx, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: errModel{ctx.Err()}}})
 	if !errors.Is(err, context.Canceled) || len(f.rec.Segments()) != 4 {
 		t.Fatalf("err = %v, %d Segments", err, len(f.rec.Segments()))
 	}

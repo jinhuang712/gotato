@@ -4,6 +4,8 @@ package modelctx
 
 var (
 	MergeDigest            = mergeDigest
+	MergeOldest            = mergeOldest
+	SegmentsBudget         = segmentsBudget
 	MergeRecapAsk          = mergeRecapAsk
 	MergeRecapModelRequest = mergeRecapModelRequest
 )

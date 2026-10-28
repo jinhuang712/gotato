@@ -15,21 +15,21 @@ import (
 // back, a sibling of read_segment.
 const ReadResultID = gotato.ReadResultToolID
 
-// DefaultReadResultPageBytes is the most one page of a read_result result
+// defaultReadResultPageBytes is the most one page of a read_result result
 // holds: the page of read_segment, and the size past which a Tool Result is
 // spilled.
-const DefaultReadResultPageBytes = gotato.SpillPageBytes
+const defaultReadResultPageBytes = gotato.SpillPageBytes
 
 // ReadResultConfig controls ReadResultTool.
 type ReadResultConfig struct {
 	// PageBytes is the most one page holds, in bytes. 0 means
-	// DefaultReadResultPageBytes.
+	// defaultReadResultPageBytes.
 	PageBytes int
 }
 
 func (c ReadResultConfig) pageBytes() int {
 	if c.PageBytes <= 0 {
-		return DefaultReadResultPageBytes
+		return defaultReadResultPageBytes
 	}
 	return max(c.PageBytes, 256)
 }

@@ -215,7 +215,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	failMerges(t)
 	record := threeSegments(t)
 	before := len(record.Events())
-	result, err := MergeSegments(context.Background(), record, MergeConfig{BudgetTokens: 1})
+	result, err := mergeOldest(context.Background(), record, MergeConfig{BudgetTokens: 1})
 	if err != nil || result.Merged || result.Reason != MergeReasonWriteFailed || !strings.Contains(result.Error, "disk gone") {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}

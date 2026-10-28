@@ -59,8 +59,8 @@ type CompactConfig struct {
 	Why gotato.CompactionWhy
 	// SegmentBudgetTokens is the most the Segments together may hold, in
 	// estimated tokens, before the oldest are merged right after the
-	// Segment closes (MergeSegments). 0 means SegmentsBudget(CeilingTokens):
-	// half the ceiling, or DefaultSegmentsBudgetTokens with none.
+	// Segment closes (a merge). 0 means segmentsBudget(CeilingTokens):
+	// half the ceiling, or defaultSegmentsBudgetTokens with none.
 	SegmentBudgetTokens int
 	// SegmentSettings are the limits and the time zone of the Segment.
 	SegmentSettings
@@ -221,7 +221,7 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 	// The Segments may now pass their budget: the oldest merge, in a
 	// Checkpoint of their own. A merge that fails leaves the Segment just
 	// closed in place, and the Segments unmerged.
-	merge, err := MergeSegments(ctx, s, MergeConfig{
+	merge, err := mergeOldest(ctx, s, MergeConfig{
 		BudgetTokens: cfg.SegmentBudgetTokens, CeilingTokens: cfg.CeilingTokens, Recap: cfg.Recap, Why: why, Location: cfg.Location,
 	})
 	if err != nil {

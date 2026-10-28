@@ -133,7 +133,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	merge := result.Merge
 	if !result.Replaced {
 		// Nothing to close, but the Segments may still pass their budget.
-		merged, err := MergeSegments(ctx, a.session, MergeConfig{
+		merged, err := mergeOldest(ctx, a.session, MergeConfig{
 			BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 		})
 		if err != nil {
@@ -168,7 +168,7 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 		}
 	}
 	a.compacted = true
-	merge, err := MergeSegments(ctx, a.session, MergeConfig{
+	merge, err := mergeOldest(ctx, a.session, MergeConfig{
 		BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 	})
 	return gotato.TurnPrepared{Changed: merge.Merged}, err
