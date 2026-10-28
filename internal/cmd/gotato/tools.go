@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -66,17 +67,38 @@ func (c *cli) cmdTools(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	agent, err := rt.resolveAgent(flags.model, c.getenv)
+	listing, err := c.listTools(ctx, rt, flags, *sessionID)
 	if err != nil {
 		return c.failErr(err)
+	}
+	switch sub {
+	case "list", "ls":
+		return c.printToolList(listing)
+	case "active":
+		return c.printActiveTools(listing)
+	case "describe":
+		return c.describeTool(listing, positionals)
+	case "activate", "deactivate":
+		return c.setToolActive(ctx, rt, sub, *sessionID, positionals)
+	default:
+		return c.usageError("unknown tools subcommand " + sub)
+	}
+}
+
+// listTools reads the tool surface of the agent the flags and the session
+// select.
+func (c *cli) listTools(ctx context.Context, rt *cliRuntime, flags modelFlags, sessionID string) (toolListing, error) {
+	agent, err := rt.resolveAgent(flags.model, c.getenv)
+	if err != nil {
+		return toolListing{}, err
 	}
 	// Runner.Tools resolves an empty agent to the session's stored agent, or
 	// the first registered agent when there is no session. Mirror that here so
 	// the listing reports the agent that actually selected the surface.
-	if agent == "" && *sessionID != "" {
-		s, err := session.Open(ctx, rt.store, *sessionID)
+	if agent == "" && sessionID != "" {
+		s, err := session.Open(ctx, rt.store, sessionID)
 		if err != nil {
-			return c.failErr(err)
+			return toolListing{}, err
 		}
 		agent, _ = s.Get(service.MetaAgent)
 	}
@@ -85,77 +107,86 @@ func (c *cli) cmdTools(args []string) int {
 			agent = names[0]
 		}
 	}
-	entries, err := rt.runner.Tools(ctx, agent, *sessionID)
+	entries, err := rt.runner.Tools(ctx, agent, sessionID)
 	if err != nil {
-		return c.failErr(err)
+		return toolListing{}, err
 	}
 	spec, _ := rt.runner.Agent(agent)
-	listing := toolListing{SessionID: *sessionID, Agent: agent, MaxEffect: string(spec.MaxEffect), Tools: []toolView{}}
+	listing := toolListing{SessionID: sessionID, Agent: agent, MaxEffect: string(spec.MaxEffect), Tools: []toolView{}}
 	for _, entry := range entries {
 		listing.Tools = append(listing.Tools, viewOf(entry))
 	}
-	switch sub {
-	case "list", "ls":
-		if c.machine() {
-			return c.writeJSON(listing)
-		}
-		if listing.MaxEffect != "" {
-			fmt.Fprintf(c.stdout, "max effect: %s\n", listing.MaxEffect)
-		}
-		for _, entry := range listing.Tools {
-			state := "active"
-			if !entry.Active {
-				state = "inactive"
-			} else if entry.Unavailable {
-				state = "unavailable"
-			}
-			fmt.Fprintf(c.stdout, "%-12s %-8s %s\n", entry.ID, state, entry.Description)
-		}
-		return ExitOK
-	case "active":
-		active := toolListing{SessionID: *sessionID, Agent: agent, MaxEffect: listing.MaxEffect, Tools: []toolView{}}
-		for _, view := range listing.Tools {
-			if view.Active {
-				active.Tools = append(active.Tools, view)
-			}
-		}
-		if c.machine() {
-			return c.writeJSON(active)
-		}
-		for _, view := range active.Tools {
-			fmt.Fprintln(c.stdout, view.ID)
-		}
-		return ExitOK
-	case "describe":
-		if len(positionals) != 1 {
-			return c.usageError("tools describe needs exactly one tool id")
-		}
-		for _, view := range listing.Tools {
-			if view.ID == positionals[0] {
-				if c.machine() {
-					return c.writeJSON(view)
-				}
-				fmt.Fprintf(c.stdout, "%s\n%s\nactive: %v\nschema: %s\n", view.ID, view.Description, view.Active, string(view.InputSchema))
-				return ExitOK
-			}
-		}
-		return c.fail(ExitNotFound, "unknown tool "+positionals[0])
-	case "activate", "deactivate":
-		if len(positionals) != 1 {
-			return c.usageError("tools " + sub + " needs exactly one tool id")
-		}
-		if *sessionID == "" {
-			return c.usageError("tools " + sub + " needs --session ID: activation is session state")
-		}
-		entry, err := rt.runner.SetToolActive(ctx, *sessionID, positionals[0], sub == "activate")
-		if err != nil {
-			if gotato.IsCode(err, gotato.CodeInvalidArgument) {
-				return c.fail(ExitNotFound, err.Error())
-			}
-			return c.failErr(err)
-		}
-		return c.emit(map[string]any{"session_id": *sessionID, "tool": viewOf(entry)}, fmt.Sprintf("%s %sd for session %s", positionals[0], sub, *sessionID))
-	default:
-		return c.usageError("unknown tools subcommand " + sub)
+	return listing, nil
+}
+
+// printToolList is "tools list".
+func (c *cli) printToolList(listing toolListing) int {
+	if c.machine() {
+		return c.writeJSON(listing)
 	}
+	if listing.MaxEffect != "" {
+		fmt.Fprintf(c.stdout, "max effect: %s\n", listing.MaxEffect)
+	}
+	for _, entry := range listing.Tools {
+		state := "active"
+		if !entry.Active {
+			state = "inactive"
+		} else if entry.Unavailable {
+			state = "unavailable"
+		}
+		fmt.Fprintf(c.stdout, "%-12s %-8s %s\n", entry.ID, state, entry.Description)
+	}
+	return ExitOK
+}
+
+// printActiveTools is "tools active": the listing without the inactive tools.
+func (c *cli) printActiveTools(listing toolListing) int {
+	active := toolListing{SessionID: listing.SessionID, Agent: listing.Agent, MaxEffect: listing.MaxEffect, Tools: []toolView{}}
+	for _, view := range listing.Tools {
+		if view.Active {
+			active.Tools = append(active.Tools, view)
+		}
+	}
+	if c.machine() {
+		return c.writeJSON(active)
+	}
+	for _, view := range active.Tools {
+		fmt.Fprintln(c.stdout, view.ID)
+	}
+	return ExitOK
+}
+
+// describeTool is "tools describe ID".
+func (c *cli) describeTool(listing toolListing, positionals []string) int {
+	if len(positionals) != 1 {
+		return c.usageError("tools describe needs exactly one tool id")
+	}
+	for _, view := range listing.Tools {
+		if view.ID == positionals[0] {
+			if c.machine() {
+				return c.writeJSON(view)
+			}
+			fmt.Fprintf(c.stdout, "%s\n%s\nactive: %v\nschema: %s\n", view.ID, view.Description, view.Active, string(view.InputSchema))
+			return ExitOK
+		}
+	}
+	return c.fail(ExitNotFound, "unknown tool "+positionals[0])
+}
+
+// setToolActive is "tools activate ID" and "tools deactivate ID".
+func (c *cli) setToolActive(ctx context.Context, rt *cliRuntime, sub, sessionID string, positionals []string) int {
+	if len(positionals) != 1 {
+		return c.usageError("tools " + sub + " needs exactly one tool id")
+	}
+	if sessionID == "" {
+		return c.usageError("tools " + sub + " needs --session ID: activation is session state")
+	}
+	entry, err := rt.runner.SetToolActive(ctx, sessionID, positionals[0], sub == "activate")
+	if err != nil {
+		if gotato.IsCode(err, gotato.CodeInvalidArgument) {
+			return c.fail(ExitNotFound, err.Error())
+		}
+		return c.failErr(err)
+	}
+	return c.emit(map[string]any{"session_id": sessionID, "tool": viewOf(entry)}, fmt.Sprintf("%s %sd for session %s", positionals[0], sub, sessionID))
 }
