@@ -76,7 +76,7 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 | the merge fails | nothing is merged; on an overflow the Run ends with `context_overflow` |
 | still past the ceiling | the Run ends with `limit_exceeded` |
 
-- A crash leaves no half-compaction: the Context is whatever the last Checkpoint lists, and an unlisted Segment is harmless. Pinned by:  (modelctx); `TestCompactionAppendsStartedThenOneCheckpoint` (session).
+- A crash leaves no half-compaction: the Context is whatever the last Checkpoint lists, and an unlisted Segment is harmless.
 - Another Instance builds the same request from the Checkpoint. On demand, a Session running elsewhere answers busy.
 - An idle compaction is dropped if another Instance replaced the copy, and yields to a new message.
 
