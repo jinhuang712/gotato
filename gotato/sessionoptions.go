@@ -139,3 +139,130 @@ func WithLimits(limits CoreLimits) SessionOption {
 		return nil
 	}
 }
+
+// WithContextBuilder selects the strategy that turns the Transcript into the
+// Model's Context for each Turn. The default is FullHistoryContext.
+func WithContextBuilder(builder ContextBuilder) SessionOption {
+	return func(c *sessionConfig) error {
+		if builder == nil {
+			return runtimeError(CodeInvalidArgument, "WithContextBuilder", "builder is nil", nil)
+		}
+		c.contextBuilder = builder
+		return nil
+	}
+}
+
+// WithExtension installs one Extension. A value may implement several
+// Extension interfaces; it is installed into each of them. The resulting
+// order is immutable for the Session lifetime. It fails with
+// CodeInvalidArgument when the value implements no Extension interface, or has
+// a method named like a hook (Transform, Convert, Before, After, Stop,
+// PrepareTurn, Advisory) whose signature does not match it.
+func WithExtension(extension any) SessionOption {
+	return func(c *sessionConfig) error {
+		if extension == nil {
+			return runtimeError(CodeInvalidArgument, "WithExtension", "extension is nil", nil)
+		}
+		if err := checkExtensionMethods(extension); err != nil {
+			return err
+		}
+		installed := false
+		if typed, ok := extension.(ContextTransformer); ok {
+			c.extensions.transformers = append(c.extensions.transformers, typed)
+			installed = true
+		}
+		if typed, ok := extension.(MessageConverter); ok {
+			c.extensions.converters = append(c.extensions.converters, typed)
+			installed = true
+		}
+		if typed, ok := extension.(PreToolUse); ok {
+			c.extensions.pre = append(c.extensions.pre, typed)
+			installed = true
+		}
+		if typed, ok := extension.(PostToolUse); ok {
+			c.extensions.post = append(c.extensions.post, typed)
+			installed = true
+		}
+		if typed, ok := extension.(TurnStopper); ok {
+			c.extensions.stoppers = append(c.extensions.stoppers, typed)
+			installed = true
+		}
+		if typed, ok := extension.(TurnPreparer); ok {
+			c.extensions.preparers = append(c.extensions.preparers, typed)
+			installed = true
+		}
+		if !installed {
+			return runtimeError(CodeInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
+		}
+		return nil
+	}
+}
+
+// WithToolSet installs a ToolSet whose catalog entry lists its description and
+// all its Tool names. The Model loads the Tools it needs with search_tools.
+func WithToolSet(set ToolSet) SessionOption {
+	return withToolSet(set, modeListed)
+}
+
+// WithFoldedToolSet installs a ToolSet whose catalog entry shows only its
+// description and a count of its Tools. The Model lists them with the toolset
+// parameter of search_tools, then loads by name.
+func WithFoldedToolSet(set ToolSet) SessionOption {
+	return withToolSet(set, modeFolded)
+}
+
+// WithActiveToolSet installs a ToolSet whose Tools are visible always, as if
+// they were base Tools. They are never in the catalog and never unloaded.
+func WithActiveToolSet(set ToolSet) SessionOption {
+	return withToolSet(set, modeActive)
+}
+
+func withToolSet(set ToolSet, mode installMode) SessionOption {
+	return func(c *sessionConfig) error {
+		if set == nil {
+			return runtimeError(CodeInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
+		}
+		c.toolSets = append(c.toolSets, toolSetConfig{set: set, mode: mode})
+		return nil
+	}
+}
+
+// WithToolFilter has the Session ask keep for the qualified ID of every Tool of
+// a ToolSet before it indexes, lists or offers it. A Tool keep refuses is never
+// in the catalog, never found by a search and never loaded, so a Session can
+// switch a Tool off and the Model cannot search its way past it. keep runs on
+// every rebuild of the Tool list, so it must be quick and safe to call from
+// several goroutines.
+func WithToolFilter(keep func(toolID string) bool) SessionOption {
+	return func(c *sessionConfig) error {
+		c.toolFilter = keep
+		return nil
+	}
+}
+
+// WithTranscript makes the Session commit to an external Transcript, such as
+// the session.Record it is loaded from, instead of a private in-memory one.
+//
+// A Transcript may have optional capabilities, each found by a type assertion
+// on the value given here, so a wrapper must forward them all (embedding the
+// concrete type does; embedding the Transcript interface does not):
+//
+//	ID() string                 the Session takes the Record's ID
+//	Journal                     Events are stored, numbered by the Record
+//	Durable() bool              (of the Journal) whether they survive the process
+//	SpillKeeper                 a large Tool Result is spilled, and read back
+//	EventSource                 a Subscription catches up from the Record
+//	LoadedToolSource            Tools a Run loaded are restored
+//
+// Without a Journal the Session numbers its Events in memory and stores none
+// (service.Runner does this on purpose for a Run that is not saved), so a
+// wrapper that hides Write makes the Session non-durable without an error.
+func WithTranscript(transcript Transcript) SessionOption {
+	return func(c *sessionConfig) error {
+		if transcript == nil {
+			return runtimeError(CodeInvalidArgument, "WithTranscript", "transcript is nil", nil)
+		}
+		c.transcript = transcript
+		return nil
+	}
+}

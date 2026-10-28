@@ -34,48 +34,6 @@ const (
 	modeActive
 )
 
-// WithToolSet installs a ToolSet whose catalog entry lists its description and
-// all its Tool names. The Model loads the Tools it needs with search_tools.
-func WithToolSet(set ToolSet) SessionOption {
-	return withToolSet(set, modeListed)
-}
-
-// WithFoldedToolSet installs a ToolSet whose catalog entry shows only its
-// description and a count of its Tools. The Model lists them with the toolset
-// parameter of search_tools, then loads by name.
-func WithFoldedToolSet(set ToolSet) SessionOption {
-	return withToolSet(set, modeFolded)
-}
-
-// WithActiveToolSet installs a ToolSet whose Tools are visible always, as if
-// they were base Tools. They are never in the catalog and never unloaded.
-func WithActiveToolSet(set ToolSet) SessionOption {
-	return withToolSet(set, modeActive)
-}
-
-func withToolSet(set ToolSet, mode installMode) SessionOption {
-	return func(c *sessionConfig) error {
-		if set == nil {
-			return runtimeError(CodeInvalidArgument, "WithToolSet", "ToolSet is nil", nil)
-		}
-		c.toolSets = append(c.toolSets, toolSetConfig{set: set, mode: mode})
-		return nil
-	}
-}
-
-// WithToolFilter has the Session ask keep for the qualified ID of every Tool of
-// a ToolSet before it indexes, lists or offers it. A Tool keep refuses is never
-// in the catalog, never found by a search and never loaded, so a Session can
-// switch a Tool off and the Model cannot search its way past it. keep runs on
-// every rebuild of the Tool list, so it must be quick and safe to call from
-// several goroutines.
-func WithToolFilter(keep func(toolID string) bool) SessionOption {
-	return func(c *sessionConfig) error {
-		c.toolFilter = keep
-		return nil
-	}
-}
-
 // LoadedToolSource is an optional method set of a Transcript: the qualified IDs
 // of the catalog Tools the Model loaded in earlier Runs of the Session, in the
 // order it loaded them, with a compaction's unloads applied. NewSession loads

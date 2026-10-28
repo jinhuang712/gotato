@@ -51,32 +51,5 @@ func (t *memoryTranscript) Append(message Message) error {
 	return nil
 }
 
-// WithTranscript makes the Session commit to an external Transcript, such as
-// the session.Record it is loaded from, instead of a private in-memory one.
-//
-// A Transcript may have optional capabilities, each found by a type assertion
-// on the value given here, so a wrapper must forward them all (embedding the
-// concrete type does; embedding the Transcript interface does not):
-//
-//	ID() string                 the Session takes the Record's ID
-//	Journal                     Events are stored, numbered by the Record
-//	Durable() bool              (of the Journal) whether they survive the process
-//	SpillKeeper                 a large Tool Result is spilled, and read back
-//	EventSource                 a Subscription catches up from the Record
-//	LoadedToolSource            Tools a Run loaded are restored
-//
-// Without a Journal the Session numbers its Events in memory and stores none
-// (service.Runner does this on purpose for a Run that is not saved), so a
-// wrapper that hides Write makes the Session non-durable without an error.
-func WithTranscript(transcript Transcript) SessionOption {
-	return func(c *sessionConfig) error {
-		if transcript == nil {
-			return runtimeError(CodeInvalidArgument, "WithTranscript", "transcript is nil", nil)
-		}
-		c.transcript = transcript
-		return nil
-	}
-}
-
 // Transcript returns the Transcript this Session commits to.
 func (a *Session) Transcript() Transcript { return a.transcript }

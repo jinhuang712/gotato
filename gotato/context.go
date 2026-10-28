@@ -158,15 +158,3 @@ func FullHistoryContext() ContextBuilder {
 		}, nil
 	})
 }
-
-// WithContextBuilder selects the strategy that turns the Transcript into the
-// Model's Context for each Turn. The default is FullHistoryContext.
-func WithContextBuilder(builder ContextBuilder) SessionOption {
-	return func(c *sessionConfig) error {
-		if builder == nil {
-			return runtimeError(CodeInvalidArgument, "WithContextBuilder", "builder is nil", nil)
-		}
-		c.contextBuilder = builder
-		return nil
-	}
-}

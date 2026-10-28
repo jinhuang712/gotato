@@ -83,52 +83,6 @@ type AdvisoryExtension interface {
 	Advisory() bool
 }
 
-// WithExtension installs one Extension. A value may implement several
-// Extension interfaces; it is installed into each of them. The resulting
-// order is immutable for the Session lifetime. It fails with
-// CodeInvalidArgument when the value implements no Extension interface, or has
-// a method named like a hook (Transform, Convert, Before, After, Stop,
-// PrepareTurn, Advisory) whose signature does not match it.
-func WithExtension(extension any) SessionOption {
-	return func(c *sessionConfig) error {
-		if extension == nil {
-			return runtimeError(CodeInvalidArgument, "WithExtension", "extension is nil", nil)
-		}
-		if err := checkExtensionMethods(extension); err != nil {
-			return err
-		}
-		installed := false
-		if typed, ok := extension.(ContextTransformer); ok {
-			c.extensions.transformers = append(c.extensions.transformers, typed)
-			installed = true
-		}
-		if typed, ok := extension.(MessageConverter); ok {
-			c.extensions.converters = append(c.extensions.converters, typed)
-			installed = true
-		}
-		if typed, ok := extension.(PreToolUse); ok {
-			c.extensions.pre = append(c.extensions.pre, typed)
-			installed = true
-		}
-		if typed, ok := extension.(PostToolUse); ok {
-			c.extensions.post = append(c.extensions.post, typed)
-			installed = true
-		}
-		if typed, ok := extension.(TurnStopper); ok {
-			c.extensions.stoppers = append(c.extensions.stoppers, typed)
-			installed = true
-		}
-		if typed, ok := extension.(TurnPreparer); ok {
-			c.extensions.preparers = append(c.extensions.preparers, typed)
-			installed = true
-		}
-		if !installed {
-			return runtimeError(CodeInvalidArgument, "WithExtension", "value implements no Extension interface", nil)
-		}
-		return nil
-	}
-}
-
 // hookMethods maps the name of each hook method to the interface it belongs
 // to.
 var hookMethods = map[string]reflect.Type{
