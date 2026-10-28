@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,5 +206,26 @@ func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
 	}
 	if _, err := store.List(context.Background()); err == nil {
 		t.Fatal("List hid an unreadable session")
+	}
+}
+
+// A file the store did not write, inside a Record's directory, is an error that
+// names the path; it is neither a Record nor a missing one.
+func TestFileStoreStrayFileInRecordDirIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "r"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stray := filepath.Join(dir, "r", "1.json")
+	if err := os.WriteFile(stray, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Load(context.Background(), "r")
+	if err == nil || errors.Is(err, session.ErrNotFound) || !strings.Contains(err.Error(), stray) {
+		t.Fatalf("want an error naming %s, got %v", stray, err)
 	}
 }
