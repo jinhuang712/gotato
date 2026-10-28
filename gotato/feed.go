@@ -564,107 +564,129 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 			*pending = (*pending)[1:]
 			return event, true, nil
 		}
-		s.mu.Lock()
-		if s.skipped > 0 {
-			skipped := s.skipped
-			s.skipped = 0
-			s.mu.Unlock()
-			return EventsSkipped{Header: NewHeader("", "", 0), Skipped: skipped}, true, nil
-		}
-		if len(s.queue) > 0 {
-			event := s.queue[0]
-			s.queue = s.queue[1:]
-			s.mu.Unlock()
+		event, ok, state := s.popQueued()
+		if ok {
 			return event, true, nil
 		}
-		behind, resume, ending := s.behind, s.resume, s.ending
+		switch {
+		case state.behind:
+			if ended, err := s.catchUp(ctx, state.resume, pending, &empty); ended || err != nil {
+				return nil, false, err
+			}
+		case state.ending:
+			return nil, false, nil
+		default:
+			if ended, err := s.await(ctx); ended || err != nil {
+				return nil, false, err
+			}
+		}
+	}
+}
+
+// queueState is what take learns, under the lock, when nothing is queued.
+type queueState struct {
+	behind bool   // the stream must be read again from the source
+	resume uint64 // the number to read after when it is behind
+	ending bool   // the stream ends once the queue is empty
+}
+
+// popQueued returns the next Event the queue holds: a count of skipped Events
+// first, then the oldest queued one. When it holds none, ok is false and state
+// says what the subscriber does next.
+func (s *subscription) popQueued() (event Event, ok bool, state queueState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.skipped > 0 {
+		skipped := s.skipped
+		s.skipped = 0
+		return EventsSkipped{Header: NewHeader("", "", 0), Skipped: skipped}, true, queueState{}
+	}
+	if len(s.queue) > 0 {
+		event := s.queue[0]
+		s.queue = s.queue[1:]
+		return event, true, queueState{}
+	}
+	return nil, false, queueState{behind: s.behind, resume: s.resume, ending: s.ending}
+}
+
+// catchUp reads the next batch of stored Events after resume from the source
+// into pending, or rejoins the live Events once it has read them all. empty
+// counts the reads in a row that found nothing the Feed had published. ended
+// is true when the stream ended without an error.
+func (s *subscription) catchUp(ctx context.Context, resume uint64, pending *[]Event, empty *int) (ended bool, err error) {
+	batch, err := s.feed.eventsAfter(ctx, resume, catchUpBatch)
+	if err != nil {
+		return false, err
+	}
+	if len(batch) > 0 {
+		if s.verify != nil {
+			if err := s.verify(ctx); err != nil {
+				return false, err
+			}
+		}
+		s.mu.Lock()
+		s.resume = batch[len(batch)-1].Head().Number
+		s.cursor = max(s.cursor, s.resume)
 		s.mu.Unlock()
-		if behind {
-			batch, err := s.feed.eventsAfter(ctx, resume, catchUpBatch)
-			if err != nil {
-				return nil, false, err
+		for _, event := range batch {
+			if s.passes(event) {
+				*pending = append(*pending, event)
 			}
-			if len(batch) > 0 {
-				if s.verify != nil {
-					if err := s.verify(ctx); err != nil {
-						return nil, false, err
-					}
-				}
-				s.mu.Lock()
-				s.resume = batch[len(batch)-1].Head().Number
-				s.cursor = max(s.cursor, s.resume)
-				s.mu.Unlock()
-				for _, event := range batch {
-					if s.passes(event) {
-						*pending = append(*pending, event)
-					}
-				}
-				continue
-			}
-			// Nothing more to read: rejoin the live Events once the Feed
-			// has published nothing newer than what was read.
-			s.feed.mu.Lock()
-			s.mu.Lock()
-			if s.resume >= s.feed.last {
-				s.behind, s.cursorSet = false, true
-				empty = 0
-			}
-			caughtUp := !s.behind
-			s.mu.Unlock()
-			s.feed.mu.Unlock()
-			if caughtUp {
-				continue
-			}
-			// The source holds nothing the Feed has published since: give
-			// a store that is slow to show its last write a moment, and then
-			// give up, because the Events are not coming.
-			if empty++; empty > catchUpRetries {
-				return nil, false, ErrEventsLost
-			}
-			select {
-			case <-time.After(catchUpPause):
-			case <-s.done:
-				return nil, false, nil
-			case <-ctx.Done():
-				return nil, false, ctx.Err()
-			}
-			continue
 		}
-		if ending {
-			return nil, false, nil
-		}
-		var tick <-chan time.Time
-		var timer *time.Timer
-		if s.tail > 0 && !s.feed.mixed && s.feed.hasSource() {
-			timer = time.NewTimer(s.tail)
-			tick = timer.C
-		}
-		select {
-		case <-s.wake:
-		case <-tick:
-			// Nothing came for a while: look in the source, which holds what
-			// another Instance wrote. The stream stays live while it reads, so
-			// a delta published meanwhile is not lost.
-			if err := s.look(ctx); err != nil {
-				if timer != nil {
-					timer.Stop()
-				}
-				return nil, false, err
-			}
-		case <-s.done:
-			if timer != nil {
-				timer.Stop()
-			}
-			return nil, false, nil
-		case <-ctx.Done():
-			if timer != nil {
-				timer.Stop()
-			}
-			return nil, false, ctx.Err()
-		}
-		if timer != nil {
-			timer.Stop()
-		}
+		return false, nil
+	}
+	// Nothing more to read: rejoin the live Events once the Feed
+	// has published nothing newer than what was read.
+	s.feed.mu.Lock()
+	s.mu.Lock()
+	if s.resume >= s.feed.last {
+		s.behind, s.cursorSet = false, true
+		*empty = 0
+	}
+	caughtUp := !s.behind
+	s.mu.Unlock()
+	s.feed.mu.Unlock()
+	if caughtUp {
+		return false, nil
+	}
+	// The source holds nothing the Feed has published since: give
+	// a store that is slow to show its last write a moment, and then
+	// give up, because the Events are not coming.
+	if *empty++; *empty > catchUpRetries {
+		return false, ErrEventsLost
+	}
+	select {
+	case <-time.After(catchUpPause):
+		return false, nil
+	case <-s.done:
+		return true, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+// await blocks until the subscriber has something to look at: a wake-up from
+// the Feed, or the tail interval, after which it reads the source. ended is
+// true when the stream ended without an error.
+func (s *subscription) await(ctx context.Context) (ended bool, err error) {
+	var tick <-chan time.Time
+	if s.tail > 0 && !s.feed.mixed && s.feed.hasSource() {
+		timer := time.NewTimer(s.tail)
+		defer timer.Stop()
+		tick = timer.C
+	}
+	select {
+	case <-s.wake:
+		return false, nil
+	case <-tick:
+		// Nothing came for a while: look in the source, which holds what
+		// another Instance wrote. The stream stays live while it reads, so
+		// a delta published meanwhile is not lost.
+		return false, s.look(ctx)
+	case <-s.done:
+		return true, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
 	}
 }
 
