@@ -54,8 +54,7 @@ func TestOpeningARecordCreatedAgainSendsNoClaimToAnOldStream(t *testing.T) {
 		change func(runner *service.Runner, id string)
 	}{
 		{"a tool toggle", func(runner *service.Runner, id string) {
-			// An unknown tool: the Record is opened and claimed, then refused.
-			_, _ = runner.SetToolActive(ctx, id, "no.such.tool", false)
+			_, _ = runner.SetToolActive(ctx, id, "probe", false)
 		}},
 		{"a compaction", func(runner *service.Runner, id string) {
 			_, _ = runner.Compact(ctx, id, modelctx.CompactConfig{KeepMessages: 2})

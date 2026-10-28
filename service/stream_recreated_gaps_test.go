@@ -42,7 +42,7 @@ func recreatedRunner(t *testing.T, name string, store session.Store, poll time.D
 	t.Helper()
 	runner, err := service.New(service.Config{
 		Store: store, Instance: name, StreamPoll: poll,
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("probe", "ok")}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

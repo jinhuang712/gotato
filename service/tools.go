@@ -213,6 +213,10 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 			return ToolEntry{}, err
 		}
 	}
+	if found == nil {
+		// Refused before the Session is claimed, so an unknown tool writes nothing.
+		return ToolEntry{}, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown tool "+toolID)
+	}
 	err = r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
@@ -221,10 +225,6 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		s := writer.Record()
 		held, _ := s.Get(MetaAgent)
 		r.publishOpened(writer, early, held)
-		if found == nil {
-			_ = writer.Release(ctx)
-			return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown tool "+toolID)
-		}
 		if active {
 			s.Set(MetaToolPrefix+toolID, "")
 		} else {

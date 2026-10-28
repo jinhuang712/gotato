@@ -95,3 +95,28 @@ func TestRunnerToolsListsATwiceNamedToolOnce(t *testing.T) {
 		t.Fatalf("Runner.Tools = %+v, want lookup once", entries)
 	}
 }
+
+// An unknown tool is refused before the Session is claimed: the Record is not written.
+func TestSetToolActiveOnAnUnknownToolWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	runner := recreatedRunner(t, "a", store, -1)
+	s, err := runner.CreateSession(ctx, "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Log(ctx, s.ID(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.SetToolActive(ctx, s.ID(), "no.such.tool", false); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("SetToolActive = %v, want an unknown tool", err)
+	}
+	after, err := store.Log(ctx, s.ID(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("the log grew from %d to %d entries for an unknown tool", len(before), len(after))
+	}
+}
