@@ -3,6 +3,7 @@ package text
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestSplitLinesAndPaginate(t *testing.T) {
@@ -19,5 +20,19 @@ func TestSplitLinesAndPaginate(t *testing.T) {
 	}
 	if got := Paginate(nil, 10); len(got) != 1 {
 		t.Errorf("Paginate(nil) = %q, want one empty page", got)
+	}
+}
+
+// A limit smaller than the first rune must still make progress.
+func TestSplitLinesWithALimitBelowTheFirstRune(t *testing.T) {
+	done := make(chan []string, 1)
+	go func() { done <- append(SplitLines("日本", 2), SplitLines("a\n日b", 0)...) }()
+	select {
+	case got := <-done:
+		if want := []string{"日", "本", "a", "日", "b"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("SplitLines = %q, want %q", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SplitLines does not end when the limit is below one rune")
 	}
 }
