@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-29 -->
+<!-- what-we-build: drafted 2026-10-29 -->
 # Gotato — Features
 
 What Gotato has today, what it will have, and what it won't, as an inventory. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. How a part works is in [specs/](specs/); why it is built that way is in [plan/decisions/](plan/decisions/README.md); the principles are in [DESIGNS.md](DESIGNS.md); when the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md); the terms are in [GLOSSARY.md](GLOSSARY.md).
@@ -107,7 +107,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 | A write that fails | the Run stops at that step with `store_failure` or `conflict`; a failed model-call write stops it before the model is called. A Run whose reply or end could not be written settles `failed` with `store_failure` and `ErrNotPersisted`, never `completed`, and stores no `run_ended` ([G-F03](#g-f03--stores-)); the next Run starts without that reply. A Run whose only failed write is the release stays `completed`: `session_saved` with `failed: true` and `store_write_failed` warn, and the instance writes the release again on each heartbeat until it lands ([G-F27](#g-f27--service-many-instances-)) |
 | A Run refused before it started | an empty `RunResult` with no status, and an error that says it did not run |
 | Host code that panics | a panic in a Tool, an extension, a Model (`Stream`, `Recv`), a Journal (`Write`) or a Transcript (`Append`) fails the Run, not the process; the error has a fixed `Message` (`Model panic`, `Journal panic`, `Transcript panic`) and the panic and stack on the `Cause`. A panic in a Recap writer costs the Segment its Recap (`recap_error: model_failure`). A Model's, Journal's or Transcript's own error text stays on the `Cause` unless it is a `PublicError` |
-| How a Run ends | the model's final reply, its `ctx`, a `TurnStopper` (its reason is in `run_ended`), the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses), or a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A cap on Turns or tool calls is a `TurnStopper` the team writes (`ExampleTurnStopper` in `gotato/runend_test.go`) |
+| How a Run ends | the model's final reply, its `ctx`, a `TurnStopper` (its reason is in `run_ended`), the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses), or a failure ([Decision 023](plan/decisions/023-a-mistake-the-model-can-fix-is-a-tool-result.md)). A cap on Turns or tool calls is a `TurnStopper` the team writes (`ExampleTurnStopper` in `gotato/runend_test.go`) |
 | The Run's deadline | its `ctx`. In a service, `service.Agent.RunTimeout` (30 minutes; negative means none); a request's own timeout (`timeout_ms` on HTTP, a `context` deadline in Go) overrides it |
 
 The limits are passed with `gotato.WithLimits`. A zero field means its default, so `gotato.WithLimits(gotato.CoreLimits{MaxParallelTools: 4})` changes that one field; `gotato.DefaultLimits()` returns the defaults. Each guards a real failure:
@@ -200,7 +200,7 @@ if addr, ok := service.WriterOf(err); ok && addr != "" && !forwarded {
 
 ### G-F29 — Runtime notices ✅
 
-Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A notice is a Message of its own kind (role `notice`, `gotato.RoleNotice`), so the model does not take it for the user and no new Round begins. How it works: [specs/context.md](specs/context.md) (*A Notice joins at the end*). Why: decision [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md); [DESIGNS.md](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice).
+Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A notice is a Message of its own kind (role `notice`, `gotato.RoleNotice`), so the model does not take it for the user and no new Round begins. How it works: [specs/context.md](specs/context.md) (*A Notice joins at the end*). Why: decision [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md); [DESIGNS.md](DESIGNS.md#2-a-request-only-grows-at-its-end).
 
 | Kind | What it tells the model | Caused by |
 |---|---|---|
@@ -289,7 +289,7 @@ You can see what the model would receive now, without calling it. How it works: 
 
 ### G-F06 — Compaction ✅
 
-A Session can live for weeks and a long Run can outgrow the window. A compaction closes everything since the last Checkpoint, less a kept tail, into a Segment and appends it with a Checkpoint ([G-F03](#g-f03--stores-)); it never rewrites the Record, so nothing is lost unless the team prunes entries before a Checkpoint. How it works: [specs/compaction.md](specs/compaction.md). Why: decisions [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [034](plan/decisions/034-a-segment-is-written-once.md); [DESIGNS.md](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold).
+A Session can live for weeks and a long Run can outgrow the window. A compaction closes everything since the last Checkpoint, less a kept tail, into a Segment and appends it with a Checkpoint ([G-F03](#g-f03--stores-)); it never rewrites the Record, so nothing is lost unless the team prunes entries before a Checkpoint. How it works: [specs/compaction.md](specs/compaction.md). Why: decisions [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [034](plan/decisions/034-a-segment-is-written-once.md); [DESIGNS.md](DESIGNS.md#3-the-context-is-a-bounded-view).
 
 | Item | What it does |
 |---|---|
@@ -394,7 +394,7 @@ A Tool is the unit of loading; a ToolSet is a grouping with a source and a name,
 
 ### G-F34 — Tool search ✅
 
-A service that connects MCP servers can offer hundreds of tools. The model reads a catalog and loads the tools it needs, one by one. How it works: [specs/tools.md](specs/tools.md). Why: decision [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md); [DESIGNS.md](DESIGNS.md#tools-load-one-by-one-from-a-catalog).
+A service that connects MCP servers can offer hundreds of tools. The model reads a catalog and loads the tools it needs, one by one. How it works: [specs/tools.md](specs/tools.md). Why: decision [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md); [DESIGNS.md](DESIGNS.md#2-a-request-only-grows-at-its-end).
 
 | Item | What it does |
 |---|---|
@@ -811,7 +811,7 @@ What Gotato will not build, and why. Look here before proposing a feature; each 
 | G-N11 | telemetry backends | Events have a stable shape; mapping them is a subscriber in the application |
 | G-N12 | tool approval | tools are written by the team and allowed by name, the Effect cap hides what is above it, a risky tool refuses its own arguments, a `PreToolUse` extension adds a check |
 | G-N13 | a cloud coding agent | coding stays on developers' machines ([PHILOSOPHY.md, question 2](PHILOSOPHY.md#2-what-belongs-in-a-cloud-session)) |
-| G-N14 | a remote dev environment, shell or sandbox | work that needs a machine runs on a laptop, in CI or in a coding product; reading a large result is paging ([G-F35](#g-f35--large-tool-results-); [DESIGNS.md](DESIGNS.md#reading-a-large-result-is-paging-and-a-bash-for-it-is-another-project)) |
+| G-N14 | a remote dev environment, shell or sandbox | work that needs a machine runs on a laptop, in CI or in a coding product; reading a large result is paging ([G-F35](#g-f35--large-tool-results-); [Decision 041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md)) |
 | G-N15 | a general-purpose assistant | Gotato is for purpose-built agents ([PHILOSOPHY.md, question 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)) |
 | G-N16 | a separate platform | a platform beside your services is a second system to run |
 | G-N17 | infrastructure | discovery, routing, autoscaling and deployment already exist where you run |
@@ -839,17 +839,17 @@ The MCP adapter ([G-F12](#g-f12--the-mcp-adapter-)) maps a server's tools onto T
 
 | Not built | Why |
 |---|---|
-| Code mode | each step of a Run would be a program that cannot be replayed, and a tool that runs code is a bound nobody can read ([DESIGNS.md](DESIGNS.md#no-tool-runs-commands-or-code)) |
+| Code mode | each step of a Run would be a program that cannot be replayed, and a tool that runs code is a bound nobody can read ([Decision 026](plan/decisions/026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)) |
 | MCP resources | a Session reads data through tools the team chooses; a resource has no Effect and no schema check |
 | Prompts | the instruction is the Agent's definition, where a reviewer reads it |
 | Sampling | a Run's cost and bounds would depend on a server the team may not control |
-| Elicitation | a person's answer needs a waiting state in the Loop, which Gotato does not have ([DESIGNS.md](DESIGNS.md#no-approval-system)) |
+| Elicitation | a person's answer needs a waiting state in the Loop, which Gotato does not have ([Decision 005](plan/decisions/005-no-approval-system.md)) |
 | Gotato as an MCP server | callers reach Sessions through the HTTP handler and the Go API |
-| OAuth | every service already authenticates its callers and holds its credentials ([DESIGNS.md](DESIGNS.md#no-authentication)); a server's headers come from the application |
+| OAuth | every service already authenticates its callers and holds its credentials ([Decision 025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)); a server's headers come from the application |
 
 ### G-N22 — Access control belongs to applications
 
-Who the caller is, and who may touch which Session, are the application's. Gotato builds no identity type, "not allowed" error or hook. It passes the request's `context.Context`, with all its values, to every store and extension call for that request ([DESIGNS.md](DESIGNS.md#no-authentication)).
+Who the caller is, and who may touch which Session, are the application's. Gotato builds no identity type, "not allowed" error or hook. It passes the request's `context.Context`, with all its values, to every store and extension call for that request ([Decision 025](plan/decisions/025-callers-credentials-and-quotas-belong-to-the-service.md)).
 
 - **A refusal is `not_found`:** a store wrapper returns `session.ErrNotFound` for a Session the caller does not own (404, and it does not reveal the Session exists).
 - **Every request-driven call reads through the store:** a read by `Log`, a Run by `Load` and `Append`; `Runner.AbortSession`, `Send` and `Notice` read the Record with the request's `ctx` before acting on a live Run. A wrapper guards `Load`, `Log`, `Append`, `Delete` and filters `List`; another caller's cancel, steer, follow-up, interrupt and notice answer `not_found` too.

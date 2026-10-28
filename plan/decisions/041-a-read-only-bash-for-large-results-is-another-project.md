@@ -3,7 +3,7 @@
 Decided: 2026-10-27    Status: current
 
 ## The problem
-Often the model wants one line, one field or the lines that match in a spilled Tool Result, which a person would do with `grep` or `jq`. A Session has no machine ([DESIGNS.md](../../DESIGNS.md#a-session-has-no-machine)), so the model has no `grep`.
+Often the model wants one line, one field or the lines that match in a spilled Tool Result, which a person would do with `grep` or `jq`. A Session has no machine ([026](026-gotato-ships-no-machine-no-client-and-no-tool-catalog.md)), so the model has no `grep`.
 
 ## The choice
 Gotato keeps out a read-only subset of bash over the Session's Record. The engine lives in its own project, [go-bash](https://github.com/jinhuang712/go-bash): a command string, an `fs.FS` and `ctx` in; stdout, stderr and an exit code out. It does not import Gotato. MCP tools and `read_result` ([040](040-a-large-tool-result-is-spilled-and-read-in-pages.md)) are enough for now.

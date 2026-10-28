@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-29 -->
+<!-- what-we-build: drafted 2026-10-29 -->
 # Gotato — Goals
 
 What Gotato measures, so that each principle in [DESIGNS.md](../DESIGNS.md) is a promise that can fail. Every item serves one principle; ⭐ marks the core ones, which serve the four guarantees. An item keeps its number wherever it is listed.
@@ -54,7 +54,7 @@ Every number is measured on this repository's own workloads:
 - the **live run**: the same tasks against a real provider with a fixed model and its price, run on demand with `go run ./internal/cmd/gotato-workload -live`, because CI has no provider credentials;
 - **fault injection** and a **multi-instance harness** for the checks that need a crash or a second instance.
 
-A method marked *(to build)* does not exist yet; building it is roadmap work. Every number about a Run can also be computed from Events and `Usage` alone, so a team gets the same numbers from its own production telemetry ([DESIGNS.md → Every number about a Run comes from Events and `Usage`](../DESIGNS.md#every-number-about-a-run-comes-from-events-and-usage)). Memory, startup and footprint describe the process, and come from benchmarks on the **reference service** in `bench/refservice`: the smallest service a team would write around Gotato. Each number is compared with the previous release; the first release has none, so it sets the reference.
+A method marked *(to build)* does not exist yet; building it is roadmap work. Every number about a Run can also be computed from Events and `Usage` alone, so a team gets the same numbers from its own production telemetry ([DESIGNS.md → Every number about a Run comes from Events and `Usage`](decisions/018-events-are-typed-written-before-sent-and-never-awaited.md)). Memory, startup and footprint describe the process, and come from benchmarks on the **reference service** in `bench/refservice`: the smallest service a team would write around Gotato. Each number is compared with the previous release; the first release has none, so it sets the reference.
 
 The latest live run (2026-10-16) played every task five times, and `support_case` ten times, against `gpt-6.1-sol`, with the gateway sending each Session's cache key. Its cost uses the list price of $2 input, $10 output and $0.10 cached input per million tokens. The other numbers come from an Apple M3 with 8 cores and Go 1.27.2.
 
