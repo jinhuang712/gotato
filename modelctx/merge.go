@@ -81,7 +81,8 @@ type MergeConfig struct {
 type MergeResult struct {
 	Merged bool        `json:"merged"`
 	Reason MergeReason `json:"reason,omitempty"`
-	// Error says why the Recap or the write failed.
+	// Error says why the Recap or the write failed, in text a client may read:
+	// a foreign error is not copied into it.
 	Error string `json:"error,omitempty"`
 	// BudgetTokens is the Segments' budget in force, in estimated tokens, and
 	// SegmentTokens what the Segments held before.
