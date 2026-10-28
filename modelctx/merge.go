@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -295,34 +294,6 @@ func flatten(segments []gotato.Segment) []gotato.Message {
 		out = append(out, segment.Messages...)
 	}
 	return out
-}
-
-// numbersOf lists the numbers the Segments stand for, oldest first.
-func numbersOf(segments []gotato.Segment) []int {
-	var out []int
-	for _, segment := range segments {
-		out = append(out, segment.Numbers()...)
-	}
-	return out
-}
-
-// rangeLabel writes numbers as ranges, such as "1-3" or "1-3,5": the label a
-// merged Segment carries in its tags.
-func rangeLabel(numbers []int) string {
-	var parts []string
-	for i := 0; i < len(numbers); {
-		j := i
-		for j+1 < len(numbers) && numbers[j+1] == numbers[j]+1 {
-			j++
-		}
-		if j > i {
-			parts = append(parts, fmt.Sprintf("%d-%d", numbers[i], numbers[j]))
-		} else {
-			parts = append(parts, fmt.Sprint(numbers[i]))
-		}
-		i = j + 1
-	}
-	return strings.Join(parts, ",")
 }
 
 // buildMerged renders the merged Segment number for segments: its header, then
