@@ -1,33 +1,33 @@
-package session_test
+package session
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/session"
-	"github.com/jinhuang712/gotato/testkit"
 )
 
-func TestMemoryStore(t *testing.T) {
-	store := session.NewMemoryStore()
+// A caller that changes the Notices of a Load or List result, or of the
+// summary it passed in, must not change what the store holds.
+func TestMemoryStoreKeepsItsNoticesApart(t *testing.T) {
 	ctx := context.Background()
-	s := testkit.NewRecord("a", "b")
-	if _, err := session.CreateWriter(ctx, store, s, "instance-a"); err != nil {
+	store := NewMemoryStore()
+	info := RecordInfo{ID: "n", RecordEpoch: "e", Notices: []gotato.PendingNotice{{MessageID: "m1", Text: "first"}}}
+	entries := []Entry{{Seq: 1, Layer: LayerFact, Kind: gotato.EventKindSessionCreated, Data: []byte(`{}`)}}
+	if err := store.Create(ctx, "n", entries, info); err != nil {
 		t.Fatal(err)
 	}
-	got, err := session.Open(ctx, store, s.ID())
-	if err != nil || got.Len() != 2 {
-		t.Fatalf("get = %v err=%v", got, err)
+	info.Notices[0].Text = "changed by the caller"
+	loaded, err := store.Load(ctx, "n")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Mutating a copy opened for reading does not change the stored Record.
-	_ = got.Append(gotato.UserMessage("c"))
-	again, _ := session.Open(ctx, store, s.ID())
-	if again.Len() != 2 {
-		t.Fatalf("store aliased live session: %d", again.Len())
+	loaded.Info.Notices[0].Text = "changed by Load's caller"
+	listed, err := store.List(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := store.Delete(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
-		t.Fatalf("delete missing err = %v", err)
+	if got := listed[0].Notices[0].Text; got != "first" {
+		t.Fatalf("the store's Notice = %q, want %q", got, "first")
 	}
 }
