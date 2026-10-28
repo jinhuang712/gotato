@@ -265,7 +265,7 @@ func (r *Runner) toolSetsTimedOut(ctx context.Context, err error) bool {
 
 // toolSetsTimeout is the error of a ToolSet bound that ran out.
 func toolSetsTimeout(cause error) error {
-	return gotato.ErrorOf(gotato.CodeDeadlineExceeded, "service: the tool sets did not answer in time: "+cause.Error())
+	return foreignError(gotato.CodeDeadlineExceeded, "service: the tool sets did not answer in time", cause)
 }
 
 // findSetTool looks for toolID among the tools of the Agent's ToolSets, which

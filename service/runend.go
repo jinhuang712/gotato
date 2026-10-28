@@ -93,8 +93,7 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 		// each).
 		var saveFailure *gotato.RuntimeError
 		if !errors.As(saveErr, &saveFailure) {
-			saveFailure = gotato.ErrorOf(gotato.CodeStoreFailure, saveErr.Error())
-			saveFailure.Cause = saveErr
+			saveFailure = foreignError(gotato.CodeStoreFailure, "service: the Run could not be saved", saveErr)
 			saveErr = saveFailure
 		}
 		// completed never carries an error. The Run's own writes
@@ -141,7 +140,7 @@ func (st *runState) respond(spec Agent, auto *modelctx.AutoCompactor, result got
 		if errors.As(runErr, &runtimeErr) {
 			out.Result.Error = runtimeErr
 		} else {
-			out.Result.Error = gotato.ErrorOf(gotato.CodeInternalInvariant, runErr.Error())
+			out.Result.Error = foreignError(gotato.CodeInternalInvariant, "service: the Run failed", runErr)
 		}
 		if out.Result.Status == "" {
 			out.Result.Status = runStatusForError(runErr)
@@ -167,17 +166,32 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 	}
 }
 
+// foreignError builds the RuntimeError of a failure whose text the service did
+// not write (a Store's error, say). Message reaches HTTP clients, so it is the
+// text of a gotato.PublicError that err is or wraps, else the fixed fallback;
+// err itself stays on the Cause for logs.
+func foreignError(code gotato.ErrorCode, fallback string, err error) *gotato.RuntimeError {
+	message := fallback
+	var public gotato.PublicError
+	if errors.As(err, &public) {
+		message = public.Public()
+	}
+	e := gotato.ErrorOf(code, message)
+	e.Cause = err
+	return e
+}
+
 // canceledRunResult reports a Run canceled before its Agent started as a
 // settled canceled Run.
 func canceledRunResult(sessionID, agent string, err error) RunResponse {
-	code := gotato.CodeCanceled
+	code, message := gotato.CodeCanceled, "service: the Run was canceled before it started"
 	if errors.Is(err, context.DeadlineExceeded) {
-		code = gotato.CodeDeadlineExceeded
+		code, message = gotato.CodeDeadlineExceeded, "service: the Run timed out before it started"
 	}
 	return RunResponse{
 		SessionID: sessionID,
 		Agent:     agent,
-		Result:    gotato.RunResult{Status: runStatusForError(err), Error: gotato.ErrorOf(code, err.Error())},
+		Result:    gotato.RunResult{Status: runStatusForError(err), Error: foreignError(code, message, err)},
 	}
 }
 
