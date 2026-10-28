@@ -1,4 +1,4 @@
-<!-- what-we-build: drafted 2026-10-29 -->
+<!-- what-we-build: approved 2026-10-29 -->
 # Gotato — Features
 
 What Gotato has today, what it will have, and what it won't, as an inventory. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. How a part works is in [specs/](specs/); why it is built that way is in [plan/decisions/](plan/decisions/README.md); the principles are in [DESIGNS.md](DESIGNS.md); when the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md); the terms are in [GLOSSARY.md](GLOSSARY.md).
