@@ -244,7 +244,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	report, err := runner.Inspect(ctx, result.SessionID)
+	report, err := runner.Inspect(ctx, result.SessionID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestStreamRunInspectCompactFork(t *testing.T) {
 	if _, err := session.View(ctx, store, child.ID()); err != nil {
 		t.Fatal("fork not saved")
 	}
-	if _, err := runner.Inspect(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := runner.Inspect(ctx, "missing", service.InspectConfig{}); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("inspect missing err = %v", err)
 	}
 }
@@ -981,7 +981,7 @@ func TestInspectMatchesTheNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := runner.Inspect(ctx, s.ID())
+	report, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1019,7 +1019,7 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := runner.Inspect(ctx, first.SessionID)
+	report, err := runner.Inspect(ctx, first.SessionID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1031,7 +1031,7 @@ func TestInspectSaysWhenCompactionIsPending(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	report, err = runner.Inspect(ctx, first.SessionID)
+	report, err = runner.Inspect(ctx, first.SessionID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

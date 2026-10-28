@@ -43,7 +43,7 @@ func segmentRunner(t *testing.T, store session.Store, model gotato.Model) *servi
 
 func inspectJSON(t *testing.T, runner *service.Runner, id string) (string, []string) {
 	t.Helper()
-	report, err := runner.Inspect(context.Background(), id)
+	report, err := runner.Inspect(context.Background(), id, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,5 +160,24 @@ func TestReadSegmentIsOfferedAndEveryInstanceOffersTheSameTools(t *testing.T) {
 	}
 	if got := viewed.LoadedTools(); !slices.Equal(got, append(wantSets, "git.log")) {
 		t.Fatalf("tools between two Checkpoints = %v, want %v and git.log", got, wantSets)
+	}
+}
+
+// Inspect takes one InspectConfig: its Instruction replaces the Session's for
+// that inspection only.
+func TestInspectConfigOverridesTheInstructionForOneInspection(t *testing.T) {
+	ctx := context.Background()
+	runner, _ := newRunner(t, service.Agent{Name: "a", Model: testkit.EchoModel{}, Instruction: "spec instruction"})
+	s, err := runner.CreateSession(ctx, "a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	over, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{Instruction: "once"})
+	if err != nil || over.Request.SystemInstructions != "once" {
+		t.Fatalf("override = %q, %v", over.Request.SystemInstructions, err)
+	}
+	plain, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{})
+	if err != nil || plain.Request.SystemInstructions != "spec instruction" {
+		t.Fatalf("plain = %q, %v", plain.Request.SystemInstructions, err)
 	}
 }

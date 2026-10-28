@@ -540,7 +540,7 @@ func checkContext(ctx context.Context, inspector *service.Runner, store session.
 			mismatch("saving the Transcript to inspect: " + err.Error())
 			continue
 		}
-		inspection, err := inspector.Inspect(ctx, s.ID())
+		inspection, err := inspector.Inspect(ctx, s.ID(), service.InspectConfig{})
 		_ = store.Delete(ctx, s.ID())
 		switch {
 		case err != nil:

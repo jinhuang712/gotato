@@ -340,7 +340,7 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) contextReport(w http.ResponseWriter, r *http.Request) {
-	report, err := h.runner.Inspect(r.Context(), r.PathValue("id"))
+	report, err := h.runner.Inspect(r.Context(), r.PathValue("id"), service.InspectConfig{})
 	if err != nil {
 		writeFailure(w, err)
 		return

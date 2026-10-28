@@ -262,7 +262,7 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 			compared := 0
 			check := func(runner *service.Runner, id string) {
 				ctx := context.Background()
-				live, err := runner.Inspect(ctx, id)
+				live, err := runner.Inspect(ctx, id, service.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -272,7 +272,7 @@ func TestSameRecordSameRequestAcrossCompactions(t *testing.T) {
 					"a new Runner (a reload)": longRunner(t, store, task, model, runner.Instance()),
 				}
 				for name, view := range views {
-					report, err := view.Inspect(ctx, id)
+					report, err := view.Inspect(ctx, id, service.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}

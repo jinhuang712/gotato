@@ -74,7 +74,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 	runner, store := newRunner(t, agent)
 	ctx := context.Background()
 	id := runThree(t, runner)
-	before, err := runner.Inspect(ctx, id)
+	before, err := runner.Inspect(ctx, id, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

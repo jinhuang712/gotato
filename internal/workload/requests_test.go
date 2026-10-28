@@ -223,7 +223,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, view := range views {
-					report, err := view.runner.Inspect(ctx, prefix.ID())
+					report, err := view.runner.Inspect(ctx, prefix.ID(), service.InspectConfig{})
 					if err != nil {
 						t.Fatal(err)
 					}

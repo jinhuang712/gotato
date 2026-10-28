@@ -312,12 +312,12 @@ func TestWarmCopyHoldsWhatALoadWouldBuild(t *testing.T) {
 	runner := warmInstance(t, store, "a", newFakeClock(), model, service.WarmPolicy{})
 	first := runOn(t, runner, "", "one")
 	runOn(t, runner, first.SessionID, "two")
-	warm, err := runner.Inspect(ctx, first.SessionID)
+	warm, err := runner.Inspect(ctx, first.SessionID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cold := warmInstance(t, store, "b", newFakeClock(), model, service.WarmPolicy{})
-	loaded, err := cold.Inspect(ctx, first.SessionID)
+	loaded, err := cold.Inspect(ctx, first.SessionID, service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

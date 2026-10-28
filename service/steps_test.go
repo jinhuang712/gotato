@@ -176,7 +176,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	if _, err := first.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "four"}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := first.Inspect(ctx, s.ID())
+	before, err := first.Inspect(ctx, s.ID(), service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestCompactAppendReloadKeepsTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := second.Inspect(ctx, s.ID())
+	after, err := second.Inspect(ctx, s.ID(), service.InspectConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

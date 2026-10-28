@@ -108,8 +108,8 @@ func sessionCacheKey(s *session.Record) string {
 	return CacheKey(s.ID())
 }
 
-// InspectConfig override Session settings for one inspection without
-// touching the Session.
+// InspectConfig overrides Session settings for one inspection without
+// touching the Session. The zero value overrides nothing.
 type InspectConfig struct {
 	Instruction string
 }
@@ -117,9 +117,9 @@ type InspectConfig struct {
 // Inspect reports the Context a Run against the Session would send now. It
 // builds the live Session a Run would build and asks it, so the report includes the
 // Agent's Options, Tools and model options, and says whether the next Run
-// compacts the Session first. Optional InspectConfig override the Session's
-// stored settings. The Session is not changed.
-func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...InspectConfig) (modelctx.Report, error) {
+// compacts the Session first. config overrides the Session's stored settings.
+// The Session is not changed.
+func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (modelctx.Report, error) {
 	s, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
 		return modelctx.Report{}, err
@@ -129,11 +129,7 @@ func (r *Runner) Inspect(ctx context.Context, sessionID string, options ...Inspe
 	if !ok {
 		return modelctx.Report{}, ErrUnknownAgent
 	}
-	var override InspectConfig
-	if len(options) > 0 {
-		override = options[0]
-	}
-	live, auto, err := r.buildSession(ctx, spec, s, nil, override)
+	live, auto, err := r.buildSession(ctx, spec, s, nil, config)
 	if err != nil {
 		return modelctx.Report{}, err
 	}

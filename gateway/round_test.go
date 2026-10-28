@@ -640,7 +640,7 @@ func TestTheRequestIsTheSameAfterAReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, runner := range map[string]*service.Runner{"the writing instance": first, "another instance": second} {
-		report, err := runner.Inspect(ctx, run.SessionID)
+		report, err := runner.Inspect(ctx, run.SessionID, service.InspectConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}

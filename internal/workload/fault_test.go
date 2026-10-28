@@ -199,7 +199,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 					t.Fatalf("crash after write %d rebuilt\n%s\nwant\n%s", n, got, want)
 				}
 				next := taskRunner(t, backing, task, "next")
-				report, err := next.Inspect(ctx, id)
+				report, err := next.Inspect(ctx, id, service.InspectConfig{})
 				if err != nil {
 					t.Fatalf("crash after write %d: inspect: %v", n, err)
 				}
@@ -208,7 +208,7 @@ func TestCrashAtEveryWriteRebuildsTheLastStep(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				expected, err := reference.Inspect(ctx, before.ID())
+				expected, err := reference.Inspect(ctx, before.ID(), service.InspectConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -347,7 +347,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		live, err := runner.Inspect(ctx, s.ID())
+		live, err := runner.Inspect(ctx, s.ID(), service.InspectConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -357,7 +357,7 @@ func TestSameRecordSameRequestAcrossLoadsAndUnloads(t *testing.T) {
 			"the other instance":      taskRunner(t, store, task, "other"),
 			"a new Runner (a reload)": taskRunner(t, store, task, runner.Instance()),
 		} {
-			report, err := view.Inspect(ctx, s.ID())
+			report, err := view.Inspect(ctx, s.ID(), service.InspectConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}
