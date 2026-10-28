@@ -353,7 +353,7 @@ func (s *Record) resolveSegments() error {
 		if !ok {
 			return gotato.ErrorOf(gotato.CodeInvalidArgument, fmt.Sprintf("session: the checkpoint uses segment %d, which the log does not hold", number))
 		}
-		prefix = append(prefix, segment.Messages...)
+		prefix = append(prefix, cloneMessages(segment.Messages)...)
 	}
 	s.messages = append(prefix, s.messages...)
 	return nil
