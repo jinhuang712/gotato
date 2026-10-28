@@ -16,10 +16,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,18 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
-)
-
-// Exit codes of the test tool.
-const (
-	ExitOK            = 0
-	ExitError         = 1
-	ExitUsage         = 2
-	ExitNotFound      = 3
-	ExitRunIncomplete = 4
 )
 
 // Version is the version reported by doctor.
@@ -206,8 +194,6 @@ func (c *cli) ctx() (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.Background())
 }
 
-func (c *cli) machine() bool { return c.json || c.jsonl }
-
 // prescanMachineFlags sets --json/--jsonl from the raw arguments regardless of
 // where they appear, so a usage error after an unknown command or an invalid
 // flag still emits the documented error object. Flag parsing still runs later
@@ -233,157 +219,6 @@ func (c *cli) prescanMachineFlags(args []string) {
 	}
 }
 
-// emit prints value as JSON in machine mode, or human text otherwise.
-func (c *cli) emit(value any, human string) int {
-	if c.machine() {
-		return c.writeJSON(value)
-	}
-	if !c.quiet && human != "" {
-		fmt.Fprintln(c.stdout, human)
-	}
-	return ExitOK
-}
-
-func (c *cli) writeJSON(value any) int {
-	enc := json.NewEncoder(c.stdout)
-	enc.SetEscapeHTML(false)
-	if !c.jsonl {
-		enc.SetIndent("", "  ")
-	}
-	if err := enc.Encode(value); err != nil {
-		return c.fail(ExitError, "encode: "+err.Error())
-	}
-	return ExitOK
-}
-
-func (c *cli) writeJSONL(value any) error {
-	enc := json.NewEncoder(c.stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(value)
-}
-
-// fail reports an error on stderr (and as JSON on stdout in machine mode so
-// scripts see one shape) and returns the code.
-func (c *cli) fail(code int, message string) int {
-	return c.failWith(code, message, nil)
-}
-
-// failWith is fail for an error: in machine mode the error object also names
-// the runtime's code and what it says about a retry.
-func (c *cli) failWith(code int, message string, err error) int {
-	fmt.Fprintln(c.stderr, "gotato: "+message)
-	if c.machine() {
-		c.writeErrorObject(code, message, err)
-	}
-	return code
-}
-
-// writeErrorObject mirrors writeJSON: pretty in --json mode, compact in
-// --jsonl mode, so error and data shapes look the same.
-//
-// The object has "error" and "exit_code" always. "not_run" and "retryable"
-// are always there too, as the runtime's error says them: not_run means
-// nothing with side effects happened, so the same command may be run again
-// elsewhere; retryable means the same command, run again later, may succeed.
-// "code" names the runtime's ErrorCode, when the failure has one.
-func (c *cli) writeErrorObject(code int, message string, err error) {
-	enc := json.NewEncoder(c.stdout)
-	enc.SetEscapeHTML(false)
-	if !c.jsonl {
-		enc.SetIndent("", "  ")
-	}
-	object := errorObject{Error: message, ExitCode: code, NotRun: gotato.NotRun(err), Retryable: gotato.Retryable(err)}
-	var runtimeErr *gotato.RuntimeError
-	if errors.As(err, &runtimeErr) {
-		object.Code = runtimeErr.Code
-		if runtimeErr.Code == gotato.CodeNotWriter {
-			object.Writer = runtimeErr.Details["writer"]
-		}
-	}
-	_ = enc.Encode(object)
-}
-
-// errorObject is the JSON a failed command writes to stdout in machine mode.
-type errorObject struct {
-	Error     string           `json:"error"`
-	ExitCode  int              `json:"exit_code"`
-	Code      gotato.ErrorCode `json:"code,omitempty"`
-	NotRun    bool             `json:"not_run"`
-	Retryable bool             `json:"retryable"`
-	// Writer is, for not_writer, the address the Run's writer advertises.
-	Writer string `json:"writer,omitempty"`
-}
-
-// usageError reports a usage mistake. In machine mode it also writes the
-// documented error object to stdout, so a script never gets empty output.
-func (c *cli) usageError(message string) int {
-	fmt.Fprintln(c.stderr, "gotato: "+message)
-	fmt.Fprintln(c.stderr, "run 'gotato help' for usage")
-	if c.machine() {
-		c.writeErrorObject(ExitUsage, message, gotato.ErrorOf(gotato.CodeInvalidArgument, message))
-	}
-	return ExitUsage
-}
-
-// parseError turns a flag parse failure into the right exit: --help asks for
-// usage, anything else is a usage mistake.
-func (c *cli) parseError(err error) int {
-	if errors.Is(err, flag.ErrHelp) {
-		c.usage()
-		return ExitOK
-	}
-	return c.usageError(err.Error())
-}
-
-// exitOfCode is the exit code of each ErrorCode. Every code is listed, so a
-// new one cannot be left to a default by accident; the test over
-// gotato.ErrorCodes fails when one is missing. A failure that is not a
-// RuntimeError exits 1.
-var exitOfCode = map[gotato.ErrorCode]int{
-	gotato.CodeInvalidArgument:       ExitUsage,
-	gotato.CodeNotFound:              ExitNotFound,
-	gotato.CodeInvalidState:          ExitError,
-	gotato.CodeBusy:                  ExitError,
-	gotato.CodeSessionClosed:         ExitError,
-	gotato.CodeSessionClosing:        ExitError,
-	gotato.CodeModelFailure:          ExitError,
-	gotato.CodeContextOverflow:       ExitError,
-	gotato.CodeModelProtocolFailure:  ExitError,
-	gotato.CodeToolResolutionFailure: ExitError,
-	gotato.CodeToolArgumentFailure:   ExitError,
-	gotato.CodeToolExecutionFailure:  ExitError,
-	gotato.CodeExtensionFailure:      ExitError,
-	gotato.CodeLimitExceeded:         ExitError,
-	gotato.CodeCanceled:              ExitError,
-	gotato.CodeDeadlineExceeded:      ExitError,
-	gotato.CodeInternalInvariant:     ExitError,
-	gotato.CodeNotSupported:          ExitError,
-	gotato.CodeConflict:              ExitError,
-	gotato.CodeStoreFailure:          ExitError,
-	gotato.CodeOverloaded:            ExitError,
-	gotato.CodeDraining:              ExitError,
-	gotato.CodeCannotResume:          ExitError,
-	gotato.CodeNotWriter:             ExitError,
-}
-
-// failErr reports an error and returns the exit code of its code.
-func (c *cli) failErr(err error) int {
-	code := ExitError
-	var runtimeErr *gotato.RuntimeError
-	if errors.As(err, &runtimeErr) {
-		if exit, ok := exitOfCode[runtimeErr.Code]; ok {
-			code = exit
-		}
-	}
-	return c.failWith(code, err.Error(), err)
-}
-
-func (c *cli) info(format string, args ...any) {
-	if !c.quiet {
-		fmt.Fprintf(c.stderr, format+"\n", args...)
-	}
-}
-
 // store opens the configured Session store.
 func (c *cli) store() (session.Store, string, error) {
 	dir := c.storeDir
@@ -403,35 +238,4 @@ func (c *cli) store() (session.Store, string, error) {
 		return nil, dir, err
 	}
 	return store, dir, nil
-}
-
-func (c *cli) usage() { c.usageTo(c.stdout) }
-
-// usageTo writes the human usage text to w. stdout for an explicit help
-// request, stderr for a usage mistake.
-func (c *cli) usageTo(w io.Writer) {
-	fmt.Fprint(w, strings.TrimLeft(`
-gotato — minimalistic, composable Go agent runtime
-
-Usage:
-  gotato [global flags] <command> [flags] [args]
-
-Commands:
-  run        [--session ID] [--model echo|demo|gateway] [--compact-ceiling N] [--json|--events jsonl] "prompt"
-  session    create | list | show <id> | fork <id> | events <id> | resume <id> "prompt" | message <id> [--kind steer|follow_up|interrupt] "text" | notice <id> --kind K "text" | abort <id> | delete <id>
-  context    inspect <id> | build <id> | compact <id> [--keep-messages N] [--recap truncate|model]
-  tools      list | describe <id> | active | activate <id> --session ID | deactivate <id> --session ID
-  events     --session <id> [--jsonl|--json]
-  serve      [--addr HOST:PORT] [--max-runs N] [--max-sessions N] [--queue reject|wait] [--warm-ttl D] [--no-idle-compaction] [--advertise URL] [--forward]   HTTP session service
-  doctor     [--json]
-  version
-
-Global flags (also accepted after the command):
-  --store DIR   session store directory (default $GOTATO_HOME/sessions or ~/.gotato/sessions)
-  --json        JSON output on stdout      --jsonl   JSON Lines output on stdout
-  --quiet       suppress non-error output
-  --timeout D   overall deadline, e.g. 30s
-
-Exit codes: 0 ok · 1 runtime error · 2 usage error · 3 not found · 4 run did not complete
-`, "\n"))
 }

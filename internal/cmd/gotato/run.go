@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 )
 
-// ---- run and events -------------------------------------------------------
+// ---- run ----------------------------------------------------------------
 
 func (c *cli) cmdRun(args []string) int { return c.cmdRunArgs(args, false) }
 
@@ -104,71 +102,4 @@ func (c *cli) cmdRunArgs(args []string, sessionFromPositional bool) int {
 		}
 	}
 	return code
-}
-
-func (c *cli) cmdEvents(args []string) int {
-	fs := c.newFlagSet("events")
-	sessionID := fs.String("session", "", "session id")
-	kind := fs.String("kind", "", "only events of this kind")
-	positionalSession := false
-	if len(args) > 0 && args[0] == "--session-positional" {
-		positionalSession = true
-		args = args[1:]
-	}
-	positionals, err := parseInterspersed(fs, args)
-	if err != nil {
-		return c.parseError(err)
-	}
-	if positionalSession && len(positionals) > 0 && *sessionID == "" {
-		*sessionID = positionals[0]
-	}
-	if *sessionID == "" {
-		return c.usageError("events needs --session ID")
-	}
-	ctx, cancel := c.ctx()
-	defer cancel()
-	store, _, err := c.store()
-	if err != nil {
-		return c.failErr(err)
-	}
-	events, err := session.StoredEvents(ctx, store, *sessionID, 0, 0)
-	if err != nil {
-		return c.failErr(err)
-	}
-	if *kind != "" {
-		filtered := events[:0]
-		for _, event := range events {
-			if string(event.Kind()) == *kind {
-				filtered = append(filtered, event)
-			}
-		}
-		events = filtered
-	}
-	if c.json {
-		if events == nil {
-			events = []gotato.Event{}
-		}
-		return c.writeJSON(events)
-	}
-	for _, event := range events {
-		if err := c.writeJSONL(event); err != nil {
-			return c.fail(ExitError, err.Error())
-		}
-	}
-	return ExitOK
-}
-
-func parseMeta(spec string) (map[string]string, error) {
-	out := map[string]string{}
-	if strings.TrimSpace(spec) == "" {
-		return out, nil
-	}
-	for pair := range strings.SplitSeq(spec, ",") {
-		key, value, ok := strings.Cut(pair, "=")
-		if !ok || strings.TrimSpace(key) == "" {
-			return nil, errors.New("metadata must be key=value pairs")
-		}
-		out[strings.TrimSpace(key)] = strings.TrimSpace(value)
-	}
-	return out, nil
 }

@@ -326,3 +326,18 @@ func (c *cli) sessionDelete(args []string) int {
 	}
 	return c.emit(map[string]any{"id": s.ID(), "deleted": true}, "deleted "+s.ID())
 }
+
+func parseMeta(spec string) (map[string]string, error) {
+	out := map[string]string{}
+	if strings.TrimSpace(spec) == "" {
+		return out, nil
+	}
+	for pair := range strings.SplitSeq(spec, ",") {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, errors.New("metadata must be key=value pairs")
+		}
+		out[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return out, nil
+}
