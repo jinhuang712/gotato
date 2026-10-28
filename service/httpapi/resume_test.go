@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -616,4 +617,37 @@ func firstDifference(got, want []string) string {
 		}
 	}
 	return "one is a prefix of the other"
+}
+
+// timeoutLogStore fails the log read with an error that wraps DeadlineExceeded once armed.
+type timeoutLogStore struct {
+	session.Store
+	armed atomic.Bool
+}
+
+func (s *timeoutLogStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	if s.armed.Load() {
+		return nil, fmt.Errorf("store: log: %w", context.DeadlineExceeded)
+	}
+	return s.Store.Log(ctx, id, after, limit)
+}
+
+// A Store error that wraps DeadlineExceeded is a failure, not the keep-alive timer.
+func TestSessionStreamReportsAStoreTimeoutAsAnError(t *testing.T) {
+	store := &timeoutLogStore{Store: session.NewMemoryStore()}
+	runner, err := service.New(service.Config{Store: store, StreamPoll: 5 * time.Millisecond, Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(runner, httpapi.WithKeepAlive(time.Minute)))
+	t.Cleanup(server.Close)
+	first := runOnce(t, runner)
+	_, f, _ := openSession(t, server, first.SessionID, "", nil)
+	start, _ := startOf(t, f)
+	readStored(t, f, int(start.Head))
+	store.armed.Store(true)
+	fr, err := f.next()
+	if err != nil || fr.event != "error" {
+		t.Fatalf("after a store timeout the stream sent %+v, %v; want an error frame", fr, err)
+	}
 }

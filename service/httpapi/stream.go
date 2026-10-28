@@ -112,6 +112,9 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		next, cancel := context.WithTimeout(r.Context(), h.keepAlive)
 		event, err := stream.Next(next)
+		// The keep-alive is the per-call timer running out, not any error that
+		// wraps DeadlineExceeded, such as a Store's own.
+		timer := next.Err() != nil && errors.Is(err, context.DeadlineExceeded)
 		cancel()
 		switch {
 		case err == nil:
@@ -120,7 +123,7 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 			}
 		case r.Context().Err() != nil:
 			return
-		case errors.Is(err, context.DeadlineExceeded):
+		case timer:
 			fmt.Fprint(w, ": keepalive\n\n")
 			if flusher != nil {
 				flusher.Flush()
