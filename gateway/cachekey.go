@@ -70,6 +70,7 @@ func (c *Client) withCacheKeyField(body []byte, key string) ([]byte, error) {
 	if c.cacheKeyField == "" || key == "" {
 		return body, nil
 	}
+	// [IMPORTANT] the field is appended before the closing brace, so a body that is not an object would come out as corrupt JSON.
 	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
 		return nil, errors.New("gateway: the encoded request is not a JSON object")
 	}

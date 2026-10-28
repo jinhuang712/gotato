@@ -63,6 +63,8 @@ func (e *Error) Unwrap() error {
 // gateway; the transport error that may name a host stays on Unwrap. So a
 // caller sees why a provider refused ("model not found"), never where the
 // request went.
+//
+// [SECURITY] the transport cause that may name a host stays on Unwrap and is never public.
 func (e *Error) Public() string { return e.Error() }
 
 // Error implements the error interface: "gateway: HTTP 429: message", or
@@ -147,6 +149,7 @@ func transientStream(kinds ...string) bool {
 	return false
 }
 
+// [SECURITY] a fixed text, so the transport error that names a host never reaches the Model or a client.
 // transportMessage is the public Message of a request that could not be sent.
 const transportMessage = "the request could not be sent"
 

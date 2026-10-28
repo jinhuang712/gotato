@@ -134,6 +134,7 @@ func validHeaderValue(value string) bool {
 	return true
 }
 
+// [CONTRACT] net/http refuses a bad header only at the first request; the package promises a settings mistake is reported before it.
 // checkHeaders returns an error naming the first header that net/http would
 // refuse to send. The value is never part of the error.
 func checkHeaders(headers map[string]string) error {
@@ -148,6 +149,7 @@ func checkHeaders(headers map[string]string) error {
 	return nil
 }
 
+// [CONTRACT] a settings mistake is reported by New, before the first Stream.
 // checkEndpoint refuses an endpoint that is not an http or https URL with a host.
 func checkEndpoint(endpoint string) error {
 	u, err := url.Parse(endpoint)

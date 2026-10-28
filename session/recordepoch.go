@@ -28,6 +28,7 @@ func SameRecord(ctx context.Context, log EntryLog, id, epoch string) (bool, erro
 		}
 		return err == nil && loaded.Info.RecordEpoch == epoch, err
 	}
+	// [CONTRACT] an EntryLog that is not a Store has no Load; the exported seam is asked for the first Entry.
 	entries, err := log.Log(ctx, id, 0, 1)
 	if errors.Is(err, ErrNotFound) {
 		return false, nil

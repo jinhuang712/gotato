@@ -190,6 +190,7 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	return sameEntries("Log after the refused Append", log, longer, "the refused Append must not write any Entry into the new Record, and "+ruleLog)
 }
 
+// [OWNERSHIP] a writer of a deleted and re-created Record must never append to the new one.
 // checkEpochBeforePosition checks that an Append of a writer of a deleted and
 // re-created Record is ErrNotFound also when its position is wrong too.
 func checkEpochBeforePosition(ctx context.Context, open Open) error {
@@ -200,7 +201,7 @@ func checkEpochBeforePosition(ctx context.Context, open Open) error {
 	stale.RecordEpoch = "epoch-other"
 	err := open().Append(ctx, "r1", 8, []session.Entry{fact(9, "x")}, stale)
 	if !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("an Append naming another epoch at a position that is not the head returned %v, want ErrNotFound: the epoch is checked before the position", err)
+		return fmt.Errorf("an Append naming another epoch at a position that is not the head returned %v, want ErrNotFound", err)
 	}
 	return nil
 }

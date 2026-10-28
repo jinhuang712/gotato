@@ -278,6 +278,7 @@ func resolveCacheKey(config Config, api API) (header, field string, err error) {
 	case field != "" && api == APIAnthropicMessages:
 		return "", "", fmt.Errorf("gateway: CacheKeyField is not supported by %s, which caches by cache_control", APIAnthropicMessages)
 	}
+	// [CONTRACT] a cache key field that equals a field the request sends would silently replace it; refused at New, not at the first call.
 	if reservedBodyField(api, field) {
 		return "", "", fmt.Errorf("gateway: CacheKeyField %q is a field %s already sends", field, api)
 	}
