@@ -55,3 +55,28 @@ func TestGatewayClientIsAContextWindowerAndCacheRetainer(t *testing.T) {
 		t.Fatalf("RetentionOf = %s", got)
 	}
 }
+
+// wrapped hides everything of the Model it wraps but Stream.
+type wrapped struct{ gotato.Model }
+
+// forwarding does the same and says what it wraps.
+type forwarding struct{ wrapped }
+
+func (f forwarding) Unwrap() gotato.Model { return f.Model }
+
+func TestCapabilitiesFollowUnwrap(t *testing.T) {
+	inner := sizedModel{window: 100000, retention: time.Minute}
+	if got := modelctx.WindowOf(wrapped{inner}); got != 0 {
+		t.Fatalf("a wrapper without Unwrap hides the window: WindowOf = %d, want 0", got)
+	}
+	twice := forwarding{wrapped{forwarding{wrapped{inner}}}}
+	if got := modelctx.WindowOf(twice); got != 100000 {
+		t.Fatalf("WindowOf through two wrappers = %d", got)
+	}
+	if got := modelctx.RetentionOf(twice); got != time.Minute {
+		t.Fatalf("RetentionOf through two wrappers = %s", got)
+	}
+	if modelctx.DropsReasoning(twice) {
+		t.Fatal("DropsReasoning true for a Model that is not a RoundReasoner")
+	}
+}
