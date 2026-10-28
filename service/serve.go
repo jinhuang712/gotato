@@ -125,7 +125,7 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	}
 	st.applyUpdate(spec)
 
-	live, auto, err := st.startRun(ctx, spec)
+	live, auto, err := st.startRun(ctx, runCtx, spec)
 	if err != nil {
 		return st.abandon(runCtx, err)
 	}
@@ -153,15 +153,18 @@ func (st *runState) abandon(runCtx context.Context, err error) error {
 }
 
 // startRun builds the live Session, queues the notices and follow-on messages
-// that wait for it, and makes the handle reach it.
-func (st *runState) startRun(ctx context.Context, spec Agent) (*gotato.Session, *modelctx.AutoCompactor, error) {
+// that wait for it, and makes the handle reach it. The build, with the
+// resolution of the Agent's ToolSources and ToolSets, runs under runCtx, so a
+// Stop or Drain that arrives before the handle reaches the live Session
+// cancels it.
+func (st *runState) startRun(ctx, runCtx context.Context, spec Agent) (*gotato.Session, *modelctx.AutoCompactor, error) {
 	r, s, handle, follow := st.r, st.s, st.handle, st.follow
 	onRunStart := gotato.WithRunStart(func(runID gotato.RunID) {
 		st.track.set(runID)
 		handle.attachRunID(runID)
 		handle.abortIfStopped()
 	})
-	live, auto, err := r.buildSession(ctx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff(), gotato.WithRequestID(st.request.RequestID))
+	live, auto, err := r.buildSession(runCtx, spec, s, st.writer, InspectConfig{}, onRunStart, gotato.WithFeed(st.feed), gotato.WithQueueHandoff(), gotato.WithRequestID(st.request.RequestID))
 	if err != nil {
 		return nil, nil, err
 	}
