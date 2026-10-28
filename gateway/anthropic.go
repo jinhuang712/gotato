@@ -459,6 +459,8 @@ func (s *anthropicStream) reopen(response *http.Response) {
 	s.stop = ""
 }
 
+// process applies one decoded SSE event to the stream's state, queueing the
+// ModelEvents it yields.
 func (s *anthropicStream) process(event anthropicEvent) error {
 	switch event.Type {
 	case "message_start":
@@ -467,43 +469,9 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 			s.model = event.Message.Model
 		}
 	case "content_block_start":
-		if event.ContentBlock == nil {
-			return nil
-		}
-		block := &anthropicBlockState{kind: event.ContentBlock.Type, id: event.ContentBlock.ID, name: event.ContentBlock.Name,
-			signature: event.ContentBlock.Signature, data: event.ContentBlock.Data}
-		s.blocks[event.Index] = block
-		switch block.kind {
-		case "text":
-			if event.ContentBlock.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.ContentBlock.Text})
-			}
-		case "thinking":
-			if event.ContentBlock.Thinking != "" {
-				block.thinking.WriteString(event.ContentBlock.Thinking)
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.ContentBlock.Thinking})
-			}
-		}
+		s.startBlock(event)
 	case "content_block_delta":
-		block := s.blocks[event.Index]
-		if block == nil || event.Delta == nil {
-			return nil
-		}
-		switch event.Delta.Type {
-		case "text_delta":
-			if event.Delta.Text != "" {
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta.Text})
-			}
-		case "input_json_delta":
-			block.input.WriteString(event.Delta.PartialJSON)
-		case "thinking_delta":
-			if event.Delta.Thinking != "" {
-				block.thinking.WriteString(event.Delta.Thinking)
-				s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.Delta.Thinking})
-			}
-		case "signature_delta":
-			block.signature += event.Delta.Signature
-		}
+		s.blockDelta(event)
 	case "content_block_stop":
 		block := s.blocks[event.Index]
 		if block == nil {
@@ -512,39 +480,101 @@ func (s *anthropicStream) process(event anthropicEvent) error {
 		delete(s.blocks, event.Index)
 		return s.finishBlock(block)
 	case "message_delta":
-		if event.Delta != nil && event.Delta.StopReason == "model_context_window_exceeded" {
-			// The window ran out during the reply. That is an overflow, not
-			// an output limit: a continuation would ask the model again on
-			// a full window. The text received stays as a cut-off reply.
-			return &Error{Message: "the context window was exceeded during the reply", Overflow: true}
-		}
-		if event.Delta != nil && event.Delta.StopReason != "" {
-			s.stop = anthropicStopReason(event.Delta.StopReason)
-		}
-		if event.Usage != nil {
-			s.mergeUsage(*event.Usage)
-		}
+		return s.messageDelta(event)
 	case "message_stop":
-		usage := s.gotatoUsage()
-		if s.stop == "" {
-			s.stop = gotato.StopReasonEndTurn
-		}
-		s.queue = append(s.queue,
-			gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: usage},
-			gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.stop, Usage: usage, Model: s.model})
-		s.finished = true
+		s.stopMessage()
 	case "error":
-		message, kind := "stream error", ""
-		if event.Error != nil {
-			message, kind = event.Error.Message, event.Error.Type
-		}
-		return &Error{
-			retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
-			Message:   message,
-			Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
-		}
+		return s.streamError(event)
 	}
 	return nil
+}
+
+// startBlock opens a content block; a text or thinking block may carry its
+// first characters already.
+func (s *anthropicStream) startBlock(event anthropicEvent) {
+	if event.ContentBlock == nil {
+		return
+	}
+	block := &anthropicBlockState{kind: event.ContentBlock.Type, id: event.ContentBlock.ID, name: event.ContentBlock.Name,
+		signature: event.ContentBlock.Signature, data: event.ContentBlock.Data}
+	s.blocks[event.Index] = block
+	switch block.kind {
+	case "text":
+		if event.ContentBlock.Text != "" {
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.ContentBlock.Text})
+		}
+	case "thinking":
+		if event.ContentBlock.Thinking != "" {
+			block.thinking.WriteString(event.ContentBlock.Thinking)
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.ContentBlock.Thinking})
+		}
+	}
+}
+
+// blockDelta adds a delta to its open block: text and thinking are queued as
+// they arrive, tool input and the signature are kept until the block stops.
+func (s *anthropicStream) blockDelta(event anthropicEvent) {
+	block := s.blocks[event.Index]
+	if block == nil || event.Delta == nil {
+		return
+	}
+	switch event.Delta.Type {
+	case "text_delta":
+		if event.Delta.Text != "" {
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindTextDelta, Text: event.Delta.Text})
+		}
+	case "input_json_delta":
+		block.input.WriteString(event.Delta.PartialJSON)
+	case "thinking_delta":
+		if event.Delta.Thinking != "" {
+			block.thinking.WriteString(event.Delta.Thinking)
+			s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindReasoningDelta, Text: event.Delta.Thinking})
+		}
+	case "signature_delta":
+		block.signature += event.Delta.Signature
+	}
+}
+
+// messageDelta records the stop reason and the usage the message ends with.
+func (s *anthropicStream) messageDelta(event anthropicEvent) error {
+	if event.Delta != nil && event.Delta.StopReason == "model_context_window_exceeded" {
+		// The window ran out during the reply. That is an overflow, not
+		// an output limit: a continuation would ask the model again on
+		// a full window. The text received stays as a cut-off reply.
+		return &Error{Message: "the context window was exceeded during the reply", Overflow: true}
+	}
+	if event.Delta != nil && event.Delta.StopReason != "" {
+		s.stop = anthropicStopReason(event.Delta.StopReason)
+	}
+	if event.Usage != nil {
+		s.mergeUsage(*event.Usage)
+	}
+	return nil
+}
+
+// stopMessage ends the stream with its Usage and Done events.
+func (s *anthropicStream) stopMessage() {
+	usage := s.gotatoUsage()
+	if s.stop == "" {
+		s.stop = gotato.StopReasonEndTurn
+	}
+	s.queue = append(s.queue,
+		gotato.ModelEvent{Kind: gotato.ModelEventKindUsage, Usage: usage},
+		gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: s.stop, Usage: usage, Model: s.model})
+	s.finished = true
+}
+
+// streamError is the Error an "error" event stands for.
+func (s *anthropicStream) streamError(event anthropicEvent) error {
+	message, kind := "stream error", ""
+	if event.Error != nil {
+		message, kind = event.Error.Message, event.Error.Type
+	}
+	return &Error{
+		retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
+		Message:   message,
+		Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
+	}
 }
 
 func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
