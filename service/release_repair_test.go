@@ -76,3 +76,20 @@ func TestRepairDoesNotEraseAMarkSetDuringTheAttempt(t *testing.T) {
 		t.Fatal("a fresh mark was erased by the attempt that finished after it")
 	}
 }
+
+// A release that finds the Session gone is not ours to repair: nothing is
+// marked, so the next repair pass opens nothing from the store.
+func TestAReleaseThatLostTheRecordIsNotMarkedForRepair(t *testing.T) {
+	store := &loadCountStore{Store: session.NewMemoryStore()}
+	runner, id, hold, done := holdBeforeReleaseOn(t, store)
+	if err := store.Delete(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	close(hold.proceed)
+	<-done
+	before := store.loads.Load()
+	runner.RepairReleases()
+	if got := store.loads.Load(); got != before {
+		t.Fatalf("the repair pass opened %d Sessions, want none", got-before)
+	}
+}
