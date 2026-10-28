@@ -209,3 +209,32 @@ func TestReplayedArgumentsAreAlwaysAJSONObject(t *testing.T) {
 		}
 	}
 }
+
+func TestConvertMessageToolResultKeepsJSONContent(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+		Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"summary":"sunny"}`}},
+	}
+	wire, err := convertChatMessage(message, map[string]string{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.Role != "tool" || wire.Content != `{"summary":"sunny"}` || wire.ToolCallID != "c1" {
+		t.Fatalf("wire = %+v", wire)
+	}
+}
+
+func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
+	message := gotato.Message{
+		Role:       gotato.RoleToolResult,
+		ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusFailed, SafeError: "upstream is down"},
+	}
+	wire, err := convertChatMessage(message, map[string]string{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.Content != "upstream is down" {
+		t.Fatalf("content = %q", wire.Content)
+	}
+}

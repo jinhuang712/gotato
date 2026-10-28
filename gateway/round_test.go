@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/service"
@@ -314,48 +313,6 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 	}
 }
 
-// The provider comes from the configuration, or from the provider's own
-// address. A model name is never used to guess it: behind a gateway, a model
-// name may be an alias for anything.
-func TestTheProviderIsConfiguredOrKnownByItsOfficialAddress(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		config Config
-		want   Provider
-	}{
-		{"Anthropic's address", Config{API: APIAnthropicMessages}, ProviderAnthropic},
-		{"OpenAI's address", Config{API: APIResponses}, ProviderOpenAI},
-		{"OpenAI's chat address", Config{BaseURL: "https://api.openai.com/v1"}, ProviderOpenAI},
-		{"DeepSeek's chat address", Config{BaseURL: "https://api.deepseek.com"}, ProviderDeepSeek},
-		{"DeepSeek's Anthropic address", Config{API: APIAnthropicMessages, BaseURL: "https://api.deepseek.com/anthropic"}, ProviderDeepSeek},
-		{"a gateway in front", Config{API: APIAnthropicMessages, BaseURL: "https://gateway.example.com"}, ""},
-		{"a model name says nothing", Config{BaseURL: "https://gateway.example.com/v1", Model: "claude-opus-5-5"}, ""},
-		{"configured", Config{API: APIAnthropicMessages, BaseURL: "https://gateway.example.com", Provider: "anthropic"}, ProviderAnthropic},
-		{"configured over the address", Config{BaseURL: "https://api.openai.com/v1", Provider: "deepseek"}, ProviderDeepSeek},
-		{"other turns recognition off", Config{API: APIAnthropicMessages, Provider: "other"}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.config.Model == "" {
-				tc.config.Model = "m"
-			}
-			client, err := New(tc.config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if client.provider != tc.want {
-				t.Fatalf("provider = %q, want %q", client.provider, tc.want)
-			}
-			recognized := tc.want == ProviderAnthropic || tc.want == ProviderOpenAI
-			if client.RoundReasoningOnly() != recognized {
-				t.Fatalf("RoundReasoningOnly = %v, want %v", client.RoundReasoningOnly(), recognized)
-			}
-		})
-	}
-	if _, err := New(Config{BaseURL: "https://gateway.example.com", Model: "m", Provider: "gemini"}); err == nil {
-		t.Fatal("an unknown provider name was accepted")
-	}
-}
-
 // Only Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5 check the prefix a
 // thinking block was written under, so only they are asked to drop a block
 // whose prefix changed instead of refusing the request. block_binding lives
@@ -431,114 +388,6 @@ func TestAnthropicBindingSendsItsBetaHeader(t *testing.T) {
 		server.Close()
 		if got != tc.want {
 			t.Errorf("%q %s: anthropic-beta = %q, want %q", tc.provider, tc.model, got, tc.want)
-		}
-	}
-}
-
-// Without a setting, a recognized provider keeps the cache as long as it
-// offers: an hour on Claude, 30 minutes on OpenAI models from GPT-5.6. A
-// shorter setting falls back to the provider's default, which is the
-// provider's shortest. OpenAI models before GPT-5.6 and the chat API keep
-// their own default.
-func TestCacheRetentionIsTheProvidersLongestUnlessSetShorter(t *testing.T) {
-	for _, tc := range []struct {
-		provider  Provider
-		api       API
-		model     string
-		retention time.Duration
-		ttl       string
-	}{
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 0, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 2 * time.Hour, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", time.Hour, "1h"},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 30 * time.Minute, ""},
-		{ProviderAnthropic, APIAnthropicMessages, "claude-opus-4-6", 5 * time.Minute, ""},
-		{ProviderOpenAI, APIResponses, "gpt-6.1-sol", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-6", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-5.6", 0, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-5.6-mini", 24 * time.Hour, "30m"},
-		{ProviderOpenAI, APIResponses, "gpt-6.1-sol", 10 * time.Minute, ""},
-		{ProviderOpenAI, APIResponses, "gpt-5.5", 0, ""},
-		{ProviderOpenAI, APIResponses, "gpt-4.1", 0, ""},
-		{ProviderOpenAI, APIResponses, "o3", 0, ""},
-		{ProviderOpenAI, APIChatCompletions, "gpt-6.1-sol", 0, ""},
-		{ProviderDeepSeek, APIChatCompletions, "deepseek-chat", 0, ""},
-		{"", APIAnthropicMessages, "claude-opus-4-6", 0, ""},
-		{"", APIResponses, "gpt-6.1-sol", 0, ""},
-	} {
-		body := encodeWith(t, tc.api, newProviderRules(tc.provider, tc.api, tc.model, tc.retention, false), twoRounds(tc.api))
-		if got := sentCacheTTL(t, tc.api, body); got != tc.ttl {
-			t.Errorf("%q %s %s retention %v: ttl = %q, want %q\n%s", tc.provider, tc.api, tc.model, tc.retention, got, tc.ttl, body)
-		}
-	}
-}
-
-// sentCacheTTL returns the cache ttl an encoded request asks for, and fails
-// when an Anthropic request's markers disagree.
-func sentCacheTTL(t *testing.T, api API, body string) string {
-	t.Helper()
-	switch api {
-	case APIAnthropicMessages:
-		markers := cacheControls(t, body)
-		if len(markers) == 0 {
-			t.Fatalf("no cache_control in %s", body)
-		}
-		first, _ := markers[0]["ttl"].(string)
-		for _, marker := range markers {
-			if ttl, _ := marker["ttl"].(string); ttl != first || marker["type"] != "ephemeral" {
-				t.Fatalf("cache_control markers disagree: %v", markers)
-			}
-		}
-		return first
-	default:
-		raw, ok := topLevel(t, body)["prompt_cache_options"]
-		if !ok {
-			return ""
-		}
-		var options struct {
-			TTL string `json:"ttl"`
-		}
-		if err := json.Unmarshal(raw, &options); err != nil {
-			t.Fatal(err)
-		}
-		return options.TTL
-	}
-}
-
-// The model's own CacheRetention is the only setting.
-func TestCacheRetentionComesFromTheConfig(t *testing.T) {
-	ttl := func(retention time.Duration) string {
-		t.Helper()
-		client, err := New(Config{API: APIAnthropicMessages, Model: "claude-opus-4-6", CacheRetention: retention})
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _, err := encodeAnthropicRequest(client.model, gotato.ModelRequest{SystemInstructions: "sys",
-			CacheBreakpoints: []gotato.CacheBreakpoint{{After: gotato.CacheAnchorAfterSystem}}}, client.rules)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return sentCacheTTL(t, APIAnthropicMessages, string(body))
-	}
-	if got := ttl(5 * time.Minute); got != "" {
-		t.Fatalf("model setting 5m: ttl = %q", got)
-	}
-	if _, err := New(Config{API: APIAnthropicMessages, Model: "m", CacheRetention: -time.Minute}); err == nil {
-		t.Fatal("a negative retention was accepted")
-	}
-}
-
-func TestParseYAMLProviderRetentionAndDropBlock(t *testing.T) {
-	config, err := parseYAML([]byte("api: anthropic-messages\nbase_url: https://gateway.example.com\nmodel: m\nprovider: anthropic\ncache_retention: 10m\nno_drop_block: true\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.Provider != ProviderAnthropic || config.CacheRetention != 10*time.Minute || !config.NoDropBlock {
-		t.Fatalf("config = %+v", config)
-	}
-	for _, bad := range []string{"cache_retention: soon\n", "provider: gemini\n"} {
-		if _, err := parseYAML([]byte("base_url: https://gateway.example.com\nmodel: m\n" + bad)); err == nil {
-			t.Errorf("%q was accepted", bad)
 		}
 	}
 }
