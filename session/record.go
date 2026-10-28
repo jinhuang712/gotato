@@ -177,34 +177,16 @@ func (s *Record) apply(entry Entry) error {
 		if e.ForkedFrom != nil {
 			s.parentID, s.parentSeq = string(e.ForkedFrom.SessionID), e.ForkedFrom.Number
 		}
-		s.messages = e.Messages
-		s.metadata = e.Metadata
-		if s.metadata == nil {
-			s.metadata = map[string]string{}
-		}
-		s.compactions = e.Compactions
-		s.loaded = slices.Clone(e.LoadedTools)
-		s.startContext(e.Segments, e.Tail)
-		s.started = nil
-		s.openParts = nil
+		s.restore(e.Messages, e.Metadata, e.Compactions, e.LoadedTools, e.Segments, e.Tail)
 	case gotato.CompactionEnded:
 		if s.id == "" {
 			// A load that starts at this Checkpoint has not read session_created.
 			s.id = string(e.SessionID)
 		}
-		s.messages = e.Messages
-		s.metadata = e.Metadata
-		if s.metadata == nil {
-			s.metadata = map[string]string{}
-		}
-		s.compactions = e.History
-		s.loaded = slices.Clone(e.LoadedTools)
-		s.startContext(e.Segments, e.Tail)
+		s.restore(e.Messages, e.Metadata, e.History, e.LoadedTools, e.Segments, e.Tail)
 		if e.Instance != "" {
 			s.claim = Claim{Instance: e.Instance, Epoch: e.Epoch}
 		}
-		s.started = nil
-		s.openParts = nil
 	case gotato.SegmentClosed:
 		s.closeLocked(e.Segment)
 	case gotato.MessageCommitted:
@@ -260,6 +242,21 @@ func (s *Record) apply(entry Entry) error {
 		s.retain(gotato.WithoutBody(event))
 	}
 	return nil
+}
+
+// restore sets the state a Checkpoint (session_created or compaction_ended)
+// holds, and forgets what was in flight before it.
+func (s *Record) restore(messages []gotato.Message, metadata map[string]string, compactions []gotato.Compaction, loaded []string, segments []int, tail []gotato.MessagePosition) {
+	s.messages = messages
+	s.metadata = metadata
+	if s.metadata == nil {
+		s.metadata = map[string]string{}
+	}
+	s.compactions = compactions
+	s.loaded = slices.Clone(loaded)
+	s.startContext(segments, tail)
+	s.started = nil
+	s.openParts = nil
 }
 
 // startContext begins the Context a Checkpoint holds: the Segments it lists,
@@ -343,12 +340,7 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 				answered[result.CallID] = true
 			}
 		}
-		var missing []gotato.ToolCall
-		for _, call := range message.ToolCalls {
-			if !answered[call.ID] {
-				missing = append(missing, call)
-			}
-		}
+		missing := unanswered(message.ToolCalls, answered)
 		if len(missing) == 0 && out == nil {
 			continue
 		}
@@ -357,19 +349,7 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 		}
 		out = append(out, messages[i:end]...)
 		for _, call := range missing {
-			text := notRunToolResult
-			if started[call.ID] {
-				text = StoppedToolResult
-			}
-			out = append(out, gotato.Message{
-				ID:    gotato.MessageID("repair-" + string(call.ID)),
-				Role:  gotato.RoleToolResult,
-				Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
-				ToolResult: &gotato.ToolResult{
-					CallID: call.ID, Status: gotato.ToolResultStatusFailed, Executed: started[call.ID], SafeError: text,
-					Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
-				},
-			})
+			out = append(out, repairResult(call, started[call.ID]))
 		}
 		i = end - 1
 	}
@@ -377,4 +357,34 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 		return messages
 	}
 	return out
+}
+
+// unanswered returns the calls that have no result among answered.
+func unanswered(calls []gotato.ToolCall, answered map[gotato.ToolCallID]bool) []gotato.ToolCall {
+	var missing []gotato.ToolCall
+	for _, call := range calls {
+		if !answered[call.ID] {
+			missing = append(missing, call)
+		}
+	}
+	return missing
+}
+
+// repairResult is the failed result repair adds for a call: stopped when it
+// had started, not run when it had not. Its ID comes from the call's, so
+// every load works out the same Message.
+func repairResult(call gotato.ToolCall, started bool) gotato.Message {
+	text := notRunToolResult
+	if started {
+		text = StoppedToolResult
+	}
+	return gotato.Message{
+		ID:    gotato.MessageID("repair-" + string(call.ID)),
+		Role:  gotato.RoleToolResult,
+		Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
+		ToolResult: &gotato.ToolResult{
+			CallID: call.ID, Status: gotato.ToolResultStatusFailed, Executed: started, SafeError: text,
+			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: text}},
+		},
+	}
 }

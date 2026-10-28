@@ -189,28 +189,12 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	if err != nil {
 		return nil, err
 	}
-	r.mu.Lock()
-	r.instance = instance
-	r.logging = true
-	claimed := r.claim.Instance == instance
-	holder := r.claim
-	running := r.running
-	busy := r.busy || running != ""
-	r.mu.Unlock()
-	if !claimed && config.holder != nil {
+	holder, busy, running := r.attach(instance)
+	if holder.Instance != instance && config.holder != nil {
 		if err := config.holder(ctx, holder, busy); err != nil {
 			return nil, err
 		}
 	}
-	// The Session is busy from this write on, so another Instance waits
-	// instead of claiming it before this writer's Run has started. A writer
-	// that holds the Claim already writes it again: it takes the next
-	// position too, so when another Instance claims the Record at the same
-	// moment, exactly one of the two writes lands, and the other sees a
-	// conflict before it calls the model.
-	r.mu.Lock()
-	r.busy = true
-	r.mu.Unlock()
 	why := gotato.ClaimWhyIdle
 	switch {
 	case config.waited:
@@ -218,6 +202,38 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	case busy:
 		why = gotato.ClaimWhyWriterGone
 	}
+	r.takeOver(instance, why, running)
+	w := &Writer{store: store, record: r, guard: config.guard, publish: config.publish}
+	w.stats.Load = loadTime
+	if err := w.Flush(ctx); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+// attach makes the Record instance's, and returns who held the Claim, whether
+// that holder was using the Session (busy, or a Run not ended), and the Run
+// that started and never ended, if any.
+func (r *Record) attach(instance string) (holder Claim, busy bool, running gotato.RunID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.instance = instance
+	r.logging = true
+	return r.claim, r.busy || r.running != "", r.running
+}
+
+// takeOver claims the Record for instance, and settles what the last Writer
+// left: the Cut-off replies and the Run that never ended.
+//
+// The Session is busy from this write on, so another Instance waits instead of
+// claiming it before this writer's Run has started. A writer that holds the
+// Claim already writes it again: it takes the next position too, so when
+// another Instance claims the Record at the same moment, exactly one of the
+// two writes lands, and the other sees a conflict before it calls the model.
+func (r *Record) takeOver(instance string, why gotato.ClaimWhy, running gotato.RunID) {
+	r.mu.Lock()
+	r.busy = true
+	r.mu.Unlock()
 	r.claimFor(instance, why)
 	// A reply that was streaming when the last Writer stopped is kept as the
 	// Cut-off reply it had reached, as a fact, so every later load has it.
@@ -230,12 +246,6 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	if running != "" {
 		r.interruptRun(running)
 	}
-	w := &Writer{store: store, record: r, guard: config.guard, publish: config.publish}
-	w.stats.Load = loadTime
-	if err := w.Flush(ctx); err != nil {
-		return nil, err
-	}
-	return w, nil
 }
 
 // Resume claims the Record again for another Run, on a Writer that released

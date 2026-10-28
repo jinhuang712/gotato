@@ -402,20 +402,32 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 		}
 		return err
 	}
-	// The Record is built under a temporary name and renamed to its ID in one
-	// step. A rename onto a directory that holds a Record fails, so of two
-	// creators of one ID only one wins, and the other's epoch never gets a
-	// directory beside the winner's.
+	if err := f.publishRecord(id, entries, summary); err != nil {
+		return err
+	}
+	dir := f.epochDir(id, summary.RecordEpoch)
+	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
+	return nil
+}
+
+// publishRecord writes a new Record's first batch and makes the Record appear
+// under its ID.
+//
+// The Record is built under a temporary name and renamed to its ID in one
+// step. A rename onto a directory that holds a Record fails, so of two
+// creators of one ID only one wins, and the other's epoch never gets a
+// directory beside the winner's.
+func (f *FileStore) publishRecord(id string, entries []Entry, summary RecordInfo) error {
 	building, err := os.MkdirTemp(f.dir, ".creating-")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(building) }()
-	epochName := filepath.Base(f.epochDir(id, summary.RecordEpoch))
-	if err := os.Mkdir(filepath.Join(building, epochName), 0o755); err != nil {
+	epochDir := filepath.Join(building, filepath.Base(f.epochDir(id, summary.RecordEpoch)))
+	if err := os.Mkdir(epochDir, 0o755); err != nil {
 		return err
 	}
-	if err := f.writeBatch(filepath.Join(building, epochName), fileBatch{Entries: entries, Info: summary}); err != nil {
+	if err := f.writeBatch(epochDir, fileBatch{Entries: entries, Info: summary}); err != nil {
 		return err
 	}
 	// writeBatch synced the epoch directory; building holds that directory's
@@ -429,12 +441,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 		}
 		return err
 	}
-	if err := syncDir(f.dir); err != nil {
-		return err
-	}
-	dir := f.epochDir(id, summary.RecordEpoch)
-	f.setHead(id, fileHead{head: entries[len(entries)-1].Seq, first: entries[0].Seq, dir: dir})
-	return nil
+	return syncDir(f.dir)
 }
 
 // Append implements Store.
@@ -693,6 +700,7 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	}
 	path := f.instancePath(row.ID)
 	if ttl <= 0 {
+		// The Instance ends its row: nothing of it is left.
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -702,7 +710,13 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	if current, err := readInstance(path); err == nil && !now.Before(current.Expires) {
 		return ErrExpired
 	}
-	data, err := json.Marshal(fileInstance{Row: row, Expires: now.Add(ttl)})
+	return writeInstance(path, fileInstance{Row: row, Expires: now.Add(ttl)})
+}
+
+// writeInstance replaces the file at path with row, in one rename, so a reader
+// sees the old row or the new one and never half of it.
+func writeInstance(path string, row fileInstance) error {
+	data, err := json.Marshal(row)
 	if err != nil {
 		return err
 	}
