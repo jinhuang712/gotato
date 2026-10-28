@@ -10,6 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -171,7 +172,7 @@ func TestRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 			var requests []gotato.ModelRequest
 			for _, request := range decodeRequests(t, sent) {
 				last := gotato.TextOf(request.Messages[len(request.Messages)-1])
-				if !strings.HasPrefix(last, "Write a recap") && !strings.HasPrefix(last, "Write one recap") {
+				if !itext.IsRecapAsk(last) {
 					requests = append(requests, request)
 				}
 			}

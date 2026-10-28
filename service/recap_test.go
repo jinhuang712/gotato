@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
@@ -18,7 +19,7 @@ const agentRecap = "## What happened\n- the user asked three things\n## Key fact
 // isAsk reports whether the last message of a request is the Recap's ask.
 func isAsk(request gotato.ModelRequest) bool {
 	n := len(request.Messages)
-	return n > 0 && strings.HasPrefix(gotato.TextOf(request.Messages[n-1]), "Write a recap")
+	return n > 0 && strings.HasPrefix(gotato.TextOf(request.Messages[n-1]), itext.RecapAskPrefix)
 }
 
 // recapModel answers a Recap ask with agentRecap and every other request with
@@ -106,7 +107,7 @@ func TestAnAgentTurnsTheModelsRecapOnAndItAsksOnTheNextCallsContext(t *testing.T
 		t.Errorf("Segment Recap = %q", got)
 	}
 	for _, m := range record.Messages() {
-		if strings.Contains(gotato.TextOf(m), "Write a recap") {
+		if strings.Contains(gotato.TextOf(m), itext.RecapAskPrefix) {
 			t.Errorf("the ask was stored: %q", gotato.TextOf(m))
 		}
 	}

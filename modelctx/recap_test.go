@@ -37,6 +37,21 @@ func (f *fixture) contextOf(calls *int) func(context.Context) (gotato.ModelReque
 	}
 }
 
+// The demo model answers both asks, the Recap of a stretch and the one Recap
+// of several, with a Recap that passes ValidateRecap; the merge used to be
+// answered as chat and failed as recap_failed.
+func TestTheDemoModelAnswersTheRecapAndTheMergeAsk(t *testing.T) {
+	writer := modelctx.ModelRecap{Model: testkit.DemoModel{}}
+	segments := []gotato.Segment{{Number: 1, Recap: goodRecap}, {Number: 2, Recap: goodRecap}}
+	if _, err := writer.WriteMergeRecap(context.Background(), modelctx.MergeRequest{Segments: segments}); err != nil {
+		t.Fatalf("merge ask: %v", err)
+	}
+	request := modelctx.RecapRequest{Segment: 1, Context: &gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}}}
+	if _, err := writer.WriteRecap(context.Background(), request); err != nil {
+		t.Fatalf("recap ask: %v", err)
+	}
+}
+
 func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)

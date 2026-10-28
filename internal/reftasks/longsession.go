@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/testkit"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -149,7 +150,7 @@ func (m longSessionModel) play(request gotato.ModelRequest) testkit.Script {
 	last := request.Messages[len(request.Messages)-1]
 	text := promptText(last)
 	switch {
-	case last.Role == gotato.RoleUser && (strings.HasPrefix(text, "Write a recap") || strings.HasPrefix(text, "Write one recap")):
+	case last.Role == gotato.RoleUser && itext.IsRecapAsk(text):
 		return testkit.Text(longRecap)
 	case last.Role == gotato.RoleToolResult && last.ToolResult != nil:
 		match := longCallID.FindStringSubmatch(string(last.ToolResult.CallID))

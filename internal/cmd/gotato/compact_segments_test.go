@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	itext "github.com/jinhuang712/gotato/internal/text"
 )
 
 // --min-tokens skips a stretch too short to compact and says so; --keep-messages 0
@@ -99,7 +100,7 @@ func TestContextCompactRecapModelIsAChoice(t *testing.T) {
 		for _, m := range doc.Messages {
 			text := gotato.TextOf(m)
 			hasRecap = hasRecap || strings.Contains(text, "<recap n=\"1\">")
-			if strings.Contains(text, "Write a recap") {
+			if strings.Contains(text, itext.RecapAskPrefix) {
 				t.Errorf("%s: the ask was stored", name)
 			}
 		}

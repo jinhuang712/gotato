@@ -7,6 +7,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/internal/workload"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -46,7 +47,7 @@ func TestTheRecapCheckSeesAFactTheRecapLeftOut(t *testing.T) {
 type badRecapModel struct{ gotato.Model }
 
 func (m badRecapModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	if n := len(request.Messages); n > 0 && strings.HasPrefix(gotato.TextOf(request.Messages[n-1]), "Write a recap") {
+	if n := len(request.Messages); n > 0 && strings.HasPrefix(gotato.TextOf(request.Messages[n-1]), itext.RecapAskPrefix) {
 		return testkit.NewFakeModel(testkit.Text("Sure! The user had a problem with payments.")).Stream(ctx, request)
 	}
 	return m.Model.Stream(ctx, request)

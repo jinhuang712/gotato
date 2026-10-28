@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // EchoModel answers "echo: <last user text>" and ends the Turn. It is the
@@ -33,8 +34,9 @@ func (EchoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 type DemoModel struct{}
 
 // demoRecap is what DemoModel answers when it is asked for a Recap (a last
-// user message that starts "Write a recap"), so a compaction with the model's
-// Recap can run in the CLI without a provider.
+// user message that text.IsRecapAsk accepts: the ask of a compaction or of a
+// merge), so a compaction with the model's Recap can run in the CLI without
+// a provider.
 const demoRecap = "## What happened\n- the user talked with the demo model\n## Key facts\n- the demo tool returned from-tool"
 
 // demoBigBytes is the size of the value DemoModel passes to demo.echo for the
@@ -58,7 +60,7 @@ func (DemoModel) Stream(_ context.Context, request gotato.ModelRequest) (gotato.
 			break
 		}
 	}
-	if strings.HasPrefix(lastUser, "Write a recap") {
+	if text.IsRecapAsk(lastUser) {
 		return &stream{events: Text(demoRecap)}, nil
 	}
 	if strings.TrimSpace(lastUser) == "use-tool" && !hasToolResult {

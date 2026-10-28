@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/testkit"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -146,7 +147,7 @@ func (m paymentsModel) Stream(_ context.Context, request gotato.ModelRequest) (g
 	}
 	ask := gotato.TextOf(messages[last])
 	switch {
-	case messages[last].Role == gotato.RoleUser && strings.HasPrefix(ask, "Write a recap"):
+	case messages[last].Role == gotato.RoleUser && strings.HasPrefix(ask, itext.RecapAskPrefix):
 		return playScript(testkit.Text(m.recap(messages))), nil
 	case messages[last].Role == gotato.RoleUser && strings.HasPrefix(ask, QuestionPrefix):
 		return playScript(testkit.Text(answerFrom(strings.TrimPrefix(ask, QuestionPrefix), requestText(messages)))), nil

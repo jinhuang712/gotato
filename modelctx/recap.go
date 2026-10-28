@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // DefaultRecapMaxTokens is the output limit of the model call that writes a
@@ -157,7 +158,7 @@ func RecapAsk(request RecapRequest) string {
 	if request.Segment > 0 {
 		number = fmt.Sprintf("segment %d", request.Segment)
 	}
-	return fmt.Sprintf(`Write a recap of %s
+	return fmt.Sprintf(`%s %s
 until now. It closes this stretch of the conversation as %s. The
 user's messages, your final replies and one line per tool call are kept next
 to it; your reasoning, your intermediate steps and all tool results are not.
@@ -169,7 +170,7 @@ headings. Leave out a heading that has nothing under it.
 
 Leave out the instructions, the tool list and the environment; they are
 sent separately. Do not call tools. Do not address the user. Start with the
-first heading.`, span, number, recapHeadingBlock)
+first heading.`, text.RecapAskPrefix, span, number, recapHeadingBlock)
 }
 
 // recapHeadingBlock is the list of the five headings that every ask for a
@@ -197,7 +198,7 @@ func mergeRecapAsk(request MergeRequest) string {
 	}
 	label := rangeLabel(request.Numbers())
 	var b strings.Builder
-	fmt.Fprintf(&b, `Write one recap of the recaps below. They close the oldest stretch of the
+	fmt.Fprintf(&b, `%[3]s the recaps below. They close the oldest stretch of the
 conversation, segments %[1]s, and your recap takes their place. The user's
 messages, your final replies and the tool results of those segments stay in
 the record, and read_segment(n) returns segment n in full, for n in %[1]s.
@@ -213,7 +214,7 @@ Merge what repeats, copy IDs, numbers, names, times and error codes exactly
 as the recaps give them, and drop what a later recap says is done or
 replaced. Keep what is still open. Do not call tools. Do not address the user.
 Start with the first heading.
-`, label, recapHeadingBlock)
+`, label, recapHeadingBlock, text.MergeRecapAskPrefix)
 	for _, segment := range request.Segments {
 		name := "segment " + rangeLabel(segment.Numbers())
 		if len(segment.Merged) > 0 {

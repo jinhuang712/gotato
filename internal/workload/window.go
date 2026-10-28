@@ -3,11 +3,11 @@ package workload
 import (
 	"context"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/internal/reftasks"
+	itext "github.com/jinhuang712/gotato/internal/text"
 	"github.com/jinhuang712/gotato/session"
 )
 
@@ -89,7 +89,7 @@ func (m *windowModel) Stream(ctx context.Context, request gotato.ModelRequest) (
 	recap := false
 	if n := len(request.Messages); n > 0 {
 		text := gotato.TextOf(request.Messages[n-1])
-		recap = strings.HasPrefix(text, "Write a recap") || strings.HasPrefix(text, "Write one recap")
+		recap = itext.IsRecapAsk(text)
 	}
 	m.mu.Lock()
 	s := m.series[request.CacheKey]
