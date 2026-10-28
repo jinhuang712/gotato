@@ -102,7 +102,7 @@ A client reconnects to any Instance with the last number and epoch it saw, and g
    │ epoch differs, or 40 > head: 409 cannot_resume, with the current epoch and head
 ```
 
-The `after` parameter wins over the header, which a browser's EventSource sends by itself. The Instance checks the epoch and the position before it streams, then reads the Record first and goes live. It does not need to be the writer: an idle stream looks in the Store at intervals, which is the cost of binding no Session to an Instance. The stream follows one epoch, and ends with an error if the Record is deleted or created again. A client that sends no epoch is checked by position only, so it should send one.
+The `after` parameter wins over the header, which a browser's EventSource sends by itself. The Instance checks the epoch and the position before it streams, then reads the Record first and goes live. It does not need to be the writer: an idle stream looks in the Store at intervals, which is the cost of binding no Session to an Instance. The stream follows one epoch, and ends with an error if the Record is deleted or created again. An Instance keeps a Feed for each Record, named by its Session ID and its epoch, so a stream is never handed another Record's Events; it learns of a delete at once when its own Instance deletes the Session, and elsewhere at its next read of the Store. A client that sends no epoch is checked by position only, so it should send one.
 
 ## What this buys you
 - A client can drop its connection, or lose its Instance, and resume on any other one without gaps.

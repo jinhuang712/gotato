@@ -67,7 +67,7 @@ An Append is checked in this order, and the epoch comes before the position.
    4  write the batch, replace the RecordInfo
 ```
 
-Fence 3 is the position. A Claim is an Entry written at the position after the head its Instance read, so a Writer that lost its Claim always writes to a taken position. Fence 2 is the Record epoch, an identity chosen when the Record is created. Without it, a writer of a deleted Record could land at a position that is free again in the new one. The Epoch inside a Claim is another number, and the multi-instance spec covers it.
+Fence 3 is the position. A Claim is an Entry written at the position after the head its Instance read, so a Writer that lost its Claim always writes to a taken position. Fence 2 is the Record epoch, an identity chosen when the Record is created. Without it, a writer of a deleted Record could land at a position that is free again in the new one. The Epoch inside a Claim is another number, and the multi-instance spec covers it. The Record is also the trace of a Session, and this is a promise about Gotato's code and not about the Store: only the Session's Writer appends, and a Tool or the model has no way to write to the Record, but whoever operates the Store can still change or delete a Record, and Entries are not signed.
 
 ## Delete and create again
 

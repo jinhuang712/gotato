@@ -55,7 +55,7 @@ Each arrow to the Store is a Step, and a Step is written before the next one beg
   │ 7 each Tool Result, in order ─ write ──▶│                  │             │
 ```
 
-The model call is written before it is made, so a Writer that has lost its Claim stops at step 2, before it spends a model call. Tool calls are written as started before they run, so a crash leaves calls that are known to have started. Results commit in the order the model asked for them, even when the Tools ran in parallel. A crash loses at most the Step in flight: the next Instance finds the Run started and never ended, and ends it as `failed` with the cause `interrupted`.
+The model call is written before it is made, so a Writer that has lost its Claim stops at step 2, before it spends a model call. Tool calls are written as started before they run, so a crash leaves calls that are known to have started. Results commit in the order the model asked for them, even when the Tools ran in parallel. What a crash leaves is answered when the Session is read: a Tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a Cut-off reply that the model never sees again. A crash loses at most the Step in flight: the next Instance finds the Run started and never ended, and ends it as `failed` with the cause `interrupted`.
 
 ## How a Run ends
 
