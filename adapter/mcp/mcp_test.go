@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net"
@@ -935,4 +936,40 @@ func askingTransport(t *testing.T, tc transportCase) gmcp.Transport {
 		cmd.Env = append(os.Environ(), serverEnv+"=asking")
 		return cmd
 	})
+}
+
+// The model reads a failed call's public text. It says the server did not take
+// the call, and carries nothing of the transport error (a URL, a host), which
+// stays the cause.
+func TestAFailedCallHasFixedPublicText(t *testing.T) {
+	server := newServer()
+	httpServer := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil))
+	set := newSet(t, gmcp.StreamableHTTP(httpServer.URL))
+	tools, err := set.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer.CloseClientConnections()
+	httpServer.Close()
+	for _, tool := range tools {
+		if tool.Spec().ID != "echo" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := tool.Execute(ctx, gotato.ToolUse{Arguments: []byte(`{"text":"hi"}`)}, nil)
+		var public gotato.PublicError
+		if !errors.As(err, &public) {
+			t.Fatalf("err = %v, want a PublicError", err)
+		}
+		host := strings.TrimPrefix(httpServer.URL, "http://")
+		if text := public.Public(); strings.Contains(text, host) || strings.Contains(text, "127.0.0.1") {
+			t.Fatalf("public text %q carries the transport error", text)
+		}
+		if !strings.Contains(err.Error(), "127.0.0.1") {
+			t.Fatalf("the cause %q lost the transport error", err)
+		}
+		return
+	}
+	t.Fatal("no echo tool")
 }

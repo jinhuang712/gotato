@@ -24,6 +24,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **Fixed: a stream cut in the middle of an event is no longer read as a whole event.** The SSE reader returned the `data:` lines it had at the end of the body as an event, even without the blank line that ends one. Now an incomplete event is discarded and the end goes through the same cut-stream handling (a retry) as any other cut.
 - **Fixed: text cut at a byte limit no longer splits a character.** The first text of a failed MCP tool result (200 bytes) and the text of a plain-text provider error (512 bytes) were cut inside a multi-byte character, which left invalid UTF-8 in what the model and the client read. Now both cut on a character boundary.
 - **Fixed: a failed send no longer puts the endpoint in the error message.** `gateway.Error.Message` for a request that could not be sent (an untrusted certificate, an unknown host, a refused connection after the retries) was the transport error, which names the endpoint URL and host. Now it is `the request could not be sent`; the transport error is still `Unwrap`ped.
+- **Fixed: `adapter/mcp` no longer shows the SDK's error text to the model.** The public text of a failed call was the transport error, which names the server URL and host. Now it is `mcp <server>.<tool>: the server did not take the call`; the SDK error stays as the cause.
 
 ## 0.2.0 — 2026-10-28
 
