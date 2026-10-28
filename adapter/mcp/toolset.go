@@ -17,7 +17,16 @@
 // once on the new session, since the server did not run it, and any other
 // failed call is the caller's. The code that made the ToolSet closes it
 // with Close, which ends the connection and the subprocess; a Session never
-// closes it. Every call passes the caller's ctx to the SDK, so canceling a
+// closes it. A connect is bounded (WithConnectTimeout, 10 seconds by
+// default), runs outside the ToolSet's lock, and is shared: callers that
+// arrive meanwhile wait for it, each only as long as its own context, and Close
+// does not wait for it. A server that accepts the connection and never answers
+// makes the ToolSet unavailable for that Run, not for every Session.
+//
+// The description is the server's instructions as they were at the first
+// connect, and stays so across reconnects: it is part of the prompt, and a
+// changing one would be a new prefix. It is empty until the first connect;
+// WithDescription fixes it from the start. Every call passes the caller's ctx to the SDK, so canceling a
 // Run cancels the call.
 //
 // A server behind a load balancer. A stateful MCP server keeps its sessions in
@@ -53,6 +62,22 @@ type config struct {
 	cacheTTL    time.Duration
 	clientName  string
 	clientVer   string
+	// connectTimeout bounds one connect (the transport and the initialize
+	// exchange); not above zero means no bound.
+	connectTimeout time.Duration
+}
+
+// DefaultConnectTimeout is the bound of one connect when WithConnectTimeout
+// is not given.
+const DefaultConnectTimeout = 10 * time.Second
+
+// WithConnectTimeout bounds one connect to the server: the transport and the
+// initialize exchange. A server that accepts the connection and never answers
+// ends the connect with an error after d, and the ToolSet is unavailable for
+// that Run. The default is DefaultConnectTimeout; zero or less means no bound
+// (the caller's context still ends it).
+func WithConnectTimeout(d time.Duration) ToolSetOption {
+	return func(c *config) { c.connectTimeout = d }
 }
 
 // WithDescription sets the ToolSet's description, which the catalog shows.
@@ -100,6 +125,9 @@ type ToolSet struct {
 	connMu  sync.Mutex
 	session *sdk.ClientSession
 	closed  bool
+	// connecting is the connect in flight, shared by the callers that wait for
+	// it; nil when none is.
+	connecting *connectAttempt
 
 	cacheMu  sync.Mutex
 	cached   []gotato.Tool
@@ -122,6 +150,7 @@ func NewToolSet(name string, transport Transport, options ...ToolSetOption) (*To
 	}
 	s := &ToolSet{name: name, transport: transport, cfg: config{
 		effects: map[string]gotato.ToolEffect{}, clientName: "gotato", clientVer: "0",
+		connectTimeout: DefaultConnectTimeout,
 	}}
 	for _, option := range options {
 		if option != nil {
@@ -251,26 +280,115 @@ func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, error) {
 	}
 }
 
-// connect returns the shared session, making it when there is none.
+// connectAttempt is one connect to the server. The caller that started it
+// makes it; the others wait on done, each bounded by its own context.
+type connectAttempt struct {
+	done     chan struct{}
+	session  *sdk.ClientSession
+	err      error
+	timedOut bool
+}
+
+// connect returns the shared session, making it when there is none. The
+// network connect runs outside the lock, bounded by the connect timeout, so a
+// server that never answers holds neither another caller (each waits only as
+// long as its own context) nor Close.
 func (s *ToolSet) connect(ctx context.Context) (*sdk.ClientSession, error) {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-	if s.closed {
-		return nil, fmt.Errorf("mcp %s: ToolSet is closed", s.name)
+	for {
+		s.connMu.Lock()
+		if s.closed {
+			s.connMu.Unlock()
+			return nil, fmt.Errorf("mcp %s: ToolSet is closed", s.name)
+		}
+		if s.session != nil {
+			session := s.session
+			s.connMu.Unlock()
+			return session, nil
+		}
+		if attempt := s.connecting; attempt != nil {
+			s.connMu.Unlock()
+			select {
+			case <-attempt.done:
+			case <-ctx.Done():
+				return nil, fmt.Errorf("mcp %s: connect: %w", s.name, ctx.Err())
+			}
+			if attempt.err == nil {
+				return attempt.session, nil
+			}
+			// The attempt failed on its starter's context, not on the server:
+			// try again on this caller's own.
+			if ctx.Err() == nil && (errors.Is(attempt.err, context.Canceled) || errors.Is(attempt.err, context.DeadlineExceeded)) && !attempt.timedOut {
+				continue
+			}
+			return nil, attempt.err
+		}
+		attempt := &connectAttempt{done: make(chan struct{})}
+		s.connecting = attempt
+		s.connMu.Unlock()
+
+		attempt.session, attempt.timedOut, attempt.err = s.dial(ctx)
+
+		s.connMu.Lock()
+		s.connecting = nil
+		if attempt.err == nil && s.closed {
+			// Close came while connecting: nothing keeps this session.
+			_ = attempt.session.Close()
+			attempt.session, attempt.err = nil, fmt.Errorf("mcp %s: ToolSet is closed", s.name)
+		}
+		if attempt.err == nil {
+			s.session = attempt.session
+		}
+		s.connMu.Unlock()
+		close(attempt.done)
+		return attempt.session, attempt.err
 	}
-	if s.session != nil {
-		return s.session, nil
+}
+
+// dial makes one connection, bounded by the connect timeout. timedOut says the
+// bound ended it, which is the server's doing and not the caller's.
+func (s *ToolSet) dial(ctx context.Context) (session *sdk.ClientSession, timedOut bool, err error) {
+	dialCtx := ctx
+	if s.cfg.connectTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, s.cfg.connectTimeout)
+		defer cancel()
 	}
-	session, err := s.client.Connect(ctx, s.transport(), nil)
+	// The SDK does not always end a connect when its context ends (a streamable
+	// HTTP transport's request has a context of its own), so the connect runs
+	// on its own goroutine and the wait ends with dialCtx. A connect that
+	// finishes after that is closed.
+	type dialed struct {
+		session *sdk.ClientSession
+		err     error
+	}
+	out := make(chan dialed, 1)
+	go func() {
+		session, err := s.client.Connect(dialCtx, s.transport(), nil)
+		out <- dialed{session, err}
+	}()
+	select {
+	case got := <-out:
+		session, err = got.session, got.err
+	case <-dialCtx.Done():
+		go func() {
+			if got := <-out; got.session != nil {
+				_ = got.session.Close()
+			}
+		}()
+		err = dialCtx.Err()
+	}
 	if err != nil {
-		return nil, fmt.Errorf("mcp %s: connect: %w", s.name, err)
+		timedOut = ctx.Err() == nil && dialCtx.Err() != nil
+		return nil, timedOut, fmt.Errorf("mcp %s: connect: %w", s.name, err)
 	}
-	s.session = session
 	if init := session.InitializeResult(); init != nil {
+		// The first connect's instructions are kept: the description is part of
+		// the prompt, and a server that restarts with other words must not
+		// change it between two Turns.
 		instructions := init.Instructions
-		s.instructions.Store(&instructions)
+		s.instructions.CompareAndSwap(nil, &instructions)
 	}
-	return session, nil
+	return session, false, nil
 }
 
 // gone reports whether err says the session cannot be used again: its

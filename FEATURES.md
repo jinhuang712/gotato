@@ -998,6 +998,7 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithFoldedToolSet
 | `mcp.StreamableHTTP(url, WithHTTPClient(c), WithoutNotifications())` | the HTTP transport; the client carries timeouts, a proxy or the credentials (see Authenticating to a server) |
 | `mcp.StdioCommand(func() *exec.Cmd)` | a subprocess; the command also sets its environment and directory |
 | `mcp.WithDescription(text)` | the description the catalog shows |
+| `mcp.WithConnectTimeout(d)` | bounds one connect (default 10 seconds); a server that accepts and never answers makes the ToolSet unavailable for that Run only. The connect runs outside the ToolSet's lock, callers that wait for it are bounded by their own context, and `Close` does not wait for it |
 | `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the one the annotations give |
 | `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless the server sends `list_changed`; the default 0 asks the server at every resolution |
 | `mcp.WithClientInfo(name, version)` | what the client tells the server |
