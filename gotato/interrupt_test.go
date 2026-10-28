@@ -81,7 +81,7 @@ func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the model call never started")
 	}
-	if err := session.Interrupt(UserMessage("do B instead")); err != nil {
+	if err := session.Interrupt(context.Background(), UserMessage("do B instead")); err != nil {
 		t.Fatal(err)
 	}
 	var result RunResult
@@ -168,7 +168,7 @@ func TestInterruptLetsARunningToolFinish(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the tool never started")
 	}
-	if err := session.Interrupt(UserMessage("change of plans")); err != nil {
+	if err := session.Interrupt(context.Background(), UserMessage("change of plans")); err != nil {
 		t.Fatal(err)
 	}
 	close(tool.release)
@@ -196,7 +196,7 @@ func TestInterruptWithoutARunIsInvalidState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close(context.Background()) }()
-	if err := session.Interrupt(UserMessage("anyone there?")); !IsCode(err, CodeInvalidState) {
+	if err := session.Interrupt(context.Background(), UserMessage("anyone there?")); !IsCode(err, CodeInvalidState) {
 		t.Fatalf("Interrupt with no Run = %v", err)
 	}
 }

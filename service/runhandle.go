@@ -219,7 +219,7 @@ func (h *runHandle) hasLive() bool {
 
 // send puts the message in the live Session's queue, or fails with
 // invalid_state when the Run has no live Session any more.
-func (h *runHandle) send(kind MessageKind, message gotato.Message) error {
+func (h *runHandle) send(ctx context.Context, kind MessageKind, message gotato.Message) error {
 	h.liveMu.Lock()
 	defer h.liveMu.Unlock()
 	live := h.live
@@ -228,11 +228,11 @@ func (h *runHandle) send(kind MessageKind, message gotato.Message) error {
 	}
 	switch kind {
 	case MessageKindFollowUp:
-		return live.FollowUp(message)
+		return live.FollowUp(ctx, message)
 	case MessageKindInterrupt:
-		return live.Interrupt(message)
+		return live.Interrupt(ctx, message)
 	default:
-		return live.Steer(message)
+		return live.Steer(ctx, message)
 	}
 }
 

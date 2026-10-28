@@ -22,7 +22,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Steer | add a message the model reads on its next call | G-F26 | ✅ |
 | FollowUp | queue a message that keeps the Run going when it would settle | G-F26 | ✅ |
 | Interrupt | stop the model call in flight and go on with a new message, in the same Run | G-F26 | ✅ |
-| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API and HTTP; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29) | G-F26 | ✅ |
+| Messages from any endpoint | Steer, FollowUp, Interrupt and Stop reach a Run through the Go API and HTTP; an instance that is not the Run's writer answers `not_writer` with the writer's address, and a message with no Run going starts one. Notices join them (G-F29). `Session.Steer`, `FollowUp` and `Interrupt` take a `ctx` that bounds the store write of `message_queued`; a nil result means the message waits in the Instance's memory, and a crash drops it | G-F26 | ✅ |
 | Runtime notices | tell the model something that is not the user's words, in a Message of its own kind, from Gotato, your service or an extension, through the Go API and HTTP; the output-limit `continue` and `time_away`, which tells it how long the user was away and what time it is now, are the two Gotato sends itself; on every wire API a notice is tagged text in a user turn | G-F29 | ✅ |
 | Sessions | one conversation: every Message, each Run's record, usage, its Events and compactions | G-F02 | ✅ |
 | Create a Session | over HTTP or the Go API, with your own ID, metadata, instruction and ceiling | G-F02 | ✅ |

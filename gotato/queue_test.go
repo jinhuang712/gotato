@@ -16,8 +16,8 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 	defer func() { _ = first.Close(context.Background()) }()
 	// Accepted after the Run's last point of taking messages.
 	first.endingHook = func() {
-		for _, send := range []func(Message) error{first.FollowUp, first.Steer, first.FollowUp} {
-			if err := send(UserMessage("m")); err != nil {
+		for _, send := range []func(context.Context, Message) error{first.FollowUp, first.Steer, first.FollowUp} {
+			if err := send(context.Background(), UserMessage("m")); err != nil {
 				t.Error(err)
 			}
 		}
@@ -68,7 +68,7 @@ func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 		done <- runErr
 	}()
 	waitForCall(t, model.started, 0)
-	if err := session.FollowUp(UserMessage("leftover")); err != nil {
+	if err := session.FollowUp(context.Background(), UserMessage("leftover")); err != nil {
 		t.Fatal(err)
 	}
 	session.Abort()
@@ -96,7 +96,7 @@ func TestAFailedRunKeepsItsQueueForTheHost(t *testing.T) {
 	}()
 	// The model sends an event the Loop cannot read, so the Run fails.
 	waitForCall(t, model.started, 0)
-	if err := session.FollowUp(UserMessage("kept")); err != nil {
+	if err := session.FollowUp(context.Background(), UserMessage("kept")); err != nil {
 		t.Fatal(err)
 	}
 	model.gate <- struct{}{}

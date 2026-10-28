@@ -58,7 +58,7 @@ func TestNoticeDuringARunLandsAfterTheToolResults(t *testing.T) {
 	if _, err := agent.Notice(context.Background(), "order_update", "Order 42 was delivered."); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.Steer(UserMessage("prefer metric units")); err != nil {
+	if err := agent.Steer(context.Background(), UserMessage("prefer metric units")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := agent.Notice(context.Background(), "weather", "It started to rain."); err != nil {

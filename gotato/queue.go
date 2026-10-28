@@ -12,8 +12,13 @@ import (
 // more Turn rather than being dropped. Its way into the Session is reported
 // as Events: MessageQueued, and then MessageCommitted, or MessageDropped when
 // the Run ends first, or MessageRejected when the queue is full.
-func (a *Session) Steer(message Message) error {
-	return a.enqueueControl(a.steer, message, "Steer", MessageSourceSteer)
+//
+// ctx bounds the write of MessageQueued to the Record, and nothing after it.
+// A nil error means the message is queued in this Instance's memory: if the
+// Instance dies before the Run commits or drops it, the Record holds a
+// message_queued with no closing Event, and the message is lost.
+func (a *Session) Steer(ctx context.Context, message Message) error {
+	return a.enqueueControl(ctx, a.steer, message, "Steer", MessageSourceSteer)
 }
 
 // Interrupt delivers a Message that cuts the model call in flight short. The
@@ -23,11 +28,12 @@ func (a *Session) Steer(message Message) error {
 // boundary, as a Steer does. It shares the Steer queue and its limit
 // (MaxSteerMessages), and is reported by the same Events, with the source
 // MessageSourceInterrupt. It fails with invalid_state when no Run is in flight.
-func (a *Session) Interrupt(message Message) error {
+// ctx and a nil result mean what they mean for Steer.
+func (a *Session) Interrupt(ctx context.Context, message Message) error {
 	if !a.inRun.Load() {
 		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
-	if err := a.enqueueControl(a.steer, message, "Interrupt", MessageSourceInterrupt); err != nil {
+	if err := a.enqueueControl(ctx, a.steer, message, "Interrupt", MessageSourceInterrupt); err != nil {
 		return err
 	}
 	a.intrMu.Lock()
@@ -68,17 +74,24 @@ func (a *Session) interrupting() bool {
 
 // FollowUp supplies the continuation to use where the Run would otherwise
 // settle. It is not a general external request queue: the buffer is bounded
-// and belongs to this Session.
-func (a *Session) FollowUp(message Message) error {
-	return a.enqueueControl(a.followUp, message, "FollowUp", MessageSourceFollowUp)
+// and belongs to this Session. ctx and a nil result mean what they mean for
+// Steer.
+func (a *Session) FollowUp(ctx context.Context, message Message) error {
+	return a.enqueueControl(ctx, a.followUp, message, "FollowUp", MessageSourceFollowUp)
 }
 
-func (a *Session) enqueueControl(target chan control, message Message, operation string, source MessageSource) error {
+func (a *Session) enqueueControl(ctx context.Context, target chan control, message Message, operation string, source MessageSource) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := validateControlMessage(message, operation); err != nil {
 		return err
 	}
 	if err := a.admissionError(operation); err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return notRunBeforeAdmission(err, operation)
 	}
 	message = message.Clone()
 	if message.ID == "" {
@@ -87,7 +100,7 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 	reject := func(why string, err error) error {
 		// A refusal is reported as an Event, written on a best-effort basis:
 		// the caller already gets the error.
-		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
+		_ = a.writeNow(ctx, MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
 		return err
 	}
 	if len(target) >= cap(target) {
@@ -95,7 +108,10 @@ func (a *Session) enqueueControl(target chan control, message Message, operation
 	}
 	// The message is written as queued before it can be committed, so the
 	// Record never shows a commit with no queueing.
-	if err := a.writeNow(context.Background(), MessageQueued{Header: a.nowHeader(), MessageID: message.ID, Source: source}); err != nil {
+	if err := a.writeNow(ctx, MessageQueued{Header: a.nowHeader(), MessageID: message.ID, Source: source}); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return runtimeError(codeForContext(ctxErr), operation, operation+" context ended while queueing", ctxErr)
+		}
 		return err
 	}
 	select {

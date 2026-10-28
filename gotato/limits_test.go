@@ -33,7 +33,7 @@ func TestZeroLimitFieldsKeepTheirDefaults(t *testing.T) {
 	if progress != 3 {
 		t.Fatalf("progress events = %d, want 3 (kinds %v)", progress, seen.kinds())
 	}
-	if err := agent.FollowUp(UserMessage("more")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("more")); err != nil {
 		t.Fatalf("FollowUp with one field set: %v", err)
 	}
 	if _, err := agent.Notice(context.Background(), "k", "a notice"); err != nil {

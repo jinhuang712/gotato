@@ -72,10 +72,10 @@ func TestSteeredMessagesCarryTheirRun(t *testing.T) {
 		done <- outcome{result, runErr}
 	}()
 	waitForCall(t, model.started, 0)
-	if err := agent.Steer(UserMessage("prefer metric units")); err != nil {
+	if err := agent.Steer(context.Background(), UserMessage("prefer metric units")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.FollowUp(UserMessage("and then summarize")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("and then summarize")); err != nil {
 		t.Fatal(err)
 	}
 	model.gate <- struct{}{}

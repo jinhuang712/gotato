@@ -264,7 +264,7 @@ func TestInterruptDuringStreamingIsNotRetriedAsACut(t *testing.T) {
 	recorder := testkit.RecordEvents(session)
 	go func() {
 		<-sent
-		_ = session.Interrupt(gotato.UserMessage("stop that"))
+		_ = session.Interrupt(context.Background(), gotato.UserMessage("stop that"))
 	}()
 	result, err := session.Prompt(context.Background(), gotato.UserMessage("hi"))
 	if err != nil || result.Status != gotato.RunStatusCompleted {

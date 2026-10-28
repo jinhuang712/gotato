@@ -262,7 +262,7 @@ func TestASteerStartsANewRoundAndAContinueDoesNot(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			if calls == 1 {
 				if steer {
-					if err := target.Steer(gotato.UserMessage("also check b")); err != nil {
+					if err := target.Steer(context.Background(), gotato.UserMessage("also check b")); err != nil {
 						t.Errorf("steer: %v", err)
 					}
 				}

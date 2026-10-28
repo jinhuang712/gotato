@@ -40,10 +40,10 @@ func TestSteerAndFollowUpAreQueuedThenCommitted(t *testing.T) {
 		done <- runErr
 	}()
 	waitForCall(t, model.started, 0)
-	if err := agent.Steer(UserMessage("prefer metric units")); err != nil {
+	if err := agent.Steer(context.Background(), UserMessage("prefer metric units")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.FollowUp(UserMessage("and then summarize")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("and then summarize")); err != nil {
 		t.Fatal(err)
 	}
 	model.gate <- struct{}{}
@@ -109,7 +109,7 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 		done <- runErr
 	}()
 	waitForCall(t, model.started, 0)
-	if err := agent.FollowUp(UserMessage("leftover")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("leftover")); err != nil {
 		t.Fatal(err)
 	}
 	agent.Abort()
@@ -157,16 +157,16 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	defer func() { _ = agent.Close(context.Background()) }()
 	seen := recordAll(t, agent)
 
-	if err := agent.FollowUp(UserMessage("one")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.FollowUp(UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
+	if err := agent.FollowUp(context.Background(), UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full follow-up queue = %v", err)
 	}
-	if err := agent.Steer(UserMessage("one")); err != nil {
+	if err := agent.Steer(context.Background(), UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.Steer(UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
+	if err := agent.Steer(context.Background(), UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full Steer queue = %v", err)
 	}
 	var rejected []MessageRejected

@@ -147,7 +147,7 @@ func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, mes
 			return false, waited, err
 		}
 		if handle != nil {
-			err := handle.send(request.Kind, message)
+			err := handle.send(ctx, request.Kind, message)
 			switch {
 			case err == nil:
 				return true, waited, nil

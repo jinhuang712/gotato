@@ -104,7 +104,7 @@ func TestContinueAppendsNoUserMessage(t *testing.T) {
 		t.Fatalf("Continue after an assistant Message = %v", err)
 	}
 
-	if err := agent.FollowUp(UserMessage("carry on")); err != nil {
+	if err := agent.FollowUp(context.Background(), UserMessage("carry on")); err != nil {
 		t.Fatal(err)
 	}
 	// The follow-up settles inside its own Run, leaving the transcript ending
@@ -141,7 +141,7 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 	}()
 
 	waitForCall(t, model.started, 0)
-	if err := controllable.Steer(UserMessage("prefer metric units")); err != nil {
+	if err := controllable.Steer(context.Background(), UserMessage("prefer metric units")); err != nil {
 		t.Fatal(err)
 	}
 	// The Steer must not reach the Model call already in flight.
@@ -193,7 +193,7 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 	}()
 
 	waitForCall(t, model.started, 0)
-	if err := controllable.Steer(UserMessage("keep going")); err != nil {
+	if err := controllable.Steer(context.Background(), UserMessage("keep going")); err != nil {
 		t.Fatal(err)
 	}
 	model.gate <- struct{}{}
@@ -250,7 +250,7 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 	}()
 
 	waitForCall(t, model.started, 0)
-	if err := controllable.FollowUp(UserMessage("and then summarize")); err != nil {
+	if err := controllable.FollowUp(context.Background(), UserMessage("and then summarize")); err != nil {
 		t.Fatal(err)
 	}
 	model.gate <- struct{}{}
@@ -289,19 +289,19 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	defer func() { _ = agent.Close(context.Background()) }()
 	controllable := agent
 
-	if err := controllable.FollowUp(UserMessage("one")); err != nil {
+	if err := controllable.FollowUp(context.Background(), UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.FollowUp(UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
+	if err := controllable.FollowUp(context.Background(), UserMessage("two")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full follow-up buffer = %v", err)
 	}
-	if err := controllable.Steer(UserMessage("one")); err != nil {
+	if err := controllable.Steer(context.Background(), UserMessage("one")); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.Steer(UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
+	if err := controllable.Steer(context.Background(), UserMessage("nope")); !IsCode(err, CodeLimitExceeded) {
 		t.Fatalf("full Steer buffer = %v", err)
 	}
-	if err := controllable.Steer(Message{Role: RoleAssistant}); !IsCode(err, CodeInvalidArgument) {
+	if err := controllable.Steer(context.Background(), Message{Role: RoleAssistant}); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("non-user control message = %v", err)
 	}
 }
@@ -316,10 +316,10 @@ func TestControlCommandsRejectedAfterClose(t *testing.T) {
 	if err := agent.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := controllable.Steer(UserMessage("late")); !IsCode(err, CodeSessionClosed) {
+	if err := controllable.Steer(context.Background(), UserMessage("late")); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("Steer after Close = %v", err)
 	}
-	if err := controllable.FollowUp(UserMessage("late")); !IsCode(err, CodeSessionClosed) {
+	if err := controllable.FollowUp(context.Background(), UserMessage("late")); !IsCode(err, CodeSessionClosed) {
 		t.Fatalf("FollowUp after Close = %v", err)
 	}
 	if _, err := controllable.Continue(context.Background()); !IsCode(err, CodeSessionClosed) {
@@ -382,7 +382,7 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 		done <- runErr
 	}()
 	waitForCall(t, model.started, 0)
-	if err := controllable.FollowUp(UserMessage("leftover")); err != nil {
+	if err := controllable.FollowUp(context.Background(), UserMessage("leftover")); err != nil {
 		t.Fatal(err)
 	}
 	controllable.Abort()
