@@ -120,7 +120,7 @@ func TestALargeToolResultIsSpilledAndReadInPages(t *testing.T) {
 		t.Fatalf("%d results, the first %d bytes: the Context should hold a preview", len(results), len(results[0]))
 	}
 	preview := results[0]
-	if !strings.HasPrefix(preview, body[:200]) || !strings.Contains(preview, `read_result(ref="result:c1", page=2)`) || !strings.Contains(preview, "1.0 MiB") {
+	if !strings.HasPrefix(preview, body[:200]) || !strings.Contains(preview, `read_result(ref="result:c1", page=1)`) || !strings.Contains(preview, "1.0 MiB") {
 		t.Fatalf("preview = %q...", preview[:min(len(preview), 400)])
 	}
 	pages, _ := strconv.Atoi(regexp.MustCompile(`(\d+) pages`).FindStringSubmatch(preview)[1])
@@ -310,5 +310,36 @@ func TestReadResultDeclaresReadAndItsInput(t *testing.T) {
 	spec := tool.Spec()
 	if spec.ID != "read_result" || spec.Effect != gotato.ToolEffectRead || !strings.Contains(string(spec.InputSchema), `"ref"`) || !strings.Contains(string(spec.InputSchema), `"page"`) {
 		t.Fatalf("spec = %+v", spec)
+	}
+}
+
+// The instruction at the end of a preview, and the "More:" line at the end of
+// each page, lead through the whole body: a fact between the preview and the
+// end of the first page is read on the way.
+func TestFollowingThePreviewReadsEveryByte(t *testing.T) {
+	f := newSpillFixture(t, "chain")
+	body := strings.Repeat("x", 10000) + "\nFIRST-PAGE-FACT\n" + strings.Repeat("y", 70000)
+	requests := f.call("c1", body)
+	preview := testkit.ToolResults(requests[len(requests)-1])[0]
+
+	tool := modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})
+	next := regexp.MustCompile(`read_result\(ref="(result:[^"]+)", page=(\d+)\)`)
+	seen := preview
+	for step := 0; step < 10; step++ {
+		m := next.FindStringSubmatch(seen[max(0, len(seen)-300):])
+		if m == nil {
+			break
+		}
+		out, err := readResult(t, tool, fmt.Sprintf(`{"ref":%q,"page":%s}`, m[1], m[2]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen += "\n" + out
+		if strings.Contains(out, "End of ") {
+			break
+		}
+	}
+	if !strings.Contains(seen, "FIRST-PAGE-FACT") {
+		t.Fatal("following the preview and the More lines never showed the fact between the preview and the end of page 1")
 	}
 }

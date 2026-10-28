@@ -40,7 +40,7 @@ func TestALargeToolResultIsSpilledAndShownAsAnEventWithoutItsBody(t *testing.T) 
 		}
 	}
 	if result == nil || result.Spilled == nil || result.Spilled.Seq == 0 || result.Spilled.Bytes < 32<<10 ||
-		!strings.Contains(result.Content[0].Text, `read_result(ref="result:call-big", page=2)`) || len(result.Content[0].Text) > 9000 {
+		!strings.Contains(result.Content[0].Text, `read_result(ref="result:call-big", page=1)`) || len(result.Content[0].Text) > 9000 {
 		t.Fatalf("tool result = %+v", result)
 	}
 }

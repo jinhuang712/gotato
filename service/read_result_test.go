@@ -44,7 +44,7 @@ func TestARunnerSpillsALargeResultAndReadsItBack(t *testing.T) {
 		t.Fatalf("the tool list changed on the Turn the result was spilled: %v then %v", before, after)
 	}
 	results := testkit.ToolResults(requests[1])
-	if len(results) != 1 || len(results[0]) > 9000 || !strings.Contains(results[0], `read_result(ref="result:big-1", page=2)`) {
+	if len(results) != 1 || len(results[0]) > 9000 || !strings.Contains(results[0], `read_result(ref="result:big-1", page=1)`) {
 		t.Fatalf("the second request holds %d results, the first of %d bytes", len(results), len(results[0]))
 	}
 

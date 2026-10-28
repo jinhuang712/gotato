@@ -1054,10 +1054,10 @@ A tool can return far more than a Context should hold, and MCP servers often do.
 order_id,status,total,…
 O-88501,paid,41.20,…
 …
-[Result cut: 412 KiB, 13 pages. Read the rest with read_result(ref="result:call_9a2", page=2).]
+[Result cut: 412 KiB, 13 pages. Read it page by page with read_result(ref="result:call_9a2", page=1); the preview is only the start of page 1.]
 ```
 
-- **The preview is the start of the body,** 2K tokens (8,000 bytes, `gotato.SpillPreviewBytes`), the same cut as a long Message in a Segment ([G-F06](#g-f06--compaction-)), on a rune boundary. The page count in the last line is the one `read_result` pages by.
+- **The preview is the start of the body,** 2K tokens (8,000 bytes, `gotato.SpillPreviewBytes`), the same cut as a long Message in a Segment ([G-F06](#g-f06--compaction-)), on a rune boundary. The page count in the last line is the one `read_result` pages by, and the line points at page 1: the preview is only the start of it.
 - **`read_result(ref, page?)` reads it back.** It is a sibling of `read_segment`, not one tool for both, and the two share their paging code: the same page size, `Page 2 of 13` on the first line, a last line that says which call reads the next page, a page past the end that says how many pages there are, and the start and end of the four tags escaped, as in any tool result. It declares `read`, so every Effect cap keeps it. It is offered whenever the Agent has a tool, so the tool list does not change on the Turn a result is first spilled. It reads only the spilled results of its own Session: a ref that names none of them, also one of another Session or one that is not a ref, fails as a failed Tool Result that lists the refs the Context holds, and the Run goes on. A ref whose Message a Segment has closed over is still found, by a scan of the log. An Agent with no tool is not offered it.
 - **Why a sibling.** `read_segment` is named in the bytes of every Segment already written, which never change, so its name and its arguments stay. The two read different things.
 - **The Record is the truth, and a warm Session is a cache.** A warm Session ([G-F27](#g-f27--service-many-instances-)) keeps the bodies it wrote or read in memory, and drops them with the Session. Bodies the store holds are dropped oldest first past 16 MiB; a body the store does not hold yet, or a Record with no store, is never dropped. Any instance reads the same body from the Record. A live Session counts its cache apart from the warm-Session limit of Phase 8.

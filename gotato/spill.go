@@ -80,7 +80,7 @@ func spillPreview(call ToolCallID, body string) string {
 	if !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read the rest with %s(ref=%q, page=2).]", humanBytes(len(body)), pages, ReadResultToolID, text.SpillRef(string(call)))
+	fmt.Fprintf(&b, "[Result cut: %s, %d pages. Read it page by page with %s(ref=%q, page=1); the preview is only the start of page 1.]", humanBytes(len(body)), pages, ReadResultToolID, text.SpillRef(string(call)))
 	return b.String()
 }
 
