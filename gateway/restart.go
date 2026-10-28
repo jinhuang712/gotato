@@ -67,14 +67,14 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 		return nil, cause
 	}
 	if r.restarts >= r.client.maxRetries {
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: readFailure{cause}}
+		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
 	}
 	delay := withJitter(r.client.retryBackoff * time.Duration(r.restarts+1))
 	reported := gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: r.restarts + 1, Wait: delay, Error: "the stream was cut off"})
 	if r.delivered && !reported {
 		// Nobody drops the output already delivered, so a restart would
 		// repeat it.
-		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: readFailure{cause}}
+		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
 	}
 	r.restarts++
 	if err := wait(ctx, delay); err != nil {
@@ -82,11 +82,3 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 	}
 	return r.open(ctx, r.body)
 }
-
-// readFailure carries the text of a read error as the cause of a cut stream
-// without its chain: an Error that unwrapped to io.EOF would read as a clean
-// end to a caller that tests errors.Is(err, io.EOF).
-type readFailure struct{ error }
-
-// Unwrap is nil on purpose, see readFailure.
-func (readFailure) Unwrap() error { return nil }
