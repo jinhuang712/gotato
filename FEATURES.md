@@ -7,18 +7,78 @@ What Gotato has today, what it will have, and what it won't, as an inventory. Ea
 
 Every feature by group, with its status: ✅ built, *later* an idea with no milestone, *not planned* a thing Gotato will not build. Each feature below has the same shape: a purpose line, tables of its items with their defaults and limits, its routes and calls, and links to its spec and its decisions.
 
-| Group | Features |
+**Defining and running agents**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F01 Agents and Runs](#g-f01--agents-and-runs-) | define an Agent, run it, get a settled result and errors that say what to do | ✅ |
+| [G-F26 Steering a Run](#g-f26--steering-a-run-) | Steer, FollowUp, Interrupt and Stop from any endpoint | ✅ |
+| [G-F29 Runtime notices](#g-f29--runtime-notices-) | tell the model what is not the user's words | ✅ |
+| [G-F02 Sessions](#g-f02--sessions-) | create, fork, per-Session settings | ✅ |
+
+**What the model sees**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F04 Context](#g-f04--context-) | built every Turn in a fixed order | ✅ |
+| [G-F05 Context inspection](#g-f05--context-inspection-) | the next request without calling the model | ✅ |
+| [G-F06 Compaction](#g-f06--compaction-) | Segments, Recaps, merges, four triggers | ✅ |
+
+**Tools**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F09 Tools and their Effect](#g-f09--tools-and-their-effect-) | a Tool, its Effect and the cap | ✅ |
+| [G-F10 Tool sets](#g-f10--tool-sets-) | tools that arrive as a group, resolved when a Run starts | ✅ |
+| [G-F34 Tool search](#g-f34--tool-search-) | a catalog, tools load one by one | ✅ |
+| [G-F12 The MCP adapter](#g-f12--the-mcp-adapter-) | an MCP server's tools as a ToolSet | ✅ |
+| [G-F35 Large Tool Results](#g-f35--large-tool-results-) | spilled, read in pages | ✅ |
+
+**Models**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F07 Models and providers](#g-f07--models-and-providers-) | three wire APIs, retries, reasoning replay, YAML | ✅ |
+| [G-F31 Recovering a cut stream](#g-f31--recovering-a-cut-stream-) | a cut model stream is sent again, not failed | ✅ |
+
+**Storage**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F03 Stores](#g-f03--stores-) | memory, file, your own; the append-only Record and the store contract | ✅ |
+
+**Many instances**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F27 Service: many instances](#g-f27--service-many-instances-) | one writer, liveness, warm Sessions, drain, admission | ✅ |
+| [G-F33 Prompt cache retention](#g-f33--prompt-cache-retention-) | how long the provider keeps the prompt cache | ✅ |
+
+**Endpoints**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F14 HTTP and streaming](#g-f14--http-and-streaming-) | routes, status codes, SSE, stream resume, the Go API | ✅ |
+
+**Watching and extending**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F13 Events](#g-f13--events-) | one Go type per kind, Subscriptions | ✅ |
+| [G-F15 Extensions](#g-f15--extensions-) | six stages around the Loop | ✅ |
+
+**Testing**
+
+| Feature | What it gives you | Status |
+|---|---|---|
+| [G-F22 Test kit and measurement](#g-f22--test-kit-and-measurement-) | fake models, the reference workload, fault injection | ✅ |
+
+**Later**, **Not planned**
+
+| Part | What it holds |
 |---|---|
-| **Defining and running agents** | [G-F01 Agents and Runs](#g-f01--agents-and-runs-) ✅ define an Agent, run it, get a settled result and errors that say what to do · [G-F26 Steering a Run](#g-f26--steering-a-run-) ✅ Steer, FollowUp, Interrupt and Stop from any endpoint · [G-F29 Runtime notices](#g-f29--runtime-notices-) ✅ tell the model what is not the user's words · [G-F02 Sessions](#g-f02--sessions-) ✅ create, fork, per-Session settings |
-| **What the model sees** | [G-F04 Context](#g-f04--context-) ✅ built every Turn in a fixed order · [G-F05 Context inspection](#g-f05--context-inspection-) ✅ the next request without calling the model · [G-F06 Compaction](#g-f06--compaction-) ✅ Segments, Recaps, merges, four triggers |
-| **Tools** | [G-F09 Tools and their Effect](#g-f09--tools-and-their-effect-) ✅ · [G-F10 Tool sets](#g-f10--tool-sets-) ✅ · [G-F34 Tool search](#g-f34--tool-search-) ✅ a catalog, tools load one by one · [G-F12 The MCP adapter](#g-f12--the-mcp-adapter-) ✅ · [G-F35 Large Tool Results](#g-f35--large-tool-results-) ✅ spilled, read in pages |
-| **Models** | [G-F07 Models and providers](#g-f07--models-and-providers-) ✅ three wire APIs, retries, reasoning replay, YAML · [G-F31 Recovering a cut stream](#g-f31--recovering-a-cut-stream-) ✅ |
-| **Storage** | [G-F03 Stores](#g-f03--stores-) ✅ memory, file, your own; the append-only Record and the store contract |
-| **Many instances** | [G-F27 Service: many instances](#g-f27--service-many-instances-) ✅ one writer, liveness, warm Sessions, drain, admission · [G-F33 Prompt cache retention](#g-f33--prompt-cache-retention-) ✅ |
-| **Endpoints** | [G-F14 HTTP and streaming](#g-f14--http-and-streaming-) ✅ routes, status codes, SSE, stream resume, the Go API |
-| **Watching and extending** | [G-F13 Events](#g-f13--events-) ✅ one Go type per kind, Subscriptions · [G-F15 Extensions](#g-f15--extensions-) ✅ six stages around the Loop |
-| **Testing** | [G-F22 Test kit and measurement](#g-f22--test-kit-and-measurement-) ✅ fake models, the reference workload, fault injection |
-| **Later**, **Not planned** | ten ideas with no milestone ([Later](#later)); G-N01 to G-N28 ([Not planned](#not-planned)) |
+| [Later](#later) | ten ideas with no milestone |
+| [Not planned](#not-planned) | G-N01 to G-N28, things Gotato will not build |
 
 Feature IDs are stable. When features merge, the lower ID stays and the others retire: G-F08 into G-F07, G-F11 into G-F10, G-F23 into G-F22. G-F16 (the CLI, which G-F17 to G-F21 had merged into), G-F25, G-F28 and G-F30 retired (G-F30 became [G-N21](#not-planned)).
 
