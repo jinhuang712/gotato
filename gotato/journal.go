@@ -78,11 +78,18 @@ func (j *memoryJournal) Write(_ context.Context, events []Event) ([]Event, error
 }
 
 // journalError turns a failed write into the Run's error. A conflict and a
-// store failure keep their code; anything else is a store failure.
+// store failure keep their code; a Session that was deleted under the Run is
+// not_found, an error of a Run that ran, which no retry can cure; anything
+// else is a store failure.
 func journalError(err error) *RuntimeError {
 	var runtimeErr *RuntimeError
 	if errors.As(err, &runtimeErr) && (runtimeErr.Code == CodeConflict || runtimeErr.Code == CodeStoreFailure) {
 		return runtimeErr
+	}
+	if errors.As(err, &runtimeErr) && runtimeErr.Code == CodeNotFound {
+		gone := runtimeError(CodeNotFound, "Journal", "the Session was deleted while the Run was going on", err)
+		gone.NotRun, gone.Retryable = false, false
+		return gone
 	}
 	return runtimeError(CodeStoreFailure, "Journal", "cannot write the Run's Events: "+err.Error(), err)
 }

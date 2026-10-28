@@ -49,9 +49,16 @@ func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, m
 }
 
 // DeleteSession removes a Session under the Session lock, so a Run in flight
-// is never resurrected by a delete or vice versa.
+// is never resurrected by a delete or vice versa. A Run going on this Instance
+// makes it busy, as for any other change; a Run going on another live Instance
+// is not deleted from under it: the call returns not_writer (NotRun,
+// Retryable) with the writer's advertised address, as Send does. A Session
+// whose writer is gone is deleted.
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
+		if err := r.checkWriter(ctx, sessionID); err != nil {
+			return err
+		}
 		r.dropWarm(sessionID, "deleted")
 		if err := r.store.Delete(ctx, sessionID); err != nil {
 			return storeFailureOf(ctx, err, true)

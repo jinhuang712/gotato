@@ -35,6 +35,7 @@ import (
 	"encoding/hex"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -357,12 +358,43 @@ func (s *Record) Set(key, value string) {
 
 func (s *Record) touch() { s.updatedAt = s.now().UTC() }
 
+// Results that Fork writes for the Tool calls of a Run that was going on in
+// the parent when it was forked. The Record's own repair says the instance
+// stopped, which is true only of a writer that is gone; the parent's writer
+// may be alive and about to answer these calls.
+const (
+	forkedToolResult       = "This tool had not finished when the Session was forked. Whether it took effect is unknown."
+	forkedNotRunToolResult = "This tool call had not started when the Session was forked."
+)
+
+// forkedRepairs returns messages with the results that repair added (their
+// IDs start with "repair-") worded for a fork. The messages are copied.
+func forkedRepairs(messages []gotato.Message) []gotato.Message {
+	out := slices.Clone(messages)
+	for i, message := range out {
+		if message.Role != gotato.RoleToolResult || message.ToolResult == nil || !strings.HasPrefix(string(message.ID), "repair-") {
+			continue
+		}
+		text := forkedNotRunToolResult
+		if message.ToolResult.Executed {
+			text = forkedToolResult
+		}
+		out[i] = repairResultWith(gotato.ToolCall{ID: message.ToolResult.CallID}, message.ToolResult.Executed, text)
+	}
+	return out
+}
+
 // Fork creates the Record of a new Session from the current state of parent.
 // The fork has its own ID, records the parent ID and the point of the
 // parent's log it branches at, copies Messages, Segments, Usage, Compactions,
 // loaded Tools and Metadata (unless options set the Metadata), and starts with
 // empty Run and Event records. It is a state
 // operation: no relationship between Sessions is implied.
+//
+// A parent with a Run in flight is copied as its Record shows it. The Tool
+// calls of that Run that have no result yet are answered in the fork as not
+// finished at the time of the fork, not as the repair of a Record whose writer
+// stopped, since the parent's writer may be alive and about to answer them.
 func Fork(parent *Record, options ...RecordOption) *Record {
 	doc := parent.Snapshot()
 	parentSeq := parent.Head()
@@ -372,6 +404,12 @@ func Fork(parent *Record, options ...RecordOption) *Record {
 	child.parentID = doc.ID
 	child.parentSeq = parentSeq
 	child.messages = doc.Messages
+	parent.mu.RLock()
+	midRun := parent.running != ""
+	parent.mu.RUnlock()
+	if midRun {
+		child.messages = forkedRepairs(child.messages)
+	}
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
 	child.loaded = doc.LoadedTools

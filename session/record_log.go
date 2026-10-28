@@ -382,6 +382,11 @@ func repairResult(call gotato.ToolCall, started bool) gotato.Message {
 	if started {
 		text = StoppedToolResult
 	}
+	return repairResultWith(call, started, text)
+}
+
+// repairResultWith is repairResult with the text given.
+func repairResultWith(call gotato.ToolCall, started bool, text string) gotato.Message {
 	return gotato.Message{
 		ID:    gotato.MessageID("repair-" + string(call.ID)),
 		Role:  gotato.RoleToolResult,

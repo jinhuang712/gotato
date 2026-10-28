@@ -100,7 +100,7 @@ func TestOpenDoesNotCutAStreamOfANewerRecord(t *testing.T) {
 	}()
 	<-held.held // a's claim is written, and a has not cut any stream yet
 
-	if err := b.DeleteSession(ctx, id); err != nil {
+	if err := held.Delete(ctx, id); err != nil { // as an Instance that did not check would
 		t.Fatal(err)
 	}
 	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
@@ -137,7 +137,7 @@ func TestOpenCutsAStreamOfAnOlderRecordThatStartsLate(t *testing.T) {
 	}()
 	<-held.held
 
-	if err := b.DeleteSession(ctx, id); err != nil {
+	if err := held.Delete(ctx, id); err != nil { // as an Instance that did not check would
 		t.Fatal(err)
 	}
 	if _, err := b.CreateSessionExclusive(ctx, "echo", id, nil); err != nil {
