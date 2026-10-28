@@ -76,6 +76,15 @@ Exported names follow one set of rules, so a reader can guess a name before look
 6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
 7. **Keep the CLI honest.** The CLI promises no contract: its flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
 8. **Format**: `gofmt -l .` must print nothing.
+9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"): `// [SECURITY] a redirect would send the caller's headers to a host the allow list never saw.` The tag says what the guard protects, from this closed list:
+   - `[SECURITY]`: a secret, a credential, or an authorization decision.
+   - `[DATA-LOSS]`: a Record, a Message or a result that would be lost or read wrong.
+   - `[OWNERSHIP]`: one writer per Session across Instances (Claim, epoch, release).
+   - `[LIVENESS]`: a hang, a leak or a stuck state (goroutine, lock, queue, Claim).
+   - `[CONTRACT]`: behavior a documented contract or the Store suite requires.
+   - `[IMPORTANT]`: a non-obvious invariant that a later change could break; the comment says which.
+
+   A change adds a guard only with a failing test that a supported use can trigger, and it reuses or replaces an existing mechanism before it adds a second one. A guard with no tag is a candidate for deletion in review; a tag whose reason no longer holds is too.
 
 ## Editing the Project Documents
 
