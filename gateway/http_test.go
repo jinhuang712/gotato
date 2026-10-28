@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -96,5 +97,35 @@ func TestGatewayRetriesBeforeStreamStarts(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("HTTP attempts = %d", calls.Load())
+	}
+}
+
+// A transport error names the endpoint's URL and host; Error.Message is read
+// by clients, so it is fixed text, and the transport error stays the cause.
+func TestTransportErrorMessageDoesNotNameTheEndpoint(t *testing.T) {
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer tlsServer.Close()
+	closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	closedURL := closed.URL
+	closed.Close()
+	for name, endpoint := range map[string]string{"not retried (unknown authority)": tlsServer.URL, "retried and out of attempts": closedURL} {
+		t.Run(name, func(t *testing.T) {
+			client, err := New(Config{Endpoint: endpoint, Model: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Stream(context.Background(), gotato.ModelRequest{})
+			var gerr *Error
+			if !errors.As(err, &gerr) {
+				t.Fatalf("err = %v, want *Error", err)
+			}
+			host := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
+			if strings.Contains(gerr.Message, host) || strings.Contains(gerr.Message, "127.0.0.1") {
+				t.Errorf("Message %q names the endpoint", gerr.Message)
+			}
+			if gerr.Unwrap() == nil {
+				t.Error("the transport error is not the cause")
+			}
+		})
 	}
 }

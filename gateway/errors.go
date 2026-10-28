@@ -140,6 +140,9 @@ func transientStream(kinds ...string) bool {
 	return false
 }
 
+// transportMessage is the public Message of a request that could not be sent.
+const transportMessage = "the request could not be sent"
+
 // transientTransport reports whether a failed send may succeed when sent
 // again. A certificate the client does not trust or that does not fit the
 // host, and a host name that does not exist, are mistakes in the settings
