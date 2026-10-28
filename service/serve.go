@@ -193,6 +193,10 @@ func (st *runState) startRun(ctx context.Context, spec Agent) (*gotato.Session, 
 		}
 	}
 	st.started = true
+	// The Run is really starting: a stream may begin.
+	if st.stream != nil && st.stream.admitted != nil {
+		st.stream.admitted <- struct{}{}
+	}
 	// From here a stop aborts the Run inside the live Session, so Prompt
 	// still returns the settled (canceled) result. Prompt waits on the
 	// caller's context, not runCtx: a stop that canceled runCtx while the

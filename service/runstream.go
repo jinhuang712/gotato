@@ -14,7 +14,7 @@ import (
 // as soon as the Run holds its Session.
 type runStream struct {
 	ready func(gotato.Subscription)
-	// admitted receives one value once the Run is admitted.
+	// admitted receives one value once the Run is starting: it holds its Session and has built its live Session.
 	admitted chan struct{}
 	sub      gotato.Subscription
 }

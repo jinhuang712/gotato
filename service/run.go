@@ -103,11 +103,14 @@ func (r *Runner) StreamRun(ctx context.Context, request RunRequest, sink func(go
 }
 
 // StreamRunAdmitted is StreamRun with a call, on the caller's goroutine, once
-// the Run is admitted and before its first Event is delivered. A Run that is
-// refused at admission (draining, at capacity, past the activation limit)
-// returns its error without the call, so an endpoint can still answer the
-// request with a status of its own before it starts to stream. A nil sink
-// still gets the call, and its Events are not delivered.
+// the Run is starting: admitted, holding its Session (opened or created), its
+// Agent known, and its live Session built, and before its first Event is
+// delivered. A Run that is refused before that (draining, at capacity, past
+// the activation limit, busy here or on another Instance, a Session that does
+// not exist, an unknown Agent, a failed open) returns its error without the
+// call, so an endpoint can still answer the request with a status of its own
+// before it starts to stream. A nil sink still gets the call, and its Events
+// are not delivered.
 func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admitted func(), sink func(gotato.Event) error, opts ...StreamRunOption) (RunResponse, error) {
 	var config streamRunConfig
 	for _, option := range opts {
@@ -137,7 +140,9 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 		done <- outcome{result, err}
 	}()
 	var finished *outcome
+	called := false
 	call := func() {
+		called = true
 		if admitted != nil {
 			admitted()
 		}
@@ -154,10 +159,16 @@ func (r *Runner) StreamRunAdmitted(ctx context.Context, request RunRequest, admi
 		}
 	}
 	if finished != nil {
-		// The Run ended: it may have handed over its stream first.
+		// The Run ended: it may have handed over its stream first. A Run that
+		// was refused before it started (no call, no result) delivers none of
+		// it: the caller has answered with a status of its own.
 		select {
 		case sub := <-subs:
-			deliver(ctx, sub, sink)
+			if called || finished.result.SessionID != "" || finished.err == nil {
+				deliver(ctx, sub, sink)
+			} else {
+				_ = sub.Close()
+			}
 		default:
 		}
 		return finished.result, finished.err
@@ -213,9 +224,6 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 		}
 		r.notice(gotato.RunRejected{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Why: why}, request.Agent)
 		return RunResponse{}, err
-	}
-	if stream != nil && stream.admitted != nil {
-		stream.admitted <- struct{}{}
 	}
 	r.notice(gotato.RunRequested{Header: gotato.NewHeader(gotato.SessionID(request.SessionID), "", 0), Agent: request.Agent}, request.Agent)
 	release := sync.OnceFunc(r.release)
