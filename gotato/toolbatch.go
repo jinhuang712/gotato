@@ -415,6 +415,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 }
 
 // executeToolSafely runs a Tool and turns a panic into a failure of the call.
+// [LIVENESS] a panicking Tool would end the process instead of failing its call.
 func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
 	err = callHost("tool", func() (failure error) {
 		result, failure = tool.Execute(ctx, use, progress)
@@ -443,6 +444,7 @@ func safeError(err error) string {
 // what the error chooses to make public is kept: its PublicError text, or a
 // RuntimeError, whose Message is written to be read. Any other error is
 // "tool failed" with its code.
+// [SECURITY] a Tool error can carry a host, a query or a secret, and this text goes to the Model and every subscriber.
 func toolErrorText(err error) string {
 	if err == nil {
 		return ""

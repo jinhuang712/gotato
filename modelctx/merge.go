@@ -274,6 +274,7 @@ func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, 
 // the error chooses to make public is kept: its PublicError text, or a
 // RuntimeError, whose Message is written to be read. Any other error is a
 // fixed text for its reason; the error itself is not kept.
+// [SECURITY] a Recap writer's or Store's error can carry a host, a query or a secret that a client must not read.
 func publicMergeError(reason MergeReason, err error) string {
 	fallback := "the merge could not be written"
 	if reason == MergeReasonRecapFailed {
@@ -352,7 +353,8 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 	}
 	merged.LoadedTools = tools
 	first, last := merged.Merged[0].Source, merged.Merged[len(merged.Merged)-1].Source
-	if first.SessionID == last.SessionID && first.RecordEpoch == last.RecordEpoch {
+	// [DATA-LOSS] a stretch that spans two Records, or two epochs of one, cannot be read back as one source.
+	if first.RecordRef == last.RecordRef {
 		merged.Source = gotato.SegmentSource{RecordRef: first.RecordRef, FromNumber: first.FromNumber, ToNumber: last.ToNumber}
 	}
 

@@ -141,6 +141,7 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	if ref.source.SessionID != "" {
 		id = string(ref.source.SessionID)
 	}
+	// [DATA-LOSS] a Record deleted and created again under the same ID must not be read as the history a fork inherited.
 	same, err := session.SameRecord(ctx, log, id, ref.source.RecordEpoch)
 	if err != nil {
 		return "", readErrorf("segment %d could not be read", ref.number)

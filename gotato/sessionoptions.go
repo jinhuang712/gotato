@@ -81,6 +81,7 @@ func WithModelConfig(options ModelConfig) SessionOption {
 		if options.Temperature != nil {
 			temperature := *options.Temperature
 			// NaN fails the first comparison; negative and infinite are out of range.
+			// [CONTRACT] a NaN, infinite or negative temperature is not a sampling value a provider accepts.
 			if !(temperature >= 0) || math.IsInf(temperature, 1) {
 				return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is not a finite number of at least 0", nil)
 			}

@@ -93,6 +93,7 @@ type toolSetConfig struct {
 
 // toolSetSpec reads a ToolSet's Spec, converting an application panic into a
 // RuntimeError so a broken ToolSet fails NewSession instead of crashing the process.
+// [LIVENESS] a ToolSet whose Spec panics fails NewSession, not the process.
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	if failure := callHost("ToolSet.Spec", func() error {
 		spec = set.Spec()
@@ -114,6 +115,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	}
 	local := map[string]bool{}
 	for _, tool := range tools {
+		// [LIVENESS] a nil Tool would panic the Session on its first use.
 		if tool == nil {
 			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet "+state.spec.Name+" returned a nil Tool", nil)
 		}
@@ -121,6 +123,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 		if err := validateToolSpec(spec); err != nil {
 			return nil, err
 		}
+		// [CONTRACT] a Tool ID is unique within its ToolSet.
 		if local[spec.ID] {
 			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "duplicate local Tool name in ToolSet "+state.spec.Name+": "+spec.ID, nil)
 		}

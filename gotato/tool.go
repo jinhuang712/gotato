@@ -35,6 +35,7 @@ type PublicError interface {
 // may carry what a client must not read, and stays on the Cause. A layer that
 // builds a RuntimeError, a failed Result or a MergeResult from a foreign
 // error takes its Message from here.
+// [SECURITY] a foreign error can carry a host, a query or a secret that a client must not read.
 func PublicText(err error, fallback string) string {
 	var public PublicError
 	if errors.As(err, &public) {
