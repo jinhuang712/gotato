@@ -19,7 +19,22 @@ type Journal interface {
 	// Event it wrote with its Number: the Events it was given, and any that
 	// the Record had queued before them, such as a metadata change. An
 	// Event that was not written is not returned.
+	//
+	// Write may be called with a context that is already done: the Run's
+	// last writes (run_ended, the closing results, abort_requested) are
+	// made under a context detached from the caller's cancellation and
+	// bounded by a timeout, so a Journal must still write then.
 	Write(ctx context.Context, events []Event) ([]Event, error)
+}
+
+// finalWriteTimeout bounds the Run's last writes, which are made under a
+// context detached from the caller's cancellation.
+const finalWriteTimeout = 10 * time.Second
+
+// finalContext returns a context for a write that must happen although ctx
+// ended: it keeps ctx's values, drops its cancellation, and is bounded.
+func finalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), finalWriteTimeout)
 }
 
 // replyPartEvery and replyPartBytes bound how much of a streaming reply a

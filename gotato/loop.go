@@ -87,7 +87,10 @@ func (st *runState) end(turn TurnNumber, result RunResult, extra func(*RunEnded)
 		extra(&ended)
 	}
 	a.stage(ended)
-	return a.flush(st.ctx)
+	// The caller's ctx may have ended, which is why the Run is ending.
+	ctx, cancel := finalContext(st.ctx)
+	defer cancel()
+	return a.flush(ctx)
 }
 
 // fail ends the Run with err: it closes the Tool calls left open, writes
@@ -278,7 +281,12 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			for _, load := range a.registry.announce(toolResult.LoadedTools) {
 				a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
 			}
-			if err := a.flush(runCtx); err != nil {
+			// The result is committed in memory already: a canceled
+			// Run still stores it.
+			flushCtx, cancelFlush := finalContext(runCtx)
+			err := a.flush(flushCtx)
+			cancelFlush()
+			if err != nil {
 				return err
 			}
 			settledResults = append(settledResults, toolResult.Clone())

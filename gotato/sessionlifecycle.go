@@ -28,7 +28,9 @@ func (a *Session) abort() bool {
 	a.abortMu.Unlock()
 	a.runMu.Unlock()
 	go func() {
-		_ = a.writeNow(context.Background(), AbortRequested{Header: header})
+		ctx, cancel := finalContext(context.Background())
+		defer cancel()
+		_ = a.writeNow(ctx, AbortRequested{Header: header})
 		a.abortMu.Lock()
 		a.aborts--
 		a.abortCond.Broadcast()
