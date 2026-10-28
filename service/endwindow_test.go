@@ -15,8 +15,14 @@ import (
 // message any more and still holds the Session.
 func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
+	return holdBeforeReleaseOn(t, session.NewMemoryStore())
+}
+
+// holdBeforeReleaseOn is holdBeforeRelease over the given Store.
+func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
+	t.Helper()
 	runner, err := service.New(service.Config{
-		Store:  session.NewMemoryStore(),
+		Store:  store,
 		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
 	})
 	if err != nil {
