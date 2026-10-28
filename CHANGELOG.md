@@ -4,7 +4,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
-## 0.2.0 — YYYY-MM-DD
+## 0.2.0 — 2026-10-28
 
 Gotato 0.2.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).
 
