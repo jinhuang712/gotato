@@ -133,6 +133,25 @@ type ToolSet struct {
 	cached   []gotato.Tool
 	cachedAt time.Time
 	haveList bool
+	skipped  []SkippedTool
+}
+
+// SkippedTool is a tool of the server that the ToolSet left out of its tools
+// because the server's list is wrong about it: one bad entry must not take the
+// good tools of the server with it.
+type SkippedTool struct {
+	// Name is the tool's name as the server sent it; empty when it sent none.
+	Name string
+	// Reason says why the tool was left out.
+	Reason string
+}
+
+// Skipped returns the tools that the last listing left out, and why. It is
+// empty when the server's list was sound or has not been read yet.
+func (s *ToolSet) Skipped() []SkippedTool {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	return slices.Clone(s.skipped)
 }
 
 var _ gotato.ToolSet = (*ToolSet)(nil)
@@ -228,14 +247,22 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 		return nil, err
 	}
 	tools := make([]gotato.Tool, 0, len(listed))
+	var skipped []SkippedTool
+	seen := make(map[string]bool, len(listed))
 	for _, t := range listed {
-		if t.Name == "" {
+		switch {
+		case t == nil || strings.TrimSpace(t.Name) == "":
+			skipped = append(skipped, SkippedTool{Reason: "the server listed a tool with no name"})
+			continue
+		case seen[t.Name]:
+			skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the server listed the name more than once; the first is kept"})
 			continue
 		}
+		seen[t.Name] = true
 		tools = append(tools, newTool(s, t))
 	}
 	s.cacheMu.Lock()
-	s.cached, s.cachedAt, s.haveList = tools, time.Now(), true
+	s.cached, s.cachedAt, s.haveList, s.skipped = tools, time.Now(), true, skipped
 	s.cacheMu.Unlock()
 	return slices.Clone(tools), nil
 }
