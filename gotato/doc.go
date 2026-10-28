@@ -27,4 +27,41 @@
 // Session Records and stores, context strategies, Tool registries, providers,
 // and the service layer live in sibling packages that build on these
 // contracts.
+//
+// # Where things are
+//
+// The package has four subjects. Each is a group of files, so a reader can
+// start from the name of a file:
+//
+//   - Session and Loop: the live Session and the Run it executes. session.go
+//     (Session, NewSession and its options), loop.go (the Turn loop), model.go
+//     and types.go (Model, Message, Block), queue.go (Steer, FollowUp), limits.go,
+//     retry.go, notice.go, tags.go and clone.go.
+//   - Tools: what the Model may call. tool.go (Tool, ToolSpec, ToolResult),
+//     toolfunc.go and toolschema.go (a Tool from a Go function), toolbatch.go
+//     (parallel calls), toolset.go (ToolSet), toolsearch.go (loading Tools on
+//     demand) and spill.go (a long result kept out of the Context).
+//   - Events and Feed: what a Session says about itself. events.go and
+//     eventkinds.go (every Event type, its kind and its JSON), feed.go
+//     (Subscription, Feed, EventSource), journal.go (storing Events before they
+//     are sent) and errors.go (RuntimeError and its codes).
+//   - Context contracts: what the Model is shown and how a store keeps it.
+//     context.go (Transcript, ContextBuilder, ModelContext), segment.go
+//     (Segment and compaction values) and extensions.go (the stages of a Turn
+//     that an Extension hooks).
+//
+// The names, in the order a reader needs them:
+//
+//   - Must know: Agent, Session, Run, Model, Tool, Message, Event, Instance.
+//   - May need: Runner, Store, Record, Transcript, Context, Turn, Steer,
+//     FollowUp, Abort, Continue, Effect, ToolSet, Compaction, Segment, Recap,
+//     Limits, Notice, Subscription.
+//   - For extenders: Extension and its stages, ContextBuilder, ModelContext,
+//     Block, Journal, EventSource, Feed, ToolSource, ToolSearcher,
+//     MergedSegment, CacheAnchor.
+//
+// These stay one package because they refer to each other: a Session emits
+// Events and runs Tools, its Events carry Tool and Message values, and its
+// Tools return Messages. Split apart, they would import each other in a cycle,
+// which Go does not allow.
 package gotato
