@@ -60,3 +60,20 @@ func (p CompactPolicy) EffectiveCeilingTokens() int {
 	}
 	return defaultCeiling(p.WindowTokens)
 }
+
+// segmentsBudget returns the most the Segments of a Context may hold, in
+// estimated tokens, under the ceiling in force: half of it, or
+// defaultSegmentsBudgetTokens when there is no ceiling (ceiling 0). When the
+// Segments pass it, the oldest are merged (a merge).
+func segmentsBudget(ceiling int) int {
+	if ceiling > 0 {
+		return max(ceiling/2, 1)
+	}
+	return defaultSegmentsBudgetTokens
+}
+
+// defaultSegmentsBudgetTokens is the Segments' budget with no ceiling: the most
+// the Segments together may hold, in estimated tokens (bytes ÷ 4), when the
+// model has no known window and neither the Agent nor the Session sets a
+// ceiling. With a ceiling, the budget is half of it (segmentsBudget).
+const defaultSegmentsBudgetTokens = 32000

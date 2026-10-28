@@ -6,6 +6,24 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
+// RoundReasoner is implemented by a Model that sends its provider only the
+// reasoning of the current Round: the replies after the last user Message.
+// The gateway's Client implements it, and returns true for a recognized
+// Claude or OpenAI provider. A wrapper Model forwards it with Unwrap
+// (Unwrapper).
+type RoundReasoner interface {
+	RoundReasoningOnly() bool
+}
+
+// DropsReasoning reports whether model is a RoundReasoner whose provider is
+// sent only the current Round's reasoning, so compaction should leave the
+// reasoning out of the Messages it keeps. It follows Unwrap (Unwrapper).
+// service.Runner sets DropReasoning from it for every Agent.
+func DropsReasoning(model gotato.Model) bool {
+	reasoner, ok := capabilityOf[RoundReasoner](model)
+	return ok && reasoner.RoundReasoningOnly()
+}
+
 // Unwrapper is implemented by a Model that wraps another one, such as a
 // wrapper that counts calls or adds a header. WindowOf, RetentionOf and
 // DropsReasoning look for a capability (ContextWindower, CacheRetainer,

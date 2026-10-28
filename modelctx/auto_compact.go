@@ -2,7 +2,6 @@ package modelctx
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -218,11 +217,4 @@ func (a *AutoCompactor) size(messages []gotato.Message, overhead int) int {
 		}
 	}
 	return EstimateTokens(messages) + overhead
-}
-
-// requestOverhead estimates the tokens of the request that are not Messages:
-// the instruction and the tool definitions.
-func requestOverhead(request gotato.ModelRequest) int {
-	tools, _ := json.Marshal(request.Tools)
-	return (len(request.SystemInstructions) + len(tools) + 3) / 4
 }
