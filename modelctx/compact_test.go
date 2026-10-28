@@ -1,303 +1,275 @@
-package modelctx_test
+package modelctx
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
-func TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall(t *testing.T) {
-	f := newFixture(t)
-	threeRuns(f)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
-	if !result.Replaced || result.Compaction == nil || result.Compaction.Segment != 1 || result.Compaction.Recap != "none" {
-		t.Fatalf("result = %+v", result)
+// failWrites makes the write that closes a Segment fail, for the test.
+func failWrites(t *testing.T) {
+	t.Helper()
+	original := closeSegment
+	closeSegment = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
 	}
-	segments := f.rec.Segments()
-	if len(segments) != 1 {
-		t.Fatalf("segments = %d", len(segments))
-	}
-	want := `[user]
-<segment n="1" from="2026-10-19T10:01:00Z" to="2026-10-19T10:41:00Z">
-Segment 1. The messages are word for word; reasoning,
-intermediate steps and tool results were left out. read_segment(1) returns
-the segment in full.
-</segment>
-Some charges in last night's batch failed. Why?
-[assistant]
-<tool_calls>
-10:02 payments.get_batch {"batch_id":"B-1"} → ok
-10:02 logs.query {"order":"O-1"} → error failed
-</tool_calls>
-3 of 412 failed.
-[user]
-Retry O-1
-[assistant]
-<tool_calls>
-10:40 payments.retry {"order":"O-1"} → ok
-</tool_calls>
-O-1 went through.
-`
-	if got := dump(segments[0].Messages); got != want {
-		t.Fatalf("Segment =\n%s\nwant\n%s", got, want)
-	}
-	for _, left := range []string{"TOOLRESULT", "THINKING", "let me look"} {
-		if strings.Contains(dump(segments[0].Messages), left) {
-			t.Errorf("the Segment kept %q, which it leaves out", left)
-		}
-	}
-	// The tag text is Parts marked MetaTag; the user's words are not.
-	tagged := 0
-	for _, m := range segments[0].Messages {
-		for _, part := range m.Parts {
-			if part.Metadata[gotato.MetaTag] != "" {
-				tagged++
-			}
-		}
-	}
-	if tagged != 3 {
-		t.Errorf("tagged Parts = %d, want the header and two tool_calls blocks", tagged)
-	}
-	// The kept tail is the latest Run, word for word, after the Segment.
-	if tail := f.rec.Tail(); len(tail) != 2 || gotato.TextOf(tail[0]) != "thanks" || gotato.TextOf(tail[1]) != "welcome" {
-		t.Fatalf("tail = %+v", tail)
-	}
-	if segments[0].Source.FromNumber == 0 || segments[0].Source.ToNumber <= segments[0].Source.FromNumber {
-		t.Errorf("source = %+v, want the Entry range the Segment covers", segments[0].Source)
-	}
-	if len(segments[0].ToolCalls) != 3 {
-		t.Errorf("tool call lines = %+v", segments[0].ToolCalls)
-	}
-	if result.TokensAfter >= result.TokensBefore && result.MessagesAfter >= result.MessagesBefore {
-		t.Errorf("the compaction did not shrink the Context: %+v", result)
-	}
+	t.Cleanup(func() { closeSegment = original })
 }
 
-func TestCompactEmitsTheSegmentAndItsCheckpoint(t *testing.T) {
-	f := newFixture(t)
-	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
-	var kinds []gotato.EventKind
-	var ended gotato.CompactionEnded
-	for _, event := range f.rec.Events() {
-		switch e := event.(type) {
-		case gotato.CompactionStarted:
-			kinds = append(kinds, e.Kind())
-			if e.Why != gotato.CompactionWhyOnDemand {
-				t.Errorf("why = %q", e.Why)
-			}
-		case gotato.SegmentClosed:
-			kinds = append(kinds, e.Kind())
-		case gotato.CompactionEnded:
-			kinds = append(kinds, e.Kind())
-			ended = e
+func conversation(t *testing.T) *session.Record {
+	t.Helper()
+	record := session.New(session.WithID("faulty"))
+	record.SetLoadedTools([]string{"files.read"})
+	for i, text := range []string{"u1", "a1", "u2", "a2"} {
+		m := gotato.UserMessage(text)
+		if i%2 == 1 {
+			m = gotato.AssistantMessage(text)
+		}
+		m.ID = gotato.MessageID("m" + text)
+		if err := record.Append(m); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if !slices.Equal(kinds, []gotato.EventKind{gotato.EventKindCompactionStarted, gotato.EventKindSegmentClosed, gotato.EventKindCompactionEnded}) {
-		t.Fatalf("kinds = %v", kinds)
-	}
-	if !slices.Equal(ended.Segments, []int{1}) || len(ended.Messages) != 2 || ended.Compaction == nil || ended.Compaction.ReplacedMessages != 9 {
-		t.Fatalf("compaction_ended = %+v", ended)
-	}
-}
-
-// A Segment keeps its bytes through the next compaction, and every instance
-// that loads the Record from the store sends the same request.
-func TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest(t *testing.T) {
-	f := newFixture(t)
-	threeRuns(f)
-	mustCompact(t, f.rec, modelctx.CompactConfig{})
-	first, _ := json.Marshal(f.rec.Segments()[0].Messages)
-
-	f.user("r4", "and the other two?", 60)
-	f.calls("r4", "", 61, nil, `c4 orders.search {"ids":["O-2"]}`)
-	f.reply("r4", "O-2 is waiting.", 62)
-	second := mustCompact(t, f.rec, modelctx.CompactConfig{})
-	if !second.Replaced || second.Compaction.Segment != 2 {
-		t.Fatalf("second compaction = %+v", second)
-	}
-	segments := f.rec.Segments()
-	if len(segments) != 2 {
-		t.Fatalf("segments = %d, want 2", len(segments))
-	}
-	if again, _ := json.Marshal(segments[0].Messages); string(again) != string(first) {
-		t.Fatalf("Segment 1 changed:\n%s\n%s", first, again)
-	}
-	// The second Segment closed the first one's kept tail, "thanks"/"welcome".
-	if text := dump(segments[1].Messages); !strings.Contains(text, "thanks") || !strings.Contains(text, "welcome") {
-		t.Fatalf("Segment 2 = %s", text)
-	}
-	if err := f.writer.Release(f.ctx); err != nil {
+	// Store the Record, so that it keeps its Events as a stored Record does.
+	if _, err := session.CreateWriter(context.Background(), session.NewMemoryStore(), record, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := session.Open(f.ctx, f.store, f.rec.ID())
+	return record
+}
+
+// A compaction whose write fails is dropped: an Event says so, the error
+// reaches an on-demand caller, and the Record, ToolSets included, is as it was.
+func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
+	failWrites(t)
+	record := conversation(t)
+	_, err := Compact(context.Background(), record, CompactConfig{KeepMessages: 2})
+	if !gotato.IsCode(err, gotato.CodeStoreFailure) {
+		t.Fatalf("err = %v", err)
+	}
+	if record.Len() != 4 || len(record.Segments()) != 0 || len(record.Compactions()) != 0 || len(record.LoadedTools()) != 1 {
+		t.Fatalf("the dropped compaction changed the Record: %d Messages, %d Segments, loaded Tools %v", record.Len(), len(record.Segments()), record.LoadedTools())
+	}
+	var kinds []gotato.EventKind
+	var failed gotato.CompactionFailed
+	for _, event := range record.Events() {
+		kinds = append(kinds, event.Kind())
+		if e, ok := event.(gotato.CompactionFailed); ok {
+			failed = e
+		}
+	}
+	n := len(kinds)
+	if n < 2 || kinds[n-2] != gotato.EventKindCompactionStarted || kinds[n-1] != gotato.EventKindCompactionFailed || failed.Cause != gotato.CodeStoreFailure {
+		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
+	}
+}
+
+// runOnce runs one prompt on record with auto installed and a model that
+// answers "still here".
+func runOnce(t *testing.T, record *session.Record, auto *AutoCompactor) (gotato.RunResult, *testkit.FakeModel, error) {
+	t.Helper()
+	model := testkit.NewFakeModel(testkit.Text("still here"))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record), gotato.WithExtension(auto))
 	if err != nil {
 		t.Fatal(err)
 	}
-	live, _ := json.Marshal(gotato.ForModel(f.rec.Messages()))
-	reloaded, _ := json.Marshal(gotato.ForModel(loaded.Messages()))
-	if string(live) != string(reloaded) {
-		t.Fatalf("a reloaded Record builds another request:\n%s\n%s", live, reloaded)
-	}
-	if got, _ := json.Marshal(loaded.Segments()[0].Messages); string(got) != string(first) {
-		t.Fatalf("Segment 1 after a reload:\n%s", got)
-	}
-	if !slices.Equal(loaded.Compactions()[0].LoadedTools, f.rec.Compactions()[0].LoadedTools) || len(loaded.Compactions()) != 2 {
-		t.Fatalf("compactions after a reload = %+v", loaded.Compactions())
-	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(context.Background(), gotato.UserMessage("next"))
+	return result, model, err
 }
 
-func TestKeptTailStartsAtATurnSoACallKeepsItsResult(t *testing.T) {
-	for keep := 1; keep <= 8; keep++ {
-		f := newFixture(t)
-		f.user("r1", "go", 1)
-		f.calls("r1", "", 2, nil, `c1 a.x {}`, `c2 a.y {}`)
-		f.calls("r1", "", 3, nil, `c3 a.z {}`)
-		f.reply("r1", "done", 4)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{KeepMessages: keep})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !result.Replaced {
-			continue
-		}
-		tail := f.rec.Tail()
-		if len(tail) > 0 && tail[0].Role == gotato.RoleToolResult {
-			t.Fatalf("keep %d: the tail starts on a tool result", keep)
-		}
-		open := map[gotato.ToolCallID]bool{}
-		for _, m := range tail {
-			for _, call := range m.ToolCalls {
-				open[call.ID] = true
-			}
-			if m.ToolResult != nil {
-				delete(open, m.ToolResult.CallID)
-			}
-		}
-		if len(open) != 0 {
-			t.Fatalf("keep %d: calls %v lost their results", keep, open)
-		}
+// The model reported more tokens than the Messages are estimated to hold, so
+// the Session is past the ceiling by the model's count and under it by the
+// estimate. The compaction is dropped and the Run goes on with the Context it
+// had.
+func TestARunGoesOnWhenItsCompactionIsDroppedAndTheEstimateFits(t *testing.T) {
+	failWrites(t)
+	record := conversation(t)
+	reported := gotato.AssistantMessage("a3")
+	reported.ID = "ma3"
+	reported.Usage = gotato.Usage{InputTokens: 900, OutputTokens: 100}
+	if err := record.Append(reported); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
-	build := func() *fixture {
-		f := newFixture(t)
-		f.user("r1", "first", 1)
-		f.reply("r1", "first answer", 2)
-		f.user("r2", "second", 3)
-		for i := range 4 {
-			f.calls("r2", "", 4+i, nil, fmt.Sprintf(`c%d a.x {"pad":"%s"}`, i, strings.Repeat("p", 380)))
-		}
-		f.reply("r2", "second answer", 9)
-		return f
+	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 500})
+	result, model, err := runOnce(t, record, auto)
+	if err != nil {
+		t.Fatalf("the Run failed with its compaction: %v", err)
 	}
-	// Without a window or a ceiling the whole latest Run fits 20K tokens, and
-	// the Run before it is all that closes.
-	f := build()
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
-	if !result.Replaced || gotato.TextOf(f.rec.Tail()[0]) != "second" || len(f.rec.Tail()) != 10 {
-		t.Fatalf("tail = %d Messages starting %q", len(f.rec.Tail()), gotato.TextOf(f.rec.Tail()[0]))
-	}
-	// A window of 800 tokens caps the tail at 200: only the latest Turns stay,
-	// from a Turn boundary.
-	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{WindowTokens: 800}})
-	tail := f.rec.Tail()
-	if len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult || gotato.TextOf(tail[len(tail)-1]) != "second answer" {
-		t.Fatalf("capped tail = %d Messages: %+v", len(tail), tail)
-	}
-	if modelctx.EstimateTokens(tail) > 200+modelctx.EstimateTokens(tail[:1]) {
-		t.Errorf("the capped tail holds %d tokens, past a quarter of the window", modelctx.EstimateTokens(tail))
-	}
-	// With no window, the ceiling caps it the same way.
-	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 800}})
-	if got := len(f.rec.Tail()); got != len(tail) {
-		t.Errorf("tail under a ceiling = %d Messages, want %d as under the window", got, len(tail))
-	}
-	// KeepMessages and TailTokens override the default.
-	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{KeepMessages: 1})
-	if tail := f.rec.Tail(); len(tail) != 1 || gotato.TextOf(tail[0]) != "second answer" {
-		t.Fatalf("KeepMessages: 1 tail = %+v", tail)
-	}
-	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 150}}})
-	if tail := f.rec.Tail(); len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult {
-		t.Fatalf("TailTokens tail = %d Messages", len(tail))
-	}
-}
-
-func TestACompactionWhoseTailCoversTheStretchClosesNothing(t *testing.T) {
-	f := newFixture(t)
-	f.user("r1", "only", 1)
-	f.reply("r1", "run", 2)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
-	if result.Replaced || result.Reason != modelctx.CompactReasonNothingToClose || result.Compaction != nil || len(f.rec.Segments()) != 0 {
+	if result.Status != gotato.RunStatusCompleted || result.FinalMessage == nil || gotato.TextOf(*result.FinalMessage) != "still here" {
 		t.Fatalf("result = %+v", result)
 	}
-	if encoded, _ := json.Marshal(result); strings.Contains(string(encoded), `"compaction"`) {
-		t.Fatalf("an empty compaction record leaked into JSON: %s", encoded)
+	if _, runs := auto.Last(); runs != 0 || len(record.Segments()) != 0 {
+		t.Fatalf("the dropped compaction counts: runs = %d, segments = %d", runs, len(record.Segments()))
+	}
+	request, _ := model.LastRequest()
+	if len(request.Messages) != 6 || strings.Contains(gotato.TextOf(request.Messages[0]), "<segment") {
+		t.Fatalf("the Run did not keep the Context it had: %d Messages", len(request.Messages))
+	}
+	var failed bool
+	for _, event := range record.Events() {
+		_, ok := event.(gotato.CompactionFailed)
+		failed = failed || ok
+	}
+	if !failed {
+		t.Error("no compaction_failed Event says the compaction was dropped")
 	}
 }
 
-func TestToolsTheSegmentAndTheTailCalledStayLoaded(t *testing.T) {
-	f := newFixture(t)
-	for _, id := range []string{"files.read", "mail.send", "db.query", "idle.x"} {
-		f.load(id)
+// Still past the ceiling after the dropped compaction, the Run ends, and says
+// the compaction failed.
+func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t *testing.T) {
+	failWrites(t)
+	record := conversation(t)
+	auto := AutoCompact(record, CompactPolicy{CeilingTokens: 1})
+	result, model, err := runOnce(t, record, auto)
+	if !gotato.IsCode(err, gotato.CodeLimitExceeded) || result.Status != gotato.RunStatusFailed || !strings.Contains(err.Error(), "compaction failed") {
+		t.Fatalf("result = %+v, err = %v; want limit_exceeded naming the failed compaction", result, err)
 	}
-	f.user("r1", "go", 1)
-	f.calls("r1", "", 2, nil, `c1 files.read {}`)
-	f.calls("r1", "", 3, nil, `c2 mail.send {}`)
-	f.reply("r1", "done", 4)
-	f.user("r2", "next", 5)
-	f.calls("r2", "", 6, nil, `c3 db.query {}`)
-	f.reply("r2", "ok", 7)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{})
-	want := []string{"files.read", "mail.send", "db.query"}
-	if !slices.Equal(result.Compaction.LoadedTools, want) || !slices.Equal(f.rec.LoadedTools(), want) {
-		t.Fatalf("kept Tools = %v / %v, want %v (idle.x is unloaded)", result.Compaction.LoadedTools, f.rec.LoadedTools(), want)
-	}
-	if got := f.rec.Segments()[0].LoadedTools; !slices.Equal(got, []string{"files.read", "mail.send"}) {
-		t.Errorf("Segment Tools = %v", got)
-	}
-	// The unload is a fact of the Record, with its reason.
-	var unloaded []gotato.ToolUnloaded
-	for _, event := range f.rec.Events() {
-		if e, ok := event.(gotato.ToolUnloaded); ok {
-			unloaded = append(unloaded, e)
-		}
-	}
-	if len(unloaded) != 1 || unloaded[0].ToolID != "idle.x" || unloaded[0].Why != gotato.ToolUnloadedWhyCompaction {
-		t.Errorf("tool_unloaded = %+v, want idle.x for compaction", unloaded)
-	}
-	// Every instance that loads the Record offers the same Tools.
-	if got := f.reload().LoadedTools(); !slices.Equal(got, want) {
-		t.Errorf("Tools after a load = %v", got)
+	if model.Calls() != 0 {
+		t.Fatalf("the Model was called %d times for a Context past the ceiling", model.Calls())
 	}
 }
 
-func TestMinTokensSkipsAStretchTooShortToCompact(t *testing.T) {
-	f := newFixture(t)
-	threeRuns(f)
-	stretch := modelctx.EstimateTokens(f.rec.Tail())
-	skipped := mustCompact(t, f.rec, modelctx.CompactConfig{MinTokens: stretch + 1})
-	if skipped.Replaced || skipped.Reason != modelctx.CompactReasonBelowMinTokens || len(f.rec.Segments()) != 0 || f.rec.Len() != 11 {
-		t.Fatalf("below min_tokens: %+v", skipped)
+// midRun is a Record with an earlier exchange, then a Run that calls a tool at
+// its first Turn and reports more tokens than the ceiling.
+func midRun(t *testing.T, auto func(*session.Record) *AutoCompactor, model *testkit.FakeModel) (gotato.RunResult, *session.Record, error) {
+	t.Helper()
+	record := conversation(t)
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record),
+		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")), gotato.WithExtension(auto(record)))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, event := range f.rec.Events() {
-		if _, started := event.(gotato.CompactionStarted); started {
-			t.Fatal("a skipped compaction started")
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(context.Background(), gotato.UserMessage("investigate"))
+	return result, record, err
+}
+
+func reportingCall() testkit.Script {
+	script := testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "demo.read", Arguments: []byte(`{}`)})
+	script[len(script)-1].Usage = gotato.Usage{InputTokens: 900, OutputTokens: 100}
+	return script
+}
+
+// Mid-Run, a compaction whose write fails is dropped and the Run goes on with
+// the Context it had, when the estimate of that Context fits the ceiling.
+func TestARunGoesOnWhenItsMidRunCompactionIsDropped(t *testing.T) {
+	failWrites(t)
+	model := testkit.NewFakeModel(reportingCall(), testkit.Text("all done"))
+	result, record, err := midRun(t, func(r *session.Record) *AutoCompactor { return AutoCompact(r, CompactPolicy{CeilingTokens: 500}) }, model)
+	if err != nil || result.Status != gotato.RunStatusCompleted || model.Calls() != 2 {
+		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.Calls())
+	}
+	if len(record.Segments()) != 0 {
+		t.Fatalf("the dropped compaction left %d Segments", len(record.Segments()))
+	}
+	failed := false
+	for _, event := range record.Events() {
+		_, ok := event.(gotato.CompactionFailed)
+		failed = failed || ok
+	}
+	if !failed {
+		t.Error("no compaction_failed Event says the compaction was dropped")
+	}
+}
+
+// failMerges makes the write that merges Segments fail, for the test.
+func failMerges(t *testing.T) {
+	t.Helper()
+	original := mergeSegments
+	mergeSegments = func(*session.Record, gotato.CompactionWhy, gotato.Segment, []int, []gotato.Message, *gotato.Compaction) (gotato.Segment, error) {
+		return gotato.Segment{}, gotato.ErrorOf(gotato.CodeStoreFailure, "disk gone")
+	}
+	t.Cleanup(func() { mergeSegments = original })
+}
+
+// threeSegments is a Record with three Segments closed and a Message after them.
+func threeSegments(t *testing.T) *session.Record {
+	t.Helper()
+	record := conversation(t)
+	for i := 1; i <= 3; i++ {
+		if i > 1 {
+			for _, m := range []gotato.Message{gotato.UserMessage("question"), gotato.AssistantMessage("answer")} {
+				m.ID = gotato.MessageID(fmt.Sprintf("extra-%d-%s", i, m.Role))
+				if err := record.Append(m); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if _, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}}); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if done := mustCompact(t, f.rec, modelctx.CompactConfig{MinTokens: stretch}); !done.Replaced {
-		t.Fatalf("at min_tokens: %+v", done)
+	return record
+}
+
+// A merge whose write fails is dropped like any compaction: the Segments stay
+// as they were, an Event says why, and the Segment a compaction closed before
+// it stays closed.
+func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
+	failMerges(t)
+	record := threeSegments(t)
+	before := len(record.Events())
+	result, err := mergeOldest(context.Background(), record, MergeConfig{BudgetTokens: 1})
+	if err != nil || result.Merged || result.Reason != MergeReasonWriteFailed || !strings.Contains(result.Error, "disk gone") {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if len(record.Segments()) != 3 || record.Segments()[0].Number != 1 {
+		t.Fatalf("the failed merge changed the Segments: %d", len(record.Segments()))
+	}
+	var kinds []gotato.EventKind
+	var failed gotato.CompactionFailed
+	for _, event := range record.Events()[before:] {
+		kinds = append(kinds, event.Kind())
+		if e, ok := event.(gotato.CompactionFailed); ok {
+			failed = e
+		}
+	}
+	if len(kinds) != 2 || kinds[0] != gotato.EventKindCompactionStarted || kinds[1] != gotato.EventKindCompactionFailed || failed.Cause != gotato.CodeStoreFailure || failed.Why != gotato.CompactionWhyPastBudget {
+		t.Fatalf("kinds = %v, failed = %+v", kinds, failed)
+	}
+
+	more := gotato.UserMessage("more")
+	more.ID = "more-1"
+	if err := record.Append(more); err != nil {
+		t.Fatal(err)
+	}
+	compacted, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1}})
+	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeReasonWriteFailed || len(record.Segments()) != 4 {
+		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
+	}
+}
+
+// stopper cancels the Run while its Recap is written.
+type stopper struct{ cancel context.CancelFunc }
+
+func (stopper) Name() string { return "stopper" }
+func (s stopper) WriteRecap(ctx context.Context, _ RecapRequest) (gotato.Message, error) {
+	s.cancel()
+	return gotato.Message{}, ctx.Err()
+}
+
+// A Run stopped during its mid-Run compaction ends canceled, and no Segment
+// is left.
+func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
+	record := conversation(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record),
+		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")),
+		gotato.WithExtension(AutoCompact(record, CompactPolicy{CeilingTokens: 500, Recap: stopper{cancel}})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(ctx, gotato.UserMessage("investigate"))
+	if !gotato.IsCode(err, gotato.CodeCanceled) || model.Calls() != 1 || len(record.Segments()) != 0 {
+		t.Fatalf("result = %+v, err = %v, %d calls, %d Segments", result, err, model.Calls(), len(record.Segments()))
 	}
 }

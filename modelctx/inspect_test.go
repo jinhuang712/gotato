@@ -8,23 +8,6 @@ import (
 	"github.com/jinhuang712/gotato/modelctx"
 )
 
-// toolConversation builds: user, assistant(tool_call), tool_result, assistant,
-// user, assistant — six Messages with a tool exchange in the middle.
-func toolConversation() []gotato.Message {
-	call := gotato.AssistantMessage("")
-	call.ToolCalls = []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}
-	call.StopReason = gotato.StopReasonToolCalls
-	result := gotato.Message{Role: gotato.RoleToolResult, ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK}, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "r"}}}
-	messages := []gotato.Message{
-		gotato.UserMessage("u1"), call, result, gotato.AssistantMessage("a1"),
-		gotato.UserMessage("u2"), gotato.AssistantMessage("a2"),
-	}
-	for i := range messages {
-		messages[i].ID = gotato.MessageID("m" + string(rune('1'+i)))
-	}
-	return messages
-}
-
 func snapshot(messages []gotato.Message) gotato.ContextSnapshot {
 	return gotato.ContextSnapshot{SystemInstructions: "sys", Messages: messages}
 }
