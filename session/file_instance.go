@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -80,9 +81,15 @@ func readInstance(path string) (fileInstance, error) {
 		return fileInstance{}, err
 	}
 	var row fileInstance
-	err = json.Unmarshal(data, &row)
-	return row, err
+	if err := json.Unmarshal(data, &row); err != nil {
+		return fileInstance{}, fmt.Errorf("%w: %v", errTornRow, err)
+	}
+	return row, nil
 }
+
+// errTornRow marks a liveness row that does not parse: after a power cut a
+// renamed file can be empty or cut short.
+var errTornRow = errors.New("session: unreadable liveness row")
 
 // Instance implements Store.
 func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, error) {
@@ -93,7 +100,9 @@ func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, err
 		return InstanceState{ID: id}, nil
 	}
 	current, err := readInstance(f.instancePath(id))
-	if errors.Is(err, os.ErrNotExist) {
+	// A torn row is the row of an Instance that died with the machine, so it
+	// is not alive, as a missing one is.
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, errTornRow) {
 		return InstanceState{ID: id}, nil
 	}
 	if err != nil {

@@ -82,7 +82,7 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := checkID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(0, entries); err != nil {
+	if err := checkBatch(0, entries, summary); err != nil {
 		return err
 	}
 	if _, err := f.currentDir(id); !errors.Is(err, ErrNotFound) {
@@ -141,7 +141,7 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if err := checkID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(after, entries); err != nil {
+	if err := checkBatch(after, entries, summary); err != nil {
 		return err
 	}
 	// The batch goes into the directory of the writer's own epoch. A Record
@@ -337,7 +337,7 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	found := false
-	var removeErr error
+	var removeErr, syncErr error
 	dir := f.recordDir(id)
 	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+NewID()[:8])
 	if err := os.Rename(dir, tomb); err == nil {
@@ -346,7 +346,12 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 		// another process must not take the tomb for a leftover.
 		now := time.Now()
 		_ = os.Chtimes(tomb, now, now)
-		removeErr = os.RemoveAll(tomb)
+		// The rename is durable before any file goes: after a power cut the
+		// Record is whole or gone, never whole but for some batches. When
+		// the sync fails the tomb stays, and the sweep takes it.
+		if syncErr = syncDir(f.dir); syncErr == nil {
+			removeErr = os.RemoveAll(tomb)
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -359,8 +364,8 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	if !found {
 		return ErrNotFound
 	}
-	if err := syncDir(f.dir); err != nil {
-		return err
+	if syncErr != nil {
+		return syncErr
 	}
 	if removeErr != nil {
 		return fmt.Errorf("session: %s is deleted, but its files were not all removed: %w", id, removeErr)

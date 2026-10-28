@@ -8,7 +8,7 @@ var (
 	ErrNotFound = gotato.ErrorOf(gotato.CodeNotFound, "session: not found")
 
 	// ErrInvalidID is returned by a Store for a Session ID or an Instance ID it
-	// cannot keep: see MaxIDBytes. It carries gotato.CodeInvalidArgument, and
+	// cannot keep: see MaxIDBytes and MaxNameBytes. It carries gotato.CodeInvalidArgument, and
 	// every store refuses the same IDs.
 	ErrInvalidID = gotato.ErrorOf(gotato.CodeInvalidArgument, "session: invalid id")
 

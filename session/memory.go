@@ -41,7 +41,7 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, su
 	if err := checkID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(0, entries); err != nil {
+	if err := checkBatch(0, entries, summary); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -61,7 +61,7 @@ func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entri
 	if err := checkID(id); err != nil {
 		return err
 	}
-	if err := checkBatch(after, entries); err != nil {
+	if err := checkBatch(after, entries, summary); err != nil {
 		return err
 	}
 	m.mu.Lock()

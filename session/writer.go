@@ -128,7 +128,9 @@ type WriteStats struct {
 // Writer. The first write is r's state as a session_created Event, with the
 // first Claim, so r's Messages and metadata are its starting point. The Record
 // is busy until Release, unless WithIdle says nothing runs against it. It fails
-// with ErrExists when the ID is taken.
+// with ErrExists when the ID is taken. Any other failure of the store is a
+// store_failure whose outcome is unknown (it is not NotRun): the Record may
+// exist, so a caller that retries with the same ID must tolerate ErrExists.
 func CreateWriter(ctx context.Context, store Store, r *Record, instance string, options ...WriterOption) (*Writer, error) {
 	config := newWriterConfig(options)
 	if r.Head() > 0 {
@@ -161,7 +163,7 @@ func CreateWriter(ctx context.Context, store Store, r *Record, instance string, 
 	err = store.Create(ctx, r.ID(), entries, summary)
 	w.count(entries, time.Since(began), err)
 	if err != nil {
-		return nil, err
+		return nil, classifyStore(err, false)
 	}
 	r.stored(entries[len(entries)-1].Seq)
 	w.send(events)
@@ -183,9 +185,9 @@ func OpenWriter(ctx context.Context, store Store, id, instance string, options .
 	loaded, err := store.Load(ctx, id)
 	loadTime := time.Since(began)
 	if err != nil {
-		return nil, err
+		return nil, classifyStore(err, true)
 	}
-	r, err := fromLoaded(ctx, store, id, loaded)
+	r, err := fromLoaded(ctx, store, id, loaded, true)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +293,7 @@ func Open(ctx context.Context, store Store, id string) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fromLoaded(ctx, store, id, loaded)
+	return fromLoaded(ctx, store, id, loaded, false)
 }
 
 // View loads a Record from its whole log, for reading only: its facts, and
@@ -316,12 +318,22 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 // RecordInfo says a Run started and never ended, the log since the last Checkpoint is read too,
 // because it holds the parts of a reply that was streaming, which become a
 // Cut-off reply: a crash loses at most the last part.
-func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Record, error) {
+//
+// writing says the Record is about to be claimed: it must then be settled, as
+// of one position, or fromLoaded returns ErrConflict. A reader takes the view
+// it gets, as a Record that is being written changes under it anyway.
+func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded, writing bool) (*Record, error) {
 	entries, head := loaded.Facts, loaded.Head
 	if loaded.Info.Running != "" && len(loaded.Facts) > 0 {
 		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1, 0)
 		if err != nil {
-			return nil, err
+			return nil, classifyStore(err, true)
+		}
+		// Load and Log are two reads. A Record that moved between them has
+		// a RecordInfo (Running, Busy) older than its tail: rebuilding from
+		// both would end a finished Run again. The caller loads again.
+		if writing && len(tail) > 0 && tail[len(tail)-1].Seq != loaded.Head {
+			return nil, ErrConflict
 		}
 		if len(tail) > 0 && tail[0].IsCheckpoint() {
 			entries, head = tail, max(head, tail[len(tail)-1].Seq)
@@ -565,5 +577,21 @@ func (w *Writer) count(entries []Entry, elapsed time.Duration, err error) {
 func storeFailure(err error) error {
 	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "the store could not write the Session's Record")
 	failure.Operation, failure.Cause = "session.Writer", err
+	return failure
+}
+
+// classifyStore gives the error of a store call that opens or creates a
+// Record the code flush gives a failed write: store_failure, retryable, with
+// the store's error as its cause. An error that has a code already (ErrExists,
+// ErrNotFound, ErrConflict, ErrInvalidID) and the caller's own cancellation
+// pass as they are. notRun says that the call changed nothing, as a read does;
+// a Create that failed may have written the Record, so its outcome is unknown.
+func classifyStore(err error, notRun bool) error {
+	var coded *gotato.RuntimeError
+	if errors.As(err, &coded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	failure := gotato.ErrorOf(gotato.CodeStoreFailure, "the store could not read or create the Session's Record")
+	failure.Operation, failure.Cause, failure.NotRun = "session.Writer", err, notRun
 	return failure
 }

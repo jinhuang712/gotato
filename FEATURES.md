@@ -1176,7 +1176,7 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 | A directory per Record, with one file per write (`session.NewFileStore(dir)`, which creates `dir` and its missing parents) | a single process that keeps its Sessions on local disk, such as a tool or a test |
 | Your own adapter | the database you run, through the store contract below ([G-N08](#g-n08--storage-engines-belong-to-applications)) |
 
-A Record's ID is at most `session.MaxIDBytes` (100) bytes of valid UTF-8, with no control character, no `/` or `\`, no `..` and no leading `.`. Every store refuses another ID with `session.ErrInvalidID` (`invalid_argument`), so a Session that works in memory also works on disk. `FileStore` spells uppercase and non-ASCII characters in the directory name, so IDs that differ only in case never share a directory on a case-insensitive file system.
+A Record's ID is at most `session.MaxIDBytes` (100) bytes of valid UTF-8, with no control character, no `/` or `\`, no `..` and no leading `.`, and its file name, as `FileStore` spells it, is at most `session.MaxNameBytes` (200) bytes: an ID of 33 CJK characters is 99 bytes and too long. Every store refuses another ID with `session.ErrInvalidID` (`invalid_argument`), so a Session that works in memory also works on disk. `FileStore` spells uppercase and non-ASCII characters in the directory name, so IDs that differ only in case never share a directory on a case-insensitive file system.
 
 The Record is an append-only log ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)):
 
@@ -1195,12 +1195,14 @@ A crash can leave a `.creating-*` or `.deleted-*` directory in the store's direc
 
 | Call | What it does |
 |---|---|
-| `Create` | writes a new Record, starting with a Checkpoint; fails when the ID is taken |
+| `Create` | writes a new Record, starting with a Checkpoint; fails when the ID is taken. The RecordInfo names the Record's epoch (an empty one is `invalid_argument`, here and in `Append`). An error other than `ErrExists` leaves the outcome unknown, so a retry must tolerate `ErrExists`; `CreateWriter` and `OpenWriter` return it as `store_failure` |
 | `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last and the RecordInfo's epoch is the Record's; a writer of a Record deleted and created again gets `ErrNotFound` |
 | `Load` | returns the facts from the last Checkpoint, the `segment_closed` Entries before it (`Loaded.Segments`), the last position, and the RecordInfo |
 | `Log` | returns the Entries after a position, facts and log entries, at most a limit of them (all when the limit is 0) |
 | `List`, `Delete` | list the Summaries, and delete a Record; an append to a deleted Record fails |
 | `Beat`, `Instance` | renew, read and remove one Liveness row per instance, timed by the store's clock |
+
+`Beat` and `Instance` are the `session.Liveness` interface, which `Store` embeds. `Store` gains no methods after 0.2.0: a later capability is an optional interface that a caller finds by type assertion. A caller does not modify what `Load`, `Log` and `List` return, and an adapter keeps every field of `RecordInfo`, `Entry` and `InstanceRow`, also the ones added later.
 
 A writer passes the Session's RecordInfo with every write, so `List` never reads a log. `session.Writer` makes the writes, `session.Open` reads the facts a Run needs, and `session.View` reads everything, Runs and Events included.
 
@@ -1220,6 +1222,7 @@ The suite is `session/storetest`, a package of its own, next to the Store it tes
 - appends that continue the log, and a load that starts at the last Checkpoint;
 - a stale writer refused, an append that does not continue the head refused, and a race of eight writers with exactly one winner;
 - a writer of a deleted Record refused with `ErrNotFound` when the Record was created again, at the same length or longer;
+- a write with no epoch refused, and every field of `RecordInfo`, `Entry` and `InstanceRow` kept (found by reflection, so a field added later is checked too);
 - deletes, unknown Records and a canceled context;
 - Liveness rows that are alive, and that expire by the store's clock and never come back;
 - a row its instance ended, which is removed and reads as not alive from every handle.

@@ -187,6 +187,50 @@ func TestTheSuiteCatchesAStoreThatDropsTheRecordEpoch(t *testing.T) {
 	}
 }
 
+// columns maps a RecordInfo to the columns it knew, and drops the rest: the
+// last run end stands for a field added later.
+type columns struct{ *session.MemoryStore }
+
+func (s columns) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+	summary.LastRunEnd = time.Time{}
+	return s.MemoryStore.Create(ctx, id, entries, summary)
+}
+
+func (s columns) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
+	summary.LastRunEnd = time.Time{}
+	return s.MemoryStore.Append(ctx, id, after, entries, summary)
+}
+
+func TestTheSuiteCatchesAStoreThatDropsAField(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := columns{session.NewMemoryStore()}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "every field of RecordInfo, Entry and InstanceRow is kept") {
+		t.Fatalf("problems = %v, want the field check to fail", problems)
+	}
+}
+
+// lenientEpoch accepts a write that names no epoch, by naming one itself.
+type lenientEpoch struct{ *session.MemoryStore }
+
+func (s lenientEpoch) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
+	if summary.RecordEpoch == "" {
+		summary.RecordEpoch = "none"
+	}
+	return s.MemoryStore.Create(ctx, id, entries, summary)
+}
+
+func TestTheSuiteCatchesAStoreThatAcceptsAnEmptyEpoch(t *testing.T) {
+	problems := storetest.Check(context.Background(), func() (storetest.Open, func(), error) {
+		store := lenientEpoch{session.NewMemoryStore()}
+		return func() session.Store { return store }, nil, nil
+	})
+	if !mentions(problems, "Create and Append refuse a RecordInfo with no RecordEpoch with invalid_argument") {
+		t.Fatalf("problems = %v, want the empty epoch check to fail", problems)
+	}
+}
+
 func mentions(problems []error, check string) bool {
 	for _, problem := range problems {
 		if strings.HasPrefix(problem.Error(), check+":") {

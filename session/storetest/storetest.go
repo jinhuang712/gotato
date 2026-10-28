@@ -62,6 +62,8 @@ var checks = []check{
 	{"an expired Liveness row is not alive, and Beat on it is ErrExpired", checkExpiry},
 	{"a row ended with ttl 0 is removed, for every handle", checkEndedRemoved},
 	{"an ID the Store cannot keep is refused with ErrInvalidID by every call that takes an ID", checkInvalidID},
+	{"Create and Append refuse a RecordInfo with no RecordEpoch with invalid_argument", checkEmptyEpoch},
+	{"every field of RecordInfo, Entry and InstanceRow is kept", checkFieldsKept},
 	{"IDs that differ only in case or Unicode form are different Records", checkIDCase},
 }
 

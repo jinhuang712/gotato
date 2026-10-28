@@ -39,7 +39,7 @@ func segment(seq uint64, writer string) session.Entry {
 }
 
 func summary(id string, seq uint64, updated string) session.RecordInfo {
-	return session.RecordInfo{ID: id, CreatedAt: infoTime("2026-10-17T00:00:00.000Z"), UpdatedAt: infoTime(updated), Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
+	return session.RecordInfo{ID: id, RecordEpoch: "epoch-" + id, CreatedAt: infoTime("2026-10-17T00:00:00.000Z"), UpdatedAt: infoTime(updated), Messages: int(seq), Seq: seq, Metadata: map[string]string{"k": "v"}}
 }
 
 // infoTime reads a time written in RFC 3339; empty is the zero time.

@@ -86,7 +86,10 @@ func (s *Record) Snapshot() Document {
 	}
 }
 
-// FromDocument rebuilds a Record from a persisted Document.
+// FromDocument rebuilds a Record from a persisted Document. A Document is a
+// state, not an identity: the Record has an epoch of its own, new, whatever
+// Document.RecordEpoch says, so a writer of a deleted Record can never write
+// into the Record made from its Document.
 func FromDocument(doc Document) (*Record, error) {
 	if doc.SchemaVersion == 0 {
 		doc.SchemaVersion = SchemaVersion
@@ -99,7 +102,7 @@ func FromDocument(doc Document) (*Record, error) {
 	}
 	s := &Record{
 		id:          doc.ID,
-		epoch:       doc.RecordEpoch,
+		epoch:       newEpoch(),
 		parentID:    doc.ParentID,
 		createdAt:   doc.CreatedAt,
 		updatedAt:   doc.UpdatedAt,

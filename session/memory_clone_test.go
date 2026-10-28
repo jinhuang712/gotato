@@ -12,7 +12,7 @@ import (
 func TestMemoryStoreKeepsItsNoticesApart(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
-	info := RecordInfo{ID: "n", Notices: []gotato.PendingNotice{{MessageID: "m1", Text: "first"}}}
+	info := RecordInfo{ID: "n", RecordEpoch: "e", Notices: []gotato.PendingNotice{{MessageID: "m1", Text: "first"}}}
 	entries := []Entry{{Seq: 1, Layer: LayerFact, Kind: gotato.EventKindSessionCreated, Data: []byte(`{}`)}}
 	if err := store.Create(ctx, "n", entries, info); err != nil {
 		t.Fatal(err)

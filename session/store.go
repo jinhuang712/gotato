@@ -87,9 +87,11 @@ type InstanceState struct {
 //     and so on, and a Record starts with a Checkpoint at Seq 1. A batch that
 //     does not is refused with CodeInvalidArgument; an Append whose after is
 //     not the Record's last position is refused with ErrConflict.
-//  3. Append checks RecordInfo.RecordEpoch before the position. An epoch that
-//     is not the stored Record's is ErrNotFound, not ErrConflict: the Record
-//     was deleted and created again, and the writer is of the old one.
+//  3. RecordInfo.RecordEpoch is required on Create and Append: a write that
+//     names none is refused with CodeInvalidArgument. Append checks it before
+//     the position. An epoch that is not the stored Record's is ErrNotFound,
+//     not ErrConflict: the Record was deleted and created again, and the
+//     writer is of the old one.
 //  4. Delete of an unknown Record is ErrNotFound, and so is every later
 //     Append, Load and Log of it.
 //  5. Beat keeps an expired Liveness row, so that the next Beat returns
@@ -97,10 +99,26 @@ type InstanceState struct {
 //     and a Beat with a ttl of 0 on a missing row is not an error.
 //  6. Instance of an unknown ID is not an error: it is a state that is not
 //     alive.
+//
+// How the Store grows, for those who write an adapter:
+//
+//   - Store gains no methods after 0.2.0. A later capability is an optional
+//     interface that a caller discovers by type assertion, as Journal.Durable
+//     is, so an adapter written today keeps compiling and working.
+//   - What Load, Log and List return is the caller's to read and the store's
+//     to keep: a caller must not modify it, and an adapter with a cache may
+//     return it without a copy. MemoryStore returns copies.
+//   - RecordInfo, Entry and InstanceRow gain fields. An adapter that maps them
+//     to columns must round-trip every field, also the ones it was written
+//     before; the suite fails an adapter that drops one, and storing the whole
+//     value (its JSON) next to the columns it indexes keeps a later field.
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
 	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is
-	// taken.
+	// taken. An error other than ErrExists leaves the outcome unknown: the
+	// Record may exist, as when a write was made but not confirmed. Create is
+	// not idempotent, so a caller that retries after such an error must
+	// tolerate ErrExists, which then may be its own Record.
 	Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error
 	// Append writes entries at after+1 onward and replaces the RecordInfo. The
 	// RecordInfo names the epoch of the Record the writer loaded
@@ -125,6 +143,14 @@ type Store interface {
 	// Delete removes a Record, and fails with ErrNotFound when there is none.
 	// A writer that appends to it afterwards gets ErrNotFound.
 	Delete(ctx context.Context, id string) error
+	// Liveness is the Instance half of the Store.
+	Liveness
+}
+
+// Liveness is the half of a Store that keeps one row per Instance. It is its
+// own interface so that the Store's two concerns are separate, and a caller
+// that only reads or beats rows takes a Liveness.
+type Liveness interface {
 	// Beat renews an Instance's Liveness row until ttl from now, by the
 	// store's clock, and creates it the first time. It fails with ErrExpired
 	// once the row has expired, so a row that expired never comes back. A

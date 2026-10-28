@@ -58,12 +58,14 @@ func checkDelete(ctx context.Context, open Open) error {
 
 // checkInvalidID holds a store to one rule for an ID it cannot keep: an empty
 // one, one with a path separator, a "..", a leading ".", a control character,
-// invalid UTF-8, or more than 100 bytes. Every call that takes it fails with
+// invalid UTF-8, more than 100 bytes, or a file name (session.MaxNameBytes)
+// longer than 200 bytes once it is encoded: 33 CJK characters are 99 bytes
+// and 297 bytes of name. Every call that takes it fails with
 // ErrInvalidID (invalid_argument), never with ErrNotFound, so a Session fails
 // the same way on every store.
 func checkInvalidID(ctx context.Context, open Open) error {
 	store := open()
-	for _, id := range []string{"", "a/b", `a\b`, "..", "a..b", ".hidden", "a\x00b", "a\nb", "a\xffb", strings.Repeat("x", 101)} {
+	for _, id := range []string{"", "a/b", `a\b`, "..", "a..b", ".hidden", "a\x00b", "a\nb", "a\xffb", strings.Repeat("x", 101), strings.Repeat("会", 33), strings.Repeat("A", 101)} {
 		_, loadErr := store.Load(ctx, id)
 		_, logErr := store.Log(ctx, id, 0, 0)
 		calls := []error{
