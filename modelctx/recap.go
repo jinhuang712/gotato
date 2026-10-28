@@ -407,6 +407,7 @@ func guardedCall2[A, R any](ctx context.Context, call func(context.Context, A) (
 }
 
 func recoverPanic(err *error) {
+	// [LIVENESS] a panicking Recap writer would end the process instead of failing the Recap. Test: TestAMissingRecapSaysWhy
 	if recovered := recover(); recovered != nil {
 		*err = fmt.Errorf("modelctx: Recap panic: %v\n%s", recovered, debug.Stack())
 	}

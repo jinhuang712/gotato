@@ -133,6 +133,7 @@ func (b *bot) onMessage(ctx context.Context, ev *larkim.P2MessageReceiveV1) erro
 	}
 	b.log.Info("message received", "chat", chatID, "instance", b.label, "message_id", messageID,
 		"thread", thread, "session", sessionIDFor(thread), "text", short(text))
+	// [LIVENESS] the reply goes on after the event callback returns and its context ends.
 	go b.handle(context.WithoutCancel(ctx), chatID, thread, messageID, text)
 	return nil
 }
@@ -285,6 +286,7 @@ func (b *bot) forward(ctx context.Context, addr, sessionID, text string) error {
 
 // notify tells the user something as a card with the footer: as a reply to
 // their message when there is one, and as a new message to the chat otherwise.
+// [LIVENESS] a notice is still sent when the context that asked for it has ended.
 func (b *bot) notify(ctx context.Context, sessionID, chatID, messageID, text string) {
 	ctx = context.WithoutCancel(ctx)
 	content := cardContent(b.card(sessionID), text)
@@ -359,6 +361,7 @@ func (b *bot) post(ctx context.Context, sessionID, content string) {
 		thread, _ := rec.Get(metaThread)
 		t = target{chatID: chat, messageID: thread}
 	}
+	// [LIVENESS] replies and sends outlive the shutdown signal briefly, so they do not use its context.
 	// Replies and sends outlive the shutdown signal briefly; use their own ctx.
 	ctx = context.WithoutCancel(ctx)
 	var err error

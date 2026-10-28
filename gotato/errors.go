@@ -259,6 +259,7 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 			return failure
 		}
 		failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
+		// [FAILURE-CLASS] a timeout the Model returned while no context of the call ended is a retryable Model failure, not the caller's cancellation. Test: TestProviderTimeoutIsAModelFailure
 		failure.Retryable = errors.Is(err, context.DeadlineExceeded)
 		return failure
 	}
@@ -273,11 +274,13 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
 		return runtimeError(CodeContextOverflow, "Model", PublicText(err, "the request is longer than the model accepts"), err)
 	}
+	// [SECURITY] a Model's error can carry a host, a query or a secret, and Message reaches clients. Test: TestModelErrorTextStaysOffTheMessage
 	failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
 	// a broken stream) says so with `Retryable() bool`, as the gateway's
 	// Error does. The Model was called, so the request is not "not run".
 	var transient interface{ Retryable() bool }
+	// [FAILURE-CLASS] a Model failure is Retryable only when the Model says so. Test: TestModelFailureIsRetryableWhenTheModelSaysSo
 	if errors.As(err, &transient) && transient.Retryable() {
 		failure.Retryable = true
 	}

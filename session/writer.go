@@ -491,6 +491,7 @@ func (w *Writer) send(events []gotato.Event) {
 // publish, it hands them to the publisher before it lets go of the lock that
 // orders writes, so Events are published in the order they were written.
 func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error) {
+	// [DATA-LOSS] a write the caller canceled still lands whole, and a stalled Store cannot hold it for good. Test: TestStopCancelsTheRunAndKeepsWhatItCommitted
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriteTimeout)
 	defer cancel()
 	w.mu.Lock()

@@ -35,6 +35,7 @@ func (f *followOn) dropped(session gotato.SessionID, why string) []gotato.Event 
 func (r *Runner) followOn(ctx context.Context, handle *runHandle, next []gotato.Queued, release func()) {
 	// The caller's context ends with its request; the following Runs outlive
 	// it, and stop through the handle as any Run does.
+	// [LIVENESS] the following Runs outlive the request that started the first, and stop through the handle.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	r.rearm(handle, cancel)
 	go func() {
