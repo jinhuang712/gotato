@@ -388,7 +388,7 @@ func forkedRepairs(messages []gotato.Message) []gotato.Message {
 // Record yet naming parentID: the body is an Entry of the parent's log, and
 // the fork's own log does not hold it. The messages are copied when one
 // changes.
-func forkedSpills(messages []gotato.Message, parentID string) []gotato.Message {
+func forkedSpills(messages []gotato.Message, parentID, parentEpoch string) []gotato.Message {
 	var out []gotato.Message
 	for i, message := range messages {
 		result := message.ToolResult
@@ -400,6 +400,7 @@ func forkedSpills(messages []gotato.Message, parentID string) []gotato.Message {
 		}
 		spilled := *result.Spilled
 		spilled.SessionID = gotato.SessionID(parentID)
+		spilled.RecordEpoch = parentEpoch
 		copied := *result
 		copied.Spilled = &spilled
 		out[i].ToolResult = &copied
@@ -429,7 +430,7 @@ func Fork(parent *Record, options ...RecordOption) *Record {
 	defer child.mu.Unlock()
 	child.parentID = doc.ID
 	child.parentSeq = parentSeq
-	child.messages = forkedSpills(doc.Messages, doc.ID)
+	child.messages = forkedSpills(doc.Messages, doc.ID, doc.RecordEpoch)
 	parent.mu.RLock()
 	midRun := parent.running != ""
 	parent.mu.RUnlock()
@@ -439,7 +440,7 @@ func Fork(parent *Record, options ...RecordOption) *Record {
 	child.usage = doc.Usage
 	child.compactions = doc.Compactions
 	child.loaded = doc.LoadedTools
-	child.inheritSegments(doc.ID, doc.Segments, parent.maxSegmentNumber(), parent.positionTimes())
+	child.inheritSegments(doc.ID, doc.RecordEpoch, doc.Segments, parent.maxSegmentNumber(), parent.positionTimes())
 	if len(child.metadata) == 0 {
 		child.metadata = doc.Metadata
 		if child.metadata == nil {

@@ -89,16 +89,18 @@ func (s *Record) positionTimes() map[gotato.MessageID]gotato.MessagePosition {
 // inheritSegments makes the Segments of a parent's Context the fork's own.
 // A Segment keeps its number, and names the parent's Session in its Source,
 // unless it already names an earlier one. The caller has the Record to itself.
-func (s *Record) inheritSegments(parentID string, segments []gotato.Segment, maxNumber int, positions map[gotato.MessageID]gotato.MessagePosition) {
+func (s *Record) inheritSegments(parentID, parentEpoch string, segments []gotato.Segment, maxNumber int, positions map[gotato.MessageID]gotato.MessagePosition) {
 	s.closed = map[int]gotato.Segment{}
 	s.used = nil
 	for _, segment := range segments {
 		if segment.Source.SessionID == "" {
 			segment.Source.SessionID = gotato.SessionID(parentID)
+			segment.Source.RecordEpoch = parentEpoch
 		}
 		for i := range segment.Merged {
 			if segment.Merged[i].Source.SessionID == "" {
 				segment.Merged[i].Source.SessionID = gotato.SessionID(parentID)
+				segment.Merged[i].Source.RecordEpoch = parentEpoch
 			}
 		}
 		s.closed[segment.Number] = segment

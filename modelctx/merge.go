@@ -355,8 +355,8 @@ func buildMerged(number int, segments []gotato.Segment, recap string, loc *time.
 	}
 	merged.LoadedTools = tools
 	first, last := merged.Merged[0].Source, merged.Merged[len(merged.Merged)-1].Source
-	if first.SessionID == last.SessionID {
-		merged.Source = gotato.SegmentSource{SessionID: first.SessionID, FromNumber: first.FromNumber, ToNumber: last.ToNumber}
+	if first.SessionID == last.SessionID && first.RecordEpoch == last.RecordEpoch {
+		merged.Source = gotato.SegmentSource{SessionID: first.SessionID, RecordEpoch: first.RecordEpoch, FromNumber: first.FromNumber, ToNumber: last.ToNumber}
 	}
 
 	label := rangeLabel(merged.Numbers())

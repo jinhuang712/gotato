@@ -100,6 +100,9 @@ func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.S
 	if from := string(spilled.SessionID); from != "" && from != s.ID() {
 		// An Entry of another Record (a fork's parent): its position means
 		// nothing in this Record's cache.
+		if same, err := SameRecord(ctx, log, from, spilled.RecordEpoch); err != nil || !same {
+			return "", err == nil, err
+		}
 		return readSpilled(ctx, log, from, spilled.Seq)
 	}
 	if body, ok := s.spilled.get(spilled.Seq); ok {
@@ -146,12 +149,17 @@ func (s *Record) FindSpilled(ctx context.Context, log EntryLog, call gotato.Tool
 			if from == "" || from == s.ID() {
 				continue
 			}
+			if same, err := SameRecord(ctx, log, from, source.RecordEpoch); err != nil {
+				return gotato.SpilledResult{}, false, err
+			} else if !same {
+				continue
+			}
 			spilled, ok, err = findSpilled(ctx, log, from, call, source.ToNumber)
 			if err != nil && !errors.Is(err, ErrNotFound) {
 				return gotato.SpilledResult{}, false, err
 			}
 			if ok {
-				spilled.SessionID = source.SessionID
+				spilled.SessionID, spilled.RecordEpoch = source.SessionID, source.RecordEpoch
 				return spilled, true, nil
 			}
 		}

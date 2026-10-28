@@ -141,9 +141,17 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	if ref.source.SessionID != "" {
 		id = string(ref.source.SessionID)
 	}
-	messages, complete, err := session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
+	same, err := session.SameRecord(ctx, log, id, ref.source.RecordEpoch)
 	if err != nil {
 		return "", readErrorf("segment %d could not be read", ref.number)
+	}
+	var messages []gotato.Message
+	complete := false
+	if same {
+		messages, complete, err = session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
+		if err != nil {
+			return "", readErrorf("segment %d could not be read", ref.number)
+		}
 	}
 	if len(messages) == 0 {
 		return fmt.Sprintf("The messages of segment %d were removed from the Record, so only what the conversation keeps of it is left: its recap and its tool call lines.", ref.number), nil

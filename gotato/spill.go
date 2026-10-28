@@ -31,11 +31,15 @@ const (
 // SessionID names the Record that holds the Entry when it is not the Record of
 // the Message: a fork inherits the Messages of its parent and keeps their
 // bodies in the parent's log, as an inherited Segment does (SegmentSource). It
-// is empty for a Message the Record wrote itself.
+// is empty for a Message the Record wrote itself. RecordEpoch is the epoch of
+// that Record when SessionID is set: a read refuses the body when the Record
+// under SessionID has another epoch (it was deleted and created again), so a
+// fork never reads another Session's Entry as its own history.
 type SpilledResult struct {
-	Seq       uint64    `json:"seq"`
-	Bytes     int       `json:"bytes"`
-	SessionID SessionID `json:"session_id,omitempty"`
+	Seq         uint64    `json:"seq"`
+	Bytes       int       `json:"bytes"`
+	SessionID   SessionID `json:"session_id,omitempty"`
+	RecordEpoch string    `json:"record_epoch,omitempty"`
 }
 
 // SpillKeeper is an optional method of a Transcript: it says the Transcript's

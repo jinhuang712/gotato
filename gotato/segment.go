@@ -71,6 +71,10 @@ type SegmentSource struct {
 	// empty when it is the Record the Segment is in. A Segment a fork
 	// inherits names its parent here.
 	SessionID SessionID `json:"session_id,omitempty"`
+	// RecordEpoch is the epoch of that Record when SessionID is set. A read
+	// treats the Entries as removed when the Record under SessionID has another
+	// epoch, since it was deleted and created again.
+	RecordEpoch string `json:"record_epoch,omitempty"`
 	// FromNumber and ToNumber are the numbers of the first and the last
 	// Entry of the stretch, both included.
 	FromNumber uint64 `json:"from_number,omitempty"`
