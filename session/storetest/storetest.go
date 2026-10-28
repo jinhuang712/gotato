@@ -164,6 +164,7 @@ func seqs(entries []session.Entry) []uint64 {
 // not only what differed.
 const (
 	ruleLog       = "Log must return every Entry, facts and log, in order, unchanged"
+	ruleLogLimit  = "Log must return at most limit Entries, from the first one after the position, and every Entry when limit is 0 or less"
 	ruleLoadFacts = "Load must return the Entries of Layer fact only, from the last Checkpoint on, in order, unchanged"
 	ruleSegments  = "Load must return the segment_closed Entries from before the last Checkpoint in Loaded.Segments, and Entries from the Checkpoint on stay facts"
 	ruleAtomic    = "a refused write must leave the Record as it was, and a write is all or nothing"
@@ -783,8 +784,8 @@ func checkIDCase(ctx context.Context, open Open) error {
 		if err != nil {
 			return fmt.Errorf("log of %q: %w", id, err)
 		}
-		if err := sameEntries(log, []session.Entry{checkpoint(1, id)}); err != nil {
-			return fmt.Errorf("log of %q: %w", id, err)
+		if err := sameEntries(fmt.Sprintf("Log of %q", id), log, []session.Entry{checkpoint(1, id)}, ruleLog); err != nil {
+			return err
 		}
 	}
 	if err := store.Delete(ctx, "case"); err != nil {
@@ -838,8 +839,8 @@ func checkLogLimit(ctx context.Context, open Open) error {
 		if err != nil {
 			return fmt.Errorf("log after %d, limit %d: %w", c.after, c.limit, err)
 		}
-		if err := sameEntries(got, c.want); err != nil {
-			return fmt.Errorf("log after %d, limit %d: %w", c.after, c.limit, err)
+		if err := sameEntries(fmt.Sprintf("Log after %d, limit %d", c.after, c.limit), got, c.want, ruleLogLimit); err != nil {
+			return err
 		}
 	}
 	return nil
