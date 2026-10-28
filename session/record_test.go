@@ -165,6 +165,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 type failingRecap struct{}
 
 func (failingRecap) Name() string { return "failing" }
+
 func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
 	return gotato.Message{}, errors.New("recap writer down")
 }
@@ -220,5 +221,106 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	loaded, err := store.Load(ctx, "cmp-1")
 	if err != nil || loaded.Facts[0].Kind != gotato.EventKindCompactionEnded {
 		t.Fatalf("a load starts at %v, %v; want the compaction_ended Checkpoint", loaded.Facts[0].Kind, err)
+	}
+}
+
+// A live Session over a Record takes the Record's ID, and every Event it
+// records carries it. Without a Record it generates its own.
+func TestLiveSessionTakesItsRecordID(t *testing.T) {
+	r := session.New(session.WithID("order-42"))
+	runSession(t, r, testkit.EchoModel{}, "hi")
+	events := r.Events()
+	if len(events) == 0 {
+		t.Fatal("no Events recorded")
+	}
+	for _, event := range events {
+		if event.Head().SessionID != "order-42" {
+			t.Fatalf("%s carries session_id %q, want order-42", event.Kind(), event.Head().SessionID)
+		}
+	}
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = live.Close(context.Background()) }()
+	if live.ID() == "" {
+		t.Fatal("a Session without a Record has no ID")
+	}
+}
+
+func TestSessionRecordsRunsEventsAndUsage(t *testing.T) {
+	s := session.New()
+	model := testkit.NewFakeModel(
+		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: testkit.DemoToolID, Arguments: []byte(`{"value":"v"}`)}),
+		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CacheReadTokens: 6, CacheWriteTokens: 2}}}, testkit.Text("done")...),
+	)
+	result := runSession(t, s, model, "use-tool")
+	if result.Status != gotato.RunStatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if s.Len() != 4 {
+		t.Fatalf("messages = %d, want user, assistant(tool call), tool_result, assistant", s.Len())
+	}
+	runs := s.Runs()
+	if len(runs) != 1 || runs[0].Status != gotato.RunStatusCompleted || runs[0].Turns != 2 || runs[0].ToolCalls != 1 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if usage := s.Usage(); usage.TotalTokens != 15 || usage.CacheReadTokens != 6 || usage.CacheWriteTokens != 2 {
+		t.Fatalf("usage = %+v", usage)
+	}
+	if final := s.Messages()[3]; final.Role != gotato.RoleAssistant || final.Usage.TotalTokens != 15 || final.Usage.CacheReadTokens != 6 {
+		t.Fatalf("final assistant usage = %+v", final.Usage)
+	}
+	events := s.Events()
+	if len(events) == 0 {
+		t.Fatal("no events recorded")
+	}
+	kinds := kindsOf(events)
+	if kinds[0] != gotato.EventKindRunStarted || kinds[len(kinds)-1] != gotato.EventKindRunEnded {
+		t.Fatalf("events = %v", kinds)
+	}
+	var built int
+	for _, event := range events {
+		if event.Kind() == gotato.EventKindContextBuilt {
+			built++
+		}
+	}
+	if built != 2 {
+		t.Fatalf("context_built events = %d, want one per Turn", built)
+	}
+}
+
+func TestForkIsIndependentState(t *testing.T) {
+	parent := testkit.NewRecord("q1", "a1")
+	parent.Set("owner", "parent")
+	child := session.Fork(parent)
+	if child.ID() == parent.ID() || child.ParentID() != parent.ID() {
+		t.Fatalf("fork identity: child=%s parent=%s childParent=%s", child.ID(), parent.ID(), child.ParentID())
+	}
+	if child.Len() != 2 {
+		t.Fatalf("child messages = %d", child.Len())
+	}
+	if value, _ := child.Get("owner"); value != "parent" {
+		t.Fatalf("metadata not copied: %v", child.Metadata())
+	}
+	_ = child.Append(gotato.UserMessage("q2"))
+	child.Set("owner", "child")
+	if parent.Len() != 2 {
+		t.Fatalf("parent mutated by child append: %d", parent.Len())
+	}
+	if value, _ := parent.Get("owner"); value != "parent" {
+		t.Fatalf("parent metadata mutated: %v", parent.Metadata())
+	}
+	if len(child.Runs()) != 0 || len(child.Events()) != 0 {
+		t.Fatalf("fork should start with empty run/event records")
+	}
+}
+
+func TestSummaryMetadataIsIsolated(t *testing.T) {
+	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
+	summary := s.Info()
+	summary.Metadata["app"] = "mutated"
+	if value, _ := s.Get("app"); value != "test" {
+		t.Fatalf("summary metadata aliased the Session: %v", s.Metadata())
 	}
 }

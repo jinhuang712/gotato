@@ -10,6 +10,7 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
 func fileEntry(seq uint64, kind gotato.EventKind) session.Entry {
@@ -136,5 +137,73 @@ func TestFileStoreBeatDoesNotBlockAppend(t *testing.T) {
 	close(release)
 	if err := <-beaten; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
+	store, err := session.NewFileStore(filepath.Join(t.TempDir(), "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
+	writer, err := session.CreateWriter(ctx, store, s, "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runSession(t, s, testkit.EchoModel{}, "first")
+	if err := writer.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := session.OpenWriter(ctx, store, s.ID(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := reopened.Record()
+	if loaded.Len() != 2 || loaded.ParentID() != "" {
+		t.Fatalf("loaded = %d messages", loaded.Len())
+	}
+	if value, _ := loaded.Get("app"); value != "test" {
+		t.Fatalf("metadata lost: %v", loaded.Metadata())
+	}
+	model := testkit.NewFakeModel(testkit.Text("second answer"))
+	runSession(t, loaded, model, "second")
+	request, _ := model.LastRequest()
+	if len(request.Messages) != 3 || gotato.TextOf(request.Messages[0]) != "first" {
+		t.Fatalf("continued run saw %d messages", len(request.Messages))
+	}
+	if err := reopened.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.List(ctx)
+	if err != nil || len(list) != 1 || list[0].Messages != 4 || list[0].Runs != 2 {
+		t.Fatalf("list = %+v err=%v", list, err)
+	}
+	if err := store.Delete(ctx, s.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Open(ctx, store, s.ID()); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("after delete err = %v", err)
+	}
+	if _, err := session.Open(ctx, store, "../escape"); !errors.Is(err, session.ErrInvalidID) {
+		t.Fatalf("path traversal err = %v", err)
+	}
+}
+
+func TestFileStoreListSurfacesUnreadableSession(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken", "stray.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(context.Background()); err == nil {
+		t.Fatal("List hid an unreadable session")
 	}
 }

@@ -177,3 +177,39 @@ func waitStored(t *testing.T, store session.Store, id string, kind gotato.EventK
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestViewRebuildsACutOffReplyFromItsParts(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewMemoryStore()
+	writer, err := session.CreateWriter(ctx, store, session.New(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit(t, writer, gotato.UserMessage("question"))
+	for _, text := range []string{"half an ", "answer"} {
+		if _, err := writer.Write(ctx, []gotato.Event{gotato.ReplyPartKept{Header: header(), MessageID: "reply-1", Text: text}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The instance stops mid-stream; another one takes the Session over.
+	next, err := session.OpenWriter(ctx, store, writer.ID(), "instance-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit(t, next, gotato.UserMessage("again"))
+	view, err := session.View(ctx, store, writer.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := view.Messages()
+	if len(messages) != 3 || messages[1].StopReason != gotato.StopReasonCutOff || gotato.TextOf(messages[1]) != "half an answer" || gotato.TextOf(messages[2]) != "again" {
+		t.Fatalf("view = %+v, want the cut-off reply between the two prompts", messages)
+	}
+	facts, err := session.Open(ctx, store, writer.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.Len() != 2 {
+		t.Fatalf("facts = %+v, want the two prompts only: reply parts are log", facts.Messages())
+	}
+}

@@ -130,3 +130,25 @@ func TestFileStoreSweepsOldTempFilesOfARecord(t *testing.T) {
 		t.Error("a batch file was removed")
 	}
 }
+
+func TestFileStoreIgnoresUnlinkedTempFiles(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := session.CreateWriter(ctx, store, session.New(session.WithID("r1")), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A crash between writing a temporary file and linking it leaves this.
+	if err := os.WriteFile(filepath.Join(dir, "r1", ".tmp-12345"), []byte("{torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, writer, gotato.UserMessage("hi"))
+	reopened, err := session.Open(ctx, store, "r1")
+	if err != nil || reopened.Len() != 1 {
+		t.Fatalf("Open = %v, %v", reopened, err)
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/testkit"
 )
 
 // journaled is what a Record and a Writer both are: a Transcript that keeps the
@@ -48,4 +50,32 @@ func kindsOf(events []gotato.Event) []gotato.EventKind {
 		out[i] = event.Kind()
 	}
 	return out
+}
+
+func storedKinds(t *testing.T, store session.Store, id string, after uint64) []gotato.EventKind {
+	t.Helper()
+	events, err := session.StoredEvents(context.Background(), store, id, after, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kindsOf(events)
+}
+
+func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt string) gotato.RunResult {
+	t.Helper()
+	agent, err := gotato.NewSession(
+		context.Background(),
+		gotato.WithModel(model),
+		gotato.WithTranscript(s),
+		gotato.WithTools(testkit.DemoEchoTool()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	result, err := agent.Prompt(context.Background(), gotato.UserMessage(prompt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }
