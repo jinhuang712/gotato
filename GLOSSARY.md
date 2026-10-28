@@ -4,6 +4,18 @@ One name for each thing in Gotato, with its meaning in one line. When the code s
 
 The two central terms match how Anthropic's and OpenAI's agent APIs use them: an **Agent** is a definition, and a **Session** is a live conversation that runs one.
 
+## Where to start
+
+The terms come in three tiers. Read the first tier and you can use Gotato; read the others when you need them.
+
+| Tier | You meet it when | Terms |
+|---|---|---|
+| **1. Everyday** | you build an agent and run it | Agent, Session, Run, Turn, Message, Model, Tool, Effect, Event, Subscription, Steer, FollowUp, Interrupt, Abort |
+| **2. Running a service** | you keep Sessions in a store and run many Instances | Runner, Store, Record, Instance, Writer, Claim, Drain, Admission, Not writer, Not run, Retryable, Warm Session, TTL |
+| **3. Inside and extending** | you tune long Sessions, write an adapter, or add your own seam | Context, Context builder, Context block, Compaction, Segment, Recap, Checkpoint, Entry, Fact, Log entry, Journal, Feed, Event source, Extension, ToolSet, Catalog, Tool search, Model capability, Epoch, Record epoch, Liveness row |
+
+[guides/extension-points.md](guides/extension-points.md) says which seam does what.
+
 ## Core
 
 | Term | Meaning | Not | In code today |
@@ -19,6 +31,8 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Runtime** | The part of a Session around its Loop: its Status, its queue, its state machine, its saving and its TTL. A Session is a Loop and a Runtime. | | In part: `gotato.Session` holds the Status, its state machine and the Steer and FollowUp queue. Saving is `session.Writer`, which the live Session writes every Step through (`gotato.Journal`). The warm copy and its TTL are the Runner's (`service.WarmPolicy`); Phase 8, step 3 adds the queue held between Runs. |
 | **Transcript** | A Session's stored history: every committed Message, in order. | history, log | `gotato.Transcript`, implemented by `session.Record` and `session.Writer` |
 | **Context** | What the model sees on one Turn, built from the Transcript. | prompt, model view | `gotato.ModelContext`, built by a `ContextBuilder` |
+| **Context builder** | The code that builds the Context from the Transcript on every Turn. The default shows the whole committed history, which keeps the request prefix identical from Turn to Turn so the provider's prompt cache hits. Extensions that transform or convert Messages run on its output. | prompt template, strategy | `gotato.ContextBuilder` and `gotato.ContextBuilderFunc`; `gotato.FullHistoryContext` is the default; `gotato.WithContextBuilder`, `service.Agent.ContextBuilder`. |
+| **Context block** | One tagged piece of the system prompt, rendered as `<tag attr="value">text</tag>`; the tag marks a boundary or where the text came from. | prompt section | `gotato.ContextBlock`, in `ModelContext.System` |
 | **Runner** | The part of a Go service that hosts Sessions: it starts them from Agents, routes messages to them, loads them from the Store and applies limits. | host, server | `service.Runner` |
 | **Status** | The state a Session is in, such as idle, running or failed. The Session's state machine moves it. | state | `Session.Status` (created, idle, busy, closing, closed), and `gotato.RunResult.Status` for one Run: `completed`, `failed`, `canceled`, `deadline_exceeded` or `failed` (a Run whose reply or end could not be written is `failed` with `store_failure`). |
 
@@ -36,6 +50,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | **Limits** | Settings that guard a real failure: the size of a message and of what a load reads, parallel tools, and the deadline of a model call and of a tool call. The core counts no Turns or tool calls, and a Run's own deadline is its `ctx`; a cap on Turns or calls is a team's `TurnStopper`. | quotas, caps on a Run | `gotato.CoreLimits`: message, transcript and queue sizes, `MaxParallelTools`, `ModelCallDeadline` and `ToolCallDeadline`. A cap on Turns or calls is a `TurnStopper` (`gotato/limits.go`). |
 | **Continue** | Resume a Loop without new input. | | `Session.Continue` |
 | **Steer** | Insert a Message into a running Loop, to change its course. | | `Session.Steer` |
+| **Interrupt** | A Steer that does not wait for the Turn to end: it cuts the model call in flight short, keeps the text already sent as a Cut-off reply, and starts the next Turn of the same Run with its Message. A Tool in flight finishes first. It shares the Steer queue and its limit. | cancel, abort (an Abort stops the whole Run) | `Session.Interrupt`, `service.MessageKindInterrupt`; its Events carry the source `interrupt` (`gotato.MessageSourceInterrupt`). |
 | **FollowUp** | Queue a Message that the Run picks up when it would otherwise settle, so the same Run goes on. | | `Session.FollowUp` |
 | **Abort** | Stop a Run. The Run still settles with a result. | kill | `Session.Abort`, `Runner.AbortSession`; it is an `abort_requested` Event, and the Run's `run_ended` follows |
 
@@ -44,6 +59,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
 | **Model** | The interface Gotato calls for a reply, as a stream of events. | LLM | `gotato.Model` |
+| **Model capability** | A fact a Model can report about itself through an optional method: its context window, how long its provider keeps the prompt cache, and whether it is sent only the current Round's reasoning. Gotato keeps no table of these, so a Model that does not say has none. A wrapper Model passes them on with `Unwrap`. | model metadata, model table | `modelctx.ContextWindower`, `CacheRetainer`, `RoundReasoner` and `Unwrapper`, read by `modelctx.WindowOf`, `RetentionOf` and `DropsReasoning`; `gateway.Client` implements the first three. |
 | **Provider** | A configured model endpoint: its URL, its key, its Wire API and its models. | vendor, adapter | `gateway` YAML config |
 | **Wire API** | A request and response format that providers speak, such as OpenAI Chat Completions, OpenAI Responses or Anthropic Messages. Gotato implements each Wire API once, and any provider that speaks it works. | API format, protocol | `api:` in the `gateway` config |
 | **Tool** | One capability a Session can call, with a name, a schema and an Effect. | function, action | `gotato.Tool` |
@@ -59,7 +75,7 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Store** | Where Sessions are saved, as Records: memory, a file, or your own database. The Store is the truth, and a Runner's memory is only a cache. | repository, persistence | `session.Store`, with memory and file stores, and the conformance suite `session/storetest` for your own |
+| **Store** | Where Sessions are saved, as Records: memory, a file, or your own database. To save a Session is to write its Record to the Store. A Session built with `gotato.NewSession` alone keeps its Record in memory; a `service.Runner` over a Store saves it. The Store is the truth, and a Runner's memory is only a cache. | repository, persistence | `session.Store`, with memory and file stores, and the conformance suite `session/storetest` for your own |
 | **Entry** | One line of a Record, at a position no other Entry ever takes: a Fact or a Log entry. Every Entry is a stored Event, and its position is that Event's number. | row | `session.Entry`: its `Kind` is the Event's kind, and its `Seq` is the Event's number. |
 | **Fact** | An Entry a rebuild reads: a Message, Tool calls that started, a metadata change, a Claim or a Checkpoint. The Context is built from the Facts on every Turn and is never stored. | | `session.LayerFact` |
 | **Log entry** | An Entry that records what happened, for people and telemetry: a Run's start and end, usage, a model call, a retry, a release, part of a streaming reply. A rebuild does not read it, except the reply parts of a Run that never ended. | | `session.LayerLog` |
@@ -76,17 +92,20 @@ The two central terms match how Anthropic's and OpenAI's agent APIs use them: an
 |---|---|---|---|
 | **Event** | Something that happened to a Session or an Instance, as a value of its own type, named for what happened, such as `run_started`. A stored Event is an Entry, numbered by its position in the Record. A delta, such as `text_delta`, is only sent. An Instance Event happens where no Claim is held, and goes only to that Instance's Subscriptions. | log line | `gotato.Event`, a sealed interface with one Go type for each kind, such as `gotato.RunStarted`, each with a `gotato.Header`; embedding the Header is what makes a type an Event. |
 | **Subscription** | A queue of Events, in order: a Run's, a Session's from any number, or an Instance's. A Session never waits for one; a subscriber that falls behind catches up from the Record. | observer, listener | `gotato.Subscription`, from `Session.Subscribe` and `SubscribeRun`, and from `Runner.StreamRun`, `StreamSession` (a Session's stream for a client that reconnects, with the Record's epoch) and `SubscribeInstance`. A `gotato.Feed` fills them. |
-| **Extension** | Code that wraps the Loop at a defined point, such as before a Tool runs or at the end of a Turn. | hook, middleware, plugin | `gotato.WithExtension` and its stage interfaces |
+| **Feed** | What fans a stream of Events out to Subscriptions. A Session has one, and an Instance has one that mixes every Session's Events. Publishing never blocks: a Session does not wait for a slow subscriber. | broker, bus | `gotato.Feed`, from `gotato.NewFeed` and `NewInstanceFeed`; `gotato.WithFeed` has a Session publish to a Feed its host owns. |
+| **Event source** | Where a Subscription that fell behind reads stored Events again, by number. The Record is one. | | `gotato.EventSource`, implemented by `session.Writer` |
+| **Journal** | What a Transcript has when it keeps the Session's stored Events: the Session hands it the Events of each Step to write, in order, and it returns them numbered. Without one, the Session numbers its Events in memory and stores none. | event writer | `gotato.Journal`, implemented by `session.Record` and `session.Writer` |
+| **Extension** | Code that wraps the Loop at a defined point, such as before a Tool runs or at the end of a Turn. One value may take part in several stages. There are six stages: `TurnPreparer` (before a model call; the one safe point to rewrite the Transcript), `ContextTransformer`, `MessageConverter`, `PreToolUse`, `PostToolUse` and `TurnStopper`. | hook, middleware, plugin | `gotato.WithExtension` and the stage interfaces named here |
 
 ## Cluster and positioning
 
 | Term | Meaning | Not | In code today |
 |---|---|---|---|
-| **Instance** | One running copy of your service. On Kubernetes it is a pod, and the proposal says "pod" for that reason. | replica, node | |
+| **Instance** | One running copy of your service. On Kubernetes it is a pod, and the README and the proposal say "pod" for that reason; the glossary and the code say Instance. A pod and an Instance are the same thing. | replica, node | `service.Config.Instance` names it |
 | **Not writer** | What an error says when a message reaches an Instance that is not the Writer of the Session's Run going on: the code `not_writer`, which is also Not run and Retryable. It carries the Writer's advertised address, so the caller, or the HTTP endpoints when a team opts in, sends the message there. | redirect, forward | `gotato.CodeNotWriter`, `service.WriterOf` |
 | **Not run** | What an error says when nothing with side effects happened, so the same request can go to another Instance without running twice. A refusal before a Run starts is not run; a store failure may have run, and is not marked. | | `gotato.NotRun(err)`, `RuntimeError.NotRun`, HTTP `Gotato-Not-Run` |
 | **Retryable** | What an error says when the same request, sent again later, may succeed. | | `gotato.Retryable(err)`, `RuntimeError.Retryable` |
-| **Admission** | The rule for how many Runs may run at once, and what happens when a Session is busy. | | `service.Admission` |
+| **Admission** | The rule for how many Runs and Sessions an Instance takes at once, and what happens when a Session is busy: the Run is refused, or it waits. | rate limit, quota | `service.Admission`, with `service.QueuePolicy` for a busy Session |
 | **Drain** | Finishing work before an Instance shuts down: it takes no new Sessions, lets every Run finish, saves, releases its Claims, and only then disconnects. | | `Runner.Drain`: it marks the Liveness row draining, admits no new Run and takes no Session over, waits for the Runs in flight, and at its deadline stops, saves and releases the rest; `Runner.Close` then removes the Liveness row. |
 | **Writer** | The one Instance allowed to append to a Session's Record at a time. It holds the Claim while a Run goes, not while a warm Session idles, and it is wherever the Load balancer sends the Session's requests. | owner, leader, master | `service.Runner` as its Instance, writing through a `session.Writer` |
 | **Claim** | A Writer's hold on a Record: a Fact naming the Instance and an Epoch, written at the position after the head that Instance read. It is valid while that Instance's Liveness row is alive. | lease, lock | `session.Claim` |
