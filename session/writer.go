@@ -246,6 +246,11 @@ func (r *Record) takeOver(instance string, why gotato.ClaimWhy, running gotato.R
 	r.cutOff = nil
 	r.mu.Unlock()
 	if running != "" {
+		// A message the dead Writer accepted as queued, and did not commit,
+		// is gone with it: say so before the Run ends.
+		r.mu.Lock()
+		r.dropQueued("writer_gone")
+		r.mu.Unlock()
 		r.interruptRun(running)
 	}
 }

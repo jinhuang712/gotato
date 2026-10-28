@@ -189,13 +189,17 @@ func (s *Record) apply(entry Entry) error {
 		}
 	case gotato.SegmentClosed:
 		s.closeLocked(e.Segment)
+	case gotato.MessageQueued:
+		s.foldQueued(e)
 	case gotato.MessageCommitted:
 		s.addMessage(e.Message)
+		s.foldQueued(e)
 	case gotato.NoticeCommitted:
 		s.addMessage(e.Message)
 		s.foldNotice(e)
 	case gotato.NoticeQueued, gotato.MessageDropped:
 		s.foldNotice(e)
+		s.foldQueued(e)
 	case gotato.ReplyEnded:
 		s.addMessage(e.Message)
 	case gotato.ReplyCutOff:

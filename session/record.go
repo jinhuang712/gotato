@@ -108,6 +108,11 @@ type Record struct {
 	// notices are the notices queued and neither committed nor dropped; the
 	// RecordInfo keeps them, so a Record loaded from its facts knows them too.
 	notices []gotato.PendingNotice
+	// queued are the user messages queued (message_queued) and neither
+	// committed nor dropped in the log read since the last Checkpoint. They are
+	// read only when the last Writer stopped in the middle of a Run, to be
+	// dropped by the Writer that takes the Record over (takeOver).
+	queued []gotato.MessageQueued
 	// lastRunEnd is when the last Run that ended did; it is kept in the
 	// RecordInfo, so a Record loaded from its facts knows it too.
 	lastRunEnd time.Time
@@ -263,6 +268,31 @@ func (s *Record) PendingNotices() []gotato.PendingNotice {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.notices)
+}
+
+// foldQueued applies what a message Event says about the messages queued and
+// not yet resolved. The caller holds the lock.
+func (s *Record) foldQueued(event gotato.Event) {
+	switch e := event.(type) {
+	case gotato.MessageQueued:
+		s.queued = append(s.queued, e)
+	case gotato.MessageCommitted:
+		s.queued = slices.DeleteFunc(s.queued, func(q gotato.MessageQueued) bool { return q.MessageID == e.Message.ID })
+	case gotato.MessageDropped:
+		s.queued = slices.DeleteFunc(s.queued, func(q gotato.MessageQueued) bool { return q.MessageID == e.MessageID })
+	}
+}
+
+// dropQueued ends the messages that a Writer that stopped left queued: each
+// gets a message_dropped, so the Record never keeps a message that was accepted
+// and is resolved by nothing. The caller holds the lock.
+func (s *Record) dropQueued(why string) {
+	for _, queued := range s.queued {
+		header := s.header()
+		header.RunID = queued.RunID
+		s.emit(gotato.MessageDropped{Header: header, MessageID: queued.MessageID, Source: queued.Source, Why: why})
+	}
+	s.queued = nil
 }
 
 // foldNotice applies what a notice Event says about the pending notices. The
