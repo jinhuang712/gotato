@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -27,7 +25,7 @@ type compactRequest struct {
 
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	var in createSessionRequest
-	if err := decode(w, r, &in); err != nil {
+	if err := h.decode(w, r, &in); err != nil {
 		writeDecodeError(w, err)
 		return
 	}
@@ -37,10 +35,6 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ID != "" {
 		s, err := h.runner.CreateSessionExclusive(r.Context(), in.Agent, in.ID, in.Metadata)
-		if errors.Is(err, service.ErrSessionExists) {
-			writeError(w, http.StatusConflict, fmt.Errorf("session %s already exists", in.ID))
-			return
-		}
 		if err != nil {
 			writeFailure(w, err)
 			return
@@ -124,7 +118,7 @@ func (h *Handler) contextReport(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 	var in compactRequest
-	if err := decode(w, r, &in); err != nil {
+	if err := h.decode(w, r, &in); err != nil {
 		writeDecodeError(w, err)
 		return
 	}

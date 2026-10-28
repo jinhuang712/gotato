@@ -9,7 +9,7 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 
 | You see | Go to |
 |---|---|
-| HTTP 503 marked "not run" | [A request is refused](#a-request-is-refused) |
+| An error answer with `Gotato-Not-Run` or `Gotato-Retryable` | [A request is refused](#a-request-is-refused) |
 | `/readyz` answers 503 | [An instance is draining](#an-instance-is-draining) |
 | A Session stays `busy` after its instance died | [An instance died](#an-instance-died) |
 | A Run ended `failed` with the cause `interrupted` | [A Run was interrupted](#a-run-was-interrupted) |
@@ -17,14 +17,43 @@ This is a first version. No team has run Gotato in production yet, so it holds o
 
 ## A request is refused
 
-An error marked "not run" means nothing with side effects happened, so sending the same request to another instance cannot run it twice. Over HTTP it is a 503 with the header `Gotato-Not-Run: true`.
+An error carries two answers from the runtime, over HTTP as headers and in the body, in the CLI's JSON as fields:
 
-| Code | Meaning | Do |
-|---|---|---|
-| `draining` | the instance is shutting down | send the request to another instance; your load balancer should do it on its own once `/readyz` answers 503 |
-| `overloaded` | the instance holds `MaxActiveSessions` Sessions and every one is running a Run | retry on another instance; if every instance answers it, raise `--max-sessions` or add instances |
-| `limit_exceeded` | the instance is at `MaxActiveRuns` | same as `overloaded` |
-| `busy` | the Session already has a Run, here or on another instance | retry after the Run in flight ends |
+- **Not run** (`Gotato-Not-Run: true`, `"not_run"`): nothing with side effects happened, so sending the same request again cannot run it twice. It does not say that sending it again helps: a `404` or a `400` is not run and fails the same on every instance.
+- **Retryable** (`Gotato-Retryable: true`, `"retryable"`): the same request, sent again later, may succeed.
+
+Send a request to another instance only when it is both not run and retryable, except `not_writer`, which goes to the address in the `Gotato-Writer` header. A `Retry-After` header says when to try again. The status follows the code, never the other way: a code has the same status on every route, and a run, a streamed run and a message answer a refusal the same.
+
+This is the one table of every error code. `Not run` and `Retryable` are what the runtime sets for the code (`gotato/errors.go`); "by cause" means the place that makes the error decides. The HTTP column is `httpapi.StatusFor`, the exit column is the test tool's `internal/cmd/gotato`, and a test fails when this table and the code differ.
+
+| Code | Not run | Retryable | HTTP | Exit | Produced by | Do |
+|---|---|---|---|---|---|---|
+| `invalid_argument` | by cause | no | 400 | 2 | the core and `service` when a request is malformed; `session` for a bad Record or ID | fix the request; a Session whose Agent is gone answers it too, repair it with `agent` in the run body |
+| `invalid_state` | by cause | no | 409 | 1 | the core (`Continue` on a Transcript that cannot continue, `Interrupt` with no Run); `service` (no Run to abort, the Run is over); `session` | read the message: the code is shared by these cases |
+| `busy` | yes | yes | 409 | 1 | `service` (a Session with a Run, here or on another instance); the core (a second Prompt) | retry after the Run in flight ends (`Retry-After`) |
+| `session_closed` | yes | no | 409 | 1 | the core, `service` messages | the Session is closed; start another |
+| `session_closing` | yes | no | 409 | 1 | the core, `service` messages | the Session is closing; start another |
+| `model_failure` | no | by cause | 500 | 1 | the core, from the Model | read `retryable`; the provider decides |
+| `context_overflow` | no | no | 422 | 1 | the core, from the Model | compact the Session; as a Run's result it answers 200 |
+| `model_protocol_failure` | no | no | 500 | 1 | the core, from the Model | a bug in the provider adapter |
+| `tool_resolution_failure` | no | no | 500 | 1 | the core, from a ToolSet | check the ToolSet |
+| `tool_argument_failure` | no | no | 500 | 1 | the core | the model sent bad arguments |
+| `tool_execution_failure` | no | no | 500 | 1 | the core, from a Tool | read the Tool's message |
+| `extension_failure` | no | no | 500 | 1 | the core, from a hook | check the extension |
+| `limit_exceeded` | by cause | by cause | 429 | 1 | `service` (`MaxActiveRuns`, marked not run and retryable; a full notice queue, not retryable); the core (a limit of a Run or a queue); `modelctx` | when marked, retry on another instance; otherwise read the message |
+| `canceled` | no | no | 408 | 1 | the core, `service` | the caller left; as a Run's result it answers 200 |
+| `deadline_exceeded` | no | no | 504 | 1 | the core, `service` | the Run's deadline passed; as a Run's result it answers 200 |
+| `internal_invariant` | no | no | 500 | 1 | the core, `session` | a bug; keep the Session's Events and report it |
+| `not_supported` | no | no | 400 | 1 | `session` | the Store does not do this |
+| `conflict` | no | no | 409 | 1 | `session`, `service` | another writer wrote first; read the Session again |
+| `store_failure` | no | yes | 503 | 1 | `session`, `service` | the store failed; it may have run; a Run whose save failed answers 500 `not saved` |
+| `overloaded` | yes | yes | 503 | 1 | `service` (`MaxActiveSessions`) | retry on another instance; if every instance answers it, raise `--max-sessions` or add instances |
+| `draining` | yes | yes | 503 | 1 | `service` | send the request to another instance; your load balancer should do it on its own once `/readyz` answers 503 |
+| `not_found` | yes | no | 404 | 3 | `session`, `service` | the Session does not exist; do not retry |
+| `cannot_resume` | by cause | no | 409 | 1 | `service` (a stream) | start over with `after` 0; the body has the current `record_epoch` |
+| `not_writer` | yes | yes | 409 | 1 | `service` (a message, notice or abort for a Run another instance writes) | go to the `Gotato-Writer` address, or enable forwarding |
+
+The HTTP layer adds three codes to a body where the runtime has none or shares one: `session_exists` (409, a create with an ID that is taken), `body_too_large` (413, a body over the cap, `httpapi.WithMaxBody`) and `forward_failed` (502, a forward to the writer failed, so the request may have reached it). A 400 from the HTTP layer itself (bad JSON, an unknown field, a `session-id` header that disagrees) carries `invalid_argument`.
 
 ## An instance is draining
 

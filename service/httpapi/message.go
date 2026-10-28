@@ -33,7 +33,7 @@ type noticeRequest struct {
 // settles (200, as the run routes do). A Run another live Instance writes is
 // answered 409 not_writer, or forwarded when forwarding is on.
 func (h *Handler) message(w http.ResponseWriter, r *http.Request) {
-	body, err := readBody(w, r)
+	body, err := h.readBody(w, r)
 	if err != nil {
 		writeDecodeError(w, err)
 		return
@@ -71,7 +71,7 @@ func (h *Handler) message(w http.ResponseWriter, r *http.Request) {
 // Run. For a Run another Instance writes it answers 409 not_writer, or is
 // forwarded, as a message is.
 func (h *Handler) notice(w http.ResponseWriter, r *http.Request) {
-	body, err := readBody(w, r)
+	body, err := h.readBody(w, r)
 	if err != nil {
 		writeDecodeError(w, err)
 		return
@@ -102,6 +102,9 @@ func (h *Handler) notice(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, body []byte) bool {
 	address, ok := service.WriterOf(err)
 	if !ok || h.forward == nil || address == "" || r.Header.Get(ForwardedHeader) != "" {
+		return false
+	}
+	if h.forwardAllow != nil && !h.forwardAllow(address) {
 		return false
 	}
 	base, parseErr := url.Parse(address)

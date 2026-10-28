@@ -5,8 +5,20 @@
 //
 // # Routes
 //
-// Bodies are JSON and unknown fields are refused (400); a body over 1 MiB is
-// refused (413). Errors are {"code", "message", "not_run"?, "retryable"?}.
+// Bodies are JSON and unknown fields are refused (400); a body over 1 MiB (see
+// WithMaxBody) is refused (413). Errors are {"code", "message", "not_run"?,
+// "retryable"?}, and every one carries a code.
+//
+// # Telling a refusal apart
+//
+// An error answer sets two headers from the runtime's own answer, never
+// from the status: Gotato-Not-Run: true when nothing happened (the request is
+// safe to send again, here or elsewhere), and Gotato-Retryable: true when
+// sending it again later may succeed. Not run does not mean worth resending: a
+// 404 or a 400 is not run, and will fail the same on every Instance. A client
+// or load balancer retries on another Instance only when both are set, and for
+// not_writer it goes to the Gotato-Writer address instead. RUNBOOK.md has the
+// table of every code with its status.
 //
 //	GET    /healthz                         liveness: 200 {ok, contract}
 //	GET    /readyz                          readiness: 200, or 503 while draining {ok, draining, active_runs, active_sessions}
@@ -21,11 +33,22 @@
 //	GET    /v1/sessions/{id}/stream?after=N&record_epoch=E
 //	                                        → SSE: stream, event*, reconnect?   (resumes after N; Last-Event-ID too)
 //	POST   /v1/sessions/{id}/compact        {keep_messages?, min_tokens?} → 200 compaction result
-//	POST   /v1/sessions/{id}/runs           {prompt | continue, timeout_ms?} → 200 run result
-//	POST   /v1/sessions/{id}/runs/stream    {prompt | continue, timeout_ms?} → SSE: event*, result | error, reconnect?
+//	POST   /v1/sessions/{id}/runs           {prompt | continue, timeout_ms?, agent?} → 200 run result
+//	POST   /v1/sessions/{id}/runs/stream    {prompt | continue, timeout_ms?, agent?} → SSE: event*, result | error, reconnect?
 //	POST   /v1/sessions/{id}/messages       {kind?, text}                  → 202 queued for the Run in flight, or 200 the Run it started
 //	POST   /v1/sessions/{id}/notices        {kind, text}                   → 202 {queued, number, message_id}: a notice for the model's next call
 //	POST   /v1/sessions/{id}/abort          → 202 {session_id, status}: stop the Run in flight
+//
+// A Run request refused before the Run holds its Session (busy here or on
+// another Instance, a Session that does not exist, an unknown Agent, a drain,
+// capacity) answers the same on both run routes: the status and headers above,
+// and no stream. The stream starts once the Run is starting; a failure after
+// that arrives as an error event.
+//
+// A Session whose stored Agent is no longer registered answers 400
+// (invalid_argument, "unknown agent", not run). The run body's "agent" repairs
+// it: it rebinds the Session to a registered Agent, as service.RunRequest.Agent
+// does. Who may choose the Agent is for your middleware to decide.
 //
 // # A Run lives as long as its request
 //
@@ -78,6 +101,9 @@ type Handler struct {
 	runner    *service.Runner
 	mux       *http.ServeMux
 	keepAlive time.Duration
+	maxBody   int64
+	// forwardAllow, when set, says which writer addresses a forward may use.
+	forwardAllow func(address string) bool
 	// forward sends a message that reached an Instance that is not the Run's
 	// writer to the writer's address. Nil leaves it at not_writer.
 	forward *http.Client
@@ -86,13 +112,48 @@ type Handler struct {
 // Option configures New.
 type Option func(*Handler)
 
+// WithMaxBody sets the largest JSON request body in bytes; a larger one is
+// refused with 413. The default is 1 MiB. A value of zero or less keeps it.
+func WithMaxBody(n int64) Option {
+	return func(h *Handler) {
+		if n > 0 {
+			h.maxBody = n
+		}
+	}
+}
+
+// WithKeepAlive sets how long an idle Session stream waits before it sends a
+// comment line, so a proxy with an idle limit does not cut it. The default is
+// 15 seconds. A value of zero or less keeps it.
+func WithKeepAlive(d time.Duration) Option {
+	return func(h *Handler) {
+		if d > 0 {
+			h.keepAlive = d
+		}
+	}
+}
+
+// WithForwardAllow limits where WithForwarding sends a request. The address
+// comes from the Store (the row of the Instance that writes the Run), and the
+// forward carries the caller's headers, credentials among them: anyone who can
+// write that row can name the address. A forward goes only to an address for
+// which allow returns true; any other is answered not_writer, as without
+// forwarding. Without this option every http(s) address is allowed.
+func WithForwardAllow(allow func(address string) bool) Option {
+	return func(h *Handler) { h.forwardAllow = allow }
+}
+
 // WithForwarding turns on forwarding. A message or a cancel that reaches this
 // Instance while another live Instance writes the Run is sent, as it came, to
 // the address that Instance advertises, with the header Gotato-Forwarded, and
 // that answer is returned. A request that carries the header is never forwarded
 // again: it is answered not_writer. A nil client uses one with a 30 second
-// timeout. The forwarded request carries the caller's headers, so your own
-// authentication applies at the writer. Gotato connects to nothing else.
+// timeout, which also bounds a forwarded message that finds no Run and starts
+// one: the Run is canceled with the request. The forwarded request carries the
+// caller's headers, so your own authentication applies at the writer; the
+// address is read from the Store, so restrict it with WithForwardAllow when the
+// Store is shared with parties you do not trust. Gotato connects to nothing
+// else.
 func WithForwarding(client *http.Client) Option {
 	return func(h *Handler) {
 		if client == nil {
@@ -104,7 +165,7 @@ func WithForwarding(client *http.Client) Option {
 
 // New creates a Handler over runner.
 func New(runner *service.Runner, options ...Option) *Handler {
-	h := &Handler{runner: runner, mux: http.NewServeMux(), keepAlive: 15 * time.Second}
+	h := &Handler{runner: runner, mux: http.NewServeMux(), keepAlive: 15 * time.Second, maxBody: defaultMaxBody}
 	for _, option := range options {
 		if option != nil {
 			option(h)
@@ -139,13 +200,23 @@ func New(runner *service.Runner, options ...Option) *Handler {
 // same name, for the client to send next time.
 const SessionIDHeader = "session-id"
 
-// NotRunHeader marks a refusal whose request did not run, whatever its
-// status (503 for a draining or overloaded Instance, 409 for a busy Session,
-// 404 for a Session that does not exist), so a load balancer may send it again
-// to another Instance without running it twice. The runtime decides it
-// (gotato.NotRun). Its value is "true", and the body says the same in
-// "not_run".
+// NotRunHeader marks an answer whose request did not run (gotato.NotRun), on
+// any status: 503 for a draining or overloaded Instance, 409 for a busy
+// Session, 404 for a Session that does not exist, 400 for a request refused
+// before it ran. It says the request is safe to send again without running it
+// twice; it does not say sending it again helps. Read it with RetryableHeader.
+// The runtime decides it, never the status. Its value is "true", and the body
+// says the same in "not_run".
 const NotRunHeader = "Gotato-Not-Run"
+
+// RetryableHeader marks an answer to a request that may succeed when sent
+// again later (gotato.Retryable): a busy Session, a draining or overloaded
+// Instance, a store failure. It is absent for a 400 or a 404, which fail the
+// same everywhere. A request worth sending to another Instance is one marked
+// both not run and retryable, except not_writer, whose retry goes to the
+// WriterHeader address. Its value is "true", and the body says the same in
+// "retryable".
+const RetryableHeader = "Gotato-Retryable"
 
 // WriterHeader carries, on a not_writer answer, the address the writer of the
 // Run advertises. The body says the same in "writer". It is absent when the

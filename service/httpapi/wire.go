@@ -8,22 +8,22 @@ import (
 	"net/http"
 )
 
-// maxBodyBytes bounds every JSON request body. A larger body is rejected with
-// 413 rather than being buffered.
-const maxBodyBytes = 1 << 20
+// defaultMaxBody is the default bound of every JSON request body (WithMaxBody
+// changes it). A larger body is rejected with 413 rather than being buffered.
+const defaultMaxBody = 1 << 20
 
-// errBodyTooLarge marks a request body that exceeded maxBodyBytes.
+// errBodyTooLarge marks a request body that exceeded the Handler's bound.
 var errBodyTooLarge = errors.New("request body too large")
 
-// readBody reads a request body, at most maxBodyBytes of it.
-func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+// readBody reads a request body, at most the Handler's bound of it.
+func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
-	if r.ContentLength > maxBodyBytes {
+	if r.ContentLength > h.maxBody {
 		return nil, errBodyTooLarge
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
@@ -34,14 +34,14 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-func decode(w http.ResponseWriter, r *http.Request, into any) error {
+func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error {
 	if r.Body == nil {
 		return nil
 	}
-	if r.ContentLength > maxBodyBytes {
+	if r.ContentLength > h.maxBody {
 		return errBodyTooLarge
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(into); err != nil {

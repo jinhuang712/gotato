@@ -22,11 +22,14 @@ type runRequest struct {
 	Continue bool   `json:"continue,omitempty"`
 	// TimeoutMS bounds the run; it settles as deadline_exceeded.
 	TimeoutMS int64 `json:"timeout_ms,omitempty"`
+	// Agent binds the Session to a registered Agent for this Run and after;
+	// it repairs a Session whose stored Agent is gone.
+	Agent string `json:"agent,omitempty"`
 }
 
 func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.RunRequest, error) {
 	var in runRequest
-	if err := decode(w, r, &in); err != nil {
+	if err := h.decode(w, r, &in); err != nil {
 		return service.RunRequest{}, err
 	}
 	if !in.Continue && strings.TrimSpace(in.Prompt) == "" {
@@ -39,6 +42,7 @@ func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.Ru
 		SessionID: r.PathValue("id"),
 		Prompt:    in.Prompt,
 		Continue:  in.Continue,
+		Agent:     strings.TrimSpace(in.Agent),
 		Timeout:   time.Duration(in.TimeoutMS) * time.Millisecond,
 	}, nil
 }

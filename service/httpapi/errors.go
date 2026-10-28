@@ -8,7 +8,19 @@ import (
 	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
+)
+
+// Codes the HTTP layer adds to a body, where the runtime's ErrorCode is shared
+// or absent. They are additive: no ErrorCode string is replaced.
+const (
+	// codeSessionExists is the code of a create with an ID that is taken (409).
+	codeSessionExists = "session_exists"
+	// codeBodyTooLarge is the code of a body over the cap (413).
+	codeBodyTooLarge = "body_too_large"
+	// codeForwardFailed is the code of a forward to the writer that failed (502).
+	codeForwardFailed = "forward_failed"
 )
 
 // errorResponse is the JSON body of every error answer.
@@ -88,6 +100,10 @@ func codedBody(err error) (out errorResponse, runtimeErr *gotato.RuntimeError) {
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
 	}
+	if errors.Is(err, service.ErrSessionExists) {
+		// invalid_state stands for several refusals; a taken ID is told apart.
+		out.Code = codeSessionExists
+	}
 	return out, runtimeErr
 }
 
@@ -136,6 +152,9 @@ func writeFailure(w http.ResponseWriter, err error) {
 	if gotato.NotRun(err) {
 		w.Header().Set(NotRunHeader, "true")
 	}
+	if gotato.Retryable(err) {
+		w.Header().Set(RetryableHeader, "true")
+	}
 	// A Session busy on another Instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
@@ -156,6 +175,14 @@ func writeError(w http.ResponseWriter, status int, err error) {
 		resp = internalError(err)
 	} else {
 		resp.Message = err.Error()
+	}
+	switch status {
+	case http.StatusBadRequest:
+		resp.Code = string(gotato.CodeInvalidArgument)
+	case http.StatusRequestEntityTooLarge:
+		resp.Code = codeBodyTooLarge
+	case http.StatusBadGateway:
+		resp.Code = codeForwardFailed
 	}
 	writeJSON(w, status, resp)
 }
