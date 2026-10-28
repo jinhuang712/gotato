@@ -101,11 +101,8 @@ func TestFakeModelRequestsAreIsolated(t *testing.T) {
 	}
 }
 
-func TestParseReplay(t *testing.T) {
-	model, err := testkit.ParseReplay([]byte(`[[{"kind":"text_delta","text":"hi"},{"kind":"done","stop_reason":"end_turn"}]]`))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestReplayModelCountsItsRecordedCalls(t *testing.T) {
+	model := testkit.NewReplayModel(testkit.Text("hi"))
 	if model.Remaining() != 1 {
 		t.Fatalf("remaining = %d", model.Remaining())
 	}

@@ -29,12 +29,6 @@ func NewFakeTool(id, text string) *FakeTool {
 	}
 }
 
-// WithSchema replaces the input schema.
-func (t *FakeTool) WithSchema(schema string) *FakeTool {
-	t.spec.InputSchema = []byte(schema)
-	return t
-}
-
 // Spec implements gotato.Tool.
 func (t *FakeTool) Spec() gotato.ToolSpec { return t.spec }
 

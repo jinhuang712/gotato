@@ -2,7 +2,6 @@ package testkit
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -118,16 +117,6 @@ type ReplayModel struct {
 
 // NewReplayModel creates a ReplayModel from Scripts.
 func NewReplayModel(scripts ...Script) *ReplayModel { return &ReplayModel{scripts: scripts} }
-
-// ParseReplay decodes a JSON array of Scripts (an array of arrays of
-// gotato.ModelEvent).
-func ParseReplay(data []byte) (*ReplayModel, error) {
-	var scripts []Script
-	if err := json.Unmarshal(data, &scripts); err != nil {
-		return nil, err
-	}
-	return NewReplayModel(scripts...), nil
-}
 
 // Stream implements gotato.Model.
 func (m *ReplayModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
