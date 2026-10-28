@@ -10,7 +10,10 @@ import (
 // are in bytes and counts of the committed Transcript; the deadlines apply to
 // one model call and one Tool call.
 type CoreLimits struct {
-	MaxMessages         uint32
+	MaxMessages uint32
+	// MaxMessageBytes bounds one Message. A Model's reply is held to it while
+	// it streams: the call is stopped, with limit_exceeded, before the reply
+	// grows past it.
 	MaxMessageBytes     uint64
 	MaxTranscriptBytes  uint64
 	MaxSteerMessages    uint32

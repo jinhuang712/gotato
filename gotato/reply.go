@@ -67,6 +67,11 @@ type assistantReader struct {
 	assistant Message
 	usage     Usage
 	complete  bool
+	// size counts the bytes of the reply received so far (text, reasoning,
+	// signatures, Tool Calls), to stop a reply that never ends before it is
+	// larger than CoreLimits.MaxMessageBytes. It counts the content, not its
+	// JSON encoding, so the check at commit stays the exact one.
+	size uint64
 	// A streaming reply is stored in parts, every second or every few KiB, so
 	// a crash loses at most the last part of it. Without a store there is
 	// nothing to lose.
@@ -111,6 +116,9 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 	switch modelEvent.Kind {
 	case ModelEventKindTextDelta:
 		if modelEvent.Text != "" {
+			if err := r.grow(len(modelEvent.Text)); err != nil {
+				return err
+			}
 			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindText, Text: modelEvent.Text})
 			a.send(TextDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
 			r.partText.WriteString(modelEvent.Text)
@@ -118,6 +126,9 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 		}
 	case ModelEventKindReasoningDelta:
 		if modelEvent.Text != "" {
+			if err := r.grow(len(modelEvent.Text)); err != nil {
+				return err
+			}
 			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: modelEvent.Text})
 			a.send(ReasoningDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
 			r.partReasoning.WriteString(modelEvent.Text)
@@ -125,8 +136,16 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 		}
 	case ModelEventKindReasoningDone:
 		// The Done signs the block its deltas opened (see signReasoning).
+		if err := r.grow(len(modelEvent.ReasoningArtifact)); err != nil {
+			return err
+		}
 		r.assistant.Parts = signReasoning(r.assistant.Parts, modelEvent.ReasoningArtifact)
 	case ModelEventKindToolCall:
+		if call := modelEvent.ToolCall; call != nil {
+			if err := r.grow(len(call.ID) + len(call.ToolID) + len(call.Arguments) + len(call.Signature)); err != nil {
+				return err
+			}
+		}
 		calls, callErr := appendToolCall(r.assistant.ToolCalls, modelEvent.ToolCall)
 		if callErr != nil {
 			return callErr
@@ -146,6 +165,20 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 	default:
 		return runtimeError(CodeModelProtocolFailure, "ModelStream", "unknown Model event", nil)
 	}
+	return nil
+}
+
+// grow adds n bytes to the reply and refuses the event that would make the
+// reply larger than CoreLimits.MaxMessageBytes. The event is not applied, so
+// what is kept as the cut-off reply stays within the limit, and the caller
+// stops reading and cancels the model call.
+func (r *assistantReader) grow(n int) *RuntimeError {
+	if limitExceededUint64(r.a.limits.MaxMessageBytes, r.size+uint64(n)) {
+		err := runtimeError(CodeLimitExceeded, "ModelStream", "maximum Message bytes exceeded", nil)
+		err.Details = map[string]string{"limit": limitMessageBytes}
+		return err
+	}
+	r.size += uint64(n)
 	return nil
 }
 
@@ -191,6 +224,7 @@ func (r *assistantReader) retried(retry ModelRetry) {
 	}
 	r.assistant = Message{ID: MessageID(nextID("message")), RunID: r.runID, Role: RoleAssistant, Model: r.assistant.Model}
 	r.usage = Usage{}
+	r.size = 0
 	r.resetPart()
 	a.stage(ReplyStarted{Header: NewHeader(a.id, r.runID, r.turn), MessageID: r.assistant.ID})
 	_ = a.flush(r.ctx)
