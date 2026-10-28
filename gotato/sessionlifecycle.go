@@ -183,6 +183,9 @@ func (a *Session) finishClose() {
 // its last boundary. Each is a MessageDropped, so a caller that was told it
 // was queued also learns that it was not taken.
 func (a *Session) dropLeftoverControl() {
+	a.noticeMu.Lock()
+	a.controlSealed = true
+	a.noticeMu.Unlock()
 	for _, queue := range []chan control{a.steer, a.followUp} {
 		for {
 			select {

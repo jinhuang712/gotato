@@ -193,6 +193,10 @@ type Session struct {
 	// counts them, so two Notices cannot both pass a check that the first has
 	// not yet filled.
 	noticeHeld int
+	// controlSealed is set when the Session closes for good: nothing is put in
+	// a queue after it, and the last drop pass takes what is there. noticeMu
+	// guards it.
+	controlSealed bool
 
 	// intrMu guards the Interrupts that wait in steer (intrPending), and the
 	// cancellation of the model call in flight (callCancel).
@@ -207,10 +211,13 @@ type Session struct {
 	stateMu     sync.Mutex
 	stateChange chan struct{}
 
-	runMu          sync.Mutex
-	currentRunID   RunID
-	currentTurn    TurnNumber
-	runEnding      bool
+	runMu        sync.Mutex
+	currentRunID RunID
+	currentTurn  TurnNumber
+	runEnding    bool
+	// runKeeps says the ending Run leaves its queues for the host
+	// (WithQueueHandoff), so a message taken in meanwhile is kept, not dropped.
+	runKeeps       bool
 	currentRunStop context.CancelFunc
 	// endingHook, for tests, runs when a Run has begun to write its end.
 	endingHook func()

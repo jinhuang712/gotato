@@ -11,7 +11,10 @@ import (
 // Steer that arrives where the Run would settle keeps the Run going for one
 // more Turn rather than being dropped. Its way into the Session is reported
 // as Events: MessageQueued, and then MessageCommitted, or MessageDropped when
-// the Run ends first, or MessageRejected when the queue is full.
+// the Run ends first, or MessageRejected when the queue is full. A Steer that
+// reaches a Run already writing its end, or a Session that closed meanwhile,
+// is dropped (run_ended, session_closed) and fails with invalid_state or
+// session_closed, so a nil error never leaves a message nobody will take.
 //
 // ctx bounds the write of MessageQueued to the Record, and nothing after it.
 // A nil error means the message is queued in this Instance's memory: if the
@@ -27,7 +30,8 @@ func (a *Session) Steer(ctx context.Context, message Message) error {
 // canceled: it finishes, and the Message follows its result at the Turn
 // boundary, as a Steer does. It shares the Steer queue and its limit
 // (MaxSteerMessages), and is reported by the same Events, with the source
-// MessageSourceInterrupt. It fails with invalid_state when no Run is in flight.
+// MessageSourceInterrupt. It fails with invalid_state when no Run is in
+// flight, or when the Run ends before the Interrupt reaches its queue.
 // ctx and a nil result mean what they mean for Steer.
 func (a *Session) Interrupt(ctx context.Context, message Message) error {
 	if !a.inRun.Load() {
@@ -114,12 +118,65 @@ func (a *Session) enqueueControl(ctx context.Context, target chan control, messa
 		}
 		return err
 	}
-	select {
-	case target <- control{message: message, source: source, seq: a.ctlSeq.Add(1)}:
+	switch a.sendControl(target, control{message: message, source: source, seq: a.ctlSeq.Add(1)}, source == MessageSourceInterrupt) {
+	case sentControl:
 		return nil
+	case controlRunEnded:
+		return a.dropAfterQueued(message.ID, source, "run_ended", runtimeError(CodeInvalidState, operation, "the Run ended before the message was taken", nil))
+	case controlSessionClosed:
+		return a.dropAfterQueued(message.ID, source, "session_closed", runtimeError(CodeSessionClosed, operation, "Session is closed", nil))
 	default:
 		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}
+}
+
+// controlOutcome says what became of a message offered to a queue.
+type controlOutcome int
+
+const (
+	sentControl controlOutcome = iota
+	controlQueueFull
+	controlRunEnded
+	controlSessionClosed
+)
+
+// sendControl puts a message in a queue, once its message_queued is written.
+// The write waits for the Session's write lock, so the Run may have begun to
+// end, or the Session to close, since the caller was admitted. Both are
+// checked here, in the step that sends: a Run that is ending has dropped its
+// queues already or is about to, and a Session whose last drop pass is done
+// takes no more. A message sent before either is dropped by that pass. A Run
+// that leaves its queues for the host (WithQueueHandoff) keeps what arrives
+// as it ends.
+//
+// An Interrupt needs a Run in flight (needsRun): one that finds the Run over
+// is refused, since it would otherwise cancel the first model call of the
+// next Run.
+func (a *Session) sendControl(target chan control, queued control, needsRun bool) controlOutcome {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	inRun := a.inRun.Load()
+	if (needsRun && !inRun) || (inRun && a.runEnding && !a.runKeeps) {
+		return controlRunEnded
+	}
+	a.noticeMu.Lock()
+	defer a.noticeMu.Unlock()
+	if a.controlSealed {
+		return controlSessionClosed
+	}
+	select {
+	case target <- queued:
+		return sentControl
+	default:
+		return controlQueueFull
+	}
+}
+
+// dropAfterQueued closes a message_queued that was written and whose message
+// no queue took: it writes the message_dropped, and returns err.
+func (a *Session) dropAfterQueued(id MessageID, source MessageSource, why string, err error) error {
+	_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: id, Source: source, Why: why})
+	return err
 }
 
 // WithQueueHandoff makes the Session keep the messages (Steer, FollowUp,

@@ -151,6 +151,14 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		return 0, werr
 	}
 	number := written[0].Head().Number
+	if a.controlSealed {
+		// The Session closed while the notice was being written: no pass
+		// is left to drop it.
+		a.noticeMu.Unlock()
+		err := a.dropAfterQueued(message.ID, MessageSourceNotice, "session_closed", runtimeError(CodeSessionClosed, "Notice", "Session is closed", nil))
+		a.noticeMu.Lock()
+		return 0, err
+	}
 	a.notices = append(a.notices, control{message: message, source: MessageSourceNotice, seq: a.ctlSeq.Add(1), number: number})
 	return number, nil
 }

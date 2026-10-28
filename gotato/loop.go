@@ -58,14 +58,18 @@ func (st *runState) header(turn TurnNumber) Header { return NewHeader(st.a.id, s
 // nothing was stored, and nothing is sent.
 func (st *runState) end(turn TurnNumber, result RunResult, extra func(*RunEnded)) *RuntimeError {
 	a := st.a
-	if !a.keepsQueued(result.Status) {
-		a.discardControl(st.runID, turn)
-	}
-	// No Abort can start a write from here on, and the ones that did
-	// have finished: an abort_requested never follows run_ended.
+	// From here on no Abort can start a write, and no Steer, FollowUp or
+	// Interrupt is taken into a queue (see sendControl): what is queued now is
+	// dropped below, and nothing slips in behind that.
 	a.runMu.Lock()
 	a.runEnding = true
+	a.runKeeps = a.keepsQueued(result.Status)
 	a.runMu.Unlock()
+	if !a.runKeeps {
+		a.discardControl(st.runID, turn)
+	}
+	// The Aborts that did start a write have finished: an abort_requested
+	// never follows run_ended.
 	a.waitForAborts()
 	if a.endingHook != nil {
 		a.endingHook()
@@ -409,6 +413,7 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 	a.currentRunID = runID
 	a.currentTurn = 0
 	a.runEnding = false
+	a.runKeeps = false
 	a.currentRunStop = cancel
 	a.runMu.Unlock()
 	a.inRun.Store(true)
