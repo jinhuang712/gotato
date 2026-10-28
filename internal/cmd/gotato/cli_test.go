@@ -14,49 +14,6 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// harness runs the CLI in-process against a temporary store.
-type harness struct {
-	t    *testing.T
-	home string
-}
-
-func newHarness(t *testing.T) *harness {
-	t.Helper()
-	return &harness{t: t, home: t.TempDir()}
-}
-
-func (h *harness) run(args ...string) (int, string, string) {
-	h.t.Helper()
-	var stdout, stderr bytes.Buffer
-	getenv := func(key string) string {
-		switch key {
-		case "GOTATO_HOME":
-			return h.home
-		case "GOTATO_GATEWAY_CONFIG":
-			return filepath.Join(h.home, "missing-gateway.yaml")
-		}
-		return ""
-	}
-	code := Main(args, strings.NewReader(""), &stdout, &stderr, getenv)
-	return code, stdout.String(), stderr.String()
-}
-
-func (h *harness) mustJSON(out string, into any) {
-	h.t.Helper()
-	if err := json.Unmarshal([]byte(out), into); err != nil {
-		h.t.Fatalf("invalid JSON: %v\n%s", err, out)
-	}
-}
-
-func (h *harness) ok(args ...string) string {
-	h.t.Helper()
-	code, out, errOut := h.run(args...)
-	if code != ExitOK {
-		h.t.Fatalf("%v exit %d\nstdout: %s\nstderr: %s", args, code, out, errOut)
-	}
-	return out
-}
-
 func TestDoctorJSON(t *testing.T) {
 	h := newHarness(t)
 	out := h.ok("doctor", "--json")
@@ -688,5 +645,43 @@ func TestRunSettingsAreSavedUnlessNoSave(t *testing.T) {
 	}
 	if len(doc.Messages) != 4 {
 		t.Fatalf("messages = %d, want 4: the --no-save run left nothing", len(doc.Messages))
+	}
+}
+
+// A Tool Result over one page is spilled: the Session shows the preview and
+// the position of the Entry, and `events` shows tool_result_spilled with its
+// size and no body.
+func TestALargeToolResultIsSpilledAndShownAsAnEventWithoutItsBody(t *testing.T) {
+	h := newHarness(t)
+	var created map[string]any
+	h.mustJSON(h.ok("session", "create", "--json"), &created)
+	id := created["id"].(string)
+	var outcome runOutcome
+	h.mustJSON(h.ok("run", "--session", id, "--model", "demo", "--json", "use-big-tool"), &outcome)
+	if outcome.Metrics.ToolCalls != 1 || outcome.Metrics.Turns != 2 {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	out := h.ok("events", "--session", id, "--kind", "tool_result_spilled")
+	var event map[string]any
+	h.mustJSON(strings.TrimSpace(out), &event)
+	if event["kind"] != "tool_result_spilled" || event["call_id"] != "call-big" || event["tool_id"] != "demo.echo" || event["bytes"].(float64) < 32<<10 {
+		t.Fatalf("event = %v", event)
+	}
+	if _, hasBody := event["body"]; hasBody || len(out) > 4<<10 {
+		t.Fatalf("events carries the body (%d bytes)", len(out))
+	}
+	var doc struct {
+		Messages []gotato.Message `json:"messages"`
+	}
+	h.mustJSON(h.ok("session", "show", id, "--json"), &doc)
+	var result *gotato.ToolResult
+	for _, message := range doc.Messages {
+		if message.ToolResult != nil {
+			result = message.ToolResult
+		}
+	}
+	if result == nil || result.Spilled == nil || result.Spilled.Seq == 0 || result.Spilled.Bytes < 32<<10 ||
+		!strings.Contains(result.Content[0].Text, `read_result(ref="result:call-big", page=1)`) || len(result.Content[0].Text) > 9000 {
+		t.Fatalf("tool result = %+v", result)
 	}
 }
