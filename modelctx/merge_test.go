@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -244,6 +245,25 @@ func TestADigestIsCutByDroppingTheOldestLines(t *testing.T) {
 	digest := modelctx.MergeDigest(segments, nil)
 	if len(digest) > 4200 || !strings.Contains(digest, "earlier lines left out") || strings.Contains(digest, "question 1 z") || !strings.Contains(digest, "- Segment 40:") {
 		t.Fatalf("digest of %d bytes:\n%s", len(digest), digest)
+	}
+}
+
+// The digest's size is in bytes, as its constant says: CJK text, three bytes a
+// rune, drops lines by their bytes, and the last cut never splits a rune.
+func TestADigestOfCJKTextHoldsItsByteSize(t *testing.T) {
+	var segments []gotato.Segment
+	for i := 1; i <= 40; i++ {
+		text := strings.Repeat("你好世界", 100)
+		segments = append(segments, gotato.Segment{Number: i, Messages: []gotato.Message{gotato.UserMessage(text)}})
+	}
+	digest := modelctx.MergeDigest(segments, nil)
+	if len(digest) > 4200 || !utf8.ValidString(digest) || !strings.Contains(digest, "earlier lines left out") || !strings.Contains(digest, "- Segment 40:") {
+		t.Fatalf("digest of %d bytes, %d runes, valid UTF-8 %v", len(digest), utf8.RuneCountInString(digest), utf8.ValidString(digest))
+	}
+	// One Segment alone, never dropped, is still cut to the size.
+	one := modelctx.MergeDigest([]gotato.Segment{{Number: 1, Recap: "## What happened\n- " + strings.Repeat("你", 5000), Merged: []gotato.MergedSegment{{Number: 1}, {Number: 2}}}}, nil)
+	if len(one) > 4200 || !utf8.ValidString(one) {
+		t.Fatalf("one merged Segment: %d bytes, valid UTF-8 %v", len(one), utf8.ValidString(one))
 	}
 }
 

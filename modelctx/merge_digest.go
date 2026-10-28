@@ -9,7 +9,8 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// The sizes of a digest built by code (mergeDigest), in bytes.
+// The sizes of a digest built by code (mergeDigest): digestMaxBytes counts
+// bytes, the others count characters (runes) of one piece of text.
 const (
 	digestMaxBytes     = 4000
 	digestUserChars    = 160
@@ -24,7 +25,9 @@ const (
 // as a Recap the model writes. For each Segment it has one line with its times,
 // the start of its user Messages, its tool calls counted by tool, and its own
 // Recap cut short; a merged Segment among them contributes the start of its
-// Recap. The whole is cut at 4,000 bytes by dropping the oldest lines.
+// Recap. The whole is held to 4,000 bytes by dropping the oldest lines, and the
+// text, with the note of what was left out, is cut at a rune boundary to 120
+// bytes more than that, which only a single line that is longer can reach.
 func mergeDigest(segments []gotato.Segment, loc *time.Location) string {
 	if loc == nil {
 		loc = time.UTC
