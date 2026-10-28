@@ -4,7 +4,6 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Defects
 
-- [ ] **Listing or switching tools waits for every ToolSet.** `Runner.Tools` and `SetToolActive` build the whole live Session, which resolves each ToolSet; `SetToolActive` does it under the Session's lock. A slow or down MCP server blocks both, and there is no deadline of their own. Found by the second code review (2026-10-28).
 - [ ] **`Feed` has plumbing that is exported.** `Published`, `PublishLabeled`, `SetLabel`, `MirrorTo` and `NewInstanceFeed` are exported because `service` and `testkit` call them from other packages. Moving them behind a smaller exported surface changes the `service`/`gotato` split, so it needs a design, not a rename.
 
 ## Decisions

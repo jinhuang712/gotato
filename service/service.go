@@ -54,6 +54,10 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // Agent's RunTimeout nor the request's Timeout says otherwise.
 const DefaultRunTimeout = 30 * time.Minute
 
+// DefaultToolSetTimeout is how long Runner.Tools and Runner.SetToolActive wait
+// for ToolSets when Config.ToolSetTimeout says nothing.
+const DefaultToolSetTimeout = 10 * time.Second
+
 // Session metadata keys the service reads. They are ordinary application
 // metadata from the runtime's point of view and may be set by any client.
 const (
@@ -182,6 +186,11 @@ type Config struct {
 	// value turns the look off, so a stream carries only what this Instance
 	// writes.
 	StreamPoll time.Duration
+	// ToolSetTimeout bounds how long Runner.Tools and Runner.SetToolActive
+	// wait for the Agent's ToolSets to answer. Zero means DefaultToolSetTimeout;
+	// a negative value means no bound beyond the caller's context. A Run does
+	// not use it: a Run is bounded by its own deadline.
+	ToolSetTimeout time.Duration
 	// clock times the warm Sessions: their TTL and their idle compaction.
 	// Nil means the system clock; the tests of this package set it.
 	clock clock
@@ -237,6 +246,8 @@ type Runner struct {
 	// streamStarts counts the starts of Session streams (SessionStream.startedAt).
 	streamStarts uint64
 	streamPoll   time.Duration
+	// toolSetTimeout bounds the ToolSet resolution of Tools and SetToolActive.
+	toolSetTimeout time.Duration
 	// drained is made by the first Drain and closed once every Run admitted
 	// before it has settled and released its Session.
 	drained chan struct{}
@@ -252,18 +263,19 @@ func New(cfg Config) (*Runner, error) {
 		return nil, errors.New("service: at least one Agent is required")
 	}
 	r := &Runner{
-		store:      cfg.Store,
-		instance:   strings.TrimSpace(cfg.Instance),
-		liveness:   cfg.Liveness.withDefaults(),
-		address:    strings.TrimSpace(cfg.Address),
-		streamPoll: cfg.StreamPoll,
-		agents:     map[string]Agent{},
-		admission:  cfg.Admission,
-		locks:      newSessionLocks(),
-		clock:      cfg.clock,
-		warm:       map[string]*warmEntry{},
-		feeds:      map[feedKey]*sessionFeed{},
-		handles:    map[string][]*runHandle{},
+		store:          cfg.Store,
+		instance:       strings.TrimSpace(cfg.Instance),
+		liveness:       cfg.Liveness.withDefaults(),
+		address:        strings.TrimSpace(cfg.Address),
+		streamPoll:     cfg.StreamPoll,
+		toolSetTimeout: cfg.ToolSetTimeout,
+		agents:         map[string]Agent{},
+		admission:      cfg.Admission,
+		locks:          newSessionLocks(),
+		clock:          cfg.clock,
+		warm:           map[string]*warmEntry{},
+		feeds:          map[feedKey]*sessionFeed{},
+		handles:        map[string][]*runHandle{},
 	}
 	// The label is never the identity: the suffix makes the name unique per
 	// start, so a restarted or overlapping process cannot share a Liveness

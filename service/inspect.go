@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"sort"
 	"strings"
@@ -256,8 +257,14 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		// A Session's ToolSets live in the Agent's Options, so the live Session
 		// says what they hold: every tool of every ToolSet, loaded or not,
 		// switched off or not, and search_tools, whose description is the catalog.
-		live, _, err := r.buildSession(ctx, spec, s, nil, InspectConfig{})
+		toolCtx, cancel := r.toolSetContext(ctx)
+		defer cancel()
+		live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
 		if err != nil {
+			if r.toolSetsTimedOut(ctx, err) {
+				// The Agent's own tools are listed; the error says the ToolSets did not answer.
+				return entries, toolSetsTimeout(err)
+			}
 			return nil, err
 		}
 		defer func() { _ = live.Close(context.Background()) }()
@@ -295,35 +302,41 @@ func toolSetEntries(live *gotato.Session, filter *sessionTools) []ToolEntry {
 // that is unavailable now cannot be asked, so its tools are named again once
 // it answers.
 func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, active bool) (ToolEntry, error) {
+	// The lookup may ask the ToolSets over the network, so it is made before
+	// the Session lock, on a read of the Record, and under its own bound.
+	// What the lock guards is the write of the switch.
+	read, err := session.Open(ctx, r.store, sessionID)
+	if err != nil {
+		return ToolEntry{}, err
+	}
+	agent, _ := read.Get(MetaAgent)
+	spec, ok := r.Agent(agent)
+	if !ok {
+		return ToolEntry{}, ErrUnknownAgent
+	}
 	var found *gotato.ToolSpec
 	var result ToolEntry
-	err := r.withSessionLock(ctx, sessionID, func() error {
+	for _, tool := range (&sessionTools{spec: spec}).Tools() {
+		if tool.Spec().ID == toolID {
+			ts := tool.Spec()
+			found = &ts
+			break
+		}
+	}
+	if found == nil {
+		found, result.ToolSet, result.Loaded, err = r.findSetTool(ctx, spec, read, toolID)
+		if err != nil {
+			return ToolEntry{}, err
+		}
+	}
+	err = r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)
 		if err != nil {
 			return err
 		}
 		s := writer.Record()
-		agent, _ := s.Get(MetaAgent)
-		r.publishOpened(writer, early, agent)
-		spec, ok := r.Agent(agent)
-		if !ok {
-			_ = writer.Release(ctx)
-			return ErrUnknownAgent
-		}
-		for _, tool := range (&sessionTools{spec: spec}).Tools() {
-			if tool.Spec().ID == toolID {
-				ts := tool.Spec()
-				found = &ts
-				break
-			}
-		}
-		if found == nil {
-			found, result.ToolSet, result.Loaded, err = r.findSetTool(ctx, spec, s, toolID)
-			if err != nil {
-				_ = writer.Release(ctx)
-				return err
-			}
-		}
+		held, _ := s.Get(MetaAgent)
+		r.publishOpened(writer, early, held)
 		if found == nil {
 			_ = writer.Release(ctx)
 			return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown tool "+toolID)
@@ -346,13 +359,42 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	return result, nil
 }
 
+// toolSetContext bounds the ToolSet resolution of one call by the Runner's
+// ToolSetTimeout.
+func (r *Runner) toolSetContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	d := r.toolSetTimeout
+	if d == 0 {
+		d = DefaultToolSetTimeout
+	}
+	if d < 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, d)
+}
+
+// toolSetsTimedOut reports whether err is the ToolSet bound running out while
+// the caller's own ctx is still live.
+func (r *Runner) toolSetsTimedOut(ctx context.Context, err error) bool {
+	return ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || gotato.IsCode(err, gotato.CodeDeadlineExceeded))
+}
+
+// toolSetsTimeout is the error of a ToolSet bound that ran out.
+func toolSetsTimeout(cause error) error {
+	return gotato.ErrorOf(gotato.CodeDeadlineExceeded, "service: the tool sets did not answer in time: "+cause.Error())
+}
+
 // findSetTool looks for toolID among the tools of the Agent's ToolSets, which
 // a live Session resolves. It reports the tool's spec (nil when no ToolSet
 // holds it), its ToolSet and whether it is loaded. A name inside an
 // unavailable ToolSet is an error that says so.
 func (r *Runner) findSetTool(ctx context.Context, spec Agent, s *session.Record, toolID string) (*gotato.ToolSpec, string, bool, error) {
-	live, _, err := r.buildSession(ctx, spec, s, nil, InspectConfig{})
+	toolCtx, cancel := r.toolSetContext(ctx)
+	defer cancel()
+	live, _, err := r.buildSession(toolCtx, spec, s, nil, InspectConfig{})
 	if err != nil {
+		if r.toolSetsTimedOut(ctx, err) {
+			return nil, "", false, toolSetsTimeout(err)
+		}
 		return nil, "", false, err
 	}
 	defer func() { _ = live.Close(context.Background()) }()
