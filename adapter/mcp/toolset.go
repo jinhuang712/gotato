@@ -347,11 +347,18 @@ func (s *ToolSet) connect(ctx context.Context) (*sdk.ClientSession, error) {
 // dial makes one connection, bounded by the connect timeout. timedOut says the
 // bound ended it, which is the server's doing and not the caller's.
 func (s *ToolSet) dial(ctx context.Context) (session *sdk.ClientSession, timedOut bool, err error) {
-	dialCtx := ctx
+	// The connection is shared by every caller and outlives the one that
+	// made it, and the SDK keeps the context of Connect for the requests it
+	// sends later on its own (the standalone stream, the DELETE on close). So
+	// the dial runs in a context with no values: the caller's end ends the
+	// dial, but its values (an end user's token) never reach the connection.
+	dialCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer context.AfterFunc(ctx, cancel)()
 	if s.cfg.connectTimeout > 0 {
-		var cancel context.CancelFunc
-		dialCtx, cancel = context.WithTimeout(ctx, s.cfg.connectTimeout)
-		defer cancel()
+		var stop context.CancelFunc
+		dialCtx, stop = context.WithTimeout(dialCtx, s.cfg.connectTimeout)
+		defer stop()
 	}
 	// The SDK does not always end a connect when its context ends (a streamable
 	// HTTP transport's request has a context of its own), so the connect runs

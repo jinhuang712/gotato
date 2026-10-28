@@ -77,8 +77,9 @@ func TestEachToolCallCarriesTheTokenOfItsOwnCaller(t *testing.T) {
 		t.Cleanup(cancel)
 		return ctx
 	}
-	// The ToolSet connects in the context of whoever resolves first, and that
-	// context ends before the other users call.
+	// The ToolSet connects on a request of whoever resolves first, and that
+	// context ends before the other users call. The connection is shared, so
+	// it must keep nothing of that user: its requests carry no user token.
 	first, endFirst := context.WithCancel(context.WithValue(context.Background(), userKey{}, "alice"))
 	if _, err := set.Tools(first); err != nil {
 		t.Fatal(err)
@@ -105,7 +106,8 @@ func TestEachToolCallCarriesTheTokenOfItsOwnCaller(t *testing.T) {
 	_ = set.Close()
 	// A tools/call and a tools/list carry the token of the context they were
 	// sent in. The requests of the connection (initialize, the standalone
-	// stream, DELETE on close) carry that of the context that made it.
+	// stream, DELETE on close) carry the token of no user, not even of the one
+	// whose request made the connection.
 	tokens := map[string][]string{}
 	for _, r := range requests() {
 		t.Logf("%-6s %-28s token=%q", r.http, r.rpc, r.token)
@@ -115,10 +117,10 @@ func TestEachToolCallCarriesTheTokenOfItsOwnCaller(t *testing.T) {
 	for key, want := range map[string][]string{
 		"POST tools/call":                {"bob", "alice", "bob", "carol"},
 		"POST tools/list":                {"alice", "bob"},
-		"POST initialize":                {"alice"},
-		"POST notifications/initialized": {"alice"},
-		"GET ":                           {"alice"},
-		"DELETE ":                        {"alice"},
+		"POST initialize":                {""},
+		"POST notifications/initialized": {""},
+		"GET ":                           {""},
+		"DELETE ":                        {""},
 	} {
 		if !slices.Equal(tokens[key], want) {
 			t.Errorf("tokens of %q = %v, want %v", key, tokens[key], want)

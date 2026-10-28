@@ -4,6 +4,8 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
+- **`adapter/mcp`: the shared connection no longer keeps the context values of the first caller.** The connect ran in the `ctx` of whoever resolved the ToolSet first, and the SDK sends the standalone stream and the closing `DELETE` in it later, so a `RoundTripper` that reads an end user's token from `req.Context()` sent that user's token on those background requests. Now the connect runs in a context with no values (the caller's cancellation still ends it). `tools/list` and `tools/call` still carry their own caller's context.
+
 - **`gateway.Config.CacheKeyField` refuses a name the request already sends.** Before, `CacheKeyField: "model"` was accepted and the cache key replaced the model on the wire. Now `gateway.New` (and so `LoadYAML`) returns an error for `model`, `stream`, `messages`/`input`, `store`, `instructions` and the other fields of the wire API's request, and the encoder refuses the same names again. `prompt_cache_key` and other free names are unchanged.
 
 - **A reply is held to `MaxMessageBytes` while it streams.** Before, the Session read every delta of a reply that never ended and checked the size only at commit. Now the delta (text, reasoning, a reasoning signature, a Tool Call) that would take the reply past the limit stops the model call, which fails the Run with `limit_exceeded` as before; the reply kept as cut off stays within the limit. A gateway still holds one Tool Call's arguments whole before it emits the call.
