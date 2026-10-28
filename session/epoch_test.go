@@ -27,7 +27,7 @@ func TestRecordEpochIsStableAcrossLoadsAndChangesWithANewRecord(t *testing.T) {
 	}
 
 	// It is in the first Entry, session_created, and in the RecordInfo.
-	entries, err := store.Log(ctx, "same", 0)
+	entries, err := store.Log(ctx, "same", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

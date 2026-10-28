@@ -93,7 +93,7 @@ func playLongAcross(t *testing.T, store session.Store, task reftasks.Task, after
 // merged and merged away alike: the bytes a request may carry as a Segment's.
 func segmentTexts(t *testing.T, store session.Store, id string) map[string]bool {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0)
+	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

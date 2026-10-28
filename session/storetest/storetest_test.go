@@ -61,7 +61,7 @@ func (s *overwriting) Append(ctx context.Context, id string, after uint64, entri
 	return nil
 }
 
-func (s *overwriting) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
+func (s *overwriting) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record, ok := s.records[id]
@@ -71,7 +71,11 @@ func (s *overwriting) Log(ctx context.Context, id string, after uint64) ([]sessi
 	if after >= uint64(len(record)) {
 		return nil, nil
 	}
-	return append([]session.Entry(nil), record[after:]...), nil
+	rest := record[after:]
+	if limit > 0 && len(rest) > limit {
+		rest = rest[:limit]
+	}
+	return append([]session.Entry(nil), rest...), nil
 }
 
 // keepingEndedRows keeps a row that its Instance ended, expired, so it can

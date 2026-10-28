@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-28 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Features
 
 What Gotato does today, what it will do, and what it won't. Each feature is described from the side of the developer who embeds Gotato: the Go calls, the HTTP routes and the configuration keys. The principles and the broad decisions behind them are in [DESIGNS.md](DESIGNS.md); a decision that concerns one feature is kept with that feature here. When the planned parts arrive is in [ROADMAP.md](plan/ROADMAP.md), and the terms are in [GLOSSARY.md](GLOSSARY.md). What happens when a part fails is collected in [When something fails](#when-something-fails).
@@ -1194,7 +1194,7 @@ The file store writes each batch of Entries to a file of its own, named by its f
 | `Create` | writes a new Record, starting with a Checkpoint; fails when the ID is taken |
 | `Append` | writes a batch of Entries after a position, all or nothing, and only when that position is still the last and the RecordInfo's epoch is the Record's; a writer of a Record deleted and created again gets `ErrNotFound` |
 | `Load` | returns the facts from the last Checkpoint, the `segment_closed` Entries before it (`Loaded.Segments`), the last position, and the RecordInfo |
-| `Log` | returns every Entry after a position, facts and log entries |
+| `Log` | returns the Entries after a position, facts and log entries, at most a limit of them (all when the limit is 0) |
 | `List`, `Delete` | list the Summaries, and delete a Record; an append to a deleted Record fails |
 | `Beat`, `Instance` | renew, read and remove one Liveness row per instance, timed by the store's clock |
 

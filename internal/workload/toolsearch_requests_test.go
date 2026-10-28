@@ -270,7 +270,7 @@ func TestToolSearchRequestAcrossACompaction(t *testing.T) {
 	if len(final.Compactions()) != 1 {
 		t.Fatalf("%d compactions, want 1", len(final.Compactions()))
 	}
-	events, err := session.StoredEvents(ctx, store, id, 0)
+	events, err := session.StoredEvents(ctx, store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

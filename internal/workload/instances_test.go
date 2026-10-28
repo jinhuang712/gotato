@@ -38,7 +38,7 @@ func viewOf(t *testing.T, store session.Store, id string) view {
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, err := session.StoredEvents(ctx, store, id, 0)
+	events, err := session.StoredEvents(ctx, store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func withoutHeldClaim(t *testing.T, events []string) []string {
 // dead holder.
 func assertTakenOver(t *testing.T, store session.Store, id, dead string) {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0)
+	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestProxyKeepsASessionOnItsWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, _ := session.StoredEvents(context.Background(), c.backing, id, 0)
+	events, _ := session.StoredEvents(context.Background(), c.backing, id, 0, 0)
 	writers := map[string]bool{}
 	for _, event := range events {
 		if claimed, ok := event.(gotato.SessionClaimed); ok && claimed.Why != gotato.ClaimWhyNewSession {

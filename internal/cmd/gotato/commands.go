@@ -131,7 +131,7 @@ func (c *cli) cmdEvents(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	events, err := session.StoredEvents(ctx, store, *sessionID, 0)
+	events, err := session.StoredEvents(ctx, store, *sessionID, 0, 0)
 	if err != nil {
 		return c.failErr(err)
 	}

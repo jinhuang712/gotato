@@ -54,12 +54,12 @@ func (s *ownerStore) Load(ctx context.Context, id string) (session.Loaded, error
 }
 
 // Log is how a read of a Session reaches the store, so it is guarded too.
-func (s *ownerStore) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
+func (s *ownerStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	s.note(ctx, "log")
 	if _, err := s.Load(ctx, id); err != nil {
 		return nil, err
 	}
-	return s.Store.Log(ctx, id, after)
+	return s.Store.Log(ctx, id, after, limit)
 }
 
 func (s *ownerStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {

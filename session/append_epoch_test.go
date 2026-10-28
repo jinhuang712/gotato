@@ -45,7 +45,7 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 			if old.Record().RecordEpoch() == fresh.Record().RecordEpoch() {
 				t.Fatal("the two Records share an epoch")
 			}
-			before, err := store.Log(ctx, "same", 0)
+			before, err := store.Log(ctx, "same", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestWriterOfADeletedRecordCannotAppendToARecordCreatedAgain(t *testing.T) {
 			if !errors.Is(err, session.ErrNotFound) {
 				t.Fatalf("a write of the deleted Record = %v, want ErrNotFound", err)
 			}
-			after, err := store.Log(ctx, "same", 0)
+			after, err := store.Log(ctx, "same", 0, 0)
 			if err != nil || len(after) != len(before) {
 				t.Fatalf("the new Record holds %d Entries after the refused write (%v), want %d", len(after), err, len(before))
 			}

@@ -189,7 +189,7 @@ func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunR
 
 func storedKinds(t *testing.T, store session.Store, id string) []gotato.EventKind {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0)
+	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

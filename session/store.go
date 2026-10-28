@@ -102,8 +102,11 @@ type Store interface {
 	// Checkpoint may list by number. An adapter reads the Entry's Kind for
 	// them, as it reads it for the Checkpoint.
 	Load(ctx context.Context, id string) (Loaded, error)
-	// Log returns every Entry, facts and log, after position after, in order.
-	Log(ctx context.Context, id string, after uint64) ([]Entry, error)
+	// Log returns the Entries, facts and log, after position after, in order:
+	// at most limit of them, or all when limit is 0 or less. A caller that
+	// needs one Entry, or one page, passes a limit so that the Record is not
+	// read to its end.
+	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)
 	// List returns the Summaries, the most recently updated first.
 	List(ctx context.Context) ([]RecordInfo, error)
 	// Delete removes a Record. A writer that appends to it afterwards gets

@@ -103,8 +103,8 @@ type storeSource struct {
 	id    string
 }
 
-func (s storeSource) EventsAfter(ctx context.Context, after uint64, _ int) ([]gotato.Event, error) {
-	return session.StoredEvents(ctx, s.store, s.id, after)
+func (s storeSource) EventsAfter(ctx context.Context, after uint64, limit int) ([]gotato.Event, error) {
+	return session.StoredEvents(ctx, s.store, s.id, after, limit)
 }
 
 // SubscribeInstance starts a Subscription to the Instance's stream: every

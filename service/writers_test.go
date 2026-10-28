@@ -509,7 +509,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 		}
 		commit(t, fresh, gotato.UserMessage("x"))
 	}
-	before, err := store.Log(ctx, s.ID(), 0)
+	before, err := store.Log(ctx, s.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestRunOfADeletedSessionNeverWritesToTheSessionCreatedAgain(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("the Run of the deleted Session succeeded")
 	}
-	after, err := store.Log(ctx, s.ID(), 0)
+	after, err := store.Log(ctx, s.ID(), 0, 0)
 	if err != nil || len(after) != len(before) {
 		t.Fatalf("the new Record holds %d Entries after the Run (%v), want %d", len(after), err, len(before))
 	}

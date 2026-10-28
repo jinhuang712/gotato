@@ -345,31 +345,6 @@ func readSegments(dir string, firsts []uint64) ([]Entry, error) {
 	return out, nil
 }
 
-// readAfter reads the writes of a Record that hold a position after after. A
-// write is named by its first position, so the files that end at or before
-// after are not opened: reading one spilled body does not read the Record.
-func (f *FileStore) readAfter(id string, after uint64) ([]fileBatch, error) {
-	dir, firsts, err := f.batchList(id)
-	if err != nil {
-		return nil, err
-	}
-	batches := make([]fileBatch, 0, len(firsts))
-	for i, first := range firsts {
-		if i+1 < len(firsts) && firsts[i+1] <= after+1 {
-			continue
-		}
-		batch, err := readBatch(filepath.Join(dir, batchName(first)))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
-		}
-		if err != nil {
-			return nil, err
-		}
-		batches = append(batches, batch)
-	}
-	return batches, nil
-}
-
 func lastSeq(batches []fileBatch) uint64 {
 	if len(batches) == 0 {
 		return 0
@@ -539,20 +514,33 @@ func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 }
 
 // Log implements Store.
-func (f *FileStore) Log(ctx context.Context, id string, after uint64) ([]Entry, error) {
+func (f *FileStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	batches, err := f.readAfter(id, after)
+	dir, firsts, err := f.batchList(id)
 	if err != nil {
 		return nil, err
 	}
 	var out []Entry
-	for _, batch := range batches {
+	for i, first := range firsts {
+		if i+1 < len(firsts) && firsts[i+1] <= after+1 {
+			continue
+		}
+		batch, err := readBatch(filepath.Join(dir, batchName(first)))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
 		for _, entry := range batch.Entries {
 			if entry.Seq > after {
 				out = append(out, entry)
 			}
+		}
+		if limit > 0 && len(out) >= limit {
+			return out[:limit], nil
 		}
 	}
 	return out, nil

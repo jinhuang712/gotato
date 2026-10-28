@@ -26,7 +26,7 @@ func newGatedLog(store session.Store) *gatedLog {
 	return &gatedLog{Store: store, entered: make(chan struct{}, 4), release: make(chan struct{})}
 }
 
-func (g *gatedLog) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
+func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if g.armed.CompareAndSwap(true, false) {
 		g.entered <- struct{}{}
 		select {
@@ -35,7 +35,7 @@ func (g *gatedLog) Log(ctx context.Context, id string, after uint64) ([]session.
 			return nil, ctx.Err()
 		}
 	}
-	return g.Store.Log(ctx, id, after)
+	return g.Store.Log(ctx, id, after, limit)
 }
 
 func recreatedRunner(t *testing.T, name string, store session.Store, poll time.Duration) *service.Runner {

@@ -112,7 +112,7 @@ func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.S
 // closed over it. ok is false when the Record has none. A model may use the same
 // call ID in two Turns; the result is then the latest one, as in SpilledResults.
 func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolCallID) (spilled gotato.SpilledResult, ok bool, err error) {
-	entries, err := log.Log(ctx, id, 0)
+	entries, err := log.Log(ctx, id, 0, 0)
 	if err != nil {
 		return gotato.SpilledResult{}, false, err
 	}
@@ -137,7 +137,7 @@ func readSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body
 	if seq == 0 {
 		return "", true, nil
 	}
-	entries, err := log.Log(ctx, id, seq-1)
+	entries, err := log.Log(ctx, id, seq-1, 1)
 	if err != nil {
 		return "", false, err
 	}

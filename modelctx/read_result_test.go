@@ -23,9 +23,9 @@ type countingStore struct {
 	logs atomic.Int64
 }
 
-func (s *countingStore) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
+func (s *countingStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	s.logs.Add(1)
-	return s.Store.Log(ctx, id, after)
+	return s.Store.Log(ctx, id, after, limit)
 }
 
 // spillFixture is a stored Session whose Runs call a tool that returns body.

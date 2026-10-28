@@ -328,7 +328,7 @@ func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record,
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
 func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
-	return session.StoredEvents(ctx, r.store, sessionID, 0)
+	return session.StoredEvents(ctx, r.store, sessionID, 0, 0)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first.

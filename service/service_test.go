@@ -663,7 +663,7 @@ func TestStoreEventsAreInstanceEvents(t *testing.T) {
 	}
 
 	// They time the store; they are not part of the Session's own Record.
-	stored, err := session.StoredEvents(ctx, store, first.SessionID, 0)
+	stored, err := session.StoredEvents(ctx, store, first.SessionID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

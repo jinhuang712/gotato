@@ -21,8 +21,8 @@ type watchedStore struct {
 	verifies   atomic.Int64 // Loads since the last batch
 }
 
-func (w *watchedStore) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
-	entries, err := w.Store.Log(ctx, id, after)
+func (w *watchedStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	entries, err := w.Store.Log(ctx, id, after, limit)
 	if err == nil {
 		if len(entries) == 0 {
 			w.emptyReads.Add(1)

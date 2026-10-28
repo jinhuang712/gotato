@@ -73,7 +73,7 @@ func TestCloseSegmentAndCheckpointWritesBothTogether(t *testing.T) {
 			if err := writer.Flush(ctx); err != nil {
 				t.Fatal(err)
 			}
-			entries, err := store.Log(ctx, "seg-both", 0)
+			entries, err := store.Log(ctx, "seg-both", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

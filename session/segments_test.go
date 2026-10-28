@@ -72,7 +72,7 @@ func TestCheckpointSegmentsPointsToTheStoredSegment(t *testing.T) {
 			}
 			commit(t, writer, idMessage("u3", "user", "three"))
 
-			entries, err := store.Log(ctx, "seg-1", 0)
+			entries, err := store.Log(ctx, "seg-1", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +177,7 @@ func TestASegmentIsNeverRewrittenByTheNextCompaction(t *testing.T) {
 			if err != nil || view.Len() != reopened.Len() || len(view.Segments()) != 2 {
 				t.Fatalf("View = %v, %v", view, err)
 			}
-			events, err := session.StoredEvents(ctx, store, "seg-2", 0)
+			events, err := session.StoredEvents(ctx, store, "seg-2", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

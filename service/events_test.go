@@ -52,7 +52,7 @@ func numbered(events []gotato.Event) []string {
 // recordRange returns the Record's Events numbered from first to last.
 func recordRange(t *testing.T, runner *service.Runner, sessionID string, first, last uint64) []gotato.Event {
 	t.Helper()
-	stored, err := session.StoredEvents(context.Background(), runner.Store(), sessionID, 0)
+	stored, err := session.StoredEvents(context.Background(), runner.Store(), sessionID, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func settledInRecord(t *testing.T, runner *service.Runner, sessionID string, tim
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if stored, err := session.StoredEvents(context.Background(), runner.Store(), sessionID, 0); err == nil {
+		if stored, err := session.StoredEvents(context.Background(), runner.Store(), sessionID, 0, 0); err == nil {
 			for _, event := range stored {
 				if event.Kind() == gotato.EventKindRunEnded {
 					return
@@ -148,7 +148,7 @@ func TestSinkThatNeverReadsDoesNotSlowTheSession(t *testing.T) {
 		t.Fatal("StreamRun returned while its sink was still blocked on the first Event")
 	default:
 	}
-	stored, err := session.StoredEvents(ctx, runner.Store(), s.ID(), 0)
+	stored, err := session.StoredEvents(ctx, runner.Store(), s.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestRunStreamNumbersAreRecordNumbers(t *testing.T) {
 		t.Fatalf("the second Run's first Event is numbered %d, but the first Run ended at %d", n, firstEnd)
 	}
 	// And the numbers are those the store holds.
-	stored, err := session.StoredEvents(ctx, runner.Store(), first.SessionID, storedOnly(streamed)[0].Head().Number-1)
+	stored, err := session.StoredEvents(ctx, runner.Store(), first.SessionID, storedOnly(streamed)[0].Head().Number-1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

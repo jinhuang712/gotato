@@ -263,7 +263,7 @@ func (r *Runner) findLiveRun(ctx context.Context, sessionID string) (*runHandle,
 // here, and the error is returned as it is.
 func (r *Runner) reachStore(ctx context.Context, sessionID string) error {
 	// An after position past any Record's end reads no Entries.
-	_, err := r.store.Log(ctx, sessionID, math.MaxInt64)
+	_, err := r.store.Log(ctx, sessionID, math.MaxInt64, 1)
 	return err
 }
 

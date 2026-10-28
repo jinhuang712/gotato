@@ -41,7 +41,7 @@ func TestCheckpointKeepsTheClaim(t *testing.T) {
 	if claim := wb.Record().Claim(); claim != (session.Claim{Instance: "instance-b", Epoch: 2}) {
 		t.Fatalf("claim = %+v, want instance-b at epoch 2", claim)
 	}
-	events, err := session.StoredEvents(ctx, store, r.ID(), 0)
+	events, err := session.StoredEvents(ctx, store, r.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

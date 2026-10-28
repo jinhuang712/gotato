@@ -52,7 +52,7 @@ func addressedRunner(t *testing.T, store session.Store, instance string, model g
 // queued, and the order they were committed, and the IDs that were dropped.
 func messageEvents(t *testing.T, store session.Store, id string) (queued, committed map[gotato.MessageSource][]gotato.MessageID, dropped map[gotato.MessageID]bool) {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0)
+	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

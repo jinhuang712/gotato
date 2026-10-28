@@ -113,7 +113,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 	commit(t, writer, gotato.UserMessage("four"))
 
-	entries, err := store.Log(ctx, "cp-1", 0)
+	entries, err := store.Log(ctx, "cp-1", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if len(got) != 3 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindSegmentClosed || got[2] != gotato.EventKindCompactionEnded {
 		t.Fatalf("after a compaction: %v", got)
 	}
-	events, err := session.StoredEvents(ctx, store, "cmp-1", uint64(len(before)+2))
+	events, err := session.StoredEvents(ctx, store, "cmp-1", uint64(len(before)+2), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

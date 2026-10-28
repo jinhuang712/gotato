@@ -252,7 +252,7 @@ func (w *Writer) Resume(ctx context.Context) error {
 // with a log shorter than the head reports a copy as current, and the next
 // write fails with ErrNotFound (see Resume).
 func (w *Writer) Stale(ctx context.Context) (bool, error) {
-	entries, err := w.store.Log(ctx, w.record.ID(), w.record.Head())
+	entries, err := w.store.Log(ctx, w.record.ID(), w.record.Head(), 1)
 	if err != nil {
 		return false, err
 	}
@@ -272,7 +272,7 @@ func Open(ctx context.Context, store Store, id string) (*Record, error) {
 // View loads a Record from its whole log, for reading only: its facts, and
 // its Run records, usage and Events.
 func View(ctx context.Context, store Store, id string) (*Record, error) {
-	entries, err := store.Log(ctx, id, 0)
+	entries, err := store.Log(ctx, id, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +294,7 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Record, error) {
 	entries, head := loaded.Facts, loaded.Head
 	if loaded.Info.Running != "" && len(loaded.Facts) > 0 {
-		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1)
+		tail, err := store.Log(ctx, id, loaded.Facts[0].Seq-1, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -384,31 +384,41 @@ func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Eve
 }
 
 // EventsAfter implements gotato.EventSource: the stored Events after number
-// after, read again from the store. A subscriber that fell behind catches up
-// from it.
-func (w *Writer) EventsAfter(ctx context.Context, after uint64, _ int) ([]gotato.Event, error) {
-	return StoredEvents(ctx, w.store, w.record.ID(), after)
+// after, read again from the store, at most limit of them. A subscriber that
+// fell behind catches up from it.
+func (w *Writer) EventsAfter(ctx context.Context, after uint64, limit int) ([]gotato.Event, error) {
+	return StoredEvents(ctx, w.store, w.record.ID(), after, limit)
 }
 
 // StoredEvents reads a Record's stored Events after number after from store,
-// in order, as typed Events. A tool_result_spilled Event comes
-// without its body, as a subscriber sees it: read_result reads the body.
-func StoredEvents(ctx context.Context, store Store, id string, after uint64) ([]gotato.Event, error) {
-	entries, err := store.Log(ctx, id, after)
-	if err != nil {
-		return nil, err
-	}
-	events := make([]gotato.Event, 0, len(entries))
-	for _, entry := range entries {
-		event, ok, err := eventOf(entry, gotato.SessionID(id))
+// in order, as typed Events: at most limit Entries are read at a time, and all
+// the Events are returned when limit is 0 or less. A tool_result_spilled Event
+// comes without its body, as a subscriber sees it: read_result reads the body.
+// With a limit it returns at least one Event when the Record has one after
+// after, so an empty answer always means there are no more.
+func StoredEvents(ctx context.Context, store Store, id string, after uint64, limit int) ([]gotato.Event, error) {
+	var events []gotato.Event
+	for {
+		entries, err := store.Log(ctx, id, after, limit)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			events = append(events, gotato.WithoutBody(event))
+		for _, entry := range entries {
+			event, ok, err := eventOf(entry, gotato.SessionID(id))
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				events = append(events, gotato.WithoutBody(event))
+			}
 		}
+		// An Entry that holds no Event is skipped; read on, so that a page of
+		// them is not taken for the end of the log.
+		if limit <= 0 || len(events) > 0 || len(entries) == 0 {
+			return events, nil
+		}
+		after = entries[len(entries)-1].Seq
 	}
-	return events, nil
 }
 
 // writeTimeout bounds one write. A write does not end with the caller's

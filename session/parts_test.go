@@ -102,7 +102,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 			t.Fatalf("%s holds %d Cut-off replies, want one of %d bytes", name, len(got), len(want))
 		}
 	}
-	events, err := session.StoredEvents(ctx, store, record.ID(), 0)
+	events, err := session.StoredEvents(ctx, store, record.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 // countStored counts the stored Events of a kind in a Session's Record.
 func countStored(t *testing.T, store session.Store, id string, kind gotato.EventKind) int {
 	t.Helper()
-	stored, err := session.StoredEvents(context.Background(), store, id, 0)
+	stored, err := session.StoredEvents(context.Background(), store, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

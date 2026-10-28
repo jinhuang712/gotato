@@ -65,11 +65,11 @@ func (s *killStore) Load(ctx context.Context, id string) (session.Loaded, error)
 	return s.Store.Load(ctx, id)
 }
 
-func (s *killStore) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
+func (s *killStore) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
 	if err := s.alive(); err != nil {
 		return nil, err
 	}
-	return s.Store.Log(ctx, id, after)
+	return s.Store.Log(ctx, id, after, limit)
 }
 
 func (s *killStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {

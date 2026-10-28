@@ -267,8 +267,8 @@ type prunedLog struct {
 	through uint64
 }
 
-func (p prunedLog) Log(ctx context.Context, id string, after uint64) ([]session.Entry, error) {
-	entries, err := p.Store.Log(ctx, id, after)
+func (p prunedLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	entries, err := p.Store.Log(ctx, id, after, limit)
 	var kept []session.Entry
 	for _, entry := range entries {
 		if entry.Seq > p.through {

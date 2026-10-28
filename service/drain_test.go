@@ -55,7 +55,7 @@ func sharedStores(t *testing.T, kind string) func() session.Store {
 func checkReleased(t *testing.T, store session.Store, id, instance string) {
 	t.Helper()
 	ctx := context.Background()
-	entries, err := store.Log(ctx, id, 0)
+	entries, err := store.Log(ctx, id, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

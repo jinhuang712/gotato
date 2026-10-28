@@ -90,7 +90,7 @@ func TestSSEClientThatStopsReadingDoesNotSlowTheRun(t *testing.T) {
 	var stored []gotato.Event
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		stored, err = session.StoredEvents(ctx, runner.Store(), s.ID(), 0)
+		stored, err = session.StoredEvents(ctx, runner.Store(), s.ID(), 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

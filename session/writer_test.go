@@ -71,7 +71,7 @@ func TestReopeningByTheHolderWritesTheClaimAgain(t *testing.T) {
 	if claim := reopened.Record().Claim(); claim != (session.Claim{Instance: "instance-a", Epoch: 1}) {
 		t.Fatalf("claim = %+v, want instance-a still at epoch 1", claim)
 	}
-	events, err := session.StoredEvents(ctx, store, id, before.Head)
+	events, err := session.StoredEvents(ctx, store, id, before.Head, 0)
 	if err != nil || len(events) != 1 || events[0].Head().Number != before.Head+1 {
 		t.Fatalf("written after the head = %v, %v; want one claim at %d", events, err, before.Head+1)
 	}
@@ -96,7 +96,7 @@ func TestReopeningByTheHolderWritesTheClaimAgain(t *testing.T) {
 
 func storedKinds(t *testing.T, store session.Store, id string, after uint64) []gotato.EventKind {
 	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, after)
+	events, err := session.StoredEvents(context.Background(), store, id, after, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestCreateWritesSessionCreatedThenTheFirstClaim(t *testing.T) {
 	if _, err := session.CreateWriter(ctx, store, record, "instance-a"); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := store.Log(ctx, "c1", 0)
+	entries, err := store.Log(ctx, "c1", 0, 0)
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("log = %+v, %v; want two Entries", entries, err)
 	}
@@ -224,7 +224,7 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 			if claim := second.Record().Claim(); claim != (session.Claim{Instance: "instance-b", Epoch: 2}) {
 				t.Fatalf("claim = %+v, want instance-b at epoch 2", claim)
 			}
-			events, err := session.StoredEvents(ctx, store, id, head.Head)
+			events, err := session.StoredEvents(ctx, store, id, head.Head, 0)
 			if err != nil || len(events) == 0 {
 				t.Fatalf("written = %v, %v", events, err)
 			}
@@ -248,7 +248,7 @@ func TestPublisherReceivesWhatWasWrittenAfterTheWrite(t *testing.T) {
 	var published []gotato.Event
 	publish := func(event gotato.Event) {
 		// The Entry is in the store by now.
-		entries, err := store.Log(ctx, "p1", 0)
+		entries, err := store.Log(ctx, "p1", 0, 0)
 		if err != nil || uint64(len(entries)) < event.Head().Number {
 			t.Errorf("%s numbered %d was published before its write: %d Entries stored, %v", event.Kind(), event.Head().Number, len(entries), err)
 		}
@@ -312,7 +312,7 @@ func TestReleasePublishesSessionReleased(t *testing.T) {
 	if released := published[1].(gotato.SessionReleased); released.Instance != "instance-a" || released.Epoch != 1 {
 		t.Fatalf("session_released = %+v", released)
 	}
-	entries, err := store.Log(ctx, "rel", 3)
+	entries, err := store.Log(ctx, "rel", 3, 0)
 	if err != nil || len(entries) != 1 || entries[0].Kind != gotato.EventKindSessionReleased {
 		t.Fatalf("stored after the claim = %+v, %v", entries, err)
 	}

@@ -38,7 +38,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idleBefore, err := store.Log(ctx, idle.ID(), 0)
+	idleBefore, err := store.Log(ctx, idle.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestActivationLimitRefusesANewSessionBeforeItRuns(t *testing.T) {
 	if len(sessionsAfter) != len(sessionsBefore) {
 		t.Fatalf("sessions in the store: %d before the refusals, %d after", len(sessionsBefore), len(sessionsAfter))
 	}
-	idleAfter, err := store.Log(ctx, idle.ID(), 0)
+	idleAfter, err := store.Log(ctx, idle.ID(), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

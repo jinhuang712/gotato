@@ -36,7 +36,7 @@ func TestSkipSaveRunDoesNotUseRecordNumbers(t *testing.T) {
 	if len(stored) == 0 || stored[0].Head().Number != 1 {
 		t.Fatalf("the unsaved Run's first stored Event is numbered %v, want 1: its numbers are not Record positions", numbered(stored))
 	}
-	if after, err := session.StoredEvents(ctx, store, first.SessionID, head); err != nil || len(after) != 0 {
+	if after, err := session.StoredEvents(ctx, store, first.SessionID, head, 0); err != nil || len(after) != 0 {
 		t.Fatalf("the unsaved Run wrote %d Events (%v)", len(after), err)
 	}
 

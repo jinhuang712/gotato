@@ -57,6 +57,7 @@ var checks = []check{
 	{"a stale writer is refused", checkStaleWriter},
 	{"a write must continue the head", checkContinuesHead},
 	{"one writer wins a position", checkRace},
+	{"log honors its limit", checkLogLimit},
 	{"list returns summaries", checkList},
 	{"the record epoch survives every read", checkRecordEpoch},
 	{"delete", checkDelete},
@@ -195,7 +196,7 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 	if loaded.Head != 3 || loaded.Info.Seq != 3 || loaded.Info.Metadata["k"] != "v" {
 		return fmt.Errorf("load = head %d, summary %+v; want head 3 and the summary written", loaded.Head, loaded.Info)
 	}
-	all, err := open().Log(ctx, "r1", 0)
+	all, err := open().Log(ctx, "r1", 0, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
@@ -279,14 +280,14 @@ func checkAppend(ctx context.Context, open Open) error {
 		return fmt.Errorf("append: %w", err)
 	}
 	all := append(entries, more...)
-	got, err := open().Log(ctx, "r1", 0)
+	got, err := open().Log(ctx, "r1", 0, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
 	if err := sameEntries(got, all); err != nil {
 		return fmt.Errorf("log after Append: %w", err)
 	}
-	tail, err := open().Log(ctx, "r1", 3)
+	tail, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log after 3: %w", err)
 	}
@@ -338,7 +339,7 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 	if err := store.Append(ctx, "r1", 3, more, summary("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
-	got, err := open().Log(ctx, "r1", 3)
+	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log after 3: %w", err)
 	}
@@ -406,7 +407,7 @@ func checkStaleWriter(ctx context.Context, open Open) error {
 	if err := second.Append(ctx, "r1", 3, stale, summary("r1", 5, "2026-10-17T00:00:05.000Z")); !errors.Is(err, session.ErrConflict) {
 		return fmt.Errorf("an Append after a position already written = %v, want ErrConflict", err)
 	}
-	got, err := open().Log(ctx, "r1", 3)
+	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
@@ -464,7 +465,7 @@ func checkRace(ctx context.Context, open Open) error {
 	if winner < 0 {
 		return errors.New("no writer won position 4")
 	}
-	got, err := open().Log(ctx, "r1", 3)
+	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
@@ -612,7 +613,7 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	if !errors.Is(err, session.ErrNotFound) {
 		return fmt.Errorf("an append of the deleted record, over a position the new record holds = %v, want ErrNotFound", err)
 	}
-	log, err := open().Log(ctx, "r1", 0)
+	log, err := open().Log(ctx, "r1", 0, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
@@ -624,7 +625,7 @@ func checkUnknown(ctx context.Context, open Open) error {
 	if _, err := store.Load(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
 		return fmt.Errorf("load = %v, want ErrNotFound", err)
 	}
-	if _, err := store.Log(ctx, "missing", 0); !errors.Is(err, session.ErrNotFound) {
+	if _, err := store.Log(ctx, "missing", 0, 0); !errors.Is(err, session.ErrNotFound) {
 		return fmt.Errorf("log = %v, want ErrNotFound", err)
 	}
 	if err := store.Append(ctx, "missing", 1, []session.Entry{fact(2, "a")}, summary("missing", 2, "")); !errors.Is(err, session.ErrNotFound) {
@@ -729,7 +730,7 @@ func checkInvalidID(ctx context.Context, open Open) error {
 	store := open()
 	for _, id := range []string{"", "a/b", `a\b`, "..", "a..b", ".hidden", "a\x00b", "a\nb", "a\xffb", strings.Repeat("x", 101)} {
 		_, loadErr := store.Load(ctx, id)
-		_, logErr := store.Log(ctx, id, 0)
+		_, logErr := store.Log(ctx, id, 0, 0)
 		calls := []error{
 			store.Create(ctx, id, []session.Entry{checkpoint(1, "a")}, summary(id, 1, "")),
 			store.Append(ctx, id, 1, []session.Entry{fact(2, "a")}, summary(id, 2, "")),
@@ -762,7 +763,7 @@ func checkIDCase(ctx context.Context, open Open) error {
 		}
 	}
 	for _, id := range ids {
-		log, err := open().Log(ctx, id, 0)
+		log, err := open().Log(ctx, id, 0, 0)
 		if err != nil {
 			return fmt.Errorf("log of %q: %w", id, err)
 		}
@@ -786,6 +787,44 @@ func checkIDCase(ctx context.Context, open Open) error {
 	}
 	if _, err := store.Load(ctx, "Case"); err != nil {
 		return fmt.Errorf("load of %q after deleting %q: %w", "Case", "case", err)
+	}
+	return nil
+}
+
+// checkLogLimit holds a Store to Log's limit: at most limit Entries, from the
+// first after the position, and every Entry when limit is 0.
+func checkLogLimit(ctx context.Context, open Open) error {
+	store := open()
+	entries, err := create(ctx, store, "r1")
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	more := []session.Entry{fact(4, "a"), logEntry(5, "a")}
+	if err := store.Append(ctx, "r1", 3, more, summary("r1", 5, "2026-10-17T00:00:05.000Z")); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	all := append(entries, more...)
+	for _, c := range []struct {
+		after uint64
+		limit int
+		want  []session.Entry
+	}{
+		{0, 1, all[:1]},
+		{0, 4, all[:4]},
+		{2, 2, all[2:4]},
+		{3, 1, all[3:4]},
+		{4, 10, all[4:]},
+		{5, 1, nil},
+		{0, 0, all},
+		{0, -1, all},
+	} {
+		got, err := open().Log(ctx, "r1", c.after, c.limit)
+		if err != nil {
+			return fmt.Errorf("log after %d, limit %d: %w", c.after, c.limit, err)
+		}
+		if err := sameEntries(got, c.want); err != nil {
+			return fmt.Errorf("log after %d, limit %d: %w", c.after, c.limit, err)
+		}
 	}
 	return nil
 }

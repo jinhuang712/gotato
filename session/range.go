@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -10,7 +11,7 @@ import (
 // EntryLog is the part of a Store that reads a Record's log. Every Store is
 // one.
 type EntryLog interface {
-	Log(ctx context.Context, id string, after uint64) ([]Entry, error)
+	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)
 }
 
 // CommittedMessages reads back the Messages that Entries from to to (both
@@ -26,7 +27,7 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 	if from == 0 || to < from {
 		return nil, false, nil
 	}
-	entries, err := log.Log(ctx, id, from-1)
+	entries, err := log.Log(ctx, id, from-1, int(min(to-from+1, math.MaxInt32)))
 	if errors.Is(err, ErrNotFound) {
 		return nil, false, nil
 	}

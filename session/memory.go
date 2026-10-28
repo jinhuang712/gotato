@@ -100,7 +100,7 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 }
 
 // Log implements Store.
-func (m *MemoryStore) Log(ctx context.Context, id string, after uint64) ([]Entry, error) {
+func (m *MemoryStore) Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -116,7 +116,11 @@ func (m *MemoryStore) Log(ctx context.Context, id string, after uint64) ([]Entry
 	if after >= uint64(len(record.entries)) {
 		return nil, nil
 	}
-	return cloneEntries(record.entries[after:]), nil
+	rest := record.entries[after:]
+	if limit > 0 && len(rest) > limit {
+		rest = rest[:limit]
+	}
+	return cloneEntries(rest), nil
 }
 
 // List implements Store.

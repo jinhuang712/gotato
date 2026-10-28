@@ -61,7 +61,7 @@ func TestFileStoreWriterHeldAfterItsCheckCannotWriteARecordCreatedAgain(t *testi
 	if !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("an Append held across a delete and create = %v, want ErrNotFound", err)
 	}
-	entries, err := b.Log(ctx, "r", 0)
+	entries, err := b.Log(ctx, "r", 0, 0)
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("the new Record holds %d Entries (%v), want 2", len(entries), err)
 	}
