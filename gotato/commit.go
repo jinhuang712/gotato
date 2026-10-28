@@ -66,7 +66,7 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
 	if err := a.transcript.Append(message); err != nil {
-		return runtimeError(CodeInternalInvariant, "commitMessage", "cannot append to transcript: "+err.Error(), err)
+		return runtimeError(CodeInternalInvariant, "commitMessage", publicMessage(err, "cannot append to transcript"), err)
 	}
 	a.transcriptBytes = candidate
 	return nil

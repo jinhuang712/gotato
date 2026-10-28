@@ -458,7 +458,8 @@ func TestContextOverflowRunReportsItsCodeAndMapsTo422(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("body = %s: %v", body, err)
 	}
-	if status != http.StatusOK || out.Result.Status != "failed" || out.Result.Error.Code != "context_overflow" || !strings.Contains(out.Result.Error.Message, "prompt is too long") {
+	if status != http.StatusOK || out.Result.Status != "failed" || out.Result.Error.Code != "context_overflow" || strings.Contains(out.Result.Error.Message, "prompt is too long") || out.Result.Error.Message == "" {
+		// The Model's text stays on the Cause; the Message is fixed.
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
 	// The same error, returned as a call's error, is 422.

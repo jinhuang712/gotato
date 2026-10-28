@@ -3,7 +3,6 @@ package service_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -143,7 +142,8 @@ func TestFailedOneShotCleanupIsReported(t *testing.T) {
 func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	store := &failingSaveStore{Store: session.NewMemoryStore(), failFinal: true}
 	model := testkit.NewFakeModel(testkit.Text("x"))
-	model.Err = errors.New("model exploded")
+	modelErr := errors.New("model exploded")
+	model.Err = modelErr
 	runner, err := service.New(service.Config{
 		Store:  store,
 		Agents: []service.Agent{{Name: "boom", Model: model}},
@@ -155,7 +155,8 @@ func TestUnpersistedFailedRunStillReportsSaveFailure(t *testing.T) {
 	if !errors.Is(err, service.ErrNotPersisted) {
 		t.Fatalf("err = %v, want ErrNotPersisted in the chain", err)
 	}
-	if !strings.Contains(err.Error(), "model exploded") {
+	// The Run's error is in the chain; its foreign text stays on the Cause.
+	if !errors.Is(err, modelErr) {
 		t.Fatalf("run error lost from the joined error: %v", err)
 	}
 	if result.Result.Status != gotato.RunStatusFailed {

@@ -243,18 +243,21 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 		return runtimeError(CodeModelFailure, "Model", "unknown Model failure", nil)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Only the text of a context that really ended is used: the Model's
+		// own error may carry what a client must not read, and stays on the
+		// Cause.
 		if cause := runCtx.Err(); cause != nil {
-			return runtimeError(codeForContext(cause), "Model", err.Error(), err)
+			return runtimeError(codeForContext(cause), "Model", cause.Error(), err)
 		}
 		if cause := modelCtx.Err(); cause != nil {
-			failure := runtimeError(codeForContext(cause), "Model", err.Error(), err)
+			failure := runtimeError(codeForContext(cause), "Model", cause.Error(), err)
 			if limit > 0 && errors.Is(cause, context.DeadlineExceeded) {
 				failure.Message = "model call exceeded ModelCallDeadline"
 				failure.Details = map[string]string{"limit": limit.String()}
 			}
 			return failure
 		}
-		failure := runtimeError(CodeModelFailure, "Model", err.Error(), err)
+		failure := runtimeError(CodeModelFailure, "Model", publicMessage(err, "model call failed"), err)
 		failure.Retryable = errors.Is(err, context.DeadlineExceeded)
 		return failure
 	}
@@ -267,9 +270,9 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 	}
 	var overflow interface{ ContextOverflow() bool }
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
-		return runtimeError(CodeContextOverflow, "Model", err.Error(), err)
+		return runtimeError(CodeContextOverflow, "Model", publicMessage(err, "the request is longer than the model accepts"), err)
 	}
-	failure := runtimeError(CodeModelFailure, "Model", err.Error(), err)
+	failure := runtimeError(CodeModelFailure, "Model", publicMessage(err, "model call failed"), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
 	// a broken stream) says so with `Retryable() bool`, as the gateway's
 	// Error does. The Model was called, so the request is not "not run".
@@ -300,5 +303,5 @@ func asRuntimeError(err error) *RuntimeError {
 	if errors.As(err, &runtimeErr) {
 		return runtimeErr
 	}
-	return runtimeError(CodeInternalInvariant, "Core", err.Error(), err)
+	return runtimeError(CodeInternalInvariant, "Core", publicMessage(err, "internal error"), err)
 }
