@@ -12,7 +12,7 @@ import (
     "github.com/jinhuang712/gotato/testkit"
 )
 
-s, err := gotato.NewSession(
+s, err := gotato.NewSession(ctx,
     gotato.WithModel(testkit.EchoModel{}), // any gotato.Model
     gotato.WithInstruction("You are a helpful assistant."),
 )
@@ -42,7 +42,7 @@ weather, err := gotato.NewFuncTool("weather", "Returns the weather of a city.", 
     return "sunny in " + in.City, nil
 })
 
-s, err := gotato.NewSession(
+s, err := gotato.NewSession(ctx,
     gotato.WithModel(model),
     gotato.WithTools(weather),
 )

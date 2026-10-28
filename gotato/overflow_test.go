@@ -28,7 +28,7 @@ func TestModelErrorThatSaysOverflowEndsTheRunWithContextOverflow(t *testing.T) {
 		{"plain failure", errors.New("boom"), CodeModelFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session, err := NewSession(WithModel(failingModel{err: tc.err}))
+			session, err := NewSession(context.Background(), WithModel(failingModel{err: tc.err}))
 			if err != nil {
 				t.Fatal(err)
 			}

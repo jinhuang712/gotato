@@ -11,7 +11,7 @@
 // ID, and keeps its Events in it:
 //
 //	r := session.New()
-//	s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
+//	s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTranscript(r))
 //	s.Prompt(ctx, gotato.UserMessage("hi"))
 //
 // A compaction can close a stretch of history into a gotato.Segment: the

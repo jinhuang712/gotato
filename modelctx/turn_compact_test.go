@@ -83,7 +83,7 @@ func newLive(t *testing.T, policy modelctx.CompactPolicy) *live {
 // run plays one prompt with model and a tool that returns result.
 func (l *live) run(model gotato.Model, prompt, result string) (gotato.RunResult, error) {
 	l.t.Helper()
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(l.writer),
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(l.writer),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", result)), gotato.WithExtension(l.auto))
 	if err != nil {
 		l.t.Fatal(err)

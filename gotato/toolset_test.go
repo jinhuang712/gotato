@@ -109,7 +109,7 @@ func (s *stubToolSet) Tools(ctx context.Context) ([]Tool, error) {
 func TestFailedToolSetResolutionDoesNotFailNewSession(t *testing.T) {
 	set := &stubToolSet{name: "files", err: errors.New("catalog is down")}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithToolSet(set))
+	agent, err := NewSession(context.Background(), WithModel(model), WithToolSet(set))
 	if err != nil {
 		t.Fatalf("a ToolSet that does not resolve failed NewSession: %v", err)
 	}
@@ -118,20 +118,20 @@ func TestFailedToolSetResolutionDoesNotFailNewSession(t *testing.T) {
 
 func TestToolSetConstructionValidation(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
-	if _, err := NewSession(WithModel(model),
+	if _, err := NewSession(context.Background(), WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}}}),
 		WithActiveToolSet(&stubToolSet{name: "files", tools: []Tool{&namedTool{id: "write"}}}),
 	); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("duplicate ToolSet name = %v", err)
 	}
-	if _, err := NewSession(WithModel(model),
+	if _, err := NewSession(context.Background(), WithModel(model),
 		WithActiveToolSet(&stubToolSet{name: "files.deep", tools: []Tool{&namedTool{id: "read"}}}),
 	); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("dotted ToolSet name = %v", err)
 	}
 	// A ToolSet that returns a duplicate local Tool name is unavailable.
 	dup := &stubToolSet{name: "files", tools: []Tool{&namedTool{id: "read"}, &namedTool{id: "read"}}}
-	if agent, err := NewSession(WithModel(model), WithActiveToolSet(dup)); err != nil {
+	if agent, err := NewSession(context.Background(), WithModel(model), WithActiveToolSet(dup)); err != nil {
 		t.Fatalf("duplicate local Tool name = %v", err)
 	} else {
 		if agent.registry.sets[0].failure == nil {
@@ -139,7 +139,7 @@ func TestToolSetConstructionValidation(t *testing.T) {
 		}
 		_ = agent.Close(context.Background())
 	}
-	if _, err := NewSession(WithModel(model), WithToolSet(nil)); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewSession(context.Background(), WithModel(model), WithToolSet(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil ToolSet = %v", err)
 	}
 }
@@ -167,7 +167,7 @@ func TestParallelToolsCommitInSourceOrder(t *testing.T) {
 	limits := defaultLimits()
 	limits.MaxParallelTools = 2
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("slow", "fast"), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(first, second), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(first, second), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestSequentialToolRunsAlone(t *testing.T) {
 		&namedTool{id: "b", arrive: arrive, hold: bRelease, tracker: tracker},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("a", "guard", "b"), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tools...), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tools...), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func (panicSpecToolSet) Tools(context.Context) ([]Tool, error) { return nil, nil
 
 func TestToolSetSpecPanicBecomesRuntimeError(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("x")}}
-	_, err := NewSession(WithModel(model), WithActiveToolSet(panicSpecToolSet{}))
+	_, err := NewSession(context.Background(), WithModel(model), WithActiveToolSet(panicSpecToolSet{}))
 	if err == nil {
 		t.Fatal("a panicking ToolSet.Spec did not fail NewSession")
 	}
@@ -358,7 +358,7 @@ func TestParallelWorkerBoundIsRespected(t *testing.T) {
 		&namedTool{id: "four", arrive: arrive, hold: release, tracker: tracker},
 	}
 	model := &recordingModel{scripts: [][]ModelEvent{parallelCallScript("one", "two", "three", "four"), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tools...), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tools...), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

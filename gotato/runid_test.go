@@ -19,7 +19,7 @@ func runIDsOf(messages []Message) map[RunID]int {
 // and each tool result; a later Run's carry its own.
 func TestMessagesCarryTheRunThatCommittedThem(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done"), finalScript("second")}}
-	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(&scriptedTool{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSteeredMessagesCarryTheirRun(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(&scriptedTool{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestContinuationMessageCarriesTheRun(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTruncatedContinuations = 2
 	model := &recordingModel{scripts: [][]ModelEvent{cut, finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestContinuationMessageCarriesTheRun(t *testing.T) {
 func TestHistoryOutsideARunHasNoRunID(t *testing.T) {
 	history := &memoryTranscript{messages: []Message{UserMessage("earlier"), AssistantMessage("earlier reply")}}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("ok")}}
-	agent, err := NewSession(WithModel(model), WithTranscript(history))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTranscript(history))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestRunIDNeverReachesTheModel(t *testing.T) {
 	a := &recordingModel{scripts: [][]ModelEvent{finalScript("ok")}}
 	b := &recordingModel{scripts: [][]ModelEvent{finalScript("ok")}}
 	for model, history := range map[*recordingModel][]Message{a: with, b: without} {
-		agent, err := NewSession(WithModel(model), WithTranscript(&memoryTranscript{messages: append([]Message(nil), history...)}))
+		agent, err := NewSession(context.Background(), WithModel(model), WithTranscript(&memoryTranscript{messages: append([]Message(nil), history...)}))
 		if err != nil {
 			t.Fatal(err)
 		}

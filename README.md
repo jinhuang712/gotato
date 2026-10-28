@@ -108,7 +108,7 @@ weather, _ := gotato.NewFuncTool("weather", "Returns the weather of a city.", fu
 })
 
 // 3. A Session is one conversation: the model, an instruction and the tools.
-s, _ := gotato.NewSession(
+s, _ := gotato.NewSession(ctx,
     gotato.WithModel(model),
     gotato.WithInstruction("You are a helpful assistant."),
     gotato.WithTools(weather),
@@ -132,7 +132,7 @@ import "github.com/jinhuang712/gotato/adapter/mcp"
 crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"))
 defer crm.Close() // the service closes it, never a Session
 
-s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithActiveToolSet(crm))
+s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithActiveToolSet(crm))
 ```
 
 [The MCP adapter](FEATURES.md#g-f12--the-mcp-adapter-) lists the transports (streamable HTTP and stdio), how a tool's annotations become its Effect, and how to authenticate.

@@ -87,6 +87,7 @@ func BenchmarkSessionFootprint(b *testing.B) {
 		agents := make([]*gotato.Session, footprintSessions)
 		for i := range agents {
 			agent, err := gotato.NewSession(
+				context.Background(),
 				gotato.WithModel(&footprintModel{}),
 				gotato.WithInstruction("You are a worker."),
 				gotato.WithTranscript(session.New()),

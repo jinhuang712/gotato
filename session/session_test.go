@@ -16,6 +16,7 @@ import (
 func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt string) gotato.RunResult {
 	t.Helper()
 	agent, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(model),
 		gotato.WithTranscript(s),
 		gotato.WithTools(testkit.DemoEchoTool()),
@@ -45,7 +46,7 @@ func TestLiveSessionTakesItsRecordID(t *testing.T) {
 			t.Fatalf("%s carries session_id %q, want order-42", event.Kind(), event.Head().SessionID)
 		}
 	}
-	live, err := gotato.NewSession(gotato.WithModel(testkit.EchoModel{}))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}))
 	if err != nil {
 		t.Fatal(err)
 	}

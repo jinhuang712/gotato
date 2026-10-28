@@ -18,7 +18,7 @@ func TestSharedFeedOverAPlainTranscriptContinuesItsNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = sub.Close() }()
-	s, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithFeed(feed))
+	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithFeed(feed))
 	if err != nil {
 		t.Fatal(err)
 	}

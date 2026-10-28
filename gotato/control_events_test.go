@@ -27,7 +27,7 @@ func TestSteerAndFollowUpAreQueuedThenCommitted(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTools(tool))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestLeftoverControlMessageIsDropped(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestFullQueueRejectsWithAnEvent(t *testing.T) {
 	limits.MaxFollowUpMessages = 1
 	limits.MaxSteerMessages = 1
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestReasoningDeltaIsSentNotStored(t *testing.T) {
 		{Kind: ModelEventKindTextDelta, Text: "answer"},
 		{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 	}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}

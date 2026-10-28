@@ -72,7 +72,7 @@ func cutSession(t *testing.T, s *cutServer, maxRetries int, opts ...gotato.Sessi
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := gotato.NewSession(append([]gotato.SessionOption{gotato.WithModel(client)}, opts...)...)
+	session, err := gotato.NewSession(context.Background(), append([]gotato.SessionOption{gotato.WithModel(client)}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCutAfterOutputIsNotRetriedWhenTheRunIsCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := gotato.NewSession(gotato.WithModel(client))
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestInterruptDuringStreamingIsNotRetriedAsACut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := gotato.NewSession(gotato.WithModel(client))
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 	if err != nil {
 		t.Fatal(err)
 	}

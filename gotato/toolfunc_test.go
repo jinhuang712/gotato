@@ -169,6 +169,7 @@ func (m *funcToolModel) Stream(ctx context.Context, request ModelRequest) (Model
 func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 	var seen weatherInput
 	agent, err := NewSession(
+		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen","unit":"celsius"}`}),
 		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			seen = in
@@ -194,6 +195,7 @@ func TestFuncToolRunsThroughTheLoop(t *testing.T) {
 func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 	executed := false
 	agent, err := NewSession(
+		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"unit":"celsius"}`}),
 		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			executed = true
@@ -227,6 +229,7 @@ func TestFuncToolMalformedArgumentsNeverExecute(t *testing.T) {
 func TestUnknownToolBecomesFailedToolResult(t *testing.T) {
 	model := &namedToolModel{tool: "get_wether"}
 	agent, err := NewSession(
+		context.Background(),
 		WithModel(model),
 		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, nil
@@ -272,6 +275,7 @@ func (m *namedToolModel) Stream(ctx context.Context, request ModelRequest) (Mode
 
 func TestFuncToolErrorBecomesFailedToolResult(t *testing.T) {
 	agent, err := NewSession(
+		context.Background(),
 		WithModel(&funcToolModel{arguments: `{"city":"Shenzhen"}`}),
 		WithTools(weatherTool(t, func(ctx context.Context, in weatherInput) (weatherOutput, error) {
 			return weatherOutput{}, errors.New("upstream is down")

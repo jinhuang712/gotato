@@ -62,7 +62,7 @@ func TestTakeoverRebuildsTheCutOffReplyFromItsParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	sent := make(chan struct{})
-	live, err := gotato.NewSession(gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(writer))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(writer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestUnstoredRecordKeepsNoReplyParts(t *testing.T) {
 	ctx := context.Background()
 	record := session.New()
 	sent := make(chan struct{})
-	live, err := gotato.NewSession(gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(record))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(stallModel{sent: sent}), gotato.WithTranscript(record))
 	if err != nil {
 		t.Fatal(err)
 	}

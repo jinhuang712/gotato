@@ -30,7 +30,7 @@ func TestRecordIsAJournalInMemory(t *testing.T) {
 		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 4, OutputTokens: 3, TotalTokens: 7}}}, testkit.Text("one")...),
 		append(testkit.Script{{Kind: gotato.ModelEventKindUsage, Usage: gotato.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9}}}, testkit.Text("two")...),
 	)
-	live, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(r))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(r))
 	if err != nil {
 		t.Fatal(err)
 	}

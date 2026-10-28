@@ -11,7 +11,7 @@
 // Subscription (Session.Subscribe, SubscribeRun). A stored Event
 // is written before it is sent, and the Session never waits for a subscriber.
 //
-//	s, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(tools...))
+//	s, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTools(tools...))
 //	if err != nil {
 //	    return err
 //	}

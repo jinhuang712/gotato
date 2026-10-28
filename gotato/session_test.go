@@ -72,7 +72,7 @@ func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStre
 
 func TestSessionPromptEventsAndClose(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hello"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestSessionAbort(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestSessionSingleFlight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	model := &testModel{started: started, block: release, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestSessionSingleFlight(t *testing.T) {
 func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	release := make(chan struct{})
 	model := &testModel{block: release, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
 		{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	transcript := &recordingTranscript{}
-	agent, err := NewSession(WithModel(model), WithTools(&scriptedTool{}), WithTranscript(transcript))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(&scriptedTool{}), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
 
 func TestSessionToolLoop(t *testing.T) {
 	tool := &scriptedTool{}
-	agent, err := NewSession(WithModel(&toolModel{}), WithTools(tool))
+	agent, err := NewSession(context.Background(), WithModel(&toolModel{}), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}

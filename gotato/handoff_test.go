@@ -9,7 +9,7 @@ import (
 // accepted, and runs in the next Run of another Session; one that does not fit
 // is returned, and DropQueued reports it.
 func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
-	first, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithQueueHandoff())
+	first, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 
 	limits := DefaultLimits()
 	limits.MaxSteerMessages, limits.MaxFollowUpMessages = 1, 1
-	second, err := NewSession(WithModel(&recordingModel{}), WithLimits(limits))
+	second, err := NewSession(context.Background(), WithModel(&recordingModel{}), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestTakeQueuedKeepsAcceptanceOrderAcrossQueues(t *testing.T) {
 // A canceled Run still drops what is queued, as before.
 func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
-	session, err := NewSession(WithModel(model), WithQueueHandoff())
+	session, err := NewSession(context.Background(), WithModel(model), WithQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestACanceledRunStillDropsItsQueue(t *testing.T) {
 // whether another Run takes it.
 func TestAFailedRunKeepsItsQueueForTheHost(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{{{Kind: "unknown"}}}, started: make(chan int, 4), gate: make(chan struct{}, 4)}
-	session, err := NewSession(WithModel(model), WithQueueHandoff())
+	session, err := NewSession(context.Background(), WithModel(model), WithQueueHandoff())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -91,7 +91,7 @@ func finalScript(text string) []ModelEvent {
 
 func TestContinueAppendsNoUserMessage(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("first"), finalScript("second"), finalScript("third")}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestSteerIsConsumedAtTheNextTurnBoundary(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTools(tool))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestSteerAtSettlementKeepsTheRunGoing(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestFollowUpWaitsForSettlement(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model), WithTools(tool))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestControlBuffersAreBounded(t *testing.T) {
 	limits.MaxFollowUpMessages = 1
 	limits.MaxSteerMessages = 1
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestControlBuffersAreBounded(t *testing.T) {
 
 func TestControlCommandsRejectedAfterClose(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestAbortCancelsTheCurrentRun(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestControlMessagesDoNotSurviveAFailedRun(t *testing.T) {
 		started: make(chan int, 8),
 		gate:    make(chan struct{}, 8),
 	}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}

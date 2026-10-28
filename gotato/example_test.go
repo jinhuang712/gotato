@@ -15,6 +15,7 @@ import (
 // A Session needs only a Model. Prompt returns when the Run settles.
 func Example() {
 	s, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(testkit.EchoModel{}), // any gotato.Model; providers live in gateway/
 		gotato.WithInstruction("You are a helpful assistant."),
 	)
@@ -43,6 +44,7 @@ func ExampleNewFuncTool() {
 		panic(err)
 	}
 	s, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(testkit.DemoModel{}), // a scripted model that calls testkit.DemoToolID
 		gotato.WithTools(weather, testkit.DemoEchoTool()),
 	)
@@ -61,7 +63,7 @@ func ExampleNewFuncTool() {
 
 // Every step of a Run is an Event, a Go type. Subscribe before Prompt.
 func ExampleSession_SubscribeRun() {
-	s, err := gotato.NewSession(gotato.WithModel(testkit.EchoModel{}))
+	s, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}))
 	if err != nil {
 		panic(err)
 	}
@@ -122,6 +124,7 @@ func Example_gatewayAndTool() {
 	}
 	// 3. A Session is one conversation: the model, an instruction and the tools.
 	s, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(model),
 		gotato.WithInstruction("You are a helpful assistant."),
 		gotato.WithTools(weather),

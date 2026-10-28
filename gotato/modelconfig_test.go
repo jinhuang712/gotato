@@ -12,6 +12,7 @@ func TestWithModelConfigReachesEveryModelCall(t *testing.T) {
 	temperature := 0.2
 	model := testkit.NewFakeModel(testkit.Text("done"))
 	agent, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(model),
 		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature, MaxTokens: 256, ReasoningEffort: "low"}),
 	)
@@ -44,7 +45,7 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 			testkit.Text("done"),
 		)
 		options = append(options, gotato.WithModel(model), gotato.WithTools(testkit.DemoEchoTool()))
-		agent, err := gotato.NewSession(options...)
+		agent, err := gotato.NewSession(context.Background(), options...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,6 +78,7 @@ func TestWithCacheKeyReachesEveryModelCallAndLeavesThePrefixAlone(t *testing.T) 
 func TestWithModelConfigRejectsNegativeTemperature(t *testing.T) {
 	temperature := -1.0
 	_, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(testkit.NewFakeModel(testkit.Text("done"))),
 		gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature}),
 	)

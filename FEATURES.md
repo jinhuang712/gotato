@@ -217,13 +217,13 @@ You define an Agent once, then run Sessions of it: a message goes in, the Loop w
 
 ```go
 // error handling left out
-s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup))
+s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTools(lookup))
 defer s.Close(ctx)
 result, _ := s.Prompt(ctx, gotato.UserMessage("Where is order 42?"))
 fmt.Println(gotato.TextOf(*result.FinalMessage))
 ```
 
-- `gotato.NewSession(options…)` builds a live Session from an Agent's parts: a model, an instruction, tools, a context builder, extensions and limits. In a service, `service.Agent` names the same parts, and the Runner builds the Session.
+- `gotato.NewSession(ctx, options…)` builds a live Session from an Agent's parts: a model, an instruction, tools, a context builder, extensions and limits. Its `ctx` covers resolving the ToolSets, so canceling it stops the build. In a service, `service.Agent` names the same parts, and the Runner builds the Session.
 - A `gotato.Session` is one concrete type. Its ID is the Session ID: it comes from its Transcript when that is a `session.Record`, and is generated otherwise. `Status` and `Done` report where it is in its life.
 - `Prompt` sends a message and returns when the Run settles. `Continue` resumes a Run without a new message. `Abort` stops a Run, which still settles and returns its result.
 - The Loop calls the model, runs the tools it asked for, and repeats until the model answers, its `ctx` ends, or a `TurnStopper` stops it. The core counts no Turns and no tool calls.
@@ -258,7 +258,7 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 	return gotato.StopDecision{Stop: uint32(t.Turn) >= uint32(m), Reason: "turn cap"}, nil
 }
 
-// gotato.NewSession(..., gotato.WithExtension(maxTurns(32)))
+// gotato.NewSession(ctx, ..., gotato.WithExtension(maxTurns(32)))
 ```
 
 **Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError`, and it answers three questions, set where the error is made and never guessed by a caller or a transport:
@@ -844,7 +844,7 @@ lookup = gotato.ToolWithEffect(lookup, gotato.ToolEffectRead)
 **The Effect cap.** An Agent can name the highest Effect its tools may have. Here the refund tool is never offered, because the Agent only reads:
 
 ```go
-s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(lookup, refund),
+s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTools(lookup, refund),
 	gotato.WithMaxEffect(gotato.ToolEffectRead))
 ```
 
@@ -984,7 +984,7 @@ A server is one ToolSet, and its tools are `<server>.<tool>`. How it is used:
 crm, _ := mcp.NewToolSet("crm", mcp.StreamableHTTP("https://crm.internal/mcp"),
 	mcp.WithDescription("Customer records"))
 defer crm.Close()
-s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm))
+s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithFoldedToolSet(crm))
 ```
 
 | Name | What it does |

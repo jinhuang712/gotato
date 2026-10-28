@@ -61,7 +61,7 @@ func roles(messages []Message) []string {
 
 func TestInterruptCutsTheModelCallShortAndStartsTheNextTurn(t *testing.T) {
 	model := &hangModel{hanging: make(chan struct{}), scripts: [][]ModelEvent{finalScript("B done")}}
-	session, err := NewSession(WithModel(model))
+	session, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func (t *blockingTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFun
 func TestInterruptLetsARunningToolFinish(t *testing.T) {
 	tool := &blockingTool{started: make(chan struct{}), release: make(chan struct{})}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	session, err := NewSession(WithModel(model), WithTools(tool))
+	session, err := NewSession(context.Background(), WithModel(model), WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestInterruptLetsARunningToolFinish(t *testing.T) {
 }
 
 func TestInterruptWithoutARunIsInvalidState(t *testing.T) {
-	session, err := NewSession(WithModel(&recordingModel{}))
+	session, err := NewSession(context.Background(), WithModel(&recordingModel{}))
 	if err != nil {
 		t.Fatal(err)
 	}

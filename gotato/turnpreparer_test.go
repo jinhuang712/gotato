@@ -62,7 +62,7 @@ func newPreparedSession(t *testing.T, model Model, transcript Transcript, prepar
 	if transcript != nil {
 		options = append(options, WithTranscript(transcript))
 	}
-	session, err := NewSession(append(options, extra...)...)
+	session, err := NewSession(context.Background(), append(options, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestARefusalNoPreparerCanMendEndsTheRun(t *testing.T) {
 			for _, preparer := range preparers {
 				options = append(options, WithExtension(preparer))
 			}
-			session, err := NewSession(options...)
+			session, err := NewSession(context.Background(), options...)
 			if err != nil {
 				t.Fatal(err)
 			}

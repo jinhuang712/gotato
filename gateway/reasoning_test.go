@@ -41,7 +41,7 @@ func TestChatReasoningContentIsKeptAndPassedBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent, err := gotato.NewSession(gotato.WithModel(client))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 	if err != nil {
 		t.Fatal(err)
 	}

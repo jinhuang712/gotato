@@ -154,7 +154,7 @@ func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := gotato.NewSession(gotato.WithModel(client))
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 	}
 	limits := gotato.DefaultLimits()
 	limits.MaxTruncatedContinuations = 3
-	session, err := gotato.NewSession(gotato.WithModel(client), gotato.WithLimits(limits))
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(client), gotato.WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

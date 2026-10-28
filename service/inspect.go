@@ -63,7 +63,7 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	}
 	options = append(options, spec.Options...)
 	options = append(options, extra...)
-	agent, err := gotato.NewSessionContext(ctx, options...)
+	agent, err := gotato.NewSession(ctx, options...)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -28,7 +28,7 @@ func TestFuncModelAnswersFromTheRequest(t *testing.T) {
 		}
 		return testkit.Text("nothing to do"), nil
 	})
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(echo))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTools(echo))
 	if err != nil {
 		t.Fatal(err)
 	}

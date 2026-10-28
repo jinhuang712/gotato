@@ -32,7 +32,7 @@ func play(t *testing.T, task reftasks.Task) (*session.Record, []string) {
 	if task.Limits != nil {
 		options = append(options, gotato.WithLimits(*task.Limits))
 	}
-	agent, err := gotato.NewSession(options...)
+	agent, err := gotato.NewSession(context.Background(), options...)
 	if err != nil {
 		t.Fatal(err)
 	}

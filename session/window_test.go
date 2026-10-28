@@ -18,7 +18,7 @@ import (
 func TestStreamBeforeTheWindowOfAnUnstoredRecordIsLost(t *testing.T) {
 	ctx := context.Background()
 	r := session.New()
-	s, err := gotato.NewSession(gotato.WithModel(testkit.EchoModel{}), gotato.WithTranscript(r))
+	s, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}), gotato.WithTranscript(r))
 	if err != nil {
 		t.Fatal(err)
 	}

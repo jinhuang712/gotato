@@ -46,7 +46,7 @@ func TestReplyRecordsTheModelThatAnswered(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			session, err := gotato.NewSession(gotato.WithModel(client))
+			session, err := gotato.NewSession(context.Background(), gotato.WithModel(client))
 			if err != nil {
 				t.Fatal(err)
 			}

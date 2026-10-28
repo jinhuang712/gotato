@@ -13,7 +13,7 @@ import (
 
 func TestFakeModelRepeatsLastScriptAndRecordsRequests(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"), testkit.Text("b"))
-	agent, err := gotato.NewSession(gotato.WithModel(model))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestFakeModelRepeatsLastScriptAndRecordsRequests(t *testing.T) {
 
 func TestReplayModelFailsWhenExhausted(t *testing.T) {
 	model := testkit.NewReplayModel(testkit.Text("only"))
-	agent, err := gotato.NewSession(gotato.WithModel(model))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestFakeModelWithoutScriptsFails(t *testing.T) {
 
 func TestFakeModelRequestsAreIsolated(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("a"))
-	agent, err := gotato.NewSession(gotato.WithModel(model))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestFakeToolAndEventRecorder(t *testing.T) {
 		testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "fake", Arguments: []byte(`{"x":1}`)}),
 		testkit.Text("done"),
 	)
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTools(tool))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTools(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestFakeToolUsesAreIsolated(t *testing.T) {
 
 func TestEventRecorderWaitsForAMatchingEvent(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("done"))
-	agent, err := gotato.NewSession(gotato.WithModel(model))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}

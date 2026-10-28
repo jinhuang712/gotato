@@ -55,7 +55,7 @@ func (f *spillFixture) call(id, body string) []gotato.ModelRequest {
 		}
 		return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "demo.read", Arguments: []byte(`{}`)}), nil
 	})
-	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer),
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", body)),
 		gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
 	if err != nil {
@@ -256,7 +256,7 @@ func (imageTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFun
 func TestSpillKeepsThePartsThatAreNotText(t *testing.T) {
 	f := newSpillFixture(t, "image")
 	model := testkit.NewFakeModel(testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "demo.read", Arguments: []byte(`{}`)}), testkit.Text("done"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithTools(imageTool{}))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithTools(imageTool{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestARefOfNoResultOfThisSessionFailsAsAToolResult(t *testing.T) {
 			}
 			return testkit.ToolCalls(gotato.ToolCall{ID: gotato.ToolCallID(id), ToolID: "read_result", Arguments: fmt.Appendf(nil, `{"ref":%q}`, ref)}), nil
 		})
-		agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer),
+		agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer),
 			gotato.WithTools(modelctx.ReadResultTool(f.writer.Record(), f.store, modelctx.ReadResultConfig{})))
 		if err != nil {
 			t.Fatal(err)

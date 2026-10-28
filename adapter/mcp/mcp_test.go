@@ -437,7 +437,7 @@ func TestAServerThatIsDownIsSkippedWithAWarning(t *testing.T) {
 	t.Cleanup(func() { _ = good.Close() })
 
 	model := testkit.NewFakeModel(testkit.Text("done"))
-	session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithToolSet(down), gotato.WithToolSet(good))
+	session, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithToolSet(down), gotato.WithToolSet(good))
 	if err != nil {
 		t.Fatalf("a server that is down failed NewSession: %v", err)
 	}
@@ -476,7 +476,7 @@ func TestARunCallsAnMCPToolThroughSearch(t *testing.T) {
 				testkit.ToolCalls(gotato.ToolCall{ID: "c1", ToolID: "crm.get_order", Arguments: []byte(`{"id":"1"}`)}),
 				testkit.Text("the order is 1"),
 			)
-			session, err := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.ToolEffectRead))
+			session, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithFoldedToolSet(set), gotato.WithMaxEffect(gotato.ToolEffectRead))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -524,7 +524,7 @@ func TestOneConnectionServesManySessions(t *testing.T) {
 	base := inMemory(t, server)
 	set := newSet(t, func() sdk.Transport { connects++; return base() })
 	for range 3 {
-		session, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel(testkit.Text("x"))), gotato.WithToolSet(set))
+		session, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.NewFakeModel(testkit.Text("x"))), gotato.WithToolSet(set))
 		if err != nil {
 			t.Fatal(err)
 		}

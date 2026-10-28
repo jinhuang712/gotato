@@ -41,7 +41,7 @@ func (t *recordingTranscript) Append(message Message) error {
 func TestSessionCommitsToExternalTranscript(t *testing.T) {
 	transcript := &recordingTranscript{}
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hello"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model), WithTranscript(transcript))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSessionCommitsToExternalTranscript(t *testing.T) {
 		t.Fatalf("appends = %d", transcript.appends)
 	}
 	// A second Session against the same Transcript continues the history.
-	second, err := NewSession(WithModel(model), WithTranscript(transcript))
+	second, err := NewSession(context.Background(), WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestContextBuilderShapesModelViewAndEmitsEvent(t *testing.T) {
 		}, nil
 	})
 	transcript := &recordingTranscript{messages: []Message{UserMessage("old"), AssistantMessage("older answer")}}
-	agent, err := NewSession(WithModel(model), WithInstruction("base"), WithTranscript(transcript), WithContextBuilder(builder))
+	agent, err := NewSession(context.Background(), WithModel(model), WithInstruction("base"), WithTranscript(transcript), WithContextBuilder(builder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 	builder := ContextBuilderFunc(func(context.Context, ContextSnapshot) (ModelContext, error) {
 		return ModelContext{}, errors.New("boom")
 	})
-	agent, err := NewSession(WithModel(model), WithContextBuilder(builder))
+	agent, err := NewSession(context.Background(), WithModel(model), WithContextBuilder(builder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func (s *dynamicSource) set(tools ...Tool) {
 func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 	source := &dynamicSource{}
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model), WithToolSource(source))
+	agent, err := NewSession(context.Background(), WithModel(model), WithToolSource(source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestToolSourceRefreshesAtTurnBoundary(t *testing.T) {
 func TestToolSourceToolIsCallable(t *testing.T) {
 	tool := &scriptedTool{}
 	source := &dynamicSource{tools: []Tool{tool}}
-	agent, err := NewSession(WithModel(&toolModel{}), WithToolSource(source))
+	agent, err := NewSession(context.Background(), WithModel(&toolModel{}), WithToolSource(source))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestToolSourceToolIsCallable(t *testing.T) {
 
 func TestPromptRejectsBlankParts(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 
 func TestSubscribeDoesNotLeakGoroutines(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestZeroLimitFieldsKeepTheirDefaults(t *testing.T) {
 		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
 		{{Kind: ModelEventKindTextDelta, Text: "ok"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: 1, updates: 3}), WithLimits(CoreLimits{MaxParallelTools: 4}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(&concurrentProgressTool{workers: 1, updates: 3}), WithLimits(CoreLimits{MaxParallelTools: 4}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestDefaultMaxMessagesLeavesRoomForSegments(t *testing.T) {
 		history.messages = append(history.messages, UserMessage("earlier"))
 	}
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "ok"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model), WithTranscript(history))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTranscript(history))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestTranscriptByteLimitTrackedIncrementally(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxTranscriptBytes = 400
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: strings.Repeat("x", 100)}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-	agent, err := NewSession(WithModel(model), WithLimits(limits))
+	agent, err := NewSession(context.Background(), WithModel(model), WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}

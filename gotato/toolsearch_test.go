@@ -120,7 +120,7 @@ func runCollecting(t *testing.T, agent *Session, text string) (loaded []ToolLoad
 
 func newSearchSession(t *testing.T, model Model, options ...SessionOption) *Session {
 	t.Helper()
-	agent, err := NewSession(append([]SessionOption{WithModel(model)}, options...)...)
+	agent, err := NewSession(context.Background(), append([]SessionOption{WithModel(model)}, options...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestACustomToolSearcherDecidesWhatLoads(t *testing.T) {
 	if text := textOfResult(resultOf(t, model, 1, "s")); text != "Loaded: orders.refund, orders.lookup, orders.list_open." {
 		t.Fatalf("search result = %q (the custom order, without the unknown ID)", text)
 	}
-	if _, err := NewSession(WithModel(model), WithToolSearcher(nil)); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewSession(context.Background(), WithModel(model), WithToolSearcher(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil searcher = %v", err)
 	}
 }

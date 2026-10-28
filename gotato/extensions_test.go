@@ -91,7 +91,7 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 	first := &toolStages{name: "first", trace: recorder, tag: "first"}
 	second := &toolStages{name: "second", trace: recorder, tag: "second"}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(first), WithExtension(second))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool), WithExtension(first), WithExtension(second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
 	blocker := &toolStages{name: "blocker", trace: recorder, block: true}
 	after := &toolStages{name: "after", trace: recorder}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(blocker), WithExtension(after))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool), WithExtension(blocker), WithExtension(after))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestTransformersShapeTheModelViewOnly(t *testing.T) {
 			return append(messages, UserMessage("converted"))
 		},
 	}
-	agent, err := NewSession(WithModel(model), WithExtension(shaper))
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(shaper))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestTransformersShapeTheModelViewOnly(t *testing.T) {
 // them without a gap.
 func TestSubscriberSeesProductionOrder(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestSubscriberSeesProductionOrder(t *testing.T) {
 // seen by another subscriber of the same Session.
 func TestSubscriberEditsOfItsEventCopyAreIsolated(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func (f extensionFault) Advisory() bool { return f.advisory }
 // and the Record holds exactly one RunEnded.
 func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(extensionFault{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestBlockingExtensionFailureSettlesTheRun(t *testing.T) {
 // Event, and the Run goes on.
 func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{advisory: true}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(extensionFault{advisory: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestAdvisoryExtensionFailureIsRecordedAndTheRunGoesOn(t *testing.T) {
 
 func TestExtensionPanicIsRecovered(t *testing.T) {
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(extensionFault{panics: true}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(extensionFault{panics: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 		{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	recorder := &snapshotRecorder{}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(recorder))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool), WithExtension(recorder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestACutOffReplyKeepsMaxTokensNextToItsToolCalls(t *testing.T) {
 func TestTurnStopperPreventsTheNextModelCall(t *testing.T) {
 	tool := &countingTool{}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("never reached")}}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(tool), WithExtension(turnStopper{after: 1, reason: "budget"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +473,7 @@ func (o *reentrantExtension) Transform(ctx context.Context, snapshot ContextSnap
 func TestExtensionCannotReenterTheSameSession(t *testing.T) {
 	extension := &reentrantExtension{}
 	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithExtension(extension))
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(extension))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,10 +488,10 @@ func TestExtensionCannotReenterTheSameSession(t *testing.T) {
 }
 
 func TestWithExtensionRejectsUnknownValues(t *testing.T) {
-	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(struct{}{})); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("value implementing no Extension interface = %v", err)
 	}
-	if _, err := NewSession(WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, CodeInvalidArgument) {
+	if _, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil extension = %v", err)
 	}
 }

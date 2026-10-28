@@ -39,6 +39,7 @@ func TestInspectContextMatchesTheNextTurn(t *testing.T) {
 	model := testkit.NewFakeModel(testkit.Text("on its way"))
 	temperature := 0.2
 	agent, err := gotato.NewSession(
+		context.Background(),
 		gotato.WithModel(model),
 		gotato.WithInstruction("You track orders."),
 		gotato.WithTranscript(s),
@@ -96,7 +97,7 @@ func TestInspectContextIsRefusedDuringARun(t *testing.T) {
 		}
 		return testkit.Text("done"), nil
 	})
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(session.New()))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(session.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

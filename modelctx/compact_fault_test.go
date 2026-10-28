@@ -73,7 +73,7 @@ func TestACompactionWhoseWriteFailsIsDropped(t *testing.T) {
 func runOnce(t *testing.T, record *session.Record, auto *AutoCompactor) (gotato.RunResult, *testkit.FakeModel, error) {
 	t.Helper()
 	model := testkit.NewFakeModel(testkit.Text("still here"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record), gotato.WithExtension(auto))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record), gotato.WithExtension(auto))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling(t 
 func midRun(t *testing.T, auto func(*session.Record) *AutoCompactor, model *testkit.FakeModel) (gotato.RunResult, *session.Record, error) {
 	t.Helper()
 	record := conversation(t)
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")), gotato.WithExtension(auto(record)))
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	model := testkit.NewFakeModel(reportingCall(), testkit.Text("never"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(record),
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(record),
 		gotato.WithTools(testkit.NewFakeTool("demo.read", "ok")),
 		gotato.WithExtension(AutoCompact(record, CompactPolicy{CeilingTokens: 500, Recap: stopper{cancel}})))
 	if err != nil {

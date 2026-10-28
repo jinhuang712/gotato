@@ -46,7 +46,7 @@ func TestToolWithEffectSetsSpecAndKeepsBehavior(t *testing.T) {
 
 func TestUnknownEffectIsRejected(t *testing.T) {
 	tool := gotato.ToolWithEffect(testkit.NewFakeTool("x", "ok"), gotato.ToolEffect("mutate"))
-	_, err := gotato.NewSession(gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tool))
+	_, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.NewFakeModel()), gotato.WithTools(tool))
 	if !gotato.IsCode(err, gotato.CodeInvalidArgument) {
 		t.Fatalf("NewSession with an unknown effect = %v, want CodeInvalidArgument", err)
 	}
@@ -76,7 +76,7 @@ func TestPreToolUseSeesEffect(t *testing.T) {
 		testkit.Text("done"),
 	)
 	policy := &ceiling{max: gotato.ToolEffectWriteLocal}
-	agent, err := gotato.NewSession(gotato.WithModel(model),
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model),
 		gotato.WithTools(gotato.ToolWithEffect(read, gotato.ToolEffectRead), gotato.ToolWithEffect(push, gotato.ToolEffectWriteExternal)),
 		gotato.WithExtension(policy))
 	if err != nil {

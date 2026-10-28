@@ -26,7 +26,7 @@ func TestStreamedDeltasCoalesceIntoBlocks(t *testing.T) {
 		{Kind: ModelEventKindTextDelta, Text: "!"},
 		{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
 	}}}
-	agent, err := NewSession(WithModel(model))
+	agent, err := NewSession(context.Background(), WithModel(model))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestReasoningDoneWithoutDeltasKeepsEachBlock(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := &testModel{scripts: [][]ModelEvent{tc.events}}
-			agent, err := NewSession(WithModel(model))
+			agent, err := NewSession(context.Background(), WithModel(model))
 			if err != nil {
 				t.Fatal(err)
 			}

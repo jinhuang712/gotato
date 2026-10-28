@@ -36,7 +36,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	limits := gotato.DefaultLimits()
 	limits.MaxMessageBytes = 2000
 	big := testkit.NewFakeModel(testkit.Text(strings.Repeat("y", 5000)))
-	first, err := gotato.NewSession(gotato.WithModel(big), gotato.WithTranscript(writer), gotato.WithLimits(limits))
+	first, err := gotato.NewSession(context.Background(), gotato.WithModel(big), gotato.WithTranscript(writer), gotato.WithLimits(limits))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRefusedReplyPartsDoNotReappearAfterACrash(t *testing.T) {
 	}
 	turnsBefore := countStored(t, store, record.ID(), gotato.EventKindTurnStarted)
 	started := make(chan struct{})
-	live, err := gotato.NewSession(gotato.WithModel(blockModel{started}), gotato.WithTranscript(second))
+	live, err := gotato.NewSession(context.Background(), gotato.WithModel(blockModel{started}), gotato.WithTranscript(second))
 	if err != nil {
 		t.Fatal(err)
 	}

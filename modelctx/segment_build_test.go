@@ -747,7 +747,7 @@ func TestAutoCompactClosesASegmentAtRunStart(t *testing.T) {
 	before := modelctx.EstimateTokens(f.rec.Messages())
 	auto := modelctx.AutoCompact(f.rec, modelctx.CompactPolicy{CeilingTokens: before / 2})
 	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithExtension(auto))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithExtension(auto))
 	if err != nil {
 		t.Fatal(err)
 	}

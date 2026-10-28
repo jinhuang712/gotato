@@ -162,18 +162,12 @@ func WithLimits(limits CoreLimits) SessionOption {
 // Transcript when the Transcript has an ID, as a session.Record does, and
 // generates one otherwise. Close it when it is no longer needed.
 //
-// NewSession cannot be canceled: it resolves ToolSets with a background
-// context. Prefer NewSessionContext.
-func NewSession(options ...SessionOption) (*Session, error) {
-	return NewSessionContext(context.Background(), options...)
-}
-
-// NewSessionContext is NewSession with a context for the work it does before
-// the Session exists: resolving the ToolSets installed active and the ones
-// the Session's earlier Runs activated. When ctx ends first, it fails with
-// canceled or deadline_exceeded and builds nothing. ctx does not outlive the
-// call; the Session's own Runs take their contexts as before.
-func NewSessionContext(ctx context.Context, options ...SessionOption) (*Session, error) {
+// ctx covers the work NewSession does before the Session exists: resolving
+// the ToolSets installed active and the ones the Session's earlier Runs
+// activated. When ctx ends first, it fails with canceled or deadline_exceeded
+// and builds nothing. ctx does not outlive the call; the Session's own Runs
+// take their contexts as before.
+func NewSession(ctx context.Context, options ...SessionOption) (*Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

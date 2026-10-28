@@ -11,7 +11,7 @@ import (
 // write is the end of the Run.
 func TestAbortAfterTheRunBeganToEndStoresNothing(t *testing.T) {
 	journal := &journalTranscript{}
-	s, err := NewSession(WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithTranscript(journal))
+	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hi"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}

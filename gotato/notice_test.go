@@ -30,7 +30,7 @@ func sameRoles(got []Message, want ...Role) bool {
 
 func newNoticeSession(t *testing.T, model Model, options ...SessionOption) *Session {
 	t.Helper()
-	agent, err := NewSession(append([]SessionOption{WithModel(model), WithTools(&scriptedTool{})}, options...)...)
+	agent, err := NewSession(context.Background(), append([]SessionOption{WithModel(model), WithTools(&scriptedTool{})}, options...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -79,7 +79,7 @@ func TestImitatedTagsReachTheModelEscapedAfterACompactionAndAMerge(t *testing.T)
 	}
 
 	model := testkit.NewFakeModel(testkit.Text("ok"))
-	agent, err := gotato.NewSession(gotato.WithModel(model), gotato.WithTranscript(f.writer))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,7 +32,7 @@ func TestAbortSettlesRunWithStalledTool(t *testing.T) {
 		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
 		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestConcurrentProgressReportsAreCounted(t *testing.T) {
 		{{Kind: ModelEventKindToolCall, ToolCall: &call}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}},
 		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTools(&concurrentProgressTool{workers: workers, updates: perWorker}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(&concurrentProgressTool{workers: workers, updates: perWorker}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestAbortDoesNotLaunchLaterTools(t *testing.T) {
 			{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 		}}
 		var err error
-		agent, err = NewSession(WithModel(model), WithTools(abort, count))
+		agent, err = NewSession(context.Background(), WithModel(model), WithTools(abort, count))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,7 +266,7 @@ func TestToolStartedBeforeAbortIsRecordedExecuted(t *testing.T) {
 		callsScript("slow"),
 		{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
-	agent, err := NewSession(WithModel(model), WithTools(stalledTool{blocked: blocked}))
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(stalledTool{blocked: blocked}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 			callsScript("echo", "echo"),
 			{{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 		}}
-		agent, err := NewSession(WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
+		agent, err := NewSession(context.Background(), WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(&failingPre{failOn: "c2"}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -358,7 +358,7 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 	})
 	t.Run("extension after the Tool ran", func(t *testing.T) {
 		model := &testModel{scripts: [][]ModelEvent{callsScript("echo")}}
-		agent, err := NewSession(WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(failingPost{}))
+		agent, err := NewSession(context.Background(), WithModel(model), WithTools(hookTool{id: "echo"}), WithExtension(failingPost{}))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -34,7 +34,8 @@ The adapter needs Go 1.25 (the MCP SDK it uses requires it), and `go get` raises
 ## Check it
 
 ```go
-s, err := gotato.NewSession(gotato.WithModel(myModel))
+ctx := context.Background()
+s, err := gotato.NewSession(ctx, gotato.WithModel(myModel))
 ```
 
 If this builds, you are ready for [Getting started](getting-started.md).

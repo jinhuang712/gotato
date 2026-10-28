@@ -49,7 +49,7 @@ func newFake(t *testing.T, wire fakeWire, opts ...fakegateway.Option) (*fakegate
 
 func newFakeSession(t *testing.T, client *Client, opts ...gotato.SessionOption) (*gotato.Session, *testkit.EventRecorder) {
 	t.Helper()
-	session, err := gotato.NewSession(append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(testkit.DemoEchoTool())}, opts...)...)
+	session, err := gotato.NewSession(context.Background(), append([]gotato.SessionOption{gotato.WithModel(client), gotato.WithTools(testkit.DemoEchoTool())}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

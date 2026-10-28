@@ -28,7 +28,7 @@
 // spilled into the Record: the Context holds a preview and a ref, and the model
 // reads the rest page by page, with the paging of read_segment.
 //
-//	live, _ := gotato.NewSession(
+//	live, _ := gotato.NewSession(ctx,
 //	    gotato.WithModel(m),
 //	    gotato.WithInstruction(agentsMD),
 //	    gotato.WithTranscript(s),

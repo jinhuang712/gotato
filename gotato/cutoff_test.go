@@ -98,7 +98,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 				limits.ModelCallDeadline = tc.limits.ModelCallDeadline
 				options = append(options, WithLimits(limits))
 			}
-			session, err := NewSession(options...)
+			session, err := NewSession(context.Background(), options...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +133,7 @@ func TestCutOffReplyIsCommittedWhenTheStreamBreaks(t *testing.T) {
 func TestStreamThatBreaksBeforeAnyTextCommitsNothing(t *testing.T) {
 	stream := &breakingStream{events: []ModelEvent{{Kind: ModelEventKindReasoningDelta, Text: "thinking"}}, err: errors.New("connection reset")}
 	transcript := &recordingTranscript{}
-	session, err := NewSession(WithModel(&breakingModel{first: stream}), WithTranscript(transcript))
+	session, err := NewSession(context.Background(), WithModel(&breakingModel{first: stream}), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestStreamThatBreaksBeforeAnyTextCommitsNothing(t *testing.T) {
 func TestCutOffReplyIsNotSentToTheModel(t *testing.T) {
 	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "half an answ"}}, err: errors.New("connection reset")}}
 	transcript := &recordingTranscript{}
-	session, err := NewSession(WithModel(model), WithTranscript(transcript))
+	session, err := NewSession(context.Background(), WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestCutOffReplyIsNotSentToTheModel(t *testing.T) {
 func TestContinueAfterACutOffReplyAsksAgain(t *testing.T) {
 	model := &breakingModel{first: &breakingStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "half"}}, err: errors.New("connection reset")}}
 	transcript := &recordingTranscript{}
-	session, err := NewSession(WithModel(model), WithTranscript(transcript))
+	session, err := NewSession(context.Background(), WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestReplyModelIsRecordedAndNeverSent(t *testing.T) {
 		{{Kind: ModelEventKindTextDelta, Text: "second"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}},
 	}}
 	transcript := &recordingTranscript{}
-	session, err := NewSession(WithModel(model), WithTranscript(transcript))
+	session, err := NewSession(context.Background(), WithModel(model), WithTranscript(transcript))
 	if err != nil {
 		t.Fatal(err)
 	}

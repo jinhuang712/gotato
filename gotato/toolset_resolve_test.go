@@ -17,13 +17,13 @@ func (b blockingToolSet) Tools(ctx context.Context) ([]Tool, error) {
 	return nil, ctx.Err()
 }
 
-func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
+func TestNewSessionCancelsAResolutionInProgress(t *testing.T) {
 	set := blockingToolSet{entered: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}),
+		_, err := NewSession(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}),
 			WithToolSet(set))
 		done <- err
 	}()
@@ -39,14 +39,14 @@ func TestNewSessionContextCancelsAResolutionInProgress(t *testing.T) {
 			t.Fatalf("err = %v, want canceled", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("NewSessionContext did not return after the context ended")
+		t.Fatal("NewSession did not return after the context ended")
 	}
 }
 
-func TestNewSessionContextRefusesAnEndedContext(t *testing.T) {
+func TestNewSessionRefusesAnEndedContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewSessionContext(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, CodeCanceled) {
+	if _, err := NewSession(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, CodeCanceled) {
 		t.Fatalf("err = %v, want canceled", err)
 	}
 }
