@@ -84,3 +84,43 @@ func TestAnAgentWithNoToolIsOfferedNoReadResult(t *testing.T) {
 		t.Fatalf("tools = %v", tools)
 	}
 }
+
+type bigToolSet struct{ body string }
+
+func (bigToolSet) Spec() gotato.ToolSetSpec { return gotato.ToolSetSpec{Name: "orders"} }
+
+func (s bigToolSet) Tools(context.Context) ([]gotato.Tool, error) {
+	return []gotato.Tool{testkit.NewFakeTool("export", s.body)}, nil
+}
+
+// An Agent whose only tools come from a ToolSet spills a large result too, so
+// it is offered read_result from its first request, and the tool list does
+// not change on the Turn the result is spilled.
+func TestAToolSetOnlyAgentIsOfferedReadResult(t *testing.T) {
+	ctx := context.Background()
+	body := strings.Repeat("order-88501,paid,41.20,some more text on the line\n", 21000)
+	model := testkit.NewFakeModel(
+		testkit.ToolCalls(gotato.ToolCall{ID: "big-1", ToolID: "orders.export", Arguments: []byte(`{}`)}), testkit.Text("exported"),
+	)
+	runner, err := service.New(service.Config{
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "a", Model: model, Options: []gotato.SessionOption{gotato.WithActiveToolSet(bigToolSet{body})}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(ctx, service.RunRequest{Prompt: "export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	if tools := toolIDsOf(requests[0]); !slices.Contains(tools, "read_result") {
+		t.Fatalf("the first request offers %v: read_result should be there before anything is spilled", tools)
+	}
+	if before, after := toolIDsOf(requests[0]), toolIDsOf(requests[1]); !slices.Equal(before, after) {
+		t.Fatalf("the tool list changed on the Turn the result was spilled: %v then %v", before, after)
+	}
+	if _, tools := inspectJSON(t, runner, result.SessionID); !slices.Contains(tools, "read_result") {
+		t.Fatalf("inspected tools = %v", tools)
+	}
+}

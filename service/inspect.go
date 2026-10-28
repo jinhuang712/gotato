@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -49,10 +50,10 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 		gotato.WithCacheKey(sessionCacheKey(s)),
 	}
 	options = append(options, gotato.WithExtension(auto))
-	filter := &sessionTools{spec: spec, session: s}
-	options = append(options, gotato.WithToolSource(&sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}),
+	source := &sessionTools{spec: spec, session: s, segments: r.segmentTools(spec, s), results: r.resultTools(s)}
+	options = append(options, gotato.WithToolSource(source),
 		// A Tool switched off for the Session is never in the catalog, found or loaded.
-		gotato.WithToolFilter(filter.active))
+		gotato.WithToolFilter(source.active))
 	if spec.MaxEffect != gotato.ToolEffectUnspecified {
 		options = append(options, gotato.WithMaxEffect(spec.MaxEffect))
 	}
@@ -65,6 +66,10 @@ func (r *Runner) buildSession(ctx context.Context, spec Agent, s *session.Record
 	if err != nil {
 		return nil, nil, err
 	}
+	// The Agent's ToolSets are in its Options, so only the live Session knows
+	// it has any. The flag is read at the next refresh of the tool list, which
+	// comes before the first request of a Run or an inspection.
+	source.hasToolSets.Store(len(agent.ToolSets()) > 0)
 	return agent, auto, nil
 }
 
@@ -160,6 +165,9 @@ type sessionTools struct {
 	// results gives the built-in read_result tool to a Session whose Agent
 	// has any tool; nil for a surface that is not a Session's.
 	results gotato.ToolSource
+	// hasToolSets is set once the live Session is built and has a ToolSet,
+	// whose Tools can spill a result like any other.
+	hasToolSets atomic.Bool
 }
 
 // segmentTools is the ToolSource that offers read_segment for a Session of the
@@ -190,9 +198,10 @@ func (t *sessionTools) Tools() []gotato.Tool {
 			}
 		}
 	}
-	// read_result is offered whenever the Agent has a tool, so the tool list
-	// does not change on the Turn a result is first spilled.
-	if t.results != nil && len(tools) > 0 {
+	// read_result is offered whenever the Agent has a tool, its own or a
+	// ToolSet's, so the tool list does not change on the Turn a result is
+	// first spilled.
+	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) {
 		for _, tool := range t.results.Tools() {
 			if t.allowed(tool.Spec()) && t.active(tool.Spec().ID) {
 				tools = append(tools, tool)
