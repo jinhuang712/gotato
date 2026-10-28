@@ -36,7 +36,9 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, runtimeError(codeForContext(err), "NewSession", "context ended", err)
+		e := runtimeError(codeForContext(err), "NewSession", "context ended", err)
+		e.NotRun = true
+		return nil, e
 	}
 	cfg := sessionConfig{}
 	for _, option := range options {
@@ -298,6 +300,11 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	if err := a.admissionError(operation); err != nil {
 		return RunResult{}, err
 	}
+	// A context that has ended admits nothing: without the check the select
+	// below picks at random between sending the command and giving up.
+	if err := ctx.Err(); err != nil {
+		return RunResult{}, notRunBeforeAdmission(err, operation)
+	}
 
 	select {
 	case a.admission <- struct{}{}:
@@ -316,7 +323,7 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	case a.commands <- cmd:
 		releaseAdmission = false
 	case <-ctx.Done():
-		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" was canceled before admission", ctx.Err())
+		return RunResult{}, notRunBeforeAdmission(ctx.Err(), operation)
 	case <-a.closeSignal:
 		return RunResult{}, a.admissionError(operation)
 	}
@@ -338,6 +345,14 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	case <-grace.C:
 		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" context ended", ctx.Err())
 	}
+}
+
+// notRunBeforeAdmission is the error of an operation whose ctx ended before
+// the Run was admitted: nothing ran and nothing was committed.
+func notRunBeforeAdmission(cause error, operation string) *RuntimeError {
+	e := runtimeError(codeForContext(cause), operation, operation+" was canceled before admission", cause)
+	e.NotRun = true
+	return e
 }
 
 // settleGrace is how long Prompt and Continue wait, after their ctx ends, for
