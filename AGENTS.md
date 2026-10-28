@@ -13,10 +13,12 @@ Every change passes the feature test: *would a Go service embedding an agent wan
 4. GLOSSARY.md          — one name per thing, and its name in today's code
 5. plan/GOALS.md        — goals that pass or fail, and benchmarks tracked against a reference
 6. FEATURES.md          — implementation inventory with status markers, and what is not planned
-7. relevant package docs and tests (start with the *_test.go next to what you change)
+7. specs/               — how it works: one spec per part (session, record, events, context, compaction, tools, model, errors, multi-instance)
+8. plan/decisions/      — why it is built that way: one file per decision, with the alternatives not chosen
+9. relevant package docs and tests (start with the *_test.go next to what you change)
 ```
 
-These documents are the single source of truth for Gotato's design. PROPOSAL to FEATURES are in the repository root; GOALS, ROADMAP and TODO are in `plan/`.
+These documents are the single source of truth for Gotato's design. PROPOSAL to FEATURES are in the repository root; `specs/` explains how it works; GOALS, ROADMAP and TODO are in `plan/`, and `plan/decisions/` records why.
 
 ## Hard Architectural Rules
 
@@ -31,7 +33,7 @@ These documents are the single source of truth for Gotato's design. PROPOSAL to 
 - **The CLI is our test tool, not a deliverable.** `internal/cmd/gotato` is a thin client of the packages: it carries no runtime logic, so it tests the library's real behavior. If the CLI needs a behavior, add it to a package first. It promises no contract: its flags, JSON fields and exit codes are not versioned.
 - **Prefer ordinary Go** over framework machinery: options functions, interfaces, channels, `context.Context`.
 - **Preserve `context.Context` cancellation** through every model call, tool call, storage call, and stream.
-- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
+- **Keep the package layout** (guides/packages.md shows the tree). The module root holds no Go code: it holds the documents, `specs/` and `plan/` (with `plan/decisions/`), and the module files, and `gotato/layering_test.go` fails when a `.go` file appears there. A directory's name is its package's name, so no import needs an alias. A test-helper package sits next to what it tests, like `net/http/httptest`: `session/storetest` beside `session`.
 - **Keep dependencies layered** (DESIGNS.md → Dependencies point inward). The core package imports only the standard library and the shared packages of `internal/`: it lives in `gotato/`, so code reads `gotato.NewSession`. `session`, `modelctx`, `testkit` import the core. Providers and the service layer import inward. `gotato/layering_test.go` enforces this; keep it passing.
 - **`internal/` holds two kinds of package.** Shared packages (today only `internal/text`) import the standard library only, and any shipped package, the core included, may import them; `gotato/layering_test.go` lists them. Our test tools (`internal/reftasks`, `internal/workload`, `internal/fakegateway`, `internal/cmd/...`) are imported by no shipped package.
 - **Prefer the standard library.** Add a dependency only after checking that the standard library or a smaller solution falls short. The root module depends only on `gopkg.in/yaml.v3` (used by `gateway`).

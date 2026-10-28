@@ -118,4 +118,4 @@ The rule has one door: an error is public only if its maker says so by implement
 - A secret in a foreign error cannot leak to a client, the model or a subscriber by accident.
 
 ## See also
-[FEATURES.md → G-F01](../FEATURES.md#g-f01--agents-and-runs-) (the errors section and the table of codes), [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [020](../plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) and [023](../plan/decisions/023-a-limit-guards-a-real-failure.md), [RUNBOOK.md](../RUNBOOK.md), [GLOSSARY.md](../GLOSSARY.md).
+[FEATURES.md → G-F01](../FEATURES.md#g-f01--agents-and-runs-) (the errors section and the table of codes), [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [020](../plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md), [022](../plan/decisions/022-when-the-hash-missed-the-answer-names-the-writer.md) and [023](../plan/decisions/023-a-limit-guards-a-real-failure.md), [RUNBOOK.md](../RUNBOOK.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [model.md](model.md) and [multi-instance.md](multi-instance.md).

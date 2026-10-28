@@ -110,4 +110,4 @@ The `after` parameter wins over the header, which a browser's EventSource sends 
 - One name and one number for each thing: the log, the stream and the telemetry say the same.
 
 ## See also
-[FEATURES.md → G-F13](../FEATURES.md#g-f13--events-) and [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [015](../plan/decisions/015-every-entry-is-an-event.md) and [014](../plan/decisions/014-every-step-is-written-as-facts-and-a-log.md), [GLOSSARY.md](../GLOSSARY.md). Specs to come: session, multi-instance.
+[FEATURES.md → G-F13](../FEATURES.md#g-f13--events-) and [G-F14](../FEATURES.md#g-f14--http-and-streaming-), decisions [015](../plan/decisions/015-every-entry-is-an-event.md) and [014](../plan/decisions/014-every-step-is-written-as-facts-and-a-log.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [session.md](session.md), [record.md](record.md) and [multi-instance.md](multi-instance.md).
