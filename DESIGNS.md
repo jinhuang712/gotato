@@ -1,7 +1,7 @@
-<!-- what-we-build: approved 2026-10-28 -->
+<!-- what-we-build: drafted 2026-10-29 -->
 # Gotato — Designs
 
-Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
+Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in the code.
 
 Gotato is designed around nine principles, in three groups.
 
@@ -23,9 +23,9 @@ Gotato is designed around nine principles, in three groups.
 8. **No instance is special.** Instances coordinate only through the store, and one instance is only the simplest case of many.
 9. **A Session can be stopped and seen.** Every Run can be stopped at any point, and what it did and what it cost are computed from its Events.
 
-A principle is a question to ask of every new requirement. The four guarantees are asked of every decision on this page, whatever its section: a decision about tools or instances can still lose a step, change a byte already sent, or let the Context grow without bound. Each section below names its question, then lists the decisions that follow from the principle: what was chosen, what was not, and why. The decisions that weighed several options keep their table and their date. After the principles comes the order that decides when two of them pull apart.
+A principle is a question to ask of every new requirement. The four guarantees are asked of every decision on this page, whatever its section: a decision about tools or instances can still lose a step, change a byte already sent, or let the Context grow without bound. Each section below names its question, then lists the decisions that follow from the principle. A decision that weighed several options is kept in [plan/decisions](plan/decisions/README.md), and its section links to it. After the principles comes the order that decides when two of them pull apart, and the index of those decisions.
 
-This page describes the design we intend, not the state of the code. What is built, and how each feature works, is in [FEATURES.md](FEATURES.md). Open design questions are in [ROADMAP.md](plan/ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
+This page describes the design we intend, not the state of the code. What is built, and how each feature works, is in [FEATURES.md](FEATURES.md). What comes next is in [ROADMAP.md](plan/ROADMAP.md), and beliefs are in [PHILOSOPHY.md](PHILOSOPHY.md).
 
 ## 1. The store is the only truth
 
@@ -35,30 +35,18 @@ The store keeps the original. What a request needs changed, such as text that im
 
 **Ask:** if this instance stopped right now, would anything be lost, and would another instance derive the same thing from the Record?
 
-### The store is the truth, and memory is a cache — 2026-10-15
+### The store is the truth, and memory is a cache
 
-A Session behaves like a live unit while it is in use, and like a record while it waits.
+Decision: [002. The store is the truth, and memory is a cache](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md).
 
-| Option | For | Against |
-|---|---|---|
-| **A live unit kept warm, with the store as the truth** (chosen) | Holds a Session's queue, stream and status while it works. Survives the loss of any instance. The TTL only frees memory. | A write per step. Machinery to load and to let go. |
-| Nothing in memory: load and save around every Run (today's code) | The fewest moving parts. | The Session has no queue of its own, so a message that arrives mid-Run can only wait or be rejected. |
-| A long-lived unit in memory that owns its state | Fast, and natural for queues and streams. | Lost with its instance. Pins each conversation to one instance. |
+A Session behaves like a live unit while it is in use and like a record while it waits. Any instance rebuilds it from the Record, and the idle TTL only frees memory.
 
-An earlier version of Gotato kept agents in memory for their whole life, and a later one replaced them with a stored record. This decision brings a long-lived unit back. It is safe this time, because a Session's identity is its record, not the memory that holds it.
+### A warm copy is a cache, not a lock
 
-### A warm copy is a cache, not a lock — 2026-10-25
-
-After a Run, the live Session can stay in memory, so the next message finds its queue, its tools and its Transcript ready, and an idle timer can compact it before its provider's cache expires. The question is what the copy is allowed to claim while it waits ([FEATURES.md → G-F27](FEATURES.md#g-f27--service-many-instances-)).
-
-| Option | For | Against |
-|---|---|---|
-| **A cache with a head check before each Run** (chosen) | The copy holds no Claim while idle, so any instance can take the Session over, as it does today, and nothing is pinned. A stale copy costs one read of the head and a reload. Memory stays reclaimable: the longest-idle copy can be evicted at once. | A read of the head before each Run on a warm copy. |
-| The warm copy holds the Claim | No head check: the copy is always current. | An idle Session is bound to one instance for its whole TTL. A takeover must wait for it or fence it, a deploy must release every idle Session, and an instance holding many idle Sessions cannot give memory back without a write. It brings back the pin that [No Session is bound to an instance](#no-session-is-bound-to-an-instance) rules out. |
-| No warm copy: load and save around every Run (today's code) | The fewest moving parts. | A load for every Run. A message that arrives between Runs has no Session to meet, and an idle compaction needs a service timer of its own. |
+Decision: [021. A warm copy is a cache with a head check, not a lock](plan/decisions/021-a-warm-copy-is-a-cache-not-a-lock.md).
 
 - **The head check.** Before a Run on a warm copy, the instance compares the Record's head in the store with the copy's. Unchanged, the copy runs. Changed, because another instance wrote the Session, the instance reloads from the last Checkpoint. The Claim's conditional write still fences any race between the check and the Run, as for every append.
-- **The idle compaction is the same compaction.** The Session's own timer calls what a service's timer calls before the warm Session (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)). A message that arrives cancels it and is served first.
+- **The idle compaction is the same compaction.** The Session's own timer calls what a service's timer calls before the warm Session (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold)). A message that arrives cancels it and is served first.
 - **The memory limit evicts before it refuses.** Warm Sessions count toward the activation limit. At the limit, the longest-idle warm Session goes first, which loses nothing because the store is the truth, and a Run is refused only when every live Session is running.
 
 ### A Session's identity is its Record
@@ -66,41 +54,23 @@ After a Run, the live Session can stay in memory, so the next message finds its 
 - **Instead of:** a live object with an identity of its own.
 - **Why:** the Session ID is its Record's ID, so whichever instance builds the Session, it is the same Session.
 
-### The Record is an append-only log — 2026-10-16
+### The Record is an append-only log
 
-A save had to cost the size of what changed, and a stale copy had to fail instead of overwriting a newer one.
+Decision: [010. The Record is an append-only log](plan/decisions/010-the-record-is-an-append-only-log.md).
 
-| Option | For | Against |
-|---|---|---|
-| **Append only, with checkpoints for compaction** (chosen) | A save costs one step. Two writers cannot append the same sequence number. Every adapter maps it to an insert. Nothing is lost to compaction. | The Record grows; storage is bounded by the team. |
-| Rewrite the whole Record, with a version check | The simplest contract. | A save costs the whole Session, megabytes for long ones. |
-| Append, plus a rewrite for compaction | Compaction stays a replacement. | Two write paths, and the rewrite brings the cost back. |
+### The Record keeps every step, as facts and a log
 
-### The Record keeps every step, as facts and a log — 2026-10-17
-
-A crash should lose as little as it can, and a rebuild should read only what it needs.
-
-| Option | For | Against |
-|---|---|---|
-| **Every step, written as it happens, as facts and a log** (chosen) | A crash loses at most the step in flight: the last second of a reply, or the result of the tool that was running. A tool that started is known to have started. A rebuild reads only the facts. | A write for every step: eight for a short Run with one tool call. |
-| Every Turn, at its end | One write per Turn. | A crash loses the Turn in flight, and with it the record that a tool started. |
-| Every Run, at its end | One write per Run. | A crash loses the whole Run. |
+Decision: [014. Every step is written as it happens, as facts and a log](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md).
 
 - **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
 - **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release, and the parts of a streaming reply, written every second or few KiB. A rebuild does not read them, except to answer a crash: when a Run never ended, a load also reads the log since the last Checkpoint for the parts of that Run's reply.
-- **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry--2026-10-18)).
+- **Every Entry is an Event.** Facts and log entries are what a Session's Events report, so the Record is the Session's Event log and nothing is kept twice ([principle 7](#every-step-is-an-event-and-a-stored-event-is-an-entry)).
 - **The Context is never stored.** Every Turn builds it from the facts, so a rebuilt Session sends what it would have sent.
 - **What a crash leaves is answered when the Session is read, and, but for one case, nothing is written for it.** A tool call that started has an unknown outcome, one that never started was not run, and a reply cut off mid-stream is kept as a cut-off reply that the model never sees again. The cut-off reply is the one exception to writing nothing: its parts are in the log, so the Instance that takes the Session over rebuilds it from them and writes it as a fact, and every later load has it.
 
-### Every step is an Event, and a stored Event is an Entry — 2026-10-18
+### Every step is an Event, and a stored Event is an Entry
 
-Events are facts a program can read, instead of log lines. A Session's Record and its Events tell the same story: kept apart, they say it twice under two sets of names, and a number that counts within one Run means nothing to another instance.
-
-| Option | For | Against |
-|---|---|---|
-| **Every Entry is an Event, and the Record is the Session's Event log** (chosen) | One set of names, one copy. An Event's number is its Entry's position, which every instance reads the same, so a stream resumes anywhere. | A break: the number counts the Record, not the Run, so the HTTP contract changes version. |
-| Events replace the log entries only | Half the duplication goes. | Facts and Events still say the same things twice. |
-| Events kept apart from the Record | No change. | Everything is said twice, and only one instance can resume a stream. |
+Decision: [015. Every Entry is an Event, and the Record is the Session's Event log](plan/decisions/015-every-entry-is-an-event.md).
 
 Every Event carries its time and the Session it concerns, if any; a stored Event also carries its number, and an Event of a Run its Run and its Turn. Events come in three kinds, by where they live:
 
@@ -141,7 +111,7 @@ Every Event carries its time and the Session it concerns, if any; a stored Event
 ### An idle Session leaves memory at its TTL
 
 - **Instead of:** staying in memory until someone destroys it.
-- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL, or sooner when the instance needs the room: at its memory limit it evicts the longest-idle Session first ([A warm copy is a cache, not a lock](#a-warm-copy-is-a-cache-not-a-lock--2026-10-25)). It is compacted shortly before the TTL, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
+- **Why:** memory is a cache, so an idle Session gives it back, after 60 minutes unless its Agent sets another TTL, or sooner when the instance needs the room: at its memory limit it evicts the longest-idle Session first ([A warm copy is a cache, not a lock](#a-warm-copy-is-a-cache-not-a-lock)). It is compacted shortly before the TTL, or before its provider's cache expires if that comes first, unless a setting turns this off (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold)).
 
 ### A Fork writes the store and activates nothing
 
@@ -182,15 +152,9 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 - **Instead of:** rewriting the instruction or the tool list at the top of the request.
 - **Why:** a change at the top makes the provider read the whole history again at full price. A tool the model loads is told at the end, in the Tool Result that loaded it, and the tool list keeps its bytes ([FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-)). A change a service makes to an Agent in the middle of a Session, such as a new instruction, does rewrite the top. Gotato does not append it today: the idea is kept in [FEATURES.md → Later](FEATURES.md#later), to be built when the cost shows.
 
-### What is not the user's words goes to the model as a notice — 2026-10-18
+### What is not the user's words goes to the model as a notice
 
-Gotato and the service sometimes have to tell the model something the user did not say: the last reply was cut at the output limit, the user has been away for hours, or something happened outside the conversation. A notice is how.
-
-| Option | For | Against |
-|---|---|---|
-| **A notice is a Message of its own kind, kept in the Record** (chosen) | The model never takes it for the user, and it never starts a Round, so the reasoning sent back stays. It is appended once and never changes, so the cache and Claude's check of thinking blocks hold. | A fourth kind of Message, which each wire API carries as tagged text in a user turn. |
-| A tagged user Message | The simplest. | It starts a new Round, so Claude and OpenAI lose the reasoning in flight, and the model may take it as the user's request. |
-| Text added to each request, never kept | Nothing stored. | Its place and words can change between requests and instances, which breaks the cache, and Claude refuses a thinking block whose prefix changed. |
+Decision: [017. A notice is a Message of its own kind, kept in the Record](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md).
 
 - **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_ended`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
@@ -214,25 +178,20 @@ Gotato and the service sometimes have to tell the model something the user did n
 - **Instead of:** a retention on each Agent, or one value for every provider.
 - **Why:** how long a provider keeps its cache, and what that costs, belongs to the provider: an hour on Claude, at twice the price of a cache write; 30 minutes on OpenAI's Responses API from GPT-5.6, which is also its default. Each model's gateway configuration sets it (`cache_retention`), and without a setting a recognized provider gets its longest. An unrecognized provider is sent no retention, because a compatible server may refuse a field it does not know.
 
-### Tools load one by one from a catalog — 2026-10-25
+### Tools load one by one from a catalog
 
-The tool list comes before the Transcript, so every tool definition in it is read on every request, and a change to it makes the provider read everything after it again. A service that connects MCP servers can offer hundreds of tools. The model should see the few it needs, and loading one should cost as little of the cache as it can ([FEATURES.md → G-F34](FEATURES.md#g-f34--tool-search-)).
+Decision: [024. A Tool is the unit of loading, found through a catalog](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md).
 
-| Option | For | Against |
-|---|---|---|
-| **A Tool is the unit of loading, found through a catalog in the description of one discovery tool** (chosen) | The model loads only what it uses. The catalog is the same bytes while tools load, and a provider's deferred loading keeps the tool list the same bytes too. A ToolSet is a grouping and a source, and a team chooses how much of it the catalog shows. | A search tool to call before the first use, and a fallback for the wire API that has no deferred loading. |
-| A ToolSet is the unit, switched on whole (the earlier form) | Few concepts. | A big ToolSet, such as one MCP server, fills the tool list the moment it is switched on, and a count limit on active ToolSets is a guess. |
-| Every tool always visible | Nothing to discover. | Hundreds of definitions in every request, and a model that chooses badly among them. |
-
-- **No catalog budget.** The catalog shows what the install mode says, and a team that installs a big ToolSet folds it. A budget would be a number somebody guessed ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
+- **No catalog budget.** The catalog shows what the install mode says, and a team that installs a big ToolSet folds it. A budget would be a number somebody guessed ([A limit guards a real failure](#a-limit-guards-a-real-failure)).
 - **A loaded tool stays until the next compaction.** The tool list changes at that moment anyway, so the model keeps what it called in the Segment being closed or in the kept tail, and the rest unloads.
 - **Loading is a fact of the Record,** so every instance offers the same tools after a load, as the store is the only truth.
 - **A ToolSet resolves at the start of every Run, never inside one.** A server's tools change (an MCP server's `list_changed`), and a Session can live across many Runs, so the catalog is read again at each Run. Within a Run it is fixed, so the request of every Turn is built from the same catalog. A ToolSet that fails is skipped with a warning, not fatal: one server being down must not stop the others. A loaded tool that its ToolSet no longer carries is unloaded by a stored fact (`tool_unloaded`, `gone`), so the store stays the only truth and every instance builds the same request from the same Record.
 - **The cap and the switch come first.** A tool above the Agent's Effect cap is never in the index, and a tool a Session switched off is never loaded: a model cannot search its way past a bound ([The bounds are in the definition](#the-bounds-are-in-the-definition)).
 
-### A Segment is written once, and a Checkpoint points to it — 2026-10-24
+### A Segment is written once, and a Checkpoint points to it
 
-- **Instead of:** copying every Segment's Messages into each Checkpoint, or storing a Segment as data and rendering it when a request is built.
+Decision: [019. A Segment is written once, and a Checkpoint points to it](plan/decisions/019-a-segment-is-written-once.md).
+
 - **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the tools it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
 - **What it costs.** A load reads every `segment_closed` Entry before the last Checkpoint, including one a later Checkpoint no longer lists, so a load grows with the history. A Record that holds Segments is read only by a Gotato that knows them.
 
@@ -252,52 +211,34 @@ What the model sees is a value built on every Turn, not the history sent as it i
 - **Instead of:** built-in retrieval or memory search.
 - **Why:** retrieval and windowing depend on the application's data. Gotato ships full history and Compaction.
 
-### A large Tool Result is spilled, and read in pages — 2026-10-25
+### A large Tool Result is spilled, and read in pages
 
-A tool can return far more than a Context should hold, and the Context is built from the Record on every Turn. A result over one page, about 8K tokens, would stay in every later request, or be refused for its size ([FEATURES.md → G-F35](FEATURES.md#g-f35--large-tool-results-)).
-
-| Option | For | Against |
-|---|---|---|
-| **Spill the body into the Record as an Entry of its own, keep a preview and a ref in the Context, and let the model read it in pages** (chosen) | The Context stays small. Nothing is lost: the Record keeps the whole body, and the Message that stays is written once, so the bytes already sent do not change. A load does not read the body. | A tool call to read more, and a body that costs a read from the store. |
-| Fail the Run past a size limit (the earlier form) | Simple. | A result the model could have read in pages ends the Run, at a size that has nothing to do with the window. |
-| Cut the result and drop the rest | Simple, and no extra call. | The model cannot get what was cut, and cannot tell whether it matters. |
+Decision: [025. A large Tool Result is spilled into the Record, and read in pages](plan/decisions/025-a-large-tool-result-is-spilled-and-read-in-pages.md).
 
 - **The Record is the truth, and a warm Session is a cache.** Any instance reads the same body from the Record, and a warm copy only keeps the bodies it has read.
 - **One page is the line.** The threshold and the page of the reader are the same, so a result either fits in the Context or is read page by page.
 - **The reader is a sibling of `read_segment`.** The two share their paging. `read_segment`'s name is written into every Segment already stored, whose bytes never change, so the name stays, and a second tool reads results.
 
-### Reasoning goes back for the current Round, where the provider allows it — 2026-10-18
+### Reasoning goes back for the current Round, where the provider allows it
 
-A thinking model writes a lot of reasoning, and some models think on every reply. A Session can live for weeks, so reasoning sent back on every Turn fills the window, and the bill, long after it stopped helping. A Round is a user Message and every reply and Tool Result after it.
-
-| Option | For | Against |
-|---|---|---|
-| **The current Round's reasoning to Claude and OpenAI, all of it to any other provider** (chosen) | Reasoning stops piling up where the provider allows it. The rule reads only the Record, so every instance sends the same bytes. DeepSeek and unrecognized providers work as they always did. | Once per Round, the last Round's replies are cached again without their reasoning. DeepSeek and unrecognized providers still carry every reasoning artifact until compaction. |
-| All reasoning to every provider | The prefix only ever grows. | A weeks-long Session carries all of its reasoning, and Claude's newer models keep and bill all of it. |
-| No reasoning at all | The smallest requests. | Claude and OpenAI need the reasoning of a tool loop in progress, and DeepSeek refuses the request. |
+Decision: [016. Reasoning goes back for the current Round where the provider allows it](plan/decisions/016-reasoning-goes-back-for-the-current-round.md).
 
 - **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and neither does a notice, because it is not the user speaking.
 - **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
 - **Why Claude accepts it.** Claude's newest models check that every thinking block is sent after the same system prompt, tools and Messages it was written under. What is left out is always every block from the start of the Transcript up to the Round, and a block once left out is never sent again, so the check holds for every block that is sent. Where the check runs, the gateway also asks Claude to drop a block whose prefix changed instead of refusing the request; `no_drop_block` turns this off.
-- **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there. Gotato places no marker at the end of the last Segment: the request right after a compaction has a new prefix whatever the marks, and Claude takes at most four ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)).
+- **What it costs the cache.** A new Round changes the request from its first thinking block on, once. On Claude, the gateway marks the cache where the last Round started, so the new request still reads the cache up to there. Gotato places no marker at the end of the last Segment: the request right after a compaction has a new prefix whatever the marks, and Claude takes at most four ([below](#compaction-closes-a-segment-before-the-cache-goes-cold)).
 - **A change of model.** Reasoning goes as it is, whichever model wrote it. The provider drops what its model cannot read. Turning reasoning into text instead would make the new model take it for its own answer.
-- **Compaction.** A Segment, the stretch of history a compaction closes ([below](#compaction-closes-a-segment-before-the-cache-goes-cold--2026-10-19)), holds no reasoning. The tail a compaction keeps goes to Claude and OpenAI without its reasoning, because the Segment changes the prefix that reasoning was written under, and to DeepSeek and unrecognized providers with it. What Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going, is a default for each wire API that the gateway configuration can override.
+- **Compaction.** A Segment, the stretch of history a compaction closes ([below](#compaction-closes-a-segment-before-the-cache-goes-cold)), holds no reasoning. The tail a compaction keeps goes to Claude and OpenAI without its reasoning, because the Segment changes the prefix that reasoning was written under, and to DeepSeek and unrecognized providers with it. What Claude and OpenAI need of the reasoning in a tail kept mid-Run, whose tool loop is still going, is a default for each wire API that the gateway configuration can override.
 
-### Compaction closes a Segment, before the cache goes cold — 2026-10-19
+### Compaction closes a Segment, before the cache goes cold
 
-A Session's user often comes back long after the provider's cache has expired, and a long Run can outgrow the model's window. Compaction has to keep as much of the conversation as it can, and make the first request after a long pause cheap. A Segment is one stretch of history that a compaction closed, and its Recap is the part the model writes ([FEATURES.md → G-F06](FEATURES.md#g-f06--compaction-)).
-
-| Option | For | Against |
-|---|---|---|
-| **Close what came since the last Checkpoint into a Segment, and never rewrite a Segment** (chosen) | No summary of a summary until the oldest Segments merge, so nothing drifts. The Segments before keep their bytes, so a provider that caches any prefix reads them from the cache while the tool list stays the same ; on Claude the marks G-F04 places read them, and a mark of its own at the end of the last Segment is not placed until a team's cached-token usage shows it pays. It matches a Record that only grows. | Segments add up over a long Session, so at last the oldest are merged, which rewrites the prefix once. A merge writes one Recap of the oldest Recaps, and the words of the Segments it merged stay readable with `read_segment`. |
-| One summary of everything before the kept tail, written again at every compaction | One block, whose size stays bounded. | Each compaction summarizes the summary before it, so early facts blur or drop out, and the whole prefix changes every time. |
-| The provider's own compaction | No code in Gotato. | Its result cannot be read, does not carry over to another model, differs from one provider to the next, and cannot close one Segment at a time. It may become an option later. |
+Decision: [018. Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment](plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md).
 
 - **Before the cache goes cold.** An idle Session is compacted shortly before its prompt cache expires, or before it leaves memory if its TTL comes first, or if the cache retention is unknown or not well above the lead, where the TTL alone sets the time. The request that writes the Recap still reads the cache, and the user who comes back later pays full price only for a smaller Context.
 - **Safe by default.** Segments have a token budget, so the oldest are merged when they pass it, and on an overflow too. They merge into one merged Segment that opens the Context, down to half the budget, so the far past is one Recap and only it is a summary of a summary. With no `context_window_tokens` and no ceiling there is still a default budget, 32K tokens, so a long conversation cannot grow until every request is refused.
 - **The ceiling is the exception.** A Run about to outgrow the model's window is compacted while the cache is still warm, mid-Run if need be, because it cannot go on otherwise. The same goes for a request the provider refuses as too long, which is compacted and sent again once, and for a compaction asked for on demand.
 - **Nothing is lost,** unless the team prunes the entries before a Checkpoint. The Record keeps every Message a Segment covers, and the model can read a Segment back in full with a built-in tool; after such a prune, the tool says the Segment's Messages were removed.
-- **The tools change with it.** Only the loaded tools used in the Segment being closed, and those a kept tail still calls, stay loaded ([Tools load one by one from a catalog](#tools-load-one-by-one-from-a-catalog--2026-10-25)). The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
+- **The tools change with it.** Only the loaded tools used in the Segment being closed, and those a kept tail still calls, stay loaded ([Tools load one by one from a catalog](#tools-load-one-by-one-from-a-catalog)). The tool list comes before the Segments, so a change to it means the next request reads none of them from the cache. A compaction is when that costs least: it changes the request anyway, and after an idle compaction the cache has usually expired by the time the user comes back.
 
 ### Code builds a Segment, and the model writes only the Recap at its end
 
@@ -309,7 +250,7 @@ A Session's user often comes back long after the provider's cache has expired, a
 - **Instead of:** a separate model, or a request built only to summarize.
 - **Why:** the request is the Context the next model call would send, with one plain user message after it that asks for the Recap, so the whole prefix is read from the cache. That message is never stored and carries no tag, because it asks for work rather than stating a fact. A Recap fails when the reply calls a tool, is cut off at the output limit, does not start with one of the five `## ` headings, uses any other `## ` heading, or has no `## What happened`; a heading with nothing under it may be left out. The compaction still goes on: the Segment is kept without a Recap, with the conversation and its tool call lines, so a mistake by the model never loses the conversation. A merge whose Recap fails leaves the Segments unmerged. A merge is asked from the Recaps alone, and when no model writes it, code writes a digest of the Segments instead, so the budget holds whether or not a team turned the model's Recap on. A library user can bring their own writer of Recaps.
 
-### One hook runs before every model call — 2026-10-24
+### One hook runs before every model call
 
 - **Instead of:** preparing a Run only when it starts.
 - **Why:** a Run can outgrow the window between two Turns, and a request can be refused as too long, so compaction has to be able to run before any model call. The Loop calls a `TurnPreparer` on the Session's goroutine before every model call, with no Tool call open, and gives it the Session and Run, the Turn, the Transcript, where the Run started, the request about to be sent, whether this is a retry after a refusal, and a way to write what is staged. Compaction is its first use, and replaces the hook that ran at the start of a Run. The policy (the ceiling, the idle time, the refusal) stays in the compactor; the hook only gives it the chance.
@@ -317,7 +258,7 @@ A Session's user often comes back long after the provider's cache has expired, a
 ### A notice is for runtime facts, and a Segment has tags of its own
 
 - **Instead of:** a notice that carries a summary of the history, or history and notices as untagged text.
-- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round (played by fake gateways in ROADMAP Phase 9), so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
+- **Why:** a notice tells the model a fact of the moment, and a compacted stretch of history is something else, so it has names of its own. Gotato writes only four tags into the conversation: `<notice>`, `<segment>` for a Segment's header, `<tool_calls>` for a Run's tool call lines, and `<recap>`. Inside them are Markdown headings, never nested XML, and their attributes hold only what code needs: a number, and times in RFC 3339. They reach each wire API in a notice's forms, and the native forms carry the same tags; with no user Message after a notice or a Recap, the native form carries it, and Chat Completions gets a user message on the wire that the Record keeps as a notice, so it starts no Round, so every model reads the same words. When a request holds any of them, the system part ends with one fixed sentence: their text is written by the system, not said by the user. A user Message, a Tool Result, a Recap or a kept assistant reply that holds the start or the end of one of the four tags has its `<` escaped, and a `read_segment` result escapes a line that starts with a role prefix such as `[assistant]`, so neither a user, outside data nor the model's own words can speak as the system.
 
 ## 4. A failure stays local
 
@@ -339,17 +280,11 @@ A Session runs with nobody watching each step, so something will fail: a model c
   - **A `TurnStopper`.** An extension asks the Loop to stop after a Turn. A team that wants a cap on Turns, tool calls or tokens writes it there, with the number that fits its own jobs.
   - **The compaction ceiling.** A Context still past the ceiling after the Turn's one compaction ends the Run with `limit_exceeded`, and a provider that still refuses a request as too long ends it with `context_overflow`.
   - **A failure.** The model, the provider, a tool, the store or Gotato itself fails in a way the Run cannot go on from.
-- The core counts nothing, neither Turns nor tool calls. A call that hangs is ended by `ModelCallDeadline` or `ToolCallDeadline`, and a Run that never settles by its `ctx`. A service gives each Agent one Run deadline (`service.Agent.RunTimeout`), 30 minutes unless the Agent sets another, which a request's own timeout overrides ([A limit guards a real failure](#a-limit-guards-a-real-failure--2026-10-25)).
+- The core counts nothing, neither Turns nor tool calls. A call that hangs is ended by `ModelCallDeadline` or `ToolCallDeadline`, and a Run that never settles by its `ctx`. A service gives each Agent one Run deadline (`service.Agent.RunTimeout`), 30 minutes unless the Agent sets another, which a request's own timeout overrides ([A limit guards a real failure](#a-limit-guards-a-real-failure)).
 
-### A limit guards a real failure — 2026-10-25
+### A limit guards a real failure
 
-A limit is a promise that something bad cannot happen. A cap that fits no real failure either cuts off work that was going well, or never fires. Gotato had four of them to stop a Run that goes on without end: Turns, tool calls, the size of a Tool Result and a Run's time. Each has a better guard.
-
-| Option | For | Against |
-|---|---|---|
-| **A limit guards a real failure, and sizes follow the model's window** (chosen) | A cap is there because a named failure needs it: a hung call has its deadline, a Context past the window has its ceiling, a Run that must stop has its `ctx`. A number that depends on the job, such as how many Turns a support case may take, is the team's own `TurnStopper`. | A team that wants a cap on Turns writes a few lines. |
-| Default counting caps for Turns and tool calls | Every Run is bounded with no code. | One number cannot fit a lookup and a long investigation. A Run that was working is cut off at an arbitrary Turn, and a team that raises the number loses the guard. |
-| A cap on the bytes of a Tool Result | One result cannot fill memory. | It fails a Run for something the model could have read in pages, and it fails it at a size unrelated to the window. |
+Decision: [023. A limit guards a real failure, and sizes follow the model's window](plan/decisions/023-a-limit-guards-a-real-failure.md).
 
 - **A size follows the window.** A Tool Result over one page, about 8K tokens, is spilled into the Record and read back in pages ([FEATURES.md → G-F35](FEATURES.md#g-f35--large-tool-results-)). The compaction ceiling is the window less a reserve. Neither is a fixed byte count that someone chose.
 - **What stays, and why.** `MaxMessageBytes` guards memory against one reply that never ends. `ModelCallDeadline` and `ToolCallDeadline` guard a call that hangs; they are marked for review, because a fixed two minutes may not fit a slow model or a long tool. `MaxMessages` and `MaxTranscriptBytes` guard what one load reads.
@@ -359,15 +294,9 @@ A limit is a promise that something bad cannot happen. A cap that fits no real f
 - **Instead of:** one generic error.
 - **Why:** a failure names the part that caused it: the model, the provider, a tool, the store, a limit, an extension, an abort or Gotato.
 
-### An error says whether it ran and whether a retry may succeed — 2026-10-25
+### An error says whether it ran and whether a retry may succeed
 
-A caller that gets an error has two questions before it reads the code: did anything happen, and may I try again? The first decides whether the same request can go to another instance without running twice. The second decides whether to wait, or to tell the user. Both answers depend on where the error was made, so that is where we decide them.
-
-| Option | For | Against |
-|---|---|---|
-| **The runtime sets both answers on the error, and every surface translates** (chosen) | A service that embeds the Runner and never meets HTTP reads the same answers as a client behind a load balancer. A new code is classified once, where it is made. | The runtime names two facts that look like transport concerns. |
-| Each surface infers them from the code | Nothing in the runtime changes. | HTTP and each embedding service keep a copy, and they drift: a draining instance's refusal was not marked "not run" because only HTTP knew one code that was. An embedding service gets no answer at all. |
-| The caller infers them from the code | Simple for the runtime. | Every caller learns which codes are safe, and a new code silently breaks the rule. |
+Decision: [020. The runtime sets whether an error ran and whether a retry may succeed](plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md).
 
 - **Three answers on every error.** The code says what happened. `gotato.NotRun(err)` is true when nothing with side effects happened, so the request is safe to send to another instance. `gotato.Retryable(err)` is true when the same request, sent again later, may succeed. Both look through wrapped errors.
 - **Not run is a promise, so the default is no.** A store failure may have run, and a Run that reached the model has run. Only a refusal made before a Run starts says yes: draining, past a limit, busy, no such Session.
@@ -452,15 +381,9 @@ The MCP adapter only supplies Tools, so it builds on the core alone and no runti
 - **Instead of:** vendor SDKs or other libraries that save some code, or one module that carries every dependency.
 - **Why:** every dependency lands in every service that embeds Gotato. The core package imports only the standard library, the root module requires only `gopkg.in/yaml.v3`, and the MCP adapter is a module of its own.
 
-### Providers are configured by wire API — 2026-09-17
+### Providers are configured by wire API
 
-A provider is configuration: an endpoint, a key, a wire API and its models. Gotato implements each wire API once (`openai-chat-completions`, `openai-responses` and `anthropic-messages`), and any vendor that speaks one of them works without new code. A few providers have rules of their own for reasoning and the cache, so the configuration may also name the provider ([principle 6](#reasoning-goes-back-for-the-current-round-where-the-provider-allows-it--2026-10-18)).
-
-| Option | For | Against |
-|---|---|---|
-| **One implementation per wire API** (chosen) | A new vendor is a config entry. No vendor SDK in the service. | A vendor with a new wire API waits for its implementation. |
-| One adapter per vendor | Each vendor's full feature set. | Code for every vendor, and the list never ends. |
-| Vendor SDKs | Maintained by the vendors. | Their dependencies land in every service. |
+Decision: [001. A provider is configuration, and Gotato implements each wire API once](plan/decisions/001-one-implementation-per-wire-api.md).
 
 ## 6. Stay inside the boundary
 
@@ -468,17 +391,9 @@ Gotato is a library inside your service. Routing, authentication, databases, tel
 
 **Ask:** is this a job only an agent runtime has, or one the service around it already does?
 
-### Gotato builds no infrastructure, and stays within its boundary — 2026-10-16
+### Gotato builds no infrastructure, and stays within its boundary
 
-Running a Session on many instances raises two kinds of problem: getting a request to the right instance, and keeping the Session correct once it is there. The first is infrastructure that every team already runs. Gotato takes only the second: it keeps a Session correct on whichever instance a request reaches, taking over an idle Session and waiting for a busy one, and messages for a running Session reach its writer through the same routing as any request. A caller that cannot route by Session is told where the writer is, and Gotato builds no network between instances to carry the message there.
-
-| Option | For | Against |
-|---|---|---|
-| **Stay within the boundary: correctness is Gotato's, routing is the infrastructure's** (chosen) | Nothing new to deploy or operate. Works with a plain consistent hash. No Session is ever unreachable. A message that misses the writer is answered `not_writer`, with the writer's advertised address, so the caller or your own client sends it on. | How seamless it feels depends on the team's routing; while a hash changes, a message may need a second request. |
-| Forward requests to the writer between instances, always | Every message reaches the writer at once. | Gotato becomes a router, with an internal API and its authentication. What stays is smaller: an opt-in forward by the HTTP endpoints, to an address the writer advertised, as the same public request sent once. |
-| Redirect the caller to the writer, as the only routing | No forwarding. | Pushes routing onto every caller, and a load balancer cannot follow a redirect to one instance. The hash stays first; the address is only the answer when it missed. |
-| Queue every message in the store for the writer | Survives the writer's death. | Gotato becomes a message broker: a write per message, and a writer that polls the store. |
-| A placement or membership service of Gotato's own | Central control of where Sessions run. | A separate system to run, which [PROPOSAL.md](PROPOSAL.md) rules out. |
+Decision: [013. Correctness is Gotato's, routing is the infrastructure's](plan/decisions/013-gotato-builds-no-infrastructure.md).
 
 ### No authentication
 
@@ -495,15 +410,9 @@ Running a Session on many instances raises two kinds of problem: getting a reque
 - **Instead of:** scheduling resources or provider quotas across services.
 - **Why:** that is system policy, and the application owns it. Gotato offers Runs that are cheap and cancelable, bounds its own concurrent Runs, and keeps one Run per Session.
 
-### Gotato owns the shapes, and adapters own storage and telemetry — 2026-10-15
+### Gotato owns the shapes, and adapters own storage and telemetry
 
-Databases model schemas differently, and teams run different telemetry stacks, so neither belongs in the core.
-
-| Option | For | Against |
-|---|---|---|
-| **Stable shapes for a Session and its Events, mapped by adapters** (chosen) | Works with any database and any telemetry stack. Adds no dependency to the service. | Each team writes or picks an adapter. |
-| Ship a SQL store in the core | Works on day one for SQL users. | Drivers, migrations and one schema for everyone. No help for Mongo. |
-| Ship OpenTelemetry in the core | Tracing on day one. | A heavy dependency for every service, including those on another stack. |
+Decision: [003. Gotato owns the shapes, and adapters own storage and telemetry](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md).
 
 ### Core types belong to no vendor
 
@@ -531,15 +440,9 @@ Gotato is built for agents whose tools the team chooses and writes, and whose jo
 
 **Ask:** does a purpose-built agent need this, or only a general assistant?
 
-### An Agent is a definition, and a Session is the live unit — 2026-10-15
+### An Agent is a definition, and a Session is the live unit
 
-The words now match how the labs' agent APIs use them, so a reader who knows those APIs reads Gotato correctly without a note.
-
-| Option | For | Against |
-|---|---|---|
-| **Agent = definition, Session = live unit** (chosen) | Matches Claude Managed Agents and the OpenAI Agents API. One Agent running many Sessions reads naturally. | A rename of the code, done in Phase 3. |
-| Agent = live unit, with no term "session" | One noun for callers. | The reverse of the labs' usage, so every reader needs a note. |
-| Keep the old code names: Agent = the loop for one Run, Session = the stored record | No rename. | The thing a caller talks to has no name of its own. |
+Decision: [004. An Agent is a definition, and a Session is the live unit](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md).
 
 ### A Session has no machine
 
@@ -551,26 +454,11 @@ The words now match how the labs' agent APIs use them, so a reader who knows tho
 - **Instead of:** built-in tools that run commands, code or a browser.
 - **Why:** Gotato is not a cloud coding agent, and a tool that runs anything is a bound nobody can read.
 
-### Reading a large result is paging, and a bash for it is another project — 2026-10-27
+### Reading a large result is paging, and a bash for it is another project
 
-A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages--2026-10-25)). Often the model wants one line, one field or the lines that match, which a person would do with `grep` or `jq`. Inside a pod with no machine ([A Session has no machine](#a-session-has-no-machine)) the model has no `grep`.
+Decision: [026. A bash for large results lives in its own project](plan/decisions/026-a-read-only-bash-for-large-results-is-another-project.md).
 
-We considered giving it a read-only subset of bash over the Session's Record, and it was built and tested. We keep it out of Gotato for three reasons:
-
-- **MCP tools and `read_result` are enough for now.** Paging is slower than a query, but it works on every result.
-- **It is a large, separate piece of work.** About 9,500 lines of commands, a jq on a library that is not jq, and conformance tests against GNU that run only in CI. Each is work of its own, with its own pace, and none is the agent runtime.
-- **It needs two hooks in the core that nothing else uses.** One gives a tool the Session's Record, the other shows the Record as a directory. A hook is added when a second user needs it.
-
-The engine lives in its own project, [go-bash](https://github.com/jinhuang712/go-bash): a command string, an `fs.FS` and `ctx` in; stdout, stderr and an exit code out. It does not import Gotato.
-
-What we decided, and keep if a bash for large results returns:
-
-- **No machine, no `exec`, no sandbox.** The tool is read-only and sees only its own Session's data.
-- **The same Record gives the same output on every instance.** A command always ends, honours `ctx`, and uses bounded memory.
-- **Supported means identical.** Every supported command, flag and piece of bash syntax behaves exactly as GNU's and bash's, and anything else fails with a clear error. A silent difference gives the model a wrong answer it cannot notice, while a clear error costs one call.
-- **Spill first, query after,** and the model keeps `read_result` as the fallback.
-
-This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process.
+A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages)). A query tool over a spilled result stays outside Gotato, in [go-bash](https://github.com/jinhuang712/go-bash), which does not import Gotato. This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process.
 
 ### Tools are Go functions or MCP tools
 
@@ -597,15 +485,9 @@ This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code):
 - **Instead of:** trusting what a tool returns, or filtering it for hostile text.
 - **Why:** a Tool Result reaches the model as a tool-result message tied to its call, never as the system instruction or as a user message. The one thing Gotato enforces is that it cannot speak as the system: text in a result, in `SafeError`, in a user message or in the model's own reply that imitates one of Gotato's four tags (`notice`, `segment`, `tool_calls`, `recap`) is escaped when the request is built, while the Record keeps the original. This does not make a result safe to obey. A result can still hold words that persuade the model, and Gotato does not detect them. What limits the damage is the Agent's bounds: its named tools and its Effect cap, which a result cannot raise ([The bounds are in the definition](#the-bounds-are-in-the-definition)).
 
-### No approval system — 2026-10-15
+### No approval system
 
-Gotato is for purpose-built agents, whose tools the team chooses and writes (reason: [PHILOSOPHY.md → 3](PHILOSOPHY.md#3-how-is-a-cloud-session-different-from-a-local-one)).
-
-| Option | For | Against |
-|---|---|---|
-| **The Effect cap, plus tools that check their own arguments** (chosen) | No waiting state in the Loop. The bounds are visible in the Agent and the tools. | Tools must be written with care. |
-| Built-in approval that pauses a Run for a person | Familiar from general assistants. | Treats a broken stack as normal. A paused Run must survive restarts, which adds a waiting state to every Session. |
-| Leave it to extensions only | No new concept. | No bounds by default. |
+Decision: [005. The Effect cap and tools that check their own arguments replace an approval system](plan/decisions/005-no-approval-system.md).
 
 A team that still wants an extra check can add one with the `PreToolUse` extension. A step that needs a person by design is a tool that hands it over, for example by opening a ticket.
 
@@ -620,16 +502,9 @@ Gotato is designed for many instances behind your load balancer. One instance is
 
 **Ask:** is this still right when a request reaches any instance?
 
-### One writer per Session, claimed in the store — 2026-10-16
+### One writer per Session, claimed in the store
 
-A second instance must stop before it calls the model, and a writer that lost its claim must not append. We studied how seven Go systems do this. The closest are CockroachDB's per-node liveness record, whose epoch ends all of a node's leases at once, and Temporal's range ID, which every write checks.
-
-| Option | For | Against |
-|---|---|---|
-| **A claim with an epoch, valid while its instance's liveness row is** (chosen) | Needs only conditional writes in your own store. Fences every append. A dead instance's claims all end when its row expires. | A heartbeat write per instance. A takeover after a crash waits for one row to expire. |
-| A lease per Run | No liveness row. | Ownership flips between Runs, so a warm Session and a stream have no stable home. |
-| A membership protocol, such as gossip | Fast failure detection. | A second system inside Gotato, and no fence on the store without an epoch anyway. |
-| A placement service | Central control of placement. | A separate platform to run, which [PROPOSAL.md](PROPOSAL.md) rules out. |
+Decision: [011. One writer per Session, by a claim with an epoch](plan/decisions/011-one-writer-per-session-claimed-in-the-store.md).
 
 ### Every append is conditional on its position, and a claim takes one
 
@@ -685,7 +560,7 @@ A cloud Session runs with nobody watching each step. So it can be stopped at any
 ### The Record is the trace
 
 - **Instead of:** a separate audit log, or a trace the Session can write to.
-- **Why:** the Record already holds every step as an Entry, in order, and only the Session's `session.Writer` appends to it, under the Instance's Claim ([One writer per Session](#one-writer-per-session-claimed-in-the-store--2026-10-16)). Every append names the position it follows, so a writer that lost its Claim is refused. A tool gets its `ctx`, its call and a progress function, and the model gets only what the Loop commits, so neither has a way to write to the Record. This is a promise about Gotato's code, not about the store: whoever operates the store can still change or delete a Record (`Store.Delete` exists), and Entries are not signed. A team that needs more wraps the store, as for access control.
+- **Why:** the Record already holds every step as an Entry, in order, and only the Session's `session.Writer` appends to it, under the Instance's Claim ([One writer per Session](#one-writer-per-session-claimed-in-the-store)). Every append names the position it follows, so a writer that lost its Claim is refused. A tool gets its `ctx`, its call and a progress function, and the model gets only what the Loop commits, so neither has a way to write to the Record. This is a promise about Gotato's code, not about the store: whoever operates the store can still change or delete a Record (`Store.Delete` exists), and Entries are not signed. A team that needs more wraps the store, as for access control.
 
 ### Stopping reaches one Run, and a group of Runs is the application's
 
@@ -721,3 +596,36 @@ When two principles pull apart, this order decides:
 3. **Keep subtracting.** Weight is paid by every service that embeds Gotato, for as long as it does.
 
 The Effect cap is not part of the trade: an Agent never runs a tool above its cap to save a Turn or a write.
+
+## Decision index
+
+Each decision is a fork someone could reasonably reverse, kept in its own file with the problem, the choice, the alternatives and the consequences ([plan/decisions/README.md](plan/decisions/README.md)).
+
+| No. | Decision |
+|---|---|
+| [001](plan/decisions/001-one-implementation-per-wire-api.md) | A provider is configuration, and Gotato implements each wire API once |
+| [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md) | The store is the truth, and memory is a cache |
+| [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) | Gotato owns the shapes, and adapters own storage and telemetry |
+| [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md) | An Agent is a definition, and a Session is the live unit |
+| [005](plan/decisions/005-no-approval-system.md) | The Effect cap and tools that check their own arguments replace an approval system |
+| [006](plan/decisions/006-a-conformance-suite-ships-with-the-store-contract.md) | A conformance suite ships with the store contract |
+| [007](plan/decisions/007-the-effect-cap-hides-tools-above-it.md) | A tool above the Effect cap is hidden from the model |
+| [008](plan/decisions/008-only-the-agent-sets-the-effect-cap.md) | Only the Agent sets the Effect cap |
+| [009](plan/decisions/009-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md) | `gotato.Session` is the live unit, and `session.Record` is what the store keeps |
+| [010](plan/decisions/010-the-record-is-an-append-only-log.md) | The Record is an append-only log |
+| [011](plan/decisions/011-one-writer-per-session-claimed-in-the-store.md) | One writer per Session, by a claim with an epoch |
+| [012](plan/decisions/012-messages-reach-the-writer-and-take-effect-in-its-process.md) | Steer lands at a Turn boundary, Interrupt and Stop at once, and a late message starts a new Run |
+| [013](plan/decisions/013-gotato-builds-no-infrastructure.md) | Correctness is Gotato's, routing is the infrastructure's |
+| [014](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md) | Every step is written as it happens, as facts and a log |
+| [015](plan/decisions/015-every-entry-is-an-event.md) | Every Entry is an Event, and the Record is the Session's Event log |
+| [016](plan/decisions/016-reasoning-goes-back-for-the-current-round.md) | Reasoning goes back for the current Round where the provider allows it |
+| [017](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md) | A notice is a Message of its own kind, kept in the Record |
+| [018](plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md) | Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment |
+| [019](plan/decisions/019-a-segment-is-written-once.md) | A Segment is written once, and a Checkpoint points to it |
+| [020](plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) | The runtime sets whether an error ran and whether a retry may succeed |
+| [021](plan/decisions/021-a-warm-copy-is-a-cache-not-a-lock.md) | A warm copy is a cache with a head check, not a lock |
+| [022](plan/decisions/022-when-the-hash-missed-the-answer-names-the-writer.md) | When the hash missed, the answer names the writer |
+| [023](plan/decisions/023-a-limit-guards-a-real-failure.md) | A limit guards a real failure, and sizes follow the model's window |
+| [024](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md) | A Tool is the unit of loading, found through a catalog |
+| [025](plan/decisions/025-a-large-tool-result-is-spilled-and-read-in-pages.md) | A large Tool Result is spilled into the Record, and read in pages |
+| [026](plan/decisions/026-a-read-only-bash-for-large-results-is-another-project.md) | A bash for large results lives in its own project |
