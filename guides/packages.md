@@ -49,16 +49,41 @@ gotato + session + modelctx          long conversations compact on their own
 
 ## How they depend on each other
 
-Each package builds only on the ones to its left, and `layering_test.go` keeps it so:
+Every shipped package builds on the core. The diagram shows the layers, with each package above the ones it imports; `gateway` and `adapter/mcp` sit beside the chain and import the core alone (`gateway`'s one third-party module, `gopkg.in/yaml.v3`, aside):
 
 ```text
-gotato ◄── session ◄── modelctx
-     ▲             ▲            ▲
-     │             └──── service ┘       service builds on core, session and modelctx
-     └── gateway
+service/httpapi
+      │
+      ▼
+   service
+      │
+      ▼
+  modelctx          testkit   session/storetest
+      │                   │       │
+      ▼                   ▼       ▼
+   session ◄──────────────┴───────┘        gateway   adapter/mcp
+      │                                       │          │
+      ▼                                       ▼          ▼
+   gotato  ◄──────────────────────────────────┴──────────┘
 ```
 
-`session` and `gateway` depend on the core alone, and not on each other.
+An arrow reads "imports". Some imports skip a layer, and the table lists all of them:
+
+| Package | Imports |
+|---|---|
+| `gotato` | none (the standard library, and the shared `internal/text`) |
+| `session` | `gotato` |
+| `gateway` | `gotato` |
+| `modelctx` | `gotato`, `session` |
+| `testkit` | `gotato`, `session` |
+| `session/storetest` | `gotato`, `session` |
+| `service` | `gotato`, `session`, `modelctx` |
+| `service/httpapi` | `gotato`, `session`, `modelctx`, `service` |
+| `adapter/mcp` | `gotato` |
+
+`session` and `gateway` depend on the core alone, and not on each other. `testkit` and `session/storetest` import the core and `session`. Of the shipped packages, only `service/httpapi` imports `service`.
+
+`gotato/layering_test.go` holds this table as `allowedImports` and fails on any import outside it, on a table entry no code uses, and on a new package that is not in it. To add a dependency on purpose, extend the table in the same commit and say why.
 
 ## Next
 
