@@ -10,9 +10,9 @@
 The Record only grows; a load starts from the last Checkpoint and reads nothing before it.
 
 ```text
-Record  Messages ... │CP 1│ Seg 1 │ Messages ... │CP 2│ Seg 2 │ tail │ new Messages ─▶
-                     ▲                           ▲
-                     └ not read                  └ last Checkpoint: a load starts here
+Record  Messages ... │Seg 1│CP 1│ Messages ... │Seg 2│CP 2│ tail │ new Messages ─▶
+                                                       ▲
+        read by nobody: before the last Checkpoint     └ last Checkpoint: a load starts here
 ```
 
 ## What the model is sent
