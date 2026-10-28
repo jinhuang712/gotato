@@ -4,7 +4,9 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 ## Defects
 
-None open.
+- [ ] **Listing or switching tools waits for every ToolSet.** `Runner.Tools` and `SetToolActive` build the whole live Session, which resolves each ToolSet; `SetToolActive` does it under the Session's lock. A slow or down MCP server blocks both, and there is no deadline of their own. Found by the second code review (2026-10-28).
+- [ ] **`FileStore` leaves its crash leftovers.** A crash can leave `.creating-*`, `.deleted-*` and `.tmp-*` entries in the store's directory, and nothing removes them. Several processes can share one directory, so a sweep needs an age limit, so as not to remove what a live writer is still using.
+- [ ] **`Feed` has plumbing that is exported.** `Published`, `PublishLabeled`, `SetLabel`, `MirrorTo` and `NewInstanceFeed` are exported because `service` and `testkit` call them from other packages. Moving them behind a smaller exported surface changes the `service`/`gotato` split, so it needs a design, not a rename.
 
 ## Decisions
 

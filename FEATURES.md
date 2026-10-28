@@ -1176,6 +1176,8 @@ Every Session is saved to a store as its Record (`session.Record`), and you choo
 | A directory per Record, with one file per write (`session.NewFileStore(dir)`, which creates `dir` and its missing parents) | a single process that keeps its Sessions on local disk, such as a tool or a test |
 | Your own adapter | the database you run, through the store contract below ([G-N08](#g-n08--storage-engines-belong-to-applications)) |
 
+A Record's ID is at most `session.MaxIDBytes` (100) bytes of valid UTF-8, with no control character, no `/` or `\`, no `..` and no leading `.`. Every store refuses another ID with `session.ErrInvalidID` (`invalid_argument`), so a Session that works in memory also works on disk. `FileStore` spells uppercase and non-ASCII characters in the directory name, so IDs that differ only in case never share a directory on a case-insensitive file system.
+
 The Record is an append-only log ([DESIGNS.md → The Record is an append-only log](DESIGNS.md#the-record-is-an-append-only-log--2026-10-16) and [The Record keeps every step](DESIGNS.md#the-record-keeps-every-step-as-facts-and-a-log--2026-10-17)):
 
 - Every step of a Run is appended as it happens (G-F27), at a position the store never gives twice. Nothing already written is rewritten.
