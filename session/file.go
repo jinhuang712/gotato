@@ -316,14 +316,11 @@ func (f *FileStore) info(id string) (RecordInfo, error) {
 	if err != nil {
 		return RecordInfo{}, err
 	}
-	batch, err := readBatch(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
+	info, err := readBatchInfo(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
 	if errors.Is(err, os.ErrNotExist) {
 		return RecordInfo{}, ErrNotFound
 	}
-	if err != nil {
-		return RecordInfo{}, err
-	}
-	return batch.Info, nil
+	return info, err
 }
 
 // Delete implements Store. The Record's directory is renamed away first, so

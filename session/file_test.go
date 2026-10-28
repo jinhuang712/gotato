@@ -229,3 +229,36 @@ func TestFileStoreStrayFileInRecordDirIsAnError(t *testing.T) {
 		t.Fatalf("want an error naming %s, got %v", stray, err)
 	}
 }
+
+// List decodes the summary of the last write and skips its Entries: a last
+// write whose Entries are not Entries still lists.
+func TestFileStoreListDoesNotDecodeTheEntriesOfTheLastWrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "r", "*", "00000000000000000001.json"))
+	if len(matches) != 1 {
+		t.Fatalf("found %d files for position 1", len(matches))
+	}
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(data), `"entries":[`, `"entries":[7,`, 1)
+	if broken == string(data) {
+		t.Fatalf("no entries array in %s", data)
+	}
+	if err := os.WriteFile(matches[0], []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := store.List(ctx)
+	if err != nil || len(infos) != 1 || infos[0].Seq != 1 {
+		t.Fatalf("List = %+v, %v; want the one summary", infos, err)
+	}
+}

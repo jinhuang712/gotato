@@ -64,6 +64,23 @@ func readBatch(path string) (fileBatch, error) {
 	return batch, nil
 }
 
+// readBatchInfo reads only the RecordInfo of a batch file. The Entries are
+// scanned for syntax but not decoded, so a listing does not build a large
+// batch's Entries to drop them.
+func readBatchInfo(path string) (RecordInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RecordInfo{}, err
+	}
+	var batch struct {
+		Info RecordInfo `json:"info"`
+	}
+	if err := json.Unmarshal(data, &batch); err != nil {
+		return RecordInfo{}, fmt.Errorf("session: %s: %w", filepath.Base(path), err)
+	}
+	return batch.Info, nil
+}
+
 // writeBatch writes one batch at its first position, failing with ErrConflict
 // when that position's file exists and with ErrNotFound when the Record's
 // directory is gone.
