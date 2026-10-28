@@ -344,70 +344,27 @@ func (st *runState) createSession(ctx, runCtx context.Context) error {
 // serveLocked is the part of a Run that holds the Session lock: open the
 // Session, build the live Session, prompt it, then save and report.
 func (st *runState) serveLocked(ctx, runCtx context.Context) error {
-	r, request, handle := st.r, st.request, st.handle
-	// An existing Session is loaded once, under the lock: another Run
-	// may have saved it meanwhile, and a Session deleted in between must
-	// not be resurrected from a stale copy.
-	var loadTime time.Duration
-	// The Events the open writes, a claim among them, are published once
-	// the Run knows its Record and its Agent, so they go to that Record's
-	// Feed and carry the Agent's name.
-	var early []gotato.Event
-	// reused says a warm copy served the Run: the Session was not loaded.
-	reused := false
-	if request.SessionID != "" {
-		// A Run writes as this Instance: opening the Session claims it
-		// when another Instance held it, and a stale writer is fenced.
-		began := time.Now()
-		var err error
-		if request.SkipSave {
-			st.feed = gotato.NewFeed(nil)
-			defer st.feed.Close()
-			if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
-				return err
+	r, request := st.r, st.request
+	if request.SkipSave && request.SessionID != "" {
+		// A Run that saves nothing has a Feed of its own, which ends with it.
+		defer func() {
+			if st.feed != nil {
+				st.feed.Close()
 			}
-			st.s, err = session.Open(runCtx, r.store, st.sessionID)
-			loadTime = time.Since(began)
-		} else {
-			loadTime, early, reused, err = st.openWriter(runCtx, began)
-		}
-		if err != nil {
-			r.notice(loadedEvent(st.sessionID, 0, loadTime, err), request.Agent)
-			r.noteFailure(err, st.sessionID, request.Agent)
-			return err
-		}
-		if st.writer != nil {
-			if err := st.joinFeed(ctx, runCtx); err != nil {
-				return err
-			}
-		}
+		}()
 	}
-	s := st.s
-
-	// The Agent is resolved before the Update is applied, so a Run that is
-	// refused for its Agent writes nothing. An Update of MetaAgent counts.
-	agentName := request.Agent
-	if agentName == "" {
-		if value, set := request.Update[MetaAgent]; set {
-			agentName = value
-		} else {
-			agentName, _ = s.Get(MetaAgent)
-		}
+	opened, err := st.openSession(ctx, runCtx)
+	if err != nil {
+		return err
 	}
-	spec, ok := r.Agent(agentName)
+	spec, ok := st.resolveAgent()
 	if request.SessionID != "" {
-		st.announceOpen(spec, ok, early, reused, loadTime)
+		st.announceOpen(spec, ok, opened.early, opened.reused, opened.loadTime)
 	}
 	if !ok {
 		return st.abandon(runCtx, ErrUnknownAgent)
 	}
-	for key, value := range request.Update {
-		s.Set(key, value)
-	}
-	s.Set(MetaAgent, spec.Name)
-	if spec.ModelName != "" {
-		s.Set(MetaModel, spec.ModelName)
-	}
+	st.applyUpdate(spec)
 
 	live, auto, err := st.startRun(ctx, spec)
 	if err != nil {
@@ -415,9 +372,96 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	}
 	var result gotato.RunResult
 	result, st.runErr = st.promptWithDeadline(ctx, spec, live)
-	// The messages the Run left in its queues are taken in the same step
-	// that stops delivering to it, and a Run follows with them unless
-	// something ends the work they were meant for.
+	st.detach(runCtx, live)
+	if r.beforeRelease != nil {
+		r.beforeRelease()
+	}
+	st.persist(runCtx, spec, &result)
+	st.respond(spec, auto, result)
+	return nil
+}
+
+// openedSession is what opening an existing Session produced, for the Events
+// to publish once the Run knows its Record and its Agent.
+type openedSession struct {
+	loadTime time.Duration
+	// early are the Events the open wrote, a claim among them. They go to
+	// that Record's Feed and carry the Agent's name.
+	early []gotato.Event
+	// reused says a warm copy served the Run: the Session was not loaded.
+	reused bool
+}
+
+// openSession loads an existing Session once, under the lock: another Run may
+// have saved it meanwhile, and a Session deleted in between must not be
+// resurrected from a stale copy. A Run writes as this Instance: opening the
+// Session claims it when another Instance held it, and a stale writer is
+// fenced. A Run that creates its Session has nothing to open.
+func (st *runState) openSession(ctx, runCtx context.Context) (openedSession, error) {
+	var opened openedSession
+	r, request := st.r, st.request
+	if request.SessionID == "" {
+		return opened, nil
+	}
+	began := time.Now()
+	var err error
+	if request.SkipSave {
+		st.feed = gotato.NewFeed(nil)
+		if err := r.streamTo(ctx, st.feed, st.stream, st.track); err != nil {
+			return opened, err
+		}
+		st.s, err = session.Open(runCtx, r.store, st.sessionID)
+		opened.loadTime = time.Since(began)
+	} else {
+		opened.loadTime, opened.early, opened.reused, err = st.openWriter(runCtx, began)
+	}
+	if err != nil {
+		r.notice(loadedEvent(st.sessionID, 0, opened.loadTime, err), request.Agent)
+		r.noteFailure(err, st.sessionID, request.Agent)
+		return opened, err
+	}
+	if st.writer != nil {
+		if err := st.joinFeed(ctx, runCtx); err != nil {
+			return opened, err
+		}
+	}
+	return opened, nil
+}
+
+// resolveAgent finds the Agent of the Run: the request's, else an Update of
+// MetaAgent, else the Session's. It is resolved before the Update is applied,
+// so a Run that is refused for its Agent writes nothing.
+func (st *runState) resolveAgent() (Agent, bool) {
+	agentName := st.request.Agent
+	if agentName == "" {
+		if value, set := st.request.Update[MetaAgent]; set {
+			agentName = value
+		} else {
+			agentName, _ = st.s.Get(MetaAgent)
+		}
+	}
+	return st.r.Agent(agentName)
+}
+
+// applyUpdate writes the request's Update and the Agent's name into the
+// Session's metadata.
+func (st *runState) applyUpdate(spec Agent) {
+	for key, value := range st.request.Update {
+		st.s.Set(key, value)
+	}
+	st.s.Set(MetaAgent, spec.Name)
+	if spec.ModelName != "" {
+		st.s.Set(MetaModel, spec.ModelName)
+	}
+}
+
+// detach ends a settled Run's live Session: the messages it left in its
+// queues are taken in the same step that stops delivering to it, and a Run
+// follows with them unless something ends the work they were meant for. It
+// then closes the live Session and lets the Run's stream finish before the
+// save.
+func (st *runState) detach(runCtx context.Context, live *gotato.Session) {
+	r, handle := st.r, st.handle
 	if r.beforeDetach != nil {
 		r.beforeDetach()
 	}
@@ -426,17 +470,7 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	// notice_queued is in the Record, and the next Run queues it again.
 	// Gotato's own notices, such as time_away, mattered only at the time.
 	notices := handle.detachLive(func(left []gotato.Queued) bool {
-		why := ""
-		switch {
-		case st.writer == nil:
-			why = "run_ended"
-		case st.writer.Failed() != nil:
-			why = "writer_failed"
-		case r.Draining():
-			why = "draining"
-		case handle.isStopped() || runCtx.Err() != nil:
-			why = "run_ended"
-		}
+		why := st.dropReason(runCtx)
 		if why != "" {
 			live.DropQueued(left, why)
 			return false
@@ -454,12 +488,22 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	if st.stream != nil && st.stream.sub != nil {
 		st.stream.sub.End()
 	}
-	if r.beforeRelease != nil {
-		r.beforeRelease()
+}
+
+// dropReason says why the messages a settled Run left must not start another
+// Run; empty means they may.
+func (st *runState) dropReason(runCtx context.Context) string {
+	switch {
+	case st.writer == nil:
+		return "run_ended"
+	case st.writer.Failed() != nil:
+		return "writer_failed"
+	case st.r.Draining():
+		return "draining"
+	case st.handle.isStopped() || runCtx.Err() != nil:
+		return "run_ended"
 	}
-	st.persist(runCtx, spec, &result)
-	st.respond(spec, auto, result)
-	return nil
+	return ""
 }
 
 // openWriter opens the Writer of an existing, saved Session: a warm copy of it
