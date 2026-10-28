@@ -21,7 +21,7 @@ func (s *Record) CloseSegment(segment gotato.Segment) (gotato.Segment, error) {
 }
 
 // CheckpointSegments is Record.checkpointSegments.
-func (s *Record) CheckpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+func (s *Record) CheckpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *gotato.Compaction) error {
 	return s.checkpointSegments(why, numbers, tail, compaction)
 }
 
@@ -70,3 +70,11 @@ func WithEventLimit(limit int) RecordOption {
 
 // WithClock overrides the Record's clock.
 func WithClock(now func() time.Time) RecordOption { return func(s *Record) { s.now = now } }
+
+// Checkpoint is Record.checkpoint.
+func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message, compaction *gotato.Compaction) {
+	s.checkpoint(why, messages, compaction)
+}
+
+// NotRunToolResult is notRunToolResult.
+const NotRunToolResult = notRunToolResult

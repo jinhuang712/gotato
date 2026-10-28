@@ -97,14 +97,14 @@ const (
 // Result reports a Compact call. Compaction is present only when a Segment
 // was closed (Replaced is true); Reason says why not otherwise.
 type Result struct {
-	SessionID      string              `json:"session_id"`
-	Replaced       bool                `json:"replaced"`
-	Reason         CompactReason       `json:"reason,omitempty"`
-	MessagesBefore int                 `json:"messages_before"`
-	MessagesAfter  int                 `json:"messages_after"`
-	TokensBefore   int                 `json:"tokens_before"`
-	TokensAfter    int                 `json:"tokens_after"`
-	Compaction     *session.Compaction `json:"compaction,omitempty"`
+	SessionID      string             `json:"session_id"`
+	Replaced       bool               `json:"replaced"`
+	Reason         CompactReason      `json:"reason,omitempty"`
+	MessagesBefore int                `json:"messages_before"`
+	MessagesAfter  int                `json:"messages_after"`
+	TokensBefore   int                `json:"tokens_before"`
+	TokensAfter    int                `json:"tokens_after"`
+	Compaction     *gotato.Compaction `json:"compaction,omitempty"`
 	// Merge reports the merge of the oldest Segments that followed the Segment's
 	// closing, when the Segments passed their budget: merged, or why not
 	// (MergeReasonRecapFailed, MergeReasonWriteFailed). It is absent when the
@@ -187,7 +187,7 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 	for _, previous := range s.Segments() {
 		earlier = append(earlier, previous.Number)
 	}
-	record := session.Compaction{
+	record := gotato.Compaction{
 		At:               time.Now().UTC(),
 		ReplacedMessages: cut,
 		FromMessageID:    closed[0].ID,

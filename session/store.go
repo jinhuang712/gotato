@@ -208,9 +208,6 @@ func loadedFrom(entries []Entry) (facts, segments []Entry) {
 	return facts, segments
 }
 
-// InfoOf builds the listing view of a Record.
-func InfoOf(s *Record) RecordInfo { return s.Info() }
-
 // Info returns the listing view without copying Messages or Events.
 func (s *Record) Info() RecordInfo {
 	s.mu.RLock()

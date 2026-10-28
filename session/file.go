@@ -126,9 +126,6 @@ func sweepEntries(dir string, names []os.DirEntry, age time.Duration, prefixes .
 	}
 }
 
-// Dir returns the directory.
-func (f *FileStore) Dir() string { return f.dir }
-
 // nameOf is the file name a store gives an ID, so that two IDs never share a
 // name, on a file system that ignores case or Unicode form too. A lowercase
 // letter, a digit and "._-" stand for themselves; an uppercase letter is "!"

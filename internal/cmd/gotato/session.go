@@ -200,13 +200,13 @@ func (c *cli) sessionCreate(args []string) int {
 		if err != nil {
 			return c.failErr(err)
 		}
-		return c.emit(session.InfoOf(s), s.ID())
+		return c.emit(s.Info(), s.ID())
 	}
 	s, err := rt.runner.CreateSession(ctx, agent, metadata)
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(session.InfoOf(s), s.ID())
+	return c.emit(s.Info(), s.ID())
 }
 
 func (c *cli) sessionList(args []string) int {
@@ -308,7 +308,7 @@ func (c *cli) sessionFork(args []string) int {
 	if err != nil {
 		return c.failErr(err)
 	}
-	return c.emit(session.InfoOf(child), child.ID())
+	return c.emit(child.Info(), child.ID())
 }
 
 func (c *cli) sessionDelete(args []string) int {

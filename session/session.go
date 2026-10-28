@@ -63,15 +63,15 @@ type Document struct {
 	ID            string `json:"id"`
 	ParentID      string `json:"parent_id,omitempty"`
 	// RecordEpoch is the Record's identity as a log (Record.RecordEpoch).
-	RecordEpoch string            `json:"record_epoch,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Messages    []gotato.Message  `json:"messages"`
-	Runs        []RunInfo         `json:"runs,omitempty"`
-	Events      []gotato.Event    `json:"events,omitempty"`
-	Usage       gotato.Usage      `json:"usage"`
-	Compactions []Compaction      `json:"compactions,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	RecordEpoch string              `json:"record_epoch,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
+	Messages    []gotato.Message    `json:"messages"`
+	Runs        []RunInfo           `json:"runs,omitempty"`
+	Events      []gotato.Event      `json:"events,omitempty"`
+	Usage       gotato.Usage        `json:"usage"`
+	Compactions []gotato.Compaction `json:"compactions,omitempty"`
+	Metadata    map[string]string   `json:"metadata,omitempty"`
 	// LoadedTools are the Tools the model loaded (Record.LoadedTools).
 	LoadedTools []string `json:"loaded_tools,omitempty"`
 	// Segments are the Segments the Messages start with (Record.Segments);
@@ -134,7 +134,7 @@ type Record struct {
 	events      []gotato.Event
 	eventHead   int
 	usage       gotato.Usage
-	compactions []Compaction
+	compactions []gotato.Compaction
 	metadata    map[string]string
 	// loaded are the Tools the model loaded, in the order it did.
 	loaded     []string
@@ -647,7 +647,7 @@ func (s *Record) retainedEvents() []gotato.Event {
 }
 
 // Compactions returns the compaction history.
-func (s *Record) Compactions() []Compaction {
+func (s *Record) Compactions() []gotato.Compaction {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return slices.Clone(s.compactions)

@@ -107,7 +107,7 @@ func TestCheckpointWritesCompactionEndedAndALoadStartsThere(t *testing.T) {
 	}
 	writer.Record().Checkpoint(gotato.CompactionWhyBeforeUnload,
 		[]gotato.Message{gotato.AssistantMessage("summary"), gotato.UserMessage("three")},
-		&session.Compaction{ReplacedMessages: 2, Recap: "test"})
+		&gotato.Compaction{ReplacedMessages: 2, Recap: "test"})
 	if err := writer.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}

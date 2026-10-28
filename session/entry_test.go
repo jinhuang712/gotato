@@ -145,7 +145,7 @@ func TestCheckpointStandsInForEverythingBefore(t *testing.T) {
 		commit(t, r, gotato.UserMessage(text))
 	}
 	summary := gotato.AssistantMessage("summary of one and two")
-	r.Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &session.Compaction{ReplacedMessages: 2, Recap: "test"})
+	r.Checkpoint(gotato.CompactionWhyOnDemand, []gotato.Message{summary, gotato.UserMessage("three")}, &gotato.Compaction{ReplacedMessages: 2, Recap: "test"})
 	commit(t, r, gotato.UserMessage("four"))
 	entries := session.TakePending(r)
 

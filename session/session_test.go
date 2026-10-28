@@ -346,7 +346,7 @@ func TestDocumentRoundTripsTypedEvents(t *testing.T) {
 
 func TestSummaryMetadataIsIsolated(t *testing.T) {
 	s := session.New(session.WithMetadata(map[string]string{"app": "test"}))
-	summary := session.InfoOf(s)
+	summary := s.Info()
 	summary.Metadata["app"] = "mutated"
 	if value, _ := s.Get("app"); value != "test" {
 		t.Fatalf("summary metadata aliased the Session: %v", s.Metadata())

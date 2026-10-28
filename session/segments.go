@@ -153,7 +153,7 @@ func (s *Record) closeLocked(segment gotato.Segment) {
 // Messages, which stay where closeSegment wrote them. compaction is recorded
 // when it is not nil. Nothing written before is rewritten, and it must not
 // run while a Run is using the Record.
-func (s *Record) checkpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+func (s *Record) checkpointSegments(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *gotato.Compaction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.checkpointSegmentsLocked(why, numbers, tail, compaction)
@@ -165,7 +165,7 @@ func (s *Record) checkpointSegments(why gotato.CompactionWhy, numbers []int, tai
 // one lock, so no write holds the Segment without the Checkpoint that lists
 // it. earlier are closed numbers in ascending order, all below the new
 // Segment's. When it returns an error, nothing was closed or checkpointed.
-func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment gotato.Segment, earlier []int, tail []gotato.Message, compaction *Compaction) (gotato.Segment, error) {
+func (s *Record) CloseSegmentAndCheckpoint(why gotato.CompactionWhy, segment gotato.Segment, earlier []int, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	number := segment.Number
@@ -242,7 +242,7 @@ func (s *Record) checkNumbersLocked(numbers []int, pending *gotato.Segment) erro
 // closed or checkpointed.
 //
 // It must not run while a Run is using the Record.
-func (s *Record) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, replaces []int, tail []gotato.Message, compaction *Compaction) (gotato.Segment, error) {
+func (s *Record) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, replaces []int, tail []gotato.Message, compaction *gotato.Compaction) (gotato.Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(merged.Merged) == 0 || len(replaces) == 0 {
@@ -272,7 +272,7 @@ func (s *Record) MergeSegments(why gotato.CompactionWhy, merged gotato.Segment, 
 	return closed, nil
 }
 
-func (s *Record) checkpointSegmentsLocked(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *Compaction) error {
+func (s *Record) checkpointSegmentsLocked(why gotato.CompactionWhy, numbers []int, tail []gotato.Message, compaction *gotato.Compaction) error {
 	if err := s.checkNumbersLocked(numbers, nil); err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func (s *Record) checkpointSegmentsLocked(why gotato.CompactionWhy, numbers []in
 // the Segments are tail: it narrows the positions to the tail, records the
 // compaction, and queues the Event. The caller holds the lock and has set
 // messages and used.
-func (s *Record) checkpointLocked(why gotato.CompactionWhy, tail []gotato.Message, compaction *Compaction) {
+func (s *Record) checkpointLocked(why gotato.CompactionWhy, tail []gotato.Message, compaction *gotato.Compaction) {
 	kept := tailPositions(tail, s.positions)
 	s.positions = map[gotato.MessageID]gotato.MessagePosition{}
 	for _, position := range kept {

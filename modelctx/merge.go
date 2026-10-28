@@ -248,7 +248,7 @@ func commitMerge(s *session.Record, cfg MergeConfig, why gotato.CompactionWhy, r
 	for _, segment := range replaced {
 		rendered += len(segment.Messages)
 	}
-	record := session.Compaction{
+	record := gotato.Compaction{
 		At:               time.Now().UTC(),
 		ReplacedMessages: rendered,
 		Recap:            recapName,

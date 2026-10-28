@@ -69,19 +69,19 @@ func EstimateTokens(messages []gotato.Message) int {
 // prefix, and it equals the prefix_hash of the context_built Event the Turn
 // emits.
 type Report struct {
-	SessionID            string               `json:"session_id,omitempty"`
-	Strategy             string               `json:"strategy"`
-	SourceMessages       int                  `json:"source_messages"`
-	SelectedMessages     int                  `json:"selected_messages"`
-	ApproxTokens         int                  `json:"approx_tokens"`
-	SystemBytes          int                  `json:"system_bytes"`
-	PrefixHash           string               `json:"prefix_hash"`
-	CompactionPending    bool                 `json:"compaction_pending"`
-	CompactCeilingTokens int                  `json:"compact_ceiling_tokens,omitempty"`
-	Metadata             map[string]string    `json:"metadata,omitempty"`
-	Compactions          []session.Compaction `json:"compactions,omitempty"`
-	Context              gotato.ModelContext  `json:"context"`
-	Request              gotato.ModelRequest  `json:"request"`
+	SessionID            string              `json:"session_id,omitempty"`
+	Strategy             string              `json:"strategy"`
+	SourceMessages       int                 `json:"source_messages"`
+	SelectedMessages     int                 `json:"selected_messages"`
+	ApproxTokens         int                 `json:"approx_tokens"`
+	SystemBytes          int                 `json:"system_bytes"`
+	PrefixHash           string              `json:"prefix_hash"`
+	CompactionPending    bool                `json:"compaction_pending"`
+	CompactCeilingTokens int                 `json:"compact_ceiling_tokens,omitempty"`
+	Metadata             map[string]string   `json:"metadata,omitempty"`
+	Compactions          []gotato.Compaction `json:"compactions,omitempty"`
+	Context              gotato.ModelContext `json:"context"`
+	Request              gotato.ModelRequest `json:"request"`
 }
 
 // ReportOf describes the ContextInspection a gotato.Session returns from

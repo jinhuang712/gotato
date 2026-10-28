@@ -54,7 +54,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/service"
-	"github.com/jinhuang712/gotato/session"
 )
 
 // ContractVersion is the HTTP contract version. Field names and status codes
@@ -272,7 +271,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set(SessionIDHeader, s.ID())
-		writeJSON(w, http.StatusCreated, session.InfoOf(s))
+		writeJSON(w, http.StatusCreated, s.Info())
 		return
 	}
 	s, err := h.runner.CreateSession(r.Context(), in.Agent, in.Metadata)
@@ -281,7 +280,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, s.ID())
-	writeJSON(w, http.StatusCreated, session.InfoOf(s))
+	writeJSON(w, http.StatusCreated, s.Info())
 }
 
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -317,7 +316,7 @@ func (h *Handler) fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(SessionIDHeader, child.ID())
-	writeJSON(w, http.StatusCreated, session.InfoOf(child))
+	writeJSON(w, http.StatusCreated, child.Info())
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request) {

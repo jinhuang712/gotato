@@ -90,7 +90,7 @@ func (s *Record) Head() uint64 {
 	return s.head
 }
 
-// Checkpoint replaces the committed Messages with messages, as a Compaction
+// checkpoint replaces the committed Messages with messages, as a Compaction
 // does, records compaction when it is not nil, and appends a compaction_ended
 // Event, a Checkpoint, to the log. The Context is then messages alone, with no
 // Segments (a compaction that closes a Segment writes a Checkpoint that lists
@@ -98,7 +98,7 @@ func (s *Record) Head() uint64 {
 // Nothing written before is rewritten: the Messages it replaces stay in the
 // store, and a load starts after them. It must not run while a Run is using
 // the Record.
-func (s *Record) Checkpoint(why gotato.CompactionWhy, messages []gotato.Message, compaction *Compaction) {
+func (s *Record) checkpoint(why gotato.CompactionWhy, messages []gotato.Message, compaction *gotato.Compaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = cloneMessages(messages)
@@ -317,8 +317,8 @@ func (s *Record) closeParts(committed gotato.MessageID) {
 const (
 	// StoppedToolResult answers a call that started and never finished.
 	StoppedToolResult = "The instance running this tool stopped before the tool finished. Whether the tool took effect is unknown."
-	// NotRunToolResult answers a call that never started.
-	NotRunToolResult = "This tool call was not run: the instance stopped before it started."
+	// notRunToolResult answers a call that never started.
+	notRunToolResult = "This tool call was not run: the instance stopped before it started."
 )
 
 // repair answers, in memory, every Tool call that has no result. A Run whose
@@ -357,7 +357,7 @@ func repair(messages []gotato.Message, started map[gotato.ToolCallID]bool) []got
 		}
 		out = append(out, messages[i:end]...)
 		for _, call := range missing {
-			text := NotRunToolResult
+			text := notRunToolResult
 			if started[call.ID] {
 				text = StoppedToolResult
 			}

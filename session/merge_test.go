@@ -50,7 +50,7 @@ func TestMergeSegmentsPutsOneMergedSegmentFirst(t *testing.T) {
 			commit(t, writer, idMessage("tail-1", "user", "the tail"))
 			keptBefore, _ := json.Marshal(record.Segments()[2].Messages)
 
-			merged, err := record.MergeSegments(gotato.CompactionWhyPastBudget, mergedOf(1, 2), []int{1, 2}, record.Tail(), &session.Compaction{Segment: 4, Merged: []int{1, 2}})
+			merged, err := record.MergeSegments(gotato.CompactionWhyPastBudget, mergedOf(1, 2), []int{1, 2}, record.Tail(), &gotato.Compaction{Segment: 4, Merged: []int{1, 2}})
 			if err != nil || merged.Number != 4 || merged.Rendered != 1 {
 				t.Fatalf("MergeSegments = %+v, %v; want segment 4 rendered by 1 Message", merged, err)
 			}

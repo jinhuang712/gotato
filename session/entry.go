@@ -83,9 +83,6 @@ type Claim struct {
 	Epoch    uint64 `json:"epoch"`
 }
 
-// Compaction records one replacement of a Message prefix by a summary.
-type Compaction = gotato.Compaction
-
 // entryOf encodes a numbered stored Event as the Entry at its number.
 func entryOf(event gotato.Event, instance string) (Entry, error) {
 	data, err := gotato.MarshalEvent(event)
