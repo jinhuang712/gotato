@@ -164,34 +164,16 @@ func (a *Session) executeToolGroup(
 	plans []toolPlan,
 	group []int,
 ) map[int]ToolResult {
-	outcomes := make(map[int]ToolResult, len(group))
-	launched := time.Now()
-	// settle records one outcome and stages its ToolEnded as the outcome
-	// becomes known. Commitment happens later, in assistant source order.
-	settle := func(index int, result ToolResult) {
-		outcomes[index] = result
-		elapsed := millis(time.Since(launched))
-		a.stage(ToolEnded{Header: NewHeader(a.id, runID, turn), CallID: plans[index].call.ID, ToolID: plans[index].call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: elapsed})
-	}
-	// cancelRest settles every call of the group that has no outcome yet as
-	// canceled. started says whether their executors were started: a started
-	// Tool may have carried out its side effect before it saw the
-	// cancellation, so it is recorded as executed, with its outcome unknown.
-	cancelRest := func(started bool) map[int]ToolResult {
-		for _, index := range group {
-			if _, done := outcomes[index]; done {
-				continue
-			}
-			settle(index, ToolResult{CallID: plans[index].call.ID, Status: ToolResultStatusCanceled, SafeError: safeError(ctx.Err()), Executed: started})
-		}
-		return outcomes
+	run := &toolGroupRun{
+		a: a, ctx: ctx, runID: runID, turn: turn, plans: plans, group: group,
+		outcomes: make(map[int]ToolResult, len(group)),
+		launched: time.Now(),
 	}
 	// A Run canceled before this group started never launches it: a Tool that
 	// ignores its context would still carry out its side effect.
 	if ctx.Err() != nil {
-		return cancelRest(false)
+		return run.cancelRest(false)
 	}
-
 	signals := make(chan toolSignal, len(group)*4+4)
 	// abandon is closed when executeToolGroup returns. A worker that finishes
 	// after the batch was canceled or abandoned uses it so its final send
@@ -200,83 +182,138 @@ func (a *Session) executeToolGroup(
 	abandon := make(chan struct{})
 	defer close(abandon)
 	for _, index := range group {
-		plan := plans[index]
-		go func(plan toolPlan) {
-			toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
-			defer toolCancel()
-			// A Tool may report progress from any goroutine, so the counters
-			// that bound the reports are guarded.
-			var progressMu sync.Mutex
-			var progressBytes uint64
-			var progressUpdates uint32
-			progress := func(text string) {
-				progressMu.Lock()
-				if progressUpdates >= maxToolProgressUpdates {
-					progressMu.Unlock()
-					return
-				}
-				if progressBytes+uint64(len(text)) > maxToolProgressBytes {
-					progressMu.Unlock()
-					return
-				}
-				progressUpdates++
-				progressBytes += uint64(len(text))
-				progressMu.Unlock()
-				select {
-				case signals <- toolSignal{index: plan.index, update: true, text: text}:
-				case <-abandon:
-				case <-toolCtx.Done():
-				}
-			}
-			executed, toolErr := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
-			var result ToolResult
-			if toolErr != nil {
-				result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: safeError(toolErr), Executed: true}
-			} else {
-				result = executed
-				result.CallID = plan.call.ID
-				result.Executed = true
-				if result.Status == "" {
-					result.Status = ToolResultStatusOK
-				}
-			}
-			select {
-			case signals <- toolSignal{index: plan.index, result: result}:
-			case <-abandon:
-			}
-		}(plan)
+		go a.runTool(ctx, plans[index], signals, abandon)
 	}
+	return run.collect(signals)
+}
 
-	for len(outcomes) < len(group) {
+// toolGroupRun is the Session goroutine's side of one group: it settles
+// outcomes, stages their Events, and waits for the workers' signals.
+type toolGroupRun struct {
+	a        *Session
+	ctx      context.Context
+	runID    RunID
+	turn     TurnNumber
+	plans    []toolPlan
+	group    []int
+	outcomes map[int]ToolResult
+	launched time.Time
+}
+
+// settle records one outcome and stages its ToolEnded as the outcome becomes
+// known. Commitment happens later, in assistant source order.
+func (g *toolGroupRun) settle(index int, result ToolResult) {
+	g.outcomes[index] = result
+	call := g.plans[index].call
+	g.a.stage(ToolEnded{Header: NewHeader(g.a.id, g.runID, g.turn), CallID: call.ID, ToolID: call.ToolID, Status: result.Status, Executed: result.Executed, ElapsedMS: millis(time.Since(g.launched))})
+}
+
+// cancelRest settles every call of the group that has no outcome yet as
+// canceled. started says whether their executors were started: a started Tool
+// may have carried out its side effect before it saw the cancellation, so it
+// is recorded as executed, with its outcome unknown.
+func (g *toolGroupRun) cancelRest(started bool) map[int]ToolResult {
+	for _, index := range g.group {
+		if _, done := g.outcomes[index]; done {
+			continue
+		}
+		g.settle(index, ToolResult{CallID: g.plans[index].call.ID, Status: ToolResultStatusCanceled, SafeError: safeError(g.ctx.Err()), Executed: started})
+	}
+	return g.outcomes
+}
+
+// collect waits for the workers' signals until every call of the group has an
+// outcome, or the Run is canceled.
+func (g *toolGroupRun) collect(signals chan toolSignal) map[int]ToolResult {
+	for len(g.outcomes) < len(g.group) {
 		select {
-		case <-ctx.Done():
+		case <-g.ctx.Done():
 			// Cancellation must settle the Run even when a Tool ignores its
 			// context. A worker that already reported keeps its outcome; the
 			// rest are canceled, as executed, because their executors were
 			// started. abandon (closed on return) releases any worker still
 			// trying to report a late result.
-		drain:
-			for range cap(signals) {
-				select {
-				case signal := <-signals:
-					if signal.update {
-						continue
-					}
-					settle(signal.index, canceledOutcome(ctx, signal.result))
-				default:
-					break drain
-				}
-			}
-			return cancelRest(true)
+			g.drain(signals)
+			return g.cancelRest(true)
 		case signal := <-signals:
-			if signal.update {
-				a.send(ToolProgress{Header: a.deltaHeader(runID, turn), CallID: plans[signal.index].call.ID, Text: signal.text})
-				continue
-			}
-			settle(signal.index, canceledOutcome(ctx, signal.result))
+			g.handle(signal)
 		}
 	}
-	return outcomes
+	return g.outcomes
+}
+
+// drain settles the results already waiting in signals, without blocking.
+func (g *toolGroupRun) drain(signals chan toolSignal) {
+	for range cap(signals) {
+		select {
+		case signal := <-signals:
+			if !signal.update {
+				g.settle(signal.index, canceledOutcome(g.ctx, signal.result))
+			}
+		default:
+			return
+		}
+	}
+}
+
+// handle publishes one progress report, or settles one result.
+func (g *toolGroupRun) handle(signal toolSignal) {
+	if signal.update {
+		g.a.send(ToolProgress{Header: g.a.deltaHeader(g.runID, g.turn), CallID: g.plans[signal.index].call.ID, Text: signal.text})
+		return
+	}
+	g.settle(signal.index, canceledOutcome(g.ctx, signal.result))
+}
+
+// runTool is one worker: it executes one planned Tool call and reports its
+// progress and its result on signals. abandon releases a send nobody will
+// receive.
+func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- toolSignal, abandon <-chan struct{}) {
+	toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
+	defer toolCancel()
+	progress := newToolProgress(func(text string) {
+		select {
+		case signals <- toolSignal{index: plan.index, update: true, text: text}:
+		case <-abandon:
+		case <-toolCtx.Done():
+		}
+	})
+	executed, toolErr := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
+	var result ToolResult
+	if toolErr != nil {
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: safeError(toolErr), Executed: true}
+	} else {
+		result = executed
+		result.CallID = plan.call.ID
+		result.Executed = true
+		if result.Status == "" {
+			result.Status = ToolResultStatusOK
+		}
+	}
+	select {
+	case signals <- toolSignal{index: plan.index, result: result}:
+	case <-abandon:
+	}
+}
+
+// newToolProgress wraps send in the bounds on a Tool's progress reports. A
+// Tool may report from any goroutine, so the counters that bound the reports
+// are guarded.
+func newToolProgress(send func(text string)) func(text string) {
+	var mu sync.Mutex
+	var bytes uint64
+	var updates uint32
+	return func(text string) {
+		mu.Lock()
+		if updates >= maxToolProgressUpdates || bytes+uint64(len(text)) > maxToolProgressBytes {
+			mu.Unlock()
+			return
+		}
+		updates++
+		bytes += uint64(len(text))
+		mu.Unlock()
+		send(text)
+	}
 }
 
 // canceledOutcome marks an outcome that arrived after the Run was canceled.
