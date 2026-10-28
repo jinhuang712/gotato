@@ -14,33 +14,6 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// readNumbers reads count stored Events from a stream and returns their
-// numbers, failing if they do not come.
-func readNumbers(t *testing.T, stream *service.SessionStream, count int) []uint64 {
-	t.Helper()
-	var out []uint64
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	for len(out) < count {
-		event, err := stream.Next(ctx)
-		if err != nil {
-			t.Fatalf("after %v: %v", out, err)
-		}
-		if event.Kind().Class() == gotato.EventClassStored {
-			out = append(out, event.Head().Number)
-		}
-	}
-	return out
-}
-
-func consecutive(from uint64, count int) []uint64 {
-	out := make([]uint64, count)
-	for i := range out {
-		out[i] = from + uint64(i)
-	}
-	return out
-}
-
 // A Session's stream starts after the number a client saw: first what the
 // Record holds after it, then the Events of later Runs as they happen, each
 // once and in order, with the Record's epoch told up front.
@@ -485,19 +458,6 @@ func (g *gatedLog) Log(ctx context.Context, id string, after uint64, limit int) 
 	return g.Store.Log(ctx, id, after, limit)
 }
 
-func recreatedRunner(t *testing.T, name string, store session.Store, poll time.Duration) *service.Runner {
-	t.Helper()
-	runner, err := service.New(service.Config{
-		Store: store, Instance: name, StreamPoll: poll,
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("probe", "ok")}}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	return runner
-}
-
 // recreate deletes a Session and creates it again under its ID, and runs it
 // three times, on runner.
 func recreate(t *testing.T, runner *service.Runner, id string) {
@@ -512,26 +472,6 @@ func recreate(t *testing.T, runner *service.Runner, id string) {
 	for range 3 {
 		if _, err := runner.Run(ctx, service.RunRequest{SessionID: id, Prompt: "new"}); err != nil {
 			t.Fatal(err)
-		}
-	}
-}
-
-// endsWithoutNewEvents reads sub until it fails, and fails the test if a
-// stored Event comes first or the error is not cannot_resume or not found.
-func endsWithoutNewEvents(t *testing.T, sub gotato.Subscription) {
-	t.Helper()
-	read, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	for {
-		event, err := sub.Next(read)
-		if err != nil {
-			if !errors.Is(err, service.ErrCannotResume) && !errors.Is(err, session.ErrNotFound) {
-				t.Fatalf("the stream ended with %v, want cannot_resume or not found", err)
-			}
-			return
-		}
-		if event.Kind().Class() == gotato.EventClassStored {
-			t.Fatalf("the stream delivered Event %d (%s) of the Record created again", event.Head().Number, event.Kind())
 		}
 	}
 }

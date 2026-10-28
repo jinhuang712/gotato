@@ -150,25 +150,9 @@ func TestSetToolActiveDoesNotWaitForAHangingToolSet(t *testing.T) {
 	}
 }
 
-type filesToolSet struct{}
-
-func (filesToolSet) Spec() gotato.ToolSetSpec { return gotato.ToolSetSpec{Name: "files"} }
-
-func (filesToolSet) Tools(context.Context) ([]gotato.Tool, error) {
-	return []gotato.Tool{testkit.NewFakeTool("read", "contents")}, nil
-}
-
 func loadFiles() testkit.Script {
 	arguments, _ := json.Marshal(map[string][]string{"names": {"files.read"}})
 	return testkit.ToolCalls(gotato.ToolCall{ID: "load-1", ToolID: gotato.SearchToolName, Arguments: arguments})
-}
-
-func toolIDsOf(request gotato.ModelRequest) []string {
-	ids := make([]string, 0, len(request.Tools))
-	for _, spec := range request.Tools {
-		ids = append(ids, spec.ID)
-	}
-	return ids
 }
 
 func toolSetRunner(t *testing.T, store session.Store, model gotato.Model) *service.Runner {
@@ -413,11 +397,6 @@ func TestAToolOfAToolSetIsListedAndSwitchedByID(t *testing.T) {
 		t.Fatalf("files.read = %+v, want active", read)
 	}
 }
-
-// toolList is a ToolSource with a fixed set of Tools.
-type toolList []gotato.Tool
-
-func (l toolList) Tools(context.Context) ([]gotato.Tool, error) { return l, nil }
 
 func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	ctx := context.Background()

@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,148 +15,6 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-// fakeClock is a Clock a test advances itself: no test waits for a TTL. Advance
-// calls the timers that fall due, in order, on the caller's goroutine, so it
-// returns when the work they start is done.
-type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Time
-	timers []*fakeTimer
-}
-
-type fakeTimer struct {
-	clock   *fakeClock
-	at      time.Time
-	f       func()
-	stopped bool
-	fired   bool
-}
-
-func newFakeClock() *fakeClock { return &fakeClock{now: time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)} }
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *fakeClock) AfterFunc(d time.Duration, f func()) service.Timer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	timer := &fakeTimer{clock: c, at: c.now.Add(d), f: f}
-	c.timers = append(c.timers, timer)
-	return timer
-}
-
-func (t *fakeTimer) Stop() bool {
-	t.clock.mu.Lock()
-	defer t.clock.mu.Unlock()
-	was := !t.stopped && !t.fired
-	t.stopped = true
-	return was
-}
-
-// Pending counts the timers that have neither fired nor been stopped.
-func (c *fakeClock) Pending() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	n := 0
-	for _, timer := range c.timers {
-		if !timer.stopped && !timer.fired {
-			n++
-		}
-	}
-	return n
-}
-
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	target := c.now.Add(d)
-	c.mu.Unlock()
-	for {
-		c.mu.Lock()
-		var next *fakeTimer
-		for _, timer := range c.timers {
-			if !timer.stopped && !timer.fired && !timer.at.After(target) && (next == nil || timer.at.Before(next.at)) {
-				next = timer
-			}
-		}
-		if next == nil {
-			c.now = target
-			c.mu.Unlock()
-			return
-		}
-		next.fired = true
-		if next.at.After(c.now) {
-			c.now = next.at
-		}
-		c.mu.Unlock()
-		next.f()
-	}
-}
-
-// tallyStore counts the reads and writes of a Store.
-type tallyStore struct {
-	session.Store
-	mu      sync.Mutex
-	loads   int
-	appends int
-	// failCheckpoint makes the next Append of a Checkpoint fail once.
-	failCheckpoint bool
-	// conflicts counts the Appends the store refused as a conflict.
-	conflicts int
-}
-
-func (s *tallyStore) Load(ctx context.Context, id string) (session.Loaded, error) {
-	s.mu.Lock()
-	s.loads++
-	s.mu.Unlock()
-	return s.Store.Load(ctx, id)
-}
-
-func (s *tallyStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	s.mu.Lock()
-	s.appends++
-	fail := false
-	if s.failCheckpoint {
-		for _, entry := range entries {
-			fail = fail || entry.IsCheckpoint()
-		}
-		if fail {
-			s.failCheckpoint = false
-		}
-	}
-	s.mu.Unlock()
-	if fail {
-		return errors.New("the store could not write the checkpoint")
-	}
-	err := s.Store.Append(ctx, id, after, entries, summary)
-	if errors.Is(err, session.ErrConflict) {
-		s.mu.Lock()
-		s.conflicts++
-		s.mu.Unlock()
-	}
-	return err
-}
-
-func (s *tallyStore) Conflicts() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.conflicts
-}
-
-func (s *tallyStore) Loads() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loads
-}
-
-func (s *tallyStore) Appends() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.appends
-}
 
 // warmInstance is an Instance over store with the warm Session's clock. Its
 // Agent compacts an idle Session of any size, so a few short Runs are enough.
@@ -176,53 +33,6 @@ func warmInstance(t *testing.T, store session.Store, name string, clock service.
 	}
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
 	return runner
-}
-
-func runOn(t *testing.T, runner *service.Runner, id, prompt string) service.RunResponse {
-	t.Helper()
-	result, err := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt})
-	if err != nil || result.Result.Status != gotato.RunStatusCompleted {
-		t.Fatalf("Run %q = %+v, %v", prompt, result.Result, err)
-	}
-	return result
-}
-
-func storedKinds(t *testing.T, store session.Store, id string) []gotato.EventKind {
-	t.Helper()
-	events, err := session.StoredEvents(context.Background(), store, id, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return kindsOf(events)
-}
-
-func count(kinds []gotato.EventKind, kind gotato.EventKind) int {
-	n := 0
-	for _, k := range kinds {
-		if k == kind {
-			n++
-		}
-	}
-	return n
-}
-
-// awaitUnloads waits for the recorder to have seen n session_unloaded Events,
-// which reach it from the Instance's stream, and returns their why.
-func awaitUnloads(t *testing.T, rec *testkit.EventRecorder, n int) []string {
-	t.Helper()
-	waitFor(t, func() bool { return len(unloads(rec)) >= n })
-	return unloads(rec)
-}
-
-// unloads returns the why of every session_unloaded the recorder has seen.
-func unloads(rec *testkit.EventRecorder) []string {
-	var out []string
-	for _, event := range rec.Events() {
-		if unloaded, ok := event.(gotato.SessionUnloaded); ok {
-			out = append(out, unloaded.Why)
-		}
-	}
-	return out
 }
 
 var storeKinds = []string{"memory", "file"}
@@ -623,23 +433,6 @@ func TestIdleCompactionCanBeTurnedOff(t *testing.T) {
 	if runner.WarmSessions() != 0 {
 		t.Fatal("the Session did not leave at its TTL")
 	}
-}
-
-// askModel answers every request with a short reply, but holds a Recap's ask
-// until its context ends, after saying it has started.
-type askModel struct {
-	started chan struct{}
-	once    sync.Once
-	reply   *testkit.FuncModel
-}
-
-func (m *askModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	if isAsk(request) {
-		m.once.Do(func() { close(m.started) })
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}
-	return m.reply.Stream(ctx, request)
 }
 
 // A message that arrives while the idle Session compacts cancels the

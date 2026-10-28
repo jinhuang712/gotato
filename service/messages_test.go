@@ -14,29 +14,6 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// stagedModel answers call n with replies[n] once release[n] is closed, and
-// says which call started on started. With hang set, call 0 instead streams
-// "partial" and waits for its context, so there is a model call in flight to
-// interrupt or stop.
-type stagedModel struct {
-	hang    bool
-	started chan int
-	release []chan struct{}
-	replies []string
-
-	mu       sync.Mutex
-	calls    int
-	requests [][]gotato.Message
-}
-
-func newStagedModel(hang bool, replies ...string) *stagedModel {
-	m := &stagedModel{hang: hang, started: make(chan int, 16), replies: replies}
-	for range replies {
-		m.release = append(m.release, make(chan struct{}))
-	}
-	return m
-}
-
 type hangingStream struct{ sent bool }
 
 func (s *hangingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
@@ -49,96 +26,6 @@ func (s *hangingStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 }
 
 func (s *hangingStream) Close() error { return nil }
-
-func (m *stagedModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	m.mu.Lock()
-	index := m.calls
-	m.calls++
-	m.requests = append(m.requests, append([]gotato.Message(nil), request.Messages...))
-	m.mu.Unlock()
-	m.started <- index
-	if m.hang && index == 0 {
-		return &hangingStream{}, nil
-	}
-	select {
-	case <-m.release[index]:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	return testkit.NewFakeModel(testkit.Text(m.replies[index])).Stream(ctx, request)
-}
-
-func (m *stagedModel) request(call int) []gotato.Message {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.requests[call]
-}
-
-func waitCall(t *testing.T, m *stagedModel, want int) {
-	t.Helper()
-	select {
-	case got := <-m.started:
-		if got != want {
-			t.Fatalf("model call %d started, want %d", got, want)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("model call %d never started", want)
-	}
-}
-
-func texts(messages []gotato.Message) []string {
-	out := make([]string, 0, len(messages))
-	for _, m := range messages {
-		out = append(out, string(m.Role)+":"+gotato.TextOf(m))
-	}
-	return out
-}
-
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// startRun runs a prompt on the Session in the background.
-func startRun(t *testing.T, runner *service.Runner, id, prompt string) chan service.RunResponse {
-	t.Helper()
-	done := make(chan service.RunResponse, 1)
-	go func() {
-		result, err := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: prompt})
-		if err != nil {
-			t.Errorf("Run: %v", err)
-		}
-		done <- result
-	}()
-	return done
-}
-
-func settled(t *testing.T, done chan service.RunResponse) service.RunResponse {
-	t.Helper()
-	select {
-	case result := <-done:
-		return result
-	case <-time.After(5 * time.Second):
-		t.Fatal("the Run did not settle")
-		return service.RunResponse{}
-	}
-}
-
-func transcriptOf(t *testing.T, runner *service.Runner, id string) []string {
-	t.Helper()
-	record, err := runner.Record(context.Background(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return texts(record.Messages())
-}
 
 // kindsOf lists the message Events of a Session in order, as "kind:source".
 func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
@@ -163,19 +50,6 @@ func messageKinds(t *testing.T, runner *service.Runner, id string) []string {
 		}
 	}
 	return out
-}
-
-func messageRunner(t *testing.T, store session.Store, instance, address string, model gotato.Model) *service.Runner {
-	t.Helper()
-	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Address: address, Liveness: steadyLiveness, Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents: []service.Agent{{Name: "echo", Model: model}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	return runner
 }
 
 func TestSteerReachesTheRunAtItsNextTurn(t *testing.T) {

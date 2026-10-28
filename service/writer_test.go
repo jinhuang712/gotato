@@ -19,35 +19,6 @@ import (
 
 var fastLiveness = service.Liveness{TTL: 150 * time.Millisecond, Wait: 3 * time.Second}
 
-// steadyLiveness is for a test that is not about a row expiring. A Runner
-// refuses a write once its last renewal is older than 4/5 of the TTL
-// (Runner.guard), so with fastLiveness's 150 ms a renewal tick that a loaded
-// machine runs 40 ms late fails a Run with "liveness row may have expired".
-// Only a test that waits for a row to expire, or pauses the renewals, uses
-// fastLiveness.
-var steadyLiveness = service.Liveness{TTL: 5 * time.Second, Wait: 3 * time.Second}
-
-// isInstance reports whether got is the name of the Instance that was
-// configured with label: the label and the per-start suffix.
-func isInstance(got, label string) bool {
-	suffix, ok := strings.CutPrefix(got, label+"-")
-	return ok && len(suffix) == 8
-}
-
-func instanceRunner(t *testing.T, store session.Store, instance string, model gotato.Model, liveness service.Liveness) *service.Runner {
-	t.Helper()
-	runner, err := service.New(service.Config{
-		Store: store, Instance: instance, Liveness: liveness,
-		Admission: service.Admission{Queue: service.QueuePolicyWait},
-		Agents:    []service.Agent{{Name: "echo", Model: model}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	return runner
-}
-
 func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	ctx := context.Background()
 	store := session.NewMemoryStore()
@@ -77,23 +48,6 @@ func TestIdleSessionMovesToAnyInstance(t *testing.T) {
 	if got := len(view.Messages()); got != 6 {
 		t.Fatalf("messages = %d, want 6", got)
 	}
-}
-
-// gateModel holds every reply until its gate opens.
-type gateModel struct {
-	gate    chan struct{}
-	started chan struct{}
-	once    sync.Once
-}
-
-func (m *gateModel) Stream(ctx context.Context, _ gotato.ModelRequest) (gotato.ModelStream, error) {
-	m.once.Do(func() { close(m.started) })
-	select {
-	case <-m.gate:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	return testkit.NewFakeModel(testkit.Text("released")).Stream(ctx, gotato.ModelRequest{})
 }
 
 func TestBusyElsewhereWaitsThenRefuses(t *testing.T) {
@@ -193,62 +147,7 @@ func TestLapsedHeartbeatFencesLateWrites(t *testing.T) {
 	}
 }
 
-// killableStore stops every write and renewal once its instance is killed.
-type killableStore struct {
-	session.Store
-	dead atomic.Bool
-}
-
 var errKilled = errors.New("the instance was killed")
-
-func (s *killableStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
-	if s.dead.Load() {
-		return errKilled
-	}
-	return s.Store.Create(ctx, id, entries, summary)
-}
-
-func (s *killableStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	if s.dead.Load() {
-		return errKilled
-	}
-	return s.Store.Append(ctx, id, after, entries, summary)
-}
-
-func (s *killableStore) Beat(ctx context.Context, row session.InstanceRow, ttl time.Duration) error {
-	if s.dead.Load() {
-		return errKilled
-	}
-	return s.Store.Beat(ctx, row, ttl)
-}
-
-// ownerModel answers "<instance>: <prompt>", after checking in the store
-// that its instance holds the Session it is called for. A killed instance's
-// model fails.
-type ownerModel struct {
-	instance   string
-	store      session.Store
-	dead       *atomic.Bool
-	violations *atomic.Int64
-	calls      *atomic.Int64
-}
-
-func (m ownerModel) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	if m.dead.Load() {
-		return nil, errKilled
-	}
-	m.calls.Add(1)
-	prompt := gotato.TextOf(request.Messages[len(request.Messages)-1])
-	id, _, _ := strings.Cut(prompt, "/")
-	stored, err := session.Open(ctx, m.store, id)
-	if err != nil {
-		return nil, err
-	}
-	if claim := stored.Claim(); !isInstance(claim.Instance, m.instance) {
-		m.violations.Add(1)
-	}
-	return testkit.NewFakeModel(testkit.Text(m.instance+": "+prompt)).Stream(ctx, gotato.ModelRequest{})
-}
 
 // TestManyInstancesOneWriter checks GOALS.md G-G08: several instances over one
 // store take concurrent prompts for the same Sessions, sent to random
@@ -536,22 +435,6 @@ func commit(t *testing.T, w *session.Writer, message gotato.Message) {
 	if _, err := w.Write(context.Background(), []gotato.Event{gotato.MessageCommitted{Header: gotato.NewHeader("", "", 0), Message: message, Source: gotato.MessageSourcePrompt}}); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// claimsOf returns the session_claimed Events of the Record.
-func claimsOf(t *testing.T, runner *service.Runner, sessionID string) []gotato.SessionClaimed {
-	t.Helper()
-	record, err := runner.Record(context.Background(), sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var claims []gotato.SessionClaimed
-	for _, event := range record.Events() {
-		if claimed, ok := event.(gotato.SessionClaimed); ok {
-			claims = append(claims, claimed)
-		}
-	}
-	return claims
 }
 
 // The first Run of a new Session writes session_claimed (new_session) before

@@ -136,13 +136,9 @@ func TestWarmSessionsHaveADefaultBound(t *testing.T) {
 	}
 }
 
-type stranger struct{}
-
 // guarded refuses the callers whose ctx carries stranger{}, the way a store
 // wrapper of an embedding application answers a caller it does not authorize.
 type guarded struct{ session.Store }
-
-func refused(ctx context.Context) bool { return ctx.Value(stranger{}) != nil }
 
 func (g guarded) Load(ctx context.Context, id string) (session.Loaded, error) {
 	if refused(ctx) {

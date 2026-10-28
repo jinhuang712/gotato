@@ -478,25 +478,6 @@ func TestCompactionLeavesOutReasoningForAModelSentOnlyTheCurrentRound(t *testing
 	}
 }
 
-const agentRecap = "## What happened\n- the user asked three things\n## Key facts\n- order 42 is shipped\n"
-
-// isAsk reports whether the last message of a request is the Recap's ask.
-func isAsk(request gotato.ModelRequest) bool {
-	n := len(request.Messages)
-	return n > 0 && strings.HasPrefix(gotato.TextOf(request.Messages[n-1]), itext.RecapAskPrefix)
-}
-
-// recapModel answers a Recap ask with agentRecap and every other request with
-// a short reply.
-func recapModel() *testkit.FuncModel {
-	return testkit.NewFuncModel(func(_ context.Context, request gotato.ModelRequest) (testkit.Script, error) {
-		if isAsk(request) {
-			return testkit.Text(agentRecap), nil
-		}
-		return testkit.Text("ok"), nil
-	})
-}
-
 func asks(model *testkit.FuncModel) []gotato.ModelRequest {
 	var out []gotato.ModelRequest
 	for _, request := range model.Requests() {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,26 +13,6 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-// holdAtTheEnd holds a Run after it has settled and before its live Session
-// stops taking messages, once: the last moment a message is accepted as queued
-// by a Run that no longer takes any.
-type holdAtTheEnd struct {
-	reached chan struct{}
-	proceed chan struct{}
-	once    sync.Once
-}
-
-func newHold() *holdAtTheEnd {
-	return &holdAtTheEnd{reached: make(chan struct{}), proceed: make(chan struct{})}
-}
-
-func (h *holdAtTheEnd) hook() {
-	h.once.Do(func() {
-		close(h.reached)
-		<-h.proceed
-	})
-}
 
 type handoffRig struct {
 	runner *service.Runner
@@ -360,37 +339,6 @@ func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
 func holdBeforeRelease(t *testing.T) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
 	t.Helper()
 	return holdBeforeReleaseOn(t, session.NewMemoryStore())
-}
-
-// holdBeforeReleaseOn is holdBeforeRelease over the given Store.
-func holdBeforeReleaseOn(t *testing.T, store session.Store) (runner *service.Runner, id string, hold *holdAtTheEnd, done chan service.RunResponse) {
-	t.Helper()
-	runner, err := service.New(service.Config{
-		Store:  store,
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runner.Close(context.Background()) })
-	hold = newHold()
-	runner.SetBeforeRelease(hold.hook)
-	s, err := runner.CreateSession(context.Background(), "echo", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id = s.ID()
-	done = make(chan service.RunResponse, 1)
-	go func() {
-		result, _ := runner.Run(context.Background(), service.RunRequest{SessionID: id, Prompt: "hello"})
-		done <- result
-	}()
-	select {
-	case <-hold.reached:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the Run never reached the end")
-	}
-	return runner, id, hold, done
 }
 
 // A message that arrives after run_ended and before the Run releases the

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -65,46 +64,6 @@ func TestCodeStringsMatchTheirNames(t *testing.T) {
 	if gotato.CodeInternalInvariant != "internal_invariant" || gotato.CodeToolArgumentFailure != "tool_argument_failure" || gotato.CodeCanceled != "canceled" {
 		t.Fatalf("code strings = %q %q %q", gotato.CodeInternalInvariant, gotato.CodeToolArgumentFailure, gotato.CodeCanceled)
 	}
-}
-
-// failingSaveStore wraps a Store and fails the write that ends a Run.
-type failingSaveStore struct {
-	session.Store
-	mu    sync.Mutex
-	saves int
-	// failFinal fails the write that ends a Run: the one holding run_ended.
-	failFinal bool
-	// failRelease fails the write that releases the Session, and only that one.
-	failRelease bool
-}
-
-func (s *failingSaveStore) fail(entries []session.Entry) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.saves++
-	for _, entry := range entries {
-		if s.failFinal && entry.Kind == gotato.EventKindRunEnded {
-			return true
-		}
-		if s.failRelease && entry.Kind == gotato.EventKindSessionReleased {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *failingSaveStore) Create(ctx context.Context, id string, entries []session.Entry, summary session.RecordInfo) error {
-	if s.fail(entries) {
-		return errors.New("store: disk full")
-	}
-	return s.Store.Create(ctx, id, entries, summary)
-}
-
-func (s *failingSaveStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, summary session.RecordInfo) error {
-	if s.fail(entries) {
-		return errors.New("store: disk full")
-	}
-	return s.Store.Append(ctx, id, after, entries, summary)
 }
 
 func TestUnpersistedRunIsReported(t *testing.T) {

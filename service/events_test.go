@@ -29,26 +29,6 @@ func bulkAgent(name string, calls int) service.Agent {
 	}
 }
 
-// storedOnly keeps the Events that have a number in the Record.
-func storedOnly(events []gotato.Event) []gotato.Event {
-	var out []gotato.Event
-	for _, event := range events {
-		if event.Kind().Class() == gotato.EventClassStored {
-			out = append(out, event)
-		}
-	}
-	return out
-}
-
-// numbered renders Events as "kind#number", to compare two lists of them.
-func numbered(events []gotato.Event) []string {
-	out := make([]string, len(events))
-	for i, event := range events {
-		out[i] = fmt.Sprintf("%s#%d", event.Kind(), event.Head().Number)
-	}
-	return out
-}
-
 // recordRange returns the Record's Events numbered from first to last.
 func recordRange(t *testing.T, runner *service.Runner, sessionID string, first, last uint64) []gotato.Event {
 	t.Helper()

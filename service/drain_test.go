@@ -16,68 +16,6 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// gatedEcho answers "done: <prompt>" once its gate opens, and reports each
-// call as it starts. A call whose context ends first fails with it.
-type gatedEcho struct {
-	gate    chan struct{}
-	started chan string
-}
-
-func (m *gatedEcho) Stream(ctx context.Context, request gotato.ModelRequest) (gotato.ModelStream, error) {
-	prompt := gotato.TextOf(request.Messages[len(request.Messages)-1])
-	m.started <- prompt
-	select {
-	case <-m.gate:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	return testkit.NewFakeModel(testkit.Text("done: "+prompt)).Stream(ctx, gotato.ModelRequest{})
-}
-
-// sharedStores returns a function that opens handles on one new store of the
-// given kind, as several instances share one database.
-func sharedStores(t *testing.T, kind string) func() session.Store {
-	t.Helper()
-	if kind == "memory" {
-		backing := session.NewMemoryStore()
-		return func() session.Store { return backing }
-	}
-	dir := t.TempDir()
-	return func() session.Store {
-		store, err := session.NewFileStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return store
-	}
-}
-
-// checkReleased fails unless instance released the Session after its last
-// Run ended, and the store no longer marks it busy.
-func checkReleased(t *testing.T, store session.Store, id, instance string) {
-	t.Helper()
-	ctx := context.Background()
-	entries, err := store.Log(ctx, id, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var runEnd, release session.Entry
-	for _, entry := range entries {
-		switch entry.Kind {
-		case gotato.EventKindRunEnded:
-			runEnd = entry
-		case gotato.EventKindSessionReleased:
-			release = entry
-		}
-	}
-	if runEnd.Seq == 0 || release.Seq < runEnd.Seq || !isInstance(release.Instance, instance) {
-		t.Fatalf("Session %s: run_ended at %d, release at %d by %q; want a release by %s after the Run", id, runEnd.Seq, release.Seq, release.Instance, instance)
-	}
-	if loaded, err := store.Load(ctx, id); err != nil || loaded.Info.Busy || loaded.Info.Running != "" {
-		t.Fatalf("Session %s summary = %+v, %v; want idle", id, loaded.Info, err)
-	}
-}
-
 // TestDrainCommitsRunsAndReleasesClaims is the Phase 5 exit test: a drained
 // instance commits its Runs and releases its Claims before it leaves. While
 // it drains, its Liveness row says so, it takes no new Session, and another
