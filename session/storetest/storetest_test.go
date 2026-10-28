@@ -129,7 +129,7 @@ func TestTheSuiteCatchesAStoreThatRebasesStaleWrites(t *testing.T) {
 		store := rebasing{session.NewMemoryStore()}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "a stale writer is refused") {
+	if !mentions(problems, "a stale writer is refused with ErrConflict and writes nothing") {
 		t.Fatalf("problems = %v, want the stale writer check to fail", problems)
 	}
 }
@@ -139,7 +139,7 @@ func TestTheSuiteCatchesAStoreThatOverwritesAPosition(t *testing.T) {
 		store := &overwriting{MemoryStore: session.NewMemoryStore(), records: map[string][]session.Entry{}}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "a stale writer is refused") || !mentions(problems, "one writer wins a position") {
+	if !mentions(problems, "a stale writer is refused with ErrConflict and writes nothing") || !mentions(problems, "of writers racing for one position, exactly one wins") {
 		t.Fatalf("problems = %v, want the stale writer and race checks to fail", problems)
 	}
 }
@@ -149,7 +149,7 @@ func TestTheSuiteCatchesAStoreThatKeepsEndedRows(t *testing.T) {
 		store := &keepingEndedRows{MemoryStore: session.NewMemoryStore(), ended: map[string]bool{}}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "an ended row is removed") {
+	if !mentions(problems, "a row ended with ttl 0 is removed, for every handle") {
 		t.Fatalf("problems = %v, want the ended row check to fail", problems)
 	}
 }
@@ -159,7 +159,7 @@ func TestTheSuiteCatchesAStoreThatReadsARemovedRowAsAlive(t *testing.T) {
 		store := &cachingInstances{MemoryStore: session.NewMemoryStore(), seen: map[string]session.InstanceState{}}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "liveness rows") || !mentions(problems, "an ended row is removed") {
+	if !mentions(problems, "Beat creates a Liveness row that Instance returns, and ttl 0 ends it") || !mentions(problems, "a row ended with ttl 0 is removed, for every handle") {
 		t.Fatalf("problems = %v, want the liveness and ended row checks to fail", problems)
 	}
 }
@@ -182,7 +182,7 @@ func TestTheSuiteCatchesAStoreThatDropsTheRecordEpoch(t *testing.T) {
 		store := forgettingEpoch{session.NewMemoryStore()}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "the record epoch survives every read") {
+	if !mentions(problems, "RecordInfo.RecordEpoch is kept by Create and Append and returned by Load and List") {
 		t.Fatalf("problems = %v, want the record epoch check to fail", problems)
 	}
 }
@@ -215,7 +215,7 @@ func TestTheSuiteCatchesAStoreThatComparesOnlyTheLength(t *testing.T) {
 		store := lengthOnly{session.NewMemoryStore()}
 		return func() session.Store { return store }, nil, nil
 	})
-	if !mentions(problems, "a writer of a deleted record is refused") {
+	if !mentions(problems, "Append by a writer of a deleted and re-created Record is ErrNotFound") {
 		t.Fatalf("problems = %v, want the deleted writer check to fail", problems)
 	}
 }

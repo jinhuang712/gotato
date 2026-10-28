@@ -47,28 +47,28 @@ type check struct {
 }
 
 var checks = []check{
-	{"create then load", checkCreateLoad},
-	{"create twice", checkCreateTwice},
-	{"the summary keeps pending notices and the last run end", checkInfoNotices},
-	{"append continues the log", checkAppend},
-	{"load starts at the last checkpoint", checkLastCheckpoint},
-	{"a load returns the segments stored before the last checkpoint", checkSegments},
-	{"a large log entry is kept whole, read at its position, and not loaded", checkSpilledEntry},
-	{"a stale writer is refused", checkStaleWriter},
-	{"a write must continue the head", checkContinuesHead},
-	{"one writer wins a position", checkRace},
-	{"log honors its limit", checkLogLimit},
-	{"list returns summaries", checkList},
-	{"the record epoch survives every read", checkRecordEpoch},
-	{"delete", checkDelete},
-	{"a writer of a deleted record is refused", checkDeletedWriter},
-	{"an unknown record", checkUnknown},
-	{"a canceled context", checkCanceled},
-	{"liveness rows", checkLiveness},
-	{"liveness rows expire", checkExpiry},
-	{"an ended row is removed", checkEndedRemoved},
-	{"an ID the store cannot keep is invalid", checkInvalidID},
-	{"IDs differ by their characters alone", checkIDCase},
+	{"Create then Load returns the facts and Log returns every Entry", checkCreateLoad},
+	{"Create of a taken ID is ErrExists", checkCreateTwice},
+	{"RecordInfo keeps pending notices and the last run end through Create, Append, Load and List", checkInfoNotices},
+	{"Append adds Entries after the head, seen by Log and Load", checkAppend},
+	{"Load starts at the last Checkpoint", checkLastCheckpoint},
+	{"Load returns the segment_closed Entries from before the last Checkpoint apart", checkSegments},
+	{"a large log Entry is kept whole, read by Log, and left out of Load", checkSpilledEntry},
+	{"a stale writer is refused with ErrConflict and writes nothing", checkStaleWriter},
+	{"Append must continue the head, or it is refused", checkContinuesHead},
+	{"of writers racing for one position, exactly one wins", checkRace},
+	{"Log returns at most limit Entries, and every Entry when limit is 0 or less", checkLogLimit},
+	{"List returns the last RecordInfo of each Record, newest update first", checkList},
+	{"RecordInfo.RecordEpoch is kept by Create and Append and returned by Load and List", checkRecordEpoch},
+	{"Delete removes a Record, and Delete of a missing one is ErrNotFound", checkDelete},
+	{"Append by a writer of a deleted and re-created Record is ErrNotFound", checkDeletedWriter},
+	{"Load, Log and Append of an unknown Record are ErrNotFound", checkUnknown},
+	{"a canceled context stops Append and Load and writes nothing", checkCanceled},
+	{"Beat creates a Liveness row that Instance returns, and ttl 0 ends it", checkLiveness},
+	{"an expired Liveness row is not alive, and Beat on it is ErrExpired", checkExpiry},
+	{"a row ended with ttl 0 is removed, for every handle", checkEndedRemoved},
+	{"an ID the Store cannot keep is refused with ErrInvalidID by every call that takes an ID", checkInvalidID},
+	{"IDs that differ only in case or Unicode form are different Records", checkIDCase},
 }
 
 // Run runs every check as a subtest, each on a new backing store.
@@ -160,14 +160,30 @@ func seqs(entries []session.Entry) []uint64 {
 	return out
 }
 
-func sameEntries(got, want []session.Entry) error {
+// The rules a failure names, so that an adapter author reads what to fix and
+// not only what differed.
+const (
+	ruleLog       = "Log must return every Entry, facts and log, in order, unchanged"
+	ruleLoadFacts = "Load must return the Entries of Layer fact only, from the last Checkpoint on, in order, unchanged"
+	ruleSegments  = "Load must return the segment_closed Entries from before the last Checkpoint in Loaded.Segments, and Entries from the Checkpoint on stay facts"
+	ruleAtomic    = "a refused write must leave the Record as it was, and a write is all or nothing"
+)
+
+// failf builds a failure message. It starts with the name of the call that
+// misbehaved, which is why it is not an fmt.Errorf: an error string does not
+// start with a capital letter, but a method name does.
+func failf(format string, args ...any) error { return fmt.Errorf(format, args...) }
+
+// sameEntries compares what a call returned (named by what) with the Entries
+// wanted, and names the rule when they differ.
+func sameEntries(what string, got, want []session.Entry, rule string) error {
 	if len(got) != len(want) {
-		return fmt.Errorf("got entries %v, want %v", seqs(got), seqs(want))
+		return fmt.Errorf("%s returned %v, want %v: %s", what, seqs(got), seqs(want), rule)
 	}
 	for i := range want {
 		g, w := got[i], want[i]
 		if g.Seq != w.Seq || g.Kind != w.Kind || g.Layer != w.Layer || !g.At.Equal(w.At) || g.Instance != w.Instance || string(g.Data) != string(w.Data) {
-			return fmt.Errorf("entry %d = %+v (data %s), want %+v (data %s)", w.Seq, g, g.Data, w, w.Data)
+			return fmt.Errorf("%s returned Entry %d as %+v (data %s), want %+v (data %s): the store must keep Seq, Kind, Layer, At, Instance and Data unchanged", what, w.Seq, g, g.Data, w, w.Data)
 		}
 	}
 	return nil
@@ -190,17 +206,17 @@ func checkCreateLoad(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if err := sameEntries(loaded.Facts, entries[:2]); err != nil {
-		return fmt.Errorf("load returns the facts only, unchanged: %w", err)
+	if err := sameEntries("Load after Create", loaded.Facts, entries[:2], ruleLoadFacts); err != nil {
+		return err
 	}
 	if loaded.Head != 3 || loaded.Info.Seq != 3 || loaded.Info.Metadata["k"] != "v" {
-		return fmt.Errorf("load = head %d, summary %+v; want head 3 and the summary written", loaded.Head, loaded.Info)
+		return failf("Load after Create returned head %d and RecordInfo %+v, want head 3 (the last Entry's Seq, log Entries included) and the RecordInfo written", loaded.Head, loaded.Info)
 	}
 	all, err := open().Log(ctx, "r1", 0, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
-	return sameEntries(all, entries)
+	return sameEntries("Log after Create", all, entries, ruleLog)
 }
 
 // checkInfoNotices proves a store keeps the whole RecordInfo: the notices that
@@ -220,14 +236,14 @@ func checkInfoNotices(ctx context.Context, open Open) error {
 	}
 	same := func(got session.RecordInfo, want session.RecordInfo, step string) error {
 		if !got.CreatedAt.Equal(want.CreatedAt) || !got.UpdatedAt.Equal(want.UpdatedAt) {
-			return fmt.Errorf("%s: summary has created_at %v and updated_at %v, want %v and %v", step, got.CreatedAt, got.UpdatedAt, want.CreatedAt, want.UpdatedAt)
+			return fmt.Errorf("%s returned RecordInfo with CreatedAt %v and UpdatedAt %v, want %v and %v: a store must keep the whole RecordInfo", step, got.CreatedAt, got.UpdatedAt, want.CreatedAt, want.UpdatedAt)
 		}
 		if !got.LastRunEnd.Equal(want.LastRunEnd) || len(got.Notices) != len(want.Notices) {
-			return fmt.Errorf("%s: summary has last_run_end %v and notices %+v, want %v and %+v", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
+			return fmt.Errorf("%s returned RecordInfo with LastRunEnd %v and Notices %+v, want %v and %+v: a store must keep the whole RecordInfo, not copy it field by field", step, got.LastRunEnd, got.Notices, want.LastRunEnd, want.Notices)
 		}
 		for i := range want.Notices {
 			if got.Notices[i] != want.Notices[i] {
-				return fmt.Errorf("%s: notice %d = %+v, want %+v", step, i, got.Notices[i], want.Notices[i])
+				return fmt.Errorf("%s returned notice %d as %+v, want %+v: a store must keep the Notices in RecordInfo unchanged", step, i, got.Notices[i], want.Notices[i])
 			}
 		}
 		return nil
@@ -254,7 +270,7 @@ func checkInfoNotices(ctx context.Context, open Open) error {
 	}
 	list, err := open().List(ctx)
 	if err != nil || len(list) != 1 {
-		return fmt.Errorf("list = %v, %v", list, err)
+		return failf("List returned %v, %v, want the one Record: List returns the last RecordInfo of each Record", list, err)
 	}
 	return same(list[0], second, "List")
 }
@@ -264,7 +280,7 @@ func checkCreateTwice(ctx context.Context, open Open) error {
 		return fmt.Errorf("create: %w", err)
 	}
 	if _, err := create(ctx, open(), "r1"); !errors.Is(err, session.ErrExists) {
-		return fmt.Errorf("a second Create = %v, want ErrExists", err)
+		return fmt.Errorf("a second Create of the same ID returned %v, want ErrExists: Create must not overwrite a Record", err)
 	}
 	return nil
 }
@@ -284,24 +300,24 @@ func checkAppend(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
-	if err := sameEntries(got, all); err != nil {
-		return fmt.Errorf("log after Append: %w", err)
+	if err := sameEntries("Log after Append", got, all, ruleLog); err != nil {
+		return err
 	}
 	tail, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
-		return fmt.Errorf("log after 3: %w", err)
+		return failf("Log after 3: %w", err)
 	}
-	if err := sameEntries(tail, more); err != nil {
-		return fmt.Errorf("log after 3: %w", err)
+	if err := sameEntries("Log after 3", tail, more, "Log(after) must return the Entries with Seq above after, and every kind of them"); err != nil {
+		return err
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
 	if loaded.Head != 5 || loaded.Info.Seq != 5 {
-		return fmt.Errorf("load after Append = head %d, summary seq %d; want 5", loaded.Head, loaded.Info.Seq)
+		return failf("Load after Append returned head %d and RecordInfo.Seq %d, want 5 and 5: Append must move the head to its last Entry", loaded.Head, loaded.Info.Seq)
 	}
-	return sameEntries(loaded.Facts, []session.Entry{all[0], all[1], all[3]})
+	return sameEntries("Load after Append", loaded.Facts, []session.Entry{all[0], all[1], all[3]}, ruleLoadFacts)
 }
 
 func checkLastCheckpoint(ctx context.Context, open Open) error {
@@ -318,9 +334,9 @@ func checkLastCheckpoint(ctx context.Context, open Open) error {
 		return fmt.Errorf("load: %w", err)
 	}
 	if loaded.Head != 6 {
-		return fmt.Errorf("load head = %d, want 6", loaded.Head)
+		return failf("Load returned head %d, want 6: Head is the last Entry's Seq", loaded.Head)
 	}
-	return sameEntries(loaded.Facts, []session.Entry{more[0], more[2]})
+	return sameEntries("Load after a compaction_ended Entry", loaded.Facts, []session.Entry{more[0], more[2]}, "Load must start at the last Checkpoint (session_created or compaction_ended) and return its Layer fact Entries only")
 }
 
 // checkSpilledEntry checks the Entry of a spilled Tool Result (G-F35): a log
@@ -341,17 +357,17 @@ func checkSpilledEntry(ctx context.Context, open Open) error {
 	}
 	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
-		return fmt.Errorf("log after 3: %w", err)
+		return failf("Log after 3: %w", err)
 	}
-	if err := sameEntries(got, more); err != nil {
-		return fmt.Errorf("a megabyte Entry read back: %w", err)
+	if err := sameEntries("Log after 3 over a megabyte Entry", got, more, "a log Entry of a megabyte must be kept whole and returned by Log at its position"); err != nil {
+		return err
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	if err := sameEntries(loaded.Facts, []session.Entry{entries[0], entries[1], after}); err != nil {
-		return fmt.Errorf("a load reads the facts and not the spilled body: %w", err)
+	if err := sameEntries("Load over a megabyte log Entry", loaded.Facts, []session.Entry{entries[0], entries[1], after}, ruleLoadFacts+", so a load never reads a spilled body"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -375,10 +391,10 @@ func checkSegments(ctx context.Context, open Open) error {
 		return fmt.Errorf("load: %w", err)
 	}
 	if len(loaded.Segments) != 0 {
-		return fmt.Errorf("a load from the first Checkpoint returns segments %v apart; the Entry after it is a fact", seqs(loaded.Segments))
+		return failf("Load from the first Checkpoint returned Loaded.Segments %v, want none: %s", seqs(loaded.Segments), ruleSegments)
 	}
-	if err := sameEntries(loaded.Facts, []session.Entry{first[0], first[1], first[2]}); err != nil {
-		return fmt.Errorf("facts from the first Checkpoint: %w", err)
+	if err := sameEntries("Load from the first Checkpoint", loaded.Facts, []session.Entry{first[0], first[1], first[2]}, ruleSegments); err != nil {
+		return err
 	}
 	more := []session.Entry{segment(5, "a"), compaction(6, "a"), segment(7, "a"), fact(8, "a")}
 	if err := store.Append(ctx, "r1", 4, more, summary("r1", 8, "2026-10-17T00:00:08.000Z")); err != nil {
@@ -388,10 +404,10 @@ func checkSegments(ctx context.Context, open Open) error {
 	if err != nil {
 		return fmt.Errorf("load after a compaction: %w", err)
 	}
-	if err := sameEntries(loaded.Segments, []session.Entry{first[1], more[0]}); err != nil {
-		return fmt.Errorf("segments before the last Checkpoint: %w", err)
+	if err := sameEntries("Loaded.Segments after a compaction", loaded.Segments, []session.Entry{first[1], more[0]}, ruleSegments); err != nil {
+		return err
 	}
-	return sameEntries(loaded.Facts, []session.Entry{more[1], more[2], more[3]})
+	return sameEntries("Loaded.Facts after a compaction", loaded.Facts, []session.Entry{more[1], more[2], more[3]}, ruleSegments)
 }
 
 func checkStaleWriter(ctx context.Context, open Open) error {
@@ -405,13 +421,13 @@ func checkStaleWriter(ctx context.Context, open Open) error {
 	}
 	stale := []session.Entry{fact(4, "second"), fact(5, "second")}
 	if err := second.Append(ctx, "r1", 3, stale, summary("r1", 5, "2026-10-17T00:00:05.000Z")); !errors.Is(err, session.ErrConflict) {
-		return fmt.Errorf("an Append after a position already written = %v, want ErrConflict", err)
+		return fmt.Errorf("an Append for a position another writer already wrote returned %v, want ErrConflict: a position is written once", err)
 	}
 	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
-	return sameEntries(got, winner)
+	return sameEntries("Log after the refused Append", got, winner, ruleAtomic)
 }
 
 func checkContinuesHead(ctx context.Context, open Open) error {
@@ -420,17 +436,17 @@ func checkContinuesHead(ctx context.Context, open Open) error {
 		return fmt.Errorf("create: %w", err)
 	}
 	if err := store.Append(ctx, "r1", 4, []session.Entry{fact(5, "a")}, summary("r1", 5, "")); err == nil {
-		return errors.New("an Append past the head succeeded")
+		return errors.New("an Append with after 4 to a Record whose head is 3 succeeded, want an error: a write must start at the head")
 	}
 	if err := store.Append(ctx, "r1", 3, []session.Entry{fact(5, "a")}, summary("r1", 5, "")); err == nil {
-		return errors.New("an Append whose first Entry is not after the head succeeded")
+		return errors.New("an Append whose first Entry has Seq 5 after 3 succeeded, want an error: a write's Entries must have the Seqs after+1, after+2 and so on")
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
 	if loaded.Head != 3 {
-		return fmt.Errorf("a refused Append moved the head to %d", loaded.Head)
+		return fmt.Errorf("a refused Append moved the head to %d, want 3: %s", loaded.Head, ruleAtomic)
 	}
 	return nil
 }
@@ -455,22 +471,22 @@ func checkRace(ctx context.Context, open Open) error {
 	for i, err := range errs {
 		switch {
 		case err == nil && winner >= 0:
-			return fmt.Errorf("writers %d and %d both wrote position 4", winner, i)
+			return fmt.Errorf("writers %d and %d both wrote position 4: a position is written once, so one of them must get ErrConflict", winner, i)
 		case err == nil:
 			winner = i
 		case !errors.Is(err, session.ErrConflict):
-			return fmt.Errorf("writer %d = %v, want ErrConflict", i, err)
+			return fmt.Errorf("writer %d that lost the race for position 4 returned %v, want ErrConflict", i, err)
 		}
 	}
 	if winner < 0 {
-		return errors.New("no writer won position 4")
+		return errors.New("no writer won position 4: of concurrent Appends at the same head, one must succeed")
 	}
 	got, err := open().Log(ctx, "r1", 3, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
 	writer := fmt.Sprintf("writer-%d", winner)
-	return sameEntries(got, []session.Entry{fact(4, writer), fact(5, writer)})
+	return sameEntries("Log after the race", got, []session.Entry{fact(4, writer), fact(5, writer)}, "the Entries of the writer that won must all be stored, and none of the others: "+ruleAtomic)
 }
 
 // checkRecordEpoch: a store keeps RecordInfo.RecordEpoch with the rest of the
@@ -489,7 +505,7 @@ func checkRecordEpoch(ctx context.Context, open Open) error {
 		return fmt.Errorf("load: %w", err)
 	}
 	if loaded.Info.RecordEpoch != "epoch-1" {
-		return fmt.Errorf("load after create returns record epoch %q, want %q", loaded.Info.RecordEpoch, "epoch-1")
+		return failf("Load after Create returned RecordEpoch %q, want %q: a store must keep RecordInfo.RecordEpoch", loaded.Info.RecordEpoch, "epoch-1")
 	}
 	next := summary("epoch", 2, "2026-10-17T00:00:02.000Z")
 	next.RecordEpoch = "epoch-1"
@@ -498,7 +514,7 @@ func checkRecordEpoch(ctx context.Context, open Open) error {
 	}
 	loaded, err = open().Load(ctx, "epoch")
 	if err != nil || loaded.Info.RecordEpoch != "epoch-1" {
-		return fmt.Errorf("load after append returns record epoch %q (%v), want %q", loaded.Info.RecordEpoch, err, "epoch-1")
+		return failf("Load after Append returned RecordEpoch %q (%v), want %q: Append must keep RecordInfo.RecordEpoch", loaded.Info.RecordEpoch, err, "epoch-1")
 	}
 	list, err := open().List(ctx)
 	if err != nil {
@@ -506,7 +522,7 @@ func checkRecordEpoch(ctx context.Context, open Open) error {
 	}
 	for _, item := range list {
 		if item.ID == "epoch" && item.RecordEpoch != "epoch-1" {
-			return fmt.Errorf("list returns record epoch %q, want %q", item.RecordEpoch, "epoch-1")
+			return failf("List returned RecordEpoch %q, want %q: List must return the whole RecordInfo", item.RecordEpoch, "epoch-1")
 		}
 	}
 	return nil
@@ -528,7 +544,7 @@ func checkList(ctx context.Context, open Open) error {
 		return fmt.Errorf("list: %w", err)
 	}
 	if len(list) != 2 || list[0].ID != "older" || list[0].Seq != 2 || list[1].ID != "newer" {
-		return fmt.Errorf("list = %+v, want the last summary of each, the most recently updated first", list)
+		return failf("List returned %+v, want the last RecordInfo of each Record (older at Seq 2, newer), the most recently updated first (UpdatedAt)", list)
 	}
 	return nil
 }
@@ -542,17 +558,17 @@ func checkDelete(ctx context.Context, open Open) error {
 		return fmt.Errorf("delete: %w", err)
 	}
 	if _, err := store.Load(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("load after Delete = %v, want ErrNotFound", err)
+		return failf("Load after Delete returned %v, want ErrNotFound", err)
 	}
 	if err := store.Append(ctx, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("append after Delete = %v, want ErrNotFound", err)
+		return failf("Append after Delete returned %v, want ErrNotFound", err)
 	}
 	if err := store.Delete(ctx, "r1"); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("a second Delete = %v, want ErrNotFound", err)
+		return fmt.Errorf("a second Delete returned %v, want ErrNotFound: Delete of a missing Record is an error, not a no-op", err)
 	}
 	list, err := store.List(ctx)
 	if err != nil || len(list) != 0 {
-		return fmt.Errorf("list after Delete = %+v, %v", list, err)
+		return failf("List after Delete returned %+v, %v, want no Record: Delete must remove the whole Record", list, err)
 	}
 	return nil
 }
@@ -587,11 +603,11 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	}
 	err := old.Append(ctx, "r1", 4, []session.Entry{fact(5, "a")}, withEpoch(summary("r1", 5, "2026-10-17T00:00:07.000Z"), "epoch-old"))
 	if !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("an append of the deleted record, at the new record's length = %v, want ErrNotFound", err)
+		return fmt.Errorf("an Append by the writer of the deleted Record, at the new Record's length, returned %v, want ErrNotFound: Append must compare RecordInfo.RecordEpoch before the position", err)
 	}
 	loaded, err := open().Load(ctx, "r1")
 	if err != nil || loaded.Head != 4 || loaded.Info.RecordEpoch != "epoch-new" {
-		return fmt.Errorf("the new record after the refused append: head %d, epoch %q, %v; want head 4 and epoch-new", loaded.Head, loaded.Info.RecordEpoch, err)
+		return fmt.Errorf("the new Record after the refused Append has head %d and RecordEpoch %q (%v), want head 4 and epoch-new: %s", loaded.Head, loaded.Info.RecordEpoch, err, ruleAtomic)
 	}
 
 	// The new Record is longer, written as one batch that covers the
@@ -611,25 +627,25 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	}
 	err = old.Append(ctx, "r1", 3, []session.Entry{fact(4, "a")}, withEpoch(summary("r1", 4, "2026-10-17T00:00:10.000Z"), "epoch-third"))
 	if !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("an append of the deleted record, over a position the new record holds = %v, want ErrNotFound", err)
+		return fmt.Errorf("an Append by the writer of the deleted Record, over a position the new Record holds, returned %v, want ErrNotFound: a mismatch of RecordEpoch is ErrNotFound, not ErrConflict, and it is checked before the position", err)
 	}
 	log, err := open().Log(ctx, "r1", 0, 0)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
-	return sameEntries(log, longer)
+	return sameEntries("Log after the refused Append", log, longer, "the refused Append must not write any Entry into the new Record, and "+ruleLog)
 }
 
 func checkUnknown(ctx context.Context, open Open) error {
 	store := open()
 	if _, err := store.Load(ctx, "missing"); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("load = %v, want ErrNotFound", err)
+		return failf("Load of an unknown ID returned %v, want ErrNotFound", err)
 	}
 	if _, err := store.Log(ctx, "missing", 0, 0); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("log = %v, want ErrNotFound", err)
+		return failf("Log of an unknown ID returned %v, want ErrNotFound", err)
 	}
 	if err := store.Append(ctx, "missing", 1, []session.Entry{fact(2, "a")}, summary("missing", 2, "")); !errors.Is(err, session.ErrNotFound) {
-		return fmt.Errorf("append = %v, want ErrNotFound", err)
+		return failf("Append to an unknown ID returned %v, want ErrNotFound", err)
 	}
 	return nil
 }
@@ -642,14 +658,14 @@ func checkCanceled(ctx context.Context, open Open) error {
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if err := store.Append(canceled, "r1", 3, []session.Entry{fact(4, "a")}, summary("r1", 4, "")); err == nil {
-		return errors.New("append ignored a canceled context")
+		return failf("Append with a canceled context succeeded, want an error: every call must honor ctx")
 	}
 	if _, err := store.Load(canceled, "r1"); err == nil {
-		return errors.New("load ignored a canceled context")
+		return failf("Load with a canceled context succeeded, want an error: every call must honor ctx")
 	}
 	loaded, err := store.Load(ctx, "r1")
 	if err != nil || loaded.Head != 3 {
-		return fmt.Errorf("an Append with a canceled context wrote: head %d, %v", loaded.Head, err)
+		return fmt.Errorf("after an Append with a canceled context the head is %d (%v), want 3: a canceled call must write nothing", loaded.Head, err)
 	}
 	return nil
 }
@@ -661,19 +677,19 @@ func checkLiveness(ctx context.Context, open Open) error {
 	}
 	state, err := open().Instance(ctx, "instance-a")
 	if err != nil || !state.Alive || !state.Draining {
-		return fmt.Errorf("instance = %+v, %v; want alive and draining", state, err)
+		return failf("Instance after Beat returned %+v, %v, want alive and draining: Beat must store the whole InstanceRow", state, err)
 	}
 	if state.Address != "http://a.example:8080" {
-		return fmt.Errorf("instance address = %q, want the one its row advertised", state.Address)
+		return failf("Instance returned Address %q, want the one its row advertised: Beat must store InstanceRow.Address", state.Address)
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-a"}, 0); err != nil {
-		return fmt.Errorf("beat with ttl 0: %w", err)
+		return failf("Beat with ttl 0: %w", err)
 	}
 	if state, err := open().Instance(ctx, "instance-a"); err != nil || state.Alive {
-		return fmt.Errorf("instance after its row ended = %+v, %v; want not alive", state, err)
+		return failf("Instance after Beat with ttl 0 returned %+v, %v, want not alive: ttl 0 ends the row", state, err)
 	}
 	if state, err := open().Instance(ctx, "never-seen"); err != nil || state.Alive {
-		return fmt.Errorf("an unknown Instance = %+v, %v; want not alive", state, err)
+		return failf("Instance of an ID never seen returned %+v, %v, want not alive and no error", state, err)
 	}
 	return nil
 }
@@ -685,10 +701,10 @@ func checkExpiry(ctx context.Context, open Open) error {
 	}
 	time.Sleep(120 * time.Millisecond)
 	if state, err := open().Instance(ctx, "instance-b"); err != nil || state.Alive {
-		return fmt.Errorf("instance after its ttl = %+v, %v; want not alive", state, err)
+		return failf("Instance after its ttl returned %+v, %v, want not alive: a row expires by the store's clock", state, err)
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-b"}, time.Hour); !errors.Is(err, session.ErrExpired) {
-		return fmt.Errorf("beat after its ttl = %v, want ErrExpired", err)
+		return failf("Beat after the row's ttl returned %v, want ErrExpired: an expired row must stay, so that it never comes back", err)
 	}
 	return nil
 }
@@ -704,19 +720,19 @@ func checkEndedRemoved(ctx context.Context, open Open) error {
 	}
 	reader := open()
 	if state, err := reader.Instance(ctx, "instance-c"); err != nil || !state.Alive {
-		return fmt.Errorf("instance = %+v, %v; want alive", state, err)
+		return failf("Instance after Beat returned %+v, %v, want alive", state, err)
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c"}, 0); err != nil {
-		return fmt.Errorf("beat with ttl 0: %w", err)
+		return failf("Beat with ttl 0: %w", err)
 	}
 	if state, err := reader.Instance(ctx, "instance-c"); err != nil || state.Alive || state.Draining {
-		return fmt.Errorf("instance after its row was removed = %+v, %v; want not alive", state, err)
+		return failf("Instance after Beat with ttl 0 returned %+v, %v, want not alive, from every handle: ttl 0 removes the row", state, err)
 	}
 	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-c"}, 0); err != nil {
-		return fmt.Errorf("beat with ttl 0 on a removed row = %v, want nil", err)
+		return failf("Beat with ttl 0 on a removed row returned %v, want nil", err)
 	}
 	if err := open().Beat(ctx, session.InstanceRow{ID: "instance-c"}, time.Hour); err != nil {
-		return fmt.Errorf("beat after the row was removed = %v; want a new row, since nothing of the old one is left", err)
+		return failf("Beat after the row was removed returned %v, want a new row: ttl 0 must leave nothing of the old row, so no ErrExpired", err)
 	}
 	return nil
 }
