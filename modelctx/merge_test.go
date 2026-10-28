@@ -35,7 +35,7 @@ func segmentsFixture(t *testing.T, n int, recap modelctx.RecapWriter) *fixture {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)), i*10)
 		f.reply(run, fmt.Sprintf("answer %d: %s", i, strings.Repeat("y", 800)), i*10+1)
-		if result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: recap}, Context: f.contextOf(nil)}); !result.Replaced {
+		if result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: recap}}, modelctx.WithRecapContext(f.contextOf(nil))); !result.Replaced {
 			t.Fatalf("Segment %d was not closed: %+v", i, result)
 		}
 	}
@@ -161,7 +161,7 @@ func TestTheNextMergeTakesTheMergedSegmentWithTheOldestAfterIt(t *testing.T) {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)), i*10)
 		f.reply(run, fmt.Sprintf("answer %d: %s", i, strings.Repeat("y", 800)), i*10+1)
-		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}, Context: f.contextOf(nil)})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}}, modelctx.WithRecapContext(f.contextOf(nil)))
 	}
 	_, total = sizes(f.rec.Segments())
 	second := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: total - 10})
@@ -389,7 +389,7 @@ func TestTheModelWritesTheMergedRecapFromTheRecapsAlone(t *testing.T) {
 	for i := 7; i <= 8; i++ {
 		f.user(fmt.Sprintf("r%d", i), "question "+strings.Repeat("x", 800), i*10)
 		f.reply(fmt.Sprintf("r%d", i), "answer "+strings.Repeat("y", 800), i*10+1)
-		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}, Context: f.contextOf(nil)})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}}, modelctx.WithRecapContext(f.contextOf(nil)))
 	}
 	_, total = sizes(f.rec.Segments())
 	model = testkit.NewFakeModel(testkit.Text(goodRecap))

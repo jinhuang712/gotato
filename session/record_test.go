@@ -200,7 +200,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	if len(got) != 2 || got[0] != gotato.EventKindCompactionStarted || got[1] != gotato.EventKindCompactionFailed {
 		t.Fatalf("after a failed compaction: %v", got)
 	}
-	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{KeepMessages: 2, Why: gotato.CompactionWhyPastCeiling})
+	result, err := modelctx.Compact(ctx, writer.Record(), modelctx.CompactConfig{KeepMessages: 2}, modelctx.WithCompactionWhy(gotato.CompactionWhyPastCeiling))
 	if err != nil || !result.Replaced {
 		t.Fatalf("Compact = %+v, %v", result, err)
 	}

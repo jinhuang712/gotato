@@ -27,13 +27,14 @@ func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.Co
 		agentName, _ := writer.Record().Get(MetaAgent)
 		r.publishOpened(writer, early, agentName)
 		spec, known := r.Agent(agentName)
+		var compactOpts []modelctx.CompactOption
 		if known {
 			opts = compactOptionsFor(spec, writer.Record(), opts)
-			if opts.Recap != nil && opts.Context == nil {
-				opts.Context = r.recapContext(spec, writer.Record())
+			if opts.Recap != nil {
+				compactOpts = append(compactOpts, modelctx.WithRecapContext(r.recapContext(spec, writer.Record())))
 			}
 		}
-		result, err = modelctx.Compact(ctx, writer.Record(), opts)
+		result, err = modelctx.Compact(ctx, writer.Record(), opts, compactOpts...)
 		releaseErr := writer.Release(ctx)
 		if known && releaseErr == nil {
 			r.keepWarm(writer, spec)

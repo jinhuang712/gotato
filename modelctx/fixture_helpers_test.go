@@ -138,9 +138,9 @@ func dump(messages []gotato.Message) string {
 	return b.String()
 }
 
-func mustCompact(t *testing.T, rec *session.Record, opts modelctx.CompactConfig) modelctx.Result {
+func mustCompact(t *testing.T, rec *session.Record, cfg modelctx.CompactConfig, opts ...modelctx.CompactOption) modelctx.Result {
 	t.Helper()
-	result, err := modelctx.Compact(context.Background(), rec, opts)
+	result, err := modelctx.Compact(context.Background(), rec, cfg, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

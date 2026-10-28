@@ -30,25 +30,52 @@ type CompactConfig struct {
 	// MinTokens skips the compaction when the stretch since the last
 	// Checkpoint is estimated below it. 0 always compacts.
 	MinTokens int
-	// Context builds the request the next model call would send for the
+}
+
+// compactCall is one call of Compact: the CompactConfig and the four things
+// only a caller that runs a compaction inside a Run or a Session's life knows.
+// AutoCompactor sets all four; service sets the first and the last through
+// CompactOption.
+type compactCall struct {
+	CompactConfig
+	// context builds the request the next model call would send for the
 	// Session as it is now, which a Recap written by a model sends as its
-	// prefix. service.Runner sets it. Without it, a ModelRecap fails and the
-	// Segment has no Recap.
-	Context func(context.Context) (gotato.ModelRequest, error)
-	// KeepLastTurn keeps at least the latest Turn in the tail, whatever the
+	// prefix. Without it, a ModelRecap fails and the Segment has no Recap.
+	context func(context.Context) (gotato.ModelRequest, error)
+	// keepLastTurn keeps at least the latest Turn in the tail, whatever the
 	// budget: the last assistant Message with the results of its tool calls,
 	// or the last Message when it is not a result. A compaction in the middle
 	// of a Run needs it, since the model call that follows continues from
 	// that Turn.
-	KeepLastTurn bool
-	// CurrentRun is the Run that is starting. Its Messages are not "the latest
+	keepLastTurn bool
+	// currentRun is the Run that is starting. Its Messages are not "the latest
 	// Run" when the default tail is chosen, so the Run before it stays as it
 	// was, and the new Run's Messages follow in the tail.
-	CurrentRun gotato.RunID
-	// Why says why the compaction runs, for its Events: on demand (the
+	currentRun gotato.RunID
+	// why says why the compaction runs, for its Events: on demand (the
 	// default), past the ceiling, on an overflow, or before the Session
 	// leaves memory.
-	Why gotato.CompactionWhy
+	why gotato.CompactionWhy
+}
+
+// CompactOption sets something about a Compact call that the CompactConfig
+// does not hold: what only the caller that knows the Session's life can say.
+type CompactOption func(*compactCall)
+
+// WithRecapContext gives Compact the func that builds the request the next
+// model call would send for the Session as it is now, which a Recap written
+// by a model (ModelRecap) sends as its prefix, so the provider's cache is
+// read. service.Runner sets it. Without it, a ModelRecap fails and the
+// Segment has no Recap (Compaction.RecapError says so).
+func WithRecapContext(build func(context.Context) (gotato.ModelRequest, error)) CompactOption {
+	return func(c *compactCall) { c.context = build }
+}
+
+// WithCompactionWhy says why the compaction runs, for its Events: on demand
+// (the default), past the ceiling, on an overflow, or before the Session
+// leaves memory.
+func WithCompactionWhy(why gotato.CompactionWhy) CompactOption {
+	return func(c *compactCall) { c.why = why }
 }
 
 // CompactReason says why a compaction closed nothing, in Result.Reason.
@@ -114,37 +141,52 @@ func causeOf(err error) gotato.ErrorCode {
 // tool_unloaded Event (why: compaction).
 //
 // A Recap that fails leaves the Segment without one (Compaction.Recap is
-// "none"; the usage of a model call that was made is still recorded). A stretch
-// below cfg.MinTokens, or one the tail covers whole, is left as it is and
-// returns a Result with Replaced false and a Reason.
-func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result, error) {
+// "none" and Compaction.RecapError says why; the usage of a model call that
+// was made is still recorded). A stretch below cfg.MinTokens, or one the tail
+// covers whole, is left as it is and returns a Result with Replaced false and
+// a Reason. A cfg.Recap that cannot work as set (CompactPolicy.Validate) is an
+// error before anything is compacted.
+func Compact(ctx context.Context, s *session.Record, cfg CompactConfig, opts ...CompactOption) (Result, error) {
+	call := compactCall{CompactConfig: cfg}
+	for _, opt := range opts {
+		opt(&call)
+	}
+	return runCompact(ctx, s, call)
+}
+
+// runCompact is Compact with the caller's options already applied.
+func runCompact(ctx context.Context, s *session.Record, call compactCall) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("modelctx: session is nil")
 	}
+	if err := call.Validate(); err != nil {
+		return Result{}, err
+	}
+	cfg := call.CompactConfig
 	all := s.Messages()
 	stretch := s.Tail()
 	if cfg.MinTokens > 0 && EstimateTokens(stretch) < cfg.MinTokens {
 		return skippedResult(s, all, CompactReasonBelowMinTokens), nil
 	}
-	cut := tailStart(stretch, cfg)
+	cut := tailStart(stretch, call)
 	if cut <= 0 {
 		return skippedResult(s, all, CompactReasonNothingToClose), nil
 	}
-	why := cfg.Why
+	why := call.why
 	if why == "" {
 		why = gotato.CompactionWhyOnDemand
 	}
 	s.Emit(gotato.CompactionStarted{Header: sessionHeader(s), Why: why})
 
 	closed := stretch[:cut]
-	recapName, recapText, recapUsage, err := writeRecap(ctx, s, cfg, closed, why)
+	recap, err := writeRecap(ctx, s, call, closed, why)
 	if err != nil {
 		return Result{}, err
 	}
 
 	tail := keptTail(stretch[cut:], cfg.DropReasoning)
 	loaded := s.LoadedTools()
-	segment := buildSegment(s.NextSegment(), closed, recapText, cfg.SegmentSettings, loaded, s.Position)
+	segment := buildSegment(s.NextSegment(), closed, recap.text, cfg.SegmentSettings, loaded, s.Position)
 	kept := keptTools(loaded, segment.LoadedTools, tail)
 
 	before, _ := json.Marshal(all)
@@ -160,8 +202,9 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 		ReplacedMessages: cut,
 		FromMessageID:    closed[0].ID,
 		ToMessageID:      closed[cut-1].ID,
-		Recap:            recapName,
-		RecapUsage:       recapUsage,
+		Recap:            recap.name,
+		RecapError:       recap.failure,
+		RecapUsage:       recap.usage,
 		Segment:          segment.Number,
 		TokensBefore:     EstimateTokens(all),
 		TokensAfter:      EstimateTokens(after),
@@ -218,41 +261,82 @@ func sessionHeader(s *session.Record) gotato.Header {
 	return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0)
 }
 
-// writeRecap asks cfg.Recap for the Recap of the closed Messages. It returns
-// the Recap writer's name and the text, "none" and empty when there is no
-// Recap, and the usage of the model call if one was made. A Recap that fails
-// costs the Segment its Recap, not the compaction; only a canceled ctx is an
-// error, after a compaction_failed Event.
-func writeRecap(ctx context.Context, s *session.Record, cfg CompactConfig, closed []gotato.Message, why gotato.CompactionWhy) (name, recap string, usage *gotato.Usage, err error) {
-	name = "none"
-	if cfg.Recap == nil {
-		return name, "", nil, nil
+// recapSkippedOverflow is the Compaction.RecapError of a compaction that ran
+// because the provider refused a request as too long, and whose Recap needs the
+// Context: that request would be refused again, so the writer is not asked.
+const recapSkippedOverflow = "skipped_overflow"
+
+// recapEmpty is the Compaction.RecapError of a writer that returned no text.
+const recapEmpty = "empty_recap"
+
+// recapOutcome is what writeRecap found: the writer's name and the text,
+// "none" and empty when there is no Recap, the usage of the model call if one
+// was made, and failure, the reason a Recap that was asked for is missing
+// (empty when there is no writer).
+type recapOutcome struct {
+	name, text, failure string
+	usage               *gotato.Usage
+}
+
+// recapCause names a Recap writer's failure for Compaction.RecapError: its
+// code, or model_failure for an error that has none.
+func recapCause(err error) string {
+	var runtime *gotato.RuntimeError
+	switch {
+	case errors.As(err, &runtime) && runtime != nil:
+		return string(runtime.Code)
+	case errors.Is(err, context.DeadlineExceeded):
+		return string(gotato.CodeDeadlineExceeded)
+	case errors.Is(err, context.Canceled):
+		return string(gotato.CodeCanceled)
 	}
-	request := RecapRequest{Segment: s.NextSegment(), Closed: closed, From: stretchStart(closed, s.Position), Location: cfg.Location}
+	return string(gotato.CodeModelFailure)
+}
+
+// writeRecap asks the Recap writer for the Recap of the closed Messages. A
+// Recap that fails costs the Segment its Recap, not the compaction, and the
+// outcome says why; only a canceled ctx is an error, after a
+// compaction_failed Event.
+func writeRecap(ctx context.Context, s *session.Record, call compactCall, closed []gotato.Message, why gotato.CompactionWhy) (recapOutcome, error) {
+	out := recapOutcome{name: "none"}
+	if call.Recap == nil {
+		return out, nil
+	}
+	request := RecapRequest{Segment: s.NextSegment(), Closed: closed, From: stretchStart(closed, s.Position), Location: call.Location}
 	var contextErr error
-	if cfg.Context != nil {
+	if call.context != nil {
 		var built gotato.ModelRequest
-		if built, contextErr = cfg.Context(ctx); contextErr == nil {
+		if built, contextErr = call.context(ctx); contextErr == nil {
 			request.Context = &built
 		}
 	}
 	var message gotato.Message
 	var writeErr error
 	if contextErr == nil {
-		message, writeErr = cfg.Recap.WriteRecap(ctx, request)
+		message, writeErr = call.Recap.WriteRecap(ctx, request)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(ctxErr)})
-		return "", "", nil, ctxErr
+		return recapOutcome{}, ctxErr
 	}
 	if message.Usage != (gotato.Usage{}) {
 		u := message.Usage
-		usage = &u
+		out.usage = &u
 	}
-	if text := strings.TrimSpace(gotato.TextOf(message)); writeErr == nil && contextErr == nil && text != "" {
-		name, recap = cfg.Recap.Name(), text
+	text := strings.TrimSpace(gotato.TextOf(message))
+	switch {
+	case contextErr != nil:
+		out.failure = recapCause(contextErr)
+	case errors.Is(writeErr, ErrNoRecapContext) && why == gotato.CompactionWhyOverflow:
+		out.failure = recapSkippedOverflow
+	case writeErr != nil:
+		out.failure = recapCause(writeErr)
+	case text == "":
+		out.failure = recapEmpty
+	default:
+		out.name, out.text = call.Recap.Name(), text
 	}
-	return name, recap, usage, nil
+	return out, nil
 }
 
 // keptTail copies the Messages the Context keeps whole after a compaction.

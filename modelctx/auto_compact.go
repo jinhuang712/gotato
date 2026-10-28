@@ -48,6 +48,9 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 	if a.session == nil {
 		return gotato.TurnPrepared{}, nil
 	}
+	if err := a.policy.Validate(); err != nil {
+		return gotato.TurnPrepared{}, err
+	}
 	if key := (turnKey{pending.RunID, pending.Turn}); key != a.turn {
 		a.turn, a.compacted = key, false
 	}
@@ -99,15 +102,19 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		}
 	}
 	a.compacted = true
-	options := CompactConfig{
-		CompactPolicy: a.policy,
-		Why:           why, KeepLastTurn: true,
-		// A Recap read from the request the Run is about to send is read from
-		// the provider's cache.
-		Context: func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil },
+	options := compactCall{
+		CompactConfig: CompactConfig{CompactPolicy: a.policy},
+		why:           why, keepLastTurn: true,
+	}
+	// A Recap read from the request the Run is about to send is read from
+	// the provider's cache. On an overflow that request is the one just
+	// refused, and the ask would only make it longer: the writer gets no
+	// Context, and a Recap that needs one is skipped (Compaction.RecapError).
+	if why != gotato.CompactionWhyOverflow {
+		options.context = func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil }
 	}
 	if pending.Turn == 1 {
-		options.CurrentRun = pending.RunID
+		options.currentRun = pending.RunID
 	}
 	// The budget of the Segments is half the ceiling, or the default. On an
 	// overflow the limit the refusal names, if any, sizes it too.
@@ -116,7 +123,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		budget = min(budget, limit)
 	}
 	options.SegmentBudgetTokens = budget
-	result, err := Compact(ctx, a.session, options)
+	result, err := runCompact(ctx, a.session, options)
 	if err != nil {
 		if ctx.Err() != nil {
 			return prepared, false, err

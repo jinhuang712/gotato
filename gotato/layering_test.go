@@ -32,7 +32,7 @@ var allowedImports = map[string][]string{
 	"session":           {"gotato"},
 	"gateway":           {"gotato"},
 	"modelctx":          {"gotato", "internal/text", "session"},
-	"testkit":           {"gotato", "session"},
+	"testkit":           {"gotato", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
 	"service":           {"gotato", "modelctx", "session"},
 	"service/httpapi":   {"gotato", "modelctx", "service", "session"},

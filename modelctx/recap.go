@@ -33,7 +33,7 @@ type RecapRequest struct {
 	// as it is now: the same instruction, tools, Messages and cache hints. A
 	// writer that asks a model builds its request from it, so the provider
 	// reads the prefix from its cache. Nil when the caller supplied none
-	// (CompactConfig.Context).
+	// (modelctx.WithRecapContext).
 	Context *gotato.ModelRequest
 }
 
@@ -108,6 +108,31 @@ type ModelRecap struct {
 	// Label is the writer's name in the compaction's record; the default is
 	// "model".
 	Label string
+	// Timeout bounds the model call. 0 means the model call deadline of a
+	// Session (gotato.DefaultLimits().ModelCallDeadline), two minutes; a Recap
+	// that needs longer is the application's call to allow. Negative is
+	// refused (CompactPolicy.Validate).
+	Timeout time.Duration
+}
+
+// validate refuses a ModelRecap that cannot work.
+func (m ModelRecap) validate() error {
+	if m.Model == nil {
+		return ErrNoRecapModel
+	}
+	if m.Timeout < 0 {
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "modelctx: ModelRecap.Timeout cannot be negative")
+	}
+	return nil
+}
+
+// timeout is the bound on the model call: Timeout, or the model call deadline
+// a Session applies.
+func (m ModelRecap) timeout() time.Duration {
+	if m.Timeout > 0 {
+		return m.Timeout
+	}
+	return gotato.DefaultLimits().ModelCallDeadline
 }
 
 // Name implements RecapWriter.
@@ -271,8 +296,8 @@ func ValidateRecap(text string) (string, error) {
 // Message holding the model call's usage. When the call was made but its reply
 // fails the rules, the error comes with a Message that holds the usage only.
 func (m ModelRecap) WriteRecap(ctx context.Context, recap RecapRequest) (gotato.Message, error) {
-	if m.Model == nil {
-		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
+	if err := m.validate(); err != nil {
+		return gotato.Message{}, err
 	}
 	request, err := RecapModelRequest(recap, m.MaxTokens)
 	if err != nil {
@@ -299,14 +324,16 @@ func mergeRecapModelRequest(request MergeRequest, maxTokens uint32) gotato.Model
 // Recap from the Recaps of the oldest Segments alone, under the rules of
 // ValidateRecap.
 func (m ModelRecap) WriteMergeRecap(ctx context.Context, request MergeRequest) (gotato.Message, error) {
-	if m.Model == nil {
-		return gotato.Message{}, errors.New("modelctx: ModelRecap has no Model")
+	if err := m.validate(); err != nil {
+		return gotato.Message{}, err
 	}
 	return m.complete(ctx, mergeRecapModelRequest(request, m.MaxTokens))
 }
 
 // complete sends request and reads the Recap from the reply.
 func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (gotato.Message, error) {
+	ctx, cancel := context.WithTimeout(ctx, m.timeout())
+	defer cancel()
 	stream, err := m.Model.Stream(ctx, request)
 	if err != nil {
 		return gotato.Message{}, err

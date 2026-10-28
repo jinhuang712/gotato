@@ -112,7 +112,16 @@ type Compaction struct {
 	ToMessageID      MessageID `json:"to_message_id,omitempty"`
 	// Recap names what wrote the Recap, or "none" when the Segment
 	// has none.
-	Recap       string `json:"recap"`
+	Recap string `json:"recap"`
+	// RecapError says why a Recap that was asked for is missing: the code of
+	// the failure (a model_failure, a deadline_exceeded, a
+	// model_protocol_failure for a reply that is not a Recap), "empty_recap"
+	// when the writer returned no text, or "skipped_overflow" when the
+	// compaction ran because the provider refused the request as too long
+	// and a Recap that needs the Context was not asked for, since that
+	// request would be refused again. It is empty when Recap names a writer,
+	// and when there is no writer at all ("none" without an error).
+	RecapError  string `json:"recap_error,omitempty"`
 	BytesBefore int    `json:"bytes_before"`
 	BytesAfter  int    `json:"bytes_after"`
 	// Segment is the number of the Segment the compaction closed, or 0 for

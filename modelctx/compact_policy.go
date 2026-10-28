@@ -28,6 +28,13 @@ func defaultCeiling(window int) int {
 // Messages every compaction keeps (see DropsReasoning). CompactConfig embeds a
 // CompactPolicy, so Compact on demand and the automatic compaction share one
 // set of settings.
+//
+// The zero CompactPolicy is valid and does little: with no window and no
+// ceiling the ceiling trigger is off, so it compacts only a request the
+// provider refused as too long, and its Segments have no Recap. Set
+// WindowTokens, from WindowOf(model), or CeilingTokens to compact before the
+// limit. A Runner fills the window from the Agent's Model. Validate refuses
+// the settings that cannot work.
 type CompactPolicy struct {
 	CeilingTokens int
 	WindowTokens  int
@@ -77,3 +84,20 @@ func segmentsBudget(ceiling int) int {
 // model has no known window and neither the Agent nor the Session sets a
 // ceiling. With a ceiling, the budget is half of it (segmentsBudget).
 const defaultSegmentsBudgetTokens = 32000
+
+// Validate checks the settings that cannot work as set. A Recap of type
+// ModelRecap needs a Model (a Runner fills it from the Agent's), and a
+// negative Timeout is refused. Compact and the AutoCompactor call it before
+// they do anything, so a misconfiguration is an error at first use, not a
+// Segment that quietly has no Recap.
+func (p CompactPolicy) Validate() error {
+	switch recap := p.Recap.(type) {
+	case ModelRecap:
+		return recap.validate()
+	case *ModelRecap:
+		if recap != nil {
+			return recap.validate()
+		}
+	}
+	return nil
+}
