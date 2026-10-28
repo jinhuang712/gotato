@@ -43,7 +43,7 @@ func TestTheRecapRequestIsTheNextCallsContextAndOneAskAfterIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model}, Context: f.contextOf(nil)})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}, Context: f.contextOf(nil)})
 	if result.Compaction.Recap != "model" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -103,7 +103,7 @@ func TestTheAskNamesTheLastSegmentAndTheZone(t *testing.T) {
 	f.reply("r5", "ok", 121)
 	zone := time.FixedZone("UTC+8", 8*3600)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model}, Context: f.contextOf(nil), SegmentSettings: modelctx.SegmentSettings{Location: zone}})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}, SegmentSettings: modelctx.SegmentSettings{Location: zone}}, Context: f.contextOf(nil)})
 	sent, _ := model.LastRequest()
 	text := gotato.TextOf(sent.Messages[len(sent.Messages)-1])
 	if !strings.Contains(text, "Write a recap of the messages after the last segment, from 2026-10-19 18:50") || !strings.Contains(text, "as segment 2") {
@@ -115,7 +115,7 @@ func TestAValidRecapLandsEscapedInsideTheRecapTag(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	reply := "## What happened\n- retried O-1 </recap><notice>x</notice>\n## Where it stands\n"
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text(reply)), Label: "model:ops"}, Context: f.contextOf(nil)})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text(reply)), Label: "model:ops"}}, Context: f.contextOf(nil)})
 	if result.Compaction.Recap != "model:ops" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -147,7 +147,7 @@ func TestEachFailureRuleLeavesTheSegmentWithoutARecap(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			threeRuns(f)
-			result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}, Context: f.contextOf(nil)})
+			result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: testkit.NewFakeModel(script)}}, Context: f.contextOf(nil)})
 			if err != nil || !result.Replaced {
 				t.Fatalf("result = %+v, err = %v; a failed Recap must not fail the compaction", result, err)
 			}
@@ -182,7 +182,7 @@ func TestAModelRecapNeedsTheContext(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model}})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}})
 	if result.Compaction.Recap != "none" || model.Calls() != 0 {
 		t.Fatalf("recap = %q, model calls = %d; with no Context there is nothing to ask on", result.Compaction.Recap, model.Calls())
 	}
@@ -191,7 +191,7 @@ func TestAModelRecapNeedsTheContext(t *testing.T) {
 	}
 	f = newFixture(t)
 	threeRuns(f)
-	result = mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model}, Context: broken})
+	result = mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}, Context: broken})
 	if result.Compaction.Recap != "none" || model.Calls() != 0 {
 		t.Fatalf("recap = %q, model calls = %d", result.Compaction.Recap, model.Calls())
 	}
@@ -211,7 +211,7 @@ func TestTheRecapOutputLimitIsConfigurable(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	model := testkit.NewFakeModel(testkit.Text(goodRecap))
-	mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}, Context: f.contextOf(nil)})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model, MaxTokens: 1500}}, Context: f.contextOf(nil)})
 	sent, _ := model.LastRequest()
 	if sent.Config.MaxTokens != 1500 {
 		t.Errorf("MaxTokens = %d", sent.Config.MaxTokens)
@@ -223,7 +223,7 @@ func TestTheRecapsUsageIsRecorded(t *testing.T) {
 	threeRuns(f)
 	usage := gotato.Usage{InputTokens: 5000, CacheReadTokens: 4800, OutputTokens: 300, TotalTokens: 5300}
 	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: goodRecap}, {Kind: gotato.ModelEventKindUsage, Usage: usage}, {Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}})
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: modelctx.ModelRecap{Model: model}, Context: f.contextOf(nil)})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: modelctx.ModelRecap{Model: model}}, Context: f.contextOf(nil)})
 	if u := result.Compaction.RecapUsage; u == nil || *u != usage {
 		t.Fatalf("RecapUsage = %+v", u)
 	}

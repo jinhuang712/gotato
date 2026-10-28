@@ -14,35 +14,27 @@ import (
 
 // CompactConfig controls Compact.
 type CompactConfig struct {
+	// CompactPolicy holds what a Compact and an automatic compaction share:
+	// the window and the ceiling, which cap the tail that TailTokens sizes,
+	// the Recap writer (nil means the Segment has none; a Recap that fails
+	// leaves the Segment without one), DropReasoning, the Segments' budget
+	// and the SegmentSettings. Compact reads the ceiling in force
+	// (EffectiveCeilingTokens).
+	CompactPolicy
 	// KeepMessages is the number of most recent Messages to keep in the tail.
 	// The cut moves forward to a Turn boundary so a tool call keeps its
 	// result. With KeepMessages 0, the tail is the latest Run's Turns, up to
 	// SegmentSettings.TailTokens (20K tokens by default) and at most a quarter
-	// of WindowTokens, or of CeilingTokens when there is no window.
+	// of WindowTokens, or of the ceiling in force when there is no window.
 	KeepMessages int
 	// MinTokens skips the compaction when the stretch since the last
 	// Checkpoint is estimated below it. 0 always compacts.
 	MinTokens int
-	// WindowTokens is the Model's context window, 0 when unknown, and
-	// CeilingTokens the ceiling in force, 0 for none. They cap the tail
-	// that TailTokens sizes.
-	WindowTokens  int
-	CeilingTokens int
-	// Recap writes the Recap that ends the Segment; nil means the Segment has
-	// none. A Recap that fails leaves the Segment without one.
-	Recap RecapWriter
 	// Context builds the request the next model call would send for the
 	// Session as it is now, which a Recap written by a model sends as its
 	// prefix. service.Runner sets it. Without it, a ModelRecap fails and the
 	// Segment has no Recap.
 	Context func(context.Context) (gotato.ModelRequest, error)
-	// DropReasoning leaves the reasoning out of the Messages Compact keeps,
-	// for a Model whose provider is sent only the current Round's reasoning
-	// (see DropsReasoning). The Segment changes the prefix that reasoning
-	// was written under, and Claude checks that prefix: sent again, the
-	// reasoning could be refused. Leave it false for a provider that needs
-	// every reasoning artifact back, such as DeepSeek.
-	DropReasoning bool
 	// KeepLastTurn keeps at least the latest Turn in the tail, whatever the
 	// budget: the last assistant Message with the results of its tool calls,
 	// or the last Message when it is not a result. A compaction in the middle
@@ -57,13 +49,6 @@ type CompactConfig struct {
 	// default), past the ceiling, on an overflow, or before the Session
 	// leaves memory.
 	Why gotato.CompactionWhy
-	// SegmentBudgetTokens is the most the Segments together may hold, in
-	// estimated tokens, before the oldest are merged right after the
-	// Segment closes (a merge). 0 means segmentsBudget(CeilingTokens):
-	// half the ceiling, or defaultSegmentsBudgetTokens with none.
-	SegmentBudgetTokens int
-	// SegmentSettings are the limits and the time zone of the Segment.
-	SegmentSettings
 }
 
 // RoundReasoner is implemented by a Model that sends its provider only the
@@ -199,7 +184,7 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 		TokensAfter:      EstimateTokens(after),
 		BytesBefore:      len(before),
 		BytesAfter:       len(encoded),
-		CeilingTokens:    cfg.CeilingTokens,
+		CeilingTokens:    cfg.EffectiveCeilingTokens(),
 		LoadedTools:      kept,
 	}
 	s.SetLoadedTools(kept)
@@ -222,7 +207,7 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 	// Checkpoint of their own. A merge that fails leaves the Segment just
 	// closed in place, and the Segments unmerged.
 	merge, err := mergeOldest(ctx, s, MergeConfig{
-		BudgetTokens: cfg.SegmentBudgetTokens, CeilingTokens: cfg.CeilingTokens, Recap: cfg.Recap, Why: why, Location: cfg.Location,
+		BudgetTokens: cfg.SegmentBudgetTokens, CeilingTokens: cfg.EffectiveCeilingTokens(), Recap: cfg.Recap, Why: why, Location: cfg.Location,
 	})
 	if err != nil {
 		return result, err

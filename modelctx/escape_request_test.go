@@ -61,7 +61,7 @@ func TestImitatedTagsReachTheModelEscapedAfterACompactionAndAMerge(t *testing.T)
 		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: "c1b", Status: gotato.ToolResultStatusOK,
 			Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "the tool says " + imitation}}, SafeError: "failed: " + imitation}}, i*10+2)
 		f.reply(run, "the reply says "+imitation, i*10+3)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: taggedRecap{}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: taggedRecap{}}})
 	}
 	// The tail keeps one more exchange as it was: a user Message, a tool call
 	// with its result, and the reply.

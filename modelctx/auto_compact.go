@@ -101,9 +101,8 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	}
 	a.compacted = true
 	options := CompactConfig{
-		WindowTokens: a.policy.WindowTokens, CeilingTokens: a.CeilingTokens(),
-		Recap: a.policy.Recap, DropReasoning: a.policy.DropReasoning,
-		Why: why, SegmentSettings: a.policy.SegmentSettings, KeepLastTurn: true,
+		CompactPolicy: a.policy,
+		Why:           why, KeepLastTurn: true,
 		// A Recap read from the request the Run is about to send is read from
 		// the provider's cache.
 		Context: func(context.Context) (gotato.ModelRequest, error) { return pending.Request, nil },

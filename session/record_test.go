@@ -186,7 +186,7 @@ func TestCompactWritesItsEventsToTheStoredRecord(t *testing.T) {
 	before := storedKinds(t, store, "cmp-1", 0)
 	stopped, stop := context.WithCancel(ctx)
 	stop()
-	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactConfig{KeepMessages: 2, Recap: failingRecap{}}); err == nil {
+	if _, err := modelctx.Compact(stopped, writer.Record(), modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: failingRecap{}}, KeepMessages: 2}); err == nil {
 		t.Fatal("Compact hid that its Run was stopped")
 	}
 	if err := writer.Flush(ctx); err != nil {

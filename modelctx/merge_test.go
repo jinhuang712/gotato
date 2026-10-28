@@ -35,7 +35,7 @@ func segmentsFixture(t *testing.T, n int, recap modelctx.RecapWriter) *fixture {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)), i*10)
 		f.reply(run, fmt.Sprintf("answer %d: %s", i, strings.Repeat("y", 800)), i*10+1)
-		if result := mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: recap, Context: f.contextOf(nil)}); !result.Replaced {
+		if result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: recap}, Context: f.contextOf(nil)}); !result.Replaced {
 			t.Fatalf("Segment %d was not closed: %+v", i, result)
 		}
 	}
@@ -161,7 +161,7 @@ func TestTheNextMergeTakesTheMergedSegmentWithTheOldestAfterIt(t *testing.T) {
 		run := fmt.Sprintf("r%d", i)
 		f.user(run, fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)), i*10)
 		f.reply(run, fmt.Sprintf("answer %d: %s", i, strings.Repeat("y", 800)), i*10+1)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}, Context: f.contextOf(nil)})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}, Context: f.contextOf(nil)})
 	}
 	_, total = sizes(f.rec.Segments())
 	second := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: total - 10})
@@ -201,10 +201,10 @@ func TestAMergeWithoutAModelWritesADigestByCode(t *testing.T) {
 	for _, writer := range []modelctx.RecapWriter{nil, modelctx.TruncateRecap{}} {
 		f := newFixture(t)
 		threeRuns(f)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentBudgetTokens: 1 << 30, SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1 << 30, SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}}})
 		f.user("r4", "one more question about O-2", 90)
 		f.reply("r4", "an answer", 91)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentBudgetTokens: 1 << 30, SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentBudgetTokens: 1 << 30, SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}}})
 		result := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: writer})
 		if !result.Merged || result.Recap != "digest" || result.RecapUsage != nil {
 			t.Fatalf("%T: result = %+v", writer, result)
@@ -321,7 +321,7 @@ func TestACompactionThatPassesTheBudgetMergesTheOldest(t *testing.T) {
 	_, total := sizes(f.rec.Segments())
 	f.user("r5", "question 5: "+strings.Repeat("x", 800), 90)
 	f.reply("r5", "answer 5: "+strings.Repeat("y", 800), 91)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: total})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: total}})
 	if !result.Replaced || result.Merge == nil || !result.Merge.Merged || result.Merge.Replaced[0] != 1 {
 		t.Fatalf("result = %+v, merge %+v", result, result.Merge)
 	}
@@ -333,7 +333,7 @@ func TestACompactionThatPassesTheBudgetMergesTheOldest(t *testing.T) {
 	}
 	// Within the budget nothing merges, and the result has no merge.
 	f = segmentsFixture(t, 2, nil)
-	if result := mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}}); result.Merge != nil {
+	if result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}}}); result.Merge != nil {
 		t.Errorf("a compaction within the budget merged: %+v", result.Merge)
 	}
 }
@@ -389,7 +389,7 @@ func TestTheModelWritesTheMergedRecapFromTheRecapsAlone(t *testing.T) {
 	for i := 7; i <= 8; i++ {
 		f.user(fmt.Sprintf("r%d", i), "question "+strings.Repeat("x", 800), i*10)
 		f.reply(fmt.Sprintf("r%d", i), "answer "+strings.Repeat("y", 800), i*10+1)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}, Context: f.contextOf(nil)})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30, Recap: numberedRecap{}}, Context: f.contextOf(nil)})
 	}
 	_, total = sizes(f.rec.Segments())
 	model = testkit.NewFakeModel(testkit.Text(goodRecap))

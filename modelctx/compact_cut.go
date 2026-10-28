@@ -23,7 +23,7 @@ func tailStart(stretch []gotato.Message, cfg CompactConfig) int {
 		budget := orDefault(cfg.TailTokens, defaultTailTokens)
 		base := cfg.WindowTokens
 		if base <= 0 {
-			base = cfg.CeilingTokens
+			base = cfg.EffectiveCeilingTokens()
 		}
 		if base > 0 {
 			budget = min(budget, base/4)

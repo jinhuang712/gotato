@@ -24,8 +24,10 @@ func defaultCeiling(window int) int {
 // past it by default, and with no window there is no ceiling. A negative
 // CeilingTokens turns the ceiling off. WindowTokens is the Model's context
 // window, 0 when unknown. The kept tail is the latest Run's Turns, up to
-// SegmentSettings.TailTokens (CompactConfig). DropReasoning is
-// CompactConfig.DropReasoning for every compaction the policy makes.
+// SegmentSettings.TailTokens. DropReasoning leaves the reasoning out of the
+// Messages every compaction keeps (see DropsReasoning). CompactConfig embeds a
+// CompactPolicy, so Compact on demand and the automatic compaction share one
+// set of settings.
 type CompactPolicy struct {
 	CeilingTokens int
 	WindowTokens  int

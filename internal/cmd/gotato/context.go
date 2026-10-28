@@ -120,7 +120,7 @@ func (c *cli) contextCompact(args []string) int {
 	default:
 		return c.usageError("unknown recap writer " + *recapFlag)
 	}
-	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactConfig{KeepMessages: *keep, MinTokens: *minTokens, Recap: writer})
+	result, err := rt.runner.Compact(ctx, positionals[0], modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: writer}, KeepMessages: *keep, MinTokens: *minTokens})
 	if err != nil {
 		return c.failErr(err)
 	}

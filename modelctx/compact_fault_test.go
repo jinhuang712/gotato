@@ -201,7 +201,7 @@ func threeSegments(t *testing.T) *session.Record {
 				}
 			}
 		}
-		if _, err := Compact(context.Background(), record, CompactConfig{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}); err != nil {
+		if _, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -239,7 +239,7 @@ func TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged(t *testing.T) {
 	if err := record.Append(more); err != nil {
 		t.Fatal(err)
 	}
-	compacted, err := Compact(context.Background(), record, CompactConfig{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1})
+	compacted, err := Compact(context.Background(), record, CompactConfig{CompactPolicy: CompactPolicy{SegmentSettings: SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1}})
 	if err != nil || !compacted.Replaced || compacted.Merge == nil || compacted.Merge.Reason != MergeReasonWriteFailed || len(record.Segments()) != 4 {
 		t.Fatalf("compact = %+v, %d Segments; the closed Segment must stay", compacted, len(record.Segments()))
 	}

@@ -26,7 +26,7 @@ func segmented(t *testing.T, n int, policy func(segments int) modelctx.CompactPo
 	l := newLive(t, modelctx.CompactPolicy{})
 	for i := 1; i <= n; i++ {
 		l.must(testkit.NewFakeModel(answering(strings.Repeat("y", 800))), fmt.Sprintf("question %d: %s", i, strings.Repeat("x", 800)))
-		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}); err != nil || !result.Replaced {
+		if result, err := modelctx.Compact(context.Background(), l.writer.Record(), modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 1}, SegmentBudgetTokens: 1 << 30}}); err != nil || !result.Replaced {
 			t.Fatalf("Segment %d: %+v, %v", i, result, err)
 		}
 	}

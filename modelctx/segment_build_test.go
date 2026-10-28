@@ -348,7 +348,7 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	// A window of 800 tokens caps the tail at 200: only the latest Turns stay,
 	// from a Turn boundary.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{WindowTokens: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{WindowTokens: 800}})
 	tail := f.rec.Tail()
 	if len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult || gotato.TextOf(tail[len(tail)-1]) != "second answer" {
 		t.Fatalf("capped tail = %d Messages: %+v", len(tail), tail)
@@ -358,7 +358,7 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 	}
 	// With no window, the ceiling caps it the same way.
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{CeilingTokens: 800})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{CeilingTokens: 800}})
 	if got := len(f.rec.Tail()); got != len(tail) {
 		t.Errorf("tail under a ceiling = %d Messages, want %d as under the window", got, len(tail))
 	}
@@ -369,7 +369,7 @@ func TestDefaultTailIsTheLatestRunsTurnsWithinABudget(t *testing.T) {
 		t.Fatalf("KeepMessages: 1 tail = %+v", tail)
 	}
 	f = build()
-	mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{TailTokens: 150}})
+	mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{TailTokens: 150}}})
 	if tail := f.rec.Tail(); len(tail) == 0 || len(tail) >= 10 || tail[0].Role == gotato.RoleToolResult {
 		t.Fatalf("TailTokens tail = %d Messages", len(tail))
 	}
@@ -508,7 +508,7 @@ func TestALongMessageIsCutWithALineThatNamesReadSegment(t *testing.T) {
 	g.reply("r1", "a", 2)
 	g.user("r2", "next", 3)
 	g.reply("r2", "ok", 4)
-	mustCompact(t, g.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}})
+	mustCompact(t, g.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{MessageTokens: 10}}})
 	if text := dump(g.rec.Segments()[0].Messages); !strings.Contains(text, strings.Repeat("x", 40)+"\n") || strings.Contains(text, strings.Repeat("x", 41)) {
 		t.Errorf("a limit of 10 tokens kept %s", text)
 	}
@@ -565,7 +565,7 @@ func TestSegmentTimesAreUTCUnlessTheAgentSetsAZone(t *testing.T) {
 	for _, loc := range []*time.Location{nil, zone} {
 		f := newFixture(t)
 		threeRuns(f)
-		mustCompact(t, f.rec, modelctx.CompactConfig{SegmentSettings: modelctx.SegmentSettings{Location: loc}})
+		mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{SegmentSettings: modelctx.SegmentSettings{Location: loc}}})
 		text := dump(f.rec.Segments()[0].Messages)
 		if loc == nil && (!strings.Contains(text, "10:02 payments.get_batch") || !strings.Contains(text, `from="2026-10-19T10:01:00Z"`)) {
 			t.Errorf("UTC times:\n%s", text)
@@ -675,7 +675,7 @@ func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.M
 func TestTheConfiguredRecapEndsTheSegmentEscaped(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
-	result := mustCompact(t, f.rec, modelctx.CompactConfig{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}})
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}}})
 	if result.Compaction.Recap != "fixed" {
 		t.Fatalf("recap = %q", result.Compaction.Recap)
 	}
@@ -701,7 +701,7 @@ func TestARecapThatFailsLeavesTheSegmentWithoutOne(t *testing.T) {
 	} {
 		f := newFixture(t)
 		threeRuns(f)
-		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{Recap: writer})
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: writer}})
 		if err != nil || !result.Replaced {
 			t.Fatalf("%s: result = %+v, err = %v; a failed Recap must not fail the compaction", name, result, err)
 		}
@@ -719,7 +719,7 @@ func TestACompactionStoppedDuringTheRecapWritesNothing(t *testing.T) {
 	threeRuns(f)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactConfig{Recap: failingRecap{}})
+	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: failingRecap{}}})
 	if !errors.Is(err, context.Canceled) || len(f.rec.Segments()) != 0 {
 		t.Fatalf("err = %v, segments = %d", err, len(f.rec.Segments()))
 	}
