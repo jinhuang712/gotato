@@ -17,7 +17,15 @@ import (
 // (SegmentSettings.TailTokens). When the
 // Agent's Model is sent only the current Round's reasoning
 // (modelctx.DropsReasoning), the kept Messages lose their reasoning.
+//
+// A draining Runner refuses it with ErrDraining (not run): it would claim an
+// idle Session for the length of a compaction, after the Instance said it
+// leaves. A Session running on another live Instance is waited for, up to
+// Liveness.Wait, and then refused with busy, as for a Run.
 func (r *Runner) Compact(ctx context.Context, sessionID string, opts modelctx.CompactConfig) (modelctx.Result, error) {
+	if r.Draining() {
+		return modelctx.Result{}, ErrDraining
+	}
 	var result modelctx.Result
 	err := r.withSessionLock(ctx, sessionID, func() error {
 		writer, early, _, err := r.acquire(ctx, sessionID)

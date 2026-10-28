@@ -3,7 +3,23 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/jinhuang712/gotato/session"
 )
+
+// drainStopWait is how long Drain waits, after its ctx ended and it stopped the
+// Runs, for them to settle: a Run that ignores its ctx returns from Prompt after
+// 5 seconds, and its end is written within session.WriteTimeout.
+const drainStopWait = 5*time.Second + session.WriteTimeout
+
+// stopWait returns drainStopWait, or the value a test set.
+func (r *Runner) stopWait() time.Duration {
+	if r.drainStop > 0 {
+		return r.drainStop
+	}
+	return drainStopWait
+}
 
 // stopAll stops every admitted Run for the drain: started Runs through their
 // live Session, Runs still waiting for a Session lock through their context.
@@ -28,10 +44,17 @@ func (r *Runner) stopAll() {
 //     still works;
 //  3. every Run in flight finishes, is saved, and releases its Session.
 //
+// Draining reports true from the first moment of Drain, before the write of
+// the row, so that no Run is admitted while a slow store takes it.
+//
 // When ctx ends first, the Runs still going are stopped, saved and released,
 // and each returns with a Reconnect once every Run of the drain has settled;
-// Drain then returns ctx.Err(). A Run that cannot be saved in time is fenced
-// by the next Claim anyway. The Runner keeps renewing its row while it drains;
+// Drain then returns ctx.Err(). It waits for them at most drainStopWait after
+// ctx ended (the time a Run needs to settle and write its end), so that a tool
+// that ignores its context cannot hold Drain for good; the Run goes on
+// settling in the background, and its Session is fenced by the next Claim if it
+// is not saved. A Run that cannot be saved in time is fenced by the next Claim
+// anyway. The Runner keeps renewing its row while it drains;
 // call Close afterwards to remove it. A signal handler or an endpoint of your
 // own calls Drain.
 func (r *Runner) Drain(ctx context.Context) error {
@@ -44,10 +67,13 @@ func (r *Runner) Drain(ctx context.Context) error {
 	r.mu.Unlock()
 	var markErr error
 	if first {
-		markErr = r.markDraining(ctx)
+		// Draining comes first: the write of the row can take as long as the
+		// store does, and a Run admitted meanwhile would start on an Instance
+		// that other Instances already see leaving.
 		r.mu.Lock()
 		r.draining = true
 		r.mu.Unlock()
+		markErr = r.markDraining(ctx)
 		go func() {
 			r.mu.Lock()
 			for r.inflight > 0 {
@@ -64,7 +90,10 @@ func (r *Runner) Drain(ctx context.Context) error {
 		return markErr
 	case <-ctx.Done():
 		r.stopAll()
-		<-drained
+		select {
+		case <-drained:
+		case <-time.After(r.stopWait()):
+		}
 		r.dropAllWarm("drain")
 		r.endStreams()
 		return errors.Join(markErr, ctx.Err())

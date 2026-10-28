@@ -39,15 +39,13 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// persistTimeout bounds the terminal Session write and cleanup delete so a
-// stalled Store cannot pin a settled Run.
-const persistTimeout = 10 * time.Second
-
 // persistContext returns a context for a write that must happen even when ctx
 // is canceled: it keeps ctx's values, drops its cancellation, and ends after
-// persistTimeout.
+// session.WriteTimeout, so a stalled Store cannot pin a settled Run. It bounds
+// the terminal Session write and the cleanup delete, as the Writer bounds each
+// of its own writes.
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	return context.WithTimeout(context.WithoutCancel(ctx), session.WriteTimeout)
 }
 
 // defaultRunTimeout is how long a Run of an Agent may last when neither the
@@ -286,6 +284,8 @@ type Runner struct {
 	// before it has settled and released its Session.
 	drained chan struct{}
 	idle    *sync.Cond
+	// drainStop is a test seam: drainStopWait when zero.
+	drainStop time.Duration
 }
 
 // New validates the configuration and creates a Runner.

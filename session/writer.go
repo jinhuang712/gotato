@@ -463,9 +463,10 @@ func StoredEvents(ctx context.Context, store Store, id string, after uint64, lim
 	}
 }
 
-// writeTimeout bounds one write. A write does not end with the caller's
-// context: a canceled Run still writes its last steps.
-const writeTimeout = 10 * time.Second
+// WriteTimeout bounds one write of a Writer. A write does not end with the
+// caller's context: a canceled Run still writes its last steps. The service
+// layer bounds the last write of a Run (its save) by the same value.
+const WriteTimeout = 10 * time.Second
 
 // Flush writes the Record's queued Events, if any, in one write, and hands
 // them to the publisher.
@@ -490,7 +491,7 @@ func (w *Writer) send(events []gotato.Event) {
 // publish, it hands them to the publisher before it lets go of the lock that
 // orders writes, so Events are published in the order they were written.
 func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriteTimeout)
 	defer cancel()
 	w.mu.Lock()
 	defer w.mu.Unlock()
