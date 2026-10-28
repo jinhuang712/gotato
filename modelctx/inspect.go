@@ -59,7 +59,8 @@ func ReportOf(inspection gotato.ContextInspection) Report {
 
 // Inspect builds the Context for snapshot with the given visible tools and
 // describes the request that would be sent. It runs builder alone: no
-// Extension and no model options.
+// Extension, no model options and no Tool catalog, so its PrefixHash equals a
+// Session's only when the Session has no catalog (see gotato.AssembleRequest).
 func Inspect(ctx context.Context, builder gotato.ContextBuilder, snapshot gotato.ContextSnapshot, tools []gotato.ToolSpec) (Report, error) {
 	if builder == nil {
 		builder = gotato.FullHistoryContext()

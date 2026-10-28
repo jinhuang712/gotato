@@ -26,6 +26,13 @@ import (
 //   - PrefixHash covers system + tools + every Message but the last: two
 //     consecutive Turns with the same PrefixHash present an identical cacheable
 //     prefix to the provider.
+//
+// The hash covers what the arguments hold. A Session whose Tools include a
+// catalog adds the lists of loaded and unloaded Tools to the request after
+// this call (ModelRequest.LoadedTools, UnloadedTools), and its PrefixHash,
+// the one in ContextBuilt and in ContextInspection, covers them too, so it
+// differs from this one for such a Session. Without a catalog the two are the
+// same. To compare with a Session, use its own inspection (Session.InspectContext).
 func AssembleRequest(built ModelContext, tools []ToolSpec) (ModelRequest, string) {
 	messages := ForModel(built.Messages)
 	system := built.renderSystem()
