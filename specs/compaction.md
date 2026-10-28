@@ -27,22 +27,16 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 ## Invariants
 
 1. A Segment is written once, as its own `segment_closed` Entry, so a provider's prompt cache can read the same bytes every time.
-   Pinned by: `TestASegmentIsNeverRewrittenByTheNextCompaction` (session), `TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest` (modelctx), `TestRequestOnlyGrowsAtItsEndAcrossCompactions` (internal/workload).
 
 2. A Segment and the Checkpoint that lists it are written in one batch, so no stored Record holds one without the other.
-   Pinned by: `TestCloseSegmentAndCheckpointWritesBothTogether`, `TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed`, `TestLoadReadsTheLargestListedSegmentNumber` (session).
 
 3. The cut falls on a Turn boundary, so a tool call keeps its result.
-   Pinned by: `TestKeptTailStartsAtATurnSoACallKeepsItsResult`, `TestDefaultTailIsTheLatestRunsTurnsWithinABudget`, `TestACompactionWhoseTailCoversTheStretchClosesNothing` (modelctx).
 
 4. Code builds a Segment, and a missing Recap never costs it; the Event says why (`recap_error`).
-   Pinned by: `TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall`, `TestEachFailureRuleLeavesTheSegmentWithoutARecap` (modelctx), `TestARecapThatFailsLeavesTheSegmentWithoutOne`.
 
 5. A Turn compacts at most once, and a dropped compaction counts.
-   Pinned by: `TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow`, `TestASecondRefusalEndsTheRunWithContextOverflow`, `TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded` (modelctx).
 
 6. The Segments stay within a budget, and what a merge folds in stays readable by number with `read_segment`.
-   Pinned by: `TestTheOldestSegmentsMergeDownToHalfTheBudget`, `TestTheSegmentsBudgetIsHalfTheCeilingOrADefault`, `TestAMergeWhoseRecapFailsMergesNothing`, `TestAMergedSegmentsOriginalsStayReadableByNumber`.
 
 ## The steps of one compaction
 
@@ -82,9 +76,9 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 | the merge fails | nothing is merged; on an overflow the Run ends with `context_overflow` |
 | still past the ceiling | the Run ends with `limit_exceeded` |
 
-- A crash leaves no half-compaction: the Context is whatever the last Checkpoint lists, and an unlisted Segment is harmless. Pinned by: `TestACompactionWhoseWriteFailsIsDropped`, `TestARunGoesOnWhenItsMidRunCompactionIsDropped`, `TestARunEndsWhenItsCompactionIsDroppedAndTheContextIsStillPastTheCeiling`, `TestARunStoppedDuringItsMidRunCompactionEndsCanceled`, `TestAMergeWhoseWriteFailsLeavesTheSegmentsUnmerged` (modelctx); `TestCompactionAppendsStartedThenOneCheckpoint` (session).
-- Another Instance builds the same request from the Checkpoint (`TestScriptCompactionUnloadsAndSegmentIsReadOnAnotherInstance`, examples/larkbot). On demand, a Session running elsewhere answers busy (`TestCompactOfASessionRunningElsewhereAnswersBusy`, service).
-- An idle compaction is dropped if another Instance replaced the copy, and yields to a new message (`TestIdleCompactionDropsACopyAnotherInstanceReplaced`, `TestRunDuringAnIdleCompactionCancelsIt`).
+- A crash leaves no half-compaction: the Context is whatever the last Checkpoint lists, and an unlisted Segment is harmless. Pinned by:  (modelctx); `TestCompactionAppendsStartedThenOneCheckpoint` (session).
+- Another Instance builds the same request from the Checkpoint. On demand, a Session running elsewhere answers busy.
+- An idle compaction is dropped if another Instance replaced the copy, and yields to a new message.
 
 ## After a compaction
 
