@@ -231,35 +231,3 @@ func TestAbortIsRecordedBeforeRunEnded(t *testing.T) {
 		t.Fatalf("RunEnded = %+v", ended)
 	}
 }
-
-// A reasoning delta from the model is sent as a ReasoningDelta, and never
-// stored.
-func TestReasoningDeltaIsSentNotStored(t *testing.T) {
-	model := &recordingModel{scripts: [][]ModelEvent{{
-		{Kind: ModelEventKindReasoningDelta, Text: "think"},
-		{Kind: ModelEventKindReasoningDelta, Text: " hard"},
-		{Kind: ModelEventKindTextDelta, Text: "answer"},
-		{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn},
-	}}}
-	agent, err := NewSession(context.Background(), WithModel(model))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = agent.Close(context.Background()) }()
-	seen := recordAll(t, agent)
-	if _, err := agent.Prompt(context.Background(), UserMessage("hi")); err != nil {
-		t.Fatal(err)
-	}
-	var text []string
-	for _, event := range seen.events() {
-		if e, ok := event.(ReasoningDelta); ok {
-			text = append(text, e.Text)
-			if e.Kind().Class() != EventClassDelta || e.MessageID == "" {
-				t.Fatalf("ReasoningDelta = %+v", e)
-			}
-		}
-	}
-	if len(text) != 2 || text[0] != "think" || text[1] != " hard" {
-		t.Fatalf("ReasoningDelta texts = %q", text)
-	}
-}

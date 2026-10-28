@@ -93,3 +93,32 @@ func TestForModelKeepsSignatureAndToolResults(t *testing.T) {
 		t.Fatal("ForModel aliased the input")
 	}
 }
+
+func TestForModelDeepCopiesToolResultSignature(t *testing.T) {
+	signature := []byte("sig")
+	message := Message{
+		Role: RoleToolResult,
+		ToolResult: &ToolResult{
+			CallID:  "c1",
+			Status:  ToolResultStatusOK,
+			Content: []ContentPart{{Kind: ContentKindText, Text: "x", Signature: signature}},
+		},
+	}
+	out := ForModel([]Message{message})
+	out[0].ToolResult.Content[0].Signature[0] = 'X'
+	if message.ToolResult.Content[0].Signature[0] != 's' {
+		t.Fatal("ForModel shares ToolResult ContentPart.Signature with the input")
+	}
+}
+
+func TestForModelIsolatesPartBytes(t *testing.T) {
+	data := []byte("png")
+	signature := []byte("sig")
+	message := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: data, Signature: signature}}}
+	out := ForModel([]Message{message})
+	out[0].Parts[0].Data[0] = 'X'
+	out[0].Parts[0].Signature[0] = 'X'
+	if message.Parts[0].Data[0] != 'p' || message.Parts[0].Signature[0] != 's' {
+		t.Fatal("ForModel shares Part bytes with the input")
+	}
+}

@@ -2,33 +2,8 @@ package gotato
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"testing"
 )
-
-func TestRuntimeErrorIsMatchesASentinelByIdentity(t *testing.T) {
-	base := ErrorOf(CodeBusy, "service: session has a run in flight")
-	other := ErrorOf(CodeBusy, "different message")
-	if errors.Is(other, base) {
-		t.Fatal("errors.Is matched a sentinel by its code")
-	}
-	if !errors.Is(fmt.Errorf("wrapped: %w", base), base) {
-		t.Fatal("errors.Is did not match a wrapped sentinel")
-	}
-	variant := ErrorOf(CodeBusy, "a variant")
-	variant.Cause = base
-	if !errors.Is(variant, base) {
-		t.Fatal("errors.Is did not match an error that wraps the sentinel")
-	}
-	if !IsCode(other, CodeBusy) || IsCode(other, CodeInvalidState) {
-		t.Fatal("IsCode does not match by code")
-	}
-	// A target with no Message is a bare code.
-	if !errors.Is(other, &RuntimeError{Code: CodeBusy}) || errors.Is(other, &RuntimeError{Code: CodeNotFound}) {
-		t.Fatal("a code-only target does not match by code")
-	}
-}
 
 // A ToolUse describes a call before it runs, so it carries no outcome. The
 // outcome is the ToolResult that a PostToolUse extension receives.
@@ -58,18 +33,6 @@ func TestMessageCloneIsolatesToolCallArguments(t *testing.T) {
 	}
 }
 
-func TestForModelIsolatesPartBytes(t *testing.T) {
-	data := []byte("png")
-	signature := []byte("sig")
-	message := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: data, Signature: signature}}}
-	out := ForModel([]Message{message})
-	out[0].Parts[0].Data[0] = 'X'
-	out[0].Parts[0].Signature[0] = 'X'
-	if message.Parts[0].Data[0] != 'p' || message.Parts[0].Signature[0] != 's' {
-		t.Fatal("ForModel shares Part bytes with the input")
-	}
-}
-
 func TestToolResultCloneIsolatesSignature(t *testing.T) {
 	signature := []byte("sig")
 	result := ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindText, Text: "x", Signature: signature}}}
@@ -89,5 +52,22 @@ func TestRunResultCloneIsolatesErrorDetails(t *testing.T) {
 	clone.Error.Details["tool"] = "changed"
 	if result.Error.Details["tool"] != "echo" {
 		t.Fatal("RunResult.Clone shares RuntimeError.Details with the original")
+	}
+}
+
+// TextOf is what a message says: its text Parts. Reasoning is the model's
+// thinking and must not leak into a final answer, a summary, or a replayed
+// content field; ReasoningOf returns it separately.
+func TestTextOfExcludesReasoning(t *testing.T) {
+	m := Message{Role: RoleAssistant, Parts: []ContentPart{
+		{Kind: ContentKindReasoning, Text: "let me think"},
+		{Kind: ContentKindText, Text: "the answer"},
+		{Kind: ContentKindReasoning, Text: " again"},
+	}}
+	if got := TextOf(m); got != "the answer" {
+		t.Fatalf("TextOf = %q", got)
+	}
+	if got := ReasoningOf(m); got != "let me think again" {
+		t.Fatalf("ReasoningOf = %q", got)
 	}
 }

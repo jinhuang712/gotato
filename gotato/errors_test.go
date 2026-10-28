@@ -122,3 +122,36 @@ func TestModelFailureIsRetryableWhenTheModelSaysSo(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeErrorTypedNilTargetsDoNotPanic(t *testing.T) {
+	var typedNil *RuntimeError
+	if errors.Is(ErrorOf(CodeBusy, "x"), typedNil) {
+		t.Fatal("a typed-nil target matched")
+	}
+	if IsCode(typedNil, CodeBusy) {
+		t.Fatal("a typed-nil error reported a code")
+	}
+}
+
+func TestRuntimeErrorIsMatchesASentinelByIdentity(t *testing.T) {
+	base := ErrorOf(CodeBusy, "service: session has a run in flight")
+	other := ErrorOf(CodeBusy, "different message")
+	if errors.Is(other, base) {
+		t.Fatal("errors.Is matched a sentinel by its code")
+	}
+	if !errors.Is(fmt.Errorf("wrapped: %w", base), base) {
+		t.Fatal("errors.Is did not match a wrapped sentinel")
+	}
+	variant := ErrorOf(CodeBusy, "a variant")
+	variant.Cause = base
+	if !errors.Is(variant, base) {
+		t.Fatal("errors.Is did not match an error that wraps the sentinel")
+	}
+	if !IsCode(other, CodeBusy) || IsCode(other, CodeInvalidState) {
+		t.Fatal("IsCode does not match by code")
+	}
+	// A target with no Message is a bare code.
+	if !errors.Is(other, &RuntimeError{Code: CodeBusy}) || errors.Is(other, &RuntimeError{Code: CodeNotFound}) {
+		t.Fatal("a code-only target does not match by code")
+	}
+}

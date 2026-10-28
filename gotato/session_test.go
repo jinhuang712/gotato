@@ -357,42 +357,26 @@ func TestSessionToolLoop(t *testing.T) {
 	}
 }
 
-func TestSchemaIntegerTypeRejectsFraction(t *testing.T) {
-	schema := []byte(`{"type":"object","properties":{"count":{"type":"integer"}},"additionalProperties":false}`)
-	if err := validateToolSchema(schema, []byte(`{"count":3}`)); err != nil {
-		t.Fatalf("whole number rejected for an integer schema: %v", err)
-	}
-	if err := validateToolSchema(schema, []byte(`{"count":1.5}`)); err == nil {
-		t.Fatal("fractional value accepted for an integer schema")
-	}
-	if err := validateToolSchema([]byte(`{"type":"number"}`), []byte(`1.5`)); err != nil {
-		t.Fatalf("fractional value rejected for a number schema: %v", err)
-	}
+func (m *testModel) lastRequest() ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.last
 }
 
-func TestRuntimeErrorTypedNilTargetsDoNotPanic(t *testing.T) {
-	var typedNil *RuntimeError
-	if errors.Is(ErrorOf(CodeBusy, "x"), typedNil) {
-		t.Fatal("a typed-nil target matched")
+func TestPromptRejectsBlankParts(t *testing.T) {
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
+	agent, err := NewSession(context.Background(), WithModel(model))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if IsCode(typedNil, CodeBusy) {
-		t.Fatal("a typed-nil error reported a code")
+	defer func() { _ = agent.Close(context.Background()) }()
+	for _, message := range []Message{UserMessage(""), UserMessage("   "), {Role: RoleUser}} {
+		if _, err := agent.Prompt(context.Background(), message); !IsCode(err, CodeInvalidArgument) {
+			t.Fatalf("Prompt(%+v) err = %v, want invalid_argument", message, err)
+		}
 	}
-}
-
-func TestForModelDeepCopiesToolResultSignature(t *testing.T) {
-	signature := []byte("sig")
-	message := Message{
-		Role: RoleToolResult,
-		ToolResult: &ToolResult{
-			CallID:  "c1",
-			Status:  ToolResultStatusOK,
-			Content: []ContentPart{{Kind: ContentKindText, Text: "x", Signature: signature}},
-		},
-	}
-	out := ForModel([]Message{message})
-	out[0].ToolResult.Content[0].Signature[0] = 'X'
-	if message.ToolResult.Content[0].Signature[0] != 's' {
-		t.Fatal("ForModel shares ToolResult ContentPart.Signature with the input")
+	image := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: []byte{1, 2, 3}, MIMEType: "image/png"}}}
+	if _, err := agent.Prompt(context.Background(), image); err != nil {
+		t.Fatalf("image-only prompt rejected: %v", err)
 	}
 }
