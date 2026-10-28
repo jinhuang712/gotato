@@ -26,10 +26,12 @@ func TestSplitLinesAndPaginate(t *testing.T) {
 // A limit smaller than the first rune must still make progress.
 func TestSplitLinesWithALimitBelowTheFirstRune(t *testing.T) {
 	done := make(chan []string, 1)
-	go func() { done <- append(SplitLines("日本", 2), SplitLines("a\n日b", 0)...) }()
+	go func() {
+		done <- append(append(SplitLines("日本", 2), SplitLines("a\n日b", 0)...), append(SplitLines("日b", 1), SplitLines("日b\n", -3)...)...)
+	}()
 	select {
 	case got := <-done:
-		if want := []string{"日", "本", "a", "日", "b"}; !reflect.DeepEqual(got, want) {
+		if want := []string{"日", "本", "a", "日", "b", "日", "b", "日", "b"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("SplitLines = %q, want %q", got, want)
 		}
 	case <-time.After(5 * time.Second):
