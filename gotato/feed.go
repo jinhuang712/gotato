@@ -170,7 +170,9 @@ func SubscribeBuffer(n int) SubscribeOption {
 }
 
 // SubscribeFilter keeps only the Events for which keep returns true. It runs
-// on the publisher's goroutine, so it must be fast and must not block.
+// on the publisher's goroutine, and on the subscriber's when it reads Events
+// again from the source; the calls never overlap, so keep needs no lock of its
+// own. It must be fast and must not block.
 func SubscribeFilter(keep func(Event) bool) SubscribeOption {
 	return func(c *subscribeConfig) { c.filter = keep }
 }
@@ -381,6 +383,8 @@ type subscription struct {
 	tail    time.Duration
 	verify  func(context.Context) error
 
+	filterMu sync.Mutex // serializes calls of filter
+
 	mu     sync.Mutex
 	queue  []Event
 	cursor uint64 // number of the last stored Event queued or delivered
@@ -406,10 +410,22 @@ func (s *subscription) signal() {
 	}
 }
 
+// passes runs the subscriber's filter. The publisher's goroutine (offer) and
+// the subscriber's own (catch-up and tail reads) both call it, so the calls are
+// serialized: the filter is never run by two goroutines at once.
+func (s *subscription) passes(event Event) bool {
+	if s.filter == nil {
+		return true
+	}
+	s.filterMu.Lock()
+	defer s.filterMu.Unlock()
+	return s.filter(event)
+}
+
 // offer puts an Event in the queue without ever blocking. The Feed's lock is
 // held.
 func (s *subscription) offer(event Event, label string) {
-	keep := (s.filter == nil || s.filter(event)) && (s.labeled == nil || s.labeled(event, label))
+	keep := s.passes(event) && (s.labeled == nil || s.labeled(event, label))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ending && !s.behind {
@@ -569,7 +585,7 @@ func (s *subscription) take(ctx context.Context, pending *[]Event) (Event, bool,
 				s.cursor = max(s.cursor, s.resume)
 				s.mu.Unlock()
 				for _, event := range batch {
-					if s.filter == nil || s.filter(event) {
+					if s.passes(event) {
 						*pending = append(*pending, event)
 					}
 				}
@@ -679,7 +695,7 @@ func (s *subscription) look(ctx context.Context) error {
 			return nil
 		}
 		s.cursor = number
-		if s.filter == nil || s.filter(event) {
+		if s.passes(event) {
 			s.queue = append(s.queue, event)
 		}
 	}
