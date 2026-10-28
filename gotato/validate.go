@@ -4,14 +4,6 @@ import (
 	"strings"
 )
 
-// validateLimits rejects limits that cannot be applied.
-func validateLimits(limits CoreLimits) error {
-	if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
-		return runtimeError(CodeInvalidArgument, "CoreLimits", "deadlines cannot be negative", nil)
-	}
-	return nil
-}
-
 // validatePrompt checks that a Prompt message is a user message with content.
 func validatePrompt(message Message) error {
 	if message.Role != RoleUser {

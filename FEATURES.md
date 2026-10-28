@@ -242,7 +242,7 @@ The limits are passed with `gotato.WithLimits`. A zero field always means its de
 | `MaxMessageBytes` | 4 MiB | keeps one reply from filling memory |
 | `MaxSteerMessages`, `MaxFollowUpMessages`, `MaxNotices` | 8, 4, 16 | bound the messages and notices that wait for the Run's next boundary; one past the bound is refused with `limit_exceeded` |
 | `MaxParallelTools` | 1 | tools run in order, unless the team knows they are safe to run together |
-| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run. A deadline cannot be turned off. Marked for review: a fixed two minutes may not fit a slow model or a long tool. |
+| `ModelCallDeadline`, `ToolCallDeadline` | 2 minutes each | one stuck call ends instead of holding the whole Run. A negative value turns a deadline off; zero is the default. Marked for review: a fixed two minutes may not fit a slow model or a long tool. |
 | `MaxTruncatedContinuations` | 0, off | a model can spend a Turn's whole output limit thinking and stop before it acts. Above 0, the Run asks it to go on, up to that many times, instead of settling on the cut-off reply. |
 
 A Tool's progress reports are capped inside the core (1 MiB and 1,000 reports per call; more are dropped and the call goes on). The cap is not a setting.

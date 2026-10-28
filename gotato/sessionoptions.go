@@ -119,13 +119,10 @@ func WithTools(tools ...Tool) SessionOption {
 	}
 }
 
-// WithLimits sets the Session's CoreLimits; a zero field keeps its default. It
-// fails with CodeInvalidArgument when a deadline is negative.
+// WithLimits sets the Session's CoreLimits; a zero field keeps its default. A
+// negative ModelCallDeadline or ToolCallDeadline means no deadline.
 func WithLimits(limits CoreLimits) SessionOption {
 	return func(c *sessionConfig) error {
-		if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
-			return runtimeError(CodeInvalidArgument, "WithLimits", "deadlines cannot be negative", nil)
-		}
 		c.limits = limits
 		return nil
 	}

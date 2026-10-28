@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrorCode says what kind of failure a RuntimeError is. The values are the
@@ -226,12 +227,31 @@ func contextFailure(ctx context.Context, operation string) *RuntimeError {
 
 // classifyModelError turns an error from a Model into a RuntimeError: a
 // cancellation, a context overflow, or a Model failure that may be retryable.
-func classifyModelError(err error) *RuntimeError {
+//
+// A context error counts as the caller's only when a context of the call
+// really ended: runCtx is the Run's, modelCtx the call's, which also ends at
+// the ModelCallDeadline (limit, when positive) or at an Interrupt. A Model
+// that returns a context error of its own (an HTTP client timeout) while
+// neither ended has failed, and a timeout is retryable.
+func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.Duration) *RuntimeError {
 	if err == nil {
 		return runtimeError(CodeModelFailure, "Model", "unknown Model failure", nil)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return runtimeError(codeForContext(err), "Model", err.Error(), err)
+		if cause := runCtx.Err(); cause != nil {
+			return runtimeError(codeForContext(cause), "Model", err.Error(), err)
+		}
+		if cause := modelCtx.Err(); cause != nil {
+			failure := runtimeError(codeForContext(cause), "Model", err.Error(), err)
+			if limit > 0 && errors.Is(cause, context.DeadlineExceeded) {
+				failure.Message = "model call exceeded ModelCallDeadline"
+				failure.Details = map[string]string{"limit": limit.String()}
+			}
+			return failure
+		}
+		failure := runtimeError(CodeModelFailure, "Model", err.Error(), err)
+		failure.Retryable = errors.Is(err, context.DeadlineExceeded)
+		return failure
 	}
 	// A Model that finds its reply broken (a stream that ends with a finish
 	// reason nobody knows), or a request it cannot send as set, says so with

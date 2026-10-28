@@ -52,9 +52,6 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 	if cfg.model == nil {
 		return nil, runtimeError(CodeInvalidArgument, "NewSession", "a Model is required", nil)
 	}
-	if err := validateLimits(cfg.limits); err != nil {
-		return nil, err
-	}
 	cfg.limits = cfg.limits.withDefaults()
 
 	registry, err := newToolRegistry(ctx, &cfg)

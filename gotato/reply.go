@@ -48,7 +48,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	modelCtx = withRetryReporter(modelCtx, reader.retried)
 	stream, err := a.model.Stream(modelCtx, request)
 	if err != nil {
-		return Message{}, Usage{}, classifyModelError(err)
+		return Message{}, Usage{}, classifyModelError(err, ctx, modelCtx, a.limits.ModelCallDeadline)
 	}
 	if stream == nil {
 		return Message{}, Usage{}, runtimeError(CodeModelFailure, "Model.Stream", "Model returned a nil stream", nil)
@@ -83,7 +83,7 @@ func (r *assistantReader) read(modelCtx context.Context, stream ModelStream) (Me
 			if errors.Is(recvErr, io.EOF) {
 				return r.broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
 			}
-			return r.broken(classifyModelError(recvErr))
+			return r.broken(classifyModelError(recvErr, r.ctx, modelCtx, r.a.limits.ModelCallDeadline))
 		}
 		if err := r.apply(modelEvent); err != nil {
 			return r.broken(err)

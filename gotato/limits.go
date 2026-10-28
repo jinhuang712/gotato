@@ -26,7 +26,10 @@ type CoreLimits struct {
 	MaxTruncatedContinuations uint32
 	// MaxParallelTools bounds the workers one Turn may run at once. One (the
 	// default) keeps a batch sequential.
-	MaxParallelTools  uint32
+	MaxParallelTools uint32
+	// ModelCallDeadline and ToolCallDeadline end one Model call or one Tool
+	// call that hangs. Zero is the default, 2 minutes; a negative value means
+	// no deadline, so only the Run's ctx ends the call.
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
 }
@@ -102,7 +105,7 @@ func orDefault[T comparable](v, def T) T {
 func millis(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 // boundedContext derives a context from parent that ends after duration, or
-// only when canceled when duration is zero.
+// only when canceled when duration is not positive.
 func boundedContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
 	if duration > 0 {
 		return context.WithTimeout(parent, duration)
