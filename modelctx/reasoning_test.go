@@ -7,7 +7,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/session"
-	"github.com/jinhuang712/gotato/testkit"
 )
 
 func thinking(label string) gotato.ContentPart {
@@ -113,21 +112,4 @@ func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 	}
 }
 
-type roundModel struct {
-	*testkit.FakeModel
-	round bool
-}
-
 func (m roundModel) RoundReasoningOnly() bool { return m.round }
-
-func TestDropsReasoningAsksTheModel(t *testing.T) {
-	if !modelctx.DropsReasoning(roundModel{FakeModel: testkit.NewFakeModel(), round: true}) {
-		t.Error("a Model sent only the current Round's reasoning keeps reasoning through compaction")
-	}
-	if modelctx.DropsReasoning(roundModel{FakeModel: testkit.NewFakeModel()}) {
-		t.Error("a Model sent every reasoning artifact drops reasoning in compaction")
-	}
-	if modelctx.DropsReasoning(testkit.NewFakeModel()) || modelctx.DropsReasoning(nil) {
-		t.Error("a Model that says nothing drops reasoning in compaction")
-	}
-}

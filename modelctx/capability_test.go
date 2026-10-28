@@ -80,3 +80,20 @@ func TestCapabilitiesFollowUnwrap(t *testing.T) {
 		t.Fatal("DropsReasoning true for a Model that is not a RoundReasoner")
 	}
 }
+
+type roundModel struct {
+	*testkit.FakeModel
+	round bool
+}
+
+func TestDropsReasoningAsksTheModel(t *testing.T) {
+	if !modelctx.DropsReasoning(roundModel{FakeModel: testkit.NewFakeModel(), round: true}) {
+		t.Error("a Model sent only the current Round's reasoning keeps reasoning through compaction")
+	}
+	if modelctx.DropsReasoning(roundModel{FakeModel: testkit.NewFakeModel()}) {
+		t.Error("a Model sent every reasoning artifact drops reasoning in compaction")
+	}
+	if modelctx.DropsReasoning(testkit.NewFakeModel()) || modelctx.DropsReasoning(nil) {
+		t.Error("a Model that says nothing drops reasoning in compaction")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/modelctx"
@@ -228,3 +229,46 @@ func TestTheRecapsUsageIsRecorded(t *testing.T) {
 		t.Fatalf("RecapUsage = %+v", u)
 	}
 }
+
+func TestTruncateRecapCutsOnRuneBoundary(t *testing.T) {
+	messages := []gotato.Message{gotato.UserMessage(strings.Repeat("é", 100))}
+	for limit := 1; limit < 140; limit++ {
+		summary, err := (modelctx.TruncateRecap{MaxChars: limit}).WriteRecap(context.Background(), modelctx.RecapRequest{Closed: messages})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text := gotato.TextOf(summary); !utf8.ValidString(text) {
+			t.Fatalf("limit %d produced invalid UTF-8: %q", limit, text)
+		}
+	}
+}
+
+type nilStreamModel struct{}
+
+// recapRequest is a RecapRequest with the Context of a small conversation.
+func recapRequest() modelctx.RecapRequest {
+	context := gotato.ModelRequest{SystemInstructions: "be brief", Messages: toolConversation()}
+	return modelctx.RecapRequest{Segment: 1, Closed: toolConversation(), Context: &context}
+}
+
+func TestModelRecapRejectsIncompleteStream(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: "partial"}})
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
+		t.Fatal("expected an error when the stream ends before ModelEventKindDone")
+	}
+}
+
+func TestModelRecapRejectsEmptySummary(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindDone, StopReason: gotato.StopReasonEndTurn}})
+	if _, err := (modelctx.ModelRecap{Model: model}).WriteRecap(context.Background(), recapRequest()); err == nil {
+		t.Fatal("expected an error for an empty summary")
+	}
+}
+
+func TestModelRecapRejectsNilStream(t *testing.T) {
+	if _, err := (modelctx.ModelRecap{Model: nilStreamModel{}}).WriteRecap(context.Background(), recapRequest()); err == nil {
+		t.Fatal("expected an error when the Model returns a nil stream")
+	}
+}
+
+type failingRecap struct{}
