@@ -275,18 +275,15 @@ func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, 
 // RuntimeError, whose Message is written to be read. Any other error is a
 // fixed text for its reason; the error itself is not kept.
 func publicMergeError(reason MergeReason, err error) string {
-	var public gotato.PublicError
-	if errors.As(err, &public) {
-		return public.Public()
+	fallback := "the merge could not be written"
+	if reason == MergeReasonRecapFailed {
+		fallback = "the Recap failed"
 	}
 	var runtime *gotato.RuntimeError
 	if errors.As(err, &runtime) && runtime != nil {
-		return runtime.Error()
+		fallback = runtime.Error()
 	}
-	if reason == MergeReasonRecapFailed {
-		return "the Recap failed"
-	}
-	return "the merge could not be written"
+	return gotato.PublicText(err, fallback)
 }
 
 // flatten returns the rendered Messages of segments, in order.

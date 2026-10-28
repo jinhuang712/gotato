@@ -220,17 +220,6 @@ func (s extensionSet) advisory(extension any, failure *RuntimeError) bool {
 	return true
 }
 
-// publicMessage is the text of a failure that a client may read: the text of a
-// PublicError that the failure is or wraps, else the fixed fallback. Any other
-// error may carry what a client must not read, and stays on the Cause.
-func publicMessage(failure error, fallback string) string {
-	var public PublicError
-	if errors.As(failure, &public) {
-		return public.Public()
-	}
-	return fallback
-}
-
 // guard runs one Extension stage, converting a panic into an ordinary error so
 // a misbehaving Extension cannot take down the Session goroutine.
 func guard(stage string, call func() error) *RuntimeError {
@@ -238,7 +227,7 @@ func guard(stage string, call func() error) *RuntimeError {
 		// The extension's own text, or what it panicked with, stays on the
 		// Cause: Message reaches HTTP clients, and a foreign error may carry
 		// what they must not read.
-		return runtimeError(CodeExtensionFailure, stage, publicMessage(failure, "extension failed"), failure)
+		return runtimeError(CodeExtensionFailure, stage, PublicText(failure, "extension failed"), failure)
 	}
 	return nil
 }

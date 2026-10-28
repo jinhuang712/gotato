@@ -91,5 +91,5 @@ func journalError(err error) *RuntimeError {
 		gone.NotRun, gone.Retryable = false, false
 		return gone
 	}
-	return runtimeError(CodeStoreFailure, "Journal", publicMessage(err, "cannot write the Run's Events"), err)
+	return runtimeError(CodeStoreFailure, "Journal", PublicText(err, "cannot write the Run's Events"), err)
 }

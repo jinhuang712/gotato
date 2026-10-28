@@ -170,12 +170,7 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 // text of a gotato.PublicError that err is or wraps, else the fixed fallback;
 // err itself stays on the Cause for logs.
 func foreignError(code gotato.ErrorCode, fallback string, err error) *gotato.RuntimeError {
-	message := fallback
-	var public gotato.PublicError
-	if errors.As(err, &public) {
-		message = public.Public()
-	}
-	e := gotato.ErrorOf(code, message)
+	e := gotato.ErrorOf(code, gotato.PublicText(err, fallback))
 	e.Cause = err
 	return e
 }

@@ -456,7 +456,7 @@ func (r *toolRegistry) collectSources(ctx context.Context) error {
 			if failure := contextFailure(ctx, "ToolSource"); failure != nil {
 				return failure
 			}
-			return runtimeError(CodeToolResolutionFailure, "ToolSource", publicMessage(sourceErr, "ToolSource failed"), sourceErr)
+			return runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
 		}
 		for _, tool := range supplied {
 			if tool == nil {
@@ -721,7 +721,7 @@ func (r *toolRegistry) rank(ctx context.Context, query string) (ids []string, er
 		return failure
 	})
 	if searchErr != nil {
-		return nil, runtimeError(CodeExtensionFailure, SearchToolName, publicMessage(searchErr, "ToolSearcher failed"), searchErr)
+		return nil, runtimeError(CodeExtensionFailure, SearchToolName, PublicText(searchErr, "ToolSearcher failed"), searchErr)
 	}
 	known := make(map[string]bool, len(candidates))
 	for _, spec := range candidates {

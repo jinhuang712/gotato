@@ -98,7 +98,7 @@ func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 		spec = set.Spec()
 		return nil
 	}); failure != nil {
-		return ToolSetSpec{}, runtimeError(CodeExtensionFailure, "ToolSet", publicMessage(failure, "ToolSet.Spec failed"), failure)
+		return ToolSetSpec{}, runtimeError(CodeExtensionFailure, "ToolSet", PublicText(failure, "ToolSet.Spec failed"), failure)
 	}
 	return spec, nil
 }
@@ -110,7 +110,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 		return failure
 	})
 	if err != nil {
-		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", publicMessage(err, "cannot resolve ToolSet "+state.spec.Name), err)
+		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", PublicText(err, "cannot resolve ToolSet "+state.spec.Name), err)
 	}
 	local := map[string]bool{}
 	for _, tool := range tools {

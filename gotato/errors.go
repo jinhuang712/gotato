@@ -258,7 +258,7 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 			}
 			return failure
 		}
-		failure := runtimeError(CodeModelFailure, "Model", publicMessage(err, "model call failed"), err)
+		failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
 		failure.Retryable = errors.Is(err, context.DeadlineExceeded)
 		return failure
 	}
@@ -271,9 +271,9 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 	}
 	var overflow interface{ ContextOverflow() bool }
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
-		return runtimeError(CodeContextOverflow, "Model", publicMessage(err, "the request is longer than the model accepts"), err)
+		return runtimeError(CodeContextOverflow, "Model", PublicText(err, "the request is longer than the model accepts"), err)
 	}
-	failure := runtimeError(CodeModelFailure, "Model", publicMessage(err, "model call failed"), err)
+	failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
 	// a broken stream) says so with `Retryable() bool`, as the gateway's
 	// Error does. The Model was called, so the request is not "not run".
@@ -304,7 +304,7 @@ func asRuntimeError(err error) *RuntimeError {
 	if errors.As(err, &runtimeErr) {
 		return runtimeErr
 	}
-	return runtimeError(CodeInternalInvariant, "Core", publicMessage(err, "internal error"), err)
+	return runtimeError(CodeInternalInvariant, "Core", PublicText(err, "internal error"), err)
 }
 
 // panicError is a panic of code the host supplied (a Model, a Journal, a

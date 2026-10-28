@@ -4,6 +4,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
+- **`gotato.PublicText(err, fallback)`.** The one place that turns a foreign error into text a client may read: the text of a `PublicError` it wraps, else the fixed fallback. The Session, `modelctx` and `service` all use it; a panic in a ToolSource, ToolSearcher or ToolSet now reads `<name> panic` (was `<name> panicked`).
 - **A `gateway.Error` is a `gotato.PublicError`.** Since foreign error text no longer reaches clients by default, a provider's refusal ("model not found", "prompt is too long") would have been hidden too. Its `Message` is the provider's own reply or a fixed text; the transport error that can name a host stays on `Unwrap`.
 - **`service.New` refuses a negative `Admission.MaxActiveRuns`.** Before, it meant no limit, silently, while a negative `MaxActiveSessions` was an error. Now both are errors; zero is still no limit.
 - **Fixed: a caller the Store refuses no longer evicts the owner's warm Session.** `Run`, `Compact` and `Notice` reached the warm copy before the Store, so a caller the Store answered `not_found` dropped the copy (`taken_over`) or canceled its idle compaction. Now the Store answers first, and a copy the Store hides from a caller stays warm.

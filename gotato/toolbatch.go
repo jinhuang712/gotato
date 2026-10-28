@@ -447,15 +447,12 @@ func toolErrorText(err error) string {
 	if err == nil {
 		return ""
 	}
-	var public PublicError
-	if errors.As(err, &public) {
-		return public.Public()
-	}
+	fallback := string(CodeToolExecutionFailure) + ": tool failed"
 	var re *RuntimeError
 	if errors.As(err, &re) && re != nil {
 		// Its Message is text its maker wrote to be read; a foreign error
 		// it wraps stays on the Cause, which Error does not print.
-		return re.Error()
+		fallback = re.Error()
 	}
-	return string(CodeToolExecutionFailure) + ": tool failed"
+	return PublicText(err, fallback)
 }

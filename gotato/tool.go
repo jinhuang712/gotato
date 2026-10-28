@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"errors"
 )
 
 // Tool is one capability a Session can call. Spec describes it; Execute runs it.
@@ -27,6 +28,19 @@ type Tool interface {
 type PublicError interface {
 	error
 	Public() string
+}
+
+// PublicText is the text of a failure that a client may read: the text of a
+// PublicError that err is or wraps, else the fixed fallback. Any other error
+// may carry what a client must not read, and stays on the Cause. A layer that
+// builds a RuntimeError, a failed Result or a MergeResult from a foreign
+// error takes its Message from here.
+func PublicText(err error, fallback string) string {
+	var public PublicError
+	if errors.As(err, &public) {
+		return public.Public()
+	}
+	return fallback
 }
 
 // ToolSpec describes a Tool to the Model and to the Session. ID is the Tool's
