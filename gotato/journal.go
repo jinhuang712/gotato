@@ -35,7 +35,7 @@ const finalWriteTimeout = 10 * time.Second
 // finalContext returns a context for a write that must happen although ctx
 // ended: it keeps ctx's values, drops its cancellation, and is bounded.
 func finalContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	// [DATA-LOSS] the Run's last writes still happen when its caller canceled, and a stalled Journal cannot hold them for good. Test: TestFinalWriteSurvivesCanceledContext
+	// [DATA-LOSS] the Run's last writes still happen when its caller canceled, and a stalled Journal cannot hold them for good.
 	return context.WithTimeout(context.WithoutCancel(ctx), finalWriteTimeout)
 }
 
@@ -93,6 +93,6 @@ func journalError(err error) *RuntimeError {
 		gone.NotRun, gone.Retryable = false, false
 		return gone
 	}
-	// [SECURITY] a Journal's error can carry a DSN, a path or a secret, and Message reaches clients. Test: TestJournalErrorKeepsForeignTextOffMessage
+	// [SECURITY] a Journal's error can carry a DSN, a path or a secret, and Message reaches clients.
 	return runtimeError(CodeStoreFailure, "Journal", PublicText(err, "cannot write the Run's Events"), err)
 }

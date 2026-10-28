@@ -82,7 +82,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 	}
 }
 
-// [SECURITY] the public text is fixed: the SDK error names URLs and hosts and stays the cause. Test: TestAFailedCallHasFixedPublicText
+// [SECURITY] the public text is fixed: the SDK error names URLs and hosts and stays the cause.
 // callError is a failed call to the server. The model reads its fixed public
 // text (it is a gotato.PublicError): it says the server did not take the call,
 // which the model can act on. The SDK's error names URLs and hosts, so it

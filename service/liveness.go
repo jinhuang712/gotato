@@ -189,7 +189,7 @@ func (r *Runner) renew(ctx context.Context) error {
 	}
 	closed := r.beat.closed
 	r.beat.mu.Unlock()
-	// [OWNERSHIP] an expired Liveness row is written again, or this Instance's Claims would be taken over. Test: TestInstanceRecoversWhenTheStoreReturnsAfterTheTTL
+	// [OWNERSHIP] an expired Liveness row is written again, or this Instance's Claims would be taken over.
 	if errors.Is(err, session.ErrExpired) && !closed {
 		return r.reregister(ctx, row)
 	}

@@ -35,7 +35,7 @@ func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request) (service.Ru
 	if !in.Continue && strings.TrimSpace(in.Prompt) == "" {
 		return service.RunRequest{}, errors.New("prompt is required (or continue: true)")
 	}
-	// [LIVENESS] a client cannot hold a Session for longer than the cap. Test: TestRunTimeoutOutOfRangeIsRejected
+	// [LIVENESS] a client cannot hold a Session for longer than the cap.
 	if in.TimeoutMS < 0 || in.TimeoutMS > maxTimeoutMS {
 		return service.RunRequest{}, fmt.Errorf("timeout_ms must be between 0 and %d", maxTimeoutMS)
 	}

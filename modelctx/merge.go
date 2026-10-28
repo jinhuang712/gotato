@@ -275,7 +275,7 @@ func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, 
 // the error chooses to make public is kept: its PublicError text, or a
 // RuntimeError, whose Message is written to be read. Any other error is a
 // fixed text for its reason; the error itself is not kept.
-// [SECURITY] a Recap writer's or Store's error can carry a host, a query or a secret that a client must not read. Test: TestAMergeWhoseModelFailsOrIsStoppedMergesNothing
+// [SECURITY] a Recap writer's or Store's error can carry a host, a query or a secret that a client must not read.
 func publicMergeError(reason MergeReason, err error) string {
 	fallback := "the merge could not be written"
 	if reason == MergeReasonRecapFailed {

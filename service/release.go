@@ -27,7 +27,7 @@ func (r *Runner) settle(writer *session.Writer, releaseErr error) {
 	if releaseErr == nil && writer.Failed() == nil {
 		return
 	}
-	// [OWNERSHIP] a Record that another Instance holds or that is gone is not ours to give back. Test: TestAReleaseThatLostTheRecordIsNotMarkedForRepair
+	// [OWNERSHIP] a Record that another Instance holds or that is gone is not ours to give back.
 	if lostRace(releaseErr) {
 		return
 	}
@@ -84,7 +84,7 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	if claim, busy := record.Holder(); !busy || claim.Instance != r.id() {
 		return true
 	}
-	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick. Test: TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock
+	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick.
 	if err := r.locks.acquire(ctx, sessionID, false, nil); err != nil {
 		// A Session with a Run on it may have been marked by that Run, which
 		// settles inside the lock: keep the mark and try again next tick.

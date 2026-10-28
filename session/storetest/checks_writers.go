@@ -190,7 +190,7 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	return sameEntries("Log after the refused Append", log, longer, "the refused Append must not write any Entry into the new Record, and "+ruleLog)
 }
 
-// [OWNERSHIP] a writer of a deleted and re-created Record must never append to the new one. Test: TestTheSuiteCatchesEachBrokenStoreRule
+// [OWNERSHIP] a writer of a deleted and re-created Record must never append to the new one.
 // checkEpochBeforePosition checks that an Append of a writer of a deleted and
 // re-created Record is ErrNotFound also when its position is wrong too.
 func checkEpochBeforePosition(ctx context.Context, open Open) error {

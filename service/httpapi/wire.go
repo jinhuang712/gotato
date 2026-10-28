@@ -20,7 +20,7 @@ func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, erro
 	if r.Body == nil {
 		return nil, nil
 	}
-	// [SECURITY] a client cannot make the handler read a body past the cap. Test: TestOversizedBodyIsRefusedOnMessageAndNoticeRoutes
+	// [SECURITY] a client cannot make the handler read a body past the cap.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
@@ -36,7 +36,7 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error
 	if r.Body == nil {
 		return nil
 	}
-	// [SECURITY] a client cannot make the handler read a body past the cap. Test: TestWithMaxBodyRaisesAndLowersTheCap
+	// [SECURITY] a client cannot make the handler read a body past the cap.
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -47,7 +47,7 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error
 		return nil
 	}
 	if err == nil {
-		// [CONTRACT] a request is not run on a body that says more than it was read for. Test: TestABodyWithTrailingDataIsRefused
+		// [CONTRACT] a request is not run on a body that says more than it was read for.
 		// The body is one value: anything after it but white space is
 		// refused, so a request is not run on a body that says more than it
 		// was read for.

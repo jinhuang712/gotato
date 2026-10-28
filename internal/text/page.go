@@ -28,7 +28,7 @@ func SplitLines(text string, limit int) []string {
 	if text == "" {
 		return nil
 	}
-	// [LIVENESS] a limit below 1 would never make progress and loop forever. Test: TestSplitLinesWithALimitBelowTheFirstRune
+	// [LIVENESS] a limit below 1 would never make progress and loop forever.
 	limit = max(limit, 1)
 	var out []string
 	for line := range strings.SplitSeq(strings.TrimRight(text, "\n"), "\n") {
@@ -36,7 +36,7 @@ func SplitLines(text string, limit int) []string {
 		for len(line) > limit {
 			cut := Cut(line, limit)
 			if cut == 0 {
-				// [LIVENESS] a limit smaller than the first rune would cut 0 bytes forever; take that rune whole. Test: TestSplitLinesWithALimitBelowTheFirstRune
+				// [LIVENESS] a limit smaller than the first rune would cut 0 bytes forever; take that rune whole.
 				_, cut = utf8.DecodeRuneInString(line)
 			}
 			out = append(out, line[:cut])

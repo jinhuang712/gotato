@@ -95,7 +95,7 @@ func (a *Session) measureTranscript() error {
 // it is checked where the Message arrives, so a caller that is told "queued"
 // is not later failed at the boundary. It measures the Message as the commit
 // writes it, with the Run ID the commit sets. It is nil when the Message fits.
-// [CONTRACT] a queued Message that the commit would refuse for its size is refused where it arrives, not after the caller is told "queued". Test: TestOversizedControlMessageIsRefusedAtTheDoor
+// [CONTRACT] a queued Message that the commit would refuse for its size is refused where it arrives, not after the caller is told "queued".
 func (a *Session) controlSizeError(message Message, operation string) error {
 	if a.limits.MaxMessageBytes == 0 {
 		return nil

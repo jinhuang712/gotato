@@ -198,7 +198,7 @@ func startsWithJSONObject(response *http.Response) bool {
 		io.Reader
 		io.Closer
 	}{reader, response.Body}
-	// [LIVENESS] one byte at a time: a Peek of many bytes would block until they arrived and stall the first event of a stream. Test: TestA200WithAJSONErrorBodySurfacesTheProvidersError
+	// [LIVENESS] one byte at a time: a Peek of many bytes would block until they arrived and stall the first event of a stream.
 	for i := range 256 {
 		peeked, err := reader.Peek(i + 1)
 		if err != nil {

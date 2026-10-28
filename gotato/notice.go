@@ -129,13 +129,13 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: MessageSourceNotice, Why: why})
 		return 0, err
 	}
-	// [CONTRACT] a Notice that is told "queued" must not be refused later at the boundary for its size. Test: TestOversizedControlMessageIsRefusedAtTheDoor
+	// [CONTRACT] a Notice that is told "queued" must not be refused later at the boundary for its size.
 	if err := a.controlSizeError(message, "Notice"); err != nil {
 		return reject("too_large", err)
 	}
 	// The check and the claim of the place are one step: the Event is written
 	// outside the lock, and the place is held meanwhile.
-	// [CONCURRENCY] the limit check and the claim of the place are one step, or two Notices both pass a check that neither has filled. Test: TestANoticeBeingWrittenHoldsItsPlaceInTheQueue
+	// [CONCURRENCY] the limit check and the claim of the place are one step, or two Notices both pass a check that neither has filled.
 	a.noticeMu.Lock()
 	full := len(a.notices)+a.noticeHeld >= a.noticeLimit
 	if !full {
@@ -163,7 +163,7 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 	if werr != nil {
 		return 0, werr
 	}
-	// [LIVENESS] a Notice queued after the last drop pass would wait in the queue forever. Test: TestNoticeQueuedAcrossCloseIsDropped
+	// [LIVENESS] a Notice queued after the last drop pass would wait in the queue forever.
 	if sealed {
 		// The Session closed while the notice was being written: no pass
 		// is left to drop it.

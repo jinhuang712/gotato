@@ -222,7 +222,7 @@ func (s extensionSet) advisory(extension any, failure *RuntimeError) bool {
 
 // guard runs one Extension stage, converting a panic into an ordinary error so
 // a misbehaving Extension cannot take down the Session goroutine.
-// [LIVENESS] a panicking Extension would end the Session goroutine; its text stays on the Cause, not the Message a client reads. Test: TestExtensionPanicIsRecovered
+// [LIVENESS] a panicking Extension would end the Session goroutine; its text stays on the Cause, not the Message a client reads.
 func guard(stage string, call func() error) *RuntimeError {
 	if failure := callHost("extension", call); failure != nil {
 		// The extension's own text, or what it panicked with, stays on the

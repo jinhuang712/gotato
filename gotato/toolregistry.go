@@ -459,7 +459,7 @@ func (r *toolRegistry) collectSources(ctx context.Context) error {
 			return runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
 		}
 		for _, tool := range supplied {
-			// [LIVENESS] a nil Tool would panic the process at its first Spec call, outside the host-panic recovery. Test: TestANilToolFromASourceOrASetFailsWithACode
+			// [LIVENESS] a nil Tool would panic the process at its first Spec call, outside the host-panic recovery.
 			if tool == nil {
 				return runtimeError(CodeInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
 			}

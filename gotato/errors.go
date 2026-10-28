@@ -259,7 +259,7 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 			return failure
 		}
 		failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
-		// [FAILURE-CLASS] a timeout the Model returned while no context of the call ended is a retryable Model failure, not the caller's cancellation. Test: TestProviderTimeoutIsAModelFailure
+		// [FAILURE-CLASS] a timeout the Model returned while no context of the call ended is a retryable Model failure, not the caller's cancellation.
 		failure.Retryable = errors.Is(err, context.DeadlineExceeded)
 		return failure
 	}
@@ -274,13 +274,13 @@ func classifyModelError(err error, runCtx, modelCtx context.Context, limit time.
 	if errors.As(err, &overflow) && overflow.ContextOverflow() {
 		return runtimeError(CodeContextOverflow, "Model", PublicText(err, "the request is longer than the model accepts"), err)
 	}
-	// [SECURITY] a Model's error can carry a host, a query or a secret, and Message reaches clients. Test: TestModelErrorTextStaysOffTheMessage
+	// [SECURITY] a Model's error can carry a host, a query or a secret, and Message reaches clients.
 	failure := runtimeError(CodeModelFailure, "Model", PublicText(err, "model call failed"), err)
 	// A Model that knows the failure is transient (a rate limit, an overload,
 	// a broken stream) says so with `Retryable() bool`, as the gateway's
 	// Error does. The Model was called, so the request is not "not run".
 	var transient interface{ Retryable() bool }
-	// [FAILURE-CLASS] a Model failure is Retryable only when the Model says so. Test: TestModelFailureIsRetryableWhenTheModelSaysSo
+	// [FAILURE-CLASS] a Model failure is Retryable only when the Model says so.
 	if errors.As(err, &transient) && transient.Retryable() {
 		failure.Retryable = true
 	}
@@ -326,7 +326,7 @@ func (e *panicError) Public() string { return e.what + " panic" }
 // recoverPanic is deferred by a call into host code: a panic becomes *err, so
 // one faulty Model or store cannot take down the process, as a faulty
 // extension or Tool cannot.
-// [LIVENESS] a panic in host code would end the Session goroutine and the process instead of failing one call. Test: TestPanicOfAModelJournalOrTranscriptFailsTheRun
+// [LIVENESS] a panic in host code would end the Session goroutine and the process instead of failing one call.
 func recoverPanic(what string, err *error) {
 	if recovered := recover(); recovered != nil {
 		*err = &panicError{what: what, value: recovered, stack: debug.Stack()}

@@ -133,7 +133,7 @@ func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, b
 
 // hopByHop are the headers that belong to one connection and are not relayed
 // (RFC 9110, section 7.6.1), besides the ones a Connection header names.
-// [CONTRACT] a relayed Connection, Transfer-Encoding or Upgrade from another Instance would corrupt the framing of our own response (RFC 9110, section 7.6.1). Test: TestForwardingDoesNotRelayHopByHopHeaders
+// [CONTRACT] a relayed Connection, Transfer-Encoding or Upgrade from another Instance would corrupt the framing of our own response (RFC 9110, section 7.6.1).
 var hopByHop = []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade"}
 
 // copyEndToEnd adds the headers of src to dst, except the hop-by-hop ones. It
