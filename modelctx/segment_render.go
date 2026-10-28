@@ -166,3 +166,17 @@ func taggedPart(tag string, attrs [][2]string, text string) gotato.ContentPart {
 }
 
 func numberAttr(number int) [][2]string { return [][2]string{{"n", fmt.Sprint(number)}} }
+
+// item is one piece of a Segment, in order: a user Message, a final reply, or
+// a block of tool call lines.
+type item struct {
+	isCalls  bool
+	role     gotato.Role
+	parts    []gotato.ContentPart
+	lines    []gotato.ToolCallLine
+	overflow string
+}
+
+// statusUnanswered is the status of a call the closed Messages hold no result
+// for.
+const statusUnanswered gotato.ToolResultStatus = "unanswered"

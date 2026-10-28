@@ -160,16 +160,6 @@ func headerText(number int, hasRecap bool) string {
 	return fmt.Sprintf("Segment %d. %s; reasoning,\nintermediate steps and tool results were left out. read_segment(%d) returns\nthe segment in full.", number, upTo, number)
 }
 
-// item is one piece of a Segment, in order: a user Message, a final reply, or
-// a block of tool call lines.
-type item struct {
-	isCalls  bool
-	role     gotato.Role
-	parts    []gotato.ContentPart
-	lines    []gotato.ToolCallLine
-	overflow string
-}
-
 // collect walks the closed Messages in order and returns what a Segment keeps
 // of them.
 func collect(closed []gotato.Message, settings SegmentSettings, number int, position func(gotato.MessageID) (gotato.MessagePosition, bool)) []item {
@@ -239,10 +229,6 @@ func collect(closed []gotato.Message, settings SegmentSettings, number int, posi
 	flush()
 	return items
 }
-
-// statusUnanswered is the status of a call the closed Messages hold no result
-// for.
-const statusUnanswered gotato.ToolResultStatus = "unanswered"
 
 func sameCall(a, b gotato.ToolCallLine) bool {
 	return a.ToolID == b.ToolID && a.Args == b.Args && a.Status == b.Status && a.Code == b.Code
