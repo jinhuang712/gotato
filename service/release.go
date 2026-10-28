@@ -27,9 +27,8 @@ func (r *Runner) settle(writer *session.Writer, releaseErr error) {
 	if releaseErr == nil && writer.Failed() == nil {
 		return
 	}
-	// [OWNERSHIP] a Record that another Instance holds or that is gone is not ours to give back.
-	if lostRace(releaseErr) && !lapsed(releaseErr) {
-		// Another Instance holds the Record, or it is gone: nothing is ours to give back.
+	// [OWNERSHIP] a Record that another Instance holds or that is gone is not ours to give back. Test: TestAReleaseThatLostTheRecordIsNotMarkedForRepair
+	if lostRace(releaseErr) {
 		return
 	}
 	r.markUnreleased(writer.ID())
