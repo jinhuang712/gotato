@@ -27,7 +27,6 @@ type yAMLConfig struct {
 	CacheKeyHeader string `yaml:"cache_key_header"`
 	CacheKeyField  string `yaml:"cache_key_field"`
 	MaxRetries     int    `yaml:"max_retries"`
-	NoRetries      bool   `yaml:"no_retries"`
 	RetryBackoff   string `yaml:"retry_backoff"`
 	// Provider, CacheRetention (a duration such as 1h) and NoDropBlock are
 	// Config's fields of the same names.
@@ -81,7 +80,6 @@ func parseYAML(data []byte) (Config, error) {
 		CacheKeyHeader:      fileConfig.CacheKeyHeader,
 		CacheKeyField:       fileConfig.CacheKeyField,
 		MaxRetries:          fileConfig.MaxRetries,
-		NoRetries:           fileConfig.NoRetries,
 		Provider:            fileConfig.Provider,
 		NoDropBlock:         fileConfig.NoDropBlock,
 		ContextWindowTokens: fileConfig.ContextWindowTokens,

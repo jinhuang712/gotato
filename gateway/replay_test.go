@@ -141,7 +141,7 @@ func TestBadToolCallArgumentsDoNotEndTheRun(t *testing.T) {
 				writeReply(t, w, textReply[api])
 			}))
 			defer server.Close()
-			client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+			client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 			if err != nil {
 				t.Fatal(err)
 			}

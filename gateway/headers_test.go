@@ -75,7 +75,7 @@ func TestRequestHeadersFromContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	drain(t, stream)
-	if got := seen["plain"].Get("User-Agent"); got != DefaultUserAgent {
+	if got := seen["plain"].Get("User-Agent"); got != defaultUserAgent {
 		t.Fatalf("default user agent = %q", got)
 	}
 	var unset context.Context

@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// DefaultUserAgent identifies Gotato when neither the configuration nor the
+// defaultUserAgent identifies Gotato when neither the configuration nor the
 // request context names a client. Providers that require callers to identify
 // themselves (for example with their own product name) are satisfied by a
 // User-Agent entry in Config.Headers or WithRequestHeaders.
-const DefaultUserAgent = "gotato/0.1"
+const defaultUserAgent = "gotato/0.1"
 
 type requestHeadersKey struct{}
 
@@ -70,7 +70,7 @@ func addAnthropicBeta(header http.Header, beta string) {
 // applyHeaders sets the default User-Agent, then configured headers, then
 // per-request headers. Callers set protocol headers afterwards.
 func (c *Client) applyHeaders(ctx context.Context, req *http.Request) {
-	req.Header.Set("User-Agent", DefaultUserAgent)
+	req.Header.Set("User-Agent", defaultUserAgent)
 	for key, value := range c.headers {
 		req.Header.Set(key, value)
 	}

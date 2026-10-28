@@ -27,7 +27,8 @@ model: your-model
 context_window_tokens: 200000
 
 # Retries after the first attempt, for a call that never got a response, or
-# failed with 429, 500, 502, 503, 504 or 529. Default: 2.
+# failed with 429, 500, 502, 503, 504 or 529. Default: 2. -1 turns
+# retries off.
 max_retries: 2
 
 # The first wait between retries; it grows per attempt, with jitter. A Go
@@ -44,9 +45,6 @@ headers:
 
 # The complete provider URL. Default: empty, so base_url is used.
 # endpoint: https://gateway.example.com/v1/chat/completions
-
-# Turn retries off. Exclusive with max_retries. Default: false.
-# no_retries: true
 
 # Whose rules for reasoning and the prompt cache apply: anthropic, openai,
 # deepseek or other. Default: recognized from the provider's own address

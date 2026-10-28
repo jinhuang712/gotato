@@ -57,11 +57,10 @@ type Config struct {
 	// field. It must not name a field the wire API already sends. The
 	// Anthropic Messages API takes no such field; it caches by cache_control.
 	CacheKeyField string
-	MaxRetries    int
-	RetryBackoff  time.Duration
-	// NoRetries disables retries entirely. MaxRetries counts retries after
-	// the first attempt; 0 means the default.
-	NoRetries bool
+	// MaxRetries counts retries after the first attempt. 0 means the
+	// default; -1 turns retries off. Any other negative value is refused.
+	MaxRetries   int
+	RetryBackoff time.Duration
 	// Provider names who serves the model: ProviderAnthropic,
 	// ProviderOpenAI, ProviderDeepSeek, or ProviderOther. Empty recognizes
 	// only the providers' own addresses (api.anthropic.com, api.openai.com,
@@ -232,16 +231,12 @@ func resolveEndpoint(config Config, api API) (string, error) {
 }
 
 // resolveRetries returns how many times a failed request is sent again: none
-// with NoRetries, MaxRetries when set, the default otherwise.
+// with MaxRetries -1, MaxRetries when set, the default otherwise.
 func resolveRetries(config Config) (int, error) {
-	if config.MaxRetries < 0 {
-		return 0, fmt.Errorf("gateway: MaxRetries cannot be negative")
-	}
-	if config.NoRetries && config.MaxRetries != 0 {
-		return 0, fmt.Errorf("gateway: NoRetries and MaxRetries are mutually exclusive")
-	}
 	switch {
-	case config.NoRetries:
+	case config.MaxRetries < -1:
+		return 0, fmt.Errorf("gateway: MaxRetries cannot be below -1")
+	case config.MaxRetries == -1:
 		return 0, nil
 	case config.MaxRetries == 0:
 		return defaultMaxRetries, nil

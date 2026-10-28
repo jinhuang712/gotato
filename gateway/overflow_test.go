@@ -49,7 +49,7 @@ func TestRefusedRequestIsContextOverflowOnEveryWireAPI(t *testing.T) {
 			var calls atomic.Int32
 			server := refusingServer(tc.status, tc.body, &calls)
 			defer server.Close()
-			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -76,7 +76,7 @@ func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
 	for name, phrases := range map[string][]string{"none": nil, "message": {"bigger than we take"}, "code": {" REQUEST_too_big "}} {
 		var calls atomic.Int32
 		server := refusingServer(400, body, &calls)
-		client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true, OverflowPhrases: append(phrases, "")})
+		client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1, OverflowPhrases: append(phrases, "")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestOverflowPhrasesAddTheTeamsOwnWording(t *testing.T) {
 	var calls atomic.Int32
 	server := refusingServer(400, `{"error":{"message":"prompt is too long"}}`, &calls)
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true, OverflowPhrases: []string{"x"}})
+	client, err := New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1, OverflowPhrases: []string{"x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestOverflowPhrasesFromYAMLReachStreamErrors(t *testing.T) {
 		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"code\":\"too_much_context\",\"message\":\"nope\"}\n\n"))
 	}))
 	defer server.Close()
-	config.BaseURL, config.APIKey, config.NoRetries = server.URL, "k", true
+	config.BaseURL, config.APIKey, config.MaxRetries = server.URL, "k", -1
 	client, err := New(config)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestRateLimitReachesTheRunAsRetryable(t *testing.T) {
 	var calls atomic.Int32
 	server := refusingServer(http.StatusTooManyRequests, `{"error":{"message":"slow down"}}`, &calls)
 	defer server.Close()
-	client, err := New(Config{API: APIChatCompletions, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+	client, err := New(Config{API: APIChatCompletions, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestResponsesStreamErrorNamesOverflow(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte("data: " + event + "\n\n"))
 		}))
-		client, err := New(Config{API: APIResponses, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+		client, err := New(Config{API: APIResponses, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +198,7 @@ func TestAnthropicStreamErrorNamesOverflow(t *testing.T) {
 		writeSSE(t, w, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}`)
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestAnthropicContextWindowExceededIsAnOverflowNotAContinuation(t *testing.T
 		}
 	}))
 	defer server.Close()
-	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", NoRetries: true})
+	client, err := New(Config{API: APIAnthropicMessages, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: -1})
 	if err != nil {
 		t.Fatal(err)
 	}

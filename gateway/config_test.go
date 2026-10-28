@@ -82,23 +82,23 @@ func TestAnAPIAliasIsRefused(t *testing.T) {
 	}
 }
 
-func TestNoRetriesDisablesRetries(t *testing.T) {
-	client, err := New(Config{Model: "m", BaseURL: "https://gw.example.com/v1", NoRetries: true})
+func TestMinusOneMaxRetriesDisablesRetries(t *testing.T) {
+	client, err := New(Config{Model: "m", BaseURL: "https://gw.example.com/v1", MaxRetries: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if client.maxRetries != 0 {
 		t.Fatalf("maxRetries = %d, want 0", client.maxRetries)
 	}
-	config, err := parseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nno_retries: true\n"))
+	config, err := parseYAML([]byte("model: m\nbase_url: https://gw.example.com/v1\nmax_retries: -1\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.NoRetries {
-		t.Fatalf("no_retries not parsed: %+v", config)
+	if config.MaxRetries != -1 {
+		t.Fatalf("max_retries: -1 not parsed: %+v", config)
 	}
-	if _, err := New(Config{Model: "m", BaseURL: "https://x", NoRetries: true, MaxRetries: 2}); err == nil {
-		t.Fatal("NoRetries with MaxRetries must be rejected")
+	if _, err := New(Config{Model: "m", BaseURL: "https://x", MaxRetries: -2}); err == nil {
+		t.Fatal("a MaxRetries below -1 must be rejected")
 	}
 }
 

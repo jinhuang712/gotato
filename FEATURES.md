@@ -1142,7 +1142,7 @@ All the settings in the YAML file:
 | `cache_key_field` | `prompt_cache_key` on `openai-responses`, none on chat; `none` turns it off | the body field that carries the prompt cache key |
 | `cache_key_header` | none | the header that carries the prompt cache key, such as `session-id`, for a provider that keys its cache by a session header |
 | `deferred_tools` | `native` on `anthropic-messages` and `openai-responses`, `list` on `openai-chat-completions` | `native` or `list`: how the tools the model loads from a catalog reach the provider ([G-F34](#g-f34--tool-search-)). `native` on Chat Completions falls back to `list`. `Client.DeferredTools()` reports the form in use. |
-| `max_retries`, `no_retries` | 2 retries | providers shed load briefly; a retry usually succeeds |
+| `max_retries` | 2 retries; `-1` for none | providers shed load briefly; a retry usually succeeds |
 | `retry_backoff` | 200 ms, growing per attempt, with jitter | spreads retries out so they do not land at once |
 | `provider` | recognized from the provider's own address, else none | `anthropic`, `openai`, `deepseek` or `other`: whose rules for reasoning and the cache apply |
 | `cache_retention` | the recognized provider's longest | how long the provider keeps the prompt cache, such as `5m` to keep Claude's default and its lower write price. |

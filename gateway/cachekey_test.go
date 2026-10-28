@@ -68,7 +68,7 @@ func TestCacheKeyIsSentAsConfigured(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server, requests := recordingServer(t)
 			config := tc.config
-			config.Endpoint, config.APIKey, config.Model, config.NoRetries = server.URL, "secret", "m", true
+			config.Endpoint, config.APIKey, config.Model, config.MaxRetries = server.URL, "secret", "m", -1
 			client, err := New(config)
 			if err != nil {
 				t.Fatal(err)

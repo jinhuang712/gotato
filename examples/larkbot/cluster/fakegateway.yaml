@@ -10,7 +10,7 @@ data:
     base_url: http://fakegateway:8080
     api_key: dummy
     model: fake-model
-    no_retries: true
+    max_retries: -1
 ---
 apiVersion: apps/v1
 kind: Deployment
