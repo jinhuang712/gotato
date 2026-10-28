@@ -339,11 +339,11 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 					if err != nil {
 						return nil, err
 					}
-					parameters := entry.spec.InputSchema
-					if len(parameters) == 0 || !json.Valid(parameters) {
-						parameters = []byte(`{"type":"object"}`)
+					parameters, err := toolSchema(entry.spec, `{"type":"object"}`)
+					if err != nil {
+						return nil, err
 					}
-					loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: json.RawMessage(parameters), DeferLoading: true})
+					loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: parameters, DeferLoading: true})
 				}
 			}
 			return []any{responsesToolSearchOutput{Type: "tool_search_output", Execution: "client", CallID: callID, Status: "completed", Tools: loaded}}, nil

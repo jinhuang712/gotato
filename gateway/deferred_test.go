@@ -86,6 +86,21 @@ func newDeferredClient(t *testing.T, api API, form DeferredForm) *Client {
 	return client
 }
 
+// A deferred Tool whose InputSchema is not JSON is refused by every encoder,
+// the Responses one included, and is not sent with a substitute schema.
+func TestDeferredToolWithInvalidSchemaIsRefused(t *testing.T) {
+	for api, encode := range encodersByAPI() {
+		_, second := loadingTurns()
+		bad := lookupSpec
+		bad.InputSchema = []byte(`{not json`)
+		second.Tools = []gotato.ToolSpec{bad, searchSpec}
+		client := newDeferredClient(t, api, DeferredFormNative)
+		if _, err := encode(client, second); err == nil || !strings.Contains(err.Error(), "invalid InputSchema") {
+			t.Errorf("%s: err = %v, want an invalid InputSchema refusal", api, err)
+		}
+	}
+}
+
 // A load changes the tool list of the list form, and leaves it byte for byte
 // the same in the native form (G-G07).
 func TestEachWireAPIKeepsTheToolListWhileAToolLoads(t *testing.T) {
