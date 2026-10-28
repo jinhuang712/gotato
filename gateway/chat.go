@@ -285,7 +285,11 @@ func (s *chatStream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 			s.err = s.overflow.streamError("Chat Completions stream error", message, errorCode(chunk.Error.Code), chunk.Error.Type)
 			return gotato.ModelEvent{}, s.err
 		}
-		s.processChunk(chunk)
+		if err := s.processChunk(chunk); err != nil {
+			s.finished = true
+			s.err = err
+			return gotato.ModelEvent{}, err
+		}
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
@@ -306,7 +310,7 @@ func (s *chatStream) reopen(response *http.Response) {
 	s.model = ""
 }
 
-func (s *chatStream) processChunk(chunk chatChunk) {
+func (s *chatStream) processChunk(chunk chatChunk) error {
 	if chunk.Model != "" {
 		s.model = chunk.Model
 	}
@@ -340,9 +344,14 @@ func (s *chatStream) processChunk(chunk chatChunk) {
 			}
 		}
 		if choice.FinishReason != nil {
-			s.finish = chatStopReason(*choice.FinishReason)
+			stop, ok := chatStopReason(*choice.FinishReason)
+			if !ok {
+				return protocolFailure("Chat Completions stream ended with the unknown finish_reason %q", *choice.FinishReason)
+			}
+			s.finish = stop
 		}
 	}
+	return nil
 }
 
 // callFor returns the Tool call a delta adds to. The chat API names each
@@ -389,15 +398,19 @@ func (s *chatStream) finishStream() {
 	s.finished = true
 }
 
-func chatStopReason(reason string) gotato.StopReason {
+// chatStopReason maps a finish_reason; ok is false for one it does not know
+// (DeepSeek's insufficient_system_resource, say), which fails the stream
+// rather than ending the Turn cleanly with a cut-off answer.
+func chatStopReason(reason string) (stop gotato.StopReason, ok bool) {
 	switch reason {
 	case "tool_calls", "function_call":
-		return gotato.StopReasonToolCalls
+		return gotato.StopReasonToolCalls, true
 	case "length":
-		return gotato.StopReasonMaxTokens
+		return gotato.StopReasonMaxTokens, true
 	case "content_filter":
-		return gotato.StopReasonError
-	default:
-		return gotato.StopReasonEndTurn
+		return gotato.StopReasonError, true
+	case "stop", "":
+		return gotato.StopReasonEndTurn, true
 	}
+	return "", false
 }

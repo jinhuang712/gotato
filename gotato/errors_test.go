@@ -123,6 +123,19 @@ func TestModelFailureIsRetryableWhenTheModelSaysSo(t *testing.T) {
 	}
 }
 
+func TestModelProtocolFailureFromTheModelKeepsItsCode(t *testing.T) {
+	broken := &RuntimeError{Code: CodeModelProtocolFailure, Operation: "ModelStream", Message: "unknown finish reason"}
+	session, err := NewSession(context.Background(), WithModel(failingModel{err: fmt.Errorf("model: %w", broken)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	result, err := session.Prompt(context.Background(), UserMessage("hi"))
+	if result.Status != RunStatusFailed || !IsCode(err, CodeModelProtocolFailure) {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+}
+
 func TestRuntimeErrorTypedNilTargetsDoNotPanic(t *testing.T) {
 	var typedNil *RuntimeError
 	if errors.Is(ErrorOf(CodeBusy, "x"), typedNil) {

@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -105,10 +104,12 @@ func (m overflowMatcher) httpError(status int, retryable bool, body errorBody) *
 }
 
 // streamError is the error of a stream that failed in its middle. One that
-// names a context overflow is an *Error with Overflow set.
-func (m overflowMatcher) streamError(what, message, code string, more ...string) error {
-	if m.mentions(append([]string{message, code}, more...)...) {
+// names a context overflow is an *Error with Overflow set; one whose code or
+// type says the failure may pass is Retryable (see transientStreamKinds).
+func (m overflowMatcher) streamError(what, message, code string, more ...string) *Error {
+	kinds := append([]string{code}, more...)
+	if m.mentions(append([]string{message}, kinds...)...) {
 		return &Error{Message: what + ": " + message, Overflow: true}
 	}
-	return fmt.Errorf("gateway: %s: %s", what, message)
+	return &Error{Message: what + ": " + message, retryable: transientStream(kinds...)}
 }

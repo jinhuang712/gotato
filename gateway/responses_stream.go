@@ -282,10 +282,12 @@ func (s *responsesStream) searchToolName() string {
 	return gotato.SearchToolName
 }
 
-func (s *responsesStream) emitResponsesCall(index int) {
+// emitResponsesCall queues a call's ToolCall event. It returns false when the
+// call cannot be delivered because it has no name or no call_id yet.
+func (s *responsesStream) emitResponsesCall(index int) bool {
 	call := s.calls[index]
 	if call == nil || call.emitted {
-		return
+		return true
 	}
 	name := call.name
 	if original, ok := s.nameMap[name]; ok {
@@ -294,7 +296,7 @@ func (s *responsesStream) emitResponsesCall(index int) {
 	// Validate before marking emitted: a call that cannot be delivered must
 	// not make finishResponsesResponse report StopReasonToolCalls.
 	if name == "" || call.callID == "" {
-		return
+		return false
 	}
 	call.emitted = true
 	arguments := call.arguments
@@ -308,6 +310,7 @@ func (s *responsesStream) emitResponsesCall(index int) {
 		toolCall.Signature = []byte(call.id)
 	}
 	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: toolCall})
+	return true
 }
 
 func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
@@ -315,7 +318,11 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		s.finishWithError(fmt.Errorf("gateway: Responses completion has no response"))
 		return
 	}
-	stop := responsesStopReason(response.Status, response.IncompleteDetails)
+	stop, ok := responsesStopReason(response.Status, response.IncompleteDetails)
+	if !ok {
+		s.finishWithError(protocolFailure("Responses response ended with the unknown status %q", response.Status))
+		return
+	}
 	if response.Model != "" {
 		s.model = response.Model
 	}
@@ -330,7 +337,12 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 		if stop == gotato.StopReasonMaxTokens && !s.calls[index].argumentsDone {
 			continue
 		}
-		s.emitResponsesCall(index)
+		if !s.emitResponsesCall(index) {
+			// The model asked for a tool the stream cannot name. Ending
+			// the Turn as a final answer would hide that.
+			s.finishWithError(protocolFailure("Responses function call at output index %d has no name or call_id", index))
+			return
+		}
 	}
 	if response.Usage != nil {
 		usage := gotato.Usage{
@@ -356,16 +368,23 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 	s.finished = true
 }
 
+// responsesStopReason maps a response's status; ok is false for one it does
+// not know, which fails the stream.
 func responsesStopReason(status string, details *struct {
 	Reason string `json:"reason"`
-}) gotato.StopReason {
-	if status == "incomplete" && details != nil && details.Reason == "max_output_tokens" {
-		return gotato.StopReasonMaxTokens
+}) (stop gotato.StopReason, ok bool) {
+	switch status {
+	case "incomplete":
+		if details != nil && details.Reason == "max_output_tokens" {
+			return gotato.StopReasonMaxTokens, true
+		}
+		return gotato.StopReasonError, true
+	case "failed", "canceled", "cancelled":
+		return gotato.StopReasonError, true
+	case "", "completed":
+		return gotato.StopReasonEndTurn, true
 	}
-	if status == "failed" || status == "canceled" || (status == "incomplete" && (details == nil || details.Reason != "max_output_tokens")) {
-		return gotato.StopReasonError
-	}
-	return gotato.StopReasonEndTurn
+	return "", false
 }
 
 func (s *responsesStream) finishWithError(err error) {

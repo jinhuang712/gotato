@@ -1,10 +1,16 @@
 package gateway
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
+
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // Error is a provider's refusal or a failed request. StatusCode is the HTTP
@@ -14,6 +20,9 @@ type Error struct {
 	StatusCode int
 	retryable  bool
 	Message    string
+	// cause is the error under a transport failure, kept for errors.Is and
+	// errors.As; Message is the text callers show.
+	cause error
 	// Overflow is set when the provider refused the request, with a 400 or
 	// 413, because it was longer than the model's context window.
 	Overflow bool
@@ -39,6 +48,14 @@ func (e *Error) ContextLimit() int {
 // (a rate limit, an overload, a broken stream). The runtime reads it by this
 // method, and sets Retryable on the Run's model_failure.
 func (e *Error) Retryable() bool { return e != nil && e.retryable }
+
+// Unwrap returns the transport error under this one, or nil.
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
 
 // Error implements the error interface: "gateway: HTTP 429: message", or
 // without the status when there was none.
@@ -95,4 +112,61 @@ func errorCode(raw json.RawMessage) string {
 		return ""
 	}
 	return string(raw)
+}
+
+// transientStreamKinds are the types and codes by which a provider, in an
+// error it sends in the middle of a stream, says the failure is its own and
+// may pass: Anthropic's overloaded_error, api_error and rate_limit_error,
+// and the server_error and rate_limit_exceeded of the OpenAI wires. They
+// are the one table of all three decoders. A stream that started is never
+// sent again by the gateway: the error is marked Retryable for the caller,
+// which can run the Turn again.
+var transientStreamKinds = map[string]bool{
+	"overloaded_error":          true,
+	"api_error":                 true,
+	"rate_limit_error":          true,
+	"server_error":              true,
+	"rate_limit_exceeded":       true,
+	"service_unavailable_error": true,
+}
+
+// transientStream reports whether any of the types and codes of a stream
+// error says the failure may pass.
+func transientStream(kinds ...string) bool {
+	for _, kind := range kinds {
+		if transientStreamKinds[strings.ToLower(strings.TrimSpace(kind))] {
+			return true
+		}
+	}
+	return false
+}
+
+// transientTransport reports whether a failed send may succeed when sent
+// again. A certificate the client does not trust or that does not fit the
+// host, and a host name that does not exist, are mistakes in the settings
+// and stay the same on every attempt.
+func transientTransport(err error) bool {
+	var (
+		unknownAuthority x509.UnknownAuthorityError
+		invalid          x509.CertificateInvalidError
+		hostname         x509.HostnameError
+		verification     *tls.CertificateVerificationError
+		dns              *net.DNSError
+		invalidAddr      net.InvalidAddrError
+		unknownNetwork   net.UnknownNetworkError
+	)
+	switch {
+	case errors.As(err, &unknownAuthority), errors.As(err, &invalid), errors.As(err, &hostname),
+		errors.As(err, &verification), errors.As(err, &invalidAddr), errors.As(err, &unknownNetwork):
+		return false
+	case errors.As(err, &dns):
+		return !dns.IsNotFound
+	}
+	return true
+}
+
+// protocolFailure is the error of a reply that breaks the wire API's rules:
+// the runtime ends the Run with the code model_protocol_failure.
+func protocolFailure(format string, args ...any) error {
+	return &gotato.RuntimeError{Code: gotato.CodeModelProtocolFailure, Operation: "ModelStream", Message: "gateway: " + fmt.Sprintf(format, args...)}
 }

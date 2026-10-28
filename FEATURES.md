@@ -1087,6 +1087,9 @@ model: your-model
 
 - Gotato retries a call that never got a response, or that failed with 429 (except a hard quota), 500, 502, 503, 504 or 529, or whose error says the provider is rate-limited or overloaded. A provider's `Retry-After` or `retry-after-ms` wins over Gotato's own backoff.
 - On every wire API, a stream that breaks is sent again, within the retries ([G-F31](#g-f31--recovering-a-cut-stream-)). One that broke after output tells the Session, which drops the output it received; a caller with no Session gets a retryable error instead, because sending again would repeat that output.
+- A failed send is retried only when it can pass: a timeout, a reset, a refused connection. A certificate the client does not trust, a host name that does not exist and the like are returned at once and are not marked retryable.
+- An error the provider sends in the middle of a stream (an `overloaded_error`, an `api_error`, a `server_error`, a `rate_limit_exceeded`) is marked retryable on all three wire APIs, and the gateway never sends that request again on its own: the stream started, so the caller decides.
+- A finish reason or status the gateway does not know, and a Responses function call without a name or a `call_id`, end the stream with `model_protocol_failure`, never as a finished answer.
 
 **What comes back from the wire**
 

@@ -42,6 +42,9 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			if !transientTransport(err) {
+				return nil, &Error{Message: err.Error(), cause: err}
+			}
 			if attempt < c.maxRetries {
 				delay := withJitter(c.retryBackoff * time.Duration(attempt+1))
 				// The error text can name hosts, and Events reach clients.
@@ -51,7 +54,7 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 				}
 				continue
 			}
-			return nil, &Error{retryable: true, Message: err.Error()}
+			return nil, &Error{retryable: true, Message: err.Error(), cause: err}
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			return response, nil

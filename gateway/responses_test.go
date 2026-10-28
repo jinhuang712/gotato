@@ -193,12 +193,13 @@ func TestResponsesStreamReassemblesToolCall(t *testing.T) {
 	}
 }
 
-func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
+func TestResponsesCallWithoutCallIDFailsTheStream(t *testing.T) {
 	token := testToken("account-test")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		// A function_call item with a name but no call_id can never be
-		// delivered; it must not make the terminal StopReason StopReasonToolCalls.
+		// delivered. The Turn must not end as a final answer: the model asked
+		// for a tool, so the stream fails.
 		writeSSE(t, w, `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","name":"`+gatewayFunctionName("demo.echo")+`","arguments":"{}"}}`)
 		writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
 	}))
@@ -214,12 +215,8 @@ func TestResponsesIncompleteCallDoesNotReportToolCalls(t *testing.T) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	event, err := stream.Recv(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if event.Kind != gotato.ModelEventKindDone || event.StopReason != gotato.StopReasonEndTurn {
-		t.Fatalf("terminal event = %+v", event)
+	if event, err := stream.Recv(context.Background()); !gotato.IsCode(err, gotato.CodeModelProtocolFailure) {
+		t.Fatalf("event = %+v, err = %v, want model_protocol_failure", event, err)
 	}
 }
 

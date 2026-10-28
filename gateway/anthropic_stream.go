@@ -206,7 +206,11 @@ func (s *anthropicStream) messageDelta(event anthropicEvent) error {
 		return &Error{Message: "the context window was exceeded during the reply", Overflow: true}
 	}
 	if event.Delta != nil && event.Delta.StopReason != "" {
-		s.stop = anthropicStopReason(event.Delta.StopReason)
+		stop, ok := anthropicStopReason(event.Delta.StopReason)
+		if !ok {
+			return protocolFailure("Anthropic stream ended with the unknown stop_reason %q", event.Delta.StopReason)
+		}
+		s.stop = stop
 	}
 	if event.Usage != nil {
 		s.mergeUsage(*event.Usage)
@@ -233,7 +237,7 @@ func (s *anthropicStream) streamError(event anthropicEvent) error {
 		message, kind = event.Error.Message, event.Error.Type
 	}
 	return &Error{
-		retryable: kind == "overloaded_error" || kind == "api_error" || kind == "rate_limit_error",
+		retryable: transientStream(kind),
 		Message:   message,
 		Overflow:  kind == "invalid_request_error" && s.overflow.mentions(message) || s.overflow.mentions(kind),
 	}
@@ -300,15 +304,18 @@ func (s *anthropicStream) gotatoUsage() gotato.Usage {
 	}
 }
 
-func anthropicStopReason(reason string) gotato.StopReason {
+// anthropicStopReason maps a stop_reason; ok is false for one it does not
+// know, which fails the stream rather than ending the Turn cleanly.
+func anthropicStopReason(reason string) (stop gotato.StopReason, ok bool) {
 	switch reason {
 	case "tool_use":
-		return gotato.StopReasonToolCalls
+		return gotato.StopReasonToolCalls, true
 	case "max_tokens":
-		return gotato.StopReasonMaxTokens
+		return gotato.StopReasonMaxTokens, true
 	case "refusal":
-		return gotato.StopReasonError
-	default:
-		return gotato.StopReasonEndTurn
+		return gotato.StopReasonError, true
+	case "end_turn", "stop_sequence":
+		return gotato.StopReasonEndTurn, true
 	}
+	return "", false
 }
