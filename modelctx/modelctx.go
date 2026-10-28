@@ -35,3 +35,13 @@
 //	    gotato.WithExtension(modelctx.AutoCompact(s, modelctx.CompactPolicy{CeilingTokens: 60000})),
 //	)
 package modelctx
+
+import (
+	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/session"
+)
+
+// sessionHeader is the Header of an Event about the Session itself.
+func sessionHeader(s *session.Record) gotato.Header {
+	return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0)
+}

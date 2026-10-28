@@ -111,20 +111,6 @@ type Result struct {
 // replaces it to make the write fail.
 var closeSegment = (*session.Record).CloseSegmentAndCheckpoint
 
-// causeOf names the code of a failure for the Event that reports it.
-func causeOf(err error) gotato.ErrorCode {
-	var runtime *gotato.RuntimeError
-	switch {
-	case errors.As(err, &runtime) && runtime != nil:
-		return runtime.Code
-	case errors.Is(err, context.DeadlineExceeded):
-		return gotato.CodeDeadlineExceeded
-	case errors.Is(err, context.Canceled):
-		return gotato.CodeCanceled
-	}
-	return gotato.CodeStoreFailure
-}
-
 // Compact closes everything since the last Checkpoint, less a kept tail, into
 // a Segment built by code: the user's Messages and each Run's final reply word
 // for word, one line per tool call, and the Recap cfg.Recap writes, if any.
@@ -254,11 +240,6 @@ func mergeAfterClose(ctx context.Context, s *session.Record, cfg CompactConfig, 
 func skippedResult(s *session.Record, all []gotato.Message, reason CompactReason) Result {
 	tokens := EstimateTokens(all)
 	return Result{SessionID: s.ID(), Reason: reason, MessagesBefore: len(all), MessagesAfter: len(all), TokensBefore: tokens, TokensAfter: tokens}
-}
-
-// sessionHeader is the Header of an Event about the Session itself.
-func sessionHeader(s *session.Record) gotato.Header {
-	return gotato.NewHeader(gotato.SessionID(s.ID()), "", 0)
 }
 
 // recapSkippedOverflow is the Compaction.RecapError of a compaction that ran
