@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -93,5 +94,16 @@ func TestARunPastItsRunTimeoutSettlesAsDeadlineExceeded(t *testing.T) {
 	result, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go"})
 	if err == nil || result.Result.Status != gotato.RunStatusDeadlineExceeded {
 		t.Fatalf("Run = %+v, %v; want deadline_exceeded", result.Result, err)
+	}
+}
+
+// A negative Timeout is refused: it must not remove the Agent's RunTimeout,
+// which an expired remaining time computed by the caller would do.
+func TestANegativeRequestTimeoutIsRefused(t *testing.T) {
+	runner, _ := newRunner(t, service.Agent{Name: "a", Model: testkit.EchoModel{}, RunTimeout: time.Minute})
+	_, err := runner.Run(context.Background(), service.RunRequest{Prompt: "go", Timeout: -time.Second})
+	var re *gotato.RuntimeError
+	if !errors.As(err, &re) || re.Code != gotato.CodeInvalidArgument || !re.NotRun {
+		t.Fatalf("Run with a negative Timeout = %v, want invalid_argument and not run", err)
 	}
 }

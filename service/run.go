@@ -33,7 +33,8 @@ type RunRequest struct {
 	// as it was.
 	SkipSave bool
 	// Timeout bounds this Run; the Run settles as deadline_exceeded. Zero
-	// keeps the Agent's RunTimeout. It is the caller's bound for this request
+	// keeps the Agent's RunTimeout; a negative value is refused as
+	// invalid_argument (only an Agent's RunTimeout may say "no deadline"). It is the caller's bound for this request
 	// only: a Run that follows with the messages this one left keeps the
 	// Agent's RunTimeout.
 	Timeout time.Duration
@@ -207,6 +208,9 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	}
 	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
 		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: continue takes no prompt"))
+	}
+	if request.Timeout < 0 {
+		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: timeout must not be negative"))
 	}
 	// The Run registers as it is admitted, in one step, so the limits count it
 	// at once and Drain and AbortSession reach it even while it is still
