@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"slices"
@@ -299,7 +300,7 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 	executed, toolErr := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
 	var result ToolResult
 	if toolErr != nil {
-		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: safeError(toolErr), Executed: true}
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(toolErr), Executed: true}
 	} else {
 		result = executed
 		result.CallID = plan.call.ID
@@ -428,10 +429,33 @@ func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress Too
 	return tool.Execute(ctx, use, progress)
 }
 
-// safeError is the text of err for a Tool Result, or "" for nil.
+// safeError is the text of a context error for a Tool Result, or "" for nil.
 func safeError(err error) string {
 	if err == nil {
 		return ""
 	}
 	return err.Error()
+}
+
+// toolErrorText is the text of an error a Tool returned, for its failed
+// Result. The text goes into the Transcript, to every subscriber and to the
+// Model, and a foreign error may carry a host, a query or a secret, so only
+// what the error chooses to make public is kept: its PublicError text, or a
+// RuntimeError, whose Message is written to be read. Any other error is
+// "tool failed" with its code.
+func toolErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var public PublicError
+	if errors.As(err, &public) {
+		return public.Public()
+	}
+	var re *RuntimeError
+	if errors.As(err, &re) && re != nil {
+		// Its Message is text its maker wrote to be read; a foreign error
+		// it wraps stays on the Cause, which Error does not print.
+		return re.Error()
+	}
+	return string(CodeToolExecutionFailure) + ": tool failed"
 }

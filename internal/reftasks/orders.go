@@ -33,7 +33,7 @@ func OrdersLookup() gotato.Tool {
 				if historyOrder(in.ID) {
 					status = "delivered"
 				} else {
-					return nil, fmt.Errorf("order %s not found", in.ID)
+					return nil, publicError(fmt.Sprintf("order %s not found", in.ID))
 				}
 			}
 			return map[string]string{"id": in.ID, "status": status}, nil

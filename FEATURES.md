@@ -59,6 +59,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 |---|---|---|---|
 | Go functions as tools | `gotato.NewFuncTool`, with the input schema taken from the Go type | G-F09 | ✅ |
 | Schema check | every call is checked before the tool runs | G-F09 | ✅ |
+| Tool errors | an error a tool returns becomes a failed Tool Result; its text reaches the model and subscribers only if the error is a `RuntimeError` or implements `gotato.PublicError`, otherwise it reads `tool_execution_failure: tool failed` | G-F09 | ✅ |
 | Effect | every tool declares read, write local, write external or destructive | G-F09 | ✅ |
 | Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
 | Effect cap per Agent | the model never sees a tool above the Agent's highest Effect | G-F09 | ✅ |

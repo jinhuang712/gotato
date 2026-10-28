@@ -12,9 +12,21 @@ import (
 // runs; the Session bounds how much it keeps. An error from Execute, or a panic,
 // becomes a failed ToolResult; a Tool reports a failure it wants the Model to
 // read by returning a ToolResult with a failed Status.
+//
+// An error's text is not sent on: it may carry a host, a query or a secret. The
+// failed ToolResult says "tool failed" with a code, unless the error implements
+// PublicError, whose text the Model and every subscriber may read.
 type Tool interface {
 	Spec() ToolSpec
 	Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error)
+}
+
+// PublicError is an error whose text is safe to show the Model and every
+// subscriber. A Tool returns one to say why it failed in words the Model can
+// act on; any other error it returns becomes "tool failed" with a code.
+type PublicError interface {
+	error
+	Public() string
 }
 
 // ToolSpec describes a Tool to the Model and to the Session. ID is the Tool's

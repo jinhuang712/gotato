@@ -200,7 +200,14 @@ func guard(stage string, call func() error) (err *RuntimeError) {
 		}
 	}()
 	if failure := call(); failure != nil {
-		return runtimeError(CodeExtensionFailure, stage, failure.Error(), failure)
+		// The extension's own text stays on the Cause: Message reaches HTTP
+		// clients, and a foreign error may carry what they must not read.
+		message := "extension failed"
+		var public PublicError
+		if errors.As(failure, &public) {
+			message = public.Public()
+		}
+		return runtimeError(CodeExtensionFailure, stage, message, failure)
 	}
 	return nil
 }

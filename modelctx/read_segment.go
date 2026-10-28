@@ -131,9 +131,9 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 			numbers[i] = r.number
 		}
 		if standsFor, ok := merged[in.Segment]; ok {
-			return "", fmt.Errorf("segment %d is the merge of segments %s; read one of them by its own number", in.Segment, rangeLabel(standsFor))
+			return "", readErrorf("segment %d is the merge of segments %s; read one of them by its own number", in.Segment, rangeLabel(standsFor))
 		}
-		return "", fmt.Errorf("there is no segment %d in this conversation; the segments you can read are %s", in.Segment, rangeLabel(numbers))
+		return "", readErrorf("there is no segment %d in this conversation; the segments you can read are %s", in.Segment, rangeLabel(numbers))
 	}
 	page := max(in.Page, 1)
 
@@ -143,7 +143,7 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	}
 	messages, complete, err := session.CommittedMessages(ctx, log, id, ref.source.FromNumber, ref.source.ToNumber)
 	if err != nil {
-		return "", fmt.Errorf("segment %d could not be read: %w", ref.number, err)
+		return "", readErrorf("segment %d could not be read", ref.number)
 	}
 	if len(messages) == 0 {
 		return fmt.Sprintf("The messages of segment %d were removed from the Record, so only what the conversation keeps of it is left: its recap and its tool call lines.", ref.number), nil
@@ -156,7 +156,7 @@ func readSegment(ctx context.Context, record *session.Record, log session.EntryL
 	limit := opts.pageBytes()
 	pages := text.Paginate(renderOriginals(messages, limit/2), limit)
 	if page > len(pages) {
-		return "", fmt.Errorf("segment %d has %d pages; there is no page %d", ref.number, len(pages), page)
+		return "", readErrorf("segment %d has %d pages; there is no page %d", ref.number, len(pages), page)
 	}
 
 	var b strings.Builder

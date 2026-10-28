@@ -80,7 +80,7 @@ func ReadResultTool(record *session.Record, log session.EntryLog, opts ReadResul
 func readResult(ctx context.Context, record *session.Record, log session.EntryLog, opts ReadResultConfig, in readResultInput) (string, error) {
 	callID, ok := text.CallOfRef(in.Ref)
 	if !ok {
-		return "", fmt.Errorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, text.SpillRefPrefix, listRefs(record))
+		return "", readErrorf("%q is not a ref of a result; a ref looks like %s<call_id>%s", in.Ref, text.SpillRefPrefix, listRefs(record))
 	}
 	call := gotato.ToolCallID(callID)
 	_, byCall := record.SpilledResults()
@@ -91,18 +91,18 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 		var err error
 		spilled, found, err = session.FindSpilled(ctx, log, record.ID(), call)
 		if err != nil && !errors.Is(err, session.ErrNotFound) {
-			return "", fmt.Errorf("%s could not be read: %w", in.Ref, err)
+			return "", readErrorf("%s could not be read", in.Ref)
 		}
 	}
 	if !found {
-		return "", fmt.Errorf("there is no spilled result %s in this conversation%s", text.SpillRef(string(call)), listRefs(record))
+		return "", readErrorf("there is no spilled result %s in this conversation%s", text.SpillRef(string(call)), listRefs(record))
 	}
 	body, pruned, err := record.SpilledBody(ctx, log, spilled)
 	if errors.Is(err, session.ErrNotFound) {
 		pruned, err = true, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("%s could not be read: %w", text.SpillRef(string(call)), err)
+		return "", readErrorf("%s could not be read", text.SpillRef(string(call)))
 	}
 	if pruned {
 		return fmt.Sprintf("The body of %s was removed from the Record, so only the preview that stayed in the conversation is left.", text.SpillRef(string(call))), nil
@@ -113,7 +113,7 @@ func readResult(ctx context.Context, record *session.Record, log session.EntryLo
 	pages := text.Paginate(text.SplitLines(body, limit), limit)
 	ref := text.SpillRef(string(call))
 	if page > len(pages) {
-		return "", fmt.Errorf("%s has %d pages; there is no page %d", ref, len(pages), page)
+		return "", readErrorf("%s has %d pages; there is no page %d", ref, len(pages), page)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Result %s, %d bytes. Page %d of %d.\n", ref, len(body), page, len(pages))

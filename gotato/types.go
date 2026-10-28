@@ -165,11 +165,14 @@ const (
 // RoleToolResult. A Tool sets Status, Content and Metadata; the Session sets
 // CallID and Executed.
 type ToolResult struct {
-	CallID    ToolCallID        `json:"call_id"`
-	Status    ToolResultStatus  `json:"status"`
-	Content   []ContentPart     `json:"content,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	SafeError string            `json:"safe_error,omitempty"`
+	CallID   ToolCallID        `json:"call_id"`
+	Status   ToolResultStatus  `json:"status"`
+	Content  []ContentPart     `json:"content,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	// SafeError is the failure text the Model and subscribers read. The Session
+	// fills it from an error a Tool returns only with what the error makes
+	// public (see PublicError); a Tool may also set it itself.
+	SafeError string `json:"safe_error,omitempty"`
 	// Executed reports whether the Tool's executor was started. Core owns it:
 	// a call that was blocked, rejected, or never started because the Run
 	// ended has Executed false. A Tool canceled while it ran keeps it true,

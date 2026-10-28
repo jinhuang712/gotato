@@ -74,9 +74,17 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 		if attempt == 0 && errors.Is(err, sdk.ErrSessionMissing) && ctx.Err() == nil {
 			continue
 		}
-		return gotato.ToolResult{}, fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err)
+		return gotato.ToolResult{}, callError{fmt.Errorf("mcp %s.%s: %w", t.set.name, t.name, err)}
 	}
 }
+
+// callError is a failed call to the server. The model reads it (it is a
+// gotato.PublicError): it says the server did not take the call, which the
+// model can act on.
+type callError struct{ error }
+
+func (e callError) Unwrap() error  { return e.error }
+func (e callError) Public() string { return e.error.Error() }
 
 // needsInput is what the model reads when a tool asks, in the middle of its
 // call, for input that Gotato cannot give (elicitation, sampling, roots).

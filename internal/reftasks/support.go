@@ -116,7 +116,7 @@ func SupportTools() []gotato.Tool {
 			CustomerID string `json:"customer_id" description:"the customer ID, such as C-1042"`
 		}) (map[string]any, error) {
 			if in.CustomerID != "C-1042" {
-				return nil, fmt.Errorf("customer %s not found", in.CustomerID)
+				return nil, publicError(fmt.Sprintf("customer %s not found", in.CustomerID))
 			}
 			summaries := make([]map[string]any, 0, len(supportOrders))
 			for _, order := range supportOrders {
@@ -133,7 +133,7 @@ func SupportTools() []gotato.Tool {
 		}) (supportOrder, error) {
 			order, ok := findSupportOrder(in.ID)
 			if !ok {
-				return supportOrder{}, fmt.Errorf("order %s not found", in.ID)
+				return supportOrder{}, publicError(fmt.Sprintf("order %s not found", in.ID))
 			}
 			return order, nil
 		})
@@ -157,7 +157,7 @@ func SupportTools() []gotato.Tool {
 		}) (map[string]any, error) {
 			order, ok := findSupportOrder(in.OrderID)
 			if !ok {
-				return nil, fmt.Errorf("order %s not found", in.OrderID)
+				return nil, publicError(fmt.Sprintf("order %s not found", in.OrderID))
 			}
 			for _, item := range order.Items {
 				if item.SKU != in.SKU {
