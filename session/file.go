@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jinhuang712/gotato/gotato"
 )
 
 // FileStore keeps each Record in a directory of its own epoch, one file per
@@ -228,28 +230,77 @@ func syncDir(path string) error {
 	return nil
 }
 
-// readAll reads every write of a Record.
-func (f *FileStore) readAll(id string) ([]fileBatch, error) {
-	return f.readAfter(id, 0)
+// batchList returns the directory of a Record's current epoch and the first
+// positions of its writes, in order.
+func (f *FileStore) batchList(id string) (string, []uint64, error) {
+	if !validID(id) {
+		return "", nil, ErrNotFound
+	}
+	dir, err := f.currentDir(id)
+	if err != nil {
+		return "", nil, err
+	}
+	firsts, err := batchFirsts(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(firsts) == 0 {
+		return "", nil, ErrNotFound
+	}
+	return dir, firsts, nil
+}
+
+// segmentBatch is a write read for its segment_closed Entries alone: any other
+// Entry is scanned and dropped, so a Record's long past is not held in memory.
+type segmentBatch struct {
+	Entries []segmentPick `json:"entries"`
+}
+
+type segmentPick struct{ entry *Entry }
+
+func (p *segmentPick) UnmarshalJSON(data []byte) error {
+	var head struct {
+		Kind gotato.EventKind `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil || head.Kind != gotato.EventKindSegmentClosed {
+		return err
+	}
+	p.entry = new(Entry)
+	return json.Unmarshal(data, p.entry)
+}
+
+// readSegments returns the segment_closed Entries of the writes that begin at
+// firsts.
+func readSegments(dir string, firsts []uint64) ([]Entry, error) {
+	var out []Entry
+	for _, first := range firsts {
+		data, err := os.ReadFile(filepath.Join(dir, batchName(first)))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		var batch segmentBatch
+		if err := json.Unmarshal(data, &batch); err != nil {
+			return nil, fmt.Errorf("session: %s: %w", batchName(first), err)
+		}
+		for _, pick := range batch.Entries {
+			if pick.entry != nil {
+				out = append(out, *pick.entry)
+			}
+		}
+	}
+	return out, nil
 }
 
 // readAfter reads the writes of a Record that hold a position after after. A
 // write is named by its first position, so the files that end at or before
 // after are not opened: reading one spilled body does not read the Record.
 func (f *FileStore) readAfter(id string, after uint64) ([]fileBatch, error) {
-	if !validID(id) {
-		return nil, ErrNotFound
-	}
-	dir, err := f.currentDir(id)
+	dir, firsts, err := f.batchList(id)
 	if err != nil {
 		return nil, err
-	}
-	firsts, err := batchFirsts(dir)
-	if err != nil {
-		return nil, err
-	}
-	if len(firsts) == 0 {
-		return nil, ErrNotFound
 	}
 	batches := make([]fileBatch, 0, len(firsts))
 	for i, first := range firsts {
@@ -392,22 +443,43 @@ func (f *FileStore) setHead(id string, head fileHead) {
 	f.heads[id] = head
 }
 
-// Load implements Store.
+// Load implements Store. It reads the writes back from the last one to the
+// write that holds the last Checkpoint, and from the writes before that only
+// their segment_closed Entries.
 func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
-	batches, err := f.readAll(id)
+	dir, firsts, err := f.batchList(id)
 	if err != nil {
 		return Loaded{}, err
 	}
-	var entries []Entry
-	for _, batch := range batches {
+	var tail []fileBatch
+	start := 0
+	for i, first := range slices.Backward(firsts) {
+		batch, err := readBatch(filepath.Join(dir, batchName(first)))
+		if errors.Is(err, os.ErrNotExist) {
+			return Loaded{}, ErrNotFound
+		}
+		if err != nil {
+			return Loaded{}, err
+		}
+		tail = append(tail, batch)
+		if slices.ContainsFunc(batch.Entries, Entry.IsCheckpoint) {
+			start = i
+			break
+		}
+	}
+	slices.Reverse(tail)
+	entries, err := readSegments(dir, firsts[:start])
+	if err != nil {
+		return Loaded{}, err
+	}
+	for _, batch := range tail {
 		entries = append(entries, batch.Entries...)
 	}
-	head := lastSeq(batches)
 	facts, segments := loadedFrom(entries)
-	return Loaded{Facts: facts, Segments: segments, Head: head, Info: batches[len(batches)-1].Info}, nil
+	return Loaded{Facts: facts, Segments: segments, Head: lastSeq(tail), Info: tail[len(tail)-1].Info}, nil
 }
 
 // Log implements Store.
@@ -466,13 +538,20 @@ func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 	return out, nil
 }
 
-// info reads a Record's RecordInfo from its last write.
+// info reads a Record's RecordInfo from its last write alone.
 func (f *FileStore) info(id string) (RecordInfo, error) {
-	batches, err := f.readAll(id)
+	dir, firsts, err := f.batchList(id)
 	if err != nil {
 		return RecordInfo{}, err
 	}
-	return batches[len(batches)-1].Info, nil
+	batch, err := readBatch(filepath.Join(dir, batchName(firsts[len(firsts)-1])))
+	if errors.Is(err, os.ErrNotExist) {
+		return RecordInfo{}, ErrNotFound
+	}
+	if err != nil {
+		return RecordInfo{}, err
+	}
+	return batch.Info, nil
 }
 
 // Delete implements Store. The Record's directory is renamed away first, so
