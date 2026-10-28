@@ -26,19 +26,6 @@ const (
 	ReadResultToolID = "read_result"
 )
 
-// SpilledResult marks a Tool Result whose full text is a tool_result_spilled
-// Entry of the Record: Seq is the Entry's position, Bytes the size of the text.
-// Its RecordRef names the Record that holds the Entry when it is not the Record of
-// the Message: a fork inherits the Messages of its parent and keeps their
-// bodies in the parent's log, as an inherited Segment does (SegmentSource). It
-// is empty for a Message the Record wrote itself. A read refuses the body when
-// the Record under it has another epoch.
-type SpilledResult struct {
-	Seq   uint64 `json:"seq"`
-	Bytes int    `json:"bytes"`
-	RecordRef
-}
-
 // SpillKeeper is an optional method of a Transcript: it says the Transcript's
 // Journal keeps the Entries it writes, so the body of a spilled result can be
 // read back. A Session spills only over a Transcript that does, as a

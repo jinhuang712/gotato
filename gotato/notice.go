@@ -7,17 +7,6 @@ import (
 	"github.com/jinhuang712/gotato/internal/text"
 )
 
-// NoticeSource says who wrote a notice.
-type NoticeSource string
-
-const (
-	// NoticeSourceGotato is a notice the runtime wrote itself, such as a
-	// continuation or the time away.
-	NoticeSourceGotato NoticeSource = "gotato"
-	// NoticeSourceService is a notice a service or an extension wrote.
-	NoticeSourceService NoticeSource = "service"
-)
-
 // The kinds of notice Gotato sends itself. They are reserved: a service names
 // its own kinds, and Session.Notice refuses these.
 const (
@@ -35,16 +24,6 @@ func ReservedNoticeKind(kind string) bool {
 		return true
 	}
 	return false
-}
-
-// NoticeInfo is what a Message of the role RoleNotice says about itself.
-type NoticeInfo struct {
-	// Kind is a short label: one of Gotato's own kinds, or the service's.
-	Kind   string       `json:"kind"`
-	Source NoticeSource `json:"source"`
-	// CausedBy is the number of the Event that caused a notice of Gotato's
-	// own, when one did.
-	CausedBy uint64 `json:"caused_by,omitempty"`
 }
 
 // PendingNotice is a notice that was queued and not yet committed or dropped:

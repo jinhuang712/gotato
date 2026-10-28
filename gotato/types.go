@@ -318,3 +318,37 @@ func addUsage(total, current Usage) Usage {
 	total.CacheWriteTokens += current.CacheWriteTokens
 	return total
 }
+
+// NoticeSource says who wrote a notice.
+type NoticeSource string
+
+const (
+	// NoticeSourceGotato is a notice the runtime wrote itself, such as a
+	// continuation or the time away.
+	NoticeSourceGotato NoticeSource = "gotato"
+	// NoticeSourceService is a notice a service or an extension wrote.
+	NoticeSourceService NoticeSource = "service"
+)
+
+// NoticeInfo is what a Message of the role RoleNotice says about itself.
+type NoticeInfo struct {
+	// Kind is a short label: one of Gotato's own kinds, or the service's.
+	Kind   string       `json:"kind"`
+	Source NoticeSource `json:"source"`
+	// CausedBy is the number of the Event that caused a notice of Gotato's
+	// own, when one did.
+	CausedBy uint64 `json:"caused_by,omitempty"`
+}
+
+// SpilledResult marks a Tool Result whose full text is a tool_result_spilled
+// Entry of the Record: Seq is the Entry's position, Bytes the size of the text.
+// Its RecordRef names the Record that holds the Entry when it is not the Record of
+// the Message: a fork inherits the Messages of its parent and keeps their
+// bodies in the parent's log, as an inherited Segment does (SegmentSource). It
+// is empty for a Message the Record wrote itself. A read refuses the body when
+// the Record under it has another epoch.
+type SpilledResult struct {
+	Seq   uint64 `json:"seq"`
+	Bytes int    `json:"bytes"`
+	RecordRef
+}
