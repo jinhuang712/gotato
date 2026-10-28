@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/jinhuang712/gotato/service"
 )
 
 // The tests below pin the CLI contract details that the review found broken.
@@ -112,7 +114,7 @@ func TestContextInspectOverridesTheSession(t *testing.T) {
 	// The Session itself was not rewritten.
 	var doc map[string]any
 	h.mustJSON(h.ok("session", "show", outcome.SessionID, "--json"), &doc)
-	if metadata, _ := doc["metadata"].(map[string]any); metadata["gotato.instruction"] != nil {
+	if metadata, _ := doc["metadata"].(map[string]any); metadata[service.MetaInstruction] != nil {
 		t.Fatalf("inspect mutated session metadata: %v", metadata)
 	}
 }

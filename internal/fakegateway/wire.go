@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // apiError is a refusal in a provider's own form.
@@ -96,7 +98,7 @@ func wireName(id string) string {
 
 // systemTags are the tags Gotato writes into a conversation; a text that
 // starts with one is the runtime speaking, not the user.
-var systemTags = []string{"<notice", "<segment", "<recap", "<tool_calls"}
+var systemTags = []string{"<" + text.TagNotice, "<" + text.TagSegment, "<" + text.TagRecap, "<" + text.TagToolCalls}
 
 func isRuntimeText(text string) bool {
 	text = strings.TrimSpace(text)

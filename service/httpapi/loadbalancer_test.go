@@ -180,8 +180,8 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp, data := send(t, server, http.MethodPost, "/v1/sessions/"+idle.ID()+"/runs", map[string]any{"prompt": "wake"}, map[string]string{"session-id": idle.ID()})
-	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" {
-		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get("Gotato-Not-Run"), data)
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" {
+		t.Fatalf("an idle Session on a full instance = %d, header %q: %s", resp.StatusCode, resp.Header.Get(httpapi.NotRunHeader), data)
 	}
 	var body struct {
 		Code   string `json:"code"`
@@ -199,8 +199,8 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 	// 503 and mark, so a load balancer can retry it on another instance.
 	for _, path := range []string{"/v1/sessions/" + idle.ID() + "/runs/stream"} {
 		resp, data = send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
-		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Gotato-Not-Run") != "true" || !strings.Contains(string(data), `"not_run":true`) {
-			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get("Gotato-Not-Run"))
+		if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(httpapi.NotRunHeader) != "true" || !strings.Contains(string(data), `"not_run":true`) {
+			t.Fatalf("a streamed refusal on %s = %d %s, header %q", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))
 		}
 		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 			t.Fatalf("%s started a stream", path)
@@ -209,8 +209,8 @@ func TestActivationLimitAnswers503MarkedNotRun(t *testing.T) {
 
 	// Other 503s are not marked: a refusal for any other reason keeps it off.
 	resp, _ = send(t, server, http.MethodGet, "/readyz", nil, nil)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Gotato-Not-Run") != "" {
-		t.Fatalf("readyz on a full instance = %d, mark %q; a full instance stays ready for the Sessions it holds", resp.StatusCode, resp.Header.Get("Gotato-Not-Run"))
+	if resp.StatusCode != http.StatusOK || resp.Header.Get(httpapi.NotRunHeader) != "" {
+		t.Fatalf("readyz on a full instance = %d, mark %q; a full instance stays ready for the Sessions it holds", resp.StatusCode, resp.Header.Get(httpapi.NotRunHeader))
 	}
 }
 

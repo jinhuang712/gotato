@@ -51,8 +51,8 @@ func TestStreamingRoutesAnswerCapacityBeforeTheStream(t *testing.T) {
 	}
 	for _, path := range []string{"/v1/sessions/" + fresh.ID() + "/runs", "/v1/sessions/" + fresh.ID() + "/runs/stream"} {
 		resp, data := send(t, server, http.MethodPost, path, map[string]any{"prompt": "new"}, nil)
-		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Gotato-Not-Run") != "true" {
-			t.Fatalf("%s at capacity = %d %s, mark %q; want 429, marked not run", path, resp.StatusCode, data, resp.Header.Get("Gotato-Not-Run"))
+		if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get(httpapi.NotRunHeader) != "true" {
+			t.Fatalf("%s at capacity = %d %s, mark %q; want 429, marked not run", path, resp.StatusCode, data, resp.Header.Get(httpapi.NotRunHeader))
 		}
 		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 			t.Fatalf("%s started a stream", path)
