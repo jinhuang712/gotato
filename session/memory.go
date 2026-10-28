@@ -38,6 +38,9 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, su
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := checkID(id); err != nil {
+		return err
+	}
 	if err := checkBatch(0, entries); err != nil {
 		return err
 	}
@@ -53,6 +56,9 @@ func (m *MemoryStore) Create(ctx context.Context, id string, entries []Entry, su
 // Append implements Store.
 func (m *MemoryStore) Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkID(id); err != nil {
 		return err
 	}
 	if err := checkBatch(after, entries); err != nil {
@@ -80,6 +86,9 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
+	if err := checkID(id); err != nil {
+		return Loaded{}, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	record, ok := m.records[id]
@@ -93,6 +102,9 @@ func (m *MemoryStore) Load(ctx context.Context, id string) (Loaded, error) {
 // Log implements Store.
 func (m *MemoryStore) Log(ctx context.Context, id string, after uint64) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := checkID(id); err != nil {
 		return nil, err
 	}
 	m.mu.Lock()
@@ -127,6 +139,9 @@ func (m *MemoryStore) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := checkID(id); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.records[id]; !ok {
@@ -139,6 +154,9 @@ func (m *MemoryStore) Delete(ctx context.Context, id string) error {
 // Beat implements Store.
 func (m *MemoryStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkID(row.ID); err != nil {
 		return err
 	}
 	m.mu.Lock()

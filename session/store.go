@@ -6,7 +6,10 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -115,6 +118,38 @@ type Store interface {
 	// Instance returns an Instance's state. An unknown or removed Instance is
 	// not alive, so every Claim that names it is dead.
 	Instance(ctx context.Context, id string) (InstanceState, error)
+}
+
+// MaxIDBytes is the longest ID, in bytes, a Store keeps.
+const MaxIDBytes = 100
+
+// checkID returns ErrInvalidID, with the reason, for an ID a Store cannot keep:
+// an empty one, one longer than MaxIDBytes, one that is not valid UTF-8 or has
+// a control character, one with a path separator or "..", and one that starts
+// with ".". Every store calls it first, so all of them refuse the same IDs the
+// same way.
+func checkID(id string) error {
+	reason := ""
+	switch {
+	case id == "":
+		reason = "it is empty"
+	case len(id) > MaxIDBytes:
+		reason = fmt.Sprintf("it is longer than %d bytes", MaxIDBytes)
+	case !utf8.ValidString(id):
+		reason = "it is not valid UTF-8"
+	case strings.IndexFunc(id, unicode.IsControl) >= 0:
+		reason = "it has a control character"
+	case strings.ContainsAny(id, `/\`):
+		reason = "it has a path separator"
+	case strings.Contains(id, ".."):
+		reason = `it has ".."`
+	case strings.HasPrefix(id, "."):
+		reason = `it starts with "."`
+	}
+	if reason == "" {
+		return nil
+	}
+	return fmt.Errorf("%w %q: %s", ErrInvalidID, id, reason)
 }
 
 // checkBatch checks that entries continue position after without a gap, and

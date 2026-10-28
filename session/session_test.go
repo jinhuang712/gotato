@@ -143,7 +143,7 @@ func TestFileStoreRoundTripContinuesHistory(t *testing.T) {
 	if _, err := session.Open(ctx, store, s.ID()); !errors.Is(err, session.ErrNotFound) {
 		t.Fatalf("after delete err = %v", err)
 	}
-	if _, err := session.Open(ctx, store, "../escape"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := session.Open(ctx, store, "../escape"); !errors.Is(err, session.ErrInvalidID) {
 		t.Fatalf("path traversal err = %v", err)
 	}
 }

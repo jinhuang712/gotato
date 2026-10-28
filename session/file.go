@@ -25,7 +25,9 @@ import (
 //	<dir>/<id>/<epoch>/00000000000000000003.json
 //	<dir>/.instances/<instance>.json               one Liveness row per Instance
 //
-// <epoch> is a hash of the Record's epoch. A write goes to a temporary file
+// <id> is the file name of the ID (nameOf): an ID of lowercase ASCII is its own
+// name, and any other character is spelled out, so two IDs never share a
+// directory on a file system that ignores case. <epoch> is a hash of the Record's epoch. A write goes to a temporary file
 // first, is synced, and is then linked to its name. Linking fails when the
 // name exists, so two writers can never both write a position, also from two
 // processes on one directory, and a crash never leaves a torn write behind.
@@ -88,11 +90,55 @@ func NewFileStore(dir string) (*FileStore, error) {
 // Dir returns the directory.
 func (f *FileStore) Dir() string { return f.dir }
 
-func validID(id string) bool {
-	return id != "" && !strings.ContainsAny(id, `/\`) && !strings.Contains(id, "..") && !strings.HasPrefix(id, ".")
+// nameOf is the file name a store gives an ID, so that two IDs never share a
+// name, on a file system that ignores case or Unicode form too. A lowercase
+// letter, a digit and "._-" stand for themselves; an uppercase letter is "!"
+// and its lowercase; any other byte is "%" and two uppercase hex digits. An ID
+// of lowercase ASCII is its own name.
+func nameOf(id string) string {
+	var b strings.Builder
+	for i := range len(id) {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+			b.WriteByte(c)
+		case c >= 'A' && c <= 'Z':
+			b.WriteByte('!')
+			b.WriteByte(c + 'a' - 'A')
+		default:
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
 }
 
-func (f *FileStore) recordDir(id string) string { return filepath.Join(f.dir, id) }
+// idOf is the ID whose file name is name; ok is false for a name nameOf
+// cannot have made.
+func idOf(name string) (id string, ok bool) {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+			b.WriteByte(c)
+		case c == '!' && i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z':
+			b.WriteByte(name[i+1] - 'a' + 'A')
+			i++
+		case c == '%' && i+2 < len(name):
+			v, err := strconv.ParseUint(name[i+1:i+3], 16, 8)
+			if err != nil || strings.ToUpper(name[i+1:i+3]) != name[i+1:i+3] {
+				return "", false
+			}
+			b.WriteByte(byte(v))
+			i += 2
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+func (f *FileStore) recordDir(id string) string { return filepath.Join(f.dir, nameOf(id)) }
 
 // epochDir is the directory of the Record created under id with this epoch.
 func (f *FileStore) epochDir(id, epoch string) string {
@@ -233,8 +279,8 @@ func syncDir(path string) error {
 // batchList returns the directory of a Record's current epoch and the first
 // positions of its writes, in order.
 func (f *FileStore) batchList(id string) (string, []uint64, error) {
-	if !validID(id) {
-		return "", nil, ErrNotFound
+	if err := checkID(id); err != nil {
+		return "", nil, err
 	}
 	dir, err := f.currentDir(id)
 	if err != nil {
@@ -332,8 +378,8 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validID(id) {
-		return ErrNotFound
+	if err := checkID(id); err != nil {
+		return err
 	}
 	if err := checkBatch(0, entries); err != nil {
 		return err
@@ -379,8 +425,8 @@ func (f *FileStore) Append(ctx context.Context, id string, after uint64, entries
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validID(id) {
-		return ErrNotFound
+	if err := checkID(id); err != nil {
+		return err
 	}
 	if err := checkBatch(after, entries); err != nil {
 		return err
@@ -514,11 +560,11 @@ func (f *FileStore) List(ctx context.Context) ([]RecordInfo, error) {
 	out := make([]RecordInfo, 0, len(names))
 	var unreadable []string
 	for _, name := range names {
-		id := name.Name()
-		if strings.HasPrefix(id, ".") {
+		if strings.HasPrefix(name.Name(), ".") || !name.IsDir() {
 			continue
 		}
-		if !name.IsDir() {
+		id, ok := idOf(name.Name())
+		if !ok {
 			continue
 		}
 		summary, err := f.info(id)
@@ -561,12 +607,12 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validID(id) {
-		return ErrNotFound
+	if err := checkID(id); err != nil {
+		return err
 	}
 	found := false
 	dir := f.recordDir(id)
-	tomb := filepath.Join(f.dir, ".deleted-"+id+"-"+NewID()[:8])
+	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+NewID()[:8])
 	if err := os.Rename(dir, tomb); err == nil {
 		found = true
 		if err := os.RemoveAll(tomb); err != nil {
@@ -585,7 +631,7 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 }
 
 func (f *FileStore) instancePath(id string) string {
-	return filepath.Join(f.dir, ".instances", id+".json")
+	return filepath.Join(f.dir, ".instances", nameOf(id)+".json")
 }
 
 // Beat implements Store.
@@ -593,8 +639,8 @@ func (f *FileStore) Beat(ctx context.Context, row InstanceRow, ttl time.Duration
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validID(row.ID) {
-		return ErrNotFound
+	if err := checkID(row.ID); err != nil {
+		return err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -647,7 +693,7 @@ func (f *FileStore) Instance(ctx context.Context, id string) (InstanceState, err
 	if err := ctx.Err(); err != nil {
 		return InstanceState{}, err
 	}
-	if !validID(id) {
+	if checkID(id) != nil {
 		return InstanceState{ID: id}, nil
 	}
 	current, err := readInstance(f.instancePath(id))
