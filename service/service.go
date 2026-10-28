@@ -88,12 +88,26 @@ type ToolEntry struct {
 // limits its Sessions run. The Runner builds a live Session from it for each
 // Run. Sharing a Model client between Agents and Runs is expected; nothing
 // here is mutable Run state.
+//
+// Three fields give an Agent its Tools; each has one job:
+//   - Tools: Go Tools (gotato.NewFuncTool and the like), fixed for the
+//     Agent's life.
+//   - Options: a gotato.ToolSet, such as an MCP server's, goes in with
+//     gotato.WithToolSet, WithActiveToolSet or WithFoldedToolSet. The three
+//     differ in how the Model sees the set (listed, always visible, or
+//     folded behind search_tools).
+//   - ToolSources: Tools that change between Turns, asked again at the
+//     start of each Turn. A ToolSet is not a ToolSources entry.
 type Agent struct {
 	Name        string
 	Model       gotato.Model
 	ModelName   string
 	Instruction string
-	Tools       []gotato.Tool
+	// Tools are Go Tools, the same for every Turn.
+	Tools []gotato.Tool
+	// ToolSources supply Tools that change between Turns (gotato.ToolSource).
+	// To attach a ToolSet, use Options with gotato.WithToolSet,
+	// gotato.WithActiveToolSet or gotato.WithFoldedToolSet instead.
 	ToolSources []gotato.ToolSource
 	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool
 	// above it is hidden from the model and from Runner.Tools, and no Session
@@ -125,7 +139,9 @@ type Agent struct {
 	// in the zone of Compact.Location, UTC when it is nil.
 	TimeAwayAfter time.Duration
 	// Options are appended verbatim for anything the fields above do not
-	// cover.
+	// cover. They are where a gotato.ToolSet is attached: gotato.WithToolSet,
+	// gotato.WithActiveToolSet or gotato.WithFoldedToolSet (an MCP server's
+	// tools arrive this way).
 	Options []gotato.SessionOption
 }
 
@@ -158,11 +174,23 @@ type Admission struct {
 }
 
 // Config configures a Runner.
+//
+// Several processes may share one Store, and so one FileStore directory:
+// each is an Instance with its own name, and a Session is written by one
+// Instance at a time (a Claim), whichever Instance served its last Run. To
+// stop an Instance, call Drain, then shut down the HTTP server (for
+// httpapi: http.Server.Shutdown), then Close. Drain comes first because it
+// lets the Runs in flight finish, which their open HTTP requests are waiting
+// for, and ends the Session streams, which Shutdown would otherwise wait on
+// for ever; Close comes last because it removes the Instance's Liveness row,
+// after which the Runner writes nothing more.
 type Config struct {
+	// Store keeps the Sessions' Records. It may be shared by several
+	// processes (see above).
 	Store     session.Store
 	Agents    []Agent
 	Admission Admission
-	// Instance is a human-readable label for this Runner, such as a pod name.
+	// Instance is a human-readable label for this Runner, such as a Kubernetes pod name.
 	// It is not the identity: each start appends a random suffix, so the name
 	// the Runner writes to the store, in its Claims, its Liveness row and its
 	// session_claimed Events, is unique per process start, for example

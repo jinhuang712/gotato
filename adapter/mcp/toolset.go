@@ -73,7 +73,7 @@ func WithoutNotifications() HTTPOption {
 
 // StreamableHTTP connects to an MCP endpoint over streamable HTTP. Gotato uses
 // it statelessly: no state of the server is kept for a Gotato Session, so any
-// instance can make any call.
+// Instance can make any call.
 func StreamableHTTP(endpoint string, options ...HTTPOption) Transport {
 	var cfg httpConfig
 	for _, option := range options {

@@ -109,7 +109,7 @@ func effectOf(a *sdk.ToolAnnotations) gotato.ToolEffect {
 // slimSchema drops what costs tokens in every request and tells the model
 // nothing: $schema, $id and examples, and a title equal to the tool's name
 // (or, on a property, to the property's own name). It returns the schema as
-// JSON with sorted keys, so the bytes are the same on every instance. A
+// JSON with sorted keys, so the bytes are the same on every Instance. A
 // schema that is absent or not an object is returned as the empty value.
 func slimSchema(toolName string, schema any) []byte {
 	if schema == nil {

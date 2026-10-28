@@ -207,7 +207,7 @@ func (r *Runner) unregisterHandle(handle *runHandle) {
 	r.mu.Unlock()
 }
 
-// Drain stops this instance in order, so a deploy loses no work:
+// Drain stops this Instance in order, so a deploy loses no work:
 //
 //  1. its Liveness row says draining, so every Instance can see it;
 //  2. Draining reports true, so /readyz answers 503, and the Runner admits

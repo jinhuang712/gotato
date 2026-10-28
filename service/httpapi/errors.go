@@ -16,7 +16,7 @@ type errorResponse struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	// NotRun says the request did not run, so it can be sent again, also to
-	// another instance.
+	// another Instance.
 	NotRun bool `json:"not_run,omitempty"`
 	// Retryable says the same request, sent again later, may succeed.
 	Retryable bool `json:"retryable,omitempty"`
@@ -135,7 +135,7 @@ func writeFailure(w http.ResponseWriter, err error) {
 	if gotato.NotRun(err) {
 		w.Header().Set(NotRunHeader, "true")
 	}
-	// A Session busy on another instance says when to retry.
+	// A Session busy on another Instance says when to retry.
 	var runtimeErr *gotato.RuntimeError
 	if errors.As(err, &runtimeErr) {
 		if writer := runtimeErr.Details["writer"]; writer != "" && runtimeErr.Code == gotato.CodeNotWriter {

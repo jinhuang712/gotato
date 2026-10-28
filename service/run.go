@@ -56,7 +56,7 @@ type RunResponse struct {
 	// loses the Run's stream to resume the Session's stream with. Empty for a
 	// Run that is not saved.
 	RecordEpoch string `json:"record_epoch,omitempty"`
-	// Reconnect is set when this instance's drain stopped the Run before it
+	// Reconnect is set when this Instance's drain stopped the Run before it
 	// completed. By the time the Run returns, its Session is saved and
 	// released, and so is every other Session of the drain.
 	Reconnect *Reconnect `json:"reconnect,omitempty"`
@@ -200,7 +200,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	out, err := r.serve(ctx, runCtx, request, stream, handle, nil)
 	if next := handle.takeNext(); len(next) > 0 {
 		// Messages the Run accepted after its last point of taking them run in
-		// a Run that follows it, on this instance and under the same
+		// a Run that follows it, on this Instance and under the same
 		// admission. This call returns with its own Run's result.
 		followed = true
 		r.followOn(ctx, handle, next, release)
@@ -209,7 +209,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	if handle.stoppedByDrain() && out.Result.Status != gotato.RunStatusCompleted {
 		// The drain stopped this Run, and it is saved and released. It
 		// returns once every Run of the drain is, so the caller reconnects to
-		// a Session that no instance is still using.
+		// a Session that no Instance is still using.
 		out.Reconnect = NewReconnect("draining")
 		release()
 		r.mu.Lock()
@@ -548,7 +548,7 @@ func (st *runState) startRun(ctx context.Context, spec Agent) (*gotato.Session, 
 	}
 	if len(kept) > 0 {
 		// Notices that were queued and not committed, by an earlier Run or
-		// by a call between Runs, on this instance or another, go in after
+		// by a call between Runs, on this Instance or another, go in after
 		// this Run's prompt. The Record is where they wait.
 		queued := make([]gotato.Queued, len(kept))
 		for i, notice := range kept {

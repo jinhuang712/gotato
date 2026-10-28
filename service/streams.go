@@ -16,7 +16,7 @@ import (
 const defaultStreamPoll = time.Second
 
 // reconnectBase and reconnectJitter set how long a caller waits before it
-// reconnects: the jitter keeps the callers of one instance from all coming
+// reconnects: the jitter keeps the callers of one Instance from all coming
 // back at the same instant.
 const (
 	reconnectBase   = 500 * time.Millisecond
@@ -24,7 +24,7 @@ const (
 )
 
 // NewReconnect returns the advice a stream that ends gives its client: to
-// reconnect, through the load balancer to any instance, after a wait of half a
+// reconnect, through the load balancer to any Instance, after a wait of half a
 // second to one and a half seconds, spread at random. why names the reason,
 // such as "draining".
 func NewReconnect(why string) *Reconnect {
@@ -129,7 +129,7 @@ func (s *SessionStream) endWith(hint *Reconnect) {
 }
 
 // StreamSession opens a Session's stream for a client that reconnects, on any
-// instance. It starts after from.After, like a Subscription's SubscribeAfter, and first
+// Instance. It starts after from.After, like a Subscription's SubscribeAfter, and first
 // checks that the position still means what the client thinks: the Session
 // must exist (session.ErrNotFound), and the client's epoch and number must be
 // the Record's (ErrCannotResume). An idle stream looks in the store for Events
@@ -360,7 +360,7 @@ func (r *Runner) markStreams(sessionID, epoch string, mark uint64) (stale, unsur
 
 // endStreams ends every Session stream with the advice to reconnect, once the
 // drain is over: the Runs are saved and released, so the clients come back to
-// a Session that no instance is using. A stream still opening sees the drain
+// a Session that no Instance is using. A stream still opening sees the drain
 // when it starts.
 func (r *Runner) endStreams() {
 	r.streamsMu.Lock()
@@ -395,7 +395,7 @@ func (r *Runner) openSessionStream(ctx context.Context, key feedKey, after uint6
 }
 
 // Reconnect tells a caller to send its next request for the Session through
-// the load balancer, to any instance, after waiting RetryAfterMS. When the
+// the load balancer, to any Instance, after waiting RetryAfterMS. When the
 // Run has a RunID, its prompt is saved, and the caller continues the Session;
 // otherwise nothing ran, and the caller sends the request again.
 type Reconnect struct {

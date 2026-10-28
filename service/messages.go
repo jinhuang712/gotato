@@ -104,7 +104,7 @@ func WriterOf(err error) (address string, ok bool) {
 // returned to anyone: it is in the Session's stream, the Instance's stream and
 // the Record, and the message's ID is the one in its message_committed. The
 // leftovers are dropped instead, with a message_dropped Event, only when the
-// Run was stopped or canceled (run_ended), the instance is draining
+// Run was stopped or canceled (run_ended), the Instance is draining
 // (draining), or the Run's writer failed (writer_failed); a leftover that does
 // not fit the next Run's queues says queue_full, and one whose following Run
 // fails before its live Session takes it says run_failed (the store failed to
