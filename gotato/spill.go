@@ -21,8 +21,6 @@ const (
 	// SpillPreviewBytes is the start of a spilled result that stays in the
 	// Context: about 2K tokens (bytes ÷ 4), cut on a rune boundary.
 	SpillPreviewBytes = 8000
-	// SpillRefPrefix starts the ref of a spilled result, `result:<call_id>`.
-	SpillRefPrefix = text.SpillRefPrefix
 	// ReadResultToolID is the ID of the built-in tool that reads a spilled
 	// result back, a sibling of read_segment.
 	ReadResultToolID = "read_result"

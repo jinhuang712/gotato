@@ -218,9 +218,8 @@ type Usage struct {
 // calls.
 type StopReason string
 
-// The stop reasons. StopReasonNone means no model call ended the Message.
+// The stop reasons. The empty StopReason means no model call ended the Message.
 const (
-	StopReasonNone      StopReason = "none"
 	StopReasonEndTurn   StopReason = "end_turn"
 	StopReasonToolCalls StopReason = "tool_calls"
 	StopReasonMaxTokens StopReason = "max_tokens"

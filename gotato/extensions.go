@@ -123,18 +123,6 @@ func WithExtension(extension any) SessionOption {
 	}
 }
 
-// WithExtensions installs several Extensions in the given order.
-func WithExtensions(extensions ...any) SessionOption {
-	return func(c *sessionConfig) error {
-		for _, extension := range extensions {
-			if err := WithExtension(extension)(c); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
 type extensionSet struct {
 	transformers []ContextTransformer
 	converters   []MessageConverter

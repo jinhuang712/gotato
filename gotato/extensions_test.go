@@ -91,7 +91,7 @@ func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
 	first := &toolStages{name: "first", trace: recorder, tag: "first"}
 	second := &toolStages{name: "second", trace: recorder, tag: "second"}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtensions(first, second))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(first), WithExtension(second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPreToolUseBlockSkipsTheExecutor(t *testing.T) {
 	blocker := &toolStages{name: "blocker", trace: recorder, block: true}
 	after := &toolStages{name: "after", trace: recorder}
 	model := &recordingModel{scripts: [][]ModelEvent{toolCallScript(), finalScript("done")}}
-	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtensions(blocker, after))
+	agent, err := NewSession(WithModel(model), WithTools(tool), WithExtension(blocker), WithExtension(after))
 	if err != nil {
 		t.Fatal(err)
 	}
