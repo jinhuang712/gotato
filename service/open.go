@@ -137,6 +137,12 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			// untouched and still good, so it stays warm for the next Run.
 			r.keepWarm(w, entry.spec)
 			return nil, nil, nil, ctx.Err()
+		case errors.Is(staleErr, session.ErrNotFound):
+			// The store does not show the Session to this caller: it is
+			// deleted, or the caller is refused. A refused caller must not
+			// drop the owner's copy; the copy ages out by its TTL.
+			r.keepWarm(w, entry.spec)
+			return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
 		case staleErr == nil && !stale:
 			if err := r.live(ctx); err != nil {
 				r.unloaded(sessionID, entry.agent, "liveness_lapsed")

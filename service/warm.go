@@ -338,6 +338,11 @@ func (r *Runner) holdWarm(ctx context.Context, id string) (func(), error) {
 	if entry == nil {
 		return func() {}, nil
 	}
+	// The store answers first: a caller it refuses must not cancel the idle
+	// compaction of a Session that is not its own.
+	if err := r.reachStore(ctx, id); err != nil {
+		return nil, err
+	}
 	entry.mu.Lock()
 	entry.holds++
 	run := entry.idle
