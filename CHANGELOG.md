@@ -4,6 +4,8 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
+- **`gateway.Config.CacheKeyField` refuses a name the request already sends.** Before, `CacheKeyField: "model"` was accepted and the cache key replaced the model on the wire. Now `gateway.New` (and so `LoadYAML`) returns an error for `model`, `stream`, `messages`/`input`, `store`, `instructions` and the other fields of the wire API's request, and the encoder refuses the same names again. `prompt_cache_key` and other free names are unchanged.
+
 - **A reply is held to `MaxMessageBytes` while it streams.** Before, the Session read every delta of a reply that never ended and checked the size only at commit. Now the delta (text, reasoning, a reasoning signature, a Tool Call) that would take the reply past the limit stops the model call, which fails the Run with `limit_exceeded` as before; the reply kept as cut off stays within the limit. A gateway still holds one Tool Call's arguments whole before it emits the call.
 
 - **The line under a spilled result's preview points at page 1.** The preview is 8,000 bytes and a page is 32 KiB, so the line that said `page=2` skipped the rest of page 1. Before: `Read the rest with read_result(ref="result:c1", page=2).` After: `Read it page by page with read_result(ref="result:c1", page=1); the preview is only the start of page 1.`

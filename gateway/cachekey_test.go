@@ -165,3 +165,33 @@ cache_key_field: none
 		t.Fatalf("config = %+v", config)
 	}
 }
+
+// A CacheKeyField that names a field the wire API already sends would replace
+// it in the request, such as the model: New refuses it, and the encoder
+// refuses it again for a Client built by hand.
+func TestCacheKeyFieldRefusesAFieldTheRequestAlreadySends(t *testing.T) {
+	server, _ := recordingServer(t)
+	reserved := map[API][]string{
+		APIChatCompletions: {"model", "stream", "messages", "tools", "stream_options", "temperature", "max_tokens", "tool_choice", "Model"},
+		APIResponses:       {"model", "stream", "input", "store", "instructions", "include", "tool_choice", "reasoning", "prompt_cache_options", "max_output_tokens"},
+	}
+	for api, names := range reserved {
+		for _, name := range names {
+			_, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "expected-model", CacheKeyField: name})
+			if err == nil || !strings.Contains(err.Error(), "CacheKeyField") {
+				t.Errorf("%s: CacheKeyField %q: err = %v, want a refusal", api, name, err)
+			}
+		}
+	}
+	// The names a cache key may use stay allowed.
+	for api, name := range map[API]string{APIChatCompletions: "prompt_cache_key", APIResponses: "prompt_cache_key"} {
+		if _, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", CacheKeyField: name}); err != nil {
+			t.Errorf("%s: %q refused: %v", api, name, err)
+		}
+	}
+
+	client := &Client{api: APIChatCompletions, cacheKeyField: "model"}
+	if body, err := client.withCacheKeyField([]byte(`{"model":"m"}`), "session-key"); err == nil {
+		t.Fatalf("encode accepted a reserved field: %s", body)
+	}
+}
