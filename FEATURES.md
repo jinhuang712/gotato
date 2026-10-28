@@ -1189,6 +1189,8 @@ The Record is an append-only log ([DESIGNS.md → The Record is an append-only l
 
 The file store writes each batch of Entries to a file of its own, named by its first position, in a directory named by the Record's epoch (`<id>/<epoch>/<position>.json`), and links it into place. A link fails when the name exists, so two processes on one directory can never both write a position, and a crash never leaves a torn write. The epoch is in the path, so a Record that another process, or another goroutine, deletes and creates again under the same ID has another directory, and an old writer finds none to write into, however late: it gets `ErrNotFound`, with no window between its check and its write. The memory store checks and writes under one lock.
 
+A crash can leave a `.creating-*` or `.deleted-*` directory in the store's directory, or a `.tmp-*` file in an epoch directory or in `.instances`. The store removes the ones a day old or older: `NewFileStore` sweeps the directory and `.instances`, and a read of a Record's directory sweeps its temporary files. A younger one may belong to a live process on the same directory, so it stays; a Record is never named like a leftover, so it is never touched.
+
 **The store contract** is eight calls, each one ordinary conditional write or read, so a plain SQL or document database can do it:
 
 | Call | What it does |

@@ -89,7 +89,41 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	sweepDir(dir, leftoverAge, ".creating-", ".deleted-")
+	sweepDir(filepath.Join(dir, ".instances"), leftoverAge, ".tmp-")
 	return &FileStore{dir: dir, now: time.Now, heads: map[string]fileHead{}}, nil
+}
+
+// leftoverAge is how old a crash leftover must be before a store removes it.
+// A leftover is a ".creating-*" or ".deleted-*" directory of the store's
+// directory, or a ".tmp-*" file of an epoch directory or of ".instances", by
+// its modification time. Several processes can share one directory, and a
+// live Create, Delete or write finishes in seconds, so a day is far longer
+// than any of them, and a leftover costs little disk meanwhile. A Record is
+// never named like a leftover: an ID cannot start with ".".
+const leftoverAge = 24 * time.Hour
+
+// sweepDir removes the entries of dir whose names start with one of prefixes
+// and that were last modified more than age ago. It is best effort: another
+// process may remove an entry first, and an error is ignored.
+func sweepDir(dir string, age time.Duration, prefixes ...string) {
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	sweepEntries(dir, names, age, prefixes...)
+}
+
+func sweepEntries(dir string, names []os.DirEntry, age time.Duration, prefixes ...string) {
+	for _, name := range names {
+		if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(name.Name(), p) }) {
+			continue
+		}
+		if info, err := name.Info(); err != nil || time.Since(info.ModTime()) < age {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(dir, name.Name()))
+	}
 }
 
 // Dir returns the directory.
@@ -192,6 +226,7 @@ func batchFirsts(dir string) ([]uint64, error) {
 	if err != nil {
 		return nil, err
 	}
+	sweepEntries(dir, names, leftoverAge, ".tmp-")
 	var firsts []uint64
 	for _, name := range names {
 		base, ok := strings.CutSuffix(name.Name(), ".json")
@@ -614,6 +649,10 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+NewID()[:8])
 	if err := os.Rename(dir, tomb); err == nil {
 		found = true
+		// The rename keeps the Record's old modification time; a sweep by
+		// another process must not take the tomb for a leftover.
+		now := time.Now()
+		_ = os.Chtimes(tomb, now, now)
 		removeErr = os.RemoveAll(tomb)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
