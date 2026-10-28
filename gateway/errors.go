@@ -58,6 +58,13 @@ func (e *Error) Unwrap() error {
 	return e.cause
 }
 
+// Public returns the error's text for the Model, Events and clients. A Message
+// is the provider's own reply (cut on a rune boundary) or a fixed text of the
+// gateway; the transport error that may name a host stays on Unwrap. So a
+// caller sees why a provider refused ("model not found"), never where the
+// request went.
+func (e *Error) Public() string { return e.Error() }
+
 // Error implements the error interface: "gateway: HTTP 429: message", or
 // without the status when there was none.
 func (e *Error) Error() string {

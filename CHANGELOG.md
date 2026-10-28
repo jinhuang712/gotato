@@ -4,6 +4,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
+- **A `gateway.Error` is a `gotato.PublicError`.** Since foreign error text no longer reaches clients by default, a provider's refusal ("model not found", "prompt is too long") would have been hidden too. Its `Message` is the provider's own reply or a fixed text; the transport error that can name a host stays on `Unwrap`.
 - **`service.New` refuses a negative `Admission.MaxActiveRuns`.** Before, it meant no limit, silently, while a negative `MaxActiveSessions` was an error. Now both are errors; zero is still no limit.
 - **Fixed: a caller the Store refuses no longer evicts the owner's warm Session.** `Run`, `Compact` and `Notice` reached the warm copy before the Store, so a caller the Store answered `not_found` dropped the copy (`taken_over`) or canceled its idle compaction. Now the Store answers first, and a copy the Store hides from a caller stays warm.
 - **Fixed: `Drain` waits for a Compact, Notice, SetToolActive or DeleteSession in flight.** Only Runs were counted, so Drain returned while a compaction still held its Claim, `Close` removed the Liveness row, and the compaction's own write was refused. Every caller that takes a Session lock is now counted, and a deploy keeps the compaction it waited for.
