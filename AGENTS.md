@@ -76,15 +76,22 @@ Exported names follow one set of rules, so a reader can guess a name before look
 6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
 7. **Keep the CLI honest.** The CLI promises no contract: its flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
 8. **Format**: `gofmt -l .` must print nothing.
-9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"): `// [SECURITY] a redirect would send the caller's headers to a host the allow list never saw.` The tag says what the guard protects, from this closed list:
-   - `[SECURITY]`: a secret, a credential, or an authorization decision.
-   - `[DATA-LOSS]`: a Record, a Message or a result that would be lost or read wrong.
+9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"), and name the test that fails when the guard is removed: `// [SECURITY] a client cannot make the handler read a body past the cap. Test: TestWithMaxBodyRaisesAndLowersTheCap`. The tag says what the guard protects, from this closed list:
+   - `[SECURITY]`: a secret, a credential, an authorization decision, or a public text.
+   - `[DATA-LOSS]`: a Record, a Message or a result that would be lost or read wrong; the order of a durable write.
    - `[OWNERSHIP]`: one writer per Session across Instances (Claim, epoch, release).
-   - `[LIVENESS]`: a hang, a leak or a stuck state (goroutine, lock, queue, Claim).
-   - `[CONTRACT]`: behavior a documented contract or the Store suite requires.
-   - `[IMPORTANT]`: a non-obvious invariant that a later change could break; the comment says which.
+   - `[LIVENESS]`: a hang, a leak, unbounded growth or a stuck state (goroutine, lock, queue, Claim).
+   - `[CONCURRENCY]`: a lock order, a "caller holds X", or a check and its change in one step.
+   - `[FAILURE-CLASS]`: why an error is, or is not, NotRun or Retryable.
+   - `[CONTRACT]`: behavior that a document, the Store suite or a serialized name requires.
+   - `[SEAM]`: code that looks unused but is an intended extension point, event, metric or introspection.
+   - `[WORKAROUND]`: a deliberate duplicate or detour; the comment says when it can go.
+   - `[LIMITATION]`: a known gap left on purpose; the comment says why.
+   - `[IMPORTANT]`: only when no other tag fits; the comment says what breaks if it changes.
 
-   A change adds a guard only with a failing test that a supported use can trigger, and it reuses or replaces an existing mechanism before it adds a second one. A guard with no tag is a candidate for deletion in review; a tag whose reason no longer holds is too.
+   `Test:` is required on every tag except `[SEAM]`, `[WORKAROUND]` and `[LIMITATION]`.
+
+   A guard with no tag is a candidate for deletion in review. A tag whose `Test:` no longer exists, or no longer fails when the guard is removed, is stale, and so is a tag whose reason no longer holds. A change adds a guard only with a failing test that a supported use can trigger, and it reuses or replaces an existing mechanism before it adds a second one.
 
 ## Editing the Project Documents
 
