@@ -195,7 +195,7 @@ func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replace
 	if !ok {
 		return mergeDigestName, mergeDigest(replaced, cfg.Location), nil, nil
 	}
-	message, writeErr := writer.WriteMergeRecap(ctx, MergeRequest{Segments: replaced, Location: cfg.Location})
+	message, writeErr := guardedCall2(ctx, writer.WriteMergeRecap, MergeRequest{Segments: replaced, Location: cfg.Location})
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(ctxErr)})
 		return "", "", nil, ctxErr

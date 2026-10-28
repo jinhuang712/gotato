@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 )
 
@@ -304,4 +305,26 @@ func asRuntimeError(err error) *RuntimeError {
 		return runtimeErr
 	}
 	return runtimeError(CodeInternalInvariant, "Core", publicMessage(err, "internal error"), err)
+}
+
+// panicError is a panic of code the host supplied (a Model, a Journal, a
+// Transcript), as an error. Its Public text is fixed, so a RuntimeError built
+// from it has a Message a client may read; what it panicked with, and the
+// stack, are in Error() on the Cause, for logs.
+type panicError struct {
+	what  string
+	value any
+	stack []byte
+}
+
+func (e *panicError) Error() string  { return fmt.Sprintf("%s panic: %v\n%s", e.what, e.value, e.stack) }
+func (e *panicError) Public() string { return e.what + " panic" }
+
+// recoverPanic is deferred by a call into host code: a panic becomes *err, so
+// one faulty Model or store cannot take down the process, as a faulty
+// extension or Tool cannot.
+func recoverPanic(what string, err *error) {
+	if recovered := recover(); recovered != nil {
+		*err = &panicError{what: what, value: recovered, stack: debug.Stack()}
+	}
 }

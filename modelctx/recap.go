@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
@@ -389,4 +390,24 @@ func (m ModelRecap) complete(ctx context.Context, request gotato.ModelRequest) (
 	reply := gotato.AssistantMessage(text)
 	reply.Usage = usage
 	return reply, nil
+}
+
+// guardedCall calls a func a host supplied; a panic in it is the error it
+// returns, so a faulty writer costs the Segment its Recap and cannot leave the
+// compaction open (a compaction_started with no ending).
+func guardedCall[R any](ctx context.Context, call func(context.Context) (R, error)) (result R, err error) {
+	defer recoverPanic(&err)
+	return call(ctx)
+}
+
+// guardedCall2 is guardedCall for a func of a context and a request.
+func guardedCall2[A, R any](ctx context.Context, call func(context.Context, A) (R, error), arg A) (result R, err error) {
+	defer recoverPanic(&err)
+	return call(ctx, arg)
+}
+
+func recoverPanic(err *error) {
+	if recovered := recover(); recovered != nil {
+		*err = fmt.Errorf("modelctx: Recap panic: %v\n%s", recovered, debug.Stack())
+	}
 }

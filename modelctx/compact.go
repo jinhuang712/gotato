@@ -306,14 +306,14 @@ func writeRecap(ctx context.Context, s *session.Record, call compactCall, closed
 	var contextErr error
 	if call.context != nil {
 		var built gotato.ModelRequest
-		if built, contextErr = call.context(ctx); contextErr == nil {
+		if built, contextErr = guardedCall(ctx, call.context); contextErr == nil {
 			request.Context = &built
 		}
 	}
 	var message gotato.Message
 	var writeErr error
 	if contextErr == nil {
-		message, writeErr = call.Recap.WriteRecap(ctx, request)
+		message, writeErr = guardedCall2(ctx, call.Recap.WriteRecap, request)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: causeOf(ctxErr)})

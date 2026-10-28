@@ -69,7 +69,7 @@ func (a *Session) write(ctx context.Context, events []Event) *RuntimeError {
 func (a *Session) writeEvents(ctx context.Context, events []Event) ([]Event, *RuntimeError) {
 	a.emitMu.Lock()
 	defer a.emitMu.Unlock()
-	written, err := a.journal.Write(ctx, events)
+	written, err := a.writeJournal(ctx, events)
 	if err != nil {
 		return nil, journalError(err)
 	}
@@ -103,4 +103,10 @@ func (a *Session) reportExtension(stage string, failure *RuntimeError) {
 		return
 	}
 	a.stage(ExtensionFailed{Header: a.nowHeader(), Stage: stage, Code: failure.Code})
+}
+
+// writeJournal writes events to the Journal; a panic in it is an error.
+func (a *Session) writeJournal(ctx context.Context, events []Event) (written []Event, err error) {
+	defer recoverPanic("Journal", &err)
+	return a.journal.Write(ctx, events)
 }

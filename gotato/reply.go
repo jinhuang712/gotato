@@ -46,15 +46,33 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		partStarted: time.Now(),
 	}
 	modelCtx = withRetryReporter(modelCtx, reader.retried)
-	stream, err := a.model.Stream(modelCtx, request)
+	stream, err := a.openStream(modelCtx, request)
 	if err != nil {
 		return Message{}, Usage{}, classifyModelError(err, ctx, modelCtx, a.limits.ModelCallDeadline)
 	}
 	if stream == nil {
 		return Message{}, Usage{}, runtimeError(CodeModelFailure, "Model.Stream", "Model returned a nil stream", nil)
 	}
-	defer func() { _ = stream.Close() }()
+	defer closeStream(stream)
 	return reader.read(modelCtx, stream)
+}
+
+// openStream calls Model.Stream; a panic in it is an error.
+func (a *Session) openStream(ctx context.Context, request ModelRequest) (stream ModelStream, err error) {
+	defer recoverPanic("Model", &err)
+	return a.model.Stream(ctx, request)
+}
+
+// closeStream closes a stream, and ignores its error and its panic.
+func closeStream(stream ModelStream) {
+	defer func() { _ = recover() }()
+	_ = stream.Close()
+}
+
+// receive calls ModelStream.Recv; a panic in it is an error.
+func receive(ctx context.Context, stream ModelStream) (event ModelEvent, err error) {
+	defer recoverPanic("Model", &err)
+	return stream.Recv(ctx)
 }
 
 // assistantReader is the state of one reply while its stream is read: the
@@ -83,7 +101,7 @@ type assistantReader struct {
 // reply.
 func (r *assistantReader) read(modelCtx context.Context, stream ModelStream) (Message, Usage, *RuntimeError) {
 	for !r.complete {
-		modelEvent, recvErr := stream.Recv(modelCtx)
+		modelEvent, recvErr := receive(modelCtx, stream)
 		if recvErr != nil {
 			if errors.Is(recvErr, io.EOF) {
 				return r.broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))

@@ -19,6 +19,14 @@ func (emptyRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Mes
 	return gotato.AssistantMessage("  "), nil
 }
 
+// panickingRecap is a writer that panics.
+type panickingRecap struct{}
+
+func (panickingRecap) Name() string { return "panicking" }
+func (panickingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
+	panic("writer bug")
+}
+
 // A Recap that is missing says why in Compaction.RecapError, and "no writer"
 // is told apart from "the writer failed".
 func TestAMissingRecapSaysWhy(t *testing.T) {
@@ -39,6 +47,7 @@ func TestAMissingRecapSaysWhy(t *testing.T) {
 		{"the model fails", modelctx.ModelRecap{Model: failing}, nil, "model_failure", "none"},
 		{"the reply is not a Recap", modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text("Sure!"))}, nil, "model_protocol_failure", "none"},
 		{"the writer returns nothing", emptyRecap{}, nil, "empty_recap", "none"},
+		{"the writer panics", panickingRecap{}, nil, "model_failure", "none"},
 		{"the Context cannot be built", modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Text(goodRecap))}, func(*fixture) func(context.Context) (gotato.ModelRequest, error) { return broken }, "deadline_exceeded", "none"},
 	}
 	for _, tc := range cases {

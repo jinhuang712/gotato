@@ -65,7 +65,7 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	if enforce && limitExceededUint64(a.limits.MaxTranscriptBytes, candidate+2) {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum transcript bytes exceeded", nil)
 	}
-	if err := a.transcript.Append(message); err != nil {
+	if err := a.appendTranscript(message); err != nil {
 		return runtimeError(CodeInternalInvariant, "commitMessage", publicMessage(err, "cannot append to transcript"), err)
 	}
 	a.transcriptBytes = candidate
@@ -110,4 +110,10 @@ func (a *Session) controlSizeError(message Message, operation string) error {
 	e := runtimeError(CodeLimitExceeded, operation, operation+" message is over the maximum Message bytes", nil)
 	e.Details = map[string]string{"limit": limitMessageBytes}
 	return e
+}
+
+// appendTranscript appends to the Transcript; a panic in it is an error.
+func (a *Session) appendTranscript(message Message) (err error) {
+	defer recoverPanic("Transcript", &err)
+	return a.transcript.Append(message)
 }
