@@ -3,44 +3,14 @@ package gotato
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
-
-type namedTool struct {
-	id      string
-	hold    chan struct{}
-	arrive  chan string
-	tracker *concurrencyTracker
-	seq     bool
-}
-
-func (t *namedTool) Spec() ToolSpec {
-	return ToolSpec{
-		ID:          t.id,
-		Sequential:  t.seq,
-		InputSchema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`),
-	}
-}
-
-func (t *namedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
-	if t.tracker != nil {
-		t.tracker.enter()
-		defer t.tracker.leave()
-	}
-	if t.arrive != nil {
-		t.arrive <- t.id
-	}
-	if t.hold != nil {
-		select {
-		case <-t.hold:
-		case <-ctx.Done():
-			return ToolResult{}, ctx.Err()
-		}
-	}
-	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: t.id}}}, nil
-}
 
 // awaitArrivals blocks until the named number of Tools are inside their
 // executors at the same time. It is the deterministic proof that a batch ran
@@ -54,56 +24,6 @@ func awaitArrivals(t *testing.T, arrive chan string, count int) {
 			t.Fatalf("only %d of %d Tools were running at once", i, count)
 		}
 	}
-}
-
-type concurrencyTracker struct {
-	mu     sync.Mutex
-	active int
-	peak   int
-}
-
-func (c *concurrencyTracker) enter() {
-	c.mu.Lock()
-	c.active++
-	if c.active > c.peak {
-		c.peak = c.active
-	}
-	c.mu.Unlock()
-}
-
-func (c *concurrencyTracker) leave() {
-	c.mu.Lock()
-	c.active--
-	c.mu.Unlock()
-}
-
-func (c *concurrencyTracker) activeValue() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.active
-}
-
-func (c *concurrencyTracker) peakValue() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.peak
-}
-
-type stubToolSet struct {
-	name  string
-	tools []Tool
-	err   error
-	calls int
-}
-
-func (s *stubToolSet) Spec() ToolSetSpec { return ToolSetSpec{Name: s.name} }
-
-func (s *stubToolSet) Tools(ctx context.Context) ([]Tool, error) {
-	s.calls++
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.tools, nil
 }
 
 func TestFailedToolSetResolutionDoesNotFailNewSession(t *testing.T) {
@@ -389,5 +309,253 @@ func TestParallelWorkerBoundIsRespected(t *testing.T) {
 	}
 	if tracker.peakValue() != 2 {
 		t.Fatalf("worker bound not exercised: peak = %d", tracker.peakValue())
+	}
+}
+
+// blockingToolSet resolves only when its context ends.
+type blockingToolSet struct{ entered chan struct{} }
+
+func (blockingToolSet) Spec() ToolSetSpec { return ToolSetSpec{Name: "slow"} }
+
+func (b blockingToolSet) Tools(ctx context.Context) ([]Tool, error) {
+	close(b.entered)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestNewSessionCancelsAResolutionInProgress(t *testing.T) {
+	set := blockingToolSet{entered: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewSession(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}),
+			WithToolSet(set))
+		done <- err
+	}()
+	select {
+	case <-set.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the resolution never reached the ToolSet")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !IsCode(err, CodeCanceled) {
+			t.Fatalf("err = %v, want canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("NewSession did not return after the context ended")
+	}
+}
+
+func TestNewSessionRefusesAnEndedContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := NewSession(ctx, WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}})); !IsCode(err, CodeCanceled) {
+		t.Fatalf("err = %v, want canceled", err)
+	}
+}
+
+// barrier opens when every ToolSet of a group has entered Tools, so the group
+// answers only if the ToolSets resolve at the same time. A sequential
+// resolution would wait here until the timeout and fail the test. The test
+// counts arrivals, not milliseconds, so it is not a timing test.
+type barrier struct {
+	mu      sync.Mutex
+	want    int
+	entered int
+	open    chan struct{}
+	armed   bool
+}
+
+func newBarrier(want int) *barrier { return &barrier{want: want, open: make(chan struct{})} }
+
+// arm makes the next resolution wait for the whole group.
+func (b *barrier) arm() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.entered, b.open, b.armed = 0, make(chan struct{}), true
+}
+
+func (b *barrier) disarm() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.armed = false
+}
+
+func (b *barrier) arrive() error {
+	b.mu.Lock()
+	if !b.armed {
+		b.mu.Unlock()
+		return nil
+	}
+	b.entered++
+	open := b.open
+	if b.entered == b.want {
+		close(open)
+	}
+	b.mu.Unlock()
+	select {
+	case <-open:
+		return nil
+	case <-time.After(20 * time.Second):
+		return errors.New("ToolSets did not resolve at the same time")
+	}
+}
+
+type barrierSet struct {
+	name    string
+	barrier *barrier
+	panics  bool
+}
+
+func (s *barrierSet) Spec() ToolSetSpec {
+	return ToolSetSpec{Name: s.name, Description: s.name + " tools"}
+}
+
+func (s *barrierSet) Tools(context.Context) ([]Tool, error) {
+	if err := s.barrier.arrive(); err != nil {
+		return nil, err
+	}
+	if s.panics {
+		panic("boom")
+	}
+	return []Tool{&docTool{id: "act", description: s.name + " action"}}, nil
+}
+
+func barrierSets(n int, b *barrier) []*barrierSet {
+	var sets []*barrierSet
+	for i := range n {
+		sets = append(sets, &barrierSet{name: fmt.Sprintf("srv%02d", i), barrier: b})
+	}
+	return sets
+}
+
+func withSets(sets []*barrierSet) []SessionOption {
+	var opts []SessionOption
+	for _, set := range sets {
+		opts = append(opts, WithToolSet(set))
+	}
+	return opts
+}
+
+func TestToolSetsResolveAtTheSameTimeAtNewSessionAndAtEveryRun(t *testing.T) {
+	const n = 12
+	b := newBarrier(n)
+	b.arm()
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("a"), finalScript("b")}}
+	agent := newSearchSession(t, model, withSets(barrierSets(n, b))...)
+	if got := unavailableStages(runEvents(t, agent, "one")); len(got) != 0 {
+		t.Fatalf("the first Run found unavailable ToolSets: %v", got)
+	}
+	b.arm()
+	if got := unavailableStages(runEvents(t, agent, "two")); len(got) != 0 {
+		t.Fatalf("the second Run found unavailable ToolSets: %v", got)
+	}
+}
+
+func TestParallelResolutionKeepsTheCatalogBytesTheSame(t *testing.T) {
+	const n, runs = 8, 4
+	b := newBarrier(n)
+	var scripts [][]ModelEvent
+	for range runs {
+		scripts = append(scripts, finalScript("ok"))
+	}
+	model := &recordingModel{scripts: scripts}
+	agent := newSearchSession(t, model, withSets(barrierSets(n, b))...)
+	for i := range runs {
+		b.arm()
+		runEvents(t, agent, fmt.Sprintf("run %d", i))
+	}
+	want := descriptionOf(model, 0, SearchToolName)
+	last := -1
+	for i := range n {
+		at := strings.Index(want, fmt.Sprintf("srv%02d — ", i))
+		if at <= last {
+			t.Fatalf("srv%02d is missing or out of order in the catalog:\n%s", i, want)
+		}
+		last = at
+	}
+	for i := 1; i < runs; i++ {
+		if got := descriptionOf(model, i, SearchToolName); got != want {
+			t.Fatalf("Run %d changed the catalog:\n%s\n---\n%s", i, want, got)
+		}
+	}
+}
+
+func TestAPanicInOneToolSetLeavesTheOthersResolved(t *testing.T) {
+	b := newBarrier(3)
+	b.arm()
+	sets := barrierSets(3, b)
+	sets[1].panics = true
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("a")}}
+	agent := newSearchSession(t, model, withSets(sets)...)
+	b.disarm()
+	if got := unavailableStages(runEvents(t, agent, "one")); !slices.Equal(got, []string{"toolset:srv01"}) {
+		t.Fatalf("warnings = %v, want only srv01", got)
+	}
+	description := descriptionOf(model, 0, SearchToolName)
+	if !strings.Contains(description, "srv00.act") || !strings.Contains(description, "srv02.act") {
+		t.Fatalf("the other ToolSets are missing:\n%s", description)
+	}
+	if !strings.Contains(description, "srv01 — srv01 tools (unavailable now; no tools)") {
+		t.Fatalf("srv01 is not marked unavailable:\n%s", description)
+	}
+}
+
+// holdSet blocks in Tools until its context ends, once armed.
+type holdSet struct {
+	name    string
+	armed   *atomic.Bool
+	entered chan struct{}
+}
+
+func (s *holdSet) Spec() ToolSetSpec { return ToolSetSpec{Name: s.name} }
+
+func (s *holdSet) Tools(ctx context.Context) ([]Tool, error) {
+	if !s.armed.Load() {
+		return nil, nil
+	}
+	s.entered <- struct{}{}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestACanceledRunStopsAParallelResolution(t *testing.T) {
+	const n = 4
+	var armed atomic.Bool
+	entered := make(chan struct{}, n)
+	var opts []SessionOption
+	for i := range n {
+		opts = append(opts, WithToolSet(&holdSet{name: fmt.Sprintf("hold%d", i), armed: &armed, entered: entered}))
+	}
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("a"), finalScript("b")}}
+	agent := newSearchSession(t, model, opts...)
+	// The first Run uses NewSession's resolution; the second resolves again.
+	runEvents(t, agent, "one")
+	armed.Store(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := agent.Prompt(ctx, UserMessage("two"))
+		done <- err
+	}()
+	for range n {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the ToolSets did not all start resolving")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a canceled resolution did not fail the Run")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Run did not return after cancel")
 	}
 }

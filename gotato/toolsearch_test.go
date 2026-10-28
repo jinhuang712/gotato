@@ -6,91 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 )
-
-// docTool is a Tool with a description that counts its runs.
-type docTool struct {
-	id, description string
-	effect          ToolEffect
-	runs            atomic.Int32
-}
-
-func (t *docTool) Spec() ToolSpec {
-	return ToolSpec{
-		ID: t.id, Description: t.description, Effect: t.effect,
-		InputSchema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`),
-	}
-}
-
-func (t *docTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
-	t.runs.Add(1)
-	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "ran " + t.id}}}, nil
-}
-
-type describedSet struct {
-	name, description string
-	tools             []Tool
-}
-
-func (s *describedSet) Spec() ToolSetSpec {
-	return ToolSetSpec{Name: s.name, Description: s.description}
-}
-func (s *describedSet) Tools(context.Context) ([]Tool, error) { return s.tools, nil }
-
-func ordersSet() (*describedSet, map[string]*docTool) {
-	tools := map[string]*docTool{
-		"lookup": {id: "lookup", description: "Look up one order by its number", effect: ToolEffectRead},
-		"list":   {id: "list_open", description: "List the open orders of a customer", effect: ToolEffectRead},
-		"refund": {id: "refund", description: "Refund a payment for an order", effect: ToolEffectWriteExternal},
-	}
-	return &describedSet{name: "orders", description: "Order lookup and refunds",
-		tools: []Tool{tools["lookup"], tools["list"], tools["refund"]}}, tools
-}
-
-func searchCall(id string, arguments map[string]any) []ModelEvent {
-	encoded, _ := json.Marshal(arguments)
-	return []ModelEvent{
-		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: SearchToolName, Arguments: encoded}},
-		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
-	}
-}
-
-func callTool(id, toolID string) []ModelEvent {
-	return []ModelEvent{
-		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: toolID, Arguments: []byte(`{}`)}},
-		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
-	}
-}
-
-func resultOf(t *testing.T, model *recordingModel, request int, callID string) ToolResult {
-	t.Helper()
-	model.mu.Lock()
-	defer model.mu.Unlock()
-	for _, message := range model.requests[request] {
-		if message.ToolResult != nil && string(message.ToolResult.CallID) == callID {
-			result := message.ToolResult.Clone()
-			result.Content = cloneParts(message.Parts)
-			return result
-		}
-	}
-	t.Fatalf("request %d holds no result for %s", request, callID)
-	return ToolResult{}
-}
-
-func textOfResult(result ToolResult) string { return TextOf(Message{Parts: result.Content}) }
-
-func descriptionOf(model *recordingModel, request int, id string) string {
-	model.mu.Lock()
-	defer model.mu.Unlock()
-	for _, spec := range model.offered[request] {
-		if spec.ID == id {
-			return spec.Description
-		}
-	}
-	return ""
-}
 
 // runCollecting plays one Prompt and returns the ToolLoaded and ToolUnloaded
 // Events of the Run.
@@ -116,16 +34,6 @@ func runCollecting(t *testing.T, agent *Session, text string) (loaded []ToolLoad
 			return loaded
 		}
 	}
-}
-
-func newSearchSession(t *testing.T, model Model, options ...SessionOption) *Session {
-	t.Helper()
-	agent, err := NewSession(context.Background(), append([]SessionOption{WithModel(model)}, options...)...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = agent.Close(context.Background()) })
-	return agent
 }
 
 func TestSearchToolLoadsByNameAndKeepsTheCatalogSteady(t *testing.T) {
@@ -457,4 +365,55 @@ func TestBM25RanksTheBestMatchFirst(t *testing.T) {
 	if a, b := rank("order payment"), rank("order payment"); !slices.Equal(a, b) {
 		t.Errorf("rank is not deterministic: %v %v", a, b)
 	}
+}
+
+// requestModel keeps every whole ModelRequest it is sent.
+type requestModel struct {
+	mu       sync.Mutex
+	scripts  [][]ModelEvent
+	requests []ModelRequest
+}
+
+func (m *requestModel) Stream(_ context.Context, request ModelRequest) (ModelStream, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	index := len(m.requests)
+	m.requests = append(m.requests, request)
+	return &testStream{events: m.scripts[index]}, nil
+}
+
+func TestTheRequestNamesTheLoadedAndTheUnloadedCatalogTools(t *testing.T) {
+	set, _ := ordersSet()
+	model := &requestModel{scripts: [][]ModelEvent{
+		searchCall("s", map[string]any{"names": []string{"orders.lookup"}}),
+		finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set))
+	runCollecting(t, agent, "find order 7")
+
+	first, second := model.requests[0], model.requests[1]
+	if len(first.LoadedTools) != 0 || !slices.Equal(unloadedIDs(first), []string{"orders.list_open", "orders.lookup", "orders.refund"}) {
+		t.Fatalf("first request: loaded %v, unloaded %v", first.LoadedTools, unloadedIDs(first))
+	}
+	if !slices.Equal(second.LoadedTools, []string{"orders.lookup"}) || !slices.Equal(unloadedIDs(second), []string{"orders.list_open", "orders.refund"}) {
+		t.Fatalf("second request: loaded %v, unloaded %v", second.LoadedTools, unloadedIDs(second))
+	}
+	// The load is on the Tool Result that made it, for a gateway to show.
+	var found bool
+	for _, message := range second.Messages {
+		if message.ToolResult != nil && slices.Equal(message.ToolResult.LoadedTools, []string{"orders.lookup"}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the search_tools result does not list the load: %+v", second.Messages)
+	}
+}
+
+func unloadedIDs(request ModelRequest) []string {
+	var ids []string
+	for _, spec := range request.UnloadedTools {
+		ids = append(ids, spec.ID)
+	}
+	return ids
 }

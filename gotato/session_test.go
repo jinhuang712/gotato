@@ -4,71 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 	"testing"
 	"time"
 )
-
-type testStream struct {
-	mu     sync.Mutex
-	events []ModelEvent
-	index  int
-	block  <-chan struct{}
-}
-
-func (s *testStream) Recv(ctx context.Context) (ModelEvent, error) {
-	s.mu.Lock()
-	block := s.block
-	s.mu.Unlock()
-	if block != nil {
-		select {
-		case <-block:
-			s.mu.Lock()
-			s.block = nil
-			s.mu.Unlock()
-		case <-ctx.Done():
-			return ModelEvent{}, ctx.Err()
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.index >= len(s.events) {
-		return ModelEvent{}, io.EOF
-	}
-	event := s.events[s.index]
-	s.index++
-	return event, nil
-}
-func (s *testStream) Close() error { return nil }
-
-type testModel struct {
-	mu      sync.Mutex
-	calls   int
-	scripts [][]ModelEvent
-	started chan struct{}
-	block   <-chan struct{}
-	last    ModelRequest
-}
-
-func (m *testModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
-	m.mu.Lock()
-	index := m.calls
-	m.calls++
-	m.last = request
-	if m.started != nil {
-		select {
-		case m.started <- struct{}{}:
-		default:
-		}
-	}
-	var events []ModelEvent
-	if len(m.scripts) > 0 {
-		events = m.scripts[min(index, len(m.scripts)-1)]
-	}
-	block := m.block
-	m.mu.Unlock()
-	return &testStream{events: events, block: block}, nil
-}
 
 func TestSessionPromptEventsAndClose(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "hello"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
@@ -273,37 +211,6 @@ func TestSessionCloseWhileBusyIsBounded(t *testing.T) {
 	}
 }
 
-type scriptedTool struct {
-	calls int
-	mu    sync.Mutex
-}
-
-func (t *scriptedTool) Spec() ToolSpec {
-	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
-}
-func (t *scriptedTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
-	t.mu.Lock()
-	t.calls++
-	t.mu.Unlock()
-	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
-}
-
-type toolModel struct {
-	calls int
-	mu    sync.Mutex
-}
-
-func (m *toolModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
-	m.mu.Lock()
-	call := m.calls
-	m.calls++
-	m.mu.Unlock()
-	if call == 0 {
-		return &testStream{events: []ModelEvent{{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}}, {Kind: ModelEventKindDone, StopReason: StopReasonToolCalls}}}, nil
-	}
-	return &testStream{events: []ModelEvent{{Kind: ModelEventKindTextDelta, Text: "final"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}, nil
-}
-
 // A Tool Call's Signature is the adapter's: the Session stores it with the
 // call and sends it back on the next Turn unchanged.
 func TestToolCallSignatureIsStoredAndReplayed(t *testing.T) {
@@ -357,12 +264,6 @@ func TestSessionToolLoop(t *testing.T) {
 	}
 }
 
-func (m *testModel) lastRequest() ModelRequest {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.last
-}
-
 func TestPromptRejectsBlankParts(t *testing.T) {
 	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
 	agent, err := NewSession(context.Background(), WithModel(model))
@@ -378,5 +279,31 @@ func TestPromptRejectsBlankParts(t *testing.T) {
 	image := Message{Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindImage, Data: []byte{1, 2, 3}, MIMEType: "image/png"}}}
 	if _, err := agent.Prompt(context.Background(), image); err != nil {
 		t.Fatalf("image-only prompt rejected: %v", err)
+	}
+}
+
+// A host's Feed is shared by the Sessions of one id. A Session over a Transcript
+// that is not a Journal numbers its Events after the Feed's last number, so the
+// Events are Events of the stream, not numbers that repeat it.
+func TestSharedFeedOverAPlainTranscriptContinuesItsNumbers(t *testing.T) {
+	feed := NewFeed(nil)
+	for n := uint64(1); n <= 5; n++ {
+		feed.Publish(storedEvent(n))
+	}
+	sub, err := feed.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sub.Close() }()
+	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}), WithFeed(feed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+	if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	if first := next(t, sub); first.Head().Number != 6 {
+		t.Fatalf("the Session's first Event is numbered %d, want 6, after the Feed's last", first.Head().Number)
 	}
 }
