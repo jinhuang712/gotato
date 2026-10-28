@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -159,4 +160,123 @@ func (r *recorder) kinds() []EventKind {
 		out = append(out, event.Kind())
 	}
 	return out
+}
+
+// recordingModel records the transcript it received on every call so a test can
+// prove exactly which Turn a control Message reached the Model.
+type recordingModel struct {
+	mu       sync.Mutex
+	requests [][]Message
+	offered  [][]ToolSpec
+	scripts  [][]ModelEvent
+	started  chan int
+	gate     chan struct{}
+}
+
+func (m *recordingModel) Stream(ctx context.Context, request ModelRequest) (ModelStream, error) {
+	m.mu.Lock()
+	index := len(m.requests)
+	m.requests = append(m.requests, cloneMessages(request.Messages))
+	m.offered = append(m.offered, cloneToolSpecs(request.Tools))
+	if index >= len(m.scripts) {
+		scripted := len(m.scripts)
+		m.mu.Unlock()
+		return nil, fmt.Errorf("recordingModel: unexpected Model call %d with only %d scripted response(s)", index, scripted)
+	}
+	events := m.scripts[index]
+	m.mu.Unlock()
+	if m.started != nil {
+		m.started <- index
+	}
+	if m.gate != nil {
+		<-m.gate
+	}
+	return &testStream{events: events}, nil
+}
+
+func (m *recordingModel) transcript(call int) []Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if call >= len(m.requests) {
+		return nil
+	}
+	return m.requests[call]
+}
+
+func (m *recordingModel) toolIDs(call int) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if call >= len(m.offered) {
+		return nil
+	}
+	ids := make([]string, 0, len(m.offered[call]))
+	for _, spec := range m.offered[call] {
+		ids = append(ids, spec.ID)
+	}
+	return ids
+}
+
+func (m *recordingModel) calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.requests)
+}
+
+func containsUserText(messages []Message, text string) bool {
+	for _, message := range messages {
+		if message.Role == RoleUser && strings.Contains(TextOf(message), text) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolCallScript() []ModelEvent {
+	return []ModelEvent{
+		{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: "call-1", ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}},
+		{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls},
+	}
+}
+
+func finalScript(text string) []ModelEvent {
+	return []ModelEvent{{Kind: ModelEventKindTextDelta, Text: text}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}
+}
+
+func waitForCall(t *testing.T, started chan int, want int) {
+	t.Helper()
+	select {
+	case got := <-started:
+		if got != want {
+			t.Fatalf("Model call index = %d, want %d", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Model call %d never started", want)
+	}
+}
+
+type overflowError struct{ overflow bool }
+
+func (e overflowError) Error() string         { return "refused: too long" }
+func (e overflowError) ContextOverflow() bool { return e.overflow }
+
+type countingTool struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (t *countingTool) Spec() ToolSpec {
+	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
+}
+
+func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
+	t.mu.Lock()
+	t.calls++
+	t.mu.Unlock()
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
+}
+
+func (t *countingTool) count() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.calls
 }

@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -61,28 +62,6 @@ func (e *toolStages) After(ctx context.Context, result ToolResult) (ToolResult, 
 	result.CallID = "forged"
 	result.Executed = !result.Executed
 	return result, nil
-}
-
-type countingTool struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (t *countingTool) Spec() ToolSpec {
-	return ToolSpec{ID: "demo.echo", InputSchema: []byte(`{"type":"object","required":["value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}`)}
-}
-
-func (t *countingTool) Execute(ctx context.Context, use ToolUse, progress ToolProgressFunc) (ToolResult, error) {
-	t.mu.Lock()
-	t.calls++
-	t.mu.Unlock()
-	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "tool-ok"}}}, nil
-}
-
-func (t *countingTool) count() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.calls
 }
 
 func TestToolStagesRunInOrderAndReverseOrder(t *testing.T) {
@@ -493,5 +472,83 @@ func TestWithExtensionRejectsUnknownValues(t *testing.T) {
 	}
 	if _, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("x")}}), WithExtension(nil)); !IsCode(err, CodeInvalidArgument) {
 		t.Fatalf("nil extension = %v", err)
+	}
+}
+
+// typoHook is a ContextTransformer whose permission hook has the wrong
+// signature: it must not install silently as a transformer alone.
+type typoHook struct{}
+
+func (typoHook) Transform(context.Context, ContextSnapshot) ([]Message, error) { return nil, nil }
+func (typoHook) Before(ToolUse) (PreToolDecision, error)                       { return PreToolDecision{}, nil }
+
+type noHook struct{}
+
+func (noHook) Frobnicate() {}
+
+func TestWithExtensionFailsLoudlyOnAMismatchedHook(t *testing.T) {
+	model := &testModel{}
+	for name, ext := range map[string]any{"wrong Before signature": typoHook{}, "no hook at all": noHook{}} {
+		_, err := NewSession(context.Background(), WithModel(model), WithExtension(ext))
+		if !IsCode(err, CodeInvalidArgument) {
+			t.Errorf("%s: err = %v, want invalid_argument", name, err)
+		}
+	}
+}
+
+type publicErr struct{}
+
+func (publicErr) Error() string  { return "dial tcp 10.0.3.7:5432: password=hunter2" }
+func (publicErr) Public() string { return "the order service is unavailable" }
+
+// failingTool returns err from Execute.
+type failingTool struct{ err error }
+
+func (t failingTool) Spec() ToolSpec { return (&scriptedTool{}).Spec() }
+func (t failingTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
+	return ToolResult{}, t.err
+}
+
+func failedToolText(t *testing.T, err error) string {
+	t.Helper()
+	session, serr := NewSession(context.Background(), WithModel(echoToolModel("call-1")), WithTools(failingTool{err: err}))
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	if _, perr := session.Prompt(context.Background(), UserMessage("go")); perr != nil {
+		t.Fatal(perr)
+	}
+	for _, m := range session.Transcript().Messages() {
+		if m.ToolResult != nil {
+			return m.ToolResult.SafeError
+		}
+	}
+	t.Fatal("no tool result")
+	return ""
+}
+
+// SafeError does not carry the text of an error the Tool returned, unless the
+// error says it is public.
+func TestSafeErrorKeepsOnlyPublicText(t *testing.T) {
+	raw := failedToolText(t, errors.New("dial tcp 10.0.3.7:5432: password=hunter2"))
+	if strings.Contains(raw, "hunter2") || !strings.Contains(raw, "tool failed") {
+		t.Fatalf("SafeError = %q", raw)
+	}
+	wrapped := failedToolText(t, runtimeError(CodeStoreFailure, "db", "the store is down", errors.New("password=hunter2")))
+	if strings.Contains(wrapped, "hunter2") {
+		t.Fatalf("SafeError = %q", wrapped)
+	}
+	if got := failedToolText(t, publicErr{}); got != "the order service is unavailable" {
+		t.Fatalf("SafeError = %q, want the public text", got)
+	}
+}
+
+// The Message of an extension failure is fixed; the extension's text stays on
+// the Cause.
+func TestGuardDoesNotCarryRawErrorText(t *testing.T) {
+	failure := guard("stage", func() error { return errors.New("password=hunter2") })
+	if failure == nil || strings.Contains(failure.Error(), "hunter2") || failure.Cause == nil {
+		t.Fatalf("failure = %v", failure)
 	}
 }

@@ -168,3 +168,35 @@ func TestRuntimeErrorIsMatchesASentinelByIdentity(t *testing.T) {
 		t.Fatal("a code-only target does not match by code")
 	}
 }
+
+type failingModel struct{ err error }
+
+func (m failingModel) Stream(context.Context, ModelRequest) (ModelStream, error) { return nil, m.err }
+
+func TestModelErrorThatSaysOverflowEndsTheRunWithContextOverflow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want ErrorCode
+	}{
+		{"overflow", overflowError{overflow: true}, CodeContextOverflow},
+		{"wrapped overflow", fmt.Errorf("model: %w", overflowError{overflow: true}), CodeContextOverflow},
+		{"refused for another reason", overflowError{}, CodeModelFailure},
+		{"plain failure", errors.New("boom"), CodeModelFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, err := NewSession(context.Background(), WithModel(failingModel{err: tc.err}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = session.Close(context.Background()) }()
+			result, err := session.Prompt(context.Background(), UserMessage("hi"))
+			if err == nil || result.Status != RunStatusFailed || result.Error == nil || result.Error.Code != tc.want {
+				t.Fatalf("result = %+v, err = %v; want %s with %s", result, err, RunStatusFailed, tc.want)
+			}
+			if !IsCode(err, tc.want) {
+				t.Fatalf("err = %v, want code %s", err, tc.want)
+			}
+		})
+	}
+}
