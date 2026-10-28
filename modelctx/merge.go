@@ -117,7 +117,9 @@ type MergeResult struct {
 	TokensAfter  int `json:"tokens_after,omitempty"`
 }
 
-// mergeSegments writes the merge. A test replaces it to make the write fail.
+// mergeSegments writes the merge. A test replaces it to make the write fail:
+// a Record's own writes cannot fail in memory, and Compact reaches this call
+// too, so the seam is the one place a test can fault both paths.
 var mergeSegments = (*session.Record).MergeSegments
 
 // MergeSegments merges the oldest Segments of the Context into one merged
@@ -159,7 +161,7 @@ func MergeSegments(ctx context.Context, s *session.Record, cfg MergeConfig) (Mer
 	}
 	s.Emit(gotato.CompactionStarted{Header: sessionHeader(s), Why: why})
 
-	recapName, text, recapErr, err := mergeRecap(ctx, s, cfg, replaced, why, &result)
+	recapName, recap, recapErr, err := mergeRecap(ctx, s, cfg, replaced, why, &result)
 	if err != nil {
 		return result, err
 	}
@@ -170,7 +172,7 @@ func MergeSegments(ctx context.Context, s *session.Record, cfg MergeConfig) (Mer
 		}
 		return failMerge(s, why, result, MergeReasonRecapFailed, cause, recapErr), nil
 	}
-	return commitMerge(s, cfg, why, result, segments, count, recapName, text), nil
+	return commitMerge(s, cfg, why, result, segments, count, recapName, recap), nil
 }
 
 // pickOldest decides how many of the oldest segments to merge, for budget. It
@@ -204,9 +206,9 @@ func pickOldest(segments []gotato.Segment, budget int, result *MergeResult) int 
 // MergeRecapWriter, else the digest. It records the model call's usage in
 // result. recapErr is a Recap that failed or broke the rules, which leaves the
 // Segments unmerged; err is a canceled ctx, after a compaction_failed Event.
-func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replaced []gotato.Segment, why gotato.CompactionWhy, result *MergeResult) (name, text string, recapErr, err error) {
+func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replaced []gotato.Segment, why gotato.CompactionWhy, result *MergeResult) (name, recap string, recapErr, err error) {
 	writer, ok := cfg.Recap.(MergeRecapWriter)
-	if !ok || writer == nil {
+	if !ok {
 		return MergeDigestName, mergeDigest(replaced, cfg.Location), nil, nil
 	}
 	message, writeErr := writer.WriteMergeRecap(ctx, MergeRequest{Segments: replaced, Location: cfg.Location})
@@ -219,21 +221,21 @@ func mergeRecap(ctx context.Context, s *session.Record, cfg MergeConfig, replace
 		result.RecapUsage = &usage
 	}
 	if writeErr == nil {
-		text, writeErr = ValidateRecap(gotato.TextOf(message))
+		recap, writeErr = ValidateRecap(gotato.TextOf(message))
 	}
 	if writeErr != nil {
 		return "", "", writeErr, nil
 	}
-	return writer.Name(), text, nil, nil
+	return writer.Name(), recap, nil, nil
 }
 
 // commitMerge builds the merged Segment from the first count segments and
 // writes it with its Checkpoint. A write that fails leaves the Segments
 // unmerged and says so in the result.
-func commitMerge(s *session.Record, cfg MergeConfig, why gotato.CompactionWhy, result MergeResult, segments []gotato.Segment, count int, recapName, text string) MergeResult {
+func commitMerge(s *session.Record, cfg MergeConfig, why gotato.CompactionWhy, result MergeResult, segments []gotato.Segment, count int, recapName, recap string) MergeResult {
 	replaced := segments[:count]
 	before := s.Messages()
-	merged := buildMerged(s.NextSegment(), replaced, text, cfg.Location)
+	merged := buildMerged(s.NextSegment(), replaced, recap, cfg.Location)
 	tail := s.Tail()
 	for i := range tail {
 		// The usage a reply reported was for a request that is no more.
