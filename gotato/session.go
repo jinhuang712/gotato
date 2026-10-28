@@ -597,48 +597,49 @@ func (a *Session) loop() {
 		case <-a.closeSignal:
 			return
 		case cmd := <-a.commands:
-			switch cmd.kind {
-			case commandPrompt, commandContinue:
-				operation := "Prompt"
-				if cmd.kind == commandContinue {
-					operation = "Continue"
-				}
-				if err := a.admissionError(operation); err != nil {
-					cmd.result <- promptResponse{err: err}
-					<-a.admission
-					continue
-				}
-				if cmd.kind == commandContinue {
-					if err := validateContinuable(a.transcript.Messages()); err != nil {
-						cmd.result <- promptResponse{err: err}
-						<-a.admission
-						continue
-					}
-				}
-				a.setStatus(SessionStatusBusy)
-				var prompt *Message
-				if cmd.kind == commandPrompt {
-					prompt = &cmd.message
-				}
-				result, err := a.executeRun(cmd.ctx, prompt)
-				// Release admission and record Idle before delivering the
-				// result: the caller that receives it must be able to start the
-				// next Run immediately instead of observing this finished
-				// Run's admission token as Busy.
-				<-a.admission
-				if a.closeRequested.Load() {
-					cmd.result <- promptResponse{result: result, err: err}
-					return
-				}
-				a.setStatus(SessionStatusIdle)
-				cmd.result <- promptResponse{result: result, err: err}
+			if closing := a.serve(cmd); closing {
+				return
 			}
 		}
 	}
 }
 
-// finishClose ends the Session when its loop returns: it drops what is still
-// queued, marks the Session closed and releases Done.
+// serve runs one Prompt or Continue command and delivers its result. It
+// reports whether the Session is closing, so its goroutine ends.
+func (a *Session) serve(cmd sessionCommand) (closing bool) {
+	operation := "Prompt"
+	if cmd.kind == commandContinue {
+		operation = "Continue"
+	}
+	err := a.admissionError(operation)
+	if err == nil && cmd.kind == commandContinue {
+		err = validateContinuable(a.transcript.Messages())
+	}
+	if err != nil {
+		cmd.result <- promptResponse{err: err}
+		<-a.admission
+		return false
+	}
+	a.setStatus(SessionStatusBusy)
+	var prompt *Message
+	if cmd.kind == commandPrompt {
+		prompt = &cmd.message
+	}
+	result, err := a.executeRun(cmd.ctx, prompt)
+	// Release admission and record Idle before delivering the
+	// result: the caller that receives it must be able to start the
+	// next Run immediately instead of observing this finished
+	// Run's admission token as Busy.
+	<-a.admission
+	if a.closeRequested.Load() {
+		cmd.result <- promptResponse{result: result, err: err}
+		return true
+	}
+	a.setStatus(SessionStatusIdle)
+	cmd.result <- promptResponse{result: result, err: err}
+	return false
+}
+
 func (a *Session) finishClose() {
 	a.dropLeftoverControl()
 	a.setStatus(SessionStatusClosed)
