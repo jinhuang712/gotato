@@ -392,29 +392,6 @@ func (a *Session) Status() SessionStatus {
 // Close, when no Run is left and the Session has stopped accepting messages.
 func (a *Session) Done() <-chan struct{} { return a.done }
 
-// AbortRun stops the Run named runID. It is not a no-op for a Run that is
-// not in flight: it returns CodeInvalidState when runID is not the current
-// Run, or when that Run is already writing its end, and CodeInvalidArgument
-// when runID is empty. A canceled ctx returns its error and aborts nothing.
-func (a *Session) AbortRun(ctx context.Context, runID RunID) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if runID == "" {
-		return runtimeError(CodeInvalidArgument, "AbortRun", "Run ID is required", nil)
-	}
-	a.runMu.Lock()
-	currentID := a.currentRunID
-	a.runMu.Unlock()
-	if currentID != runID || !a.abort() {
-		return runtimeError(CodeInvalidState, "AbortRun", "Run is not active", nil)
-	}
-	return nil
-}
-
 // Subscribe starts a Subscription to the Session's stored Events and deltas,
 // from now on, across Runs. Subscribe before the first Prompt to see
 // everything. A subscriber that reads slowly slows only itself: the Session

@@ -1,4 +1,4 @@
-<!-- what-we-build: approved 2026-10-28 -->
+<!-- what-we-build: drafted 2026-10-28 -->
 # Gotato — Designs
 
 Every capitalized term on this page is defined in [GLOSSARY.md](GLOSSARY.md), which also gives each term's name in today's code.
@@ -690,7 +690,7 @@ A cloud Session runs with nobody watching each step. So it can be stopped at any
 ### Stopping reaches one Run, and a group of Runs is the application's
 
 - **Instead of:** a kill switch for a group of Agents inside the runtime.
-- **Why:** `Abort` stops one Run (`Session.AbortRun`, `Runner.AbortSession`), and `Drain` then `Close` stops one Instance. Both end through `context.Context`, so a model call, a tool call and a stream stop together, and the Run settles as `canceled` with every Turn it committed. A Run on another live Instance is not stopped from here: `AbortSession` answers `not_writer` with the writer's advertised address, and the HTTP endpoints send the cancel there when forwarding is on. Which Runs belong together is a role, and roles belong to applications ([Agents are flat](#agents-are-flat)). So an application that keeps its group in `Session.Metadata` lists the Sessions (`Runner.Sessions` returns the Metadata and whether each is running), aborts each one, and revokes its own credentials. Gotato has no call that does this for a group.
+- **Why:** `Abort` stops one Run (`Session.Abort`, `Runner.AbortSession`), and `Drain` then `Close` stops one Instance. Both end through `context.Context`, so a model call, a tool call and a stream stop together, and the Run settles as `canceled` with every Turn it committed. A Run on another live Instance is not stopped from here: `AbortSession` answers `not_writer` with the writer's advertised address, and the HTTP endpoints send the cancel there when forwarding is on. Which Runs belong together is a role, and roles belong to applications ([Agents are flat](#agents-are-flat)). So an application that keeps its group in `Session.Metadata` lists the Sessions (`Runner.Sessions` returns the Metadata and whether each is running), aborts each one, and revokes its own credentials. Gotato has no call that does this for a group.
 
 ### Each kind of Event is a type of its own
 

@@ -165,7 +165,7 @@ func TestSessionPromptEventsAndClose(t *testing.T) {
 	_ = stream.Close()
 }
 
-func TestSessionAbortRun(t *testing.T) {
+func TestSessionAbort(t *testing.T) {
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
 	model := &testModel{started: started, block: block, scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
@@ -190,19 +190,16 @@ func TestSessionAbortRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Model was not called")
 	}
-	var runID RunID
-	for runID == "" {
+	for {
 		event, nextErr := events.Next(context.Background())
 		if nextErr != nil {
 			t.Fatal(nextErr)
 		}
 		if _, ok := event.(RunStarted); ok {
-			runID = event.Head().RunID
+			break
 		}
 	}
-	if err := agent.AbortRun(context.Background(), runID); err != nil {
-		t.Fatal(err)
-	}
+	agent.Abort()
 	select {
 	case err := <-resultCh:
 		if !IsCode(err, CodeCanceled) {
