@@ -5,8 +5,8 @@
 //	POST /v1/responses         OpenAI Responses, streamed as SSE
 //	POST /v1/chat/completions  OpenAI Chat Completions, streamed as SSE
 //
-// It imports nothing from Gotato and is built from the providers' public wire
-// formats, so a test that points a Gotato gateway at it checks the gateway
+// It imports only Gotato's tag names (internal/text) and is built from the
+// providers' public wire formats, so a test that points a Gotato gateway at it checks the gateway
 // against the format and not against its own decoder. Use it from a test with
 // httptest.NewServer(fakegateway.New()), or serve it on a port with
 // internal/fakegateway/cmd/fakegateway.
