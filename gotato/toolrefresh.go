@@ -50,11 +50,26 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 
 // refreshTools re-reads every ToolSource. Static Tools and ToolSets are
 // untouched; only the dynamic part of the registry is rebuilt.
-func (a *Session) refreshTools() error {
+func (a *Session) refreshTools(ctx context.Context) error {
 	if !a.registry.hasSources() {
 		return nil
 	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
-	return a.registry.refreshSources()
+	return a.registry.refreshSources(ctx)
+}
+
+// refreshToolsInRun is refreshTools for a Run: a ToolSource that fails leaves
+// the last set in place and stores an ExtensionFailed Event, as a failing
+// ToolSet does. Only a ctx that ended fails the Run.
+func (a *Session) refreshToolsInRun(ctx context.Context) *RuntimeError {
+	err := a.refreshTools(ctx)
+	if err == nil {
+		return nil
+	}
+	if failure := contextFailure(ctx, "ToolSource"); failure != nil {
+		return failure
+	}
+	a.stage(ExtensionFailed{Header: a.nowHeader(), Stage: "toolsource", Code: asRuntimeError(err).Code})
+	return nil
 }

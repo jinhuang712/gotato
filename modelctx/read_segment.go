@@ -52,11 +52,11 @@ type segmentTools struct {
 }
 
 // Tools implements gotato.ToolSource.
-func (s segmentTools) Tools() []gotato.Tool {
+func (s segmentTools) Tools(context.Context) ([]gotato.Tool, error) {
 	if s.record == nil || len(s.record.Segments()) == 0 {
-		return nil
+		return nil, nil
 	}
-	return []gotato.Tool{s.tool}
+	return []gotato.Tool{s.tool}, nil
 }
 
 // readSegmentInput is the input of read_segment.

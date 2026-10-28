@@ -13,7 +13,7 @@ import (
 // toolList is a ToolSource with a fixed set of Tools.
 type toolList []gotato.Tool
 
-func (l toolList) Tools() []gotato.Tool { return l }
+func (l toolList) Tools(context.Context) ([]gotato.Tool, error) { return l, nil }
 
 func TestAgentMaxEffectHidesToolsAboveIt(t *testing.T) {
 	ctx := context.Background()

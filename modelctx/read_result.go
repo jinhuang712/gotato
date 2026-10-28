@@ -46,7 +46,9 @@ func ResultTools(record *session.Record, log session.EntryLog, opts ReadResultCo
 type resultTools struct{ tool gotato.Tool }
 
 // Tools implements gotato.ToolSource.
-func (r resultTools) Tools() []gotato.Tool { return []gotato.Tool{r.tool} }
+func (r resultTools) Tools(context.Context) ([]gotato.Tool, error) {
+	return []gotato.Tool{r.tool}, nil
+}
 
 // readResultInput is the input of read_result.
 type readResultInput struct {

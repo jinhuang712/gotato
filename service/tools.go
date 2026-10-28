@@ -45,7 +45,7 @@ func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
 	return modelctx.ResultTools(record, r.store, modelctx.ReadResultConfig{})
 }
 
-func (t *sessionTools) Tools() []gotato.Tool {
+func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	var tools []gotato.Tool
 	seen := map[string]bool{}
 	add := func(list []gotato.Tool) {
@@ -59,19 +59,31 @@ func (t *sessionTools) Tools() []gotato.Tool {
 	}
 	add(t.spec.Tools)
 	for _, source := range t.spec.ToolSources {
-		add(source.Tools())
+		supplied, err := source.Tools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		add(supplied)
 	}
 	// read_result is offered whenever the Agent has a tool, its own or a
 	// ToolSet's, so the tool list does not change on the Turn a result is
 	// first spilled.
 	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) {
-		add(t.results.Tools())
+		supplied, err := t.results.Tools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		add(supplied)
 	}
 	if t.segments != nil {
-		add(t.segments.Tools())
+		supplied, err := t.segments.Tools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		add(supplied)
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Spec().ID < tools[j].Spec().ID })
-	return tools
+	return tools, nil
 }
 
 // allowed reports whether a Tool is within the Agent's MaxEffect.
@@ -114,7 +126,11 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		all.results = r.resultTools(s)
 	}
 	entries := make([]ToolEntry, 0)
-	for _, tool := range all.Tools() {
+	offered, err := all.Tools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, tool := range offered {
 		entries = append(entries, ToolEntry{Spec: tool.Spec(), Active: filter.active(tool.Spec().ID)})
 	}
 	if s != nil {
@@ -180,7 +196,11 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	}
 	var found *gotato.ToolSpec
 	var result ToolEntry
-	for _, tool := range (&sessionTools{spec: spec}).Tools() {
+	offered, err := (&sessionTools{spec: spec}).Tools(ctx)
+	if err != nil {
+		return ToolEntry{}, err
+	}
+	for _, tool := range offered {
 		if tool.Spec().ID == toolID {
 			ts := tool.Spec()
 			found = &ts

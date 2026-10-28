@@ -1,6 +1,7 @@
 package gotato
 
 import (
+	"context"
 	"sort"
 )
 
@@ -11,8 +12,14 @@ import (
 //
 // Tools returned by a ToolSource are qualified under the root namespace like
 // Tools installed with WithTools.
+//
+// Tools takes the ctx of the Run (or of NewSession, or of the inspection) and
+// must honor it. When it fails or panics, the Session keeps the last set it
+// had and stores an ExtensionFailed Event with Stage "toolsource", as it does
+// for a ToolSet that fails; the Run goes on. NewSession, which has no earlier
+// set, fails instead. A ctx that ended is the caller's, and ends the Run.
 type ToolSource interface {
-	Tools() []Tool
+	Tools(ctx context.Context) ([]Tool, error)
 }
 
 // WithToolSource installs a dynamic Tool source.

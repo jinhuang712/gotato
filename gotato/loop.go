@@ -181,8 +181,8 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			if err := a.syncLoadedTools(); err != nil {
 				return Message{}, Usage{}, nil, asRuntimeError(err)
 			}
-			if err := a.refreshTools(); err != nil {
-				return Message{}, Usage{}, nil, asRuntimeError(err)
+			if err := a.refreshToolsInRun(runCtx); err != nil {
+				return Message{}, Usage{}, nil, err
 			}
 			if current, assembleErr = build(); assembleErr != nil {
 				return Message{}, Usage{}, nil, assembleErr
@@ -484,8 +484,8 @@ func (st *runState) runTurn(turn TurnNumber, runStart int) (more bool, result Ru
 
 	// The Tool surface is refreshed at the Turn boundary so every Tool the
 	// Model is shown in this request resolves for the whole Turn.
-	if refreshErr := a.refreshTools(); refreshErr != nil {
-		return st.failTurn(asRuntimeError(refreshErr))
+	if refreshErr := a.refreshToolsInRun(runCtx); refreshErr != nil {
+		return st.failTurn(refreshErr)
 	}
 	// A notice that waits goes in now, right before this model call: after
 	// the prompt, or after the Tool Results of the last Turn.

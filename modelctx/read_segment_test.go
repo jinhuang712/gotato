@@ -25,9 +25,15 @@ func readSegment(t *testing.T, tool gotato.Tool, arguments string) (string, erro
 	return b.String(), nil
 }
 
+// offered returns the Tools a source offers now.
+func offered(source gotato.ToolSource) []gotato.Tool {
+	tools, _ := source.Tools(context.Background())
+	return tools
+}
+
 func toolOf(t *testing.T, f *fixture, record *session.Record, opts modelctx.ReadSegmentConfig) gotato.Tool {
 	t.Helper()
-	tools := modelctx.SegmentTools(record, f.store, opts).Tools()
+	tools := offered(modelctx.SegmentTools(record, f.store, opts))
 	if len(tools) != 1 {
 		t.Fatalf("%d tools offered, want read_segment", len(tools))
 	}
@@ -40,11 +46,11 @@ func TestReadSegmentIsOfferedOnceASessionHasASegment(t *testing.T) {
 	f := newFixture(t)
 	threeRuns(f)
 	source := modelctx.SegmentTools(f.rec, f.store, modelctx.ReadSegmentConfig{})
-	if got := source.Tools(); len(got) != 0 {
+	if got := offered(source); len(got) != 0 {
 		t.Fatalf("%d tools before any Segment", len(got))
 	}
 	mustCompact(t, f.rec, modelctx.CompactConfig{})
-	tools := source.Tools()
+	tools := offered(source)
 	if len(tools) != 1 || tools[0].Spec().ID != "read_segment" || tools[0].Spec().Effect != gotato.ToolEffectRead {
 		t.Fatalf("tools = %+v, want read_segment with effect read", tools)
 	}
@@ -52,7 +58,7 @@ func TestReadSegmentIsOfferedOnceASessionHasASegment(t *testing.T) {
 		t.Errorf("schema = %s", tools[0].Spec().InputSchema)
 	}
 	// Another instance that loads the Session offers the same.
-	reloaded := modelctx.SegmentTools(f.reload(), f.store, modelctx.ReadSegmentConfig{}).Tools()
+	reloaded := offered(modelctx.SegmentTools(f.reload(), f.store, modelctx.ReadSegmentConfig{}))
 	if len(reloaded) != 1 || reloaded[0].Spec().ID != "read_segment" {
 		t.Fatalf("after a load: %+v", reloaded)
 	}

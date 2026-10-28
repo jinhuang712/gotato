@@ -63,7 +63,7 @@ Every capability by group, with the feature it belongs to and its status: ✅ bu
 | Effect | every tool declares read, write local, write external or destructive | G-F09 | ✅ |
 | Bad calls go back to the model | an unknown tool or bad arguments fail as a tool result, and the Run goes on | G-F09 | ✅ |
 | Effect cap per Agent | the model never sees a tool above the Agent's highest Effect | G-F09 | ✅ |
-| Tools in code | `gotato.WithTools` gives a Session its tools; a `ToolSource` can change them, and the Session asks it again at the start of every Turn | G-F10 | ✅ |
+| Tools in code | `gotato.WithTools` gives a Session its tools; a `ToolSource` can change them, and the Session asks it again, with the Run's `ctx`, at the start of every Turn. A source that fails keeps the last set and stores an `extension_failed` Event (stage `toolsource`), as a failing ToolSet does | G-F10 | ✅ |
 | Tool sets | a named group of tools from one source; the model loads its tools one by one, never the whole set | G-F10 | ✅ |
 | Tools per Session | switch a tool on or off for one Session | G-F10 | ✅ |
 | Tools that stay loaded | a tool the model loaded is a fact, so the next Run, on any instance, offers it too | G-F10 | ✅ |

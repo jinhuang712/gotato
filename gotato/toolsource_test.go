@@ -9,12 +9,16 @@ import (
 type dynamicSource struct {
 	mu    sync.Mutex
 	tools []Tool
+	err   error
 }
 
-func (s *dynamicSource) Tools() []Tool {
+func (s *dynamicSource) Tools(context.Context) ([]Tool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]Tool(nil), s.tools...)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return append([]Tool(nil), s.tools...), nil
 }
 
 func (s *dynamicSource) set(tools ...Tool) {

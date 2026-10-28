@@ -47,7 +47,7 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 		return ContextInspection{}, runtimeError(CodeBusy, "InspectContext", "Session is processing a Run", nil)
 	}
 	defer func() { <-a.admission }()
-	if err := a.refreshTools(); err != nil {
+	if err := a.refreshTools(ctx); err != nil {
 		return ContextInspection{}, asRuntimeError(err)
 	}
 	snapshot := ContextSnapshot{

@@ -88,7 +88,7 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		registry.searcher = bm25Searcher{}
 	}
 	registry.search = &searchTool{registry: registry}
-	if err := registry.collectSources(); err != nil {
+	if err := registry.collectSources(ctx); err != nil {
 		return nil, err
 	}
 	names := map[string]bool{}
@@ -444,7 +444,7 @@ func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 
 // collectSources asks every ToolSource for its Tools. A nil Tool or a panic
 // is a resolution failure, exactly as for a ToolSet.
-func (r *toolRegistry) collectSources() (err error) {
+func (r *toolRegistry) collectSources(ctx context.Context) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = runtimeError(CodeToolResolutionFailure, "ToolSource", fmt.Sprintf("ToolSource panicked: %v", recovered), nil)
@@ -452,7 +452,14 @@ func (r *toolRegistry) collectSources() (err error) {
 	}()
 	var tools []Tool
 	for _, source := range r.sources {
-		for _, tool := range source.Tools() {
+		supplied, sourceErr := source.Tools(ctx)
+		if sourceErr != nil {
+			if failure := contextFailure(ctx, "ToolSource"); failure != nil {
+				return failure
+			}
+			return runtimeError(CodeToolResolutionFailure, "ToolSource", "ToolSource failed", sourceErr)
+		}
+		for _, tool := range supplied {
 			if tool == nil {
 				return runtimeError(CodeInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
 			}
@@ -465,11 +472,11 @@ func (r *toolRegistry) collectSources() (err error) {
 
 // refreshSources re-collects the dynamic Tools and rebuilds visibility. On
 // failure the previous surface stays in place.
-func (r *toolRegistry) refreshSources() error {
+func (r *toolRegistry) refreshSources(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	previous := r.sourceTools
-	if err := r.collectSources(); err != nil {
+	if err := r.collectSources(ctx); err != nil {
 		r.sourceTools = previous
 		return err
 	}
