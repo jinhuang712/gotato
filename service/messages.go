@@ -120,54 +120,19 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 	if request.Kind == "" {
 		request.Kind = MessageKindSteer
 	}
-	switch {
-	case strings.TrimSpace(request.SessionID) == "":
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required"))
-	case !request.Kind.Valid():
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown message kind "+string(request.Kind)))
-	case strings.TrimSpace(request.Text) == "":
-		return MessageResult{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: message text is required"))
+	if invalid := request.validate(); invalid != nil {
+		return MessageResult{}, notRunError(invalid)
 	}
 	result := MessageResult{SessionID: request.SessionID}
 	message := gotato.UserMessage(request.Text)
 	message.ID = newMessageID()
-	waited := false
-	for attempt := 0; ; attempt++ {
-		if attempt > 0 && r.onSendRetry != nil {
-			r.onSendRetry()
-		}
-		handle, err := r.liveRun(ctx, request.SessionID)
-		if err != nil {
-			return result, err
-		}
-		if handle != nil {
-			err := handle.send(request.Kind, message)
-			switch {
-			case err == nil:
-				result.MessageID, result.Queued = string(message.ID), true
-				return result, nil
-			case !gone(err):
-				return result, err
-			}
-			// The live Session refuses the message while it is still
-			// attached, such as an Interrupt after the Run settled: wait for
-			// it to be withdrawn instead of asking again at once.
-			if err := handle.awaitLiveChange(ctx); err != nil {
-				return result, err
-			}
-		}
-		// No Run takes the message now. A Run that has stopped taking
-		// messages still holds the Session until it has saved and released
-		// it: wait for that, then look again, so the message is never
-		// answered busy for a Run that is only ending.
-		ended, err := r.endingRun(ctx, request.SessionID)
-		if err != nil {
-			return result, err
-		}
-		if !ended {
-			break
-		}
-		waited = true
+	queued, waited, err := r.queueToLiveRun(ctx, request, message)
+	if err != nil {
+		return result, err
+	}
+	if queued {
+		result.MessageID, result.Queued = string(message.ID), true
+		return result, nil
 	}
 	if err := r.checkWriter(ctx, request.SessionID); err != nil {
 		return result, err
@@ -179,6 +144,62 @@ func (r *Runner) Send(ctx context.Context, request MessageRequest) (MessageResul
 		result.Run = &run
 	}
 	return result, err
+}
+
+// validate reports why a message cannot be sent, as an invalid_argument error.
+func (m MessageRequest) validate() *gotato.RuntimeError {
+	switch {
+	case strings.TrimSpace(m.SessionID) == "":
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: session ID is required")
+	case !m.Kind.Valid():
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: unknown message kind "+string(m.Kind))
+	case strings.TrimSpace(m.Text) == "":
+		return gotato.ErrorOf(gotato.CodeInvalidArgument, "service: message text is required")
+	}
+	return nil
+}
+
+// queueToLiveRun hands the message to the Run in flight on this Instance and
+// reports whether a Run took it. When none did, no Run is going, and waited
+// says the loop had to wait for a Run that was only ending to release the
+// Session.
+func (r *Runner) queueToLiveRun(ctx context.Context, request MessageRequest, message gotato.Message) (queued, waited bool, err error) {
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && r.onSendRetry != nil {
+			r.onSendRetry()
+		}
+		handle, err := r.liveRun(ctx, request.SessionID)
+		if err != nil {
+			return false, waited, err
+		}
+		if handle != nil {
+			err := handle.send(request.Kind, message)
+			switch {
+			case err == nil:
+				return true, waited, nil
+			case !gone(err):
+				return false, waited, err
+			}
+			// The live Session refuses the message while it is still
+			// attached, such as an Interrupt after the Run settled: wait for
+			// it to be withdrawn instead of asking again at once.
+			if err := handle.awaitLiveChange(ctx); err != nil {
+				return false, waited, err
+			}
+		}
+		// No Run takes the message now. A Run that has stopped taking
+		// messages still holds the Session until it has saved and released
+		// it: wait for that, then look again, so the message is never
+		// answered busy for a Run that is only ending.
+		ended, err := r.endingRun(ctx, request.SessionID)
+		if err != nil {
+			return false, waited, err
+		}
+		if !ended {
+			return false, waited, nil
+		}
+		waited = true
+	}
 }
 
 // endingRun waits for a Run of the Session on this Instance that no longer
