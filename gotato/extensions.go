@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime/debug"
 	"slices"
 )
@@ -85,11 +86,17 @@ type AdvisoryExtension interface {
 
 // WithExtension installs one Extension. A value may implement several
 // Extension interfaces; it is installed into each of them. The resulting
-// order is immutable for the Session lifetime.
+// order is immutable for the Session lifetime. It fails with
+// CodeInvalidArgument when the value implements no Extension interface, or has
+// a method named like a hook (Transform, Convert, Before, After, Stop,
+// PrepareTurn, Advisory) whose signature does not match it.
 func WithExtension(extension any) SessionOption {
 	return func(c *sessionConfig) error {
 		if extension == nil {
 			return runtimeError(CodeInvalidArgument, "WithExtension", "extension is nil", nil)
+		}
+		if err := checkExtensionMethods(extension); err != nil {
+			return err
 		}
 		installed := false
 		if typed, ok := extension.(ContextTransformer); ok {
@@ -121,6 +128,33 @@ func WithExtension(extension any) SessionOption {
 		}
 		return nil
 	}
+}
+
+// hookMethods maps the name of each hook method to the interface it belongs
+// to.
+var hookMethods = map[string]reflect.Type{
+	"Transform":   reflect.TypeFor[ContextTransformer](),
+	"Convert":     reflect.TypeFor[MessageConverter](),
+	"Before":      reflect.TypeFor[PreToolUse](),
+	"After":       reflect.TypeFor[PostToolUse](),
+	"Stop":        reflect.TypeFor[TurnStopper](),
+	"PrepareTurn": reflect.TypeFor[TurnPreparer](),
+	"Advisory":    reflect.TypeFor[AdvisoryExtension](),
+}
+
+// checkExtensionMethods fails when the value has a method named like a hook
+// but the value does not satisfy that hook's interface, such as a Before with
+// the wrong signature. Without the check the value installs for the other
+// stages it does satisfy, and a safety hook fails open on a spelling mistake.
+func checkExtensionMethods(extension any) *RuntimeError {
+	value := reflect.TypeOf(extension)
+	for name, iface := range hookMethods {
+		if _, has := value.MethodByName(name); has && !value.Implements(iface) {
+			return runtimeError(CodeInvalidArgument, "WithExtension",
+				fmt.Sprintf("%s has a method %s that does not match %s, so the hook would not run", value, name, iface.Name()), nil)
+		}
+	}
+	return nil
 }
 
 type extensionSet struct {
