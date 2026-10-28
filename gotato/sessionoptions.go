@@ -1,5 +1,7 @@
 package gotato
 
+import "math"
+
 // SessionOption configures a Session built by NewSession.
 type SessionOption func(*sessionConfig) error
 
@@ -76,6 +78,9 @@ func WithInstruction(instruction string) SessionOption {
 // every model call. Provider adapters map the fields they support.
 func WithModelConfig(options ModelConfig) SessionOption {
 	return func(c *sessionConfig) error {
+		if options.Temperature != nil && (math.IsNaN(*options.Temperature) || math.IsInf(*options.Temperature, 0)) {
+			return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is not a finite number", nil)
+		}
 		if options.Temperature != nil && *options.Temperature < 0 {
 			return runtimeError(CodeInvalidArgument, "WithModelConfig", "temperature is negative", nil)
 		}

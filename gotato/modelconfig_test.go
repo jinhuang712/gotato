@@ -2,6 +2,7 @@ package gotato_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -84,5 +85,19 @@ func TestWithModelConfigRejectsNegativeTemperature(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("NewSession accepted a negative temperature")
+	}
+}
+
+func TestWithModelConfigRefusesANonFiniteTemperature(t *testing.T) {
+	for name, value := range map[string]float64{"nan": math.NaN(), "inf": math.Inf(1)} {
+		t.Run(name, func(t *testing.T) {
+			temperature := value
+			agent, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}),
+				gotato.WithModelConfig(gotato.ModelConfig{Temperature: &temperature}))
+			if err == nil {
+				_ = agent.Close(context.Background())
+				t.Fatalf("WithModelConfig accepted temperature %v", value)
+			}
+		})
 	}
 }
