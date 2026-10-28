@@ -344,8 +344,9 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 			return
 		}
 	}
+	var usage gotato.Usage
 	if response.Usage != nil {
-		usage := gotato.Usage{
+		usage = gotato.Usage{
 			InputTokens:  response.Usage.InputTokens,
 			OutputTokens: response.Usage.OutputTokens,
 			TotalTokens:  response.Usage.TotalTokens,
@@ -364,7 +365,7 @@ func (s *responsesStream) finishResponsesResponse(response *responsesResponse) {
 			break
 		}
 	}
-	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: stop, Model: s.model})
+	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindDone, StopReason: stop, Usage: usage, Model: s.model})
 	s.finished = true
 }
 

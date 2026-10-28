@@ -80,6 +80,9 @@ func TestResponsesStreamNormalizesTextReasoningAndUsage(t *testing.T) {
 	if events[3].Kind != gotato.ModelEventKindUsage || events[3].Usage.TotalTokens != 5 || events[3].Usage.CacheReadTokens != 1 {
 		t.Fatalf("usage event = %+v", events[3])
 	}
+	if events[4].Usage != events[3].Usage {
+		t.Fatalf("Done carries %+v, want the Usage event's %+v, as the other wires do", events[4].Usage, events[3].Usage)
+	}
 	if events[4].Kind != gotato.ModelEventKindDone || events[4].StopReason != gotato.StopReasonEndTurn {
 		t.Fatalf("done event = %+v", events[4])
 	}
