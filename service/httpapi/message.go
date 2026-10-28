@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -126,10 +125,36 @@ func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, b
 		return true
 	}
 	defer func() { _ = response.Body.Close() }()
-	maps.Copy(w.Header(), response.Header)
+	copyEndToEnd(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
 	return true
+}
+
+// hopByHop are the headers that belong to one connection and are not relayed
+// (RFC 9110, section 7.6.1), besides the ones a Connection header names.
+var hopByHop = []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade"}
+
+// copyEndToEnd adds the headers of src to dst, except the hop-by-hop ones. It
+// adds, so a header already on dst is kept.
+func copyEndToEnd(dst, src http.Header) {
+	skip := map[string]bool{}
+	for _, name := range hopByHop {
+		skip[name] = true
+	}
+	for _, value := range src.Values("Connection") {
+		for name := range strings.SplitSeq(value, ",") {
+			skip[http.CanonicalHeaderKey(strings.TrimSpace(name))] = true
+		}
+	}
+	for name, values := range src {
+		if skip[http.CanonicalHeaderKey(name)] {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(name, value)
+		}
+	}
 }
 
 func (h *Handler) abortSession(w http.ResponseWriter, r *http.Request) {

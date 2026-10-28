@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -299,6 +300,38 @@ func TestAForwardedRequestIsNeverForwardedAgain(t *testing.T) {
 	}
 	if a.requests.Load() != before {
 		t.Fatalf("the writer saw %d requests, want none: the request was forwarded again", a.requests.Load()-before)
+	}
+	close(g.release)
+	wait()
+}
+
+type cannedTransport func(*http.Request) *http.Response
+
+func (f cannedTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r), nil }
+
+func TestForwardingDoesNotRelayHopByHopHeaders(t *testing.T) {
+	store := session.NewMemoryStore()
+	g := newGate()
+	a := newInstance(t, store, "instance-a", g, true)
+	canned := &http.Client{Transport: cannedTransport(func(r *http.Request) *http.Response {
+		h := http.Header{}
+		h.Set("Keep-Alive", "timeout=5")
+		h.Set("Proxy-Authenticate", "Basic")
+		h.Set("Connection", "X-Hop")
+		h.Set("X-Hop", "1")
+		h.Set("X-Kept", "yes")
+		return &http.Response{StatusCode: http.StatusAccepted, Header: h, Body: io.NopCloser(strings.NewReader("{}")), Request: r}
+	})}
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(canned, anyAddress))
+	id, wait := running(t, a, g)
+	resp, _ := b.post(t, "/v1/sessions/"+id+"/abort", nil)
+	for _, name := range []string{"Keep-Alive", "Proxy-Authenticate", "X-Hop"} {
+		if resp.Header.Get(name) != "" {
+			t.Fatalf("the hop-by-hop header %s was relayed: %v", name, resp.Header)
+		}
+	}
+	if resp.Header.Get("X-Kept") != "yes" {
+		t.Fatalf("an end-to-end header was lost: %v", resp.Header)
 	}
 	close(g.release)
 	wait()
