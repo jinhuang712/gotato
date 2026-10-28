@@ -254,7 +254,7 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 		case t == nil || strings.TrimSpace(t.Name) == "":
 			skipped = append(skipped, SkippedTool{Reason: "the server listed a tool with no name"})
 			continue
-		// [IMPORTANT] one bad entry (a repeated name) must not take the server's good tools; Skipped reports it.
+		// [CONTRACT] one bad entry (a repeated name) must not take the server's good tools; Skipped reports it. Test: TestABadEntryInTheToolListLosesOnlyThatEntry
 		case seen[t.Name]:
 			skipped = append(skipped, SkippedTool{Name: t.Name, Reason: "the server listed the name more than once; the first is kept"})
 			continue
@@ -380,7 +380,7 @@ func (s *ToolSet) dial(ctx context.Context) (session *sdk.ClientSession, timedOu
 	// sends later on its own (the standalone stream, the DELETE on close). So
 	// the dial runs in a context with no values: the caller's end ends the
 	// dial, but its values (an end user's token) never reach the connection.
-	// [SECURITY] the connection outlives this caller, so the caller's values (an end user's token) must not reach it.
+	// [SECURITY] the connection outlives this caller, so the caller's values (an end user's token) must not reach it. Test: TestEachToolCallCarriesTheTokenOfItsOwnCaller
 	dialCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer context.AfterFunc(ctx, cancel)()

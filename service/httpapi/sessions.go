@@ -122,7 +122,7 @@ func (h *Handler) compact(w http.ResponseWriter, r *http.Request) {
 		writeDecodeError(w, err)
 		return
 	}
-	// [CONTRACT] a negative bound is refused, not read as compact everything.
+	// [CONTRACT] a negative bound is refused, not read as compact everything. Test: TestCompactTakesMinTokensAndKeepsTheLatestRun
 	if in.KeepMessages < 0 || in.MinTokens < 0 {
 		writeFailure(w, gotato.ErrorOf(gotato.CodeInvalidArgument, "keep_messages and min_tokens cannot be negative"))
 		return

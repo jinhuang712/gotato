@@ -31,7 +31,7 @@ import (
 // Framing and protocol errors (an oversized line, invalid JSON) are not
 // interruptions and are never retried.
 
-// [SECURITY] a fixed text, so the read error that may name a host never reaches the Model or a client.
+// [SECURITY] a fixed text, so the read error that may name a host never reaches the Model or a client. Test: TestACutStreamsMessageDoesNotNameTheConnection
 // streamInterruptedMessage is the public Message of a stream cut off; the
 // read error, which can name a remote address, stays the cause.
 const streamInterruptedMessage = "stream interrupted"
@@ -68,13 +68,13 @@ func (r *restarter) recover(ctx context.Context, cause error) (*http.Response, e
 		return nil, cause
 	}
 	if r.restarts >= r.client.maxRetries {
-		// [CONTRACT] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end.
+		// [FAILURE-CLASS] the cause keeps the text but not the chain: an Error that unwrapped to io.EOF would read as a clean end. Test: TestACutStreamsMessageDoesNotNameTheConnection
 		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
 	}
 	delay := withJitter(r.client.retryBackoff * time.Duration(r.restarts+1))
 	reported := gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: r.restarts + 1, Wait: delay, Error: "the stream was cut off"})
 	if r.delivered && !reported {
-		// [DATA-LOSS] a restart after delivered output would repeat that output when nobody drops it.
+		// [DATA-LOSS] a restart after delivered output would repeat that output when nobody drops it. Test: TestStreamIsNotReplayedAfterOutputBegan
 		return nil, &Error{retryable: true, Message: streamInterruptedMessage, cause: errors.New(cause.Error())}
 	}
 	r.restarts++

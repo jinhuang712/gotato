@@ -47,7 +47,7 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error
 		return nil
 	}
 	if err == nil {
-		// [CONTRACT] a request is not run on a body that says more than it was read for.
+		// [CONTRACT] a request is not run on a body that says more than it was read for. Test: TestABodyWithTrailingDataIsRefused
 		// The body is one value: anything after it but white space is
 		// refused, so a request is not run on a body that says more than it
 		// was read for.

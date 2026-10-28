@@ -309,6 +309,7 @@ func (s *responsesStream) emitResponsesCall(index int) bool {
 	if call.id != "" {
 		toolCall.Signature = []byte(call.id)
 	}
+	// [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.
 	s.queue = append(s.queue, gotato.ModelEvent{Kind: gotato.ModelEventKindToolCall, ToolCall: toolCall})
 	return true
 }

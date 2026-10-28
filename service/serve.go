@@ -90,7 +90,7 @@ func (r *Runner) serve(ctx, runCtx context.Context, request RunRequest, stream *
 		if created && !st.started {
 			lockErr = st.cleanupUnstarted(ctx, lockErr)
 		}
-		// [CONTRACT] a Run canceled while it waits for the Session lock settles as a canceled Run.
+		// [CONTRACT] a Run canceled while it waits for the Session lock settles as a canceled Run. Test: TestDrainCancelsQueuedRun
 		if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
 			// Canceled while waiting for the Session lock: report a settled
 			// canceled Run rather than a bare error.

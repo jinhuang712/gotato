@@ -379,6 +379,7 @@ func (s *chatStream) callFor(index *int, id string) *chatCall {
 	return call
 }
 
+// [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.
 func (s *chatStream) finishStream() {
 	for _, call := range s.calls {
 		name := call.name

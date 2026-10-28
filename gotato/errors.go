@@ -323,7 +323,7 @@ func (e *panicError) Public() string { return e.what + " panic" }
 // recoverPanic is deferred by a call into host code: a panic becomes *err, so
 // one faulty Model or store cannot take down the process, as a faulty
 // extension or Tool cannot.
-// [LIVENESS] a panic in host code would end the Session goroutine and the process instead of failing one call.
+// [LIVENESS] a panic in host code would end the Session goroutine and the process instead of failing one call. Test: TestPanicOfAModelJournalOrTranscriptFailsTheRun
 func recoverPanic(what string, err *error) {
 	if recovered := recover(); recovered != nil {
 		*err = &panicError{what: what, value: recovered, stack: debug.Stack()}

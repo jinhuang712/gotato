@@ -192,7 +192,7 @@ type Session struct {
 	// not yet filled: its notice_queued Event is being written. The limit
 	// counts them, so two Notices cannot both pass a check that the first has
 	// not yet filled.
-	// [IMPORTANT] the limit counts held places; without them two concurrent Notices both pass a check the first has not yet filled.
+	// [CONCURRENCY] the limit counts held places; without them two concurrent Notices both pass a check the first has not yet filled. Test: TestANoticeBeingWrittenHoldsItsPlaceInTheQueue
 	noticeHeld int
 	// controlSealed is set when the Session closes for good: nothing is put in
 	// a queue after it, and the last drop pass takes what is there. noticeMu

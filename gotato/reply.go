@@ -64,7 +64,7 @@ func (a *Session) openStream(ctx context.Context, request ModelRequest) (stream 
 }
 
 // closeStream closes a stream, and ignores its error and its panic.
-// [LIVENESS] a Close that panics must not end the Run that already has its reply.
+// [LIVENESS] a Close that panics must not end the Run that already has its reply. Test: TestPanicOfAModelJournalOrTranscriptFailsTheRun
 func closeStream(stream ModelStream) {
 	defer func() { _ = recover() }()
 	_ = stream.Close()
@@ -191,7 +191,7 @@ func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
 // reply larger than CoreLimits.MaxMessageBytes. The event is not applied, so
 // what is kept as the cut-off reply stays within the limit, and the caller
 // stops reading and cancels the model call.
-// [LIVENESS] a never-ending reply would grow in memory past MaxMessageBytes.
+// [LIVENESS] a never-ending reply would grow in memory past MaxMessageBytes. Test: TestReplyIsBoundedWhileItStreams
 func (r *assistantReader) grow(n int) *RuntimeError {
 	if limitExceededUint64(r.a.limits.MaxMessageBytes, r.size+uint64(n)) {
 		err := runtimeError(CodeLimitExceeded, "ModelStream", "maximum Message bytes exceeded", nil)

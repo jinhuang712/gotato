@@ -209,7 +209,7 @@ func (r *Runner) runWith(ctx context.Context, request RunRequest, stream *runStr
 	if request.Continue && strings.TrimSpace(request.Prompt) != "" {
 		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: continue takes no prompt"))
 	}
-	// [CONTRACT] a client's negative timeout is refused, not read as no bound.
+	// [CONTRACT] a client's negative timeout is refused, not read as no bound. Test: TestANegativeRequestTimeoutIsRefused
 	if request.Timeout < 0 {
 		return RunResponse{}, notRunError(gotato.ErrorOf(gotato.CodeInvalidArgument, "service: timeout must not be negative"))
 	}

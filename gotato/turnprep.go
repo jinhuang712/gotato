@@ -16,6 +16,7 @@ import (
 // and the Loop builds the request again from it. An error ends the Run; one
 // that is a *RuntimeError ends it with that code, any other ends it
 // with CodeExtensionFailure.
+// [SEAM] a host rewrites the Transcript before a Turn builds its request; modelctx.AutoCompactor is the one in the repository.
 type TurnPreparer interface {
 	PrepareTurn(context.Context, PendingTurn) (TurnPrepared, error)
 }

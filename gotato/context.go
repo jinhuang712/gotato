@@ -126,6 +126,7 @@ func (c ModelContext) renderSystem() string {
 // The Session applies ContextTransformer and MessageConverter Extensions to the
 // builder's Messages afterwards, so a builder is the primary strategy and
 // Extensions remain post-processing.
+// [SEAM] a host replaces how the Model's view is built from the Transcript; the Session's own builder is the default.
 type ContextBuilder interface {
 	Build(context.Context, ContextSnapshot) (ModelContext, error)
 }

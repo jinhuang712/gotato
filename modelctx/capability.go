@@ -11,6 +11,7 @@ import (
 // The gateway's Client implements it, and returns true for a recognized
 // Claude or OpenAI provider. A wrapper Model forwards it with Unwrap
 // (Unwrapper).
+// [SEAM] a Model opts in to the round-only reasoning replay; the gateway Client is the one that does.
 type RoundReasoner interface {
 	RoundReasoningOnly() bool
 }
@@ -31,6 +32,7 @@ func DropsReasoning(model gotato.Model) bool {
 // the chain, as errors.Is does for errors. A wrapper that does not implement
 // Unwrap, or the capability itself, hides the capabilities of the Model it
 // wraps: the window reads as unknown (0), and with it the ceiling.
+// [SEAM] a wrapper Model exposes the Model under it so capabilities are found through the chain.
 type Unwrapper interface {
 	Unwrap() gotato.Model
 }
@@ -56,6 +58,7 @@ func capabilityOf[T any](model gotato.Model) (T, bool) {
 // gateway.Client is one, from the model's context_window_tokens in its
 // configuration. Gotato keeps no table of windows, so a Model that does not
 // say has none. A wrapper Model forwards it with Unwrap (Unwrapper).
+// [SEAM] a Model tells its context window; the gateway Client reads it from its configuration.
 type ContextWindower interface {
 	ContextWindowTokens() int
 }
@@ -63,6 +66,7 @@ type ContextWindower interface {
 // CacheRetainer is a Model that knows how long its provider keeps the prompt
 // cache after a request. gateway.Client is one. A wrapper Model forwards it
 // with Unwrap (Unwrapper).
+// [SEAM] a Model tells how long its provider keeps the prompt cache; the gateway Client does.
 type CacheRetainer interface {
 	CacheRetention() time.Duration
 }

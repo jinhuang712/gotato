@@ -243,6 +243,7 @@ func (s *anthropicStream) streamError(event anthropicEvent) error {
 	}
 }
 
+// [LIMITATION] a tool call's arguments are emitted whole once complete, never as partial JSON, because the Session runs a call only on complete arguments.
 func (s *anthropicStream) finishBlock(block *anthropicBlockState) error {
 	switch block.kind {
 	case "tool_use":

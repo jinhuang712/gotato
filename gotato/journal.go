@@ -14,6 +14,7 @@ import (
 // with its error, and the Events of the step are not sent. session.Record and
 // session.Writer implement it; a Session whose Transcript is not a Journal
 // numbers its Events in memory.
+// [SEAM] a store other than session.Record plugs in here; no Gotato package implements it besides session.
 type Journal interface {
 	// Write keeps events as the next Entries, in order, and returns every
 	// Event it wrote with its Number: the Events it was given, and any that

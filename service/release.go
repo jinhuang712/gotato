@@ -84,7 +84,7 @@ func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	if claim, busy := record.Holder(); !busy || claim.Instance != r.id() {
 		return true
 	}
-	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick.
+	// [OWNERSHIP] a Run holding the Session lock owns its release; the mark stays for the next tick. Test: TestRepairKeepsTheMarkOfASessionWhoseRunStillHoldsTheLock
 	if err := r.locks.acquire(ctx, sessionID, false, nil); err != nil {
 		// A Session with a Run on it may have been marked by that Run, which
 		// settles inside the lock: keep the mark and try again next tick.

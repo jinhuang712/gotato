@@ -18,6 +18,7 @@ import (
 // the oldest Segments, from their Recaps alone. A writer that is not one, such
 // as TruncateRecap, leaves the merged Segment with a digest built
 // by code (mergeDigest). ModelRecap is one.
+// [SEAM] a Recap writer opts in to writing merged Recaps; ModelRecap is the one that does.
 type MergeRecapWriter interface {
 	RecapWriter
 	WriteMergeRecap(context.Context, MergeRequest) (gotato.Message, error)
@@ -274,7 +275,7 @@ func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, 
 // the error chooses to make public is kept: its PublicError text, or a
 // RuntimeError, whose Message is written to be read. Any other error is a
 // fixed text for its reason; the error itself is not kept.
-// [SECURITY] a Recap writer's or Store's error can carry a host, a query or a secret that a client must not read.
+// [SECURITY] a Recap writer's or Store's error can carry a host, a query or a secret that a client must not read. Test: TestAMergeWhoseModelFailsOrIsStoppedMergesNothing
 func publicMergeError(reason MergeReason, err error) string {
 	fallback := "the merge could not be written"
 	if reason == MergeReasonRecapFailed {

@@ -155,7 +155,7 @@ const (
 // An Interrupt needs a Run in flight (needsRun): one that finds the Run over
 // is refused, since it would otherwise cancel the first model call of the
 // next Run.
-// [IMPORTANT] the checks run under runMu and noticeMu at the send, so a message is never queued after the last drop pass or into the next Run.
+// [CONCURRENCY] the checks run under runMu and noticeMu at the send, so a message is never queued after the last drop pass or into the next Run. Test: TestSteerQueuedAcrossCloseIsDropped
 func (a *Session) sendControl(target chan control, queued control, needsRun bool) controlOutcome {
 	a.runMu.Lock()
 	defer a.runMu.Unlock()

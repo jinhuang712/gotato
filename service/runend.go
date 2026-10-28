@@ -169,7 +169,7 @@ func (r *Runner) noteFailure(err error, sessionID, agent string) {
 // not write (a Store's error, say). Message reaches HTTP clients, so it is the
 // text of a gotato.PublicError that err is or wraps, else the fixed fallback;
 // err itself stays on the Cause for logs.
-// [SECURITY] a Store's or Model's error can carry a DSN, a path or a secret, and Message reaches HTTP clients.
+// [SECURITY] a Store's or Model's error can carry a DSN, a path or a secret, and Message reaches HTTP clients. Test: TestForeignErrorKeepsPrivateTextOffMessage
 func foreignError(code gotato.ErrorCode, fallback string, err error) *gotato.RuntimeError {
 	e := gotato.ErrorOf(code, gotato.PublicText(err, fallback))
 	e.Cause = err

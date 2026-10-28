@@ -27,6 +27,7 @@ const (
 // its qualified ID, and none is above the Effect cap, switched off or loaded
 // already), and loads the first three IDs it returns and lists the next five.
 // An ID that is not among tools is ignored.
+// [SEAM] a team plugs in its own search; the built-in BM25 is the default.
 type ToolSearcher interface {
 	Search(ctx context.Context, query string, tools []ToolSpec) ([]string, error)
 }

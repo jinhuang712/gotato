@@ -77,7 +77,7 @@ type RecordRef struct {
 	// treats the Entries as removed when the Record under SessionID has another
 	// epoch, since it was deleted and created again, so a fork never reads
 	// another Session's Entry as its own history.
-	// [DATA-LOSS] a Session ID can be reused after Delete, so without the epoch a fork would read another Session's Entries as its parent's history.
+	// [DATA-LOSS] a Session ID can be reused after Delete, so without the epoch a fork would read another Session's Entries as its parent's history. Test: TestInheritedSegmentOfARecreatedParentIsNotRead
 	RecordEpoch string `json:"record_epoch,omitempty"`
 }
 

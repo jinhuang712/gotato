@@ -205,6 +205,7 @@ func (f *FileStore) setHead(id string, head fileHead) {
 // Load implements Store. It reads the writes back from the last one to the
 // write that holds the last Checkpoint, and from the writes before that only
 // their segment_closed Entries.
+// [LIMITATION] a cold Load reads the segment_closed Entries of every batch before the last Checkpoint's, because no index file of Segments exists yet.
 func (f *FileStore) Load(ctx context.Context, id string) (Loaded, error) {
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err

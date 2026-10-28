@@ -82,7 +82,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 	}
 }
 
-// [SECURITY] the public text is fixed: the SDK error names URLs and hosts and stays the cause.
+// [SECURITY] the public text is fixed: the SDK error names URLs and hosts and stays the cause. Test: TestAFailedCallHasFixedPublicText
 // callError is a failed call to the server. The model reads its fixed public
 // text (it is a gotato.PublicError): it says the server did not take the call,
 // which the model can act on. The SDK's error names URLs and hosts, so it
@@ -334,6 +334,7 @@ func firstText(parts []gotato.ContentPart, limit int) string {
 		if part.Kind == gotato.ContentKindText && part.Text != "" {
 			text := strings.TrimSpace(part.Text)
 			if len(text) > limit {
+				// [WORKAROUND] a copy of internal/text.Cut, because this module pins root v0.2.0, which lacks it; it can go when the module requires a root release that has it.
 				// Cut on a rune boundary: text[:limit] can split a rune.
 				cut := limit
 				for cut > 0 && !utf8.RuneStart(text[cut]) {

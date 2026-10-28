@@ -187,7 +187,7 @@ func (r *Runner) liveSessionsLocked() int {
 // closed Runner and a negative TTL keep nothing.
 func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 	ttl := spec.Warm.ttl()
-	// [DATA-LOSS] a failed Writer's copy may differ from the store and must not serve the next Run.
+	// [DATA-LOSS] a failed Writer's copy may differ from the store and must not serve the next Run. Test: TestWarmTTLIsPerAgent
 	if ttl < 0 || writer == nil || writer.Failed() != nil {
 		return
 	}

@@ -114,7 +114,7 @@ func (h *Handler) sessionStream(w http.ResponseWriter, r *http.Request) {
 		event, err := stream.Next(next)
 		// The keep-alive is the per-call timer running out, not any error that
 		// wraps DeadlineExceeded, such as a Store's own.
-		// [IMPORTANT] only the per-call timer is a keep-alive; a Store's own deadline error is a failure.
+		// [FAILURE-CLASS] only the per-call timer is a keep-alive; a Store's own deadline error is a failure. Test: TestSessionStreamReportsAStoreTimeoutAsAnError
 		timer := next.Err() != nil && errors.Is(err, context.DeadlineExceeded)
 		cancel()
 		switch {
