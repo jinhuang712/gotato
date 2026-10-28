@@ -24,7 +24,7 @@ fmt.Println(second.FinalText)
 
 An Agent is a definition: a model, an instruction, tools, limits. A Session is a conversation that runs it. The Runner keeps the two apart, so one Agent serves many Sessions.
 
-This example is run as a test: `ExampleRunner_Run` in [service/example_test.go](../service/example_test.go).
+This example is run as a test: `ExampleRunner_Run` in [service/run_test.go](../service/run_test.go).
 
 ## Many pods
 

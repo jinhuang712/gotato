@@ -184,7 +184,7 @@ While a Run works, you can change its course without starting over. How it works
 
 - The address is the writer's own: `service.Config.Address` (`--advertise`), optional; without it `not_writer` carries none. Gotato builds no network between instances: a forward is the same public request, sent once to an address you configured, and your own authentication applies.
 - **HTTP** answers 409 `"code": "not_writer"` from `POST …/messages` with the `Gotato-Writer` header and `writer` in the body (absent when none; a prefix mount such as `http.StripPrefix("/agent", …)` advertises the prefix). The HTTP endpoints forward it themselves when you opt in (`httpapi.WithForwarding`, `--forward`; [G-F27](#g-f27--service-many-instances-)); a forward carries `Gotato-Forwarded: true`, so a receiver that is not the writer answers `not_writer` and never forwards again, and it carries the caller's headers. A forward that fails to connect answers 502 `forward_failed`, unmarked, since the message may have reached the writer.
-- **A Go embedder** reads `service.WriterOf(err)` and forwards with its own client and keeps the loop guard (`forwarded` is true when the request it is answering carried `Gotato-Forwarded`; `service/httpapi/forward_snippet_test.go` runs it):
+- **A Go embedder** reads `service.WriterOf(err)` and forwards with its own client and keeps the loop guard (`forwarded` is true when the request it is answering carried `Gotato-Forwarded`; `service/httpapi/handler_test.go` runs it):
 
 ```go
 _, err := runner.Send(ctx, req)
@@ -573,7 +573,7 @@ A Runner hosts Sessions inside your service on as many instances as you run; any
 | Save every step | the prompt, a model call before it is made, a streaming reply every second or 4 KiB, the reply, tools before they run, each tool result, each continuation; a crash loses at most the step in flight (G-G01) |
 | One writer | the writer holds a Claim: a fact naming its instance and an Epoch, written at the position after the head it read, which also marks the Session busy until released. A writer that lost its Claim always writes to a taken position and is refused; a second instance stops before it calls the model (G-G08). A writer that already holds the Claim writes it again (`session_claimed`, same Epoch) when it opens the Session again, taking the next position, so of two instances opening an idle Session at once exactly one write lands and the other waits. A write that fails because its position is taken drops the writer's copy; any other failure leaves the outcome unknown, so the writer stops and the Session is opened again from the store |
 | Liveness rows | one row per instance, renewed every third of its TTL, expiry set and compared by the store's clock; when it expires every Claim of that instance ends with no write; a row that expired never comes back; the row of an instance that died stays, expired. An instance that cannot show its row renewed within the TTL less a margin writes nothing, publishes `liveness_lapsed`, and refuses a Run or a new Session as not run; `Runner.Lapsed` says so and `/readyz` answers 503 with `"lapsed": true` |
-| Instance name | `Config.Instance` is a label and the store identity is unique per start: a random suffix is appended (`pod-0` becomes `pod-0-3fa9c1d2`) in the row, every Claim and `session_claimed`; `Runner.Instance()` returns that form, so a StatefulSet name or a label two live processes share is safe (`service/instance_reuse_test.go`). Empty generates a whole name |
+| Instance name | `Config.Instance` is a label and the store identity is unique per start: a random suffix is appended (`pod-0` becomes `pod-0-3fa9c1d2`) in the row, every Claim and `session_claimed`; `Runner.Instance()` returns that form, so a StatefulSet name or a label two live processes share is safe (`service/liveness_test.go`). Empty generates a whole name |
 | Recovery | the first renewal after an outage longer than the TTL is refused with `session.ErrExpired`; the Runner takes a new name, writes a new row, removes the expired one, drops old Writers and warm copies (`session_unloaded`, `liveness_lapsed`); no restart |
 | Close | `Runner.Close` removes the row so Sessions move at once; a closed Runner writes nothing more |
 | Advertised address | optional `Config.Address` in the row; the only thing about another instance Gotato reads (`Store.Instance`); `not_writer` takes it from the row the Claim names; never connected to or checked |
@@ -860,7 +860,7 @@ type ownerStore struct{ session.Store } // Load reads loaded.Info.Metadata["owne
 // a mismatch returns session.ErrNotFound; Log, Append and Delete check the same way.
 ```
 
-[service/httpapi/caller_ctx_test.go](service/httpapi/caller_ctx_test.go) and [caller_live_test.go](service/httpapi/caller_live_test.go) keep this behavior, also while the owner's Run is live.
+[service/httpapi/handler_caller_test.go](service/httpapi/handler_caller_test.go) keeps this behavior, also while the owner's Run is live.
 
 ### G-N25 — A notice has no native form
 
