@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -79,7 +80,9 @@ func (s *Record) SpilledResults() (calls []gotato.ToolCallID, byCall map[gotato.
 	byCall = map[gotato.ToolCallID]gotato.SpilledResult{}
 	for _, message := range s.messages {
 		if result := message.ToolResult; result != nil && result.Spilled != nil {
-			calls = append(calls, result.CallID)
+			if _, seen := byCall[result.CallID]; !seen {
+				calls = append(calls, result.CallID)
+			}
 			byCall[result.CallID] = *result.Spilled
 		}
 	}
@@ -106,13 +109,14 @@ func (s *Record) SpilledBody(ctx context.Context, log EntryLog, spilled gotato.S
 
 // FindSpilled finds the spilled result of a Tool call in the log of Record id,
 // for a call whose Message the Context no longer holds because a Segment
-// closed over it. ok is false when the Record has none.
+// closed over it. ok is false when the Record has none. A model may use the same
+// call ID in two Turns; the result is then the latest one, as in SpilledResults.
 func FindSpilled(ctx context.Context, log EntryLog, id string, call gotato.ToolCallID) (spilled gotato.SpilledResult, ok bool, err error) {
 	entries, err := log.Log(ctx, id, 0)
 	if err != nil {
 		return gotato.SpilledResult{}, false, err
 	}
-	for _, entry := range entries {
+	for _, entry := range slices.Backward(entries) {
 		if entry.Kind != gotato.EventKindToolResultSpilled {
 			continue
 		}
@@ -143,9 +147,13 @@ func readSpilled(ctx context.Context, log EntryLog, id string, seq uint64) (body
 	if entries[0].Kind != gotato.EventKindToolResultSpilled {
 		return "", false, fmt.Errorf("session: entry %d of %s is a %s Entry, not a tool_result_spilled one", seq, id, entries[0].Kind)
 	}
-	event, ok, err := eventOf(entries[0], gotato.SessionID(id))
-	if err != nil || !ok {
+	event, _, err := eventOf(entries[0], gotato.SessionID(id))
+	if err != nil {
 		return "", false, err
 	}
-	return event.(gotato.ToolResultSpilled).Body, false, nil
+	spilled, ok := event.(gotato.ToolResultSpilled)
+	if !ok {
+		return "", false, fmt.Errorf("session: entry %d of %s does not hold a tool_result_spilled Event", seq, id)
+	}
+	return spilled.Body, false, nil
 }
