@@ -22,6 +22,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **Fixed: the heartbeat no longer forgets a Session whose Run still holds it.** A repair pass that found the Session busy under a Run dropped its mark, though that Run may have set the mark itself. Now the mark stays and the next tick tries again.
 - **Fixed: a repair of a release could erase a newer failure mark.** The pass cleared the mark after its attempt, so a failure marked meanwhile was lost. Now the mark is cleared before the attempt and set again when the attempt is not done.
 - **Fixed: a stream cut in the middle of an event is no longer read as a whole event.** The SSE reader returned the `data:` lines it had at the end of the body as an event, even without the blank line that ends one. Now an incomplete event is discarded and the end goes through the same cut-stream handling (a retry) as any other cut.
+- **Fixed: text cut at a byte limit no longer splits a character.** The first text of a failed MCP tool result (200 bytes) and the text of a plain-text provider error (512 bytes) were cut inside a multi-byte character, which left invalid UTF-8 in what the model and the client read. Now both cut on a character boundary.
 
 ## 0.2.0 — 2026-10-28
 

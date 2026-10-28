@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
+	"github.com/jinhuang712/gotato/internal/text"
 )
 
 // Error is a provider's refusal or a failed request. StatusCode is the HTTP
@@ -94,9 +95,7 @@ func readErrorBody(body io.Reader) errorBody {
 	}
 	if out.Message == "" {
 		out.Message = strings.TrimSpace(string(data))
-		if len(out.Message) > 512 {
-			out.Message = out.Message[:512]
-		}
+		out.Message = out.Message[:text.Cut(out.Message, 512)]
 	}
 	return out
 }

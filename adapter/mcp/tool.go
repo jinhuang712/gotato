@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jinhuang712/gotato/gotato"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -325,7 +326,12 @@ func firstText(parts []gotato.ContentPart, limit int) string {
 		if part.Kind == gotato.ContentKindText && part.Text != "" {
 			text := strings.TrimSpace(part.Text)
 			if len(text) > limit {
-				text = text[:limit]
+				// Cut on a rune boundary: text[:limit] can split a rune.
+				cut := limit
+				for cut > 0 && !utf8.RuneStart(text[cut]) {
+					cut--
+				}
+				text = text[:cut]
 			}
 			return text
 		}

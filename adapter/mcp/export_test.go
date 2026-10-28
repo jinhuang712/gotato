@@ -6,4 +6,5 @@ var (
 	ConvertResult = convertResult
 	EffectOf      = effectOf
 	SlimSchema    = slimSchema
+	FirstText     = firstText
 )

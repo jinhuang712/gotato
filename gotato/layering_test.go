@@ -30,7 +30,7 @@ const modulePath = "github.com/jinhuang712/gotato"
 var allowedImports = map[string][]string{
 	"gotato":            {"internal/text"},
 	"session":           {"gotato"},
-	"gateway":           {"gotato"},
+	"gateway":           {"gotato", "internal/text"}, // text.Cut: an error body is cut on a rune boundary
 	"modelctx":          {"gotato", "internal/text", "session"},
 	"testkit":           {"gotato", "internal/text", "session"}, // text.IsRecapAsk: the fake models recognize the Recap ask by the one definition
 	"session/storetest": {"gotato", "session"},
