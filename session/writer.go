@@ -51,6 +51,8 @@ type writerConfig struct {
 // the Record's release in the same write as its first Claim, so another Instance
 // may claim it at once. Without it, a Record is busy from CreateWriter until Release,
 // as one that OpenWriter opens is.
+//
+// It is for hosts that run Sessions on many Instances.
 func WithIdle() WriterOption {
 	return func(c *writerConfig) { c.idle = true }
 }
@@ -63,12 +65,16 @@ func WithIdle() WriterOption {
 // orders them. Flush, Release and OpenWriter call publish under the Writer's
 // lock, which orders their writes; CreateWriter calls it after the write, before it
 // returns the Writer. publish must not block, or call back into the Writer.
+//
+// It is for hosts that run Sessions on many Instances.
 func WithPublisher(publish func(gotato.Event)) WriterOption {
 	return func(c *writerConfig) { c.publish = publish }
 }
 
 // WithWaited tells OpenWriter that the caller waited for the Record's Writer to
 // finish before it opened the Record, so the Claim says so.
+//
+// It is for hosts that run Sessions on many Instances.
 func WithWaited() WriterOption {
 	return func(c *writerConfig) { c.waited = true }
 }
@@ -76,6 +82,8 @@ func WithWaited() WriterOption {
 // WithGuard runs guard before every write. When it fails, the write is not
 // made and the Writer stops: an Instance whose Liveness row may have expired
 // must not write, since another Instance may hold the Record by now.
+//
+// It is for hosts that run Sessions on many Instances.
 func WithGuard(guard func() error) WriterOption {
 	return func(c *writerConfig) { c.guard = guard }
 }
@@ -84,6 +92,8 @@ func WithGuard(guard func() error) WriterOption {
 // another Instance holds, with that Claim and whether the holder is using the
 // Session (busy, or a Run not ended). When check fails, OpenWriter returns its
 // error and writes nothing.
+//
+// It is for hosts that run Sessions on many Instances.
 func WithHolderCheck(check func(ctx context.Context, holder Claim, busy bool) error) WriterOption {
 	return func(c *writerConfig) { c.holder = check }
 }

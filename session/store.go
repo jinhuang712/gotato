@@ -84,7 +84,26 @@ type InstanceState struct {
 // free, so an adapter maps them to an insert on a unique (session, seq) key.
 // Implementations must be safe for concurrent use, also by several Instances
 // sharing one store. The conformance suite in session/storetest checks all of
-// it.
+// it; its failure messages name the rule that broke.
+//
+// The rules an adapter is most likely to miss:
+//
+//  1. Load returns facts only (Entry.Layer is LayerFact), from the last
+//     Checkpoint on; Log returns every Entry, facts and log, in order.
+//  2. A write continues the log: its Entries have the Seqs after+1, after+2
+//     and so on, and a Record starts with a Checkpoint at Seq 1. A batch that
+//     does not is refused with CodeInvalidArgument; an Append whose after is
+//     not the Record's last position is refused with ErrConflict.
+//  3. Append checks RecordInfo.RecordEpoch before the position. An epoch that
+//     is not the stored Record's is ErrNotFound, not ErrConflict: the Record
+//     was deleted and created again, and the writer is of the old one.
+//  4. Delete of an unknown Record is ErrNotFound, and so is every later
+//     Append, Load and Log of it.
+//  5. Beat keeps an expired Liveness row, so that the next Beat returns
+//     ErrExpired and the row never comes back. Only a ttl of 0 removes a row,
+//     and a Beat with a ttl of 0 on a missing row is not an error.
+//  6. Instance of an unknown ID is not an error: it is a state that is not
+//     alive.
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
 	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is
@@ -98,10 +117,10 @@ type Store interface {
 	// old one. That is checked before the position. It fails with ErrConflict
 	// unless after is the Record's last position.
 	Append(ctx context.Context, id string, after uint64, entries []Entry, summary RecordInfo) error
-	// Load returns the facts from the last Checkpoint on, and the
-	// segment_closed Entries before it (Loaded.Segments), which that
-	// Checkpoint may list by number. An adapter reads the Entry's Kind for
-	// them, as it reads it for the Checkpoint.
+	// Load returns the facts (Entries of Layer fact; log Entries are left out)
+	// from the last Checkpoint on, and the segment_closed Entries before it
+	// (Loaded.Segments), which that Checkpoint may list by number. An adapter
+	// reads the Entry's Kind for them, as it reads it for the Checkpoint.
 	Load(ctx context.Context, id string) (Loaded, error)
 	// Log returns the Entries, facts and log, after position after, in order:
 	// at most limit of them, or all when limit is 0 or less. A caller that
@@ -110,8 +129,8 @@ type Store interface {
 	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)
 	// List returns the RecordInfo of every Record, the most recently updated first.
 	List(ctx context.Context) ([]RecordInfo, error)
-	// Delete removes a Record. A writer that appends to it afterwards gets
-	// ErrNotFound.
+	// Delete removes a Record, and fails with ErrNotFound when there is none.
+	// A writer that appends to it afterwards gets ErrNotFound.
 	Delete(ctx context.Context, id string) error
 	// Beat renews an Instance's Liveness row until ttl from now, by the
 	// store's clock, and creates it the first time. It fails with ErrExpired

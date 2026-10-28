@@ -1,6 +1,15 @@
 // Package session holds a Session's Record, what the Store keeps of it, and
 // the Stores that keep it.
 //
+// To write a Store adapter, read these five types first: Store (its doc lists
+// the rules adapters miss), Entry, Loaded, RecordInfo, and InstanceRow with
+// InstanceState, plus the errors ErrNotFound, ErrExists, ErrConflict and
+// ErrExpired. Prove the adapter with session/storetest. MemoryStore and
+// FileStore are the Stores that ship. Writer, Claim, WriteStats and the Writer
+// options are for hosts that run Sessions on many Instances (the
+// service package uses them), and Document, Fork, View and the Record methods
+// for code that works with a Record directly.
+//
 // A Record holds the Session's identity, the committed Messages, per-Run
 // records, usage, a bounded window of its stored Events, compaction history,
 // and free-form application metadata. Once it is stored, it is the Session's
