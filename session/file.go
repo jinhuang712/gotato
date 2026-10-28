@@ -411,6 +411,11 @@ func (f *FileStore) Create(ctx context.Context, id string, entries []Entry, summ
 	if err := f.writeBatch(filepath.Join(building, epochName), fileBatch{Entries: entries, Info: summary}); err != nil {
 		return err
 	}
+	// writeBatch synced the epoch directory; building holds that directory's
+	// entry, and it must be durable before the rename publishes the Record.
+	if err := syncDir(building); err != nil {
+		return err
+	}
 	if err := os.Rename(building, f.recordDir(id)); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return ErrExists
