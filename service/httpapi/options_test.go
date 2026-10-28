@@ -150,3 +150,23 @@ func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 
 // anyAddress allows every forward target, for tests whose store is trusted.
 func anyAddress(string) bool { return true }
+
+// An oversized body is refused with 413 on the routes that read the raw body.
+func TestOversizedBodyIsRefusedOnMessageAndNoticeRoutes(t *testing.T) {
+	server, runner := newServer(t)
+	s, err := runner.CreateSession(t.Context(), "echo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := `{"text":"` + strings.Repeat("x", 2<<20) + `"}`
+	for _, route := range []string{"messages", "notices"} {
+		resp, err := http.Post(server.URL+"/v1/sessions/"+s.ID()+"/"+route, "application/json", strings.NewReader(big))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: status %d, want 413", route, resp.StatusCode)
+		}
+	}
+}

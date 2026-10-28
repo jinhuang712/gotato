@@ -20,10 +20,7 @@ func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, erro
 	if r.Body == nil {
 		return nil, nil
 	}
-	// [SECURITY] a client cannot make the handler read a body past the cap.
-	if r.ContentLength > h.maxBody {
-		return nil, errBodyTooLarge
-	}
+	// [SECURITY] a client cannot make the handler read a body past the cap. Test: TestOversizedBodyIsRefusedOnMessageAndNoticeRoutes
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
@@ -39,10 +36,7 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, into any) error
 	if r.Body == nil {
 		return nil
 	}
-	// [SECURITY] a client cannot make the handler read a body past the cap.
-	if r.ContentLength > h.maxBody {
-		return errBodyTooLarge
-	}
+	// [SECURITY] a client cannot make the handler read a body past the cap. Test: TestWithMaxBodyRaisesAndLowersTheCap
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
