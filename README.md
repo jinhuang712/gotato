@@ -153,6 +153,11 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithActiveToolSet
 | [Which packages do I import?](guides/packages.md) | what each package is for, and what leaving one out costs |
 | [Getting started](guides/getting-started.md) | a Session, a tool and the Events of a Run |
 | [Embed Gotato in a service](guides/embed-in-a-service.md) | the Runner, many pods and shutting down |
+| [HTTP in five minutes](guides/http-in-five-minutes.md) | a service you can `curl`, with streaming and health checks |
+| [A minimal `main.go`](guides/minimal-main.md) | a complete program, and the order to shut it down in |
+| [Write a Tool or a Model](guides/write-a-tool-and-model.md) | a function Tool, your own Tool type, a ToolSet, a Model wrapper |
+| [Write a Store](guides/write-a-store.md) | the Store contract and the suite that checks your adapter |
+| [Test with fakes](guides/test-with-fakes.md) | scripted models and tools, no network |
 | [Extension points](guides/extension-points.md) | which seam to use to change a model, a tool, a store or what the model sees |
 | [Example: a chat bot](guides/example-chat-bot.md) | several instances behind a chat platform |
 

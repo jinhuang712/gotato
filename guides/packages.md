@@ -89,3 +89,5 @@ An arrow reads "imports". Some imports skip a layer, and the table lists all of 
 
 - [Getting started](getting-started.md) uses the core and a model.
 - [Embed Gotato in a service](embed-in-a-service.md) adds `service` and `session`.
+- [Write a Tool or a Model](write-a-tool-and-model.md), [write a Store](write-a-store.md), and [pick an extension point](extension-points.md).
+- [HTTP in five minutes](http-in-five-minutes.md), a [minimal `main.go`](minimal-main.md), and [tests with fakes](test-with-fakes.md).

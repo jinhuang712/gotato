@@ -232,7 +232,7 @@ What a Model keeps to:
 
 ### Failures that say what to do
 
-Gotato has no capability list for a Model. What a Model can tell the Session about a failure, it says with a method on the error it returns:
+A Model tells the Session about a failure with a method on the error it returns. (What the Model knows about itself, such as its context window or how long its provider keeps the prompt cache, is a separate matter: `modelctx` reads it from the optional interfaces `ContextWindower` and `CacheRetainer`, and a wrapper passes them on by implementing `Unwrap() gotato.Model`.)
 
 | Method on the error | What Gotato does | Resulting code |
 |---|---|---|

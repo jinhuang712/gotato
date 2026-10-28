@@ -81,5 +81,6 @@ This example is run as a test: `ExampleSession_SubscribeRun` in [example_test.go
 ## Next
 
 - Keep conversations in a store, and run them on many pods: [Embed Gotato in a service](embed-in-a-service.md).
+- Write your own Tool or Model: [write-a-tool-and-model.md](write-a-tool-and-model.md). Test without a provider: [test-with-fakes.md](test-with-fakes.md). Pick a seam: [extension-points.md](extension-points.md).
 - What each term means: [GLOSSARY.md](../GLOSSARY.md).
 - What is built, and what is not planned: [FEATURES.md](../FEATURES.md).
