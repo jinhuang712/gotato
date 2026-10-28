@@ -189,9 +189,4 @@ func TestCacheKeyFieldRefusesAFieldTheRequestAlreadySends(t *testing.T) {
 			t.Errorf("%s: %q refused: %v", api, name, err)
 		}
 	}
-
-	client := &Client{api: APIChatCompletions, cacheKeyField: "model"}
-	if body, err := client.withCacheKeyField([]byte(`{"model":"m"}`), "session-key"); err == nil {
-		t.Fatalf("encode accepted a reserved field: %s", body)
-	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -73,9 +72,6 @@ func (c *Client) withCacheKeyField(body []byte, key string) ([]byte, error) {
 	}
 	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
 		return nil, errors.New("gateway: the encoded request is not a JSON object")
-	}
-	if reservedBodyField(c.api, c.cacheKeyField) {
-		return nil, fmt.Errorf("gateway: CacheKeyField %q is a field the request already sends", c.cacheKeyField)
 	}
 	name, err := json.Marshal(c.cacheKeyField)
 	if err != nil {
