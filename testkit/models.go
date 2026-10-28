@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -42,6 +43,10 @@ type FakeModel struct {
 	// Block, when set, makes Recv wait until the channel is closed or the
 	// context ends. Use it to test cancellation deterministically.
 	Block <-chan struct{}
+	// Delay, when set, makes Recv wait this long before every event (or until
+	// the context ends), so a test can read a stream while it is still open:
+	// a client that disconnects mid-stream, a resume, a cancellation.
+	Delay time.Duration
 }
 
 // NewFakeModel creates a FakeModel with the given Scripts.
@@ -64,7 +69,7 @@ func (m *FakeModel) Stream(_ context.Context, request gotato.ModelRequest) (gota
 		index = len(m.scripts) - 1
 	}
 	events = m.scripts[index]
-	return &stream{events: events, block: m.Block}, nil
+	return &stream{events: events, block: m.Block, delay: m.Delay}, nil
 }
 
 // Calls returns how many times Stream was called.
@@ -141,6 +146,7 @@ type stream struct {
 	events []gotato.ModelEvent
 	index  int
 	block  <-chan struct{}
+	delay  time.Duration
 }
 
 func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
@@ -148,6 +154,15 @@ func (s *stream) Recv(ctx context.Context) (gotato.ModelEvent, error) {
 		select {
 		case <-s.block:
 			s.block = nil
+		case <-ctx.Done():
+			return gotato.ModelEvent{}, ctx.Err()
+		}
+	}
+	if s.delay > 0 && s.index < len(s.events) {
+		timer := time.NewTimer(s.delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
 		case <-ctx.Done():
 			return gotato.ModelEvent{}, ctx.Err()
 		}

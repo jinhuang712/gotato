@@ -194,3 +194,24 @@ func TestEventRecorderWaitsForAMatchingEvent(t *testing.T) {
 		t.Fatalf("Wait did not see run_ended in %v", recorder.Kinds())
 	}
 }
+
+func TestFakeModelDelayWaitsBeforeEachEvent(t *testing.T) {
+	model := testkit.NewFakeModel(testkit.Text("x"))
+	model.Delay = 30 * time.Millisecond
+	stream, err := model.Stream(context.Background(), gotato.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	if _, err := stream.Recv(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Recv inside the delay: err = %v", err)
+	}
+	start := time.Now()
+	if _, err := stream.Recv(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) < 20*time.Millisecond {
+		t.Fatal("Recv returned before the delay")
+	}
+}
