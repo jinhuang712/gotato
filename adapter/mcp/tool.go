@@ -84,7 +84,7 @@ func (t *tool) Execute(ctx context.Context, use gotato.ToolUse, progress gotato.
 type callError struct{ error }
 
 func (e callError) Unwrap() error  { return e.error }
-func (e callError) Public() string { return e.error.Error() }
+func (e callError) Public() string { return e.Error() }
 
 // needsInput is what the model reads when a tool asks, in the middle of its
 // call, for input that Gotato cannot give (elicitation, sampling, roots).
