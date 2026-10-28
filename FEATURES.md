@@ -849,7 +849,7 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTools(lookup,
 ```
 
 - A tool above the cap is hidden: it is in no model request, no inspected Context and no tool listing. That includes the tools of a ToolSet the model searches later: a tool above the cap is never in the index of `search_tools`. The discovery tool declares `read`, so every cap keeps it.
-- A model that calls a hidden tool by a guessed name gets the failed result of an unknown tool, which lists only the visible tools, and the Run goes on.
+- A model that calls a hidden tool by a guessed name gets a failed result that says the tool exists but the Session does not allow it, and lists only the visible tools; the Run goes on.
 - A tool that declares no Effect counts as destructive, so any cap below `destructive` hides it.
 - No cap is the default. In a service, `service.Agent.MaxEffect` sets the cap, and a Session can neither raise it nor switch on a hidden tool. Work that needs another cap is another Agent (see the decision below).
 - The cap is shown by `GET /v1/agents`, as `max_effect` from Agent name to cap. An Agent without a cap has no entry.
@@ -861,7 +861,7 @@ The cap decides which tools a model may use, so two questions came first: what h
 
 | Option | For | Against |
 |---|---|---|
-| **Hide the tools above the cap** (chosen) | The model cannot plan around a tool it never sees, and spends no Turn on a call that fails. Fewer tool definitions in the Context. | A model that guesses a hidden name gets "unknown tool", not the reason. |
+| **Hide the tools above the cap** (chosen) | The model cannot plan around a tool it never sees, and spends no Turn on a call that fails. Fewer tool definitions in the Context. | A model that calls a hidden name gets a failed result that says the Session does not allow it. |
 | Offer every tool, and refuse a call above the cap | The model learns why a call failed. | The model keeps choosing tools it may not use, and each refusal costs a Turn. |
 
 | Option | For | Against |

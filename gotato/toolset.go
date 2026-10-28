@@ -438,6 +438,23 @@ func (r *toolRegistry) hidden(spec ToolSpec) bool {
 	return r.maxEffect != ToolEffectUnspecified && !spec.Effect.Within(r.maxEffect)
 }
 
+// cappedEffect reports whether a Tool carries the qualified ID id and the
+// Effect cap hides it, and the Effect it declares. A Tool the filter refuses is
+// not reported: the filter is how a Session keeps a Tool's existence quiet.
+func (r *toolRegistry) cappedEffect(id string) (ToolEffect, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, tool := range r.staticTools() {
+		if spec := tool.Spec(); r.qualify("", spec.ID) == id && r.hidden(spec) {
+			return spec.Effect, true
+		}
+	}
+	if entry, ok := r.byCatalog[id]; ok && r.hidden(entry.spec) {
+		return entry.spec.Effect, true
+	}
+	return ToolEffectUnspecified, false
+}
+
 // indexable reports whether the Model may find and load a catalog Tool: the
 // Effect cap and the filter come first, and a Tool whose ID a static Tool
 // already holds cannot be offered twice.

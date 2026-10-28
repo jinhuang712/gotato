@@ -42,7 +42,7 @@ func toolResultsByCall(request gotato.ModelRequest) map[gotato.ToolCallID]gotato
 // TestEffectCapHidesToolsAboveIt is G-G05: Agents with every cap get a tool
 // at every Effect level, and the model calls all of them by name. A tool above
 // the cap is in no request and no listing, its code never runs, and its call
-// fails as a call to an unknown tool that does not name it as available.
+// fails as a call to a tool this Session does not allow, which does not name it as available.
 func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 	ctx := context.Background()
 	for _, ceiling := range []gotato.ToolEffect{gotato.ToolEffectRead, gotato.ToolEffectWriteLocal, gotato.ToolEffectWriteExternal, gotato.ToolEffectDestructive} {
@@ -104,8 +104,8 @@ func TestEffectCapHidesToolsAboveIt(t *testing.T) {
 					t.Errorf("%s above %s ran %d times", id, ceiling, fakes[effect].Calls())
 				}
 				_, available, found := strings.Cut(res.SafeError, "available tools:")
-				if res.Status != gotato.ToolResultStatusFailed || res.Executed || !strings.Contains(res.SafeError, "unknown tool") || !found {
-					t.Errorf("%s above %s: result %+v, want a failed unknown-tool result", id, ceiling, res)
+				if res.Status != gotato.ToolResultStatusFailed || res.Executed || !strings.Contains(res.SafeError, "not allowed in this Session") || !found {
+					t.Errorf("%s above %s: result %+v, want a failed not-allowed result", id, ceiling, res)
 				}
 				if strings.Contains(available, id) {
 					t.Errorf("%s above %s: the result lists it as available: %q", id, ceiling, res.SafeError)
@@ -164,7 +164,7 @@ func TestEffectCapKeepsAToolOfAToolSetOutOfTheIndex(t *testing.T) {
 	if lookup.Calls() != 1 || push.Calls() != 0 {
 		t.Fatalf("calls: lookup %d, push %d; want 1, 0", lookup.Calls(), push.Calls())
 	}
-	if res := toolResultsByCall(requests[2])["c"]; res.Status != gotato.ToolResultStatusFailed || !strings.Contains(res.SafeError, "unknown tool") {
+	if res := toolResultsByCall(requests[2])["c"]; res.Status != gotato.ToolResultStatusFailed || !strings.Contains(res.SafeError, "not allowed in this Session") {
 		t.Fatalf("hidden ToolSet tool result = %+v", res)
 	}
 }

@@ -91,8 +91,22 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded 
 	}
 }
 
-// visibleToolIDs lists the Tools the Model was shown this Turn, for an
-// unknown-tool message.
+// unresolvedToolText is the failed Result of a call to a Tool the Model cannot
+// call. A Tool that exists but the Effect cap hides is said to be not allowed
+// in this Session; any other name is an unknown tool.
+func (a *Session) unresolvedToolText(id string) string {
+	if effect, capped := a.registry.cappedEffect(id); capped {
+		if effect == ToolEffectUnspecified {
+			effect = "unspecified, which counts as destructive"
+		}
+		return fmt.Sprintf("%s: tool %q is not allowed in this Session (its effect is %s; the Session's maximum is %s); available tools: %s",
+			CodeToolResolutionFailure, id, effect, a.registry.maxEffect, a.visibleToolIDs())
+	}
+	return fmt.Sprintf("%s: unknown tool %q; available tools: %s", CodeToolResolutionFailure, id, a.visibleToolIDs())
+}
+
+// visibleToolIDs lists the Tools the Model was shown this Turn, for the
+// message of a call that did not resolve.
 func (a *Session) visibleToolIDs() string {
 	specs := a.registry.visibleSpecs()
 	ids := make([]string, 0, len(specs))
@@ -349,7 +363,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}
-			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: unknown tool %q; available tools: %s", CodeToolResolutionFailure, call.ToolID, a.visibleToolIDs())))
+			plans = append(plans, a.rejectedPlan(sourceIndex, call, a.unresolvedToolText(call.ToolID)))
 			continue
 		}
 		if !json.Valid(call.Arguments) {

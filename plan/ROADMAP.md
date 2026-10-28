@@ -68,7 +68,7 @@ Exit:
 Built.
 
 - ✅ An Agent can name the highest Effect its tools may have, with `gotato.WithMaxEffect` or `service.Agent.MaxEffect`. There is no cap by default.
-- ✅ A tool above the cap is hidden from the model, including a tool of a ToolSet, which is never in the index and is never loaded, and a call to it fails as a call to an unknown tool ([FEATURES.md → The Effect cap hides tools](../FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
+- ✅ A tool above the cap is hidden from the model, including a tool of a ToolSet, which is never in the index and is never loaded, and a call to it fails with a result that says the Session does not allow the tool ([FEATURES.md → The Effect cap hides tools](../FEATURES.md#the-effect-cap-hides-tools-and-only-an-agent-sets-it--2026-10-16)).
 - ✅ The cap belongs to the Agent: a Session can neither change it nor switch on a hidden tool.
 - ✅ `gotato tools list` and `GET /v1/agents` report the cap.
 
