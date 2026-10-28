@@ -204,9 +204,13 @@ func Compact(ctx context.Context, s *session.Record, cfg CompactConfig) (Result,
 		MessagesBefore: len(all), MessagesAfter: len(after),
 		TokensBefore: record.TokensBefore, TokensAfter: record.TokensAfter,
 	}
-	// The Segments may now pass their budget: the oldest merge, in a
-	// Checkpoint of their own. A merge that fails leaves the Segment just
-	// closed in place, and the Segments unmerged.
+	return mergeAfterClose(ctx, s, cfg, why, result)
+}
+
+// mergeAfterClose merges the oldest Segments, in a Checkpoint of their own,
+// if the Segment just closed took them past their budget. A merge that fails
+// leaves the Segment just closed in place, and the Segments unmerged.
+func mergeAfterClose(ctx context.Context, s *session.Record, cfg CompactConfig, why gotato.CompactionWhy, result Result) (Result, error) {
 	merge, err := mergeOldest(ctx, s, MergeConfig{
 		BudgetTokens: cfg.SegmentBudgetTokens, CeilingTokens: cfg.EffectiveCeilingTokens(), Recap: cfg.Recap, Why: why, Location: cfg.Location,
 	})
