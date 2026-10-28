@@ -70,7 +70,7 @@ func TestNoticeForARunElsewhereAnswersNotWriterOrIsForwarded(t *testing.T) {
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
 	plain := newInstance(t, store, "instance-b", testkit.EchoModel{}, true)
-	forwarding := newInstance(t, store, "instance-c", testkit.EchoModel{}, true, httpapi.WithForwarding(nil))
+	forwarding := newInstance(t, store, "instance-c", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	resp, body := plain.post(t, "/v1/sessions/"+id+"/notices", map[string]string{"kind": "k", "text": "from b"})

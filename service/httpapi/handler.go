@@ -102,7 +102,7 @@ type Handler struct {
 	mux       *http.ServeMux
 	keepAlive time.Duration
 	maxBody   int64
-	// forwardAllow, when set, says which writer addresses a forward may use.
+	// forwardAllow says which writer addresses a forward may use; nil allows none.
 	forwardAllow func(address string) bool
 	// forward sends a message that reached an Instance that is not the Run's
 	// writer to the writer's address. Nil leaves it at not_writer.
@@ -133,33 +133,27 @@ func WithKeepAlive(d time.Duration) Option {
 	}
 }
 
-// WithForwardAllow limits where WithForwarding sends a request. The address
-// comes from the Store (the row of the Instance that writes the Run), and the
-// forward carries the caller's headers, credentials among them: anyone who can
-// write that row can name the address. A forward goes only to an address for
-// which allow returns true; any other is answered not_writer, as without
-// forwarding. Without this option every http(s) address is allowed.
-func WithForwardAllow(allow func(address string) bool) Option {
-	return func(h *Handler) { h.forwardAllow = allow }
-}
-
 // WithForwarding turns on forwarding. A message or a cancel that reaches this
 // Instance while another live Instance writes the Run is sent, as it came, to
 // the address that Instance advertises, with the header Gotato-Forwarded, and
 // that answer is returned. A request that carries the header is never forwarded
 // again: it is answered not_writer. A nil client uses one with a 30 second
 // timeout, which also bounds a forwarded message that finds no Run and starts
-// one: the Run is canceled with the request. The forwarded request carries the
-// caller's headers, so your own authentication applies at the writer; the
-// address is read from the Store, so restrict it with WithForwardAllow when the
-// Store is shared with parties you do not trust. Gotato connects to nothing
+// one: the Run is canceled with the request.
+//
+// The forwarded request carries the caller's headers, so your own
+// authentication applies at the writer. The address is read from the Store, and
+// anyone who can write that row can name it, so a forward goes only to an
+// address for which allow returns true; any other is answered not_writer, as
+// without forwarding. A nil allow forwards nowhere. Gotato connects to nothing
 // else.
-func WithForwarding(client *http.Client) Option {
+func WithForwarding(client *http.Client, allow func(address string) bool) Option {
 	return func(h *Handler) {
 		if client == nil {
 			client = &http.Client{Timeout: 30 * time.Second}
 		}
 		h.forward = client
+		h.forwardAllow = allow
 	}
 }
 

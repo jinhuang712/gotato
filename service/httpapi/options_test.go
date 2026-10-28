@@ -130,7 +130,7 @@ func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 		g := newGate()
 		a := newInstance(t, store, "instance-a", g, true)
 		var asked string
-		b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil), httpapi.WithForwardAllow(func(address string) bool {
+		b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, func(address string) bool {
 			asked = address
 			return allowed
 		}))
@@ -147,3 +147,6 @@ func TestForwardingOnlyToAnAllowedAddress(t *testing.T) {
 		wait()
 	}
 }
+
+// anyAddress allows every forward target, for tests whose store is trusted.
+func anyAddress(string) bool { return true }

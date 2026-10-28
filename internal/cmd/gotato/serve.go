@@ -62,7 +62,8 @@ func (c *cli) cmdServe(args []string) int {
 	c.runners = append(c.runners, runner)
 	var handlerOptions []httpapi.Option
 	if *forward {
-		handlerOptions = append(handlerOptions, httpapi.WithForwarding(nil))
+		// A test tool on a trusted store: any writer address is allowed.
+		handlerOptions = append(handlerOptions, httpapi.WithForwarding(nil, func(string) bool { return true }))
 	}
 	server := &http.Server{Addr: *addr, Handler: httpapi.New(runner, handlerOptions...), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

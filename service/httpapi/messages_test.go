@@ -235,7 +235,7 @@ func TestNotWriterNamesNoAddressWhenNoneIsAdvertised(t *testing.T) {
 	store := session.NewMemoryStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, false)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, false, httpapi.WithForwarding(nil))
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, false, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	// Forwarding is on, but there is nowhere to forward to.
@@ -251,7 +251,7 @@ func TestForwardingSendsTheMessageToTheWriter(t *testing.T) {
 	store := session.NewMemoryStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil))
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 	before := a.requests.Load()
 
@@ -273,7 +273,7 @@ func TestForwardingStopsTheRunOnTheWriter(t *testing.T) {
 	store := session.NewMemoryStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil))
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 
 	resp, body := b.post(t, "/v1/sessions/"+id+"/abort", nil)
@@ -289,7 +289,7 @@ func TestAForwardedRequestIsNeverForwardedAgain(t *testing.T) {
 	store := session.NewMemoryStore()
 	g := newGate()
 	a := newInstance(t, store, "instance-a", g, true)
-	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil))
+	b := newInstance(t, store, "instance-b", testkit.EchoModel{}, true, httpapi.WithForwarding(nil, anyAddress))
 	id, wait := running(t, a, g)
 	before := a.requests.Load()
 

@@ -104,7 +104,7 @@ func (h *Handler) forwarded(w http.ResponseWriter, r *http.Request, err error, b
 	if !ok || h.forward == nil || address == "" || r.Header.Get(ForwardedHeader) != "" {
 		return false
 	}
-	if h.forwardAllow != nil && !h.forwardAllow(address) {
+	if h.forwardAllow == nil || !h.forwardAllow(address) {
 		return false
 	}
 	base, parseErr := url.Parse(address)
