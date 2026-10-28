@@ -21,7 +21,7 @@ type InspectConfig struct {
 func (r *Runner) Inspect(ctx context.Context, sessionID string, config InspectConfig) (modelctx.Report, error) {
 	s, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
-		return modelctx.Report{}, err
+		return modelctx.Report{}, storeFailureOf(ctx, err, true)
 	}
 	agentName, _ := s.Get(MetaAgent)
 	spec, ok := r.Agent(agentName)

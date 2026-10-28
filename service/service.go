@@ -359,19 +359,21 @@ func (r *Runner) Instance() string { return r.id() }
 // Record reads a Record's whole Record from the store: its facts, Runs,
 // usage and Events. It changes nothing.
 func (r *Runner) Record(ctx context.Context, sessionID string) (*session.Record, error) {
-	return session.View(ctx, r.store, sessionID)
+	record, err := session.View(ctx, r.store, sessionID)
+	return record, storeFailureOf(ctx, err, true)
 }
 
 // Events reads a Session's stored Events from the store: every Entry of its
 // Record that is an Event, in the order of their numbers, as typed Events.
 func (r *Runner) Events(ctx context.Context, sessionID string) ([]gotato.Event, error) {
-	return session.StoredEvents(ctx, r.store, sessionID, 0, 0)
+	events, err := session.StoredEvents(ctx, r.store, sessionID, 0, 0)
+	return events, storeFailureOf(ctx, err, true)
 }
 
 // Sessions lists the stored Sessions, the most recently updated first.
 func (r *Runner) Sessions(ctx context.Context) ([]session.RecordInfo, error) {
 	list, err := r.store.List(ctx)
-	return list, err
+	return list, storeFailureOf(ctx, err, true)
 }
 
 // Agents lists the registered Agent names; the first is the default.

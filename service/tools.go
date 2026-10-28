@@ -108,7 +108,7 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		var err error
 		s, err = session.Open(ctx, r.store, sessionID)
 		if err != nil {
-			return nil, err
+			return nil, storeFailureOf(ctx, err, true)
 		}
 		if agent == "" {
 			agent, _ = s.Get(MetaAgent)
@@ -187,7 +187,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 	// What the lock guards is the write of the switch.
 	read, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
-		return ToolEntry{}, err
+		return ToolEntry{}, storeFailureOf(ctx, err, true)
 	}
 	agent, _ := read.Get(MetaAgent)
 	spec, ok := r.Agent(agent)

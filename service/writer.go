@@ -39,7 +39,7 @@ func WriterOf(err error) (address string, ok bool) {
 func (r *Runner) reachStore(ctx context.Context, sessionID string) error {
 	// An after position past any Record's end reads no Entries.
 	_, err := r.store.Log(ctx, sessionID, math.MaxInt64, 1)
-	return err
+	return storeFailureOf(ctx, err, true)
 }
 
 // checkWriter answers not_writer when another live Instance has a Run going on
@@ -57,7 +57,7 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 	}
 	record, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {
-		return err
+		return storeFailureOf(ctx, err, true)
 	}
 	claim, busy := record.Holder()
 	if !busy || claim.Instance == "" || claim.Instance == r.id() {
@@ -65,7 +65,7 @@ func (r *Runner) checkWriter(ctx context.Context, sessionID string) error {
 	}
 	state, err := r.store.Instance(ctx, claim.Instance)
 	if err != nil {
-		return err
+		return storeFailureOf(ctx, err, true)
 	}
 	if !state.Alive {
 		return nil

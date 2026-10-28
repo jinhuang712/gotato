@@ -54,7 +54,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
 		r.dropWarm(sessionID, "deleted")
 		if err := r.store.Delete(ctx, sessionID); err != nil {
-			return err
+			return storeFailureOf(ctx, err, true)
 		}
 		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
 		r.endSessionStreams(sessionID, session.ErrNotFound)
@@ -68,7 +68,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 func (r *Runner) Fork(ctx context.Context, sessionID, newID string) (*session.Record, error) {
 	parent, err := session.View(ctx, r.store, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, storeFailureOf(ctx, err, true)
 	}
 	var options []session.RecordOption
 	if newID != "" {

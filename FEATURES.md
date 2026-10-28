@@ -277,7 +277,7 @@ func (m maxTurns) Stop(_ context.Context, t gotato.TurnSnapshot) (gotato.StopDec
 | `not_writer` ([G-F26](#g-f26--steering-a-run-)) | yes | yes, at the writer named in the error | a message or a Stop for a Run that another instance writes. The error carries the writer's advertised address (`Details["writer"]`, read with `service.WriterOf`), when it has one. |
 | `not_found` | yes | no | the Session does not exist. `session.ErrNotFound` carries it. |
 | `session_closing`, `session_closed` | yes | no | the live Session takes no more calls |
-| `store_failure` | not known | yes | the store could not write or read |
+| `store_failure` | not known for a write of a Run's step; yes for a load, a create, a delete, a read or a renewal of the Liveness row, and for the Claim that opens a Run | yes | the store could not write or read. The store's own error is its `Cause`. |
 | `model_failure` the provider calls transient (a rate limit, an overload, a broken stream) | no, it ran | yes | the gateway's error says so through `Retryable() bool` |
 | `invalid_argument`, `context_overflow`, `conflict` and the rest | as the place that makes them says; a refusal before a Run starts (an empty prompt, an unknown Agent) is not run | no | |
 
