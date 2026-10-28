@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -66,5 +68,33 @@ func TestUnknownFinishAndUnnamedCallFailTheStream(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A server that sends "finish_reason": "" on a chunk that is not the last has
+// not finished: a stream cut after such a chunk is cut, not a complete reply.
+func TestEmptyFinishReasonIsNotAFinish(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"The answer is fo"},"finish_reason":""}]}`+"\n\n")
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := collectEvents(t, stream)
+	var coded *Error
+	if !errors.As(err, &coded) || !coded.Retryable() {
+		t.Fatalf("err = %v after %d events, want a retryable cut-stream Error", err, len(events))
+	}
+	for _, event := range events {
+		if event.Kind == gotato.ModelEventKindDone {
+			t.Fatalf("a stream cut after an empty finish_reason ended as Done %q", event.StopReason)
+		}
 	}
 }

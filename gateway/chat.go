@@ -346,7 +346,7 @@ func (s *chatStream) processChunk(chunk chatChunk) error {
 				call.extra = delta.ExtraContent
 			}
 		}
-		if choice.FinishReason != nil {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
 			stop, ok := chatStopReason(*choice.FinishReason)
 			if !ok {
 				return protocolFailure("Chat Completions stream ended with the unknown finish_reason %q", *choice.FinishReason)
