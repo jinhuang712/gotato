@@ -45,6 +45,7 @@ This is the one table of every error code. `Not run` and `Retryable` are what th
 | `deadline_exceeded` | no | no | 504 | 1 | the core, `service` | the Run's deadline passed; as a Run's result it answers 200 |
 | `internal_invariant` | no | no | 500 | 1 | the core, `session` | a bug; keep the Session's Events and report it |
 | `not_supported` | no | no | 400 | 1 | `session` | the Store does not do this |
+| `already_exists` | no | no | 409 | 1 | `service` | the Session ID the caller chose is taken; choose another ID or read the Session that has it |
 | `conflict` | no | no | 409 | 1 | `session`, `service` | another writer wrote first; read the Session again |
 | `store_failure` | no | yes | 503 | 1 | `session`, `service` | the store failed; it may have run; a Run whose save failed answers 500 `not saved` |
 | `overloaded` | yes | yes | 503 | 1 | `service` (`MaxActiveSessions`) | retry on another instance; if every instance answers it, raise `--max-sessions` or add instances |
@@ -53,7 +54,7 @@ This is the one table of every error code. `Not run` and `Retryable` are what th
 | `cannot_resume` | by cause | no | 409 | 1 | `service` (a stream) | start over with `after` 0; the body has the current `record_epoch` |
 | `not_writer` | yes | yes | 409 | 1 | `service` (a message, notice or abort for a Run another instance writes) | go to the `Gotato-Writer` address, or enable forwarding |
 
-The HTTP layer adds three codes to a body where the runtime has none or shares one: `session_exists` (409, a create with an ID that is taken), `body_too_large` (413, a body over the cap, `httpapi.WithMaxBody`) and `forward_failed` (502, a forward to the writer failed, so the request may have reached it). A 400 from the HTTP layer itself (bad JSON, an unknown field, a `session-id` header that disagrees) carries `invalid_argument`.
+The HTTP layer adds two codes to a body where the runtime has none or shares one: `body_too_large` (413, a body over the cap, `httpapi.WithMaxBody`) and `forward_failed` (502, a forward to the writer failed, so the request may have reached it). A 400 from the HTTP layer itself (bad JSON, an unknown field, a `session-id` header that disagrees) carries `invalid_argument`.
 
 ## An instance is draining
 

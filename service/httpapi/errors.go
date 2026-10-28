@@ -8,15 +8,12 @@ import (
 	"strconv"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/service"
 	"github.com/jinhuang712/gotato/session"
 )
 
 // Codes the HTTP layer adds to a body, where the runtime's ErrorCode is shared
 // or absent. They are additive: no ErrorCode string is replaced.
 const (
-	// codeSessionExists is the code of a create with an ID that is taken (409).
-	codeSessionExists = "session_exists"
 	// codeBodyTooLarge is the code of a body over the cap (413).
 	codeBodyTooLarge = "body_too_large"
 	// codeForwardFailed is the code of a forward to the writer that failed (502).
@@ -99,10 +96,6 @@ func codedBody(err error) (out errorResponse, runtimeErr *gotato.RuntimeError) {
 	out.Retryable = gotato.Retryable(err)
 	if errors.As(err, &runtimeErr) {
 		out.Code = string(runtimeErr.Code)
-	}
-	if errors.Is(err, service.ErrSessionExists) {
-		// invalid_state stands for several refusals; a taken ID is told apart.
-		out.Code = codeSessionExists
 	}
 	return out, runtimeErr
 }

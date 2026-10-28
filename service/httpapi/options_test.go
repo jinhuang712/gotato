@@ -40,7 +40,7 @@ func TestErrorBodiesCarryDistinctCodes(t *testing.T) {
 		status                   int
 		code                     string
 	}{
-		{"taken id", http.MethodPost, "/v1/sessions", `{"id":"fixed"}`, http.StatusConflict, "session_exists"},
+		{"taken id", http.MethodPost, "/v1/sessions", `{"id":"fixed"}`, http.StatusConflict, "already_exists"},
 		{"bad json", http.MethodPost, "/v1/sessions", `{`, http.StatusBadRequest, "invalid_argument"},
 		{"unknown field", http.MethodPost, "/v1/sessions", `{"nope":1}`, http.StatusBadRequest, "invalid_argument"},
 	} {
