@@ -1,6 +1,9 @@
 package gotato
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // CoreLimits bounds what a Session accepts and how long it waits. A zero
 // field means its default (see DefaultLimits). The Message and Transcript limits
@@ -97,3 +100,35 @@ func orDefault[T comparable](v, def T) T {
 // millis returns d in milliseconds, with its sub-millisecond part, as every
 // ...MS field of an Event or a result carries it.
 func millis(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+
+// boundedContext derives a context from parent that ends after duration, or
+// only when canceled when duration is zero.
+func boundedContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+	if duration > 0 {
+		return context.WithTimeout(parent, duration)
+	}
+	return context.WithCancel(parent)
+}
+
+// controlCapacity turns a configured control-message limit into a channel
+// capacity.
+func controlCapacity(limit uint32) int {
+	if limit > maxControlCapacity {
+		return maxControlCapacity
+	}
+	return int(limit)
+}
+
+// maxControlCapacity bounds the capacity of the control queues, whatever the
+// configured limit.
+const maxControlCapacity = 1024
+
+// limitExceededUint32 reports whether value is over limit.
+func limitExceededUint32(limit, value uint32) bool {
+	return value > limit
+}
+
+// limitExceededUint64 reports whether value is over limit.
+func limitExceededUint64(limit, value uint64) bool {
+	return value > limit
+}

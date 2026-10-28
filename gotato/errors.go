@@ -214,3 +214,59 @@ var (
 	// holds.
 	ErrEventsLost = ErrorOf(CodeCannotResume, "gotato: the Events this subscriber missed are no longer available")
 )
+
+// contextFailure returns the RuntimeError of an ended ctx, and nil while it
+// is live.
+func contextFailure(ctx context.Context, operation string) *RuntimeError {
+	if err := ctx.Err(); err != nil {
+		return runtimeError(codeForContext(err), operation, err.Error(), err)
+	}
+	return nil
+}
+
+// classifyModelError turns an error from a Model into a RuntimeError: a
+// cancellation, a context overflow, or a Model failure that may be retryable.
+func classifyModelError(err error) *RuntimeError {
+	if err == nil {
+		return runtimeError(CodeModelFailure, "Model", "unknown Model failure", nil)
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return runtimeError(codeForContext(err), "Model", err.Error(), err)
+	}
+	var overflow interface{ ContextOverflow() bool }
+	if errors.As(err, &overflow) && overflow.ContextOverflow() {
+		return runtimeError(CodeContextOverflow, "Model", err.Error(), err)
+	}
+	failure := runtimeError(CodeModelFailure, "Model", err.Error(), err)
+	// A Model that knows the failure is transient (a rate limit, an overload,
+	// a broken stream) says so with `Retryable() bool`, as the gateway's
+	// Error does. The Model was called, so the request is not "not run".
+	var transient interface{ Retryable() bool }
+	if errors.As(err, &transient) && transient.Retryable() {
+		failure.Retryable = true
+	}
+	return failure
+}
+
+// asError returns failure as an error that is nil when failure is nil. Code
+// that holds a *RuntimeError and hands it on as an error goes through it, so
+// a nil failure never becomes a non-nil error (the typed-nil trap).
+func asError(failure *RuntimeError) error {
+	if failure == nil {
+		return nil
+	}
+	return failure
+}
+
+// asRuntimeError returns err as a *RuntimeError, wrapping any other error as
+// an internal invariant failure.
+func asRuntimeError(err error) *RuntimeError {
+	if err == nil {
+		return nil
+	}
+	var runtimeErr *RuntimeError
+	if errors.As(err, &runtimeErr) {
+		return runtimeErr
+	}
+	return runtimeError(CodeInternalInvariant, "Core", err.Error(), err)
+}

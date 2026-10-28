@@ -306,3 +306,12 @@ var processNonce = func() string {
 	}
 	return hex.EncodeToString(buf[:])
 }()
+
+func addUsage(total, current Usage) Usage {
+	total.InputTokens += current.InputTokens
+	total.OutputTokens += current.OutputTokens
+	total.TotalTokens += current.TotalTokens
+	total.CacheReadTokens += current.CacheReadTokens
+	total.CacheWriteTokens += current.CacheWriteTokens
+	return total
+}
