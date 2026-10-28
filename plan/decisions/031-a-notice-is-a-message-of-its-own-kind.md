@@ -1,4 +1,4 @@
-# 017. A notice is a Message of its own kind, kept in the Record
+# 031. A notice is a Message of its own kind, kept in the Record
 
 Decided: 2026-10-18    Status: current
 

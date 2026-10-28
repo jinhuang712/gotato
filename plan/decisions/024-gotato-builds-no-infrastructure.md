@@ -1,4 +1,4 @@
-# 013. Correctness is Gotato's, routing is the infrastructure's
+# 024. Correctness is Gotato's, routing is the infrastructure's
 
 Decided: 2026-10-16    Status: current
 

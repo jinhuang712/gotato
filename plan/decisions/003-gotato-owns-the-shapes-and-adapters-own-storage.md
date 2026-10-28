@@ -13,4 +13,4 @@ Gotato defines stable shapes for a Session and its Events. Adapters map them to 
 - OpenTelemetry in the core: tracing on day one, but a heavy dependency for every service, including those on another stack.
 
 ## Consequences
-It works with any database and any telemetry stack and adds no dependency to the service. Each team writes or picks an adapter, and proves it with [006](006-a-conformance-suite-ships-with-the-store-contract.md).
+It works with any database and any telemetry stack and adds no dependency to the service. Each team writes or picks an adapter, and proves it with [013](013-a-conformance-suite-ships-with-the-store-contract.md).

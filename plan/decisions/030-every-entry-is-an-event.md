@@ -1,4 +1,4 @@
-# 015. Every Entry is an Event, and the Record is the Session's Event log
+# 030. Every Entry is an Event, and the Record is the Session's Event log
 
 Decided: 2026-10-18    Status: current
 

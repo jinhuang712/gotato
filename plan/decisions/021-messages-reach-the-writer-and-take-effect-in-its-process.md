@@ -1,4 +1,4 @@
-# 012. Steer lands at a Turn boundary, Interrupt and Stop at once, and a late message starts a new Run
+# 021. Steer lands at a Turn boundary, Interrupt and Stop at once, and a late message starts a new Run
 
 Decided: 2026-10-16    Status: current
 
@@ -13,4 +13,4 @@ Steer takes effect at a Turn boundary. Interrupt and Stop take effect at once. A
 - Reject a message while a Run is going: the simplest, but a caller cannot steer or stop a Run.
 
 ## Consequences
-The behavior is the same as one instance. A message accepted but not yet committed is lost if the writer dies, and the caller sends it again. For a message that reaches an instance that is not the writer, see [022](022-when-the-hash-missed-the-answer-names-the-writer.md).
+The behavior is the same as one instance. A message accepted but not yet committed is lost if the writer dies, and the caller sends it again. For a message that reaches an instance that is not the writer, see [037](037-when-the-hash-missed-the-answer-names-the-writer.md).

@@ -1,4 +1,4 @@
-# 019. A Segment is written once, and a Checkpoint points to it
+# 034. A Segment is written once, and a Checkpoint points to it
 
 Decided: 2026-10-24    Status: current
 

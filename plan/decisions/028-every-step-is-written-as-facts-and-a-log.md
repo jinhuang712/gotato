@@ -1,4 +1,4 @@
-# 014. Every step is written as it happens, as facts and a log
+# 028. Every step is written as it happens, as facts and a log
 
 Decided: 2026-10-17    Status: current
 

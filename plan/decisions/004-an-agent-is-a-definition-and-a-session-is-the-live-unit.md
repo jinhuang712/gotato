@@ -13,4 +13,4 @@ An Agent is a definition. A Session is the live unit that runs it, and many Sess
 - Agent as the loop for one Run and Session as the stored record: no rename, but the thing a caller talks to has no name of its own.
 
 ## Consequences
-One Agent running many Sessions reads naturally, and the words match the APIs a reader already knows. The code carries the names (`service.Agent`, `gotato.Session`, [009](009-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md)).
+One Agent running many Sessions reads naturally, and the words match the APIs a reader already knows. The code carries the names (`service.Agent`, `gotato.Session`, [016](016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md)).

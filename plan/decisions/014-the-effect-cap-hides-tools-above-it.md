@@ -1,4 +1,4 @@
-# 007. A tool above the Effect cap is hidden from the model
+# 014. A tool above the Effect cap is hidden from the model
 
 Decided: 2026-10-16    Status: current
 

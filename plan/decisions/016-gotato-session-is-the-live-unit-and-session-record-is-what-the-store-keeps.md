@@ -1,4 +1,4 @@
-# 009. `gotato.Session` is the live unit, and `session.Record` is what the store keeps
+# 016. `gotato.Session` is the live unit, and `session.Record` is what the store keeps
 
 Decided: 2026-10-16    Status: current
 

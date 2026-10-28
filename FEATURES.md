@@ -86,7 +86,7 @@ Feature IDs are stable. When features merge, the lower ID stays and the others r
 
 ### G-F01 — Agents and Runs ✅
 
-You define an Agent once, then run Sessions of it: a message goes in, the Loop works, and a settled result comes out. How it works: [specs/session.md](specs/session.md). Why: decisions [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [009](plan/decisions/009-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [023](plan/decisions/023-a-limit-guards-a-real-failure.md).
+You define an Agent once, then run Sessions of it: a message goes in, the Loop works, and a settled result comes out. How it works: [specs/session.md](specs/session.md). Why: decisions [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md), [038](plan/decisions/038-a-limit-guards-a-real-failure.md).
 
 ```go
 // error handling left out
@@ -123,7 +123,7 @@ The limits are passed with `gotato.WithLimits`. A zero field means its default, 
 
 A Tool's progress reports are capped inside the core (1 MiB and 1,000 reports per call; more are dropped and the call goes on). A Tool Result over one page is not a limit but a spill ([G-F35](#g-f35--large-tool-results-)).
 
-**Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError` and answers three questions, set where it is made and never guessed by a caller or a transport: `Code` says what happened; `gotato.NotRun(err)` is true when nothing with side effects happened, so another instance may run the same request; `gotato.Retryable(err)` is true when the same request, sent later, may succeed. How it works: [specs/errors.md](specs/errors.md). Why: decision [020](plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md).
+**Errors.** Every error a Gotato layer returns is a `*gotato.RuntimeError` and answers three questions, set where it is made and never guessed by a caller or a transport: `Code` says what happened; `gotato.NotRun(err)` is true when nothing with side effects happened, so another instance may run the same request; `gotato.Retryable(err)` is true when the same request, sent later, may succeed. How it works: [specs/errors.md](specs/errors.md). Why: decision [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md).
 
 | Code | Not run | Retryable | Meaning |
 |---|---|---|---|
@@ -148,7 +148,7 @@ A Tool's progress reports are capped inside the core (1 MiB and 1,000 reports pe
 
 ### G-F26 — Steering a Run ✅
 
-While a Run works, you can change its course without starting over. How it works: [specs/session.md](specs/session.md) (*Steer, FollowUp and Interrupt*) and [specs/multi-instance.md](specs/multi-instance.md) (*A message that misses the Writer*). Why: decisions [012](plan/decisions/012-messages-reach-the-writer-and-take-effect-in-its-process.md), [022](plan/decisions/022-when-the-hash-missed-the-answer-names-the-writer.md).
+While a Run works, you can change its course without starting over. How it works: [specs/session.md](specs/session.md) (*Steer, FollowUp and Interrupt*) and [specs/multi-instance.md](specs/multi-instance.md) (*A message that misses the Writer*). Why: decisions [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md), [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md).
 
 | Kind | When it takes effect | Limit |
 |---|---|---|
@@ -200,7 +200,7 @@ if addr, ok := service.WriterOf(err); ok && addr != "" && !forwarded {
 
 ### G-F29 — Runtime notices ✅
 
-Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A notice is a Message of its own kind (role `notice`, `gotato.RoleNotice`), so the model does not take it for the user and no new Round begins. How it works: [specs/context.md](specs/context.md) (*A Notice joins at the end*). Why: decision [017](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md); [DESIGNS.md](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice).
+Gotato, your service or an extension sometimes has to tell the model something that is not the user's words. A notice is a Message of its own kind (role `notice`, `gotato.RoleNotice`), so the model does not take it for the user and no new Round begins. How it works: [specs/context.md](specs/context.md) (*A Notice joins at the end*). Why: decision [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md); [DESIGNS.md](DESIGNS.md#what-is-not-the-users-words-goes-to-the-model-as-a-notice).
 
 | Kind | What it tells the model | Caused by |
 |---|---|---|
@@ -239,7 +239,7 @@ With many instances a notice for a Run on another instance is answered `not_writ
 
 ### G-F02 — Sessions ✅
 
-A Session is one conversation that runs an Agent. It keeps every Message, a record of each Run, its token usage, its Events and every compaction, as its Record ([G-F03](#g-f03--stores-)). How it works: [specs/session.md](specs/session.md), [specs/record.md](specs/record.md). Why: decisions [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [009](plan/decisions/009-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md).
+A Session is one conversation that runs an Agent. It keeps every Message, a record of each Run, its token usage, its Events and every compaction, as its Record ([G-F03](#g-f03--stores-)). How it works: [specs/session.md](specs/session.md), [specs/record.md](specs/record.md). Why: decisions [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md), [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md).
 
 - You create a Session with `POST /v1/sessions` or `Runner.CreateSession`, optionally with your own ID, metadata, instruction and compaction ceiling.
 - `session.Record` holds every stored Event as an Entry; a Session over a Record keeps a window of the last 1,000 Events in memory, and a Feed over no stored Record keeps a ring of the last 4,096 ([G-F13](#g-f13--events-)).
@@ -271,7 +271,7 @@ There is no call that only changes metadata (`Runner` and HTTP have no `UpdateSe
 
 ### G-F04 — Context ✅
 
-On every Turn Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix: instruction, then tools sorted by ID, then the Transcript. How it works: [specs/context.md](specs/context.md). Why: decision [017](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md).
+On every Turn Gotato builds what the model sees from the Session, in a fixed order, so the provider can reuse the cached prefix: instruction, then tools sorted by ID, then the Transcript. How it works: [specs/context.md](specs/context.md). Why: decision [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md).
 
 - Reference text the Agent carries (a schema, a runbook) goes in its instruction (`Agent.Instruction`, `gotato.WithInstruction`). Nothing that changes every Turn is added; a fact the model needs now, such as the time, comes from a tool.
 - Cache markers go after the system part, after the tools and on the last message (Anthropic `cache_control`, the last four kept); for a recognized Claude the gateway adds one where the last Round started ([G-F07](#g-f07--models-and-providers-)).
@@ -289,7 +289,7 @@ You can see what the model would receive now, without calling it. How it works: 
 
 ### G-F06 — Compaction ✅
 
-A Session can live for weeks and a long Run can outgrow the window. A compaction closes everything since the last Checkpoint, less a kept tail, into a Segment and appends it with a Checkpoint ([G-F03](#g-f03--stores-)); it never rewrites the Record, so nothing is lost unless the team prunes entries before a Checkpoint. How it works: [specs/compaction.md](specs/compaction.md). Why: decisions [018](plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md), [019](plan/decisions/019-a-segment-is-written-once.md); [DESIGNS.md](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold).
+A Session can live for weeks and a long Run can outgrow the window. A compaction closes everything since the last Checkpoint, less a kept tail, into a Segment and appends it with a Checkpoint ([G-F03](#g-f03--stores-)); it never rewrites the Record, so nothing is lost unless the team prunes entries before a Checkpoint. How it works: [specs/compaction.md](specs/compaction.md). Why: decisions [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md), [034](plan/decisions/034-a-segment-is-written-once.md); [DESIGNS.md](DESIGNS.md#compaction-closes-a-segment-before-the-cache-goes-cold).
 
 | Item | What it does |
 |---|---|
@@ -358,7 +358,7 @@ The instruction and tool definitions are built from the current Agent on every r
 
 ### G-F09 — Tools and their Effect ✅
 
-A tool is one thing an agent can do. How it works: [specs/tools.md](specs/tools.md). Why: decisions [005](plan/decisions/005-no-approval-system.md), [007](plan/decisions/007-the-effect-cap-hides-tools-above-it.md), [008](plan/decisions/008-only-the-agent-sets-the-effect-cap.md).
+A tool is one thing an agent can do. How it works: [specs/tools.md](specs/tools.md). Why: decisions [005](plan/decisions/005-no-approval-system.md), [014](plan/decisions/014-the-effect-cap-hides-tools-above-it.md), [015](plan/decisions/015-only-the-agent-sets-the-effect-cap.md).
 
 ```go
 lookup, _ := gotato.NewFuncTool("orders.lookup", "Finds an order by its ID", findOrder)
@@ -377,7 +377,7 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithTools(lookup,
 
 ### G-F10 — Tool sets ✅
 
-The tools a Session offers can change while it runs. How it works: [specs/tools.md](specs/tools.md). Why: decision [024](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md).
+The tools a Session offers can change while it runs. How it works: [specs/tools.md](specs/tools.md). Why: decision [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md).
 
 A Tool is the unit of loading; a ToolSet is a grouping with a source and a name, a description and the tools of one source (one MCP server is one ToolSet, [G-F12](#g-f12--the-mcp-adapter-)). A Tool's ID is `<set>.<tool>`. Tools come from your own Go code or an MCP server, through `gotato.WithTools` or a `ToolSource` the Session asks again, with the Run's `ctx`, at the start of every Turn (a source that fails keeps the last set and stores an `extension_failed` Event, stage `toolsource`, as a failing ToolSet does).
 
@@ -394,7 +394,7 @@ A Tool is the unit of loading; a ToolSet is a grouping with a source and a name,
 
 ### G-F34 — Tool search ✅
 
-A service that connects MCP servers can offer hundreds of tools. The model reads a catalog and loads the tools it needs, one by one. How it works: [specs/tools.md](specs/tools.md). Why: decision [024](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md); [DESIGNS.md](DESIGNS.md#tools-load-one-by-one-from-a-catalog).
+A service that connects MCP servers can offer hundreds of tools. The model reads a catalog and loads the tools it needs, one by one. How it works: [specs/tools.md](specs/tools.md). Why: decision [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md); [DESIGNS.md](DESIGNS.md#tools-load-one-by-one-from-a-catalog).
 
 | Item | What it does |
 |---|---|
@@ -451,7 +451,7 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithFoldedToolSet
 
 ### G-F35 — Large Tool Results ✅
 
-A tool can return far more than a Context should hold. A Tool Result over one page is spilled into the Record and read in pages. How it works: [specs/tools.md](specs/tools.md), [specs/record.md](specs/record.md). Why: decisions [025](plan/decisions/025-a-large-tool-result-is-spilled-and-read-in-pages.md), [026](plan/decisions/026-a-read-only-bash-for-large-results-is-another-project.md).
+A tool can return far more than a Context should hold. A Tool Result over one page is spilled into the Record and read in pages. How it works: [specs/tools.md](specs/tools.md), [specs/record.md](specs/record.md). Why: decisions [040](plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md), [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md).
 
 | Item | What it does |
 |---|---|
@@ -469,7 +469,7 @@ A tool can return far more than a Context should hold. A Tool Result over one pa
 
 ### G-F07 — Models and providers ✅
 
-A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can bring your own client by implementing `gotato.Model`. How it works: [specs/model.md](specs/model.md). Why: decisions [001](plan/decisions/001-one-implementation-per-wire-api.md), [016](plan/decisions/016-reasoning-goes-back-for-the-current-round.md).
+A provider is configuration, not code. Any vendor that speaks a supported wire API works without new code, and you can bring your own client by implementing `gotato.Model`. How it works: [specs/model.md](specs/model.md). Why: decisions [001](plan/decisions/001-one-implementation-per-wire-api.md), [029](plan/decisions/029-reasoning-goes-back-for-the-current-round.md).
 
 Wire APIs (`api:`): `openai-chat-completions` (the default), `openai-responses`, `anthropic-messages`. A provider is a few lines of YAML that `gateway.LoadYAML(path)` reads (`api`, `base_url`, `api_key: ${GOTATO_GATEWAY_API_KEY}`, `model`); [gateway/gateway.example.yaml](gateway/gateway.example.yaml) is the full file to copy, tested so it stays current. The YAML file is the only way to configure the gateway; a secret reaches it through `${NAME}`, and an unknown key is an error that names it.
 
@@ -532,7 +532,7 @@ A reply cut off partway must not fail the Run. A stream cut after some output is
 
 ### G-F03 — Stores ✅
 
-Every Session is saved to a store as its Record (`session.Record`). How it works: [specs/record.md](specs/record.md). Why: decisions [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md), [006](plan/decisions/006-a-conformance-suite-ships-with-the-store-contract.md), [010](plan/decisions/010-the-record-is-an-append-only-log.md), [014](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md).
+Every Session is saved to a store as its Record (`session.Record`). How it works: [specs/record.md](specs/record.md). Why: decisions [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md), [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md), [017](plan/decisions/017-the-record-is-an-append-only-log.md), [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md).
 
 | Store | For |
 |---|---|
@@ -564,7 +564,7 @@ Every Session is saved to a store as its Record (`session.Record`). How it works
 
 ### G-F27 — Service: many instances ✅
 
-A Runner hosts Sessions inside your service on as many instances as you run; any instance answers a request as if it were the only one ([DESIGNS.md](DESIGNS.md#8-no-instance-is-special)). How it works: [specs/multi-instance.md](specs/multi-instance.md). Why: decisions [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [011](plan/decisions/011-one-writer-per-session-claimed-in-the-store.md), [013](plan/decisions/013-gotato-builds-no-infrastructure.md), [021](plan/decisions/021-a-warm-copy-is-a-cache-not-a-lock.md), [022](plan/decisions/022-when-the-hash-missed-the-answer-names-the-writer.md).
+A Runner hosts Sessions inside your service on as many instances as you run; any instance answers a request as if it were the only one ([DESIGNS.md](DESIGNS.md#8-no-instance-is-special)). How it works: [specs/multi-instance.md](specs/multi-instance.md). Why: decisions [002](plan/decisions/002-the-store-is-the-truth-and-memory-is-a-cache.md), [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md), [024](plan/decisions/024-gotato-builds-no-infrastructure.md), [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md), [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md).
 
 | Item | What happens |
 |---|---|
@@ -635,7 +635,7 @@ The gateway asks a recognized provider for its longest cache retention: an hour 
 
 ### G-F14 — HTTP and streaming ✅
 
-A bot, a job or another service talks to Sessions like any other API. Mount the handler from `service/httpapi` on your own mux. How it works: [specs/events.md](specs/events.md), [specs/errors.md](specs/errors.md). Why: decisions [014](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md), [015](plan/decisions/015-every-entry-is-an-event.md).
+A bot, a job or another service talks to Sessions like any other API. Mount the handler from `service/httpapi` on your own mux. How it works: [specs/events.md](specs/events.md), [specs/errors.md](specs/errors.md). Why: decisions [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](plan/decisions/030-every-entry-is-an-event.md).
 
 ```text
 GET    /healthz  /readyz  /v1/agents
@@ -682,7 +682,7 @@ Every code has its status in one table (`statusOfCode`). `Gotato-Not-Run: true` 
 
 ### G-F13 — Events ✅
 
-Every step of a Session is an Event, so you can watch, log or measure it; a stored Event is an Entry of the Record, and a Session never waits for a reader. How it works: [specs/events.md](specs/events.md). Why: decisions [014](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md), [015](plan/decisions/015-every-entry-is-an-event.md).
+Every step of a Session is an Event, so you can watch, log or measure it; a stored Event is an Entry of the Record, and a Session never waits for a reader. How it works: [specs/events.md](specs/events.md). Why: decisions [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [030](plan/decisions/030-every-entry-is-an-event.md).
 
 - **The Record is the Event log.** A stored Event's number is its Entry's position, counting the whole Record, so every instance reads the same number. It reaches subscribers only after its write; most ride their step's write, the few between steps (a retry, an Abort request, a queued message) get their own. Deltas are sent at once, numbered with the Event they follow. A Session without a store still numbers and sends.
 - **A Go type for each kind**, each embedding a `gotato.Header` (time, Session ID, and number, Run and Turn where it has them; an Instance Event has no number). In JSON an Event is one flat object whose `kind` names its type (`gotato.MarshalEvent`, `gotato.UnmarshalEvent`); a kind a later version adds comes back as `gotato.UnknownEvent`.

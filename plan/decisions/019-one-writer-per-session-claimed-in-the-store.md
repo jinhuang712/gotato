@@ -1,4 +1,4 @@
-# 011. One writer per Session, by a claim with an epoch
+# 019. One writer per Session, by a claim with an epoch
 
 Decided: 2026-10-16    Status: current
 

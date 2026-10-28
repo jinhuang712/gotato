@@ -1,4 +1,4 @@
-# 020. The runtime sets whether an error ran and whether a retry may succeed
+# 035. The runtime sets whether an error ran and whether a retry may succeed
 
 Decided: 2026-10-25    Status: current
 

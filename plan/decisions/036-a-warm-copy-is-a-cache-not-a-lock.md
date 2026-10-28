@@ -1,4 +1,4 @@
-# 021. A warm copy is a cache with a head check, not a lock
+# 036. A warm copy is a cache with a head check, not a lock
 
 Decided: 2026-10-25    Status: current
 

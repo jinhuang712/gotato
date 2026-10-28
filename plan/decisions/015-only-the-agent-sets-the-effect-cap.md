@@ -1,4 +1,4 @@
-# 008. Only the Agent sets the Effect cap
+# 015. Only the Agent sets the Effect cap
 
 Decided: 2026-10-16    Status: current
 

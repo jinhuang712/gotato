@@ -1,4 +1,4 @@
-# 010. The Record is an append-only log
+# 017. The Record is an append-only log
 
 Decided: 2026-10-16    Status: current
 

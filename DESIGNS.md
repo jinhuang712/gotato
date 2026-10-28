@@ -43,7 +43,7 @@ A Session behaves like a live unit while it is in use and like a record while it
 
 ### A warm copy is a cache, not a lock
 
-Decision: [021. A warm copy is a cache with a head check, not a lock](plan/decisions/021-a-warm-copy-is-a-cache-not-a-lock.md).
+Decision: [021. A warm copy is a cache with a head check, not a lock](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md).
 
 - **The head check.** Before a Run on a warm copy, the instance compares the Record's head in the store with the copy's. Unchanged, the copy runs. Changed, because another instance wrote the Session, the instance reloads from the last Checkpoint. The Claim's conditional write still fences any race between the check and the Run, as for every append.
 - **The idle compaction is the same compaction.** The Session's own timer calls what a service's timer calls before the warm Session (see [principle 3](#compaction-closes-a-segment-before-the-cache-goes-cold)). A message that arrives cancels it and is served first.
@@ -56,11 +56,11 @@ Decision: [021. A warm copy is a cache with a head check, not a lock](plan/decis
 
 ### The Record is an append-only log
 
-Decision: [010. The Record is an append-only log](plan/decisions/010-the-record-is-an-append-only-log.md).
+Decision: [010. The Record is an append-only log](plan/decisions/017-the-record-is-an-append-only-log.md).
 
 ### The Record keeps every step, as facts and a log
 
-Decision: [014. Every step is written as it happens, as facts and a log](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md).
+Decision: [014. Every step is written as it happens, as facts and a log](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md).
 
 - **Facts** are what a rebuild reads: Messages, the tool calls that started, metadata changes, claims and Checkpoints.
 - **Log entries** record what happened: a Run's start and end, its usage, model calls, retries, a release, and the parts of a streaming reply, written every second or few KiB. A rebuild does not read them, except to answer a crash: when a Run never ended, a load also reads the log since the last Checkpoint for the parts of that Run's reply.
@@ -70,7 +70,7 @@ Decision: [014. Every step is written as it happens, as facts and a log](plan/de
 
 ### Every step is an Event, and a stored Event is an Entry
 
-Decision: [015. Every Entry is an Event, and the Record is the Session's Event log](plan/decisions/015-every-entry-is-an-event.md).
+Decision: [015. Every Entry is an Event, and the Record is the Session's Event log](plan/decisions/030-every-entry-is-an-event.md).
 
 Every Event carries its time and the Session it concerns, if any; a stored Event also carries its number, and an Event of a Run its Run and its Turn. Events come in three kinds, by where they live:
 
@@ -154,7 +154,7 @@ A few decisions change bytes already sent, on purpose and at a known moment: the
 
 ### What is not the user's words goes to the model as a notice
 
-Decision: [017. A notice is a Message of its own kind, kept in the Record](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md).
+Decision: [017. A notice is a Message of its own kind, kept in the Record](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md).
 
 - **Triggered by Events.** Gotato's own notices follow the Events that cause them, such as `reply_ended`, and each names its cause. A notice is still kept as its own Message: its words must never change, it goes in where the conversation allows one rather than where its Event happened, and a service's notice has no Event to come from.
 - **One queue with Steer.** A notice waits in the queue that holds a Steer, in the order they arrived, and the queue is emptied right before every model call. So a notice always follows a user Message or a Turn's Tool Results, and never sits between a tool call and its result, which every provider refuses.
@@ -180,7 +180,7 @@ Decision: [017. A notice is a Message of its own kind, kept in the Record](plan/
 
 ### Tools load one by one from a catalog
 
-Decision: [024. A Tool is the unit of loading, found through a catalog](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md).
+Decision: [024. A Tool is the unit of loading, found through a catalog](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md).
 
 - **No catalog budget.** The catalog shows what the install mode says, and a team that installs a big ToolSet folds it. A budget would be a number somebody guessed ([A limit guards a real failure](#a-limit-guards-a-real-failure)).
 - **A loaded tool stays until the next compaction.** The tool list changes at that moment anyway, so the model keeps what it called in the Segment being closed or in the kept tail, and the rest unloads.
@@ -190,7 +190,7 @@ Decision: [024. A Tool is the unit of loading, found through a catalog](plan/dec
 
 ### A Segment is written once, and a Checkpoint points to it
 
-Decision: [019. A Segment is written once, and a Checkpoint points to it](plan/decisions/019-a-segment-is-written-once.md).
+Decision: [019. A Segment is written once, and a Checkpoint points to it](plan/decisions/034-a-segment-is-written-once.md).
 
 - **Why:** a provider's prompt cache reads bytes, and a Segment is only useful if its bytes never change. A Segment is appended once, as its own `segment_closed` Entry, with its rendered Messages and its data: its number, its times, the range of the Record it covers, its tool call lines, its Recap and the tools it used. A Checkpoint lists the numbers of the Segments the Context uses and keeps the tail, with the tail's own Messages, because dropping reasoning rewrites them when the Checkpoint is written. The Entries a Segment covers stay in the log, unread by the Context and readable by their range. Rendering at request time would let a change in the rules change the bytes, and copying would write the same Messages again at every compaction.
 - **What it costs.** A load reads every `segment_closed` Entry before the last Checkpoint, including one a later Checkpoint no longer lists, so a load grows with the history. A Record that holds Segments is read only by a Gotato that knows them.
@@ -213,7 +213,7 @@ What the model sees is a value built on every Turn, not the history sent as it i
 
 ### A large Tool Result is spilled, and read in pages
 
-Decision: [025. A large Tool Result is spilled into the Record, and read in pages](plan/decisions/025-a-large-tool-result-is-spilled-and-read-in-pages.md).
+Decision: [025. A large Tool Result is spilled into the Record, and read in pages](plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md).
 
 - **The Record is the truth, and a warm Session is a cache.** Any instance reads the same body from the Record, and a warm copy only keeps the bodies it has read.
 - **One page is the line.** The threshold and the page of the reader are the same, so a result either fits in the Context or is read page by page.
@@ -221,7 +221,7 @@ Decision: [025. A large Tool Result is spilled into the Record, and read in page
 
 ### Reasoning goes back for the current Round, where the provider allows it
 
-Decision: [016. Reasoning goes back for the current Round where the provider allows it](plan/decisions/016-reasoning-goes-back-for-the-current-round.md).
+Decision: [016. Reasoning goes back for the current Round where the provider allows it](plan/decisions/029-reasoning-goes-back-for-the-current-round.md).
 
 - **Where a Round starts.** At the last user Message. A Steer is a user Message, so it starts a new Round. A Continue without a new prompt stays in the Round it resumes. Tool Results have a role of their own and never start one, and neither does a notice, because it is not the user speaking.
 - **Which provider.** The gateway's configuration names it (`provider`). Without that, the gateway recognizes only a provider's own address, such as `api.anthropic.com`. It never guesses from a model name, because behind a gateway a model name may be an alias for anything.
@@ -232,7 +232,7 @@ Decision: [016. Reasoning goes back for the current Round where the provider all
 
 ### Compaction closes a Segment, before the cache goes cold
 
-Decision: [018. Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment](plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md).
+Decision: [018. Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md).
 
 - **Before the cache goes cold.** An idle Session is compacted shortly before its prompt cache expires, or before it leaves memory if its TTL comes first, or if the cache retention is unknown or not well above the lead, where the TTL alone sets the time. The request that writes the Recap still reads the cache, and the user who comes back later pays full price only for a smaller Context.
 - **Safe by default.** Segments have a token budget, so the oldest are merged when they pass it, and on an overflow too. They merge into one merged Segment that opens the Context, down to half the budget, so the far past is one Recap and only it is a summary of a summary. With no `context_window_tokens` and no ceiling there is still a default budget, 32K tokens, so a long conversation cannot grow until every request is refused.
@@ -284,7 +284,7 @@ A Session runs with nobody watching each step, so something will fail: a model c
 
 ### A limit guards a real failure
 
-Decision: [023. A limit guards a real failure, and sizes follow the model's window](plan/decisions/023-a-limit-guards-a-real-failure.md).
+Decision: [023. A limit guards a real failure, and sizes follow the model's window](plan/decisions/038-a-limit-guards-a-real-failure.md).
 
 - **A size follows the window.** A Tool Result over one page, about 8K tokens, is spilled into the Record and read back in pages ([FEATURES.md → G-F35](FEATURES.md#g-f35--large-tool-results-)). The compaction ceiling is the window less a reserve. Neither is a fixed byte count that someone chose.
 - **What stays, and why.** `MaxMessageBytes` guards memory against one reply that never ends. `ModelCallDeadline` and `ToolCallDeadline` guard a call that hangs; they are marked for review, because a fixed two minutes may not fit a slow model or a long tool. `MaxMessages` and `MaxTranscriptBytes` guard what one load reads.
@@ -296,7 +296,7 @@ Decision: [023. A limit guards a real failure, and sizes follow the model's wind
 
 ### An error says whether it ran and whether a retry may succeed
 
-Decision: [020. The runtime sets whether an error ran and whether a retry may succeed](plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md).
+Decision: [020. The runtime sets whether an error ran and whether a retry may succeed](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md).
 
 - **Three answers on every error.** The code says what happened. `gotato.NotRun(err)` is true when nothing with side effects happened, so the request is safe to send to another instance. `gotato.Retryable(err)` is true when the same request, sent again later, may succeed. Both look through wrapped errors.
 - **Not run is a promise, so the default is no.** A store failure may have run, and a Run that reached the model has run. Only a refusal made before a Run starts says yes: draining, past a limit, busy, no such Session.
@@ -393,7 +393,7 @@ Gotato is a library inside your service. Routing, authentication, databases, tel
 
 ### Gotato builds no infrastructure, and stays within its boundary
 
-Decision: [013. Correctness is Gotato's, routing is the infrastructure's](plan/decisions/013-gotato-builds-no-infrastructure.md).
+Decision: [013. Correctness is Gotato's, routing is the infrastructure's](plan/decisions/024-gotato-builds-no-infrastructure.md).
 
 ### No authentication
 
@@ -456,7 +456,7 @@ Decision: [004. An Agent is a definition, and a Session is the live unit](plan/d
 
 ### Reading a large result is paging, and a bash for it is another project
 
-Decision: [026. A bash for large results lives in its own project](plan/decisions/026-a-read-only-bash-for-large-results-is-another-project.md).
+Decision: [026. A bash for large results lives in its own project](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md).
 
 A Tool Result over one page is spilled into the Record, and the model reads it back in pages ([A large Tool Result is spilled, and read in pages](#a-large-tool-result-is-spilled-and-read-in-pages)). A query tool over a spilled result stays outside Gotato, in [go-bash](https://github.com/jinhuang712/go-bash), which does not import Gotato. This is not [a tool that runs commands or code](#no-tool-runs-commands-or-code): nothing is executed outside the process.
 
@@ -504,7 +504,7 @@ Gotato is designed for many instances behind your load balancer. One instance is
 
 ### One writer per Session, claimed in the store
 
-Decision: [011. One writer per Session, by a claim with an epoch](plan/decisions/011-one-writer-per-session-claimed-in-the-store.md).
+Decision: [011. One writer per Session, by a claim with an epoch](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md).
 
 ### Every append is conditional on its position, and a claim takes one
 
@@ -608,24 +608,24 @@ Each decision is a fork someone could reasonably reverse, kept in its own file w
 | [003](plan/decisions/003-gotato-owns-the-shapes-and-adapters-own-storage.md) | Gotato owns the shapes, and adapters own storage and telemetry |
 | [004](plan/decisions/004-an-agent-is-a-definition-and-a-session-is-the-live-unit.md) | An Agent is a definition, and a Session is the live unit |
 | [005](plan/decisions/005-no-approval-system.md) | The Effect cap and tools that check their own arguments replace an approval system |
-| [006](plan/decisions/006-a-conformance-suite-ships-with-the-store-contract.md) | A conformance suite ships with the store contract |
-| [007](plan/decisions/007-the-effect-cap-hides-tools-above-it.md) | A tool above the Effect cap is hidden from the model |
-| [008](plan/decisions/008-only-the-agent-sets-the-effect-cap.md) | Only the Agent sets the Effect cap |
-| [009](plan/decisions/009-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md) | `gotato.Session` is the live unit, and `session.Record` is what the store keeps |
-| [010](plan/decisions/010-the-record-is-an-append-only-log.md) | The Record is an append-only log |
-| [011](plan/decisions/011-one-writer-per-session-claimed-in-the-store.md) | One writer per Session, by a claim with an epoch |
-| [012](plan/decisions/012-messages-reach-the-writer-and-take-effect-in-its-process.md) | Steer lands at a Turn boundary, Interrupt and Stop at once, and a late message starts a new Run |
-| [013](plan/decisions/013-gotato-builds-no-infrastructure.md) | Correctness is Gotato's, routing is the infrastructure's |
-| [014](plan/decisions/014-every-step-is-written-as-facts-and-a-log.md) | Every step is written as it happens, as facts and a log |
-| [015](plan/decisions/015-every-entry-is-an-event.md) | Every Entry is an Event, and the Record is the Session's Event log |
-| [016](plan/decisions/016-reasoning-goes-back-for-the-current-round.md) | Reasoning goes back for the current Round where the provider allows it |
-| [017](plan/decisions/017-a-notice-is-a-message-of-its-own-kind.md) | A notice is a Message of its own kind, kept in the Record |
-| [018](plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md) | Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment |
-| [019](plan/decisions/019-a-segment-is-written-once.md) | A Segment is written once, and a Checkpoint points to it |
-| [020](plan/decisions/020-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) | The runtime sets whether an error ran and whether a retry may succeed |
-| [021](plan/decisions/021-a-warm-copy-is-a-cache-not-a-lock.md) | A warm copy is a cache with a head check, not a lock |
-| [022](plan/decisions/022-when-the-hash-missed-the-answer-names-the-writer.md) | When the hash missed, the answer names the writer |
-| [023](plan/decisions/023-a-limit-guards-a-real-failure.md) | A limit guards a real failure, and sizes follow the model's window |
-| [024](plan/decisions/024-tools-load-one-by-one-from-a-catalog.md) | A Tool is the unit of loading, found through a catalog |
-| [025](plan/decisions/025-a-large-tool-result-is-spilled-and-read-in-pages.md) | A large Tool Result is spilled into the Record, and read in pages |
-| [026](plan/decisions/026-a-read-only-bash-for-large-results-is-another-project.md) | A bash for large results lives in its own project |
+| [013](plan/decisions/013-a-conformance-suite-ships-with-the-store-contract.md) | A conformance suite ships with the store contract |
+| [014](plan/decisions/014-the-effect-cap-hides-tools-above-it.md) | A tool above the Effect cap is hidden from the model |
+| [015](plan/decisions/015-only-the-agent-sets-the-effect-cap.md) | Only the Agent sets the Effect cap |
+| [016](plan/decisions/016-gotato-session-is-the-live-unit-and-session-record-is-what-the-store-keeps.md) | `gotato.Session` is the live unit, and `session.Record` is what the store keeps |
+| [017](plan/decisions/017-the-record-is-an-append-only-log.md) | The Record is an append-only log |
+| [019](plan/decisions/019-one-writer-per-session-claimed-in-the-store.md) | One writer per Session, by a claim with an epoch |
+| [021](plan/decisions/021-messages-reach-the-writer-and-take-effect-in-its-process.md) | Steer lands at a Turn boundary, Interrupt and Stop at once, and a late message starts a new Run |
+| [024](plan/decisions/024-gotato-builds-no-infrastructure.md) | Correctness is Gotato's, routing is the infrastructure's |
+| [028](plan/decisions/028-every-step-is-written-as-facts-and-a-log.md) | Every step is written as it happens, as facts and a log |
+| [030](plan/decisions/030-every-entry-is-an-event.md) | Every Entry is an Event, and the Record is the Session's Event log |
+| [029](plan/decisions/029-reasoning-goes-back-for-the-current-round.md) | Reasoning goes back for the current Round where the provider allows it |
+| [031](plan/decisions/031-a-notice-is-a-message-of-its-own-kind.md) | A notice is a Message of its own kind, kept in the Record |
+| [032](plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md) | Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment |
+| [034](plan/decisions/034-a-segment-is-written-once.md) | A Segment is written once, and a Checkpoint points to it |
+| [035](plan/decisions/035-the-runtime-says-whether-an-error-ran-and-whether-to-retry.md) | The runtime sets whether an error ran and whether a retry may succeed |
+| [036](plan/decisions/036-a-warm-copy-is-a-cache-not-a-lock.md) | A warm copy is a cache with a head check, not a lock |
+| [037](plan/decisions/037-when-the-hash-missed-the-answer-names-the-writer.md) | When the hash missed, the answer names the writer |
+| [038](plan/decisions/038-a-limit-guards-a-real-failure.md) | A limit guards a real failure, and sizes follow the model's window |
+| [039](plan/decisions/039-tools-load-one-by-one-from-a-catalog.md) | A Tool is the unit of loading, found through a catalog |
+| [040](plan/decisions/040-a-large-tool-result-is-spilled-and-read-in-pages.md) | A large Tool Result is spilled into the Record, and read in pages |
+| [041](plan/decisions/041-a-read-only-bash-for-large-results-is-another-project.md) | A bash for large results lives in its own project |

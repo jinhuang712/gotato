@@ -1,4 +1,4 @@
-# 006. A conformance suite ships with the store contract
+# 013. A conformance suite ships with the store contract
 
 Decided: 2026-10-16    Status: current
 

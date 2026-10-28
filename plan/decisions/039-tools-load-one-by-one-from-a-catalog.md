@@ -1,4 +1,4 @@
-# 024. A Tool is the unit of loading, found through a catalog
+# 039. A Tool is the unit of loading, found through a catalog
 
 Decided: 2026-10-25    Status: current
 

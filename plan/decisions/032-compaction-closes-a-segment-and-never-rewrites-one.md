@@ -1,4 +1,4 @@
-# 018. Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment
+# 032. Compaction closes what came since the last Checkpoint into a Segment, and never rewrites a Segment
 
 Decided: 2026-10-19    Status: current
 

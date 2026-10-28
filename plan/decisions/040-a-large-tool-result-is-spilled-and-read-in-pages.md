@@ -1,4 +1,4 @@
-# 025. A large Tool Result is spilled into the Record, and read in pages
+# 040. A large Tool Result is spilled into the Record, and read in pages
 
 Decided: 2026-10-25    Status: current
 

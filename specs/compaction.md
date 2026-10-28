@@ -108,4 +108,4 @@ The top row is a crash at each step. Only step 5 changes the Record, and it is o
 - Any Instance rebuilds the same request: the Context comes from the Record and its last Checkpoint, so whoever loads it builds the same bytes.
 
 ## See also
-[FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-), decisions [018](../plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md) [019](../plan/decisions/019-a-segment-is-written-once.md) and [014](../plan/decisions/014-every-step-is-written-as-facts-and-a-log.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [context.md](context.md), [record.md](record.md) and [session.md](session.md).
+[FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-), decisions [032](../plan/decisions/032-compaction-closes-a-segment-and-never-rewrites-one.md) [034](../plan/decisions/034-a-segment-is-written-once.md) and [028](../plan/decisions/028-every-step-is-written-as-facts-and-a-log.md), [GLOSSARY.md](../GLOSSARY.md). Related specs: [context.md](context.md), [record.md](record.md) and [session.md](session.md).
