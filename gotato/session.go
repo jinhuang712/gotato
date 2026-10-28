@@ -29,7 +29,7 @@ const (
 // SessionOption configures a Session built by NewSession.
 type SessionOption func(*sessionConfig) error
 
-// sessionConfig is what the SessionOptions collect for NewSessionContext.
+// sessionConfig is what the SessionOptions collect for NewSession.
 type sessionConfig struct {
 	model          Model
 	instruction    string
@@ -117,7 +117,7 @@ func WithCacheKey(key string) SessionOption {
 // WithMaxEffect caps the Effect of the Tools the Session offers. A Tool above
 // the cap, including one in a ToolSet, is never in the catalog, never found by
 // a search, never loaded and never shown to the Model, and a call to it fails
-// as a call to an unknown Tool. A Tool that declares no Effect ranks as
+// with a result that says the Tool exists but this Session does not allow it. A Tool that declares no Effect ranks as
 // ToolEffectDestructive, so any lower cap hides it. ToolEffectUnspecified means
 // no cap, which is the default.
 func WithMaxEffect(effect ToolEffect) SessionOption {
@@ -409,7 +409,9 @@ func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
 // Prompt appends message as the user's Message and runs it to a settled
 // RunResult. It blocks until the Run ends. It returns CodeBusy at once when a
 // Run is already in flight, and an error of CodeSessionClosing or
-// CodeSessionClosed after Close. Canceling ctx aborts the Run.
+// CodeSessionClosed after Close. Canceling ctx aborts the Run, and Prompt
+// then returns the Run's settled result, with status canceled or
+// deadline_exceeded, once the Run has ended under ctx.
 func (a *Session) Prompt(ctx context.Context, message Message) (RunResult, error) {
 	if err := validatePrompt(message); err != nil {
 		return RunResult{}, err
@@ -459,9 +461,24 @@ func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation
 	case response := <-cmd.result:
 		return response.result, response.err
 	case <-ctx.Done():
+	}
+	// The Run ends with ctx, since it runs under it, so wait for its settled
+	// result: it carries the status that says why. A Model or Tool that
+	// ignores ctx cannot hold the caller past settleGrace; the caller then
+	// gets the ctx error alone, and the Run settles later.
+	grace := time.NewTimer(settleGrace)
+	defer grace.Stop()
+	select {
+	case response := <-cmd.result:
+		return response.result, response.err
+	case <-grace.C:
 		return RunResult{}, runtimeError(codeForContext(ctx.Err()), operation, operation+" context ended", ctx.Err())
 	}
 }
+
+// settleGrace is how long Prompt and Continue wait, after their ctx ends, for
+// the Run to settle under it.
+const settleGrace = 5 * time.Second
 
 // Abort cancels the current Run, and writes an AbortRequested Event before the
 // Run's RunEnded. It does not close the Session, and it is a no-op when no Run
