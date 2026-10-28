@@ -119,9 +119,16 @@ func TestDrainCommitsRunsAndReleasesClaims(t *testing.T) {
 			go func() { drained <- a.Drain(drainCtx) }()
 			waitFor(t, a.Draining)
 
-			// The row says draining, so every instance can see it.
-			if state, err := open().Instance(ctx, a.Instance()); err != nil || !state.Alive || !state.Draining {
-				t.Fatalf("instance-a while draining = %+v, %v; want alive and draining", state, err)
+			// The row says draining, so every instance can see it. Drain sets
+			// its own flag first and then writes the row, so wait for the row.
+			var state session.InstanceState
+			waitFor(t, func() bool {
+				var err error
+				state, err = open().Instance(ctx, a.Instance())
+				return err == nil && state.Alive && state.Draining
+			})
+			if !state.Alive || !state.Draining {
+				t.Fatalf("instance-a while draining = %+v; want alive and draining", state)
 			}
 			// It takes no new Session: no new Run, and no new Claim.
 			if _, err := a.Run(ctx, service.RunRequest{Prompt: "new"}); !errors.Is(err, service.ErrDraining) {
