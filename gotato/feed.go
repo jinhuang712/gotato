@@ -304,7 +304,9 @@ func (f *Feed) retain(event Event) {
 		return
 	}
 	if len(f.ring) >= f.ringCap {
-		f.ring = append(f.ring[:0], f.ring[len(f.ring)-f.ringCap/2:]...)
+		kept := copy(f.ring, f.ring[len(f.ring)-f.ringCap/2:])
+		clear(f.ring[kept:]) // let the trimmed Events be collected
+		f.ring = f.ring[:kept]
 		f.dropped = true
 	}
 	// Keep the ring in the order of the numbers, whatever order they came in.
