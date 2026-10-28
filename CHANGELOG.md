@@ -687,7 +687,7 @@ Phase 8, step 4 of [ROADMAP.md](plan/ROADMAP.md) ([FEATURES.md → G-F29](FEATUR
   | `CoreLimits.MaxToolResultBytes` (4 MiB): a larger Tool Result failed the Run with `limit_exceeded` | removed; a result over one page (32 KiB) is spilled into the Record and the Context holds a preview and a ref (*Large Tool Results*, below). `MaxMessageBytes` still refuses a Message too large to commit, but a text result no longer reaches it |
   | `CoreLimits.RunDeadline` (5 minutes) | removed; a Run's deadline in the core is its `ctx` |
   | `gotato.WithDeadlines(run, model, tool)` | `gotato.WithLimits` with `ModelCallDeadline` and `ToolCallDeadline` (see *One way to give a Session its tools*) |
-  | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (`service.DefaultRunTimeout`; negative means no deadline). A sooner deadline on the caller's context still wins |
+  | `service.RunRequest.Timeout` replaced the Agent's `RunDeadline`, through `Limits` | it replaces `service.Agent.RunTimeout`, new, 30 minutes by default (negative means no deadline). A sooner deadline on the caller's context still wins |
   | `read_segment` pages were sized from the Agent's `MaxToolResultBytes` | always `modelctx.DefaultReadSegmentPageBytes` |
 
   `MaxMessageBytes`, `ModelCallDeadline` and `ToolCallDeadline` are unchanged (`MaxActiveToolSets` goes in *Tool search*, below). `limit_exceeded` stays for the message and transcript limits, the queues and the compaction ceiling. No JSON field, CLI flag or gateway key carried the removed limits.

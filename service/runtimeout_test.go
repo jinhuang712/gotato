@@ -52,7 +52,7 @@ func runDeadline(t *testing.T, ctx context.Context, runTimeout, requestTimeout t
 // A Run of an Agent with no RunTimeout has a deadline of 30 minutes.
 func TestARunHasADefaultDeadlineOf30Minutes(t *testing.T) {
 	ahead, has := runDeadline(t, context.Background(), 0, 0)
-	if !has || ahead > service.DefaultRunTimeout+time.Minute || ahead < service.DefaultRunTimeout-time.Minute || service.DefaultRunTimeout != 30*time.Minute {
+	if !has || ahead > 31*time.Minute || ahead < 29*time.Minute {
 		t.Fatalf("deadline %v ahead (set %v); want about 30 minutes", ahead, has)
 	}
 }

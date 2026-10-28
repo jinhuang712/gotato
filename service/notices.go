@@ -10,9 +10,9 @@ import (
 	"github.com/jinhuang712/gotato/session"
 )
 
-// DefaultTimeAway is how long a Session must have been idle before a message
+// defaultTimeAway is how long a Session must have been idle before a message
 // that starts a Run is followed by a time_away notice (G-F29).
-const DefaultTimeAway = 30 * time.Minute
+const defaultTimeAway = 30 * time.Minute
 
 // NoticeRequest is one notice from your service for a Session.
 type NoticeRequest struct {
@@ -184,7 +184,7 @@ func (r *Runner) queueTimeAway(ctx context.Context, spec Agent, record *session.
 	case threshold < 0:
 		return
 	case threshold == 0:
-		threshold = DefaultTimeAway
+		threshold = defaultTimeAway
 	}
 	last := record.LastRunEnd()
 	now := r.clock.Now()

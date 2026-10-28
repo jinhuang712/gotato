@@ -12,16 +12,16 @@ import (
 
 // Defaults of a warm Session (WarmPolicy).
 const (
-	// DefaultWarmTTL is how long an idle Session stays in memory.
-	DefaultWarmTTL = 60 * time.Minute
-	// DefaultIdleLead is how long before its cache expires, or before it
+	// defaultWarmTTL is how long an idle Session stays in memory.
+	defaultWarmTTL = 60 * time.Minute
+	// defaultIdleLead is how long before its cache expires, or before it
 	// leaves memory, an idle Session is compacted: a compaction can take a
 	// minute or more, and its Recap should read a warm cache.
-	DefaultIdleLead = 5 * time.Minute
-	// DefaultIdleMinTokens is the smallest stretch since the last Checkpoint
+	defaultIdleLead = 5 * time.Minute
+	// defaultIdleMinTokens is the smallest stretch since the last Checkpoint
 	// that an idle Session is compacted for: below it the model call costs
 	// more than it saves.
-	DefaultIdleMinTokens = 20000
+	defaultIdleMinTokens = 20000
 )
 
 // WarmPolicy says how long a Session of an Agent stays in memory after its
@@ -36,31 +36,31 @@ const (
 type WarmPolicy struct {
 	// TTL is how long an idle Session stays in memory; the clock starts when
 	// a Run ends and starts again with the next one. Zero means
-	// DefaultWarmTTL. A negative TTL keeps no Session warm: each Run loads it
+	// 60 minutes. A negative TTL keeps no Session warm: each Run loads it
 	// and lets it go.
 	TTL time.Duration
 	// NoIdleCompaction turns off the compaction of an idle Session.
 	NoIdleCompaction bool
 	// IdleLead is how long before the cache expires, or before the Session
-	// leaves memory, the idle compaction runs. Zero means DefaultIdleLead. It
+	// leaves memory, the idle compaction runs. Zero means 5 minutes. It
 	// is at most half the TTL.
 	IdleLead time.Duration
 	// IdleMinTokens is the smallest stretch, estimated in tokens, since the
 	// last Checkpoint that an idle Session is compacted for. Zero means
-	// DefaultIdleMinTokens; a negative value compacts any stretch.
+	// 20000 tokens; a negative value compacts any stretch.
 	IdleMinTokens int
 }
 
 func (p WarmPolicy) ttl() time.Duration {
 	if p.TTL == 0 {
-		return DefaultWarmTTL
+		return defaultWarmTTL
 	}
 	return p.TTL
 }
 
 func (p WarmPolicy) lead() time.Duration {
 	if p.IdleLead <= 0 {
-		return DefaultIdleLead
+		return defaultIdleLead
 	}
 	return p.IdleLead
 }
@@ -68,7 +68,7 @@ func (p WarmPolicy) lead() time.Duration {
 func (p WarmPolicy) minTokens() int {
 	switch {
 	case p.IdleMinTokens == 0:
-		return DefaultIdleMinTokens
+		return defaultIdleMinTokens
 	case p.IdleMinTokens < 0:
 		return 0
 	}

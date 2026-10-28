@@ -50,9 +50,9 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 }
 
-// DefaultRunTimeout is how long a Run of an Agent may last when neither the
+// defaultRunTimeout is how long a Run of an Agent may last when neither the
 // Agent's RunTimeout nor the request's Timeout says otherwise.
-const DefaultRunTimeout = 30 * time.Minute
+const defaultRunTimeout = 30 * time.Minute
 
 // DefaultToolSetTimeout is how long Runner.Tools and Runner.SetToolActive wait
 // for ToolSets when Config.ToolSetTimeout says nothing.
@@ -103,7 +103,7 @@ type Agent struct {
 	ContextBuilder gotato.ContextBuilder
 	Limits         *gotato.CoreLimits
 	// RunTimeout bounds one Run of this Agent; the Run settles as
-	// deadline_exceeded. Zero means DefaultRunTimeout, negative means no
+	// deadline_exceeded. Zero means 30 minutes, negative means no
 	// deadline. A RunRequest's Timeout replaces it, and a deadline on the
 	// caller's context that comes sooner ends the Run sooner. The core sets
 	// no Run deadline of its own: there a Run's deadline is its ctx.
@@ -120,8 +120,8 @@ type Agent struct {
 	Warm WarmPolicy
 	// TimeAwayAfter is how long a Session must have been idle before a
 	// message that starts a Run is followed by a time_away notice with how
-	// long it has been and the time now (G-F29). Zero means DefaultTimeAway
-	// (30 minutes); a negative value turns the notice off. The time is shown
+	// long it has been and the time now (G-F29). Zero means 30 minutes;
+	// a negative value turns the notice off. The time is shown
 	// in the zone of Compact.Location, UTC when it is nil.
 	TimeAwayAfter time.Duration
 	// Options are appended verbatim for anything the fields above do not

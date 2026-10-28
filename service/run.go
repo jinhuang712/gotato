@@ -585,7 +585,7 @@ func (st *runState) promptWithDeadline(ctx context.Context, spec Agent, live *go
 		runDeadline = spec.RunTimeout
 	}
 	if runDeadline == 0 {
-		runDeadline = DefaultRunTimeout
+		runDeadline = defaultRunTimeout
 	}
 	promptCtx := ctx
 	if runDeadline > 0 {
