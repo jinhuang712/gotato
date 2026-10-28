@@ -30,32 +30,41 @@
 //
 // # Where things are
 //
-// The package has four subjects. Each is a group of files, so a reader can
-// start from the name of a file:
+// The files stand in three layers, from the bottom up. A file may use what
+// its own layer or a lower one declares, never a higher one; TestFileLayers
+// (layers_test.go) holds every file to its layer.
 //
-//   - Session and Loop: the live Session and the Run it executes. session.go
-//     (Session, NewSession, Prompt), sessionoptions.go (its options),
-//     sessionlifecycle.go (Abort, Close, the command loop), loop.go (the Turn
-//     loop), reply.go (reading the Model's reply), eventwrite.go and commit.go
-//     (what a Turn writes), model.go and types.go (Model, Message), queue.go
-//     (Steer, FollowUp), limits.go, validate.go, retry.go, notice.go, tags.go,
-//     clone.go, coalesce.go and cutoff.go.
-//   - Tools: what the Model may call. tool.go (Tool, ToolSpec, ToolResult),
-//     toolfunc.go and toolschema.go (a Tool from a Go function), toolbatch.go
-//     (parallel calls), toolset.go (ToolSet), toolregistry.go (the Session's
-//     catalog), toolsource.go and toolrefresh.go (Tools that change between
-//     Turns), toolsearch.go and bm25.go (loading Tools on demand) and spill.go
-//     (a long result kept out of the Context).
-//   - Events and Feed: what a Session says about itself. events.go and
-//     eventkinds.go (every Event type and its kind), eventheader.go and
-//     eventcodec.go (the Header and the JSON form), feed.go and subscription.go
-//     (Feed, EventSource, Subscription), journal.go (storing Events before they
-//     are sent) and errors.go (RuntimeError and its codes).
-//   - Context contracts: what the Model is shown and how a store keeps it.
-//     transcript.go (Transcript), context.go (ContextBuilder, ModelContext),
-//     request.go (building the Model's request), turnprep.go (TurnPreparer),
-//     inspect.go (InspectContext), segment.go (Segment and compaction values)
-//     and extensions.go (the stages of a Turn that an Extension hooks).
+//  1. Values and contracts: what a Session, its Events and its Tools are
+//     made of. types.go (Message, RunID, NoticeInfo, SpilledResult),
+//     model.go (Model), tool.go (Tool, ToolSpec, ToolResult), toolschema.go
+//     (a Tool's JSON schema), events.go and eventkinds.go (every Event type
+//     and its kind), eventheader.go and eventcodec.go (the Header and the
+//     JSON form), errors.go (RuntimeError and its codes), limits.go, retry.go,
+//     segment.go (Segment and compaction values), tags.go, clone.go and
+//     validate.go.
+//  2. Mechanism that needs no Session: parts a caller can read without it.
+//     transcript.go (Transcript), journal.go (storing Events before they are
+//     sent), feed.go and subscription.go (Feed, EventSource, Subscription),
+//     context.go (ContextBuilder, ModelContext), extensions.go (the stages of
+//     a Turn that an Extension hooks), turnprep.go (TurnPreparer), toolset.go
+//     (ToolSet), toolfunc.go (a Tool from a Go function), bm25.go (ranking for
+//     Tool search), coalesce.go and cutoff.go (shaping a reply).
+//  3. The Session and its Loop, and everything that runs on them. session.go
+//     (Session, NewSession, Prompt), sessionoptions.go (every SessionOption,
+//     with sessionConfig), sessionlifecycle.go (Abort, Close, the command
+//     loop), loop.go (the Turn loop), reply.go (reading the Model's reply),
+//     request.go (the Model's request), commit.go and eventwrite.go (what a
+//     Turn writes), queue.go (Steer, FollowUp), notice.go (Notice), inspect.go
+//     (InspectContext), spill.go (a long result kept out of the Context), and
+//     for Tools toolregistry.go (the Session's catalog), toolsource.go and
+//     toolrefresh.go (Tools that change between Turns), toolsearch.go (loading
+//     Tools on demand) and toolbatch.go (parallel calls).
+//
+// A SessionOption is declared in sessionoptions.go even when it configures a
+// part of layer 2, because it names sessionConfig, which belongs to layer 3.
+// A file of layer 3 may use any file below it, and the files inside one layer
+// may use each other. knownBackEdges in layers_test.go lists the uses that
+// point up; it is empty, and it may only shrink.
 //
 // The names, in the order a reader needs them:
 //
