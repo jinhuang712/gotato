@@ -263,8 +263,29 @@ func commitMerge(s *session.Record, cfg MergeConfig, why gotato.CompactionWhy, r
 // with the reason and the error text.
 func failMerge(s *session.Record, why gotato.CompactionWhy, result MergeResult, reason MergeReason, cause gotato.ErrorCode, err error) MergeResult {
 	s.Emit(gotato.CompactionFailed{Header: sessionHeader(s), Why: why, Cause: cause})
-	result.Reason, result.Error = reason, err.Error()
+	result.Reason, result.Error = reason, publicMergeError(reason, err)
 	return result
+}
+
+// publicMergeError is the text of a failed merge that MergeResult carries to
+// a caller, and from there to a client. A Recap writer and a Store are
+// foreign, and their errors may hold a host, a query or a secret, so only what
+// the error chooses to make public is kept: its PublicError text, or a
+// RuntimeError, whose Message is written to be read. Any other error is a
+// fixed text for its reason; the error itself is not kept.
+func publicMergeError(reason MergeReason, err error) string {
+	var public gotato.PublicError
+	if errors.As(err, &public) {
+		return public.Public()
+	}
+	var runtime *gotato.RuntimeError
+	if errors.As(err, &runtime) && runtime != nil {
+		return runtime.Error()
+	}
+	if reason == MergeReasonRecapFailed {
+		return "the Recap failed"
+	}
+	return "the merge could not be written"
 }
 
 // flatten returns the rendered Messages of segments, in order.

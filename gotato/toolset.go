@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 )
 
 // ToolSetSpec identifies a ToolSet. The name must be stable and unique.
@@ -97,7 +98,7 @@ type toolSetConfig struct {
 func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeExtensionFailure, "ToolSet", fmt.Sprintf("ToolSet.Spec panicked: %v", recovered), nil)
+			err = runtimeError(CodeExtensionFailure, "ToolSet", "ToolSet.Spec panicked", fmt.Errorf("ToolSet.Spec panicked: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	return set.Spec(), nil
@@ -108,7 +109,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	err := func() (err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("ToolSet %s panicked: %v", state.spec.Name, recovered)
+				err = fmt.Errorf("ToolSet %s panicked: %v\n%s", state.spec.Name, recovered, debug.Stack())
 			}
 		}()
 		resolved, failure := state.set.Tools(ctx)
@@ -116,7 +117,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 		return failure
 	}()
 	if err != nil {
-		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", "cannot resolve ToolSet "+state.spec.Name+": "+err.Error(), err)
+		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", publicMessage(err, "cannot resolve ToolSet "+state.spec.Name), err)
 	}
 	local := map[string]bool{}
 	for _, tool := range tools {

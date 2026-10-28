@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -447,7 +448,7 @@ func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 func (r *toolRegistry) collectSources(ctx context.Context) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeToolResolutionFailure, "ToolSource", fmt.Sprintf("ToolSource panicked: %v", recovered), nil)
+			err = runtimeError(CodeToolResolutionFailure, "ToolSource", "ToolSource panicked", fmt.Errorf("ToolSource panicked: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	var tools []Tool
@@ -457,7 +458,7 @@ func (r *toolRegistry) collectSources(ctx context.Context) (err error) {
 			if failure := contextFailure(ctx, "ToolSource"); failure != nil {
 				return failure
 			}
-			return runtimeError(CodeToolResolutionFailure, "ToolSource", "ToolSource failed", sourceErr)
+			return runtimeError(CodeToolResolutionFailure, "ToolSource", publicMessage(sourceErr, "ToolSource failed"), sourceErr)
 		}
 		for _, tool := range supplied {
 			if tool == nil {
@@ -718,12 +719,12 @@ func (r *toolRegistry) rank(ctx context.Context, query string) (ids []string, er
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = runtimeError(CodeExtensionFailure, SearchToolName, fmt.Sprintf("ToolSearcher panicked: %v", recovered), nil)
+			err = runtimeError(CodeExtensionFailure, SearchToolName, "ToolSearcher panicked", fmt.Errorf("ToolSearcher panicked: %v\n%s", recovered, debug.Stack()))
 		}
 	}()
 	ranked, searchErr := r.searcher.Search(ctx, query, candidates)
 	if searchErr != nil {
-		return nil, runtimeError(CodeExtensionFailure, SearchToolName, "ToolSearcher failed: "+searchErr.Error(), searchErr)
+		return nil, runtimeError(CodeExtensionFailure, SearchToolName, publicMessage(searchErr, "ToolSearcher failed"), searchErr)
 	}
 	known := make(map[string]bool, len(candidates))
 	for _, spec := range candidates {

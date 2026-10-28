@@ -466,8 +466,9 @@ func (m errModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStre
 // stopped during the merge ends it with the cancellation.
 func TestAMergeWhoseModelFailsOrIsStoppedMergesNothing(t *testing.T) {
 	f := segmentsFixture(t, 4, numberedRecap{})
-	result := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: errModel{errors.New("gateway down")}}})
-	if result.Merged || result.Reason != modelctx.MergeReasonRecapFailed || !strings.Contains(result.Error, "gateway down") || len(f.rec.Segments()) != 4 {
+	result := mustMerge(t, f.rec, modelctx.MergeConfig{BudgetTokens: 1, Recap: modelctx.ModelRecap{Model: errModel{errors.New("gateway down password=merge-sentinel")}}})
+	// The error of a foreign Recap writer does not become the public text.
+	if result.Merged || result.Reason != modelctx.MergeReasonRecapFailed || result.Error == "" || strings.Contains(result.Error, "merge-sentinel") || len(f.rec.Segments()) != 4 {
 		t.Fatalf("result = %+v, %d Segments", result, len(f.rec.Segments()))
 	}
 	ctx, cancel := context.WithCancel(context.Background())

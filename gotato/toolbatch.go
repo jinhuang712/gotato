@@ -419,10 +419,11 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			// Match the Extension guard: a short, client-safe Message with the
-			// captured stack attached to the Cause for logs.
+			// Match the Extension guard: a fixed, client-safe Message. What
+			// the Tool panicked with, and the stack, stay on the Cause for
+			// logs.
 			err = runtimeError(CodeToolExecutionFailure, "Tool",
-				fmt.Sprintf("tool panic: %v", recovered),
+				"tool panic",
 				fmt.Errorf("tool panic: %v\n%s", recovered, debug.Stack()))
 		}
 	}()

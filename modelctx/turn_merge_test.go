@@ -214,7 +214,7 @@ func TestAFailedMergeRecapOnAnOverflowEndsTheRunWithContextOverflow(t *testing.T
 	if !gotato.IsCode(err, gotato.CodeContextOverflow) || result.Status != gotato.RunStatusFailed || model.calls() != 1 {
 		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
 	}
-	if !strings.Contains(err.Error(), "nothing was merged") || !strings.Contains(err.Error(), "gateway down") {
+	if !strings.Contains(err.Error(), "nothing was merged") || !strings.Contains(err.Error(), "the Recap failed") || strings.Contains(err.Error(), "gateway down") {
 		t.Errorf("the error does not say why: %v", err)
 	}
 	for _, segment := range l.writer.Record().Segments() {
