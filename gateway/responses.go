@@ -243,12 +243,13 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	return body, names, nil
 }
 
+// convertResponsesMessage turns one Message into the Responses input items it
+// stands for: none, one or several.
 func convertResponsesMessage(message gotato.Message, names map[string]string, keepReasoning bool, native ...*deferredLayout) ([]any, error) {
 	var layout *deferredLayout
 	if len(native) > 0 {
 		layout = native[0]
 	}
-	role := string(message.Role)
 	switch message.Role {
 	case gotato.RoleUser, gotato.RoleNotice:
 		// A notice (G-F29) is tagged text in a user item.
@@ -261,98 +262,120 @@ func convertResponsesMessage(message gotato.Message, names map[string]string, ke
 		}
 		return []any{responsesMessage{Role: "user", Content: content}}, nil
 	case gotato.RoleAssistant:
-		items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
-		// Adjacent text Parts are one output message: transcripts saved
-		// before Gotato coalesced deltas hold a reply as its fragments.
-		var text strings.Builder
-		flushText := func() {
-			if text.Len() == 0 {
-				return
-			}
-			items = append(items, responsesOutputMessage{
-				Type: "message", Role: "assistant", Status: "completed",
-				Content: []any{map[string]any{"type": "output_text", "text": text.String(), "annotations": []any{}}},
-			})
-			text.Reset()
+		return responsesAssistantItems(message, names, keepReasoning, layout)
+	case gotato.RoleToolResult:
+		return responsesToolResultItems(message, names, layout)
+	default:
+		return nil, fmt.Errorf("gateway: unsupported Message role %q", message.Role)
+	}
+}
+
+// responsesAssistantItems is an assistant Message as output messages,
+// reasoning items and function calls, in that order.
+func responsesAssistantItems(message gotato.Message, names map[string]string, keepReasoning bool, layout *deferredLayout) ([]any, error) {
+	items := make([]any, 0, len(message.Parts)+len(message.ToolCalls))
+	// Adjacent text Parts are one output message: transcripts saved
+	// before Gotato coalesced deltas hold a reply as its fragments.
+	var text strings.Builder
+	flushText := func() {
+		if text.Len() == 0 {
+			return
 		}
-		for _, part := range message.Parts {
-			switch part.Kind {
-			case gotato.ContentKindReasoning:
-				if len(part.Signature) == 0 || !keepReasoning {
-					continue
-				}
-				var reasoning json.RawMessage
-				if err := json.Unmarshal(part.Signature, &reasoning); err != nil {
-					return nil, fmt.Errorf("gateway: assistant reasoning signature is invalid: %w", err)
-				}
-				flushText()
-				items = append(items, reasoning)
-			case gotato.ContentKindText:
-				text.WriteString(part.Text)
-			case gotato.ContentKindImage, gotato.ContentKindJSON:
-				if len(part.Data) > 0 || part.Text != "" {
-					return nil, fmt.Errorf("gateway: Responses assistant content kind %q is unsupported", part.Kind)
-				}
+		items = append(items, responsesOutputMessage{
+			Type: "message", Role: "assistant", Status: "completed",
+			Content: []any{map[string]any{"type": "output_text", "text": text.String(), "annotations": []any{}}},
+		})
+		text.Reset()
+	}
+	for _, part := range message.Parts {
+		switch part.Kind {
+		case gotato.ContentKindReasoning:
+			if len(part.Signature) == 0 || !keepReasoning {
+				continue
+			}
+			var reasoning json.RawMessage
+			if err := json.Unmarshal(part.Signature, &reasoning); err != nil {
+				return nil, fmt.Errorf("gateway: assistant reasoning signature is invalid: %w", err)
+			}
+			flushText()
+			items = append(items, reasoning)
+		case gotato.ContentKindText:
+			text.WriteString(part.Text)
+		case gotato.ContentKindImage, gotato.ContentKindJSON:
+			if len(part.Data) > 0 || part.Text != "" {
+				return nil, fmt.Errorf("gateway: Responses assistant content kind %q is unsupported", part.Kind)
 			}
 		}
-		flushText()
-		for _, call := range message.ToolCalls {
-			name, err := assignFunctionName(names, call.ToolID)
+	}
+	flushText()
+	for _, call := range message.ToolCalls {
+		name, err := assignFunctionName(names, call.ToolID)
+		if err != nil {
+			return nil, err
+		}
+		arguments := string(replayArguments(call.Arguments))
+		callID, itemID := splitResponsesCallID(string(call.ID))
+		if layout != nil && layout.searchCalls[string(call.ID)] {
+			items = append(items, responsesToolSearchCall{Type: "tool_search_call", Execution: "client", CallID: callID, Status: "completed", Arguments: json.RawMessage(arguments)})
+			continue
+		}
+		// A JSON object is the chat API's extra_content, not an item ID.
+		if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
+			itemID = string(call.Signature)
+		}
+		// A call whose reasoning item is left out goes without its item
+		// ID too, as a call from another wire API does, so it never
+		// names an output its reasoning came with.
+		if !keepReasoning {
+			itemID = ""
+		}
+		items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
+	}
+	return items, nil
+}
+
+// responsesToolResultItems is a tool result as a function_call_output, or, for
+// the result of a client-side tool search, as a tool_search_output that lists
+// the Tools it loaded.
+func responsesToolResultItems(message gotato.Message, names map[string]string, layout *deferredLayout) ([]any, error) {
+	callID := ""
+	if message.ToolResult != nil {
+		callID, _ = splitResponsesCallID(string(message.ToolResult.CallID))
+	}
+	if callID == "" {
+		return nil, fmt.Errorf("gateway: Tool result has no Call ID")
+	}
+	if layout != nil && layout.searchCalls[string(message.ToolResult.CallID)] {
+		loaded, err := responsesLoadedTools(message.ToolResult, names, layout)
+		if err != nil {
+			return nil, err
+		}
+		return []any{responsesToolSearchOutput{Type: "tool_search_output", Execution: "client", CallID: callID, Status: "completed", Tools: loaded}}, nil
+	}
+	return []any{responsesFunctionOutput{Type: "function_call_output", CallID: callID, Output: toolResultOutput(message)}}, nil
+}
+
+// responsesLoadedTools lists, as deferred function Tools, the Tools a tool
+// search result references.
+func responsesLoadedTools(result *gotato.ToolResult, names map[string]string, layout *deferredLayout) ([]responsesTool, error) {
+	loaded := []responsesTool{}
+	for _, id := range layout.references(result) {
+		for _, entry := range layout.tools {
+			if entry.spec.ID != id {
+				continue
+			}
+			name, err := assignFunctionName(names, id)
 			if err != nil {
 				return nil, err
 			}
-			arguments := string(replayArguments(call.Arguments))
-			callID, itemID := splitResponsesCallID(string(call.ID))
-			if layout != nil && layout.searchCalls[string(call.ID)] {
-				items = append(items, responsesToolSearchCall{Type: "tool_search_call", Execution: "client", CallID: callID, Status: "completed", Arguments: json.RawMessage(arguments)})
-				continue
+			parameters, err := toolSchema(entry.spec, `{"type":"object"}`)
+			if err != nil {
+				return nil, err
 			}
-			// A JSON object is the chat API's extra_content, not an item ID.
-			if len(call.Signature) > 0 && !isJSONObject(call.Signature) {
-				itemID = string(call.Signature)
-			}
-			// A call whose reasoning item is left out goes without its item
-			// ID too, as a call from another wire API does, so it never
-			// names an output its reasoning came with.
-			if !keepReasoning {
-				itemID = ""
-			}
-			items = append(items, responsesFunctionCall{Type: "function_call", ID: itemID, CallID: callID, Name: name, Arguments: arguments})
+			loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: parameters, DeferLoading: true})
 		}
-		return items, nil
-	case gotato.RoleToolResult:
-		callID := ""
-		if message.ToolResult != nil {
-			callID, _ = splitResponsesCallID(string(message.ToolResult.CallID))
-		}
-		if callID == "" {
-			return nil, fmt.Errorf("gateway: Tool result has no Call ID")
-		}
-		if layout != nil && layout.searchCalls[string(message.ToolResult.CallID)] {
-			loaded := []responsesTool{}
-			for _, id := range layout.references(message.ToolResult) {
-				for _, entry := range layout.tools {
-					if entry.spec.ID != id {
-						continue
-					}
-					name, err := assignFunctionName(names, id)
-					if err != nil {
-						return nil, err
-					}
-					parameters, err := toolSchema(entry.spec, `{"type":"object"}`)
-					if err != nil {
-						return nil, err
-					}
-					loaded = append(loaded, responsesTool{Type: "function", Name: name, Description: entry.spec.Description, Parameters: parameters, DeferLoading: true})
-				}
-			}
-			return []any{responsesToolSearchOutput{Type: "tool_search_output", Execution: "client", CallID: callID, Status: "completed", Tools: loaded}}, nil
-		}
-		output := toolResultOutput(message)
-		return []any{responsesFunctionOutput{Type: "function_call_output", CallID: callID, Output: output}}, nil
-	default:
-		return nil, fmt.Errorf("gateway: unsupported Message role %q", role)
 	}
+	return loaded, nil
 }
 
 func responsesInputContent(parts []gotato.ContentPart) ([]any, error) {
