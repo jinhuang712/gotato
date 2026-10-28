@@ -347,24 +347,42 @@ func (r *Runner) idleCompact(entry *warmEntry, why gotato.CompactionWhy) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	run := &idleRun{cancel: cancel, done: make(chan struct{})}
-	entry.mu.Lock()
-	if entry.holds > 0 || entry.dead || entry.idle != nil {
-		entry.mu.Unlock()
+	if !entry.beginIdle(run) {
 		return
 	}
-	entry.idle = run
-	entry.mu.Unlock()
-	defer func() {
-		entry.mu.Lock()
-		entry.idle = nil
-		entry.mu.Unlock()
-		close(run.done)
-	}()
+	defer entry.endIdle(run)
 	// Never wait for the Session: whoever holds it is using it.
 	if err := r.locks.acquire(ctx, entry.id, false, nil); err != nil {
 		return
 	}
 	defer r.locks.release(entry.id)
+	r.compactIdleLocked(ctx, entry, why)
+}
+
+// beginIdle makes run the entry's idle compaction, unless a caller holds the
+// entry, it is dead, or another idle compaction is going. It reports whether
+// run was installed.
+func (e *warmEntry) beginIdle(run *idleRun) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.holds > 0 || e.dead || e.idle != nil {
+		return false
+	}
+	e.idle = run
+	return true
+}
+
+// endIdle removes run from the entry and tells whoever waits for it.
+func (e *warmEntry) endIdle(run *idleRun) {
+	e.mu.Lock()
+	e.idle = nil
+	e.mu.Unlock()
+	close(run.done)
+}
+
+// compactIdleLocked is idleCompact once it holds the Session's lock: check
+// that the copy is still the Session's, resume its Writer, compact, release.
+func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why gotato.CompactionWhy) {
 	r.warmMu.Lock()
 	current := r.warm[entry.id] == entry
 	r.warmMu.Unlock()
