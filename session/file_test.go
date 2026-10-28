@@ -11,17 +11,9 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
+	"github.com/jinhuang712/gotato/session/storetest"
 	"github.com/jinhuang712/gotato/testkit"
 )
-
-func fileEntry(seq uint64, kind gotato.EventKind) session.Entry {
-	return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
-}
-
-func fileSummary(seq uint64) session.RecordInfo {
-	at := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
-	return session.RecordInfo{ID: "r", RecordEpoch: "e1", CreatedAt: at, UpdatedAt: at, Seq: seq}
-}
 
 // List reads a Record's summary from its last write alone. A damaged write in
 // the middle of a Record (a stand-in for a large one) proves it.
@@ -261,4 +253,30 @@ func TestFileStoreListDoesNotDecodeTheEntriesOfTheLastWrite(t *testing.T) {
 	if err != nil || len(infos) != 1 || infos[0].Seq != 1 {
 		t.Fatalf("List = %+v, %v; want the one summary", infos, err)
 	}
+}
+
+func TestMemoryStoreConformance(t *testing.T) {
+	storetest.Run(t, func() (storetest.Open, func(), error) {
+		store := session.NewMemoryStore()
+		return func() session.Store { return store }, nil, nil
+	})
+}
+
+// Every handle is a FileStore of its own on one directory, as two processes
+// sharing it are.
+func TestFileStoreConformance(t *testing.T) {
+	storetest.Run(t, func() (storetest.Open, func(), error) {
+		dir, err := os.MkdirTemp("", "gotato-filestore-*")
+		if err != nil {
+			return nil, nil, err
+		}
+		open := func() session.Store {
+			store, err := session.NewFileStore(dir)
+			if err != nil {
+				panic(err)
+			}
+			return store
+		}
+		return open, func() { _ = os.RemoveAll(dir) }, nil
+	})
 }

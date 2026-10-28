@@ -6,42 +6,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
 )
-
-func idMessage(id, role, text string) gotato.Message {
-	message := gotato.UserMessage(text)
-	if role == "assistant" {
-		message = gotato.AssistantMessage(text)
-	}
-	message.ID = gotato.MessageID(id)
-	return message
-}
-
-func rendered(number int, texts ...string) gotato.Segment {
-	segment := gotato.Segment{Number: number, From: time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC), To: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)}
-	for i, text := range texts {
-		role := "user"
-		if i%2 == 1 {
-			role = "assistant"
-		}
-		segment.Messages = append(segment.Messages, idMessage("seg"+string(rune('0'+number))+"-"+string(rune('a'+i)), role, text))
-	}
-	segment.Recap = "## What happened\n- " + texts[0]
-	return segment
-}
-
-func segmentStores(t *testing.T) map[string]session.Store {
-	t.Helper()
-	files, err := session.NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return map[string]session.Store{"memory": session.NewMemoryStore(), "file": files}
-}
 
 // A Segment is written once as its own Entry; the Checkpoint lists its number
 // and keeps the tail, and a load resolves the number to the stored Messages.

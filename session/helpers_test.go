@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -78,4 +79,44 @@ func runSession(t *testing.T, s *session.Record, model gotato.Model, prompt stri
 		t.Fatal(err)
 	}
 	return result
+}
+
+func fileEntry(seq uint64, kind gotato.EventKind) session.Entry {
+	return session.Entry{Seq: seq, Kind: kind, Layer: session.LayerFact, Data: []byte(`{}`)}
+}
+
+func fileSummary(seq uint64) session.RecordInfo {
+	at := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	return session.RecordInfo{ID: "r", RecordEpoch: "e1", CreatedAt: at, UpdatedAt: at, Seq: seq}
+}
+
+func idMessage(id, role, text string) gotato.Message {
+	message := gotato.UserMessage(text)
+	if role == "assistant" {
+		message = gotato.AssistantMessage(text)
+	}
+	message.ID = gotato.MessageID(id)
+	return message
+}
+
+func rendered(number int, texts ...string) gotato.Segment {
+	segment := gotato.Segment{Number: number, From: time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC), To: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)}
+	for i, text := range texts {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		segment.Messages = append(segment.Messages, idMessage("seg"+string(rune('0'+number))+"-"+string(rune('a'+i)), role, text))
+	}
+	segment.Recap = "## What happened\n- " + texts[0]
+	return segment
+}
+
+func segmentStores(t *testing.T) map[string]session.Store {
+	t.Helper()
+	files, err := session.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]session.Store{"memory": session.NewMemoryStore(), "file": files}
 }
