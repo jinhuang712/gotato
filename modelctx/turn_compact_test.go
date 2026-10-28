@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -329,5 +331,64 @@ func TestPendingForCountsTheInstructionAndTheTools(t *testing.T) {
 	request := gotato.ModelRequest{SystemInstructions: strings.Repeat("be careful ", 400)}
 	if !l.auto.PendingFor(request) {
 		t.Fatal("a long instruction does not make the Session pending")
+	}
+}
+
+// The automatic compaction at the start of a Run closes a Segment, and the
+// Run's request holds it.
+func TestAutoCompactClosesASegmentAtRunStart(t *testing.T) {
+	f := newFixture(t)
+	big := strings.Repeat("log line ", 400)
+	for i := range 10 {
+		run := fmt.Sprintf("r%d", i)
+		f.user(run, "question "+run, i*3)
+		m := gotato.Message{Role: gotato.RoleAssistant, RunID: gotato.RunID(run), StopReason: gotato.StopReasonToolCalls,
+			ToolCalls: []gotato.ToolCall{{ID: gotato.ToolCallID("c" + run), ToolID: "logs.read", Arguments: []byte(`{}`)}}}
+		f.commit(m, i*3+1)
+		f.commit(gotato.Message{Role: gotato.RoleToolResult, RunID: gotato.RunID(run), ToolResult: &gotato.ToolResult{CallID: gotato.ToolCallID("c" + run), Status: gotato.ToolResultStatusOK},
+			Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: big}}}, i*3+1)
+		f.reply(run, "answer "+run, i*3+2)
+	}
+	before := modelctx.EstimateTokens(f.rec.Messages())
+	auto := modelctx.AutoCompact(f.rec, modelctx.CompactPolicy{CeilingTokens: before / 2})
+	model := testkit.NewFakeModel(testkit.Text("ok"))
+	agent, err := gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(f.writer), gotato.WithExtension(auto))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("next")); err != nil {
+		t.Fatal(err)
+	}
+	last, runs := auto.Last()
+	if runs != 1 || !last.Replaced || last.Compaction.Segment != 1 || last.TokensAfter >= before {
+		t.Fatalf("auto compaction: %+v (%d)", last, runs)
+	}
+	request, _ := model.LastRequest()
+	if !strings.Contains(gotato.TextOf(request.Messages[0]), `<segment n="1"`) {
+		t.Fatalf("the request does not start with the Segment: %q", gotato.TextOf(request.Messages[0]))
+	}
+	if !strings.Contains(request.SystemInstructions, gotato.TagsSentence) {
+		t.Error("the request lacks the sentence about the tags")
+	}
+	// The latest Run stays as it was, tool call and result together.
+	var kept []string
+	for _, m := range f.rec.Tail() {
+		if m.Role == gotato.RoleToolResult {
+			kept = append(kept, "result")
+		}
+		if len(m.ToolCalls) > 0 {
+			kept = append(kept, "call")
+		}
+	}
+	if !slices.Equal(kept, []string{"call", "result"}) {
+		t.Errorf("the kept tail holds %v", kept)
+	}
+	// Below the ceiling the next Run does nothing.
+	if _, err := agent.Prompt(context.Background(), gotato.UserMessage("again")); err != nil {
+		t.Fatal(err)
+	}
+	if _, runs := auto.Last(); runs != 1 {
+		t.Fatalf("compacted again below the ceiling: %d", runs)
 	}
 }

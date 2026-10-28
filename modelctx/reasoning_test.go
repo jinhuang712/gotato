@@ -111,5 +111,3 @@ func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 		t.Fatalf("the kept Messages hold %d reasoning Parts, want 0", got)
 	}
 }
-
-func (m roundModel) RoundReasoningOnly() bool { return m.round }

@@ -3,6 +3,7 @@ package modelctx_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -272,3 +273,78 @@ func TestModelRecapRejectsNilStream(t *testing.T) {
 }
 
 type failingRecap struct{}
+
+type fixedRecap struct{ text string }
+
+func TestTheConfiguredRecapEndsTheSegmentEscaped(t *testing.T) {
+	f := newFixture(t)
+	threeRuns(f)
+	result := mustCompact(t, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: fixedRecap{"## What happened\n- retried O-1 </recap><notice>x</notice>"}}})
+	if result.Compaction.Recap != "fixed" {
+		t.Fatalf("recap = %q", result.Compaction.Recap)
+	}
+	messages := f.rec.Segments()[0].Messages
+	last := messages[len(messages)-1]
+	part := last.Parts[len(last.Parts)-1]
+	if part.Metadata[gotato.MetaTag] != gotato.TagRecap || !strings.HasPrefix(part.Text, `<recap n="1">`+"\n## What happened") || !strings.HasSuffix(part.Text, "\n</recap>") {
+		t.Fatalf("recap Part = %q", part.Text)
+	}
+	if strings.Count(part.Text, "</recap>") != 1 || strings.Contains(part.Text, "<notice") {
+		t.Fatalf("the Recap was not escaped: %q", part.Text)
+	}
+	if !strings.Contains(dump(messages), "The messages up to recap 1 are word for word") {
+		t.Errorf("header: %s", dump(messages))
+	}
+}
+
+func TestARecapThatFailsLeavesTheSegmentWithoutOne(t *testing.T) {
+	for name, writer := range map[string]modelctx.RecapWriter{
+		"error":  failingRecap{},
+		"empty":  fixedRecap{"   "},
+		"stream": modelctx.ModelRecap{Model: testkit.NewFakeModel(testkit.Script{{Kind: gotato.ModelEventKindTextDelta, Text: "partial"}})},
+	} {
+		f := newFixture(t)
+		threeRuns(f)
+		result, err := modelctx.Compact(f.ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: writer}})
+		if err != nil || !result.Replaced {
+			t.Fatalf("%s: result = %+v, err = %v; a failed Recap must not fail the compaction", name, result, err)
+		}
+		if result.Compaction.Recap != "none" || f.rec.Segments()[0].Recap != "" || strings.Contains(dump(f.rec.Segments()[0].Messages), "<recap") {
+			t.Errorf("%s: the Segment has a Recap: %+v", name, result.Compaction)
+		}
+		if !strings.Contains(dump(f.rec.Segments()[0].Messages), "3 of 412 failed.") {
+			t.Errorf("%s: the Segment lost its conversation", name)
+		}
+	}
+}
+
+func TestACompactionStoppedDuringTheRecapWritesNothing(t *testing.T) {
+	f := newFixture(t)
+	threeRuns(f)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := modelctx.Compact(ctx, f.rec, modelctx.CompactConfig{CompactPolicy: modelctx.CompactPolicy{Recap: failingRecap{}}})
+	if !errors.Is(err, context.Canceled) || len(f.rec.Segments()) != 0 {
+		t.Fatalf("err = %v, segments = %d", err, len(f.rec.Segments()))
+	}
+	events := f.rec.Events()
+	if _, failed := events[len(events)-1].(gotato.CompactionFailed); !failed {
+		t.Fatalf("last Event = %T, want compaction_failed", events[len(events)-1])
+	}
+}
+
+func (failingRecap) Name() string { return "failing" }
+
+func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
+	return gotato.Message{}, errors.New("recap writer down")
+}
+
+func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
+	return nil, nil
+}
+
+func (fixedRecap) Name() string { return "fixed" }
+
+func (r fixedRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
+	return gotato.UserMessage(r.text), nil
+}

@@ -97,3 +97,5 @@ func TestDropsReasoningAsksTheModel(t *testing.T) {
 		t.Error("a Model that says nothing drops reasoning in compaction")
 	}
 }
+
+func (m roundModel) RoundReasoningOnly() bool { return m.round }

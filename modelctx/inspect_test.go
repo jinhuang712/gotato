@@ -2,7 +2,6 @@ package modelctx_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -62,13 +61,4 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 			t.Fatalf("breakpoint %d = %+v, want %+v", i, second.Request.CacheBreakpoints[i], want)
 		}
 	}
-}
-
-func (nilStreamModel) Stream(context.Context, gotato.ModelRequest) (gotato.ModelStream, error) {
-	return nil, nil
-}
-
-func (failingRecap) Name() string { return "failing" }
-func (failingRecap) WriteRecap(context.Context, modelctx.RecapRequest) (gotato.Message, error) {
-	return gotato.Message{}, errors.New("recap writer down")
 }
