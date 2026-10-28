@@ -15,28 +15,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// dropConnection writes a chunked SSE response head and the given raw bytes,
-// then closes the TCP connection without the terminating chunk, so the client
-// reads io.ErrUnexpectedEOF: what a provider or proxy resetting mid-stream
-// looks like.
-func dropConnection(t *testing.T, w http.ResponseWriter, raw string) {
-	t.Helper()
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		t.Fatal("response writer cannot hijack")
-	}
-	conn, buf, err := hijacker.Hijack()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = conn.Close() }()
-	fmt.Fprint(buf, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
-	if raw != "" {
-		fmt.Fprintf(buf, "%x\r\n%s\r\n", len(raw), raw)
-	}
-	_ = buf.Flush()
-}
-
 func recvAll(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent, error) {
 	t.Helper()
 	var events []gotato.ModelEvent
@@ -51,18 +29,6 @@ func recvAll(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent, erro
 		events = append(events, event)
 	}
 }
-
-func textOf(events []gotato.ModelEvent) string {
-	var b strings.Builder
-	for _, e := range events {
-		if e.Kind == gotato.ModelEventKindTextDelta {
-			b.WriteString(e.Text)
-		}
-	}
-	return b.String()
-}
-
-const roleChunk = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"
 
 func TestStreamRestartsWhenInterruptedBeforeOutput(t *testing.T) {
 	for _, tc := range []struct {

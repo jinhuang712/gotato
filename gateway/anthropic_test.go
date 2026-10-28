@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,21 +13,6 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 )
-
-func collectEvents(t *testing.T, stream gotato.ModelStream) ([]gotato.ModelEvent, error) {
-	t.Helper()
-	var events []gotato.ModelEvent
-	for {
-		event, err := stream.Recv(context.Background())
-		if errors.Is(err, io.EOF) {
-			return events, nil
-		}
-		if err != nil {
-			return events, err
-		}
-		events = append(events, event)
-	}
-}
 
 func TestAnthropicStreamNormalizesReasoningTextToolsAndUsage(t *testing.T) {
 	var received map[string]any

@@ -13,19 +13,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-func drain(t *testing.T, stream gotato.ModelStream) []gotato.ModelEvent {
-	t.Helper()
-	defer func() { _ = stream.Close() }()
-	var events []gotato.ModelEvent
-	for {
-		event, err := stream.Recv(context.Background())
-		if err != nil {
-			return events
-		}
-		events = append(events, event)
-	}
-}
-
 // TestRequestHeadersFromContext: a host attaches per-conversation headers
 // through the Run context; they override configuration but never protocol
 // headers, and each request carries only its own context's values.

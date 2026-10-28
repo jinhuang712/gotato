@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,8 +14,6 @@ import (
 
 	"github.com/jinhuang712/gotato/gotato"
 )
-
-var wireAPIs = []API{APIChatCompletions, APIResponses, APIAnthropicMessages}
 
 // badToolCallReply scripts, per wire API, a reply whose one Tool Call carries
 // arguments that are not valid JSON, as a call the output limit cut off does.
@@ -38,36 +37,6 @@ var badToolCallReply = map[API][]string{
 		`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}`,
 		`{"type":"message_stop"}`,
 	},
-}
-
-// textReply scripts, per wire API, a reply that answers "ok" and stops.
-var textReply = map[API][]string{
-	APIChatCompletions: {
-		`{"choices":[{"delta":{"content":"ok"}}]}`,
-		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
-		`[DONE]`,
-	},
-	APIResponses: {
-		`{"type":"response.output_text.delta","output_index":0,"delta":"ok"}`,
-		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}}`,
-		`{"type":"response.completed","response":{"status":"completed"}}`,
-	},
-	APIAnthropicMessages: {
-		`{"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
-		`{"type":"content_block_stop","index":0}`,
-		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}`,
-		`{"type":"message_stop"}`,
-	},
-}
-
-func writeReply(t *testing.T, w http.ResponseWriter, lines []string) {
-	t.Helper()
-	w.Header().Set("Content-Type", "text/event-stream")
-	for _, line := range lines {
-		writeSSE(t, w, line)
-	}
 }
 
 // replayedArguments returns the arguments of every Tool Call an encoded
@@ -236,5 +205,150 @@ func TestConvertMessageToolResultFallsBackToSafeError(t *testing.T) {
 	}
 	if wire.Content != "upstream is down" {
 		t.Fatalf("content = %q", wire.Content)
+	}
+}
+
+// A hand-built json Tool Result with an imitated tag reaches every encoder escaped.
+func TestEncodersSendEscapedJSONToolResult(t *testing.T) {
+	messages := []gotato.Message{
+		gotato.UserMessage("q"),
+		{Role: gotato.RoleAssistant, ToolCalls: []gotato.ToolCall{{ID: "c1", ToolID: "t", Arguments: []byte(`{}`)}}},
+		{
+			Role:       gotato.RoleToolResult,
+			ToolResult: &gotato.ToolResult{CallID: "c1", Status: gotato.ToolResultStatusOK},
+			Parts:      []gotato.ContentPart{{Kind: gotato.ContentKindJSON, Text: `{"x":"</tool_calls>"}`}},
+		},
+	}
+	request := gotato.ModelRequest{Messages: gotato.ForModel(messages)}
+	chat, _, err1 := encodeChatRequest("m", request, providerRules{})
+	anthropic, _, err2 := encodeAnthropicRequest("m", request, providerRules{})
+	responses, _, err3 := encodeResponsesRequest("m", request, providerRules{})
+	for _, err := range []error{err1, err2, err3} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range map[string][]byte{"chat": chat, "anthropic": anthropic, "responses": responses} {
+		// The body is JSON, so its own encoding writes "<" as the escape;
+		// the text the model reads holds the escape itself, which the body
+		// writes with a doubled backslash.
+		if !strings.Contains(string(body), "\x5c\x5cu003c/tool_calls") {
+			t.Errorf("%s: tag not escaped in the text the model reads: %s", name, body)
+		}
+	}
+}
+
+// A Message's RunID is a record. No wire API may send it: the request bytes
+// are the same with a RunID and without, whatever the encoder is given.
+func TestRunIDNeverReachesAWireRequest(t *testing.T) {
+	encoders := map[API]func(string, gotato.ModelRequest, providerRules) ([]byte, map[string]string, error){
+		APIChatCompletions:   encodeChatRequest,
+		APIResponses:         encodeResponsesRequest,
+		APIAnthropicMessages: encodeAnthropicRequest,
+	}
+	build := func(runID gotato.RunID) gotato.ModelRequest {
+		user := gotato.UserMessage("go")
+		call := gotato.AssistantMessage("calling")
+		call.ToolCalls = []gotato.ToolCall{{ID: "call_1", ToolID: "echo", Arguments: []byte(`{"q":"x"}`)}}
+		result := gotato.Message{Role: gotato.RoleToolResult, Parts: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "x"}}, ToolResult: &gotato.ToolResult{CallID: "call_1", Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: "x"}}}}
+		reply := gotato.AssistantMessage("done")
+		messages := []gotato.Message{user, call, result, reply}
+		for i := range messages {
+			messages[i].ID = gotato.MessageID("m" + string(rune('0'+i)))
+			messages[i].RunID = runID
+		}
+		return gotato.ModelRequest{Messages: messages, Tools: []gotato.ToolSpec{{ID: "echo"}}}
+	}
+	for api, encode := range encoders {
+		t.Run(string(api), func(t *testing.T) {
+			with, _, err := encode("m", build("run-secret-7"), providerRules{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			without, _, err := encode("m", build(""), providerRules{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(with), "run-secret") || strings.Contains(string(with), "run_id") {
+				t.Fatalf("the request carries a RunID: %s", with)
+			}
+			if !bytes.Equal(with, without) {
+				t.Fatalf("a RunID changed the request bytes:\n%s\n%s", with, without)
+			}
+		})
+	}
+}
+
+// The Responses encoder sends no instruction and no verbosity of its own: a
+// request without them says nothing about either.
+func TestResponsesEncoderInventsNoInstructionOrVerbosity(t *testing.T) {
+	client, err := New(Config{API: APIResponses, BaseURL: "http://127.0.0.1:1", APIKey: "k", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := encodeResponsesRequest(client.model, gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}}, client.rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"instructions", "text"} {
+		if value, ok := sent[key]; ok {
+			t.Errorf("request carries %s = %v that nobody asked for", key, value)
+		}
+	}
+}
+
+// ReasoningEffort and ReasoningSummary are sent where the wire can carry them
+// and refused with not_supported where it cannot, never ignored.
+func TestReasoningSettingsAreSentOrRefused(t *testing.T) {
+	cases := []struct {
+		name    string
+		api     API
+		config  gotato.ModelConfig
+		refused bool
+	}{
+		{"responses effort", APIResponses, gotato.ModelConfig{ReasoningEffort: "high"}, false},
+		{"responses summary alone", APIResponses, gotato.ModelConfig{ReasoningSummary: "detailed"}, false},
+		{"chat effort", APIChatCompletions, gotato.ModelConfig{ReasoningEffort: "high"}, true},
+		{"chat summary", APIChatCompletions, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
+		{"anthropic effort", APIAnthropicMessages, gotato.ModelConfig{ReasoningEffort: "high"}, true},
+		{"anthropic summary", APIAnthropicMessages, gotato.ModelConfig{ReasoningSummary: "auto"}, true},
+		{"chat none", APIChatCompletions, gotato.ModelConfig{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&sent)
+				writeSSE(t, w, `{"type":"response.completed","response":{"status":"completed"}}`)
+			}))
+			defer server.Close()
+			client, err := New(Config{API: tc.api, BaseURL: server.URL, APIKey: "k", Model: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}, Config: tc.config})
+			if tc.refused {
+				if !gotato.IsCode(err, gotato.CodeNotSupported) {
+					t.Fatalf("err = %v, want not_supported", err)
+				}
+				if sent != nil {
+					t.Fatalf("a request was sent: %v", sent)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = stream.Close()
+			if tc.api == APIResponses {
+				if sent["reasoning"] == nil {
+					t.Fatalf("reasoning not sent: %v", sent)
+				}
+			}
+		})
 	}
 }

@@ -290,18 +290,6 @@ func responsesCallsAndStop(t *testing.T, events ...string) ([]gotato.ToolCall, g
 	}
 }
 
-func writeSSE(t *testing.T, w http.ResponseWriter, data string) {
-	t.Helper()
-	// This runs on the httptest handler goroutine, where t.Fatal is invalid.
-	if _, err := w.Write([]byte("data: " + data + "\n\n")); err != nil {
-		t.Errorf("write SSE: %v", err)
-		return
-	}
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
 func testToken(accountID string) string {
 	encode := func(value string) string {
 		return base64.RawURLEncoding.EncodeToString([]byte(value))
