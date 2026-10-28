@@ -188,6 +188,11 @@ func TestAbortSessionReachesRunLoadingSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The Session exists: the store lets an abort of a Run on it in, at
+	// whatever stage the Run is.
+	if _, err := runner.CreateSession(context.Background(), "echo", nil, session.WithID("loading-1")); err != nil {
+		t.Fatal(err)
+	}
 	resultCh := make(chan error, 1)
 	go func() {
 		_, runErr := runner.Run(context.Background(), service.RunRequest{SessionID: "loading-1", Prompt: "hi"})

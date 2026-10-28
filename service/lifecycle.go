@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -146,9 +145,10 @@ func (r *Runner) AbortSession(ctx context.Context, sessionID string, opts ...Abo
 	r.mu.Lock()
 	handles := append([]*runHandle(nil), r.handles[sessionID]...)
 	r.mu.Unlock()
-	// A Run that has a live Session has read the Record; one still loading it
-	// has not, and the Record may not exist yet.
-	if slices.ContainsFunc(handles, (*runHandle).hasLive) {
+	// The store answers first, whatever stage the Run is in (waiting, loading,
+	// building or live), so that a caller the store refuses cannot stop a Run
+	// at a stage where nothing was read yet.
+	if len(handles) > 0 {
 		if err := r.reachStore(ctx, sessionID); err != nil {
 			return err
 		}
