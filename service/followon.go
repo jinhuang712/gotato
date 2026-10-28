@@ -57,9 +57,12 @@ func (r *Runner) followOn(ctx context.Context, handle *runHandle, next []gotato.
 }
 
 // rearm makes the handle the admitted Run's again for the Run that follows: no
-// RunID yet and no way to stop it yet.
+// RunID yet and no way to stop it yet, and the stop of the settled Run cleared.
 func (r *Runner) rearm(handle *runHandle, cancel context.CancelFunc) {
 	handle.mu.Lock()
 	handle.runID, handle.abort, handle.cancel = "", nil, cancel
+	// A stop that reached the settled Run is over with it; one that came after
+	// the Run settled is for this one.
+	handle.stopped, handle.stopNext, handle.settled = handle.stopNext, false, false
 	handle.mu.Unlock()
 }

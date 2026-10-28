@@ -172,7 +172,9 @@ func (r *Runner) abortSession(sessionID string, runID gotato.RunID) bool {
 	var chosen *runHandle
 	for _, handle := range waiting {
 		handle.mu.Lock()
-		started, named := handle.runID != "", handle.runID == runID
+		// A settled Run is over: naming it is "already stopped", and it
+		// is not the Run that follows.
+		started, named := handle.runID != "" && !handle.settled, handle.runID == runID
 		handle.mu.Unlock()
 		if started && (runID == "" || named) {
 			chosen = handle

@@ -18,6 +18,11 @@ type runHandle struct {
 	abort   func()
 	cancel  context.CancelFunc
 	stopped bool
+	// settled says the Run the handle admitted has ended and only its save and
+	// release remain (or a follow-on Run is to take its place). A stop that
+	// arrives now is not for that Run: stopNext keeps it for the follow-on Run.
+	settled  bool
+	stopNext bool
 	// wait makes the Run wait for a busy Session whatever the admission
 	// policy: a message that waited for the Run before it to end.
 	wait bool
@@ -82,6 +87,11 @@ func (h *runHandle) attachRunID(runID gotato.RunID) {
 // Session lock or loading the Session.
 func (h *runHandle) stop() {
 	h.mu.Lock()
+	if h.settled {
+		h.stopNext = true
+		h.mu.Unlock()
+		return
+	}
 	h.stopped = true
 	abort := h.abort
 	cancel := h.cancel
@@ -176,6 +186,9 @@ func (h *runHandle) readyChan() <-chan struct{} {
 // The notices the Run left are returned and not followed: a notice asks for
 // no work, so it waits for the next Run instead of starting one.
 func (h *runHandle) detachLive(follow func([]gotato.Queued) bool) (notices []gotato.Queued) {
+	h.mu.Lock()
+	h.settled = true
+	h.mu.Unlock()
 	h.liveMu.Lock()
 	defer h.liveMu.Unlock()
 	live := h.live
