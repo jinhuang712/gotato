@@ -146,13 +146,17 @@ func WithKeepAlive(d time.Duration) Option {
 // anyone who can write that row can name it, so a forward goes only to an
 // address for which allow returns true; any other is answered not_writer, as
 // without forwarding. A nil allow forwards nowhere. Gotato connects to nothing
-// else.
+// else, so the client never follows a redirect: a writer that answers one has
+// its answer relayed as it is. WithForwarding uses a copy of your client with
+// that rule, and your client is not changed.
 func WithForwarding(client *http.Client, allow func(address string) bool) Option {
 	return func(h *Handler) {
 		if client == nil {
 			client = &http.Client{Timeout: 30 * time.Second}
 		}
-		h.forward = client
+		own := *client
+		own.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		h.forward = &own
 		h.forwardAllow = allow
 	}
 }
