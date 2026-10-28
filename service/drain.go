@@ -42,7 +42,8 @@ func (r *Runner) stopAll() {
 //     no new Run and takes no Session over from another Instance
 //     (ErrDraining); creating or forking a Session activates nothing, so it
 //     still works;
-//  3. every Run in flight finishes, is saved, and releases its Session.
+//  3. every Run in flight finishes, is saved, and releases its Session; so
+//     does every Compact, Notice, SetToolActive and DeleteSession in flight.
 //
 // Draining reports true from the first moment of Drain, before the write of
 // the row, so that no Run is admitted while a slow store takes it.
@@ -80,7 +81,7 @@ func (r *Runner) Drain(ctx context.Context) error {
 		markErr = r.markDraining(ctx)
 		go func() {
 			r.mu.Lock()
-			for r.inflight > 0 {
+			for r.inflight > 0 || r.locked > 0 {
 				r.idle.Wait()
 			}
 			r.mu.Unlock()

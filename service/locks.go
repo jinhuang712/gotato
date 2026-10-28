@@ -108,6 +108,7 @@ func (r *Runner) withSessionLock(ctx context.Context, sessionID string, fn func(
 func (r *Runner) sessionLock(ctx context.Context, sessionID string, forceWait bool, fn func() error) error {
 	// A message that arrives while the Session compacts while idle cancels
 	// that compaction and is served first, so it never finds the Session busy.
+	defer r.beginLocked()()
 	unhold, err := r.holdWarm(ctx, sessionID)
 	if err != nil {
 		return err

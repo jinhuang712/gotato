@@ -51,3 +51,19 @@ func (r *Runner) release() {
 	}
 	r.mu.Unlock()
 }
+
+// beginLocked counts a caller that takes, or waits for, a Session lock; the
+// returned func ends it. Drain waits until none is left.
+func (r *Runner) beginLocked() func() {
+	r.mu.Lock()
+	r.locked++
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		r.locked--
+		if r.locked == 0 {
+			r.idle.Broadcast()
+		}
+		r.mu.Unlock()
+	}
+}

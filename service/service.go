@@ -295,6 +295,10 @@ type Runner struct {
 	mu       sync.Mutex
 	handles  map[string][]*runHandle
 	inflight int
+	// locked counts the callers inside sessionLock, Runs among them: Compact,
+	// Notice, SetToolActive and DeleteSession hold a Claim without being
+	// admitted as Runs, and Drain waits for them too.
+	locked   int
 	draining bool
 	// streams are the Session streams open for clients, and streamsOver says
 	// the drain is over, so a new one ends at once.
