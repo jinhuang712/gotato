@@ -112,3 +112,50 @@ func TestCompactRefusesWhileDraining(t *testing.T) {
 		t.Fatalf("Compact while draining = %v, want ErrDraining, not run", err)
 	}
 }
+
+// Drain has a bound of its own: a Run still going when Config.DrainTimeout is
+// over is stopped, with a ctx that has no deadline.
+func TestDrainHasATimeoutOfItsOwn(t *testing.T) {
+	ctx := context.Background()
+	model := testkit.NewFakeModel(testkit.Text("slow"))
+	block := make(chan struct{})
+	model.Block = block
+	t.Cleanup(func() { close(block) })
+	a, err := service.New(service.Config{
+		Store: session.NewMemoryStore(), Liveness: steadyLiveness, DrainTimeout: 200 * time.Millisecond,
+		Agents: []service.Agent{{Name: "echo", Model: model}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close(ctx) })
+	result := make(chan service.RunResponse, 1)
+	go func() {
+		response, _ := a.Run(ctx, service.RunRequest{Prompt: "go"})
+		result <- response
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for model.Calls() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the Run did not reach the model")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	began := time.Now()
+	err = a.Drain(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Drain = %v, want the timeout", err)
+	}
+	if took := time.Since(began); took < 150*time.Millisecond || took > 5*time.Second {
+		t.Fatalf("Drain took %v, want about its 200ms timeout", took)
+	}
+	if response := <-result; response.Reconnect == nil {
+		t.Fatalf("the Run the drain stopped = %+v, want a reconnect", response)
+	}
+}
+
+func TestDrainTimeoutDefaultsToTenSeconds(t *testing.T) {
+	if service.DefaultDrainTimeout != 10*time.Second {
+		t.Fatalf("DefaultDrainTimeout = %v, want 10s", service.DefaultDrainTimeout)
+	}
+}

@@ -1382,10 +1382,12 @@ Settings, on `service.Config` and the HTTP handler:
 |---|---|---|
 | busy policy | `reject` | a caller learns at once that the Session is busy, instead of waiting without knowing |
 | `MaxActiveRuns` | 0, no bound | the team sizes its own instances |
-| drain timeout | 10 seconds | long enough for most Runs to finish during a rolling deploy |
+| drain timeout (`Config.DrainTimeout`; `--drain-timeout` of the test CLI) | 10 seconds (`service.DefaultDrainTimeout`), negative for none | long enough for most Runs to finish during a rolling deploy; `Drain` waits at most this long, or until the context it is given ends |
+| write bound (`session.WriteTimeout`) | 10 seconds | one definition for the Writer's writes and for the last write of a Run (its save and release), which outlive a canceled caller; a store that needs longer fails the write as unknown, not the Run's tools |
 | Liveness TTL (`Config.Liveness.TTL`, service only) | 10 seconds | long enough to ride out a slow store; a dead instance's Sessions wait this long before another instance takes them over |
 | Liveness wait (`Config.Liveness.Wait`, service only) | 5 seconds | a request for a Session that runs elsewhere waits this long for it before a 409 |
 | activation limit (`Admission.MaxActiveSessions`) | 0, no limit | the team sizes its own instances; past the limit a new Session goes to another instance |
+| warm Sessions kept in memory (`Admission.MaxWarmSessions`) | 10000 (`service.DefaultMaxWarmSessions`), negative for no bound | memory is a cache, but a Runner at its defaults must not hold every Session of the last hour; past the bound the longest-idle warm Session is evicted (`session_unloaded`, `evicted`) and the store keeps it; a warm Session takes about 8 KB for ten Messages and 570 KB for a thousand |
 | TTL of a warm Session (`WarmPolicy.TTL` of an Agent) | 60 minutes | memory is a cache, so an idle Session gives it back; the store keeps the conversation |
 | advertised address (`Config.Address`) | none | optional; without it `not_writer` says the writer is elsewhere and names no address |
 | forward a `not_writer` message (`httpapi.WithForwarding`; HTTP only) | off | forwarding sends a request to another instance, so a team turns it on; an embedding service forwards with its own client. |

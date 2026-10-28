@@ -30,7 +30,7 @@ An error marked "not run" means nothing with side effects happened, so sending t
 
 On SIGTERM an instance marks itself draining, answers 503 on `/readyz`, takes no new Runs, lets each Run finish, then saves and releases its Sessions. This is the normal way to stop one.
 
-- **Give it time.** `--drain-timeout` (10 seconds by default) is how long it waits before it stops the Runs still going. Set your platform's termination grace period above it.
+- **Give it time.** `--drain-timeout` of the test CLI, which sets `service.Config.DrainTimeout` (10 seconds by default), is how long it waits before it stops the Runs still going. Set your platform's termination grace period above it.
 - **A stopped Run is not lost.** Its stream ends with its result and then a reconnect code. The caller reconnects, and a Session that no instance uses can be taken over by any instance.
 - **If `/readyz` stays 503** after a restart, the process is still draining. Look at the instance's Events for `session_unloaded` with `drain`.
 

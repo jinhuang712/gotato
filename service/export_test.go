@@ -29,6 +29,9 @@ func (r *Runner) SetOnSendRetry(fn func()) { r.onSendRetry = fn }
 // SetDrainStopWait sets how long Drain waits for the Runs it stopped.
 func (r *Runner) SetDrainStopWait(d time.Duration) { r.drainStop = d }
 
+// WarmLimit returns the bound on warm Sessions in force.
+func (r *Runner) WarmLimit() int { return r.admission.MaxWarmSessions }
+
 // RemoveAgent unregisters an Agent, as a deploy that drops it would. Call it
 // only while no Run reads the Agents.
 func (r *Runner) RemoveAgent(name string) { delete(r.agents, name) }

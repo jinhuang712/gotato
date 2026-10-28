@@ -14,7 +14,8 @@
 // next Run uses it only while the Store's head is still the copy's, and it
 // is compacted by its own timer before its prompt cache expires, then leaves
 // at its TTL. Warm Sessions count toward Admission.MaxActiveSessions: at
-// the limit a new Run evicts the longest-idle one first.
+// the limit a new Run evicts the longest-idle one first. Admission.MaxWarmSessions
+// bounds the warm ones alone (10000 unless set), by the same eviction.
 //
 //	runner, _ := service.New(service.Config{
 //	    Store:  store,
@@ -51,6 +52,11 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // defaultRunTimeout is how long a Run of an Agent may last when neither the
 // Agent's RunTimeout nor the request's Timeout says otherwise.
 const defaultRunTimeout = 30 * time.Minute
+
+// DefaultDrainTimeout is how long Drain waits for the Runs in flight when
+// Config.DrainTimeout says nothing: long enough for most Runs to finish during a
+// rolling deploy.
+const DefaultDrainTimeout = 10 * time.Second
 
 // DefaultToolSetTimeout is how long Runner.Tools and Runner.SetToolActive wait
 // for ToolSets when Config.ToolSetTimeout says nothing.
@@ -168,8 +174,23 @@ type Admission struct {
 	// Instance. A Run on a Session that is active or warm already is not
 	// refused. Zero means no limit.
 	MaxActiveSessions int
-	Queue             QueuePolicy
+	// MaxWarmSessions bounds the idle Sessions this Instance keeps in memory
+	// (WarmPolicy). When one more would pass it, the longest-idle warm Session
+	// leaves memory (session_unloaded, why evicted); the store keeps it, and
+	// its next Run loads it. A warm Session is a cache, so this is a memory
+	// bound and refuses nothing. Zero means DefaultMaxWarmSessions, and a
+	// negative value means no bound beyond MaxActiveSessions and the TTL. The
+	// memory a warm Session takes depends on its length: about 8 KB for ten
+	// Messages and 570 KB for a thousand (BenchmarkWarmSessionFootprint).
+	MaxWarmSessions int
+	Queue           QueuePolicy
 }
+
+// DefaultMaxWarmSessions is the bound on warm Sessions when
+// Admission.MaxWarmSessions says nothing: generous for an Instance of a few
+// gigabytes, and a limit all the same, so that a Runner left at its defaults
+// does not hold every Session of the last hour.
+const DefaultMaxWarmSessions = 10000
 
 // Config configures a Runner.
 //
@@ -217,6 +238,11 @@ type Config struct {
 	// a negative value means no bound beyond the caller's context. A Run does
 	// not use it: a Run is bounded by its own deadline.
 	ToolSetTimeout time.Duration
+	// DrainTimeout is how long Drain lets the Runs in flight finish before it
+	// stops them. Zero means DefaultDrainTimeout; a negative value means no
+	// bound beyond the context Drain is given, which can end the wait sooner
+	// in any case.
+	DrainTimeout time.Duration
 	// clock times the warm Sessions: their TTL and their idle compaction.
 	// Nil means the system clock; the tests of this package set it.
 	clock clock
@@ -284,6 +310,8 @@ type Runner struct {
 	// before it has settled and released its Session.
 	drained chan struct{}
 	idle    *sync.Cond
+	// drainTimeout bounds how long Drain waits for the Runs; negative is none.
+	drainTimeout time.Duration
 	// drainStop is a test seam: drainStopWait when zero.
 	drainStop time.Duration
 }
@@ -303,6 +331,7 @@ func New(cfg Config) (*Runner, error) {
 		address:        strings.TrimSpace(cfg.Address),
 		streamPoll:     cfg.StreamPoll,
 		toolSetTimeout: cfg.ToolSetTimeout,
+		drainTimeout:   cfg.DrainTimeout,
 		agents:         map[string]Agent{},
 		admission:      cfg.Admission,
 		locks:          newSessionLocks(),
@@ -321,11 +350,17 @@ func New(cfg Config) (*Runner, error) {
 	if r.admission.MaxActiveSessions < 0 {
 		return nil, errors.New("service: MaxActiveSessions cannot be negative")
 	}
+	if r.admission.MaxWarmSessions == 0 {
+		r.admission.MaxWarmSessions = DefaultMaxWarmSessions
+	}
 	if r.admission.Queue == "" {
 		r.admission.Queue = QueuePolicyReject
 	}
 	if r.admission.Queue != QueuePolicyReject && r.admission.Queue != QueuePolicyWait {
 		return nil, fmt.Errorf("service: unknown queue policy %q", r.admission.Queue)
+	}
+	if r.drainTimeout == 0 {
+		r.drainTimeout = DefaultDrainTimeout
 	}
 	if r.streamPoll == 0 {
 		r.streamPoll = defaultStreamPoll

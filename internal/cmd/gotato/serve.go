@@ -25,7 +25,7 @@ func (c *cli) cmdServe(args []string) int {
 	queue := fs.String("queue", "reject", "policy for a busy session: reject or wait")
 	warmTTL := fs.Duration("warm-ttl", 0, "how long an idle session stays in memory after its run; 0 is 60m, a negative value keeps none")
 	noIdleCompaction := fs.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
-	drain := fs.Duration("drain-timeout", 10*time.Second, "time to wait for active runs on shutdown before canceling them")
+	drain := fs.Duration("drain-timeout", 0, "time to wait for active runs on shutdown before canceling them; 0 is the service's default (10s), a negative value waits for ever")
 	advertise := fs.String("advertise", "", "URL other callers reach this instance at, such as http://10.0.0.7:8787; a message for a run this instance writes, sent to another instance, is answered not_writer with it")
 	forward := fs.Bool("forward", false, "send a message or cancel for a run another instance writes to that instance's advertised address, instead of answering not_writer")
 	if _, err := parseInterspersed(fs, args); err != nil {
@@ -53,7 +53,7 @@ func (c *cli) cmdServe(args []string) int {
 		spec.Warm = service.WarmPolicy{TTL: *warmTTL, NoIdleCompaction: *noIdleCompaction}
 		specs = append(specs, spec)
 	}
-	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
+	runner, err := service.New(service.Config{Store: rt.store, Agents: specs, Address: *advertise, DrainTimeout: *drain, Admission: service.Admission{MaxActiveRuns: *maxRuns, MaxActiveSessions: *maxSessions, Queue: service.QueuePolicy(*queue)}})
 	if err != nil {
 		return c.failErr(err)
 	}
@@ -91,10 +91,8 @@ func (c *cli) cmdServe(args []string) int {
 	// Drain in order: the Liveness row says draining, /readyz answers 503, no
 	// new Run starts, and every Run finishes, saves and releases its Session.
 	// Then the streams close, and Close removes the row.
-	c.info("draining (up to %s)", *drain)
-	drainCtx, cancel := context.WithTimeout(context.Background(), *drain)
-	defer cancel()
-	if err := runner.Drain(drainCtx); err != nil {
+	c.info("draining")
+	if err := runner.Drain(context.Background()); err != nil {
 		c.info("drain: %v", err)
 	}
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)

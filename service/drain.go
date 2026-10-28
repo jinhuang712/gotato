@@ -47,9 +47,13 @@ func (r *Runner) stopAll() {
 // Draining reports true from the first moment of Drain, before the write of
 // the row, so that no Run is admitted while a slow store takes it.
 //
-// When ctx ends first, the Runs still going are stopped, saved and released,
+// Drain waits for the Runs at most Config.DrainTimeout (DefaultDrainTimeout,
+// ten seconds, when it is zero), or until ctx ends, whichever comes first.
+//
+// When that time ends first, the Runs still going are stopped, saved and released,
 // and each returns with a Reconnect once every Run of the drain has settled;
-// Drain then returns ctx.Err(). It waits for them at most drainStopWait after
+// Drain then returns that context's error (context.DeadlineExceeded when the
+// timeout ended it). It waits for them at most drainStopWait after
 // ctx ended (the time a Run needs to settle and write its end), so that a tool
 // that ignores its context cannot hold Drain for good; the Run goes on
 // settling in the background, and its Session is fenced by the next Claim if it
@@ -83,12 +87,18 @@ func (r *Runner) Drain(ctx context.Context) error {
 			close(drained)
 		}()
 	}
+	waitCtx := ctx
+	if r.drainTimeout > 0 {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, r.drainTimeout)
+		defer cancel()
+	}
 	select {
 	case <-drained:
 		r.dropAllWarm("drain")
 		r.endStreams()
 		return markErr
-	case <-ctx.Done():
+	case <-waitCtx.Done():
 		r.stopAll()
 		select {
 		case <-drained:
@@ -96,6 +106,6 @@ func (r *Runner) Drain(ctx context.Context) error {
 		}
 		r.dropAllWarm("drain")
 		r.endStreams()
-		return errors.Join(markErr, ctx.Err())
+		return errors.Join(markErr, waitCtx.Err())
 	}
 }

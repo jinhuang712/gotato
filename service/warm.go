@@ -210,6 +210,38 @@ func (r *Runner) keepWarm(writer *session.Writer, spec Agent) {
 		entry.timers = append(entry.timers, r.clock.AfterFunc(after, func() { r.idleCompact(entry, why) }))
 	}
 	r.warmMu.Unlock()
+	r.trimWarm()
+}
+
+// trimWarm evicts the longest-idle warm Sessions until the Instance holds no
+// more than Admission.MaxWarmSessions. A Session with an admitted Run is never
+// the victim.
+func (r *Runner) trimWarm() {
+	limit := r.admission.MaxWarmSessions
+	if limit < 0 {
+		return
+	}
+	for {
+		r.mu.Lock()
+		r.warmMu.Lock()
+		var victim *warmEntry
+		if len(r.warm) > limit {
+			for _, entry := range r.warm {
+				if len(r.handles[entry.id]) > 0 {
+					continue
+				}
+				if victim == nil || entry.since.Before(victim.since) || (entry.since.Equal(victim.since) && entry.seq < victim.seq) {
+					victim = entry
+				}
+			}
+		}
+		r.warmMu.Unlock()
+		r.mu.Unlock()
+		if victim == nil {
+			return
+		}
+		r.dropEntry(victim, "evicted")
+	}
 }
 
 func (e *warmEntry) stopTimers() {
