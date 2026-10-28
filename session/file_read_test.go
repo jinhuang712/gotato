@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,6 +58,47 @@ func TestFileStoreListReadsOnlyTheLastWrite(t *testing.T) {
 	infos, err := store.List(ctx)
 	if err != nil || len(infos) != 1 || infos[0].Seq != 4 {
 		t.Fatalf("List = %+v (%v), want one Record at seq 4", infos, err)
+	}
+}
+
+// A Delete whose files cannot all be removed has still deleted the Record: the
+// store forgets its head, and the error says so.
+func TestFileStoreDeleteForgetsARecordWhoseFilesStay(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := session.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, "r", []session.Entry{fileEntry(1, gotato.EventKindSessionCreated)}, fileSummary(1)); err != nil {
+		t.Fatal(err)
+	}
+	epochs, _ := filepath.Glob(filepath.Join(dir, "r", "*"))
+	if len(epochs) != 1 {
+		t.Fatalf("found %d epoch directories", len(epochs))
+	}
+	// A directory nobody may write to keeps its files from being removed.
+	if err := os.Chmod(epochs[0], 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		left, _ := filepath.Glob(filepath.Join(dir, ".deleted-*", "*"))
+		for _, path := range left {
+			_ = os.Chmod(path, 0o700)
+		}
+	}()
+	if os.Geteuid() == 0 {
+		t.Skip("root removes files from any directory")
+	}
+	err = store.Delete(ctx, "r")
+	if err == nil {
+		t.Fatal("Delete removed files from a read-only directory")
+	}
+	if _, err := store.Load(ctx, "r"); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("Load after Delete = %v, want ErrNotFound", err)
+	}
+	if n := session.CachedHeads(store); n != 0 {
+		t.Fatalf("the store still keeps %d head(s) of a deleted Record", n)
 	}
 }
 

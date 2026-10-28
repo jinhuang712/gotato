@@ -616,23 +616,31 @@ func (f *FileStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	found := false
+	var removeErr error
 	dir := f.recordDir(id)
 	tomb := filepath.Join(f.dir, ".deleted-"+nameOf(id)+"-"+NewID()[:8])
 	if err := os.Rename(dir, tomb); err == nil {
 		found = true
-		if err := os.RemoveAll(tomb); err != nil {
-			return err
-		}
+		removeErr = os.RemoveAll(tomb)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	// The Record is gone once the rename is done, whether or not its files
+	// could be removed: forget it either way, so a retry says not found
+	// instead of leaving a stale head behind.
 	f.mu.Lock()
 	delete(f.heads, id)
 	f.mu.Unlock()
 	if !found {
 		return ErrNotFound
 	}
-	return syncDir(f.dir)
+	if err := syncDir(f.dir); err != nil {
+		return err
+	}
+	if removeErr != nil {
+		return fmt.Errorf("session: %s is deleted, but its files were not all removed: %w", id, removeErr)
+	}
+	return nil
 }
 
 func (f *FileStore) instancePath(id string) string {

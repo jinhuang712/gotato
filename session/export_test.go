@@ -44,6 +44,13 @@ func TakePending(r *Record) []Entry {
 // Append has checked its writer.
 func SetBeforeWrite(f *FileStore, fn func()) { f.beforeWrite = fn }
 
+// CachedHeads is the number of Records whose head f keeps.
+func CachedHeads(f *FileStore) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.heads)
+}
+
 // SetDuringBeat makes f call fn in every Beat, where its file work starts.
 func SetDuringBeat(f *FileStore, fn func()) { f.duringBeat = fn }
 
