@@ -2,7 +2,10 @@ package service_test
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,193 @@ import (
 	"github.com/jinhuang712/gotato/session"
 	"github.com/jinhuang712/gotato/testkit"
 )
+
+func benchHeap() uint64 {
+	runtime.GC()
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	return stats.HeapInuse
+}
+
+// warmedRunner returns a Runner over a new store in which sessions Sessions of
+// messages Messages each (about 200 bytes, distinct in every Session) have each
+// run once. With ttl negative a Run keeps nothing in memory.
+func warmedRunner(b *testing.B, sessions, messages int, ttl time.Duration) *service.Runner {
+	b.Helper()
+	ctx := context.Background()
+	runner, err := service.New(service.Config{Store: session.NewMemoryStore(), Agents: []service.Agent{
+		{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{TTL: ttl, NoIdleCompaction: true}},
+	}})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := range sessions {
+		history := make([]gotato.Message, messages)
+		for m := range history {
+			text := fmt.Sprintf("session %d message %d ", i, m) + strings.Repeat("x", 180)
+			if m%2 == 0 {
+				history[m] = gotato.UserMessage(text)
+			} else {
+				history[m] = gotato.AssistantMessage(text)
+			}
+		}
+		created, err := runner.CreateSession(ctx, "echo", nil, session.WithMessages(history...))
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := runner.Run(ctx, service.RunRequest{SessionID: created.ID(), Prompt: "go"}); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return runner
+}
+
+// BenchmarkWarmSessionFootprint measures G-B08 for the warm Session: the heap
+// a warm copy holds, per Session, with a history of 10, 100 and 1,000
+// Messages. It builds 100 Sessions that have each run once, twice: once with
+// each Session kept warm, and once with none kept. What the Runner and the
+// store hold is the same in both, so the difference is the warm copies.
+//
+//	go test -run '^$' -bench WarmSessionFootprint -benchtime 1x ./service
+func BenchmarkWarmSessionFootprint(b *testing.B) {
+	const sessions = 100
+	for _, messages := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("messages=%d", messages), func(b *testing.B) {
+			for range b.N {
+				coldHeap := func() uint64 {
+					base := benchHeap()
+					cold := warmedRunner(b, sessions, messages, -1)
+					heap := benchHeap() - base
+					runtime.KeepAlive(cold)
+					return heap
+				}()
+				base := benchHeap()
+				warm := warmedRunner(b, sessions, messages, 0)
+				if warm.WarmSessions() != sessions {
+					b.Fatalf("warm Sessions = %d, want %d", warm.WarmSessions(), sessions)
+				}
+				warmHeap := benchHeap() - base
+				runtime.KeepAlive(warm)
+				b.ReportMetric(float64(warmHeap-coldHeap)/sessions, "warm-heap-B/session")
+				b.ReportMetric(float64(coldHeap)/sessions, "store-and-runner-B/session")
+			}
+		})
+	}
+}
+
+// The warm Sessions of an Instance are bounded by Admission.MaxWarmSessions:
+// when one more would pass it, the longest-idle one leaves memory, evicted.
+func TestMaxWarmSessionsEvictsTheOldestIdle(t *testing.T) {
+	clock := newFakeClock()
+	runner, err := service.New(service.WithClock(service.Config{
+		Store: session.NewMemoryStore(), Instance: "a",
+		Admission: service.Admission{MaxWarmSessions: 2},
+		Agents:    []service.Agent{{Name: "echo", Model: testkit.EchoModel{}, Warm: service.WarmPolicy{NoIdleCompaction: true}}},
+	}, clock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	instance := instanceRecorder(t, runner)
+
+	first := runOn(t, runner, "", "one")
+	clock.Advance(time.Minute)
+	second := runOn(t, runner, "", "two")
+	clock.Advance(time.Minute)
+	if runner.WarmSessions() != 2 {
+		t.Fatalf("WarmSessions = %d, want 2", runner.WarmSessions())
+	}
+	third := runOn(t, runner, "", "three")
+	if runner.WarmSessions() != 2 {
+		t.Fatalf("WarmSessions = %d after a third Session went idle, want the limit of 2", runner.WarmSessions())
+	}
+	waitFor(t, func() bool { return len(evictedIDs(instance)) >= 1 })
+	if got := evictedIDs(instance); !slices.Equal(got, []string{first.SessionID}) {
+		t.Fatalf("evicted %v, want the longest-idle Session %q (not %q or %q)", got, first.SessionID, second.SessionID, third.SessionID)
+	}
+}
+
+// Warm memory has a default bound: a Runner with the zero Admission does not
+// keep every Session of the hour for ever.
+func TestWarmSessionsHaveADefaultBound(t *testing.T) {
+	runner, err := service.New(service.Config{
+		Store:  session.NewMemoryStore(),
+		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runner.WarmLimit(); got != service.DefaultMaxWarmSessions || got <= 0 {
+		t.Fatalf("MaxWarmSessions = %d, want the default %d", got, service.DefaultMaxWarmSessions)
+	}
+}
+
+type stranger struct{}
+
+// guarded refuses the callers whose ctx carries stranger{}, the way a store
+// wrapper of an embedding application answers a caller it does not authorize.
+type guarded struct{ session.Store }
+
+func refused(ctx context.Context) bool { return ctx.Value(stranger{}) != nil }
+
+func (g guarded) Load(ctx context.Context, id string) (session.Loaded, error) {
+	if refused(ctx) {
+		return session.Loaded{}, session.ErrNotFound
+	}
+	return g.Store.Load(ctx, id)
+}
+
+func (g guarded) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	if refused(ctx) {
+		return nil, session.ErrNotFound
+	}
+	return g.Store.Log(ctx, id, after, limit)
+}
+
+// a caller the Store refuses must change nothing. Compact, Notice
+// and Run reach the warm copy before they reach the Store: the refused caller
+// is answered not_found, and the owner's warm Session is dropped
+// ("taken_over") all the same.
+func TestRefusedCallerDoesNotEvictTheWarmSession(t *testing.T) {
+	calls := map[string]func(ctx context.Context, r *service.Runner, id string) error{
+		"compact": func(ctx context.Context, r *service.Runner, id string) error {
+			_, err := r.Compact(ctx, id, modelctx.CompactConfig{})
+			return err
+		},
+		"notice": func(ctx context.Context, r *service.Runner, id string) error {
+			_, err := r.Notice(ctx, service.NoticeRequest{SessionID: id, Kind: "k", Text: "t"})
+			return err
+		},
+		"run": func(ctx context.Context, r *service.Runner, id string) error {
+			_, err := r.Run(ctx, service.RunRequest{SessionID: id, Prompt: "hi"})
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			runner := newRunnerOn(t, guarded{session.NewMemoryStore()}, service.Agent{Name: "a", Model: testkit.EchoModel{}})
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s, err := runner.CreateSession(ctx, "a", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runner.Run(ctx, service.RunRequest{SessionID: s.ID(), Prompt: "hello"}); err != nil {
+				t.Fatal(err)
+			}
+			if runner.WarmSessions() != 1 {
+				t.Fatalf("warm sessions = %d, want 1 after the owner's Run", runner.WarmSessions())
+			}
+			err = call(context.WithValue(ctx, stranger{}, true), runner, s.ID())
+			if !gotato.IsCode(err, gotato.CodeNotFound) {
+				t.Fatalf("refused caller got %v, want not_found", err)
+			}
+			if got := runner.WarmSessions(); got != 1 {
+				t.Errorf("warm sessions = %d after a refused %s, want 1: the refused caller evicted the owner's copy", got, name)
+			}
+		})
+	}
+}
 
 // limitedInstance is an Instance over store that keeps at most limit Sessions,
 // warm ones included, and queues a Run on a busy Session.
