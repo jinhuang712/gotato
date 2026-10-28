@@ -78,7 +78,7 @@ Exported names follow one set of rules, so a reader can guess a name before look
 6. **Update docs when public behavior changes**: package doc comments, `FEATURES.md` status markers, `README.md` examples, and `CHANGELOG.md` (*Unreleased*, with a before/after note for breaks).
 7. **Keep the CLI honest.** The CLI promises no contract: its flags, fields and exit codes change freely; update its tests and `internal/cmd/gotato/README.md` with it. No `CHANGELOG.md` entry is needed for the CLI.
 8. **Format**: `gofmt -l .` must print nothing.
-9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"), and name the test that fails when the guard is removed: `// [SECURITY] a client cannot make the handler read a body past the cap.`. The tag says what the guard protects, from this closed list:
+9. **Tag every guard.** A guard is code that exists only for a failure: a check, a recover, a fence, a retry, a fixed public text. Put a tag and its reason in the comment above it, in one line, with no history ("fixed in", "bug 12"): `// [SECURITY] a client cannot make the handler read a body past the cap.`. The tag says what the guard protects, from this closed list:
    - `[SECURITY]`: a secret, a credential, an authorization decision, or a public text.
    - `[DATA-LOSS]`: a Record, a Message or a result that would be lost or read wrong; the order of a durable write.
    - `[OWNERSHIP]`: one writer per Session across Instances (Claim, epoch, release).
