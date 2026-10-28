@@ -261,7 +261,7 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1), number: m.number}
 		if source == MessageSourceNotice {
 			a.noticeMu.Lock()
-			fits := len(a.notices)+a.noticeHeld < a.noticeLimit
+			fits := !a.controlSealed && len(a.notices)+a.noticeHeld < a.noticeLimit
 			if fits {
 				a.notices = append(a.notices, queued)
 			}
@@ -271,14 +271,9 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 			}
 			continue
 		}
-		select {
-		case a.steer <- queued:
-		default:
-			select {
-			case a.followUp <- queued:
-			default:
-				rest = append(rest, m)
-			}
+		// [CONCURRENCY] sendControl takes the closed check and the send in one step, so a message never lands in a Session that closed.
+		if a.sendControl(a.steer, queued, false) != sentControl && a.sendControl(a.followUp, queued, false) != sentControl {
+			rest = append(rest, m)
 		}
 	}
 	return rest

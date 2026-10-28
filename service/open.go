@@ -141,6 +141,7 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 			// The store does not show the Session to this caller: it is
 			// deleted, or the caller is refused. A refused caller must not
 			// drop the owner's copy; the copy ages out by its TTL.
+			// [LIMITATION] a refusal and a delete both read as not found, so a Session deleted elsewhere stays warm until its TTL.
 			r.keepWarm(w, entry.spec)
 			return nil, nil, nil, storeFailureOf(ctx, notRunIfLapsed(staleErr), true)
 		case staleErr == nil && !stale:
