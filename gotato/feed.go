@@ -218,7 +218,15 @@ func NextRun() []SubscribeOption {
 }
 
 // Subscribe starts a Subscription. Without SubscribeAfter it carries the
-// Events published from now on.
+// Events published from now on. SubscribeAfter and SubscribeTail apply to a
+// Session's Feed only; an Instance's Feed ignores them.
+//
+// A Subscription runs one goroutine. It stops when the caller calls Close,
+// when the Feed closes, when SubscribeUntil fires, when the stream ends with
+// an error, or when ctx ends. Close it, or pass a ctx that ends: a Subscription
+// on context.Background() that is never closed lives until its Feed closes.
+//
+// Subscribe on a closed Feed returns a nil Subscription and io.EOF.
 func (f *Feed) Subscribe(ctx context.Context, options ...SubscribeOption) (Subscription, error) {
 	if ctx == nil {
 		ctx = context.Background()
