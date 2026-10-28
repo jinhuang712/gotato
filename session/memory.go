@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -174,5 +175,6 @@ func cloneInfo(summary RecordInfo) RecordInfo {
 		out.Metadata = make(map[string]string, len(summary.Metadata))
 		maps.Copy(out.Metadata, summary.Metadata)
 	}
+	out.Notices = slices.Clone(summary.Notices)
 	return out
 }
