@@ -189,10 +189,10 @@ func SubscribeUntil(done func(Event) bool) SubscribeOption {
 	return func(c *subscribeConfig) { c.until = done }
 }
 
-// NextRun returns the options of a Run's stream: the Events of the next Run
+// SubscribeNextRun returns the options of a Run's stream: the Events of the next Run
 // that starts, from its RunStarted to its RunEnded. Pass them to Subscribe
 // before the Run starts.
-func NextRun() []SubscribeOption {
+func SubscribeNextRun() []SubscribeOption {
 	var mu sync.Mutex
 	var run RunID
 	return []SubscribeOption{

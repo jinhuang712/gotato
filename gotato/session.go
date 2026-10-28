@@ -427,7 +427,7 @@ func (a *Session) Published() uint64 { return a.feed.Published() }
 // and deltas, from its RunStarted to its RunEnded, with the same numbers the
 // Session's stream gives them. Call it before Prompt.
 func (a *Session) SubscribeRun(ctx context.Context) (Subscription, error) {
-	return a.feed.Subscribe(ctx, NextRun()...)
+	return a.feed.Subscribe(ctx, SubscribeNextRun()...)
 }
 
 // Prompt appends message as the user's Message and runs it to a settled

@@ -265,7 +265,7 @@ func TestInstanceFeedSaysHowManyWereSkipped(t *testing.T) {
 // A Run's stream carries one Run, from its RunStarted to its RunEnded, and ends.
 func TestRunStreamEndsWithTheRun(t *testing.T) {
 	feed := NewFeed(nil)
-	sub, err := feed.Subscribe(context.Background(), NextRun()...)
+	sub, err := feed.Subscribe(context.Background(), SubscribeNextRun()...)
 	if err != nil {
 		t.Fatal(err)
 	}
