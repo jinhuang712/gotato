@@ -17,6 +17,23 @@ func (r *Runner) markUnreleased(sessionID string) {
 	r.unreleased[sessionID] = struct{}{}
 }
 
+// settle is what each exit that held the Claim of a Session does with the
+// result of its release: a Writer that failed, or a release that failed, may
+// leave the Session busy in the store under this Instance, whose Liveness row
+// goes on renewing, so no other Instance could take it. The Session is
+// remembered, and the heartbeat opens it again from the store and releases it
+// (repairReleases). Every exit that claims a Session ends with it.
+func (r *Runner) settle(writer *session.Writer, releaseErr error) {
+	if releaseErr == nil && writer.Failed() == nil {
+		return
+	}
+	if lostRace(releaseErr) && !lapsed(releaseErr) {
+		// Another Instance holds the Record, or it is gone: nothing is ours to give back.
+		return
+	}
+	r.markUnreleased(writer.ID())
+}
+
 // repairReleases writes again the release of each Session that this Instance
 // failed to release. It runs on every heartbeat tick, so a Session is busy
 // under an idle holder for a third of the Liveness TTL after the store

@@ -13,6 +13,8 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **The line under a spilled result's preview points at page 1.** The preview is 8,000 bytes and a page is 32 KiB, so the line that said `page=2` skipped the rest of page 1. Before: `Read the rest with read_result(ref="result:c1", page=2).` After: `Read it page by page with read_result(ref="result:c1", page=1); the preview is only the start of page 1.`
 
 - **A fork can read the spilled Tool Results it inherits.** `ToolResult.Spilled` gains `session_id` (omitted when empty): `Fork` sets it to the parent for the results the fork inherits, and `read_result` reads the body from that Record's log. Before, a fork's `read_result` looked for the body at the same position in its own log and reported it removed. Deleting the parent still removes the bodies; the fork then reads them as pruned.
+||||||| parent of c391d5c (fix: claim a Session before deleting it, so a delete cannot race a new Run)
+- **Fixed: a delete could remove a Session that another instance had just started a Run on.** `DeleteSession` now claims the Session, as a Run does, before it deletes: an instance that claims it after the delete looked is refused as busy, or wins and keeps its Session. The `Store` interface and its contract do not change.
 
 ## 0.2.0 — 2026-10-28
 

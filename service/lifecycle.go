@@ -54,14 +54,37 @@ func (r *Runner) CreateSessionExclusive(ctx context.Context, agent, id string, m
 // is not deleted from under it: the call returns not_writer (NotRun,
 // Retryable) with the writer's advertised address, as Send does. A Session
 // whose writer is gone is deleted.
+//
+// The store's Delete is not conditional, so the delete claims the Session
+// first, as a Run does. An Instance that starts a Run after the look at the
+// writer either wins the claim, and the delete is refused as busy, or loses it.
 func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 	return r.withSessionLock(ctx, sessionID, func() error {
+		// The answer for a Run going on another live Instance, with its
+		// address. It is a look only: the claim below is the check.
 		if err := r.checkWriter(ctx, sessionID); err != nil {
 			return err
 		}
-		r.dropWarm(sessionID, "deleted")
+		r.warmMu.Lock()
+		warm := r.warm[sessionID]
+		r.warmMu.Unlock()
+		// The store's Delete is not conditional, so the Instance that deletes
+		// holds the Claim first. The claim is a conditional write: an Instance
+		// that claims the Session after the look above either wins it, and
+		// this call is refused as busy, or loses it to this one.
+		writer, early, _, err := r.acquire(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		agent, _ := writer.Record().Get(MetaAgent)
+		r.publishOpened(writer, early, agent)
 		if err := r.store.Delete(ctx, sessionID); err != nil {
+			// The Claim was written and the Record stays: give it back.
+			r.settle(writer, writer.Release(ctx))
 			return storeFailureOf(ctx, err, true)
+		}
+		if warm != nil {
+			r.unloaded(sessionID, warm.agent, "deleted")
 		}
 		r.notice(gotato.SessionDeleted{Header: gotato.NewHeader(gotato.SessionID(sessionID), "", 0)}, "")
 		r.endSessionStreams(sessionID, session.ErrNotFound)
