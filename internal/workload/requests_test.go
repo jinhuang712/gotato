@@ -249,7 +249,7 @@ func TestSameRecordSameRequest(t *testing.T) {
 // same, and the Messages of the earlier request first, byte for byte. The pairs
 // cross Run boundaries, reloads and the change of instance.
 //
-// The exceptions DESIGNS.md names do not occur in this play, and the test says
+// The exceptions principle 2 in DESIGNS.md names do not occur in this play, and the test says
 // why for each:
 //   - A new Round leaving out the last Round's reasoning happens in the
 //     gateway's encoder (gateway.providerRules.roundReasoning), after the

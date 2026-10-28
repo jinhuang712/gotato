@@ -10,7 +10,7 @@ import (
 	"github.com/jinhuang712/gotato/internal/text"
 )
 
-// The defaults of a Segment built by code (FEATURES.md → G-F06, Settings).
+// The defaults of a Segment built by code (FEATURES.md → G-F06, the Segment settings table).
 const (
 	// defaultMessageTokens is how long a user Message or a final reply may be
 	// in a Segment before it is cut, in estimated tokens (bytes ÷ 4).

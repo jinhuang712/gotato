@@ -211,7 +211,7 @@ const recapHeadingBlock = `## What happened     what the user asked for, and wha
 
 // mergeRecapAsk is the message that asks for the Recap of a merge: one Recap of
 // the Recaps of the oldest Segments, under the same rules, and which numbers
-// read_segment still reads (FEATURES.md → G-F06, Many Segments). The Recaps
+// read_segment still reads (specs/compaction.md, a merge). The Recaps
 // follow it, each with the times it covers. A Segment that has no Recap
 // contributes the digest of its conversation and tool calls instead. When the
 // first is a merged Segment, its Recap comes first and is the far past. Like

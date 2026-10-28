@@ -246,8 +246,7 @@ func withoutReadSegment(tools []string) []string {
 //     and each breakpoint of the request lands on the end of the Message it
 //     names, and no more than four marks go out.
 //
-// Gotato places no cache mark at the end of the last Segment (FEATURES.md,
-// G-F06, Compaction), so there is none to check.
+// Gotato places no cache mark at the end of the last Segment (specs/compaction.md), so there is none to check.
 func TestWireRequestOnlyGrowsAtItsEndAcrossCompactions(t *testing.T) {
 	for _, recap := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recap=%t", recap), func(t *testing.T) {

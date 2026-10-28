@@ -43,7 +43,7 @@ var allowedImports = map[string][]string{
 // from outside this repository: the core, and the shared package it uses.
 var standardOnly = []string{"gotato", "internal/text"}
 
-// TestLayering enforces DESIGNS.md → Dependencies point inward: every shipped
+// TestLayering enforces plan/decisions/010 (a light library): dependencies point inward: every shipped
 // package imports only what allowedImports lists for it, the core and the
 // shared package of internal/ use the standard library alone, and the module
 // root holds no Go package.

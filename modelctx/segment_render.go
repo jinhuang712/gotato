@@ -149,7 +149,7 @@ func isText(part gotato.ContentPart) bool {
 
 // taggedPart is a Part of tagged text the system wrote, marked MetaTag.
 // The tag, its attributes in the order given, and its text on lines of their
-// own, as FEATURES.md shows a Segment.
+// own.
 func taggedPart(tag string, attrs [][2]string, text string) gotato.ContentPart {
 	var b strings.Builder
 	b.WriteString("<")
