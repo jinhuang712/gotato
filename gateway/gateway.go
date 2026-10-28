@@ -148,8 +148,14 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkEndpoint(endpoint); err != nil {
+		return nil, err
+	}
 	if config.Model == "" {
 		return nil, fmt.Errorf("gateway: Model is required")
+	}
+	if err := checkHeaders(config.Headers); err != nil {
+		return nil, fmt.Errorf("gateway: Headers: %w", err)
 	}
 	provider, err := resolveProvider(config.Provider, endpoint)
 	if err != nil {
@@ -260,7 +266,7 @@ func resolveRetries(config Config) (int, error) {
 // request's CacheKey, empty for one that is not sent.
 func resolveCacheKey(config Config, api API) (header, field string, err error) {
 	header = strings.TrimSpace(config.CacheKeyHeader)
-	if strings.ContainsAny(header, " \t:") {
+	if header != "" && !validHeaderName(header) {
 		return "", "", fmt.Errorf("gateway: CacheKeyHeader %q is not a header name", config.CacheKeyHeader)
 	}
 	field = strings.TrimSpace(config.CacheKeyField)

@@ -27,6 +27,10 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 	if c.api == APIResponses && strings.TrimSpace(c.apiKey) == "" {
 		return nil, &Error{Message: "api_key is required for the Responses API"}
 	}
+	if err := checkHeaders(RequestHeaders(ctx)); err != nil {
+		// Sending it again cannot help, so it is not a transport failure.
+		return nil, &Error{Message: "a request header is not valid: " + err.Error()}
+	}
 	for attempt := 0; ; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 		if err != nil {

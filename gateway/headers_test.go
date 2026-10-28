@@ -2,10 +2,13 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 )
@@ -177,5 +180,40 @@ func TestConfigHeadersCannotOverrideProtocolHeaders(t *testing.T) {
 	}
 	if auth != "Bearer secret" || accept != "text/event-stream" {
 		t.Fatalf("protocol headers were overridden: auth=%q accept=%q", auth, accept)
+	}
+}
+
+// A setting that can never work is refused by New, not found on the first
+// request and sent again as if the network had failed.
+func TestNewRefusesAHeaderOrEndpointThatCanNeverBeSent(t *testing.T) {
+	for name, config := range map[string]Config{
+		"cache key header": {BaseURL: "http://h", Model: "m", CacheKeyHeader: "session(id"},
+		"header name":      {BaseURL: "http://h", Model: "m", Headers: map[string]string{"bad name": "v"}},
+		"header value":     {BaseURL: "http://h", Model: "m", Headers: map[string]string{"X-A": "a\r\nX-B: b"}},
+		"endpoint scheme":  {Endpoint: "ftp://h/x", Model: "m"},
+		"endpoint no host": {Endpoint: "http:///x", Model: "m"},
+		"endpoint garbage": {Endpoint: "http://h\x7f/x", Model: "m"},
+	} {
+		if _, err := New(config); err == nil {
+			t.Errorf("New accepted %s", name)
+		}
+	}
+}
+
+// A per-request header that net/http refuses fails the call once, not
+// retryable.
+func TestAnInvalidRequestHeaderIsNotRetried(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: 3, RetryBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithRequestHeaders(context.Background(), map[string]string{"bad name": "v"})
+	_, err = client.Stream(ctx, gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Retryable() || hits.Load() != 0 {
+		t.Fatalf("err = %v, retryable and %d requests; want a plain Error and no request", err, hits.Load())
 	}
 }

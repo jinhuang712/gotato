@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -102,4 +104,55 @@ func (c *Client) setProtocolHeaders(req *http.Request) {
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		}
 	}
+}
+
+// validHeaderName reports whether name is an HTTP header field name: one or
+// more token characters (RFC 9110).
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			continue
+		}
+		if !strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c)) {
+			return false
+		}
+	}
+	return true
+}
+
+// validHeaderValue reports whether value has no control character but a tab.
+func validHeaderValue(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if c := value[i]; c < ' ' && c != '\t' || c == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// checkHeaders returns an error naming the first header that net/http would
+// refuse to send. The value is never part of the error.
+func checkHeaders(headers map[string]string) error {
+	for name, value := range headers {
+		if !validHeaderName(name) {
+			return fmt.Errorf("%q is not a header name", name)
+		}
+		if !validHeaderValue(value) {
+			return fmt.Errorf("the value of %q has a control character", name)
+		}
+	}
+	return nil
+}
+
+// checkEndpoint refuses an endpoint that is not an http or https URL with a host.
+func checkEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("gateway: the endpoint is not an http or https URL with a host")
+	}
+	return nil
 }
