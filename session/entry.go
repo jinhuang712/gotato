@@ -73,16 +73,6 @@ func (e Entry) IsCheckpoint() bool {
 	return false
 }
 
-// Claim names the Instance that writes a Record, and its Epoch, which grows
-// by one with every new Claim. A Claim is itself an Entry, at the position
-// after the head its Instance read. So a writer that lost its Claim always
-// writes to a position that is already taken, and the store refuses it in
-// the same write.
-type Claim struct {
-	Instance string `json:"instance"`
-	Epoch    uint64 `json:"epoch"`
-}
-
 // entryOf encodes a numbered stored Event as the Entry at its number.
 func entryOf(event gotato.Event, instance string) (Entry, error) {
 	data, err := gotato.MarshalEvent(event)
