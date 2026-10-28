@@ -198,7 +198,7 @@ func startsWithJSONObject(response *http.Response) bool {
 		io.Reader
 		io.Closer
 	}{reader, response.Body}
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		peeked, err := reader.Peek(i + 1)
 		if err != nil {
 			return false
