@@ -22,6 +22,9 @@ type Header struct {
 // Head returns the Header; every Event type gets it by embedding Header.
 func (h Header) Head() Header { return h }
 
+// isEvent seals Event: a type is an Event by embedding Header.
+func (Header) isEvent() {}
+
 // NewHeader returns a Header stamped with the current time.
 func NewHeader(session SessionID, run RunID, turn TurnNumber) Header {
 	return Header{Time: time.Now(), SessionID: session, RunID: run, Turn: turn}

@@ -21,11 +21,17 @@ import (
 // "kind" names its type; MarshalEvent and UnmarshalEvent convert it, and an
 // unknown kind comes back as an UnknownEvent, so a consumer tolerates kinds
 // that a later version adds.
+//
+// Event is sealed: its unexported method comes from Header, so a type in any
+// package is an Event by embedding Header, and no other way. That lets a later
+// version add a method without breaking implementers. Subscription, which a
+// test double or a service may implement, stays open.
 type Event interface {
 	// Kind names the Event's type, such as "run_started".
 	Kind() EventKind
 	// Head returns the Event's Header.
 	Head() Header
+	isEvent()
 }
 
 // EventKind names the type of an Event, in its JSON "kind".
