@@ -829,3 +829,42 @@ func TestIdleScheduleOfAWarmPolicy(t *testing.T) {
 		t.Fatal("the Session did not leave at its TTL")
 	}
 }
+
+// cancelOnLog cancels a context when the store is asked for the log tail once armed.
+type cancelOnLog struct {
+	session.Store
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (s *cancelOnLog) arm(cancel context.CancelFunc) {
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
+}
+
+func (s *cancelOnLog) Log(ctx context.Context, id string, after uint64, limit int) ([]session.Entry, error) {
+	s.mu.Lock()
+	cancel := s.cancel
+	s.cancel = nil
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return s.Store.Log(ctx, id, after, limit)
+}
+
+func TestCanceledRunKeepsTheWarmCopy(t *testing.T) {
+	store := &cancelOnLog{Store: sharedStores(t, "memory")()}
+	runner := warmInstance(t, store, "a", newFakeClock(), testkit.EchoModel{}, service.WarmPolicy{})
+	first := runOn(t, runner, "", "one")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store.arm(cancel)
+	if _, err := runner.Run(ctx, service.RunRequest{SessionID: first.SessionID, Prompt: "two"}); err == nil {
+		t.Fatal("a Run whose context was canceled succeeded")
+	}
+	if runner.WarmSessions() != 1 {
+		t.Fatalf("warm Sessions = %d after a canceled Run, want 1", runner.WarmSessions())
+	}
+}

@@ -129,6 +129,9 @@ func (r *Runner) acquire(ctx context.Context, sessionID string) (writer *session
 		stale, staleErr := w.Stale(ctx)
 		switch {
 		case ctx.Err() != nil:
+			// The caller gave up before the copy was judged: the copy is
+			// untouched and still good, so it stays warm for the next Run.
+			r.keepWarm(w, entry.spec)
 			return nil, nil, nil, ctx.Err()
 		case staleErr == nil && !stale:
 			if err := r.live(ctx); err != nil {
