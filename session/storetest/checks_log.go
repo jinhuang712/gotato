@@ -259,3 +259,18 @@ func checkLogLimit(ctx context.Context, open Open) error {
 	}
 	return nil
 }
+
+// checkLogPastHead checks that Log after the head, or far past it, is an
+// empty answer and not an error.
+func checkLogPastHead(ctx context.Context, open Open) error {
+	if _, err := create(ctx, open(), "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	for _, after := range []uint64{3, 4, 1000} {
+		got, err := open().Log(ctx, "r1", after, 0)
+		if err != nil || len(got) != 0 {
+			return failf("Log after %d of a Record whose head is 3 returned %d Entries, %v, want none and no error", after, len(got), err)
+		}
+	}
+	return nil
+}

@@ -189,3 +189,56 @@ func checkDeletedWriter(ctx context.Context, open Open) error {
 	}
 	return sameEntries("Log after the refused Append", log, longer, "the refused Append must not write any Entry into the new Record, and "+ruleLog)
 }
+
+// checkEpochBeforePosition checks that an Append of a writer of a deleted and
+// re-created Record is ErrNotFound also when its position is wrong too.
+func checkEpochBeforePosition(ctx context.Context, open Open) error {
+	if _, err := create(ctx, open(), "r1"); err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	stale := summary("r1", 9, "2026-10-17T00:00:09.000Z")
+	stale.RecordEpoch = "epoch-other"
+	err := open().Append(ctx, "r1", 8, []session.Entry{fact(9, "x")}, stale)
+	if !errors.Is(err, session.ErrNotFound) {
+		return fmt.Errorf("an Append naming another epoch at a position that is not the head returned %v, want ErrNotFound: the epoch is checked before the position", err)
+	}
+	return nil
+}
+
+// checkConcurrentCreate checks that of Instances creating one ID at once,
+// exactly one wins and the others get ErrExists, and the winner's Record stays.
+func checkConcurrentCreate(ctx context.Context, open Open) error {
+	const creators = 8
+	errs := make([]error, creators)
+	var wg sync.WaitGroup
+	for i := range creators {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			writer := fmt.Sprintf("creator-%d", i)
+			info := summary("r1", 2, "2026-10-17T00:00:02.000Z")
+			info.RecordEpoch = "epoch-" + writer
+			errs[i] = open().Create(ctx, "r1", []session.Entry{checkpoint(1, writer), fact(2, writer)}, info)
+		}(i)
+	}
+	wg.Wait()
+	winner := -1
+	for i, err := range errs {
+		switch {
+		case err == nil && winner >= 0:
+			return fmt.Errorf("creators %d and %d both created r1: Create of a taken ID is ErrExists, so one of them must get it", winner, i)
+		case err == nil:
+			winner = i
+		case !errors.Is(err, session.ErrExists):
+			return fmt.Errorf("creator %d that lost the race returned %v, want ErrExists", i, err)
+		}
+	}
+	if winner < 0 {
+		return errors.New("no creator won: one Create of an unused ID must succeed")
+	}
+	loaded, err := open().Load(ctx, "r1")
+	if err != nil || loaded.Info.RecordEpoch != fmt.Sprintf("epoch-creator-%d", winner) {
+		return fmt.Errorf("the Record after the race has epoch %q (%v), want the winner's: %s", loaded.Info.RecordEpoch, err, ruleAtomic)
+	}
+	return nil
+}

@@ -161,3 +161,32 @@ func checkCanceled(ctx context.Context, open Open) error {
 	}
 	return nil
 }
+
+// checkDeleteIsolated checks that Delete of one Record leaves the others, also
+// the ones whose ID starts with its ID, and that a Record created again under
+// the ID starts empty.
+func checkDeleteIsolated(ctx context.Context, open Open) error {
+	for _, id := range []string{"a", "ab", "a-b"} {
+		if _, err := create(ctx, open(), id); err != nil {
+			return fmt.Errorf("create %q: %w", id, err)
+		}
+	}
+	if err := open().Delete(ctx, "a"); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	for _, id := range []string{"ab", "a-b"} {
+		loaded, err := open().Load(ctx, id)
+		if err != nil || loaded.Head != 3 {
+			return failf("Load of %q after Delete of \"a\" returned head %d, %v, want the Record whole: Delete removes one Record, not the IDs that start with its ID", id, loaded.Head, err)
+		}
+	}
+	fresh := summary("a", 1, "2026-10-17T00:00:09.000Z")
+	fresh.RecordEpoch = "epoch-again"
+	if err := open().Create(ctx, "a", []session.Entry{checkpoint(1, "again")}, fresh); err != nil {
+		return failf("Create of \"a\" after its Delete returned %v, want nil", err)
+	}
+	if got, err := open().Log(ctx, "a", 0, 0); err != nil || len(got) != 1 {
+		return failf("Log of a Record created again returned %d Entries, %v, want 1: nothing of the deleted Record is left", len(got), err)
+	}
+	return nil
+}

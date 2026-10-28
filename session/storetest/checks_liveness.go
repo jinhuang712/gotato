@@ -75,3 +75,36 @@ func checkEndedRemoved(ctx context.Context, open Open) error {
 	}
 	return nil
 }
+
+// checkBeatRenews checks that a Beat on a live row renews it, and replaces the
+// whole row: the Draining flag and the Address are the last Beat's.
+func checkBeatRenews(ctx context.Context, open Open) error {
+	store := open()
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-d", Address: "http://old.example:1"}, 80*time.Millisecond); err != nil {
+		return fmt.Errorf("beat: %w", err)
+	}
+	if err := store.Beat(ctx, session.InstanceRow{ID: "instance-d", Draining: true, Address: "http://new.example:2"}, time.Hour); err != nil {
+		return failf("a second Beat on a live row returned %v, want nil: Beat renews the row", err)
+	}
+	time.Sleep(160 * time.Millisecond)
+	state, err := open().Instance(ctx, "instance-d")
+	if err != nil || !state.Alive {
+		return failf("Instance after a Beat that renewed the row for an hour returned %+v, %v, want alive: Beat renews the row until ttl from now, not from the first Beat", state, err)
+	}
+	if !state.Draining || state.Address != "http://new.example:2" {
+		return failf("Instance after a second Beat returned %+v, want Draining and the second Address: Beat replaces the whole row", state)
+	}
+	return nil
+}
+
+// checkBeatEndsMissingRow checks that a Beat with a ttl of 0 on a row that is
+// not there is not an error.
+func checkBeatEndsMissingRow(ctx context.Context, open Open) error {
+	if err := open().Beat(ctx, session.InstanceRow{ID: "instance-never"}, 0); err != nil {
+		return failf("Beat with ttl 0 on an Instance with no row returned %v, want nil: ending a row twice, or one never written, is not an error", err)
+	}
+	if state, err := open().Instance(ctx, "instance-never"); err != nil || state.Alive {
+		return failf("Instance after Beat with ttl 0 on no row returned %+v, %v, want not alive", state, err)
+	}
+	return nil
+}
