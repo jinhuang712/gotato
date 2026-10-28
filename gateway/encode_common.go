@@ -69,3 +69,13 @@ func toolSchema(spec gotato.ToolSpec, fallback string) (json.RawMessage, error) 
 	}
 	return json.RawMessage(schema), nil
 }
+
+// refuseReasoningConfig refuses a request that sets ModelConfig.ReasoningEffort
+// or ReasoningSummary on a wire API that does not send them. Only the
+// Responses API does; the setting would otherwise be accepted and do nothing.
+func refuseReasoningConfig(api API, config gotato.ModelConfig) error {
+	if config.ReasoningEffort == "" && config.ReasoningSummary == "" {
+		return nil
+	}
+	return gotato.ErrorOf(gotato.CodeNotSupported, fmt.Sprintf("gateway: ModelConfig.ReasoningEffort and ReasoningSummary are not sent by %s; use %s or leave them empty", api, APIResponses))
+}

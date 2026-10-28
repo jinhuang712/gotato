@@ -89,6 +89,9 @@ type anthropicTool struct {
 type blockRef struct{ message, block int }
 
 func encodeAnthropicRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
+	if err := refuseReasoningConfig(APIAnthropicMessages, request.Config); err != nil {
+		return nil, nil, err
+	}
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err

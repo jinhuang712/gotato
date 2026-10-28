@@ -233,10 +233,11 @@ func classifyModelError(err error) *RuntimeError {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return runtimeError(codeForContext(err), "Model", err.Error(), err)
 	}
-	// A Model that finds its reply broken, such as a stream that ends with a
-	// finish reason nobody knows, says so with a model_protocol_failure.
+	// A Model that finds its reply broken (a stream that ends with a finish
+	// reason nobody knows), or a request it cannot send as set, says so with
+	// a code of its own, and the Run keeps it.
 	var coded *RuntimeError
-	if errors.As(err, &coded) && coded != nil && coded.Code == CodeModelProtocolFailure {
+	if errors.As(err, &coded) && coded != nil && (coded.Code == CodeModelProtocolFailure || coded.Code == CodeNotSupported) {
 		return coded
 	}
 	var overflow interface{ ContextOverflow() bool }

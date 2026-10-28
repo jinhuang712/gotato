@@ -45,9 +45,8 @@ type responsesRequest struct {
 	Model             string              `json:"model"`
 	Store             bool                `json:"store"`
 	Stream            bool                `json:"stream"`
-	Instructions      string              `json:"instructions"`
+	Instructions      string              `json:"instructions,omitempty"`
 	Input             []any               `json:"input"`
-	Text              responsesText       `json:"text"`
 	Include           []string            `json:"include"`
 	ToolChoice        string              `json:"tool_choice"`
 	ParallelToolCalls bool                `json:"parallel_tool_calls"`
@@ -63,12 +62,8 @@ type responsesCacheOptions struct {
 	TTL string `json:"ttl"`
 }
 
-type responsesText struct {
-	Verbosity string `json:"verbosity"`
-}
-
 type responsesReasoning struct {
-	Effort  string `json:"effort"`
+	Effort  string `json:"effort,omitempty"`
 	Summary string `json:"summary"`
 }
 
@@ -200,17 +195,12 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 		tools = append(tools, responsesTool{Type: "function", Name: name, Description: spec.Description, Parameters: parameters, DeferLoading: entry.deferred})
 	}
 
-	instructions := request.SystemInstructions
-	if instructions == "" {
-		instructions = "You are a helpful assistant."
-	}
 	payload := responsesRequest{
 		Model:             model,
 		Store:             false,
 		Stream:            true,
-		Instructions:      instructions,
+		Instructions:      request.SystemInstructions,
 		Input:             input,
-		Text:              responsesText{Verbosity: "low"},
 		Include:           []string{"reasoning.encrypted_content"},
 		ToolChoice:        "auto",
 		ParallelToolCalls: true,
@@ -225,7 +215,7 @@ func encodeResponsesRequest(model string, request gotato.ModelRequest, rules pro
 	if rules.responsesCacheTTL != "" {
 		payload.PromptCacheOptions = &responsesCacheOptions{TTL: rules.responsesCacheTTL}
 	}
-	if request.Config.ReasoningEffort != "" {
+	if request.Config.ReasoningEffort != "" || request.Config.ReasoningSummary != "" {
 		summary := request.Config.ReasoningSummary
 		if summary == "" {
 			summary = "auto"

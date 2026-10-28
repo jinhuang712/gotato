@@ -1091,6 +1091,11 @@ model: your-model
 - An error the provider sends in the middle of a stream (an `overloaded_error`, an `api_error`, a `server_error`, a `rate_limit_exceeded`) is marked retryable on all three wire APIs, and the gateway never sends that request again on its own: the stream started, so the caller decides.
 - A finish reason or status the gateway does not know, and a Responses function call without a name or a `call_id`, end the stream with `model_protocol_failure`, never as a finished answer.
 
+**What goes to the wire**
+
+- A request carries only what the Agent and the Config set. The Responses API is sent no instruction and no verbosity of its own; an Agent with no instruction sends none.
+- `ModelConfig.ReasoningEffort` and `ReasoningSummary` are sent on the Responses API (`reasoning`). The chat and Anthropic wire APIs do not send them, so a request that sets either is refused with `not_supported` before anything is sent, not silently ignored.
+
 **What comes back from the wire**
 
 - A reply cut off by the output limit reports `max_tokens`, even next to tool calls.

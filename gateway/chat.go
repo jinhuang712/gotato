@@ -35,6 +35,9 @@ func (c *Client) streamChat(ctx context.Context, request gotato.ModelRequest) (g
 }
 
 func encodeChatRequest(model string, request gotato.ModelRequest, rules providerRules) ([]byte, map[string]string, error) {
+	if err := refuseReasoningConfig(APIChatCompletions, request.Config); err != nil {
+		return nil, nil, err
+	}
 	names, err := functionNames(request)
 	if err != nil {
 		return nil, nil, err
