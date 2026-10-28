@@ -33,6 +33,8 @@ The adapter needs Go 1.25 (the MCP SDK it uses requires it), and `go get` raises
 
 ## Check it
 
+`go mod tidy` drops a `require` that no file imports yet, and `go doc` then finds nothing. Write the import first, then run `go mod tidy`.
+
 ```go
 ctx := context.Background()
 s, err := gotato.NewSession(ctx, gotato.WithModel(myModel))

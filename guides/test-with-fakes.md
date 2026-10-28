@@ -21,7 +21,7 @@ Pick by what the test needs to show. A `Script` is the sequence of events one mo
 | a model that calls a tool, then answers | `testkit.NewFakeModel(testkit.ToolCalls(call), testkit.Text("done"))` |
 | the same, and a failure when it is called once too often | `testkit.NewReplayModel(...)` |
 | a model that decides from the request, shared by several agents | `testkit.NewFuncModel(fn)`, with `testkit.ToolResults` and `testkit.UserText` |
-| a model that streams slowly, to cut it half-way | a `FakeModel` with `Delay` set |
+| a model that streams slowly, to cut it half-way | a `FakeModel` with `Delay` set. A `FuncModel` has no `Delay`: wait inside `fn`, on `select { case <-time.After(d): case <-ctx.Done(): return nil, ctx.Err() }` |
 | a model that waits until the test lets it go | a `FakeModel` with `Block` set (a channel the test closes) |
 | a model that fails | a `FakeModel` with `Err` set |
 | a model that echoes the prompt | `testkit.EchoModel{}` (answers `echo: <text>`) |
@@ -125,6 +125,8 @@ func TestAgentCallsAToolThenAnswers(t *testing.T) {
 - A Runner has no Session for the test to subscribe to. Collect the Events of a Run with the sink of `Runner.StreamRun`: `sink := func(e gotato.Event) error { kinds = append(kinds, e.Kind()); return nil }`, passed as its third argument.
 
 ## A slow model, and a Run that is canceled
+
+A `FakeModel` keeps one script for the whole process. Every Run that calls it takes the next reply, so two Runs, or two Sessions, that share one `FakeModel` also share its script. When requests arrive in no fixed order, as in a server test, use a `FuncModel` that decides from the request instead.
 
 Set `Delay` on a `FakeModel` and every event of its stream waits that long, so the stream is open while the test acts. Here the context ends first, and the Run settles as `deadline_exceeded`.
 
