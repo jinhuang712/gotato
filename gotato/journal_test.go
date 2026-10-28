@@ -5,90 +5,9 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
-
-// journalTranscript is a Transcript that is a Journal: it numbers the Events
-// it is given, keeps each write, and records the number of Messages committed
-// before it. It fails a write that holds an Event of kind failAt with failErr.
-// If hold is not nil, a write that holds a kind in holdKinds waits on it.
-type journalTranscript struct {
-	recordingTranscript
-	mu        sync.Mutex
-	writes    [][]Event
-	before    []int
-	last      uint64
-	failAt    EventKind
-	failErr   error
-	hold      chan struct{}
-	holdKinds map[EventKind]bool
-	writing   chan struct{}
-}
-
-func (j *journalTranscript) Write(_ context.Context, events []Event) ([]Event, error) {
-	committed := j.Len()
-	for _, event := range events {
-		if j.hold != nil && j.holdKinds[event.Kind()] {
-			if j.writing != nil {
-				j.writing <- struct{}{}
-			}
-			<-j.hold
-		}
-	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	for _, event := range events {
-		if j.failAt != "" && event.Kind() == j.failAt {
-			return nil, j.failErr
-		}
-	}
-	out := make([]Event, len(events))
-	for i, event := range events {
-		j.last++
-		out[i] = WithNumber(event, j.last)
-	}
-	j.writes = append(j.writes, out)
-	j.before = append(j.before, committed)
-	return out, nil
-}
-
-func (j *journalTranscript) kinds() []EventKind {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	var out []EventKind
-	for _, write := range j.writes {
-		for _, event := range write {
-			out = append(out, event.Kind())
-		}
-	}
-	return out
-}
-
-// shape names each write by the kinds it holds, joined by "+".
-func (j *journalTranscript) shape() []string {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	var out []string
-	for _, write := range j.writes {
-		names := make([]string, len(write))
-		for i, event := range write {
-			names[i] = string(event.Kind())
-		}
-		out = append(out, strings.Join(names, "+"))
-	}
-	return out
-}
-
-func echoToolModel(calls ...string) *testModel {
-	var first []ModelEvent
-	for _, id := range calls {
-		first = append(first, ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &ToolCall{ID: ToolCallID(id), ToolID: "demo.echo", Arguments: []byte(`{"value":"x"}`)}})
-	}
-	first = append(first, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls})
-	return &testModel{scripts: [][]ModelEvent{first, {{Kind: ModelEventKindTextDelta, Text: "done"}, {Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
-}
 
 // The Events of a step ride its write: the steps of a Run with two tool calls,
 // in order, with the Events each one holds.
@@ -337,59 +256,47 @@ func TestSessionWithoutAStoreNumbersItsEvents(t *testing.T) {
 	}
 }
 
-// recorder reads a Session's stream on its own goroutine.
-type recorder struct {
-	t   *testing.T
-	s   *Session
-	sub Subscription
-	mu  sync.Mutex
-	got []Event
+// A Journal's own error text stays on the Cause: Message reaches clients.
+func TestJournalErrorKeepsForeignTextOffMessage(t *testing.T) {
+	failure := journalError(errors.New("dsn=postgres://user:hunter2@db"))
+	if failure.Code != CodeStoreFailure || strings.Contains(failure.Message, "hunter2") {
+		t.Fatalf("journalError = %+v", failure)
+	}
+	if failure.Cause == nil || !strings.Contains(failure.Cause.Error(), "hunter2") {
+		t.Fatalf("Cause = %v, want the original error", failure.Cause)
+	}
 }
 
-func recordAll(t *testing.T, s *Session) *recorder {
-	t.Helper()
-	sub, err := s.Subscribe(context.Background(), SubscribeBuffer(1<<14))
+// ctxJournal is a Journal that honors its ctx: a write under an ended ctx fails.
+type ctxJournal struct{ journalTranscript }
+
+func (j *ctxJournal) Write(ctx context.Context, events []Event) ([]Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return j.journalTranscript.Write(ctx, events)
+}
+
+// The Run's last write does not die with the caller's ctx: a Journal that
+// honors its ctx still receives run_ended after a deadline.
+func TestFinalWriteSurvivesCanceledContext(t *testing.T) {
+	journal := &ctxJournal{}
+	block := make(chan struct{})
+	defer close(block)
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindTextDelta, Text: "x"}}}, block: block}
+	session, err := NewSession(context.Background(), WithModel(model), WithTranscript(journal))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &recorder{t: t, s: s, sub: sub}
-	go func() {
-		for {
-			event, err := sub.Next(context.Background())
-			if err != nil {
-				return
-			}
-			r.mu.Lock()
-			r.got = append(r.got, event)
-			r.mu.Unlock()
-		}
-	}()
-	t.Cleanup(func() { _ = sub.Close() })
-	return r
-}
-
-// events returns the Events once the recorder has read all that the Session
-// published.
-func (r *recorder) events() []Event {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		r.mu.Lock()
-		count := uint64(len(r.got))
-		r.mu.Unlock()
-		if count >= r.s.Published() {
-			break
-		}
-		time.Sleep(time.Millisecond)
+	defer func() { _ = session.Close(context.Background()) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	result, _ := session.Prompt(ctx, UserMessage("go"))
+	if result.Status != RunStatusDeadlineExceeded {
+		t.Fatalf("status = %q", result.Status)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]Event(nil), r.got...)
-}
-
-func (r *recorder) kinds() []EventKind {
-	var out []EventKind
-	for _, event := range r.events() {
-		out = append(out, event.Kind())
+	kinds := journal.kinds()
+	if len(kinds) == 0 || kinds[len(kinds)-1] != EventKindRunEnded {
+		t.Fatalf("stored kinds = %v, want run_ended last", kinds)
 	}
-	return out
 }
