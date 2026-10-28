@@ -7,35 +7,6 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// tailStart returns the index in stretch where the kept tail starts; the
-// Messages before it are closed into a Segment. 0 means nothing is closed.
-//
-// With KeepMessages, the tail is the last KeepMessages Messages. Without, it
-// is the latest Run's Turns within TailTokens (20K tokens by default), and no
-// more than a quarter of the window, or of the ceiling when no window is
-// known. Every cut moves forward to a Turn boundary.
-func tailStart(stretch []gotato.Message, cfg compactCall) int {
-	cut := 0
-	switch {
-	case cfg.KeepMessages > 0:
-		cut = turnCut(stretch, len(stretch)-cfg.KeepMessages)
-	default:
-		budget := orDefault(cfg.TailTokens, defaultTailTokens)
-		base := cfg.WindowTokens
-		if base <= 0 {
-			base = cfg.EffectiveCeilingTokens()
-		}
-		if base > 0 {
-			budget = min(budget, base/4)
-		}
-		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, cfg.currentRun)))
-	}
-	if cfg.keepLastTurn {
-		cut = min(cut, lastTurnStart(stretch))
-	}
-	return cut
-}
-
 // lastTurnStart returns the index where the latest Turn begins: the last
 // Message that is not a tool result, so a tool call keeps its results.
 func lastTurnStart(messages []gotato.Message) int {
