@@ -56,3 +56,20 @@ func CommittedMessages(ctx context.Context, log EntryLog, id string, from, to ui
 	}
 	return messages, complete, nil
 }
+
+// messageOf returns the Message a commit Event carries.
+func messageOf(event gotato.Event) (gotato.Message, bool) {
+	switch e := event.(type) {
+	case gotato.MessageCommitted:
+		return e.Message, true
+	case gotato.NoticeCommitted:
+		return e.Message, true
+	case gotato.ReplyEnded:
+		return e.Message, true
+	case gotato.ReplyCutOff:
+		return e.Message, true
+	case gotato.ToolResultCommitted:
+		return e.Message, true
+	}
+	return gotato.Message{}, false
+}
