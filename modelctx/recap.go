@@ -412,3 +412,17 @@ func recoverPanic(err *error) {
 		*err = fmt.Errorf("modelctx: Recap panic: %v\n%s", recovered, debug.Stack())
 	}
 }
+
+// MergeRequest is what a MergeRecapWriter is asked to write a Recap of.
+type MergeRequest struct {
+	// Segments are the Segments the merge replaces, oldest first. The first
+	// may itself be a merged Segment, and then its Recap comes before the
+	// others.
+	Segments []gotato.Segment
+	// Location is the time zone of the times the ask shows; nil means UTC.
+	Location *time.Location
+}
+
+// Numbers returns the numbers of the Segments the merge stands for, oldest
+// first, which read_segment reads once it is merged.
+func (r MergeRequest) Numbers() []int { return numbersOf(r.Segments) }
