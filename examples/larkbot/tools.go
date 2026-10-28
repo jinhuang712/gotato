@@ -9,7 +9,6 @@ import (
 
 	"github.com/jinhuang712/gotato/adapter/mcp"
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/service"
 )
 
@@ -56,7 +55,7 @@ func parseTools(list, mcpURL string) (toolSpec, error) {
 // apply adds the tools to the Agent. The returned close func ends the MCP connection (nil when there is none).
 func (t toolSpec) apply(agent *service.Agent, log *slog.Logger) (func() error, error) {
 	if t.export {
-		agent.Tools = append(agent.Tools, reftasks.LargeExport())
+		agent.Tools = append(agent.Tools, largeExportTool())
 	}
 	if !t.mcpActive && !t.mcpSearch {
 		return nil, nil

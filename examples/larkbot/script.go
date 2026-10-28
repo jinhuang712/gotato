@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
-	"github.com/jinhuang712/gotato/internal/reftasks"
 	"github.com/jinhuang712/gotato/modelctx"
 	"github.com/jinhuang712/gotato/testkit"
 )
@@ -91,7 +90,6 @@ func currentRun(r gotato.ModelRequest) (string, []gotato.Message) {
 // number of Tool Results the history holds.
 const (
 	exportCall   = "export-1"
-	exportToolID = reftasks.LargeExportID
 	mcpOrderTool = "crm.get_order"
 	mcpInvoice   = "crm.get_invoice"
 )
