@@ -242,3 +242,48 @@ func (h *runHandle) isStopped() bool {
 	defer h.mu.Unlock()
 	return h.stopped
 }
+
+// retargetHandle moves an admitted Run to the Session ID it turned out to own.
+// A Run registers before its Session is loaded, so a newly created Session's
+// generated ID has to be attached afterwards.
+func (r *Runner) retargetHandle(handle *runHandle, sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if handle.sessionID == sessionID {
+		return
+	}
+	list := r.handles[handle.sessionID]
+	for i, candidate := range list {
+		if candidate == handle {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(r.handles, handle.sessionID)
+	} else {
+		r.handles[handle.sessionID] = list
+	}
+	handle.sessionID = sessionID
+	r.handles[sessionID] = append(r.handles[sessionID], handle)
+}
+
+// unregisterHandle drops an admitted Run and its RunID mapping.
+func (r *Runner) unregisterHandle(handle *runHandle) {
+	handle.finish()
+	defer handle.overOnce.Do(func() { close(handle.over) })
+	r.mu.Lock()
+	list := r.handles[handle.sessionID]
+	for i, candidate := range list {
+		if candidate == handle {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(r.handles, handle.sessionID)
+	} else {
+		r.handles[handle.sessionID] = list
+	}
+	r.mu.Unlock()
+}

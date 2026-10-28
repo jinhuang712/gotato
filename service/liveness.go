@@ -183,3 +183,36 @@ func (r *Runner) markDraining(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Close removes this Runner's Liveness row, so other Instances take its
+// Sessions over at once instead of waiting for the row to expire, and the
+// store keeps nothing of this Instance. Call it after Drain. A closed Runner
+// writes nothing more, so its row never comes back. Closing twice is a no-op.
+func (r *Runner) Close(ctx context.Context) error {
+	// The Instance's stream ends: its subscribers read what is queued, and
+	// then io.EOF.
+	defer r.instanceFeed.Close()
+	// Warm Sessions hold no Claim, so letting them go writes nothing.
+	r.warmMu.Lock()
+	r.warmClosed = true
+	r.warmMu.Unlock()
+	r.dropAllWarm("closed")
+	r.beat.mu.Lock()
+	started := r.beat.started
+	stop, done := r.beat.stop, r.beat.done
+	r.beat.started = false
+	r.beat.closed = true
+	r.beat.expired = true
+	r.beat.mu.Unlock()
+	if !started {
+		return nil
+	}
+	close(stop)
+	<-done
+	err := r.store.Beat(ctx, session.InstanceRow{ID: r.instance}, 0)
+	if errors.Is(err, session.ErrExpired) {
+		// A store that keeps an ended row refuses an expired one.
+		return nil
+	}
+	return err
+}
