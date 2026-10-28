@@ -89,3 +89,25 @@ func (a *Session) measureTranscript() error {
 	a.transcriptBytes = uint64(len(encoded)) - 2
 	return nil
 }
+
+// controlSizeError is the refusal of a queued Message (Steer, FollowUp,
+// Interrupt, Notice) that the commit at the boundary would refuse for its size:
+// it is checked where the Message arrives, so a caller that is told "queued"
+// is not later failed at the boundary. It measures the Message as the commit
+// writes it, with the Run ID the commit sets. It is nil when the Message fits.
+func (a *Session) controlSizeError(message Message, operation string) error {
+	if a.limits.MaxMessageBytes == 0 {
+		return nil
+	}
+	message.RunID = RunID(nextID("run"))
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		return runtimeError(CodeInvalidArgument, operation, "cannot encode "+operation+" message", err)
+	}
+	if !limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(encoded))) {
+		return nil
+	}
+	e := runtimeError(CodeLimitExceeded, operation, operation+" message is over the maximum Message bytes", nil)
+	e.Details = map[string]string{"limit": limitMessageBytes}
+	return e
+}

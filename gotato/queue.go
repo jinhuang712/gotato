@@ -107,6 +107,9 @@ func (a *Session) enqueueControl(ctx context.Context, target chan control, messa
 		_ = a.writeNow(ctx, MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: source, Why: why})
 		return err
 	}
+	if err := a.controlSizeError(message, operation); err != nil {
+		return reject("too_large", err)
+	}
 	if len(target) >= cap(target) {
 		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}

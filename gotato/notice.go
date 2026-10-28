@@ -129,6 +129,9 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 		_ = a.writeNow(context.Background(), MessageRejected{Header: a.nowHeader(), MessageID: message.ID, Source: MessageSourceNotice, Why: why})
 		return 0, err
 	}
+	if err := a.controlSizeError(message, "Notice"); err != nil {
+		return reject("too_large", err)
+	}
 	// The check and the claim of the place are one step: the Event is written
 	// outside the lock, and the place is held meanwhile.
 	a.noticeMu.Lock()

@@ -469,8 +469,9 @@ type MessageDropped struct {
 	Why       string        `json:"why"`
 }
 
-// MessageRejected is published when a message is refused because the queue is
-// full.
+// MessageRejected is published when a message is refused: Why is queue_full
+// when the queue is full, and too_large when the message is over
+// CoreLimits.MaxMessageBytes.
 type MessageRejected struct {
 	Header
 	MessageID MessageID     `json:"message_id"`
