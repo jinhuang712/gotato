@@ -115,7 +115,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	}
 	local := map[string]bool{}
 	for _, tool := range tools {
-		// [LIVENESS] a nil Tool would panic the Session on its first use.
+		// [LIVENESS] a nil Tool would panic the process at its first Spec call, outside the host-panic recovery. Test: TestANilToolFromASourceOrASetFailsWithACode
 		if tool == nil {
 			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet "+state.spec.Name+" returned a nil Tool", nil)
 		}
