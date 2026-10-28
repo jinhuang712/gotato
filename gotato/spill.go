@@ -122,7 +122,17 @@ func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolI
 	if err != nil {
 		return result, err
 	}
-	seq := written[0].Head().Number
+	// The Journal may return Events it had queued before this one, such as a
+	// metadata change: the Seq is the number of the spilled body's own Entry.
+	var seq uint64
+	for _, event := range written {
+		if spilled, ok := event.(ToolResultSpilled); ok && spilled.CallID == result.CallID {
+			seq = spilled.Head().Number
+		}
+	}
+	if seq == 0 {
+		return result, runtimeError(CodeStoreFailure, "spill", "the Journal did not return the spilled result it wrote", nil)
+	}
 	content := []ContentPart{{Kind: ContentKindText, Text: spillPreview(result.CallID, body)}}
 	for _, part := range result.Content {
 		if part.Kind != ContentKindText {
