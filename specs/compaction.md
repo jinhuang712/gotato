@@ -94,4 +94,4 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 
 ## See also
 
-[FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-), [DESIGNS.md → principle 3](../DESIGNS.md#3-the-context-is-a-bounded-view), [GLOSSARY.md](../GLOSSARY.md), `modelctx/compact.go`, `modelctx/merge.go`, `session/segments.go`.
+Decisions: [018](../plan/decisions/018-compaction-closes-a-segment-and-never-rewrites-one.md), [019](../plan/decisions/019-a-segment-is-written-once.md). [FEATURES.md → G-F06](../FEATURES.md#g-f06--compaction-), [DESIGNS.md → principle 3](../DESIGNS.md#3-the-context-is-a-bounded-view), [GLOSSARY.md](../GLOSSARY.md), `modelctx/compact.go`, `modelctx/merge.go`, `session/segments.go`.
