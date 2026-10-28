@@ -453,7 +453,7 @@ func (s *subscription) offer(event Event, label string) {
 			}
 		}
 		switch {
-		case class == EventClassDelta:
+		case !dropped && class == EventClassDelta:
 			if s.feed.mixed {
 				s.skipped++
 			}
