@@ -17,7 +17,7 @@ before   [Segment 1][Segment 2] the Messages since the last Checkpoint …
 after    [Segment 1][Segment 2][Segment 3] the kept tail
 ```
 
-A merge of Segments 1 to 3 when the budget is passed:
+A merge when the budget is passed:
 
 ```text
 before   [Seg 1][Seg 2][Seg 3][Seg 4][Seg 5] tail
@@ -27,27 +27,21 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 ## Invariants
 
 1. A Segment is written once, as its own `segment_closed` Entry, so a provider's prompt cache can read the same bytes every time.
-
    Pinned by: `TestASegmentIsNeverRewrittenByTheNextCompaction` (session), `TestSegmentBytesAreStableAndEveryInstanceBuildsTheSameRequest` (modelctx), `TestRequestOnlyGrowsAtItsEndAcrossCompactions` (internal/workload).
 
 2. A Segment and the Checkpoint that lists it are written in one batch, so no stored Record holds one without the other.
-
    Pinned by: `TestCloseSegmentAndCheckpointWritesBothTogether`, `TestCheckpointSegmentsRefusesDuplicateOutOfOrderAndUnclosed`, `TestLoadReadsTheLargestListedSegmentNumber` (session).
 
 3. The cut falls on a Turn boundary, so a tool call keeps its result.
-
    Pinned by: `TestKeptTailStartsAtATurnSoACallKeepsItsResult`, `TestDefaultTailIsTheLatestRunsTurnsWithinABudget`, `TestACompactionWhoseTailCoversTheStretchClosesNothing` (modelctx).
 
 4. Code builds a Segment, and a missing Recap never costs it; the Event says why (`recap_error`).
-
    Pinned by: `TestCompactBuildsASegmentFromTheConversationAndOneLinePerCall`, `TestEachFailureRuleLeavesTheSegmentWithoutARecap` (modelctx), `TestARecapThatFailsLeavesTheSegmentWithoutOne`.
 
 5. A Turn compacts at most once, and a dropped compaction counts.
-
    Pinned by: `TestATurnThatCompactedPastTheCeilingIsNotCompactedAgainOnAnOverflow`, `TestASecondRefusalEndsTheRunWithContextOverflow`, `TestARunStillPastTheCeilingAfterItsCompactionEndsWithLimitExceeded` (modelctx).
 
 6. The Segments stay within a budget, and what a merge folds in stays readable by number with `read_segment`.
-
    Pinned by: `TestTheOldestSegmentsMergeDownToHalfTheBudget`, `TestTheSegmentsBudgetIsHalfTheCeilingOrADefault`, `TestAMergeWhoseRecapFailsMergesNothing`, `TestAMergedSegmentsOriginalsStayReadableByNumber`.
 
 ## The steps of one compaction
@@ -65,8 +59,8 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 
 ## The Recap request
 
-- The request is the Context the next model call would send, plus one user message at the end. The ask and the reply are never stored as Messages.
-- On an overflow the Context is not sent, and the Segment says `recap_error: skipped_overflow`.
+- It is the Context the next model call would send, plus one user message; neither the ask nor the reply is stored.
+- On an overflow the Context is not sent: `recap_error: skipped_overflow`.
 
 ## The four triggers
 
@@ -95,7 +89,7 @@ after    [Seg 1-3 · one Recap][Seg 4][Seg 5] tail       Segments 4, 5 and the t
 ## After a compaction
 
 - Loaded tools the Segment or the tail called stay loaded; the others are unloaded.
-- If the model keeps only the current Round's reasoning, the tail loses its reasoning.
+- If the model is sent only the current Round's reasoning, the tail loses its reasoning.
 - Gotato's own notices stay out of the Segment.
 
 ## See also
