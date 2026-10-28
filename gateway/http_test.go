@@ -129,3 +129,44 @@ func TestTransportErrorMessageDoesNotNameTheEndpoint(t *testing.T) {
 		})
 	}
 }
+
+// A provider that answers 200 with a JSON error body, not a stream, has its
+// message surfaced. The retry class is the table of mid-stream errors: an
+// authentication error is not sent again, an overload is.
+func TestA200WithAJSONErrorBodySurfacesTheProvidersError(t *testing.T) {
+	for _, api := range []API{APIChatCompletions, APIResponses, APIAnthropicMessages} {
+		for _, tc := range []struct {
+			name, body string
+			retryable  bool
+			hits       int32
+		}{
+			{"auth", `{"error":{"message":"invalid api key","type":"authentication_error"}}`, false, 1},
+			{"overloaded", `{"type":"error","error":{"message":"busy now","type":"overloaded_error"}}`, true, 3},
+		} {
+			t.Run(string(api)+"/"+tc.name, func(t *testing.T) {
+				var hits atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					hits.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte("\n " + tc.body))
+				}))
+				defer server.Close()
+				client, err := New(Config{API: api, BaseURL: server.URL, APIKey: "k", Model: "m", MaxRetries: 2, RetryBackoff: time.Millisecond})
+				if err != nil {
+					t.Fatal(err)
+				}
+				stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+				if err == nil {
+					_, err = collectEvents(t, stream)
+				}
+				var failure *Error
+				if !errors.As(err, &failure) || !strings.Contains(failure.Message, map[bool]string{false: "invalid api key", true: "busy now"}[tc.retryable]) {
+					t.Fatalf("err = %v, want the provider's message", err)
+				}
+				if failure.Retryable() != tc.retryable || hits.Load() != tc.hits {
+					t.Fatalf("retryable = %v after %d requests, want %v after %d", failure.Retryable(), hits.Load(), tc.retryable, tc.hits)
+				}
+			})
+		}
+	}
+}

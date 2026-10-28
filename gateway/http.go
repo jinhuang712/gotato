@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"math/rand"
 	"net/http"
@@ -58,7 +60,23 @@ func (c *Client) do(ctx context.Context, body []byte) (*http.Response, error) {
 			return nil, &Error{retryable: true, Message: transportMessage, cause: err}
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			return response, nil
+			if !startsWithJSONObject(response) {
+				return response, nil
+			}
+			// A 2xx whose body is a JSON object, not a stream of events, is a
+			// provider's error told with a success status.
+			refusal := readErrorBody(response.Body)
+			_ = response.Body.Close()
+			retryable := transientStream(refusal.Type, refusal.Code) || retryableStatus(0, refusal.Message)
+			if retryable && attempt < c.maxRetries {
+				delay := c.retryDelay(response.Header, attempt)
+				gotato.ReportModelRetry(ctx, gotato.ModelRetry{Attempt: attempt + 1, Wait: delay, Error: "the provider answered with an error"})
+				if err := wait(ctx, delay); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			return nil, &Error{retryable: retryable, Message: refusal.Message}
 		}
 		body := readErrorBody(response.Body)
 		message := body.Message
@@ -165,4 +183,29 @@ func cloneHeaders(headers map[string]string) map[string]string {
 	out := make(map[string]string, len(headers))
 	maps.Copy(out, headers)
 	return out
+}
+
+// startsWithJSONObject reports whether the response body begins with '{' after
+// white space, which no event stream does: a stream begins with data:, event:,
+// id:, retry: or a comment. The bytes looked at stay in the body.
+func startsWithJSONObject(response *http.Response) bool {
+	reader := bufio.NewReader(response.Body)
+	response.Body = struct {
+		io.Reader
+		io.Closer
+	}{reader, response.Body}
+	for i := 0; i < 256; i++ {
+		peeked, err := reader.Peek(i + 1)
+		if err != nil {
+			return false
+		}
+		switch peeked[i] {
+		case ' ', '\t', '\r', '\n':
+		case '{':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }

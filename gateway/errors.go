@@ -15,7 +15,7 @@ import (
 )
 
 // Error is a provider's refusal or a failed request. StatusCode is the HTTP
-// status, or 0 when the failure was not one (a transport error, a stream cut
+// status, or 0 when the failure was not one (a transport error, an error body sent with a 2xx status, a stream cut
 // off). Message is the provider's own text where it sent one.
 type Error struct {
 	StatusCode int
