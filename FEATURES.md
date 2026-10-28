@@ -232,7 +232,7 @@ fmt.Println(gotato.TextOf(*result.FinalMessage))
 - A Run refused before it started returns an empty `RunResult`, with no status, and an error that says it did not run (below).
 - When an extension stops the Run, its reason is in the `run_ended` Event and in the Session's Record of the Run.
 - **How a Run ends.** By its model's final reply, by its `ctx` (a cancel or a deadline), by a `TurnStopper`, by the compaction ceiling (`limit_exceeded`, or `context_overflow` when the provider still refuses the request), or by a failure ([DESIGNS.md → Every Run ends](DESIGNS.md#every-run-ends)). A team that wants a cap on Turns or tool calls writes a `TurnStopper` with the number its jobs need.
-- **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, `service.Agent.RunTimeout` (`service.DefaultRunTimeout`, 30 minutes, unless it sets another; negative means none), and a request's own timeout (`timeout_ms` on HTTP, a `context` deadline in Go) overrides it. A Run past its deadline settles as `deadline_exceeded`.
+- **The Run's deadline is its `ctx`.** In a service, each Agent has one Run deadline, `service.Agent.RunTimeout` (30 minutes, unless it sets another; negative means none), and a request's own timeout (`timeout_ms` on HTTP, a `context` deadline in Go) overrides it. A Run past its deadline settles as `deadline_exceeded`.
 
 The limits are passed with `gotato.WithLimits`. A zero field always means its default, so `gotato.WithLimits(gotato.CoreLimits{MaxParallelTools: 4})` changes that one field and keeps the rest; `gotato.DefaultLimits()` returns the defaults for reading. Each guards a real failure ([DESIGNS.md → A limit guards a real failure](DESIGNS.md#a-limit-guards-a-real-failure--2026-10-25)):
 
@@ -991,7 +991,7 @@ s, _ := gotato.NewSession(gotato.WithModel(model), gotato.WithFoldedToolSet(crm)
 |---|---|
 | `mcp.NewToolSet(name, transport, options...)` | the ToolSet of one server; it connects to nothing, so a server that is down never fails it |
 | `mcp.StreamableHTTP(url, WithHTTPClient(c), WithoutNotifications())` | the HTTP transport; the client carries timeouts, a proxy or the credentials (see Authenticating to a server) |
-| `mcp.Stdio(name, args...)`, `mcp.StdioCommand(func() *exec.Cmd)` | a subprocess; the second form sets its environment and directory |
+| `mcp.StdioCommand(func() *exec.Cmd)` | a subprocess; the command also sets its environment and directory |
 | `mcp.WithDescription(text)` | the description the catalog shows |
 | `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the one the annotations give |
 | `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless the server sends `list_changed`; the default 0 asks the server at every resolution |

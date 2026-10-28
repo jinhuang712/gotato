@@ -88,15 +88,12 @@ func StreamableHTTP(endpoint string, options ...HTTPOption) Transport {
 	}
 }
 
-// Stdio starts a command and speaks MCP over its stdin and stdout. The
-// subprocess belongs to the ToolSet and is shared by its Sessions.
-func Stdio(name string, args ...string) Transport {
-	return StdioCommand(func() *exec.Cmd { return exec.Command(name, args...) })
-}
-
-// StdioCommand is Stdio for a command that needs its own environment or
-// working directory. newCmd is called at every connect and must return a new
-// *exec.Cmd.
+// StdioCommand starts a command and speaks MCP over its stdin and stdout. The
+// subprocess belongs to the ToolSet and is shared by its Sessions. newCmd is
+// called at every connect and must return a new *exec.Cmd, which also sets the
+// command's environment and working directory:
+//
+//	mcp.StdioCommand(func() *exec.Cmd { return exec.Command("server", "--stdio") })
 func StdioCommand(newCmd func() *exec.Cmd) Transport {
 	return func() sdk.Transport { return &sdk.CommandTransport{Command: newCmd()} }
 }

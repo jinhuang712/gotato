@@ -556,13 +556,13 @@ func TestSlimSchemaKeepsWhatTheModelNeeds(t *testing.T) {
 }
 
 func TestNewToolSetRefusesABadName(t *testing.T) {
-	if _, err := gmcp.NewToolSet("a.b", gmcp.Stdio("x")); err == nil {
+	if _, err := gmcp.NewToolSet("a.b", gmcp.StdioCommand(func() *exec.Cmd { return exec.Command("x") })); err == nil {
 		t.Fatal("a dotted name was accepted")
 	}
-	if _, err := gmcp.NewToolSet("", gmcp.Stdio("x")); err == nil {
+	if _, err := gmcp.NewToolSet("", gmcp.StdioCommand(func() *exec.Cmd { return exec.Command("x") })); err == nil {
 		t.Fatal("an empty name was accepted")
 	}
-	if _, err := gmcp.NewToolSet("a", gmcp.Stdio("x"), gmcp.WithToolEffect("t", "bogus")); err == nil {
+	if _, err := gmcp.NewToolSet("a", gmcp.StdioCommand(func() *exec.Cmd { return exec.Command("x") }), gmcp.WithToolEffect("t", "bogus")); err == nil {
 		t.Fatal("an unknown Effect was accepted")
 	}
 }
