@@ -7,7 +7,7 @@ import (
 func TestAssembleRequestLayout(t *testing.T) {
 	built := ModelContext{
 		SystemInstructions: "be helpful",
-		System:             []Block{{Tag: "rules", Text: "- one\n- two"}},
+		System:             []ContextBlock{{Tag: "rules", Text: "- one\n- two"}},
 		Messages: []Message{
 			{ID: "m1", Role: RoleUser, Parts: []ContentPart{{Kind: ContentKindText, Text: "hi", Metadata: map[string]string{"x": "y"}}}, Usage: Usage{TotalTokens: 3}},
 			{ID: "m2", Role: RoleAssistant, Parts: []ContentPart{{Kind: ContentKindText, Text: "hello"}}, StopReason: StopReasonEndTurn},

@@ -80,7 +80,7 @@ func TestContextBuilderFailureSettlesRun(t *testing.T) {
 }
 
 func TestRenderBlocks(t *testing.T) {
-	got := renderBlocks([]Block{
+	got := renderBlocks([]ContextBlock{
 		{Tag: "resource", Attrs: map[string]string{"path": "a.md", "lines": "1-2"}, Text: "x"},
 		{Text: "bare"},
 	})

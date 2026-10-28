@@ -55,6 +55,9 @@ Exported names follow one set of rules, so a reader can guess a name before look
 | A package's sentinel errors live in its `errors.go`, in one `var` block; the codes live in `gotato/errors.go` | `service.ErrBusy` in `service/errors.go`, `gotato.CodeBusy` in `gotato/errors.go` |
 | Every exported name has a doc comment that starts with its name, which the linter checks | `// RunStarted is published when a Run starts.` |
 | A field that holds a count names its unit: `Tokens`, `Messages` or `Bytes` | `TailTokens`, `KeepMessages`, `TokensBefore` |
+| The reason an Event happened is a `…Why` type and the JSON field `why`; the reason a thing stopped or was asked for is a `…Reason` | `ClaimWhy`, `CompactionWhy`; `StopReason`, `CompactReason` |
+| `With…` is an Option, or a function that returns a modified copy of its value, as the standard library's `Request.WithContext` does | `WithModel`; `Event.WithNumber` |
+| A name read with its package says what it is; a bare noun that does not (`Block`) takes the noun it belongs to | `gotato.ContextBlock` |
 
 ## Development Workflow
 

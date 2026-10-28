@@ -8,14 +8,14 @@ import (
 	"strings"
 )
 
-// Block is one tagged piece of prompt content. It renders as
+// ContextBlock is one tagged piece of prompt content. It renders as
 //
 //	<tag attr="value">text</tag>
 //
 // or as bare text when Tag is empty. XML tags mark boundaries and provenance;
 // the text inside is whatever the content is: markdown for prose, JSON for
 // structured data.
-type Block struct {
+type ContextBlock struct {
 	Tag   string            `json:"tag,omitempty"`
 	Attrs map[string]string `json:"attrs,omitempty"`
 	Text  string            `json:"text"`
@@ -23,7 +23,7 @@ type Block struct {
 
 // renderBlocks renders Blocks one per line, attributes in sorted order so
 // the output is byte-stable for identical input.
-func renderBlocks(blocks []Block) string {
+func renderBlocks(blocks []ContextBlock) string {
 	var b strings.Builder
 	for i, block := range blocks {
 		if i > 0 {
@@ -72,9 +72,9 @@ func renderBlocks(blocks []Block) string {
 // It is a projection built from the Transcript by a ContextBuilder; nothing
 // in it is committed back.
 type ModelContext struct {
-	SystemInstructions string    `json:"system_instructions,omitempty"`
-	System             []Block   `json:"system,omitempty"`
-	Messages           []Message `json:"messages"`
+	SystemInstructions string         `json:"system_instructions,omitempty"`
+	System             []ContextBlock `json:"system,omitempty"`
+	Messages           []Message      `json:"messages"`
 	// Metadata describes how the Context was built so the decision can be
 	// inspected. Builders set at least "strategy", "source_messages",
 	// "selected_messages", and "dropped_messages".
@@ -93,11 +93,11 @@ func (c ModelContext) Clone() ModelContext {
 	return out
 }
 
-func cloneBlocks(blocks []Block) []Block {
+func cloneBlocks(blocks []ContextBlock) []ContextBlock {
 	if blocks == nil {
 		return nil
 	}
-	out := make([]Block, len(blocks))
+	out := make([]ContextBlock, len(blocks))
 	for i, block := range blocks {
 		out[i] = block
 		if block.Attrs != nil {

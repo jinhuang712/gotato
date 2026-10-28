@@ -64,7 +64,7 @@
 //     FollowUp, Abort, Continue, Effect, ToolSet, Compaction, Segment, Recap,
 //     Limits, Notice, Subscription.
 //   - For extenders: Extension and its stages, ContextBuilder, ModelContext,
-//     Block, Journal, EventSource, Feed, ToolSource, ToolSearcher,
+//     ContextBlock, Journal, EventSource, Feed, ToolSource, ToolSearcher,
 //     MergedSegment, CacheAnchor.
 //
 // These stay one package because they refer to each other: a Session emits
