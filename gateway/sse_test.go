@@ -1,7 +1,10 @@
 package gateway
 
 import (
+	"bufio"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,5 +29,20 @@ func TestStreamRejectsOversizedSSELine(t *testing.T) {
 	defer func() { _ = stream.Close() }()
 	if _, err := stream.Recv(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized SSE line err = %v", err)
+	}
+}
+
+// An event that the stream ends before its blank line is incomplete: the SSE
+// rules discard it, so a cut stream is never read as a whole event.
+func TestReadSSEEventDiscardsAnIncompleteEventAtEOF(t *testing.T) {
+	for _, in := range []string{`data: {"a":1}`, "data: {\"a\":1}\n", `data: {"a"`} {
+		data, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader(in)))
+		if !errors.Is(err, io.EOF) || data != "" {
+			t.Errorf("%q: data = %q, err = %v, want no data and EOF", in, data, err)
+		}
+	}
+	data, err := readSSEEvent(context.Background(), bufio.NewReader(strings.NewReader("data: x\n\n")))
+	if err != nil || data != "x" {
+		t.Errorf("whole event: data = %q, err = %v", data, err)
 	}
 }

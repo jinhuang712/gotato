@@ -3,9 +3,7 @@ package gateway
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -56,13 +54,13 @@ func readSSEEvent(ctx context.Context, reader *bufio.Reader) (string, error) {
 			}
 			lines = append(lines, payload)
 		}
-		if line == "" && len(lines) > 0 {
+		if line == "" && err == nil && len(lines) > 0 {
 			return strings.Join(lines, "\n"), nil
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) && len(lines) > 0 {
-				return strings.Join(lines, "\n"), nil
-			}
+			// The stream ended before the blank line that completes the event:
+			// the event is discarded, and the end is the caller's to treat as
+			// a cut stream (or a finished one).
 			return "", err
 		}
 	}
