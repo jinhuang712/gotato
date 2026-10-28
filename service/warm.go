@@ -452,9 +452,8 @@ func (r *Runner) compactIdleLocked(ctx context.Context, entry *warmEntry, why go
 	// The result needs no report: the compaction's Events say what it did.
 	_, _ = modelctx.Compact(ctx, record, opts, compactOpts...)
 	saveCtx, cancelSave := persistContext(ctx)
-	releaseErr := writer.Release(saveCtx)
+	releaseErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()
-	r.settle(writer, releaseErr)
 	if releaseErr != nil || writer.Failed() != nil {
 		r.noteFailure(releaseErr, entry.id, entry.agent)
 		if r.removeWarm(entry) {

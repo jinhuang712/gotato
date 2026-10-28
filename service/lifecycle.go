@@ -79,7 +79,7 @@ func (r *Runner) DeleteSession(ctx context.Context, sessionID string) error {
 		r.publishOpened(writer, early, agent)
 		if err := r.store.Delete(ctx, sessionID); err != nil {
 			// The Claim was written and the Record stays: give it back.
-			r.settle(writer, writer.Release(ctx))
+			_ = r.releaseWriter(ctx, writer)
 			return storeFailureOf(ctx, err, true)
 		}
 		if warm != nil {

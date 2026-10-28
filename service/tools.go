@@ -230,8 +230,7 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		} else {
 			s.Set(MetaToolPrefix+toolID, "inactive")
 		}
-		err = writer.Release(ctx)
-		r.settle(writer, err)
+		err = r.releaseWriter(ctx, writer)
 		if err == nil {
 			r.keepWarm(writer, spec)
 		}

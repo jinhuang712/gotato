@@ -71,11 +71,10 @@ func (st *runState) persist(runCtx context.Context, spec Agent, result *gotato.R
 	// forever.
 	wroteAll := writer.Failed() == nil
 	saveCtx, cancelSave := persistContext(runCtx)
-	saveErr := writer.Release(saveCtx)
+	saveErr := r.releaseWriter(saveCtx, writer)
 	cancelSave()
 	r.notice(savedEvent(s.ID(), result.RunID, s.Len(), writer.Stats().Since(st.saved), saveErr), spec.Name)
 	r.noteFailure(saveErr, s.ID(), spec.Name)
-	r.settle(writer, saveErr)
 	if saveErr == nil && wroteAll {
 		// The Session stays in memory, as a cache the store can always
 		// replace; the next Run checks its head.

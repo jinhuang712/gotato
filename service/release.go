@@ -34,6 +34,14 @@ func (r *Runner) settle(writer *session.Writer, releaseErr error) {
 	r.markUnreleased(writer.ID())
 }
 
+// releaseWriter gives back the Claim of writer and settles the result. Every
+// exit that held a Claim ends here, so none can skip the settle.
+func (r *Runner) releaseWriter(ctx context.Context, writer *session.Writer) error {
+	err := writer.Release(ctx)
+	r.settle(writer, err)
+	return err
+}
+
 // repairReleases writes again the release of each Session that this Instance
 // failed to release. It runs on every heartbeat tick, so a Session is busy
 // under an idle holder for a third of the Liveness TTL after the store
@@ -63,8 +71,8 @@ func (r *Runner) repairReleases() {
 }
 
 // repairRelease releases one Session, under the Session lock when it is free;
-// a Session with a Run on it is not waited for and stays marked. It reports whether the Session
-// needs no more attempts.
+// a Session with a Run on it is not waited for and stays marked. It reports
+// whether the Session needs no more attempts.
 func (r *Runner) repairRelease(ctx context.Context, sessionID string) bool {
 	record, err := session.Open(ctx, r.store, sessionID)
 	if err != nil {

@@ -146,8 +146,7 @@ func (r *Runner) noticeBetweenRuns(ctx context.Context, request NoticeRequest) (
 				number = queued.Number
 			}
 		}
-		releaseErr := writer.Release(ctx)
-		r.settle(writer, releaseErr)
+		releaseErr := r.releaseWriter(ctx, writer)
 		if known && releaseErr == nil {
 			r.keepWarm(writer, spec)
 		}
