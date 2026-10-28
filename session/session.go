@@ -17,8 +17,8 @@
 // A compaction can close a stretch of history into a gotato.Segment: the
 // Record writes it once, and a Checkpoint lists the Segments the Context
 // starts with by number, so the Messages that render a Segment are stored once
-// and never change. Tasks, projects, roles,
-// and agent hierarchy are application semantics and belong in Metadata.
+// and never change. Tasks, projects, roles, and agent hierarchy are
+// application semantics and belong in Metadata.
 package session
 
 import (
@@ -42,8 +42,8 @@ const SchemaVersion = 1
 // store keeps every Event.
 const defaultEventLimit = 1000
 
-// RunInfo is the per-RunInfo record kept in a Record: what its RunStarted and RunEnded
-// Events say.
+// RunInfo is the per-Run record kept in a Record: what its RunStarted and
+// RunEnded Events say.
 type RunInfo struct {
 	RunID      gotato.RunID     `json:"run_id"`
 	Status     gotato.RunStatus `json:"status"`
@@ -56,8 +56,8 @@ type RunInfo struct {
 	StopReason string           `json:"stop_reason,omitempty"`
 }
 
-// Document is the serializable form of a Record. Snapshot and FromDocument convert to
-// and from a Record.
+// Document is the serializable form of a Record. Snapshot and FromDocument
+// convert to and from a Record.
 type Document struct {
 	SchemaVersion int    `json:"schema_version"`
 	ID            string `json:"id"`
@@ -731,8 +731,9 @@ func (s *Record) interruptRun(runID gotato.RunID) {
 
 // Fork creates the Record of a new Session from the current state of parent.
 // The fork has its own ID, records the parent ID and the point of the
-// parent's log it branches at, copies Messages, Usage, Compactions, and
-// Metadata, and starts with empty Run and Event records. It is a state
+// parent's log it branches at, copies Messages, Segments, Usage, Compactions,
+// loaded Tools and Metadata (unless options set the Metadata), and starts with
+// empty Run and Event records. It is a state
 // operation: no relationship between Sessions is implied.
 func Fork(parent *Record, options ...RecordOption) *Record {
 	doc := parent.Snapshot()

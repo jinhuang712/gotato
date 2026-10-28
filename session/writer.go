@@ -36,7 +36,7 @@ type Writer struct {
 	stats  WriteStats
 }
 
-// WriterOption configures Create and OpenWriter.
+// WriterOption configures CreateWriter and OpenWriter.
 type WriterOption func(*writerConfig)
 
 type writerConfig struct {
@@ -47,21 +47,21 @@ type writerConfig struct {
 	idle    bool
 }
 
-// WithIdle tells Create that nothing runs against the new Record: it writes
+// WithIdle tells CreateWriter that nothing runs against the new Record: it writes
 // the Record's release in the same write as its first Claim, so another Instance
-// may claim it at once. Without it, a Record is busy from Create until Release,
+// may claim it at once. Without it, a Record is busy from CreateWriter until Release,
 // as one that OpenWriter opens is.
 func WithIdle() WriterOption {
 	return func(c *writerConfig) { c.idle = true }
 }
 
-// WithPublisher has the Writer hand every Event that Flush, Release, Create
+// WithPublisher has the Writer hand every Event that Flush, Release, CreateWriter
 // and OpenWriter write to publish, in order, once its write has succeeded.
 // The Events a live Session writes through Write are returned to it instead,
 // and it sends them, so the Events the Writer publishes and the ones the
 // Session publishes may interleave; each Event carries its number, which
 // orders them. Flush, Release and OpenWriter call publish under the Writer's
-// lock, which orders their writes; Create calls it after the write, before it
+// lock, which orders their writes; CreateWriter calls it after the write, before it
 // returns the Writer. publish must not block, or call back into the Writer.
 func WithPublisher(publish func(gotato.Event)) WriterOption {
 	return func(c *writerConfig) { c.publish = publish }
@@ -102,11 +102,16 @@ func newWriterConfig(options []WriterOption) writerConfig {
 // that opened it took, which is set once; the other fields count every write
 // since.
 type WriteStats struct {
-	Load    time.Duration
+	// Load is how long the store took to load the Record, zero for a Record
+	// the Writer created.
+	Load time.Duration
+	// Writes is the number of writes made, and Entries the Entries in them.
 	Writes  int
 	Entries int
+	// Elapsed is the time the writes took in all.
 	Elapsed time.Duration
-	Failed  bool
+	// Failed says a write failed.
+	Failed bool
 }
 
 // CreateWriter writes r to store as a new Record, held by instance, and returns its
@@ -287,8 +292,8 @@ func View(ctx context.Context, store Store, id string) (*Record, error) {
 }
 
 // fromLoaded rebuilds a Record from its facts, with its Run count and usage
-// from the RecordInfo, since its Run records are in the log. When the RecordInfo says
-// a Run started and never ended, the log since the last Checkpoint is read too,
+// from the RecordInfo, since its Run records are in the log. When the
+// RecordInfo says a Run started and never ended, the log since the last Checkpoint is read too,
 // because it holds the parts of a reply that was streaming, which become a
 // Cut-off reply: a crash loses at most the last part.
 func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Record, error) {

@@ -87,11 +87,12 @@ type InstanceState struct {
 // it.
 type Store interface {
 	// Create writes a new Record whose first Entry, at Seq 1, is a
-	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is taken.
+	// Checkpoint (Entry.IsCheckpoint). It fails with ErrExists when the ID is
+	// taken.
 	Create(ctx context.Context, id string, entries []Entry, summary RecordInfo) error
 	// Append writes entries at after+1 onward and replaces the RecordInfo. The
 	// RecordInfo names the epoch of the Record the writer loaded
-	// (RecordInfo.Epoch). It fails with ErrNotFound for an unknown or deleted
+	// (RecordInfo.RecordEpoch). It fails with ErrNotFound for an unknown or deleted
 	// Record, and for a Record whose epoch is not the RecordInfo's: the Record
 	// was deleted and created again under the ID, and its writer is of the
 	// old one. That is checked before the position. It fails with ErrConflict
@@ -107,7 +108,7 @@ type Store interface {
 	// needs one Entry, or one page, passes a limit so that the Record is not
 	// read to its end.
 	Log(ctx context.Context, id string, after uint64, limit int) ([]Entry, error)
-	// List returns the Summaries, the most recently updated first.
+	// List returns the RecordInfo of every Record, the most recently updated first.
 	List(ctx context.Context) ([]RecordInfo, error)
 	// Delete removes a Record. A writer that appends to it afterwards gets
 	// ErrNotFound.
@@ -207,7 +208,7 @@ func loadedFrom(entries []Entry) (facts, segments []Entry) {
 	return facts, segments
 }
 
-// InfoOf builds the listing view of a Session.
+// InfoOf builds the listing view of a Record.
 func InfoOf(s *Record) RecordInfo { return s.Info() }
 
 // Info returns the listing view without copying Messages or Events.

@@ -235,8 +235,8 @@ func (s *Record) checkNumbersLocked(numbers []int, pending *gotato.Segment) erro
 // Segments it stands for in Merged, and appends the Checkpoint whose Context is
 // merged, then the Segments after the replaced ones, then tail, which is the
 // Record's own tail (Tail) with whatever the caller does to Messages it keeps,
-// such as clearing the usage they reported. replaces are the numbers of the Context's first
-// Segments, in order, that merged takes the place of; the first of them may
+// such as clearing the usage they reported. replaces are the numbers of the
+// Context's first Segments, in order, that merged takes the place of; the first of them may
 // itself be a merged Segment. merged's Number is NextSegment when it is 0. The
 // replaced Segments stay in the log. When it returns an error, nothing was
 // closed or checkpointed.
