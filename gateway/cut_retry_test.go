@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -292,5 +294,34 @@ func TestCutAfterReasoningIsRetried(t *testing.T) {
 	}
 	if len(recorder.OfKind(gotato.EventKindModelRetried)) != 1 || strings.Contains(gotato.ReasoningOf(*result.FinalMessage), "thinking") {
 		t.Fatalf("events %v, final %+v", recorder.Kinds(), result.FinalMessage)
+	}
+}
+
+// The Message of a cut stream is fixed text: the read error can name a remote
+// address, and stays on the cause.
+func TestACutStreamsMessageDoesNotNameTheConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"x"}}]}`+"\n\n")
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Model: "m", MaxRetries: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = collectEvents(t, stream)
+	var failure *Error
+	if !errors.As(err, &failure) || !failure.Retryable() {
+		t.Fatalf("err = %v, want a retryable Error", err)
+	}
+	if failure.Message != "stream interrupted" || strings.Contains(failure.Error(), "127.0.0.1") {
+		t.Fatalf("Message = %q, want fixed text with no address", failure.Message)
+	}
+	if errors.Is(err, io.EOF) || errors.Unwrap(err) == nil {
+		t.Fatalf("a cut stream must keep its read error as the cause, and must not be io.EOF: %v", errors.Unwrap(err))
 	}
 }
