@@ -73,7 +73,8 @@ func (a *Session) closeOpenCalls(runID RunID, batch *openBatch, cause *RuntimeEr
 }
 
 // rejectedPlan settles a call the Model got wrong as a failed, unexecuted
-// Tool Result carrying a message the Model can act on.
+// Tool Result carrying a message the Model can act on. loaded lists the Tools
+// the call loaded, if any.
 func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded ...string) toolPlan {
 	return toolPlan{
 		index:   index,
@@ -106,7 +107,8 @@ func (a *Session) visibleToolIDs() string {
 }
 
 // toolSignal carries one worker's report back to the Session goroutine, which
-// is the only place Events are staged.
+// is the only place Events are staged. A report is a progress text (update) or
+// the final result of the call at plan index index.
 type toolSignal struct {
 	index  int
 	update bool
@@ -125,7 +127,8 @@ func (a *Session) parallelWorkers() int {
 
 // groupPlans splits a batch into execution groups. A Tool declared Sequential
 // runs alone; consecutive parallel Tools share a group bounded by the worker
-// limit.
+// limit. A plan settled at preflight (blocked) is in no group. The groups hold
+// plan indexes.
 func groupPlans(plans []toolPlan, workers int) [][]int {
 	groups := make([][]int, 0, len(plans))
 	current := make([]int, 0, workers)

@@ -29,6 +29,7 @@ const (
 // SessionOption configures a Session built by NewSession.
 type SessionOption func(*sessionConfig) error
 
+// sessionConfig is what the SessionOptions collect for NewSessionContext.
 type sessionConfig struct {
 	model          Model
 	instruction    string
@@ -263,13 +264,13 @@ func NewSessionContext(ctx context.Context, options ...SessionOption) (*Session,
 }
 
 // Session is a live Session: one conversation running one Agent. Prompt,
-// Continue, Steer, FollowUp and Abort drive its Loop; Subscribe and
-// SubscribeRun stream its Events; Status and Done report its life; Tools
+// Continue, Steer, Interrupt, FollowUp and Abort drive its Loop; Subscribe
+// and SubscribeRun stream its Events; Status and Done report its life; Tools
 // and InspectContext show what its next Turn would send.
 //
-// The Runner builds one from a session.Record for each Run and closes it
-// afterwards; between Runs it keeps the Record and its Writer warm in memory
-// (service.WarmPolicy). The Record stays the truth.
+// The Runner builds one from a session.Record when a Run needs it, keeps it
+// warm in memory between Runs (service.WarmPolicy), and closes it when it
+// leaves memory. The Record stays the truth.
 type Session struct {
 	id          SessionID
 	model       Model
@@ -302,8 +303,8 @@ type Session struct {
 	emitMu     sync.Mutex
 	lastNumber atomic.Uint64
 	onRunStart func(RunID)
-	// handoff keeps the messages still queued when a Run ends in a Run that
-	// completed or failed, for the host to take (TakeQueued).
+	// handoff keeps the messages still queued when a Run completes or fails,
+	// for the host to take (TakeQueued); see WithQueueHandoff.
 	handoff bool
 	ctlSeq  atomic.Uint64
 
@@ -350,6 +351,7 @@ type Session struct {
 	endingHook func()
 }
 
+// sessionCommandKind says which Run a sessionCommand starts.
 type sessionCommandKind uint8
 
 const (
@@ -357,6 +359,8 @@ const (
 	commandContinue
 )
 
+// sessionCommand is a Prompt or Continue handed to the Session goroutine; the
+// goroutine answers on result.
 type sessionCommand struct {
 	kind    sessionCommandKind
 	ctx     context.Context
@@ -364,6 +368,7 @@ type sessionCommand struct {
 	result  chan promptResponse
 }
 
+// promptResponse is the answer to a sessionCommand.
 type promptResponse struct {
 	result RunResult
 	err    error
@@ -447,6 +452,8 @@ func (a *Session) Continue(ctx context.Context) (RunResult, error) {
 	return a.submit(ctx, commandContinue, "Continue", Message{})
 }
 
+// submit takes the admission token, hands a command to the Session goroutine
+// and waits for its RunResult. Only one Run is admitted at a time (CodeBusy).
 func (a *Session) submit(ctx context.Context, kind sessionCommandKind, operation string, message Message) (RunResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -528,6 +535,8 @@ func (a *Session) waitForAborts() {
 	a.abortMu.Unlock()
 }
 
+// admissionError is the error for an operation on a Session that is closing
+// or closed, and nil otherwise.
 func (a *Session) admissionError(operation string) error {
 	switch a.Status() {
 	case SessionStatusClosing:
@@ -588,6 +597,8 @@ func (a *Session) WaitForIdle(ctx context.Context) error {
 	}
 }
 
+// loop is the Session goroutine: it takes one command at a time, and runs it
+// to its end, until Close.
 func (a *Session) loop() {
 	a.setStatus(SessionStatusIdle)
 	close(a.ready)
@@ -638,6 +649,8 @@ func (a *Session) loop() {
 	}
 }
 
+// finishClose ends the Session when its loop returns: it drops what is still
+// queued, marks the Session closed and releases Done.
 func (a *Session) finishClose() {
 	a.dropLeftoverControl()
 	a.setStatus(SessionStatusClosed)
@@ -674,6 +687,7 @@ func (a *Session) dropLeftoverControl() {
 	}
 }
 
+// setStatus stores a status and wakes the goroutines waiting in WaitForIdle.
 func (a *Session) setStatus(status SessionStatus) {
 	a.status.Store(encodeSessionStatus(status))
 	a.stateMu.Lock()
@@ -683,6 +697,7 @@ func (a *Session) setStatus(status SessionStatus) {
 	a.stateMu.Unlock()
 }
 
+// encodeSessionStatus maps a status to the number stored atomically.
 func encodeSessionStatus(status SessionStatus) uint32 {
 	switch status {
 	case SessionStatusCreated:
@@ -700,6 +715,7 @@ func encodeSessionStatus(status SessionStatus) uint32 {
 	}
 }
 
+// decodeSessionStatus is the inverse of encodeSessionStatus.
 func decodeSessionStatus(status uint32) SessionStatus {
 	switch status {
 	case 1:
@@ -717,6 +733,7 @@ func decodeSessionStatus(status uint32) SessionStatus {
 	}
 }
 
+// commitMessage commits one Message under the Message and transcript limits.
 func (a *Session) commitMessage(message Message) error {
 	return a.appendMessage(message, true)
 }
@@ -854,6 +871,7 @@ func coalesceDeltas(parts []ContentPart) []ContentPart {
 	return out
 }
 
+// executeToolSafely runs a Tool and turns a panic into a failure of the call.
 func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress ToolProgressFunc) (result ToolResult, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -867,6 +885,8 @@ func executeToolSafely(ctx context.Context, tool Tool, use ToolUse, progress Too
 	return tool.Execute(ctx, use, progress)
 }
 
+// boundedContext derives a context from parent that ends after duration, or
+// only when canceled when duration is zero.
 func boundedContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
 	if duration > 0 {
 		return context.WithTimeout(parent, duration)
@@ -874,6 +894,8 @@ func boundedContext(parent context.Context, duration time.Duration) (context.Con
 	return context.WithCancel(parent)
 }
 
+// contextFailure returns the RuntimeError of an ended ctx, and nil while it
+// is live.
 func contextFailure(ctx context.Context, operation string) *RuntimeError {
 	if err := ctx.Err(); err != nil {
 		return runtimeError(codeForContext(err), operation, err.Error(), err)
@@ -881,6 +903,8 @@ func contextFailure(ctx context.Context, operation string) *RuntimeError {
 	return nil
 }
 
+// classifyModelError turns an error from a Model into a RuntimeError: a
+// cancellation, a context overflow, or a Model failure that may be retryable.
 func classifyModelError(err error) *RuntimeError {
 	if err == nil {
 		return runtimeError(CodeModelFailure, "Model", "unknown Model failure", nil)
@@ -903,6 +927,7 @@ func classifyModelError(err error) *RuntimeError {
 	return failure
 }
 
+// validateLimits rejects limits that cannot be applied.
 func validateLimits(limits CoreLimits) error {
 	if limits.ModelCallDeadline < 0 || limits.ToolCallDeadline < 0 {
 		return runtimeError(CodeInvalidArgument, "CoreLimits", "deadlines cannot be negative", nil)
@@ -910,6 +935,7 @@ func validateLimits(limits CoreLimits) error {
 	return nil
 }
 
+// validatePrompt checks that a Prompt message is a user message with content.
 func validatePrompt(message Message) error {
 	if message.Role != RoleUser {
 		return runtimeError(CodeInvalidArgument, "Prompt", "Prompt message must have role user", nil)
@@ -920,6 +946,8 @@ func validatePrompt(message Message) error {
 	return nil
 }
 
+// validateControlMessage checks that a Steer, Interrupt or FollowUp message is
+// a user message with content.
 func validateControlMessage(message Message, operation string) error {
 	if message.Role != RoleUser {
 		return runtimeError(CodeInvalidArgument, operation, operation+" message must have role user", nil)
@@ -1021,16 +1049,21 @@ func controlCapacity(limit uint32) int {
 	return int(limit)
 }
 
+// maxControlCapacity bounds the capacity of the control queues, whatever the
+// configured limit.
 const maxControlCapacity = 1024
 
+// limitExceededUint32 reports whether value is over limit.
 func limitExceededUint32(limit, value uint32) bool {
 	return value > limit
 }
 
+// limitExceededUint64 reports whether value is over limit.
 func limitExceededUint64(limit, value uint64) bool {
 	return value > limit
 }
 
+// safeError is the text of err for a Tool Result, or "" for nil.
 func safeError(err error) string {
 	if err == nil {
 		return ""
@@ -1048,6 +1081,8 @@ func asError(failure *RuntimeError) error {
 	return failure
 }
 
+// asRuntimeError returns err as a *RuntimeError, wrapping any other error as
+// an internal invariant failure.
 func asRuntimeError(err error) *RuntimeError {
 	if err == nil {
 		return nil
