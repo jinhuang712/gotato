@@ -58,9 +58,11 @@ func WithIdle() WriterOption {
 // WithPublisher has the Writer hand every Event that Flush, Release, Create
 // and OpenWriter write to publish, in order, once its write has succeeded.
 // The Events a live Session writes through Write are returned to it instead,
-// and it sends them. publish is called under the Writer's lock, which orders
-// the writes, so Events are published in the order they were written: it must
-// not block, or call back into the Writer.
+// and it sends them, so the Events the Writer publishes and the ones the
+// Session publishes may interleave; each Event carries its number, which
+// orders them. Flush, Release and OpenWriter call publish under the Writer's
+// lock, which orders their writes; Create calls it after the write, before it
+// returns the Writer. publish must not block, or call back into the Writer.
 func WithPublisher(publish func(gotato.Event)) WriterOption {
 	return func(c *writerConfig) { c.publish = publish }
 }
@@ -96,8 +98,9 @@ func newWriterConfig(options []WriterOption) writerConfig {
 	return config
 }
 
-// WriteStats counts a Writer's work with its store: the load that opened it,
-// and every write since.
+// WriteStats counts a Writer's work with its store: Load is how long the load
+// that opened it took, which is set once; the other fields count every write
+// since.
 type WriteStats struct {
 	Load    time.Duration
 	Writes  int
@@ -245,7 +248,9 @@ func (w *Writer) Resume(ctx context.Context) error {
 // other Instance wrote the Record since this Writer did, so a copy of it in
 // memory is out of date. A Record that was deleted returns ErrNotFound. It
 // reads only what follows the head, which is nothing for a copy that is
-// current.
+// current. It does not check the epoch: a Record deleted and created again
+// with a log shorter than the head reports a copy as current, and the next
+// write fails with ErrNotFound (see Resume).
 func (w *Writer) Stale(ctx context.Context) (bool, error) {
 	entries, err := w.store.Log(ctx, w.record.ID(), w.record.Head())
 	if err != nil {
@@ -334,7 +339,8 @@ func fromLoaded(ctx context.Context, store Store, id string, loaded Loaded) (*Re
 }
 
 // SetPublisher sets the publisher, once the host knows where the Session's
-// Events go. It must not be called while the Writer writes.
+// Events go. It may be called at any time: it waits for a write in progress,
+// and the new publisher gets the Events of the writes after it.
 func (w *Writer) SetPublisher(publish func(gotato.Event)) {
 	w.mu.Lock()
 	w.publish = publish
