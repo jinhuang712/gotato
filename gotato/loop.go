@@ -766,6 +766,9 @@ func (a *Session) discardControl(runID RunID, turn TurnNumber) {
 	}
 }
 
+// readAssistant streams one reply from the Model and returns it with its
+// Usage. After the stream has started, a failure returns what was received as
+// a cut-off reply together with the error.
 func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumber, assistantID MessageID, request ModelRequest) (Message, Usage, *RuntimeError) {
 	modelCtx, cancel := boundedContext(ctx, a.limits.ModelCallDeadline)
 	defer cancel()
@@ -781,38 +784,12 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		a.callCancel = nil
 		a.intrMu.Unlock()
 	}()
-	assistant := Message{ID: assistantID, RunID: runID, Role: RoleAssistant}
-	var usage Usage
-	var complete bool
-	// A streaming reply is stored in parts, every second or every few KiB, so
-	// a crash loses at most the last part of it. Without a store there is
-	// nothing to lose.
-	var partText, partReasoning strings.Builder
-	partStarted := time.Now()
-	modelCtx = withRetryReporter(modelCtx, func(retry ModelRetry) {
-		retried := ModelRetried{Header: NewHeader(a.id, runID, turn), Attempt: retry.Attempt, WaitMS: millis(retry.Wait), Error: retry.Error}
-		if len(assistant.Parts) == 0 && len(assistant.ToolCalls) == 0 {
-			// A retry before any output falls between steps: it gets a write
-			// of its own.
-			_ = a.writeNow(ctx, retried)
-			return
-		}
-		// The stream was cut after some output and the same request is sent
-		// again. What was received is void: the text is kept as a log, as a
-		// Cut-off reply the model never sees, and the new reply is a reply of
-		// its own, so a reader that saw model_retried drops the old one.
-		a.stage(retried)
-		if partial := cutOffReply(assistant); partial.ID != "" && a.commitMessage(partial) == nil {
-			a.stage(ReplyCutOff{Header: NewHeader(a.id, runID, turn), Message: partial.Clone(), Cause: CodeModelFailure})
-		}
-		assistant = Message{ID: MessageID(nextID("message")), RunID: runID, Role: RoleAssistant, Model: assistant.Model}
-		usage = Usage{}
-		partText.Reset()
-		partReasoning.Reset()
-		partStarted = time.Now()
-		a.stage(ReplyStarted{Header: NewHeader(a.id, runID, turn), MessageID: assistant.ID})
-		_ = a.flush(ctx)
-	})
+	reader := &assistantReader{
+		a: a, ctx: ctx, runID: runID, turn: turn,
+		assistant:   Message{ID: assistantID, RunID: runID, Role: RoleAssistant},
+		partStarted: time.Now(),
+	}
+	modelCtx = withRetryReporter(modelCtx, reader.retried)
 	stream, err := a.model.Stream(modelCtx, request)
 	if err != nil {
 		return Message{}, Usage{}, classifyModelError(err)
@@ -821,97 +798,146 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 		return Message{}, Usage{}, runtimeError(CodeModelFailure, "Model.Stream", "Model returned a nil stream", nil)
 	}
 	defer func() { _ = stream.Close() }()
+	return reader.read(modelCtx, stream)
+}
 
-	// Once the stream has started, a failure keeps the text received so far
-	// as a cut-off reply, so what the Model said is not lost.
-	broken := func(err *RuntimeError) (Message, Usage, *RuntimeError) {
-		partial := cutOffReply(assistant)
-		partial.Usage = usage
-		return partial, usage, err
-	}
-	writePart := func() *RuntimeError {
-		if !a.isDurable() {
-			return nil
-		}
-		size := partText.Len() + partReasoning.Len()
-		if size == 0 || (size < replyPartBytes && time.Since(partStarted) < replyPartEvery) {
-			return nil
-		}
-		a.stage(ReplyPartKept{Header: NewHeader(a.id, runID, turn), MessageID: assistant.ID, Text: partText.String(), Reasoning: partReasoning.String()})
-		partText.Reset()
-		partReasoning.Reset()
-		partStarted = time.Now()
-		return a.flush(ctx)
-	}
-	for {
+// assistantReader is the state of one reply while its stream is read: the
+// Message built so far, its Usage, and the text not yet stored as a part.
+type assistantReader struct {
+	a         *Session
+	ctx       context.Context // the Run's, for writes; the stream has its own
+	runID     RunID
+	turn      TurnNumber
+	assistant Message
+	usage     Usage
+	complete  bool
+	// A streaming reply is stored in parts, every second or every few KiB, so
+	// a crash loses at most the last part of it. Without a store there is
+	// nothing to lose.
+	partText, partReasoning strings.Builder
+	partStarted             time.Time
+}
+
+// read receives Model events until the stream completes, and returns the
+// reply.
+func (r *assistantReader) read(modelCtx context.Context, stream ModelStream) (Message, Usage, *RuntimeError) {
+	for !r.complete {
 		modelEvent, recvErr := stream.Recv(modelCtx)
 		if recvErr != nil {
-			if errors.Is(recvErr, io.EOF) && complete {
-				break
-			}
 			if errors.Is(recvErr, io.EOF) {
-				return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
+				return r.broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "stream ended without completion", recvErr))
 			}
-			return broken(classifyModelError(recvErr))
+			return r.broken(classifyModelError(recvErr))
 		}
-		if complete {
-			return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "event arrived after completion", nil))
-		}
-		if modelEvent.Model != "" {
-			assistant.Model = modelEvent.Model
-		}
-		switch modelEvent.Kind {
-		case ModelEventKindTextDelta:
-			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindText, Text: modelEvent.Text})
-				a.send(TextDelta{Header: a.deltaHeader(runID, turn), MessageID: assistant.ID, Text: modelEvent.Text})
-				partText.WriteString(modelEvent.Text)
-				if err := writePart(); err != nil {
-					return broken(err)
-				}
-			}
-		case ModelEventKindReasoningDelta:
-			if modelEvent.Text != "" {
-				assistant.Parts = append(assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: modelEvent.Text})
-				a.send(ReasoningDelta{Header: a.deltaHeader(runID, turn), MessageID: assistant.ID, Text: modelEvent.Text})
-				partReasoning.WriteString(modelEvent.Text)
-				if err := writePart(); err != nil {
-					return broken(err)
-				}
-			}
-		case ModelEventKindReasoningDone:
-			// The Done signs the block its deltas opened (see signReasoning).
-			assistant.Parts = signReasoning(assistant.Parts, modelEvent.ReasoningArtifact)
-		case ModelEventKindToolCall:
-			calls, callErr := appendToolCall(assistant.ToolCalls, modelEvent.ToolCall)
-			if callErr != nil {
-				return broken(callErr)
-			}
-			assistant.ToolCalls = calls
-		case ModelEventKindUsage:
-			usage = modelEvent.Usage
-		case ModelEventKindDone:
-			complete = true
-			assistant.StopReason = modelEvent.StopReason
-			if assistant.StopReason == "" {
-				assistant.StopReason = StopReasonEndTurn
-			}
-			if modelEvent.Usage.TotalTokens != 0 || modelEvent.Usage.InputTokens != 0 || modelEvent.Usage.OutputTokens != 0 {
-				usage = modelEvent.Usage
-			}
-		default:
-			return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "unknown Model event", nil))
-		}
-		if complete {
-			break
+		if err := r.apply(modelEvent); err != nil {
+			return r.broken(err)
 		}
 	}
-	if !complete {
-		return broken(runtimeError(CodeModelProtocolFailure, "ModelStream", "missing completion", nil))
+	r.assistant.Parts = coalesceDeltas(r.assistant.Parts)
+	r.assistant.Usage = r.usage
+	return r.assistant, r.usage, nil
+}
+
+// broken ends a reply whose stream has started and failed: what was received
+// is kept as a cut-off reply, so what the Model said is not lost.
+func (r *assistantReader) broken(err *RuntimeError) (Message, Usage, *RuntimeError) {
+	partial := cutOffReply(r.assistant)
+	partial.Usage = r.usage
+	return partial, r.usage, err
+}
+
+// apply adds one Model event to the reply.
+func (r *assistantReader) apply(modelEvent ModelEvent) *RuntimeError {
+	a := r.a
+	if modelEvent.Model != "" {
+		r.assistant.Model = modelEvent.Model
 	}
-	assistant.Parts = coalesceDeltas(assistant.Parts)
-	assistant.Usage = usage
-	return assistant, usage, nil
+	switch modelEvent.Kind {
+	case ModelEventKindTextDelta:
+		if modelEvent.Text != "" {
+			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindText, Text: modelEvent.Text})
+			a.send(TextDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
+			r.partText.WriteString(modelEvent.Text)
+			return r.writePart()
+		}
+	case ModelEventKindReasoningDelta:
+		if modelEvent.Text != "" {
+			r.assistant.Parts = append(r.assistant.Parts, ContentPart{Kind: ContentKindReasoning, Text: modelEvent.Text})
+			a.send(ReasoningDelta{Header: a.deltaHeader(r.runID, r.turn), MessageID: r.assistant.ID, Text: modelEvent.Text})
+			r.partReasoning.WriteString(modelEvent.Text)
+			return r.writePart()
+		}
+	case ModelEventKindReasoningDone:
+		// The Done signs the block its deltas opened (see signReasoning).
+		r.assistant.Parts = signReasoning(r.assistant.Parts, modelEvent.ReasoningArtifact)
+	case ModelEventKindToolCall:
+		calls, callErr := appendToolCall(r.assistant.ToolCalls, modelEvent.ToolCall)
+		if callErr != nil {
+			return callErr
+		}
+		r.assistant.ToolCalls = calls
+	case ModelEventKindUsage:
+		r.usage = modelEvent.Usage
+	case ModelEventKindDone:
+		r.complete = true
+		r.assistant.StopReason = modelEvent.StopReason
+		if r.assistant.StopReason == "" {
+			r.assistant.StopReason = StopReasonEndTurn
+		}
+		if modelEvent.Usage.TotalTokens != 0 || modelEvent.Usage.InputTokens != 0 || modelEvent.Usage.OutputTokens != 0 {
+			r.usage = modelEvent.Usage
+		}
+	default:
+		return runtimeError(CodeModelProtocolFailure, "ModelStream", "unknown Model event", nil)
+	}
+	return nil
+}
+
+// writePart stores the text received since the last part, once there is
+// enough of it or it is old enough.
+func (r *assistantReader) writePart() *RuntimeError {
+	if !r.a.isDurable() {
+		return nil
+	}
+	size := r.partText.Len() + r.partReasoning.Len()
+	if size == 0 || (size < replyPartBytes && time.Since(r.partStarted) < replyPartEvery) {
+		return nil
+	}
+	r.a.stage(ReplyPartKept{Header: NewHeader(r.a.id, r.runID, r.turn), MessageID: r.assistant.ID, Text: r.partText.String(), Reasoning: r.partReasoning.String()})
+	r.resetPart()
+	return r.a.flush(r.ctx)
+}
+
+// resetPart empties the pending part and restarts its clock.
+func (r *assistantReader) resetPart() {
+	r.partText.Reset()
+	r.partReasoning.Reset()
+	r.partStarted = time.Now()
+}
+
+// retried handles the Model's report that it sends the request again.
+func (r *assistantReader) retried(retry ModelRetry) {
+	a := r.a
+	retried := ModelRetried{Header: NewHeader(a.id, r.runID, r.turn), Attempt: retry.Attempt, WaitMS: millis(retry.Wait), Error: retry.Error}
+	if len(r.assistant.Parts) == 0 && len(r.assistant.ToolCalls) == 0 {
+		// A retry before any output falls between steps: it gets a write of
+		// its own.
+		_ = a.writeNow(r.ctx, retried)
+		return
+	}
+	// The stream was cut after some output and the same request is sent
+	// again. What was received is void: the text is kept as a log, as a
+	// Cut-off reply the model never sees, and the new reply is a reply of its
+	// own, so a reader that saw model_retried drops the old one.
+	a.stage(retried)
+	if partial := cutOffReply(r.assistant); partial.ID != "" && a.commitMessage(partial) == nil {
+		a.stage(ReplyCutOff{Header: NewHeader(a.id, r.runID, r.turn), Message: partial.Clone(), Cause: CodeModelFailure})
+	}
+	r.assistant = Message{ID: MessageID(nextID("message")), RunID: r.runID, Role: RoleAssistant, Model: r.assistant.Model}
+	r.usage = Usage{}
+	r.resetPart()
+	a.stage(ReplyStarted{Header: NewHeader(a.id, r.runID, r.turn), MessageID: r.assistant.ID})
+	_ = a.flush(r.ctx)
 }
 
 // newTurnEnded builds the TurnEnded of a Turn that ran from started until now.
