@@ -16,6 +16,11 @@ import "context"
 // A nil error means the message is queued in this Instance's memory: if the
 // Instance dies before the Run commits or drops it, the Record holds a
 // message_queued with no closing Event, and the message is lost.
+//
+// A message the Run took and could not commit is still queued: it goes back
+// to the front of the queue, so the end of the Run drops it (run_ended) or,
+// under WithQueueHandoff, TakeQueued returns it. The one message whose commit
+// failed is dropped with commit_failed, since it would fail again.
 func (a *Session) Steer(ctx context.Context, message Message) error {
 	return a.enqueueControl(ctx, message, "Steer", MessageSourceSteer)
 }
@@ -162,8 +167,10 @@ func (a *Session) dropAfterQueued(id MessageID, source MessageSource, why string
 // Interrupt) still queued when a Run completes or fails, instead of dropping
 // them at its end, so the host can take them with TakeQueued and start the
 // next Run with them. A Run that is canceled, or ends on its deadline, still
-// drops them. A host that sets it must call TakeQueued, or DropQueued, after
-// every Run; Close drops what is left (message_dropped, session_closed).
+// drops them. A message a failed Run took and did not commit counts as still
+// queued, and is kept too. A host that sets it must call TakeQueued, or
+// DropQueued, after every Run; Close drops what is left (message_dropped,
+// session_closed).
 func WithQueueHandoff() SessionOption {
 	return func(c *sessionConfig) error { c.handoff = true; return nil }
 }

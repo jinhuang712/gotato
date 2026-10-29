@@ -457,10 +457,10 @@ type NoticeCommitted struct {
 }
 
 // MessageDropped is published when a waiting message is dropped. Why says why:
-// run_ended (the Run ended before it took the message), draining,
-// writer_failed, queue_full (the following Run's queue was full), run_failed
-// (the following Run failed before its live Session took it), session_closed or
-// writer_gone (the Writer that queued it died; the Instance that took the
+// run_ended (the Run ended before it took the message), commit_failed (the Run
+// took the message and could not commit it), draining, writer_failed,
+// queue_full (the following Run's queue was full), run_failed (the following
+// Run failed before its live Session took it), session_closed or writer_gone (the Writer that queued it died; the Instance that took the
 // Session over writes the drop).
 type MessageDropped struct {
 	Header

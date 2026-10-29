@@ -50,6 +50,19 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
   - Before: loads waited for the end of the batch. A load the Model had been told of was lost when a later call of the same batch failed the Run (on a Transcript that is not a Record); a `search_tools` call that failed still loaded the Tools it named; a `search_tools` call that outlived its canceled Run could load a Tool into the next Run.
   - After: `Session.Tools` shows a load as soon as its result commits, inside the batch. A failed `search_tools` call loads nothing, and a call that returns after its Run ended loads nothing.
 
+### Fixed
+
+- **A Run that fails while it commits queued messages no longer loses them.** Steer, FollowUp, Interrupt and notices share one internal queue, and what a Run takes from it and does not commit goes back.
+  - Before: a commit that failed (for example at `MaxMessages`) lost every other message the Run had taken: their `message_queued` was never closed, and `TakeQueued` did not return them.
+  - After: they stay queued, so the Run's end drops them (`run_ended`) or, with `WithQueueHandoff`, the host takes them. The Runner hands them to the following Run, and closes the `message_queued` of its first message with `run_failed` when that Run ends before committing it.
+- **A Steer is never queued and then rejected.** The place in the queue is reserved before `message_queued` is written.
+  - Before: concurrent Steers at the limit could each write `message_queued` and then be refused with `message_rejected` (`queue_full`).
+  - After: a full queue refuses before anything is queued.
+
+### Added
+
+- **`message_dropped` has the why `commit_failed`.** It closes the one message a Run took and could not commit (it would fail again in the next Run); the messages behind it go back to the queue.
+
 ## 0.2.0 — 2026-10-29
 
 Gotato 0.2.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).
