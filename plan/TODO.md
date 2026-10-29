@@ -6,9 +6,25 @@ Open defects, design decisions and open checks, verified against the code. Plann
 
 - [ ] **`Feed` has plumbing that is exported.** `Published`, `PublishLabeled`, `SetLabel`, `MirrorTo` and `NewInstanceFeed` are exported because `service` and `testkit` call them from other packages. Moving them behind a smaller exported surface changes the `service`/`gotato` split, so it needs a design, not a rename.
 
+## Integration feedback
+
+From the first real adoption (a Lark bot service running on several pods), each checked against the code on 2026-10-29. Evidence, verdicts and wording of the fixes are in [INTEGRATION-FEEDBACK.md](INTEGRATION-FEEDBACK.md); `D-NNN` is its entry number. Remove an item here in the commit that resolves it.
+
+- [ ] **D-009 · The `WithForwarding` example's allow check is bypassed by `http://10.0.evil.com`.** Check the host IP against a CIDR in the example and in `guides/http-in-five-minutes.md`; mark `serve --forward` "tests only" in its help.
+- [ ] **D-001 · A nested module's tag can lag behind the root's on the Go proxy.** Release notes: push `adapter/mcp/vX.Y.Z` first (or together), warm the proxy, name `GOPROXY=direct` as the fallback.
+- [ ] **D-004 · An MCP server without annotations hides every tool under `WithMaxEffect`.** Add `WithDefaultEffect` or `WithToolEffectFunc`; state the consequence in FEATURES.md.
+- [ ] **D-002 · `adapter/mcp` cannot filter or rename tools.** Add `WithToolFilter` and `WithToolRename`.
+- [ ] **D-006 · `examples/larkbot` has no streaming card, and nothing says deltas are visible only on the writer Instance.** Add both; a writer switch needs the card's id in Session metadata.
+- [ ] **D-007 · `larkbot` does not de-duplicate across pods.** Copy the README note into the two guides; pass `message_id` as `RequestID`.
+- [ ] **D-003 · Nothing warns against `http.Client.Timeout` on the MCP transport.** One sentence in the option comment and FEATURES.md.
+- [ ] **D-008 · No Mongo section in `guides/write-a-store.md`.**
+- [ ] **D-011 · `guides/install.md` opens with Go 1.24 only.** Add "1.25 with `adapter/mcp`".
+- [ ] **D-012 · No recommended `WithListCache` TTL.** Docs only; the default stays 0.
+
 ## Decisions
 
-None open.
+- [ ] **D-005 · Cost: documentation only, or a hook?** `Usage` has no price. Either state in FEATURES.md that a team converts `Usage` itself (with an example), or add a price table or an `Event` hook.
+- [ ] **D-010 · Reasoning effort through a self-hosted gateway.** The chat and anthropic wires refuse it. Either document `provider` for such a host, or add a pass-through extra body field.
 
 ## Open checks
 
