@@ -45,6 +45,7 @@ var fileLayer = map[string]int{
 	// mechanism
 	"bm25.go":         layerMechanism,
 	"coalesce.go":     layerMechanism,
+	"controlqueue.go": layerMechanism,
 	"context.go":      layerMechanism,
 	"cutoff.go":       layerMechanism,
 	"extensions.go":   layerMechanism,

@@ -85,9 +85,7 @@ func NewSession(ctx context.Context, options ...SessionOption) (*Session, error)
 		done:           make(chan struct{}),
 		ready:          make(chan struct{}),
 		admission:      make(chan struct{}, 1),
-		steer:          make(chan control, controlCapacity(cfg.limits.MaxSteerMessages)),
-		followUp:       make(chan control, controlCapacity(cfg.limits.MaxFollowUpMessages)),
-		noticeLimit:    int(min(cfg.limits.MaxNotices, maxControlCapacity)),
+		queue:          newControlQueue(controlCapacity(cfg.limits.MaxSteerMessages), controlCapacity(cfg.limits.MaxFollowUpMessages), controlCapacity(cfg.limits.MaxNotices)),
 		stateChange:    make(chan struct{}),
 		onRunStart:     cfg.onRunStart,
 		handoff:        cfg.handoff,
@@ -166,7 +164,6 @@ type Session struct {
 	handoff bool
 	// requestID is the caller's request identifier, recorded in RunStarted.
 	requestID string
-	ctlSeq    atomic.Uint64
 
 	// aborts counts the AbortRequested writes in flight, so a Run's RunEnded
 	// is written after them.
@@ -181,29 +178,14 @@ type Session struct {
 	doneOnce    sync.Once
 	ready       chan struct{}
 	admission   chan struct{}
-	steer       chan control
-	followUp    chan control
-	// notices waits for the next model call, in the order it arrived; it is
-	// part of the queue the Steer is in (G-F29). noticeMu guards it.
-	noticeMu    sync.Mutex
-	notices     []control
-	noticeLimit int
-	// noticeHeld counts the places in notices that a Notice has claimed and
-	// not yet filled: its notice_queued Event is being written. The limit
-	// counts them, so two Notices cannot both pass a check that the first has
-	// not yet filled.
-	// [CONCURRENCY] the limit counts held places; without them two concurrent Notices both pass a check the first has not yet filled.
-	noticeHeld int
-	// controlSealed is set when the Session closes for good: nothing is put in
-	// a queue after it, and the last drop pass takes what is there. noticeMu
-	// guards it.
-	controlSealed bool
+	// queue holds the messages that wait for a Run (Steer, FollowUp,
+	// Interrupt, notice); see controlQueue. Lock order: runMu, then its lock.
+	queue *controlQueue
 
-	// intrMu guards the Interrupts that wait in steer (intrPending), and the
-	// cancellation of the model call in flight (callCancel).
-	intrMu      sync.Mutex
-	intrPending int
-	callCancel  context.CancelFunc
+	// intrMu guards the cancellation of the model call in flight
+	// (callCancel), which an Interrupt triggers.
+	intrMu     sync.Mutex
+	callCancel context.CancelFunc
 
 	closeRequested atomic.Bool
 	inRun          atomic.Bool

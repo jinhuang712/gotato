@@ -31,7 +31,7 @@ func (a *Session) readAssistant(ctx context.Context, runID RunID, turn TurnNumbe
 	// An Interrupt cancels this call; one that is waiting already does, now.
 	a.intrMu.Lock()
 	a.callCancel = cancel
-	if a.intrPending > 0 {
+	if a.queue.interrupting() {
 		cancel()
 	}
 	a.intrMu.Unlock()

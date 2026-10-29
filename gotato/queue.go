@@ -1,10 +1,6 @@
 package gotato
 
-import (
-	"cmp"
-	"context"
-	"slices"
-)
+import "context"
 
 // Steer delivers guidance for the Run in flight. The Session commits it at the
 // next Turn boundary; it never interrupts the current Model or Tool work. A
@@ -21,7 +17,7 @@ import (
 // Instance dies before the Run commits or drops it, the Record holds a
 // message_queued with no closing Event, and the message is lost.
 func (a *Session) Steer(ctx context.Context, message Message) error {
-	return a.enqueueControl(ctx, a.steer, message, "Steer", MessageSourceSteer)
+	return a.enqueueControl(ctx, message, "Steer", MessageSourceSteer)
 }
 
 // Interrupt delivers a Message that cuts the model call in flight short. The
@@ -37,43 +33,18 @@ func (a *Session) Interrupt(ctx context.Context, message Message) error {
 	if !a.inRun.Load() {
 		return runtimeError(CodeInvalidState, "Interrupt", "no Run is in flight", nil)
 	}
-	if err := a.enqueueControl(ctx, a.steer, message, "Interrupt", MessageSourceInterrupt); err != nil {
+	if err := a.enqueueControl(ctx, message, "Interrupt", MessageSourceInterrupt); err != nil {
 		return err
 	}
 	a.intrMu.Lock()
-	a.intrPending++
 	cancel := a.callCancel
-	pending := a.intrPending
 	a.intrMu.Unlock()
 	// The Message may have been consumed already, at a boundary that fell
-	// between the queueing and this count.
-	if cancel != nil && pending > 0 {
+	// between the queueing and this check.
+	if cancel != nil && a.queue.interrupting() {
 		cancel()
 	}
 	return nil
-}
-
-// control is a Message that waits in the Steer or FollowUp queue.
-type control struct {
-	seq     uint64
-	message Message
-	source  MessageSource
-	// number is the notice_queued of a notice.
-	number uint64
-}
-
-// interruptTaken says an Interrupt left its queue, committed or dropped.
-func (a *Session) interruptTaken() {
-	a.intrMu.Lock()
-	a.intrPending--
-	a.intrMu.Unlock()
-}
-
-// interrupting reports whether an Interrupt waits in the queue.
-func (a *Session) interrupting() bool {
-	a.intrMu.Lock()
-	defer a.intrMu.Unlock()
-	return a.intrPending > 0
 }
 
 // FollowUp supplies the continuation to use where the Run would otherwise
@@ -81,10 +52,10 @@ func (a *Session) interrupting() bool {
 // and belongs to this Session. ctx and a nil result mean what they mean for
 // Steer.
 func (a *Session) FollowUp(ctx context.Context, message Message) error {
-	return a.enqueueControl(ctx, a.followUp, message, "FollowUp", MessageSourceFollowUp)
+	return a.enqueueControl(ctx, message, "FollowUp", MessageSourceFollowUp)
 }
 
-func (a *Session) enqueueControl(ctx context.Context, target chan control, message Message, operation string, source MessageSource) error {
+func (a *Session) enqueueControl(ctx context.Context, message Message, operation string, source MessageSource) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -110,27 +81,29 @@ func (a *Session) enqueueControl(ctx context.Context, target chan control, messa
 	if err := a.controlSizeError(message, operation); err != nil {
 		return reject("too_large", err)
 	}
-	if len(target) >= cap(target) {
+	// The place is reserved before message_queued is written, so a message
+	// that is reported queued is never refused for want of room.
+	if !a.queue.reserve(kindOf(source)) {
 		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}
 	// The message is written as queued before it can be committed, so the
 	// Record never shows a commit with no queueing.
 	if err := a.writeNow(ctx, MessageQueued{Header: a.nowHeader(), MessageID: message.ID, Source: source}); err != nil {
+		a.queue.release(kindOf(source))
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return runtimeError(codeForContext(ctxErr), operation, operation+" context ended while queueing", ctxErr)
 		}
 		return err
 	}
-	switch a.sendControl(target, control{message: message, source: source, seq: a.ctlSeq.Add(1)}, source == MessageSourceInterrupt) {
+	switch a.fillControl(control{message: message, source: source, kind: kindOf(source)}, source == MessageSourceInterrupt) {
 	case sentControl:
 		return nil
 	case controlRunEnded:
 		return a.dropAfterQueued(message.ID, source, "run_ended", runtimeError(CodeInvalidState, operation, "the Run ended before the message was taken", nil))
 	case controlSessionClosed:
 		return a.dropAfterQueued(message.ID, source, "session_closed", runtimeError(CodeSessionClosed, operation, "Session is closed", nil))
-	default:
-		return reject("queue_full", runtimeError(CodeLimitExceeded, operation, operation+" buffer is full", nil))
 	}
+	return nil
 }
 
 // controlOutcome says what became of a message offered to a queue.
@@ -138,42 +111,44 @@ type controlOutcome int
 
 const (
 	sentControl controlOutcome = iota
-	controlQueueFull
 	controlRunEnded
 	controlSessionClosed
 )
 
-// sendControl puts a message in a queue, once its message_queued is written.
-// The write waits for the Session's write lock, so the Run may have begun to
-// end, or the Session to close, since the caller was admitted. Both are
-// checked here, in the step that sends: a Run that is ending has dropped its
-// queues already or is about to, and a Session whose last drop pass is done
-// takes no more. A message sent before either is dropped by that pass. A Run
-// that leaves its queues for the host (WithQueueHandoff) keeps what arrives
-// as it ends.
+// controlGate says whether a message may be put in the queue now, or why not.
+// The write of message_queued waits for the Session's write lock, so the Run
+// may have begun to end, or the Session to close, since the caller was
+// admitted. Both are checked in the step that puts the message in: a Run that
+// is ending has dropped its queue already or is about to, and a Session whose
+// last drop pass is done takes no more. A message put in before either is
+// dropped by that pass. A Run that leaves its queue for the host
+// (WithQueueHandoff) keeps what arrives as it ends.
 //
 // An Interrupt needs a Run in flight (needsRun): one that finds the Run over
 // is refused, since it would otherwise cancel the first model call of the
-// next Run.
-// [CONCURRENCY] the checks run under runMu and noticeMu at the send, so a message is never queued after the last drop pass or into the next Run.
-func (a *Session) sendControl(target chan control, queued control, needsRun bool) controlOutcome {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
+// next Run. The caller holds runMu.
+func (a *Session) controlGate(needsRun bool) controlOutcome {
 	inRun := a.inRun.Load()
 	if (needsRun && !inRun) || (inRun && a.runEnding && !a.runKeeps) {
 		return controlRunEnded
 	}
-	a.noticeMu.Lock()
-	defer a.noticeMu.Unlock()
-	if a.controlSealed {
+	return sentControl
+}
+
+// fillControl puts a message in the place reserved for it, once its
+// message_queued is written. A message that is not put in gives the place back.
+// [CONCURRENCY] the gate and the fill run under runMu, so a message is never queued after the last drop pass or into the next Run.
+func (a *Session) fillControl(queued control, needsRun bool) controlOutcome {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if outcome := a.controlGate(needsRun); outcome != sentControl {
+		a.queue.release(queued.kind)
+		return outcome
+	}
+	if !a.queue.fill(queued) {
 		return controlSessionClosed
 	}
-	select {
-	case target <- queued:
-		return sentControl
-	default:
-		return controlQueueFull
-	}
+	return sentControl
 }
 
 // dropAfterQueued closes a message_queued that was written and whose message
@@ -203,7 +178,6 @@ func (a *Session) keepsQueued(status RunStatus) bool {
 type Queued struct {
 	Message Message
 	Source  MessageSource
-	seq     uint64
 	number  uint64
 }
 
@@ -224,24 +198,9 @@ func (q Queued) Number() uint64 { return q.number }
 // host starts the next Run with them (Requeue) or reports them (DropQueued).
 func (a *Session) TakeQueued() []Queued {
 	var out []Queued
-	for _, queue := range []chan control{a.steer, a.followUp} {
-		for {
-			select {
-			case queued := <-queue:
-				if queued.source == MessageSourceInterrupt {
-					a.interruptTaken()
-				}
-				out = append(out, Queued{Message: queued.message, Source: queued.source, seq: queued.seq})
-				continue
-			default:
-			}
-			break
-		}
+	for _, queued := range a.queue.drain(true) {
+		out = append(out, Queued{Message: queued.message, Source: queued.source, number: queued.number})
 	}
-	for _, queued := range a.takeNotices() {
-		out = append(out, Queued{Message: queued.message, Source: MessageSourceNotice, seq: queued.seq, number: queued.number})
-	}
-	slices.SortFunc(out, func(a, b Queued) int { return cmp.Compare(a.seq, b.seq) })
 	return out
 }
 
@@ -258,21 +217,19 @@ func (a *Session) Requeue(messages []Queued) (rest []Queued) {
 		if source == MessageSourceInterrupt {
 			source = MessageSourceSteer
 		}
-		queued := control{message: m.Message, source: source, seq: a.ctlSeq.Add(1), number: m.number}
+		queued := control{message: m.Message, source: source, kind: kindSteer, number: m.number}
 		if source == MessageSourceNotice {
-			a.noticeMu.Lock()
-			fits := !a.controlSealed && len(a.notices)+a.noticeHeld < a.noticeLimit
-			if fits {
-				a.notices = append(a.notices, queued)
-			}
-			a.noticeMu.Unlock()
-			if !fits {
-				rest = append(rest, m)
-			}
-			continue
+			queued.kind = kindNotice
 		}
-		// [CONCURRENCY] sendControl takes the closed check and the send in one step, so a message never lands in a Session that closed.
-		if a.sendControl(a.steer, queued, false) != sentControl && a.sendControl(a.followUp, queued, false) != sentControl {
+		// [CONCURRENCY] the gate and the put are one step under runMu, so a message never lands in a Session that closed.
+		a.runMu.Lock()
+		put := a.controlGate(false) == sentControl && a.queue.add(queued)
+		if !put && queued.kind == kindSteer && a.controlGate(false) == sentControl {
+			queued.kind = kindFollowUp
+			put = a.queue.add(queued)
+		}
+		a.runMu.Unlock()
+		if !put {
 			rest = append(rest, m)
 		}
 	}

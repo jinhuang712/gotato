@@ -196,25 +196,8 @@ func (a *Session) finishClose() {
 // its last boundary. Each is a MessageDropped, so a caller that was told it
 // was queued also learns that it was not taken.
 func (a *Session) dropLeftoverControl() {
-	a.noticeMu.Lock()
-	a.controlSealed = true
-	a.noticeMu.Unlock()
-	for _, queue := range []chan control{a.steer, a.followUp} {
-		for {
-			select {
-			case queued := <-queue:
-				if queued.source == MessageSourceInterrupt {
-					a.interruptTaken()
-				}
-				_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: queued.source, Why: "session_closed"})
-				continue
-			default:
-			}
-			break
-		}
-	}
-	for _, queued := range a.takeNotices() {
-		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: MessageSourceNotice, Why: "session_closed"})
+	for _, queued := range a.queue.seal() {
+		_ = a.writeNow(context.Background(), MessageDropped{Header: a.nowHeader(), MessageID: queued.message.ID, Source: queued.source, Why: "session_closed"})
 	}
 }
 

@@ -118,8 +118,8 @@ func boundedContext(parent context.Context, duration time.Duration) (context.Con
 	return context.WithCancel(parent)
 }
 
-// controlCapacity turns a configured control-message limit into a channel
-// capacity.
+// controlCapacity turns a configured control-message limit into the limit of a
+// control queue.
 func controlCapacity(limit uint32) int {
 	if limit > maxControlCapacity {
 		return maxControlCapacity
@@ -127,7 +127,7 @@ func controlCapacity(limit uint32) int {
 	return int(limit)
 }
 
-// maxControlCapacity bounds the capacity of the control queues, whatever the
+// maxControlCapacity bounds the control queues, whatever the
 // configured limit.
 const maxControlCapacity = 1024
 

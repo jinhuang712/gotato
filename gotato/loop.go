@@ -548,7 +548,7 @@ func (st *runState) runTurn(turn TurnNumber, runStart int) (more bool, result Ru
 // short and the Run goes on, or the Run fails with the Model's error.
 func (st *runState) afterModelError(t *turnRun, modelErr *RuntimeError) (bool, RunResult, error) {
 	a, hd := st.a, st.header
-	if modelErr.Code == CodeCanceled && st.runCtx.Err() == nil && a.interrupting() {
+	if modelErr.Code == CodeCanceled && st.runCtx.Err() == nil && a.queue.interrupting() {
 		// An Interrupt cut the call short: the text it had sent is kept as
 		// a Cut-off reply, and the Interrupt starts the next Turn.
 		if t.assistant.StopReason == StopReasonCutOff && a.commitMessage(t.assistant) == nil {
@@ -672,33 +672,7 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 // arrived. A notice never keeps a Run going: at settlement they are committed
 // only when a Steer or FollowUp is, and otherwise wait for the next Run.
 func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumber, settling bool) (bool, *RuntimeError) {
-	var items []control
-	for {
-		select {
-		case queued := <-a.steer:
-			if queued.source == MessageSourceInterrupt {
-				a.interruptTaken()
-			}
-			items = append(items, queued)
-			continue
-		default:
-		}
-		break
-	}
-	if settling {
-		for {
-			select {
-			case queued := <-a.followUp:
-				items = append(items, queued)
-				continue
-			default:
-			}
-			break
-		}
-	}
-	if len(items) > 0 || !settling {
-		items = mergeNotices(items, a.takeNotices())
-	}
+	items := a.queue.take(settling)
 	injected := false
 	for _, item := range items {
 		if item.source == MessageSourceNotice {
@@ -735,21 +709,8 @@ func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn Turn
 // after RunEnded, so a leftover control Message must not silently reappear
 // inside the next Run.
 func (a *Session) discardControl(runID RunID, turn TurnNumber) {
-	drop := func(message Message, source MessageSource) {
-		a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: message.ID, Source: source, Why: "run_ended"})
-	}
-	for {
-		select {
-		case queued := <-a.steer:
-			if queued.source == MessageSourceInterrupt {
-				a.interruptTaken()
-			}
-			drop(queued.message, queued.source)
-		case queued := <-a.followUp:
-			drop(queued.message, queued.source)
-		default:
-			return
-		}
+	for _, queued := range a.queue.drain(false) {
+		a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: queued.message.ID, Source: queued.source, Why: "run_ended"})
 	}
 }
 

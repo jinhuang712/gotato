@@ -112,52 +112,26 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 	if err := a.controlSizeError(message, "Notice"); err != nil {
 		return reject("too_large", err)
 	}
-	// The check and the claim of the place are one step: the Event is written
-	// outside the lock, and the place is held meanwhile.
-	// [CONCURRENCY] the limit check and the claim of the place are one step, or two Notices both pass a check that neither has filled.
-	a.noticeMu.Lock()
-	full := len(a.notices)+a.noticeHeld >= a.noticeLimit
-	if !full {
-		a.noticeHeld++
-	}
-	a.noticeMu.Unlock()
-	if full {
+	// The place is reserved before the Event is written, and held meanwhile.
+	if !a.queue.reserve(kindNotice) {
 		return reject("queue_full", runtimeError(CodeLimitExceeded, "Notice", "notice queue is full", nil))
 	}
 	written, werr := a.writeEvents(ctx, []Event{NoticeQueued{
 		Header: a.nowHeader(), MessageID: message.ID, NoticeKind: message.Notice.Kind,
 		Source: message.Notice.Source, Text: TextOf(message),
 	}})
-	a.noticeMu.Lock()
-	a.noticeHeld--
-	sealed := a.controlSealed
-	var number uint64
-	if werr == nil {
-		number = written[0].Head().Number
-		if !sealed {
-			a.notices = append(a.notices, control{message: message, source: MessageSourceNotice, seq: a.ctlSeq.Add(1), number: number})
-		}
-	}
-	a.noticeMu.Unlock()
 	if werr != nil {
+		a.queue.release(kindNotice)
 		return 0, werr
 	}
+	number := written[0].Head().Number
 	// [LIVENESS] a Notice queued after the last drop pass would wait in the queue forever.
-	if sealed {
+	if !a.queue.fill(control{message: message, source: MessageSourceNotice, kind: kindNotice, number: number}) {
 		// The Session closed while the notice was being written: no pass
 		// is left to drop it.
 		return 0, a.dropAfterQueued(message.ID, MessageSourceNotice, "session_closed", runtimeError(CodeSessionClosed, "Notice", "Session is closed", nil))
 	}
 	return number, nil
-}
-
-// takeNotices removes and returns the queued notices, in order.
-func (a *Session) takeNotices() []control {
-	a.noticeMu.Lock()
-	defer a.noticeMu.Unlock()
-	out := a.notices
-	a.notices = nil
-	return out
 }
 
 // commitNotice commits a notice Message and stores its NoticeCommitted. number
@@ -183,28 +157,10 @@ func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber
 // commitQueuedNotices commits every notice that waits, in order: right before
 // a model call.
 func (a *Session) commitQueuedNotices(ctx context.Context, runID RunID, turn TurnNumber) *RuntimeError {
-	for _, queued := range a.takeNotices() {
+	for _, queued := range a.queue.takeNotices() {
 		if err := a.commitNotice(ctx, runID, turn, queued.message, queued.number, 0); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// mergeNotices puts notices into items by arrival: each before the first item
-// that arrived after it.
-func mergeNotices(items, notices []control) []control {
-	if len(notices) == 0 {
-		return items
-	}
-	out := make([]control, 0, len(items)+len(notices))
-	pending := notices
-	for _, item := range items {
-		for len(pending) > 0 && pending[0].seq < item.seq {
-			out = append(out, pending[0])
-			pending = pending[1:]
-		}
-		out = append(out, item)
-	}
-	return append(out, pending...)
 }
