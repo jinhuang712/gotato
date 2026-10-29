@@ -1,6 +1,7 @@
 package gotato
 
 import (
+	"cmp"
 	"slices"
 	"sync"
 )
@@ -180,8 +181,9 @@ func (l *lease) done() {
 	}
 }
 
-// putBack returns the messages that are not settled to the front of the
-// queue, in their order: they were accepted before everything that waits now.
+// putBack returns the messages that are not settled to the queue, each in the
+// place its acceptance gave it: a take can leave older messages of another
+// kind waiting, so the front is not always their place.
 // [DATA-LOSS] a message taken and not committed goes back, or the Run's failure loses a message that was reported queued.
 func (l *lease) putBack() {
 	rest := l.items[l.settled:]
@@ -190,6 +192,7 @@ func (l *lease) putBack() {
 	}
 	l.q.mu.Lock()
 	l.q.items = append(slices.Clone(rest), l.q.items...)
+	slices.SortStableFunc(l.q.items, func(a, b control) int { return cmp.Compare(a.seq, b.seq) })
 	l.q.mu.Unlock()
 	l.settled = len(l.items)
 }
