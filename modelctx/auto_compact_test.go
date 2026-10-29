@@ -624,3 +624,62 @@ func TestAutoCompactLeavesTheReasoningOutWhenItsPolicySays(t *testing.T) {
 		t.Fatalf("the kept Messages hold %d reasoning Parts, want 0", got)
 	}
 }
+
+// A notice or a steer committed after a Turn's tool results comes last in the
+// Transcript. A compaction before the next model call keeps the whole Turn the
+// model continues: its reply, its tool results, and what followed them.
+func TestACompactionMidRunKeepsTheToolResultsBeforeANoticeOrASteer(t *testing.T) {
+	for _, interjection := range []string{"none", "notice", "steer"} {
+		t.Run(interjection, func(t *testing.T) {
+			l := newLive(t, modelctx.CompactPolicy{CeilingTokens: 5000})
+			l.must(testkit.NewFakeModel(answering(strings.Repeat("earlier answer ", 1000))), "an earlier question")
+			var agent *gotato.Session
+			tool := testkit.NewFakeTool("demo.read", "")
+			tool.Handler = func(ctx context.Context, use gotato.ToolUse) (gotato.ToolResult, error) {
+				if use.CallID == "c0" {
+					var err error
+					switch interjection {
+					case "notice":
+						_, err = agent.Notice(ctx, "deploy", "the deploy finished")
+					case "steer":
+						err = agent.Steer(ctx, gotato.UserMessage("also look at the config"))
+					}
+					if err != nil {
+						t.Errorf("%s: %v", interjection, err)
+					}
+				}
+				return gotato.ToolResult{Status: gotato.ToolResultStatusOK, Content: []gotato.ContentPart{{Kind: gotato.ContentKindText, Text: strings.Repeat("data ", 200)}}}, nil
+			}
+			var calls []gotato.ToolCall
+			for i := range 3 {
+				calls = append(calls, gotato.ToolCall{ID: gotato.ToolCallID(fmt.Sprint("c", i)), ToolID: "demo.read", Arguments: []byte(`{}`)})
+			}
+			first := testkit.ToolCalls(calls...)
+			first[len(first)-1].Usage = gotato.Usage{InputTokens: 4900, OutputTokens: 50}
+			model := &stepModel{steps: []any{first, answering("done")}}
+			var err error
+			agent, err = gotato.NewSession(context.Background(), gotato.WithModel(model), gotato.WithTranscript(l.writer),
+				gotato.WithTools(tool), gotato.WithExtension(l.auto))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = agent.Close(context.Background()) }()
+			result, err := agent.Prompt(context.Background(), gotato.UserMessage("check the three files"))
+			if err != nil || result.Status != gotato.RunStatusCompleted || model.calls() != 2 {
+				t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
+			}
+			if got := whyOf(l.writer.Record()); len(got) != 1 || got[0] != gotato.CompactionWhyPastCeiling {
+				t.Fatalf("compactions = %v, want one past_ceiling", got)
+			}
+			results := 0
+			for _, message := range model.requests[1].Messages {
+				if message.Role == gotato.RoleToolResult {
+					results++
+				}
+			}
+			if results != 3 {
+				t.Fatalf("the second request holds %d tool results, want 3", results)
+			}
+		})
+	}
+}

@@ -273,3 +273,47 @@ func TestARunStoppedDuringItsMidRunCompactionEndsCanceled(t *testing.T) {
 		t.Fatalf("result = %+v, err = %v, %d calls, %d Segments", result, err, model.Calls(), len(record.Segments()))
 	}
 }
+
+// The latest Turn starts at the Run's last reply, whatever follows it: tool
+// results, a notice, a steer, or the user Message of an interrupt. On the
+// Run's first Turn it starts at the Run's first Message, the prompt. With no
+// Run to go by, it is the last Message that is not a tool result.
+func TestLastTurnStartIsTheRunsLastReply(t *testing.T) {
+	user := func(run gotato.RunID) gotato.Message {
+		m := gotato.UserMessage("u")
+		m.RunID = run
+		return m
+	}
+	reply := func(run gotato.RunID, calls int) gotato.Message {
+		m := gotato.AssistantMessage("a")
+		m.RunID = run
+		for range calls {
+			m.ToolCalls = append(m.ToolCalls, gotato.ToolCall{ID: "c", ToolID: "t"})
+		}
+		return m
+	}
+	result := func(run gotato.RunID) gotato.Message { return gotato.Message{RunID: run, Role: gotato.RoleToolResult} }
+	notice := func(run gotato.RunID) gotato.Message { return gotato.Message{RunID: run, Role: gotato.RoleNotice} }
+	cutOff := func(run gotato.RunID) gotato.Message {
+		m := reply(run, 0)
+		m.StopReason = gotato.StopReasonCutOff
+		return m
+	}
+	for _, c := range []struct {
+		name     string
+		run      gotato.RunID
+		messages []gotato.Message
+		want     int
+	}{
+		{"tool results and a notice", "r1", []gotato.Message{user("r1"), reply("r1", 2), result("r1"), result("r1"), notice("r1")}, 1},
+		{"a tool result, a steer and a notice", "r1", []gotato.Message{user("r1"), reply("r1", 1), result("r1"), user("r1"), notice("r1")}, 1},
+		{"an interrupt keeps the cut-off reply", "r1", []gotato.Message{user("r0"), reply("r0", 0), user("r1"), cutOff("r1"), user("r1")}, 3},
+		{"the first Turn keeps the prompt and its notice", "r1", []gotato.Message{user("r0"), reply("r0", 0), user("r1"), notice("r1")}, 2},
+		{"no Run falls back to the last Message that is not a tool result", "", []gotato.Message{user(""), reply("", 1), result(""), result("")}, 1},
+		{"no Run, and a notice last", "", []gotato.Message{user(""), reply("", 1), result(""), notice("")}, 3},
+	} {
+		if got := lastTurnStart(c.messages, c.run); got != c.want {
+			t.Errorf("%s: lastTurnStart = %d, want %d", c.name, got, c.want)
+		}
+	}
+}

@@ -104,7 +104,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	a.compacted = true
 	options := compactCall{
 		CompactConfig: CompactConfig{CompactPolicy: a.policy},
-		why:           why, keepLastTurn: true,
+		why:           why, keepLastTurn: true, run: pending.RunID,
 	}
 	// A Recap read from the request the Run is about to send is read from
 	// the provider's cache. On an overflow that request is the one just

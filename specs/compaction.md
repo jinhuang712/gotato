@@ -35,7 +35,7 @@ The Context is a stack; a compaction changes the bottom and leaves the top as it
 └──────────────────┘        └──────────────────┘
 ```
 
-On the left is what the model sees now; on the right, what it sees next. The top block is byte for byte the same, because the provider's prompt cache matches on a prefix, and one changed byte near the top would make the next request pay full price. That is why a Segment is written once and never edited. The kept tail is the newest Messages, left whole so the model keeps the thread of the last exchange.
+On the left is what the model sees now; on the right, what it sees next. The top block is byte for byte the same, because the provider's prompt cache matches on a prefix, and one changed byte near the top would make the next request pay full price. That is why a Segment is written once and never edited. The kept tail is the newest Messages, left whole so the model keeps the thread of the last exchange. In the middle of a Run it always holds the Run's last reply and everything committed after it (tool results, a notice, a steer), since the next model call continues from there; on the Run's first Turn it holds the prompt whole.
 
 ## One compaction
 

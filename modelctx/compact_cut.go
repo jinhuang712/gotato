@@ -7,9 +7,27 @@ import (
 	"github.com/jinhuang712/gotato/gotato"
 )
 
-// lastTurnStart returns the index where the latest Turn begins: the last
-// Message that is not a tool result, so a tool call keeps its results.
-func lastTurnStart(messages []gotato.Message) int {
+// lastTurnStart returns the index where the latest Turn of run begins: the
+// Run's last reply, so the next model call sees everything committed after it,
+// or the Run's first Message when it has no reply yet. With no Messages of run
+// it is the last Message that is not a tool result, so a tool call keeps its
+// results.
+func lastTurnStart(messages []gotato.Message, run gotato.RunID) int {
+	if run != "" {
+		first := -1
+		for i, message := range slices.Backward(messages) {
+			if message.RunID != run {
+				continue
+			}
+			if message.Role == gotato.RoleAssistant {
+				return i
+			}
+			first = i
+		}
+		if first >= 0 {
+			return first
+		}
+	}
 	i := len(messages) - 1
 	for i > 0 && messages[i].Role == gotato.RoleToolResult {
 		i--

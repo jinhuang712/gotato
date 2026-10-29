@@ -42,12 +42,15 @@ type compactCall struct {
 	// Session as it is now, which a Recap written by a model sends as its
 	// prefix. Without it, a ModelRecap fails and the Segment has no Recap.
 	context func(context.Context) (gotato.ModelRequest, error)
-	// keepLastTurn keeps at least the latest Turn in the tail, whatever the
-	// budget: the last assistant Message with the results of its tool calls,
-	// or the last Message when it is not a result. A compaction in the middle
-	// of a Run needs it, since the model call that follows continues from
-	// that Turn.
+	// keepLastTurn keeps at least the latest Turn of run in the tail,
+	// whatever the budget: the Run's last reply and everything after it (its
+	// tool results, a notice, a steer, an interrupt), or on the Run's first
+	// Turn all of its Messages, the prompt among them. A compaction in the
+	// middle of a Run needs it, since the model call that follows continues
+	// from that Turn.
 	keepLastTurn bool
+	// run is the Run in flight, whose latest Turn keepLastTurn keeps.
+	run gotato.RunID
 	// currentRun is the Run that is starting. Its Messages are not "the latest
 	// Run" when the default tail is chosen, so the Run before it stays as it
 	// was, and the new Run's Messages follow in the tail.
@@ -384,7 +387,7 @@ func tailStart(stretch []gotato.Message, cfg compactCall) int {
 		cut = turnCut(stretch, withinBudget(stretch, budget, runStart(stretch, cfg.currentRun)))
 	}
 	if cfg.keepLastTurn {
-		cut = min(cut, lastTurnStart(stretch))
+		cut = min(cut, lastTurnStart(stretch, cfg.run))
 	}
 	return cut
 }

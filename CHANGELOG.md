@@ -8,6 +8,7 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 - `session.Writer.Write` numbers and stores its Events in one step. Before, a `Flush` from another goroutine could write them in between, and `Write` returned no Events and no error; now it always returns the Events it was given, numbered and stored.
 - `adapter/mcp`: with `WithListCache`, a tool listing that fails (a canceled context, a server error) no longer loses the server's `list_changed`, so the next resolution lists again instead of serving the old list for the whole TTL. A slow listing that began before a change no longer replaces a list read after it, and a new connection to the server makes the kept list stale, since a change while no connection was open sent no `list_changed`.
+- `modelctx`: a compaction in the middle of a Run keeps the Run's last reply and everything after it. Before, a notice or a steer committed after a Turn's tool results was taken as the start of the Turn, so the next model call saw none of those results; after an interrupt the cut-off reply was closed into the Segment and its text lost; and on a Run's first Turn a prompt followed by a notice could be cut into the Segment. Now the prompt is kept whole, and a prompt past the ceiling ends the Run with `limit_exceeded`.
 
 ## 0.2.0 — 2026-10-29
 
