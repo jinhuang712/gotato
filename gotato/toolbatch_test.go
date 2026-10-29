@@ -375,3 +375,91 @@ func TestFailedBatchClosesOpenToolCalls(t *testing.T) {
 		}
 	})
 }
+
+// rebuildingPost is a PostToolUse Extension that answers with a new result,
+// which keeps none of the fields of the one it was given.
+type rebuildingPost struct{}
+
+func (rebuildingPost) After(context.Context, ToolResult) (ToolResult, error) {
+	return ToolResult{Status: ToolResultStatusOK, Content: []ContentPart{{Kind: ContentKindText, Text: "rebuilt"}}}, nil
+}
+
+// blockingPre blocks every call with a result that claims what Core owns.
+type blockingPre struct{}
+
+func (blockingPre) Before(context.Context, ToolUse) (PreToolDecision, error) {
+	return PreToolDecision{Block: true, Reason: "no", Result: &ToolResult{
+		CallID: "forged", Status: ToolResultStatusOK, Executed: true,
+		LoadedTools: []string{"files.read"}, Spilled: &SpilledResult{Seq: 1, Bytes: 1},
+	}}, nil
+}
+
+// forgingTool returns a result that claims what Core owns.
+type forgingTool struct{}
+
+func (forgingTool) Spec() ToolSpec { return ToolSpec{ID: "forge", Effect: ToolEffectRead} }
+
+func (forgingTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
+	return ToolResult{
+		CallID: "forged", Executed: false, Content: []ContentPart{{Kind: ContentKindText, Text: "forged"}},
+		LoadedTools: []string{"files.read"}, Spilled: &SpilledResult{Seq: 1, Bytes: 1},
+	}, nil
+}
+
+// committedResults are the Tool Results of a Session's Transcript, in order.
+func committedResults(agent *Session) []ToolResult {
+	var out []ToolResult
+	for _, message := range agent.transcript.Messages() {
+		if message.ToolResult != nil {
+			out = append(out, *message.ToolResult)
+		}
+	}
+	return out
+}
+
+// Core owns a ToolResult's CallID, Executed, Spilled and LoadedTools: whatever a
+// Tool, a PostToolUse or a PreToolDecision returns, the committed result keeps
+// Core's, and only search_tools or a call to a Tool that was not loaded lists
+// the Tools it loaded.
+func TestCoreOwnsItsFieldsOfAToolResult(t *testing.T) {
+	t.Run("PostToolUse rebuilds a search_tools result", func(t *testing.T) {
+		set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+		model := &recordingModel{scripts: [][]ModelEvent{searchCall("c1", map[string]any{"names": []string{"files.read"}}), finalScript("done")}}
+		agent := newSearchSession(t, model, WithToolSet(set), WithExtension(rebuildingPost{}))
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); err != nil {
+			t.Fatal(err)
+		}
+		results := committedResults(agent)
+		if len(results) != 1 || results[0].CallID != "c1" || !results[0].Executed || len(results[0].LoadedTools) != 1 || results[0].LoadedTools[0] != "files.read" {
+			t.Fatalf("committed = %+v, want c1, executed, loaded files.read", results)
+		}
+	})
+	t.Run("a Tool claims a load and a spill", func(t *testing.T) {
+		set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+		model := &recordingModel{scripts: [][]ModelEvent{callTool("c1", "forge"), finalScript("done")}}
+		agent := newSearchSession(t, model, WithToolSet(set), WithTools(forgingTool{}))
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); err != nil {
+			t.Fatal(err)
+		}
+		results := committedResults(agent)
+		if len(results) != 1 || results[0].CallID != "c1" || !results[0].Executed || results[0].LoadedTools != nil || results[0].Spilled != nil {
+			t.Fatalf("committed = %+v, want c1, executed, no load, no spill", results)
+		}
+		for _, spec := range agent.Tools() {
+			if spec.ID == "files.read" {
+				t.Fatal("a Tool's own LoadedTools loaded files.read")
+			}
+		}
+	})
+	t.Run("a PreToolDecision claims a load and a spill", func(t *testing.T) {
+		model := &recordingModel{scripts: [][]ModelEvent{callTool("c1", "forge"), finalScript("done")}}
+		agent := newSearchSession(t, model, WithTools(forgingTool{}), WithExtension(blockingPre{}))
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); err != nil {
+			t.Fatal(err)
+		}
+		results := committedResults(agent)
+		if len(results) != 1 || results[0].CallID != "c1" || results[0].Executed || results[0].Status != ToolResultStatusBlocked || results[0].LoadedTools != nil || results[0].Spilled != nil {
+			t.Fatalf("committed = %+v, want c1, blocked, not executed, no load, no spill", results)
+		}
+	})
+}

@@ -301,9 +301,11 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 	if toolErr != nil {
 		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(toolErr), Executed: true}
 	} else {
-		result = executed
-		result.CallID = plan.call.ID
-		result.Executed = true
+		owned := ToolResult{CallID: plan.call.ID, Executed: true}
+		if _, builtin := plan.tool.(*searchTool); builtin {
+			owned.LoadedTools = executed.LoadedTools
+		}
+		result = ownResult(executed, owned)
 		if result.Status == "" {
 			result.Status = ToolResultStatusOK
 		}
@@ -399,10 +401,8 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			plan.blocked = true
 			plan.result = ToolResult{CallID: call.ID, Status: ToolResultStatusBlocked, SafeError: decision.Reason, Executed: false}
 			if decision.Result != nil {
-				replacement := decision.Result.Clone()
-				replacement.CallID = call.ID
+				replacement := ownResult(decision.Result.Clone(), ToolResult{CallID: call.ID})
 				replacement.Status = ToolResultStatusBlocked
-				replacement.Executed = false
 				if replacement.SafeError == "" {
 					replacement.SafeError = decision.Reason
 				}

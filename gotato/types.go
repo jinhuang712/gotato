@@ -178,12 +178,15 @@ type ToolResult struct {
 	// ended has Executed false. A Tool canceled while it ran keeps it true,
 	// because it may have done its work.
 	Executed bool `json:"executed"`
-	// Spilled is set when the text of the result was longer than one page: the
+	// Spilled is set by Core, never by a Tool or an extension, when the text
+	// of the result was longer than one page: the
 	// Content then holds a preview and a ref, and the full text is the Entry
 	// at Spilled.Seq of the Record (see SpilledResult).
 	Spilled *SpilledResult `json:"spilled,omitempty"`
 	// Loaded lists the qualified IDs of the catalog Tools this result loaded
-	// (search_tools, or a call to a Tool that was not loaded). A gateway that
+	// (search_tools, or a call to a Tool that was not loaded). Core owns it:
+	// it is cleared on the result of any other Tool, and a PostToolUse or a
+	// PreToolDecision cannot change it. A gateway that
 	// defers tools natively shows each to the Model as a reference at this
 	// place of the history, and a gateway that does not ignores the field.
 	LoadedTools []string `json:"loaded_tools,omitempty"`

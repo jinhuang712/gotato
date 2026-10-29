@@ -3,6 +3,7 @@ package gotato
 import (
 	"context"
 	"errors"
+	"slices"
 )
 
 // Tool is one capability a Session can call. Spec describes it; Execute runs it.
@@ -132,6 +133,24 @@ func (t effectTool) Spec() ToolSpec {
 	spec := t.Tool.Spec()
 	spec.Effect = t.effect
 	return spec
+}
+
+// ownResult returns produced with the fields of a ToolResult that Core owns
+// taken from owned: CallID, Executed, Spilled and LoadedTools. A Tool, a
+// PostToolUse or a PreToolDecision writes the rest of a result. Only Core's own
+// results list the Tools they loaded: search_tools, and the refusal of a call
+// to a Tool that was not loaded; the caller passes their LoadedTools in owned.
+// [DATA-LOSS] host code could name another call, say a call ran when it did not, point read_result at another Entry, or load a Tool.
+func ownResult(produced, owned ToolResult) ToolResult {
+	produced.CallID = owned.CallID
+	produced.Executed = owned.Executed
+	produced.Spilled = nil
+	if owned.Spilled != nil {
+		spilled := *owned.Spilled
+		produced.Spilled = &spilled
+	}
+	produced.LoadedTools = slices.Clone(owned.LoadedTools)
+	return produced
 }
 
 // ToolUse is one call as Execute receives it: where in the Run it is, and the

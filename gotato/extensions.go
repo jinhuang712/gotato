@@ -36,7 +36,8 @@ type PreToolDecision struct {
 	Block  bool
 	Reason string
 	// Result optionally replaces the blocked outcome. Core forces its
-	// identity, status, and Executed truth.
+	// identity, status, and Executed truth, and clears its Spilled and
+	// LoadedTools.
 	Result *ToolResult
 }
 
@@ -66,8 +67,8 @@ type PreToolUse interface {
 }
 
 // PostToolUse runs in reverse installation order over executed, blocked,
-// failed, and canceled outcomes. It must preserve identity and Executed
-// truth.
+// failed, and canceled outcomes. Whatever it returns, Core keeps the fields it
+// owns as they were: CallID, Executed, Spilled and LoadedTools.
 type PostToolUse interface {
 	After(context.Context, ToolResult) (ToolResult, error)
 }
@@ -253,10 +254,9 @@ func (s extensionSet) beforeTool(ctx context.Context, use ToolUse) (PreToolDecis
 }
 
 // afterTool runs the Post chain in reverse installation order over every
-// outcome, then restores the identity and Executed truth Core owns.
+// outcome, then restores the fields Core owns (ownResult).
 func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolResult, *RuntimeError) {
-	identity := result.CallID
-	executed := result.Executed
+	owned := result.Clone()
 	for _, current := range slices.Backward(s.post) {
 		var produced ToolResult
 
@@ -271,9 +271,7 @@ func (s extensionSet) afterTool(ctx context.Context, result ToolResult) (ToolRes
 			}
 			return result, err
 		}
-		produced.CallID = identity
-		produced.Executed = executed
-		result = produced
+		result = ownResult(produced, owned)
 	}
 	return result, nil
 }
