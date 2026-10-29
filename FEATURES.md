@@ -435,7 +435,7 @@ s, _ := gotato.NewSession(ctx, gotato.WithModel(model), gotato.WithFoldedToolSet
 | `mcp.WithDescription(text)` | the catalog description; without it, the first paragraph of the server's `instructions` on one line (empty until the first resolution connected; cut at the paragraph, at no length) |
 | `mcp.WithConnectTimeout(d)` | bounds one connect (10 seconds); a server that never answers makes the ToolSet unavailable for that Run only; callers waiting are bounded by their own context; `Close` does not wait |
 | `mcp.WithToolEffect(tool, effect)` | a per-tool Effect that replaces the annotations' |
-| `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless `list_changed` arrives; default 0 asks at every resolution |
+| `mcp.WithListCache(ttl)` | keep the tool list for `ttl` unless `list_changed` arrives or a new connection to the server opens (a change while no connection was open sent no `list_changed`); a failed listing keeps the change pending, so the next resolution lists again; default 0 asks at every resolution |
 | `mcp.WithClientInfo(name, version)` | what the client tells the server |
 | `(*ToolSet).Skipped()` | tools left out of the server's list (blank name; a name listed twice keeps the first) and why |
 | `(*ToolSet).Close()` | ends the connection and subprocess; the service closes it at shutdown, a Session never does |
