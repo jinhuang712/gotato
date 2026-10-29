@@ -8,3 +8,6 @@ var (
 	SlimSchema    = slimSchema
 	FirstText     = firstText
 )
+
+// ListGen is the count of changes that make a kept tool list stale.
+func (s *ToolSet) ListGen() uint64 { return s.gen.Load() }

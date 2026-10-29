@@ -1,8 +1,10 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -63,6 +65,167 @@ func TestListChangedIsSeenWhenTheCacheIsKept(t *testing.T) {
 				time.Sleep(20 * time.Millisecond)
 			}
 		})
+	}
+}
+
+// addLate adds the tool "late" to server and waits until the ToolSet has
+// counted the server's list_changed.
+func addLate(t *testing.T, server *sdk.Server, set *gmcp.ToolSet) {
+	t.Helper()
+	before := set.ListGen()
+	server.AddTool(&sdk.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return textResult("late"), nil
+		})
+	deadline := time.Now().Add(10 * time.Second)
+	for set.ListGen() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("list_changed never reached the ToolSet")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestAFailedListingKeepsListChanged(t *testing.T) {
+	t.Run("canceled", func(t *testing.T) {
+		server := newServer()
+		set := newSet(t, inMemory(t, server), gmcp.WithListCache(time.Hour))
+		toolIDs(set, t)
+		addLate(t, server, set)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := set.Tools(ctx); err == nil {
+			t.Fatal("a listing on a canceled context did not fail")
+		}
+		if !slices.Contains(toolIDs(set, t), "late") {
+			t.Fatal("after a failed listing the kept list was served, not the changed one")
+		}
+	})
+	t.Run("server error", func(t *testing.T) {
+		server := newServer()
+		var failNext atomic.Bool
+		handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+		httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				body, _ := io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				if bytes.Contains(body, []byte(`"tools/list"`)) && failNext.CompareAndSwap(true, false) {
+					http.Error(w, "upstream blip", http.StatusBadGateway)
+					return
+				}
+			}
+			handler.ServeHTTP(w, r)
+		}))
+		t.Cleanup(httpServer.Close)
+		set := newSet(t, gmcp.StreamableHTTP(httpServer.URL), gmcp.WithListCache(time.Hour))
+		toolIDs(set, t)
+		addLate(t, server, set)
+		failNext.Store(true)
+		if _, err := set.Tools(context.Background()); err == nil {
+			t.Fatal("a listing the server answered 502 did not fail")
+		}
+		if !slices.Contains(toolIDs(set, t), "late") {
+			t.Fatal("after a failed listing the kept list was served, not the changed one")
+		}
+	})
+}
+
+func TestASlowOlderListingDoesNotReplaceANewerList(t *testing.T) {
+	server := newServer()
+	var hold atomic.Bool
+	var lists atomic.Int32
+	held, release := make(chan struct{}), make(chan struct{})
+	// The held listing reads the server's tools first and answers later, so
+	// what it answers is older than a listing that starts after it.
+	server.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			if method != "tools/list" {
+				return next(ctx, method, req)
+			}
+			lists.Add(1)
+			result, err := next(ctx, method, req)
+			if hold.CompareAndSwap(true, false) {
+				close(held)
+				<-release
+			}
+			return result, err
+		}
+	})
+	set := newSet(t, inMemory(t, server), gmcp.WithListCache(time.Hour))
+	toolIDs(set, t)
+	server.AddTool(&sdk.Tool{Name: "early", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return textResult("early"), nil
+		})
+	hold.Store(true)
+	before := set.ListGen()
+	deadline := time.Now().Add(10 * time.Second)
+	for set.ListGen() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("list_changed never reached the ToolSet")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	slow := make(chan error, 1)
+	go func() {
+		_, err := set.Tools(context.Background())
+		slow <- err
+	}()
+	<-held
+	addLate(t, server, set)
+	if !slices.Contains(toolIDs(set, t), "late") {
+		t.Fatal("the listing after the change did not see it")
+	}
+	close(release)
+	if err := <-slow; err != nil {
+		t.Fatal(err)
+	}
+	want := lists.Load()
+	if !slices.Contains(toolIDs(set, t), "late") {
+		t.Fatal("the slow, older listing replaced the newer list")
+	}
+	if got := lists.Load(); got != want {
+		t.Fatalf("the newer list was not kept: %d listings, want %d", got, want)
+	}
+}
+
+func TestANewConnectionRefreshesAKeptList(t *testing.T) {
+	server := newServer()
+	set := newSet(t, inMemory(t, server), gmcp.WithListCache(time.Hour))
+	tools, err := set.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The server ends the connection, and changes its tools while none is
+	// open, so no list_changed reaches the ToolSet.
+	for session := range server.Sessions() {
+		_ = session.Close()
+	}
+	server.AddTool(&sdk.Tool{Name: "late", InputSchema: map[string]any{"type": "object"}},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return textResult("late"), nil
+		})
+	var echo gotato.Tool
+	for _, tool := range tools {
+		if tool.Spec().ID == "echo" {
+			echo = tool
+		}
+	}
+	// A call fails until the ToolSet sees the connection closed and drops
+	// it; the next connects again.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, err := echo.Execute(context.Background(), gotato.ToolUse{Arguments: []byte(`{}`)}, nil)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !slices.Contains(toolIDs(set, t), "late") {
+		t.Fatal("after a new connection the list kept from the old one was served")
 	}
 }
 

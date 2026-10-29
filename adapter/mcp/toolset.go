@@ -92,7 +92,8 @@ func WithToolEffect(tool string, effect gotato.ToolEffect) ToolSetOption {
 }
 
 // WithListCache keeps a tool list for ttl, so a Run that resolves the ToolSet
-// does not ask the server for it again unless the server sent list_changed.
+// does not ask the server for it again unless the server sent list_changed or
+// the ToolSet connected again since the list was read.
 // The default 0 asks the server at every resolution (one request per Run),
 // which sees a change even when the server cannot notify.
 func WithListCache(ttl time.Duration) ToolSetOption {
@@ -112,8 +113,9 @@ type ToolSet struct {
 	cfg       config
 	transport Transport
 	client    *sdk.Client
-	// changed is set by the server's list_changed and cleared by a listing.
-	changed atomic.Bool
+	// gen counts what makes a kept list stale: the server's list_changed, and
+	// every new connection, since a change while none was open sent nothing.
+	gen atomic.Uint64
 	// progress maps the progress token of a call in flight to the Tool's
 	// progress function; tokens counts them.
 	progress sync.Map
@@ -132,8 +134,10 @@ type ToolSet struct {
 	cacheMu  sync.Mutex
 	cached   []gotato.Tool
 	cachedAt time.Time
-	haveList bool
-	skipped  []SkippedTool
+	// cachedGen is the gen the kept list was read at.
+	cachedGen uint64
+	haveList  bool
+	skipped   []SkippedTool
 }
 
 // SkippedTool is a tool of the server that the ToolSet left out of its tools
@@ -182,7 +186,7 @@ func NewToolSet(name string, transport Transport, options ...ToolSetOption) (*To
 		}
 	}
 	s.client = sdk.NewClient(&sdk.Implementation{Name: s.cfg.clientName, Version: s.cfg.clientVer}, &sdk.ClientOptions{
-		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.changed.Store(true) },
+		ToolListChangedHandler: func(context.Context, *sdk.ToolListChangedRequest) { s.gen.Add(1) },
 		// A server that asks for input in the middle of a call gets no answer:
 		// there is no user and no model to ask. The SDK's automatic answer is
 		// off, and the call ends with a failed Tool Result (see Execute).
@@ -241,8 +245,9 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	if tools, ok := s.fromCache(); ok {
 		return tools, nil
 	}
-	s.changed.Store(false) // before listing, so a change during it is not lost
-	listed, err := s.list(ctx)
+	// A failed listing changes nothing, so a list_changed it followed still
+	// stands.
+	listed, gen, err := s.list(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -263,32 +268,37 @@ func (s *ToolSet) Tools(ctx context.Context) ([]gotato.Tool, error) {
 		tools = append(tools, newTool(s, t))
 	}
 	s.cacheMu.Lock()
-	s.cached, s.cachedAt, s.haveList, s.skipped = tools, time.Now(), true, skipped
+	// [CONCURRENCY] a slow listing that began before a change must not replace a list read after it.
+	if gen >= s.cachedGen {
+		s.cached, s.cachedAt, s.cachedGen, s.haveList, s.skipped = tools, time.Now(), gen, true, skipped
+	}
 	s.cacheMu.Unlock()
 	return slices.Clone(tools), nil
 }
 
 func (s *ToolSet) fromCache() ([]gotato.Tool, bool) {
-	if s.cfg.cacheTTL <= 0 || s.changed.Load() {
+	if s.cfg.cacheTTL <= 0 {
 		return nil, false
 	}
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	if !s.haveList || time.Since(s.cachedAt) >= s.cfg.cacheTTL {
+	if !s.haveList || s.cachedGen != s.gen.Load() || time.Since(s.cachedAt) >= s.cfg.cacheTTL {
 		return nil, false
 	}
 	return slices.Clone(s.cached), true
 }
 
-// list reads every page of the server's tools. A closed connection, or a
-// session the server forgot, is made again once, since listing changes
-// nothing.
-func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, error) {
+// list reads every page of the server's tools, and the gen they are at. A
+// closed connection, or a session the server forgot, is made again once,
+// since listing changes nothing.
+func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, uint64, error) {
 	for attempt := 0; ; attempt++ {
 		session, err := s.connect(ctx)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
+		// Read after the connect, which counts itself, so the first list is kept.
+		gen := s.gen.Load()
 		var tools []*sdk.Tool
 		var listErr error
 		for tool, err := range session.Tools(ctx, nil) {
@@ -299,11 +309,11 @@ func (s *ToolSet) list(ctx context.Context) ([]*sdk.Tool, error) {
 			tools = append(tools, tool)
 		}
 		if listErr == nil {
-			return tools, nil
+			return tools, gen, nil
 		}
 		s.drop(session, listErr)
 		if attempt > 0 || !gone(listErr) || ctx.Err() != nil {
-			return nil, fmt.Errorf("mcp %s: list tools: %w", s.name, listErr)
+			return nil, 0, fmt.Errorf("mcp %s: list tools: %w", s.name, listErr)
 		}
 	}
 }
@@ -365,6 +375,7 @@ func (s *ToolSet) connect(ctx context.Context) (*sdk.ClientSession, error) {
 		}
 		if attempt.err == nil {
 			s.session = attempt.session
+			s.gen.Add(1)
 		}
 		s.connMu.Unlock()
 		close(attempt.done)
