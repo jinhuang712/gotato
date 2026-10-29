@@ -255,7 +255,7 @@ func (s *Record) LoadedTools() []string {
 // SetLoadedTools replaces the Tools the Record holds as loaded with ids, in
 // that order, and records no Event: a compaction narrows them just before the
 // Checkpoint that keeps them, and emits a ToolUnloaded for each it drops. It
-// must not run while a Run is using the Record.
+// runs only on the Session goroutine, between Turns.
 func (s *Record) SetLoadedTools(ids []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

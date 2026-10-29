@@ -2,6 +2,7 @@ package gotato
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,44 @@ func TestFailingToolSourceKeepsTheLastSet(t *testing.T) {
 	}
 	if !failed {
 		t.Fatal("no extension_failed event for the ToolSource")
+	}
+}
+
+// A ToolSource that supplies an invalid Tool changes nothing the Session shows:
+// its Tools, its ToolSets and the catalog stay the same bytes.
+func TestAnInvalidToolFromASourceLeavesTheToolsAsTheyWere(t *testing.T) {
+	set, _ := ordersSet()
+	source := &dynamicSource{tools: []Tool{&docTool{id: "notes", effect: ToolEffectRead}}}
+	model := &recordingModel{scripts: [][]ModelEvent{
+		searchCall("s", map[string]any{"names": []string{"orders.lookup"}}),
+		finalScript("one"),
+		finalScript("two"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set), WithToolSource(source))
+	runCollecting(t, agent, "one")
+	snapshot := func() string {
+		encoded, err := json.Marshal(map[string]any{"tools": agent.Tools(), "toolsets": agent.ToolSets()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
+	before := snapshot()
+	for _, bad := range []Tool{&docTool{id: ""}, &docTool{id: SearchToolName}, &docTool{id: "orders.lookup"}} {
+		source.set(&docTool{id: "notes", effect: ToolEffectRead}, &docTool{id: "extra"}, bad)
+		if _, err := agent.InspectContext(context.Background()); err == nil {
+			t.Fatalf("InspectContext took the invalid Tool %q", bad.Spec().ID)
+		}
+		if after := snapshot(); after != before {
+			t.Fatalf("an invalid Tool %q changed the Session:\n%s\n%s", bad.Spec().ID, before, after)
+		}
+	}
+	runCollecting(t, agent, "two")
+	if after := snapshot(); after != before {
+		t.Fatalf("a Run with an invalid Tool changed the Session:\n%s\n%s", before, after)
+	}
+	if got := descriptionOf(model, 2, SearchToolName); got != descriptionOf(model, 0, SearchToolName) {
+		t.Fatalf("the catalog changed:\n%q\n%q", descriptionOf(model, 0, SearchToolName), got)
 	}
 }
 

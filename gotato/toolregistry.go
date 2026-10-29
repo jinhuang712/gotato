@@ -47,12 +47,14 @@ type toolRegistry struct {
 	kept map[string]bool
 	// maxEffect hides every Tool above it; ToolEffectUnspecified means no cap.
 	maxEffect ToolEffect
-	// mu guards sets, loaded, kept, specs, and byQualified. Callers
-	// that run on the Session goroutine hold the Session's registryMu, which
-	// is the lock ToolInspector.Tools reads under; mu is the inner lock. The
-	// one updater is the holder of the Session's admission token: it asks the
-	// host (ToolSources, ToolSets, the filter) with no lock held, and takes
-	// the locks only to swap in what it learned.
+	// mu guards sets, loaded, kept, specs, and byQualified. The only updater
+	// is the holder of the Session's admission token: it asks the host
+	// (ToolSources, ToolSets, the filter) with no lock held, takes in what it
+	// learned through intake, where every check lives, and takes the locks
+	// only to swap it in, which cannot fail. It holds the Session's
+	// registryMu, the lock ToolInspector.Tools reads under, around mu, the
+	// inner lock. Every reader on another goroutine, such as search_tools,
+	// takes mu.
 	mu sync.Mutex
 }
 
@@ -108,16 +110,12 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 	if registry.kept, err = registry.screen(registry.catalogIDs(results)); err != nil {
 		return nil, err
 	}
-	if err := registry.install(results); err != nil {
-		return nil, err
-	}
+	registry.install(results)
 	registry.fresh = true
 	if source, ok := cfg.transcript.(LoadedToolSource); ok {
 		registry.loaded = registry.known(source.LoadedTools())
 	}
-	if err := registry.rebuild(); err != nil {
-		return nil, err
-	}
+	registry.rebuild()
 	return registry, nil
 }
 
@@ -203,9 +201,10 @@ func (r *toolRegistry) refused(id string) bool {
 	return r.filter != nil && !r.kept[id]
 }
 
-// install replaces the catalog with what results resolved. The caller holds
-// mu, or is constructing.
-func (r *toolRegistry) install(results []setResult) error {
+// install replaces the catalog with what results resolved. A qualified ID is
+// unique: intake refuses a ToolSet that repeats a Tool ID, and a ToolSet's
+// name holds no dot. The caller holds mu, or is constructing.
+func (r *toolRegistry) install(results []setResult) {
 	for _, res := range results {
 		res.state.resolved, res.state.failure = res.tools, res.err
 	}
@@ -224,13 +223,8 @@ func (r *toolRegistry) install(results []setResult) error {
 	}
 	sort.SliceStable(r.catalog, func(i, j int) bool { return r.catalog[i].id < r.catalog[j].id })
 	for i := range r.catalog {
-		entry := &r.catalog[i]
-		if _, dup := r.byCatalog[entry.id]; dup {
-			return runtimeError(CodeInvalidArgument, "Tool", "duplicate qualified Tool ID: "+entry.id, nil)
-		}
-		r.byCatalog[entry.id] = entry
+		r.byCatalog[r.catalog[i].id] = &r.catalog[i]
 	}
-	return nil
 }
 
 // setReport is what a Run's start learned about the ToolSets.
@@ -248,14 +242,12 @@ type setReport struct {
 // without it is gone: it leaves the loaded Tools, and the caller stores a
 // tool_unloaded Event so the Record says so too. A loaded Tool of a ToolSet
 // that is unavailable is only hidden, since the ToolSet said nothing about it.
-func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source LoadedToolSource) (setReport, error) {
+func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source LoadedToolSource) setReport {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.kept = kept
 	if results != nil {
-		if err := r.install(results); err != nil {
-			return setReport{}, err
-		}
+		r.install(results)
 	}
 	recorded := slices.Concat(r.loaded, r.parked)
 	if source != nil {
@@ -285,13 +277,9 @@ func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source L
 			report.unavailable = append(report.unavailable, state.spec.Name)
 		}
 	}
-	previousLoaded, previousParked := r.loaded, r.parked
 	r.loaded, r.parked = r.known(recorded), parked
-	if err := r.rebuild(); err != nil {
-		r.loaded, r.parked = previousLoaded, previousParked
-		return setReport{}, err
-	}
-	return report, nil
+	r.rebuild()
+	return report
 }
 
 func (r *toolRegistry) setNamed(name string) *toolSetState {
@@ -319,21 +307,15 @@ func (r *toolRegistry) known(ids []string) []string {
 
 // syncLoaded sets the loaded Tools to ids, the Transcript's list after a
 // rewrite such as a compaction. A Tool installed active is never among them.
-func (r *toolRegistry) syncLoaded(ids []string) error {
+func (r *toolRegistry) syncLoaded(ids []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	next := r.known(ids)
 	if slices.Equal(next, r.loaded) {
-		return nil
+		return
 	}
-	previous := r.loaded
 	r.loaded = next
-	if err := r.rebuild(); err != nil {
-		r.loaded = previous
-		_ = r.rebuild()
-		return err
-	}
-	return nil
+	r.rebuild()
 }
 
 // hidden reports whether the Effect cap keeps a Tool from the Model.
@@ -359,37 +341,20 @@ func (r *toolRegistry) cappedEffect(id string) (ToolEffect, bool) {
 }
 
 // indexable reports whether the Model may find and load a catalog Tool: the
-// Effect cap and the filter come first, and a Tool whose ID a static Tool
-// already holds cannot be offered twice.
+// Effect cap and the filter decide. No static Tool holds a catalog Tool's ID,
+// since none may take a name under a ToolSet's namespace (rootName).
 func (r *toolRegistry) indexable(entry *catalogTool) bool {
-	if r.hidden(entry.spec) {
-		return false
-	}
-	if r.refused(entry.id) {
-		return false
-	}
-	return !r.staticHolds(entry.id)
-}
-
-func (r *toolRegistry) staticHolds(id string) bool {
-	for _, entry := range r.staticTools() {
-		if entry.spec.ID == id {
-			return true
-		}
-	}
-	return false
+	return !r.hidden(entry.spec) && !r.refused(entry.id)
 }
 
 // rebuild recomputes the visible Tool set. Ordering is deterministic: Tools
 // sort by qualified ID. A Tool above the Effect cap is left out entirely, so
-// it is neither offered nor resolvable by any name.
-func (r *toolRegistry) rebuild() error {
+// it is neither offered nor resolvable by any name. It cannot fail: intake
+// checked every Tool, and no two of them share an ID (rootName, install).
+func (r *toolRegistry) rebuild() {
 	byQualified := map[string]toolEntry{}
 	specs := make([]ToolSpec, 0, len(r.rootTools))
-	register := func(qualified string, tool Tool, spec ToolSpec) error {
-		if _, exists := byQualified[qualified]; exists {
-			return runtimeError(CodeInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
-		}
+	register := func(qualified string, tool Tool, spec ToolSpec) {
 		visible := cloneToolSpec(spec)
 		visible.ID = qualified
 		if visible.Name == "" {
@@ -397,15 +362,12 @@ func (r *toolRegistry) rebuild() error {
 		}
 		byQualified[qualified] = toolEntry{tool: tool, spec: visible}
 		specs = append(specs, visible)
-		return nil
 	}
 	for _, entry := range r.staticTools() {
 		if r.hidden(entry.spec) {
 			continue
 		}
-		if err := register(entry.spec.ID, entry.tool, entry.spec); err != nil {
-			return err
-		}
+		register(entry.spec.ID, entry.tool, entry.spec)
 	}
 	hasCatalog := false
 	for i := range r.catalog {
@@ -414,9 +376,7 @@ func (r *toolRegistry) rebuild() error {
 			if r.hidden(entry.spec) || r.refused(entry.id) {
 				continue
 			}
-			if err := register(entry.id, entry.tool, entry.spec); err != nil {
-				return err
-			}
+			register(entry.id, entry.tool, entry.spec)
 			continue
 		}
 		if !r.indexable(entry) {
@@ -424,16 +384,12 @@ func (r *toolRegistry) rebuild() error {
 		}
 		hasCatalog = true
 		if slices.Contains(r.loaded, entry.id) {
-			if err := register(entry.id, entry.tool, entry.spec); err != nil {
-				return err
-			}
+			register(entry.id, entry.tool, entry.spec)
 		}
 	}
 	if hasCatalog {
 		r.search.setDescription(r.catalogText())
-		if err := register(r.qualify("", SearchToolName), r.search, r.search.Spec()); err != nil {
-			return err
-		}
+		register(r.qualify("", SearchToolName), r.search, r.search.Spec())
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	r.byQualified = byQualified
@@ -453,7 +409,6 @@ func (r *toolRegistry) rebuild() error {
 			}
 		}
 	}
-	return nil
 }
 
 // staticTools is the root surface: Tools installed with WithTools(s) followed
@@ -518,19 +473,12 @@ func (r *toolRegistry) rootName(spec ToolSpec) error {
 }
 
 // refreshSources swaps in the Tools collectSources took in and the filter's
-// answer kept, and rebuilds visibility. On failure the previous surface stays
-// in place.
-func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool) error {
+// answer kept, and rebuilds visibility.
+func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	previous, previousKept := r.sourceTools, r.kept
 	r.sourceTools, r.kept = entries, kept
-	if err := r.rebuild(); err != nil {
-		r.sourceTools, r.kept = previous, previousKept
-		_ = r.rebuild()
-		return err
-	}
-	return nil
+	r.rebuild()
 }
 
 func (r *toolRegistry) qualify(namespace, local string) string {
@@ -591,13 +539,8 @@ func (r *toolRegistry) load(id string) bool {
 	if r.loadableLocked(id) != loadOK {
 		return false
 	}
-	previous := r.loaded
-	r.loaded = append(slices.Clone(previous), id)
-	if err := r.rebuild(); err != nil {
-		r.loaded = previous
-		_ = r.rebuild()
-		return false
-	}
+	r.loaded = append(slices.Clone(r.loaded), id)
+	r.rebuild()
 	return true
 }
 
@@ -669,7 +612,7 @@ func (r *toolRegistry) toolSetStatus() []ToolSetStatus {
 		status := ToolSetStatus{Name: state.spec.Name, Description: state.spec.Description, Unavailable: state.failure != nil}
 		for i := range r.catalog {
 			entry := &r.catalog[i]
-			if entry.set != state || r.hidden(entry.spec) || r.staticHolds(entry.id) {
+			if entry.set != state || r.hidden(entry.spec) {
 				continue
 			}
 			loaded := (state.mode == modeActive || slices.Contains(r.loaded, entry.id))

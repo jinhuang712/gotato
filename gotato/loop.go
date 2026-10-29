@@ -182,9 +182,7 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			if err := a.measureTranscript(); err != nil {
 				return Message{}, Usage{}, nil, asRuntimeError(err)
 			}
-			if err := a.syncLoadedTools(); err != nil {
-				return Message{}, Usage{}, nil, asRuntimeError(err)
-			}
+			a.syncLoadedTools()
 			if err := a.refreshToolsInRun(runCtx); err != nil {
 				return Message{}, Usage{}, nil, err
 			}
