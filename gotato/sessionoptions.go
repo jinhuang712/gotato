@@ -230,9 +230,11 @@ func withToolSet(set ToolSet, mode installMode) SessionOption {
 // WithToolFilter has the Session ask keep for the qualified ID of every Tool of
 // a ToolSet before it indexes, lists or offers it. A Tool keep refuses is never
 // in the catalog, never found by a search and never loaded, so a Session can
-// switch a Tool off and the Model cannot search its way past it. keep runs on
-// every rebuild of the Tool list, so it must be quick and safe to call from
-// several goroutines.
+// switch a Tool off and the Model cannot search its way past it. keep is asked
+// when the Tools are resolved, with no lock held: at NewSession, at the start
+// of every Run, and at every Turn of a Session with a ToolSource. It must be
+// quick and safe to call from several goroutines. A keep that panics fails
+// NewSession or the Run with CodeExtensionFailure.
 func WithToolFilter(keep func(toolID string) bool) SessionOption {
 	return func(c *sessionConfig) error {
 		c.toolFilter = keep

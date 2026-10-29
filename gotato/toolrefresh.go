@@ -32,9 +32,13 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 	if err != nil {
 		return asRuntimeError(err)
 	}
+	kept, err := a.registry.screen(a.registry.catalogIDs(results))
+	if err != nil {
+		return asRuntimeError(err)
+	}
 	source, _ := a.transcript.(LoadedToolSource)
 	a.registryMu.Lock()
-	report, err := a.registry.apply(results, source)
+	report, err := a.registry.apply(results, kept, source)
 	a.registryMu.Unlock()
 	if err != nil {
 		return asRuntimeError(err)
@@ -48,28 +52,42 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 	return nil
 }
 
-// refreshTools re-reads every ToolSource. Static Tools and ToolSets are
-// untouched; only the dynamic part of the registry is rebuilt.
-func (a *Session) refreshTools(ctx context.Context) error {
+// refreshTools re-reads every ToolSource and asks the filter again, with no
+// lock held, then swaps both in. Static Tools and ToolSets are untouched; only
+// the dynamic part of the registry is rebuilt. sourceErr is a failure of the
+// ToolSources, which leaves the last set in place; filterErr is a failure of
+// the filter.
+func (a *Session) refreshTools(ctx context.Context) (sourceErr, filterErr error) {
 	if !a.registry.hasSources() {
-		return nil
+		return nil, nil
+	}
+	entries, err := a.registry.collectSources(ctx)
+	if err != nil {
+		return err, nil
+	}
+	kept, err := a.registry.screen(a.registry.catalogIDs(nil))
+	if err != nil {
+		return nil, err
 	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
-	return a.registry.refreshSources(ctx)
+	return a.registry.refreshSources(entries, kept), nil
 }
 
 // refreshToolsInRun is refreshTools for a Run: a ToolSource that fails leaves
 // the last set in place and stores an ExtensionFailed Event, as a failing
-// ToolSet does. Only a ctx that ended fails the Run.
+// ToolSet does. Only a ctx that ended, or a filter that failed, fails the Run.
 func (a *Session) refreshToolsInRun(ctx context.Context) *RuntimeError {
-	err := a.refreshTools(ctx)
-	if err == nil {
+	sourceErr, filterErr := a.refreshTools(ctx)
+	if filterErr != nil {
+		return asRuntimeError(filterErr)
+	}
+	if sourceErr == nil {
 		return nil
 	}
 	if failure := contextFailure(ctx, "ToolSource"); failure != nil {
 		return failure
 	}
-	a.stage(ExtensionFailed{Header: a.nowHeader(), Stage: "toolsource", Code: asRuntimeError(err).Code})
+	a.stage(ExtensionFailed{Header: a.nowHeader(), Stage: "toolsource", Code: asRuntimeError(sourceErr).Code})
 	return nil
 }

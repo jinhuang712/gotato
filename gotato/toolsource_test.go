@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type dynamicSource struct {
@@ -177,5 +179,81 @@ func TestAToolSourceToolWhoseSpecPanicsKeepsTheLastSet(t *testing.T) {
 	}
 	if !failed {
 		t.Fatal("no extension_failed event for the ToolSource")
+	}
+}
+
+// slowToolSource blocks in Tools, once armed, until it is released.
+type slowToolSource struct {
+	armed   atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *slowToolSource) Tools(ctx context.Context) ([]Tool, error) {
+	if s.armed.Load() {
+		close(s.entered)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return []Tool{&scriptedTool{}}, nil
+}
+
+// A ToolSource is asked outside the registry locks, so a slow one does not
+// hold a reader of the Tool list.
+func TestASlowToolSourceDoesNotBlockTools(t *testing.T) {
+	source := &slowToolSource{entered: make(chan struct{}), release: make(chan struct{})}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
+	session, err := NewSession(context.Background(), WithModel(model), WithToolSource(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(source.release) }) }
+	defer release()
+	source.armed.Store(true)
+	done := make(chan error, 1)
+	go func() {
+		_, err := session.Prompt(context.Background(), UserMessage("go"))
+		done <- err
+	}()
+	<-source.entered
+	listed := make(chan []ToolSpec, 1)
+	go func() { listed <- session.Tools() }()
+	select {
+	case got := <-listed:
+		if len(got) != 1 || got[0].ID != "demo.echo" {
+			t.Fatalf("Tools = %+v, want the last set", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Tools waited for a ToolSource")
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A WithToolFilter keep that panics fails the Run with a code, not the process.
+func TestAToolFilterThatPanicsFailsTheRun(t *testing.T) {
+	var broken atomic.Bool
+	set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
+	session, err := NewSession(context.Background(), WithModel(model), WithToolSet(set), WithToolFilter(func(string) bool {
+		if broken.Load() {
+			panic("broken filter")
+		}
+		return true
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	broken.Store(true)
+	if _, err := session.Prompt(context.Background(), UserMessage("go")); !IsCode(err, CodeExtensionFailure) {
+		t.Fatalf("err = %v, want extension_failure", err)
 	}
 }

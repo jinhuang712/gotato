@@ -54,11 +54,17 @@ type toolRegistry struct {
 	search   *searchTool
 	searcher ToolSearcher
 	filter   func(string) bool
+	// kept is the filter's answer for every catalog Tool ID, asked outside
+	// the locks when the catalog or the root surface is resolved (screen).
+	kept map[string]bool
 	// maxEffect hides every Tool above it; ToolEffectUnspecified means no cap.
 	maxEffect ToolEffect
-	// mu guards sets, pending, loaded, specs, and byQualified. Callers that
-	// run on the Session goroutine hold the Session's registryMu, which is the
-	// lock ToolInspector.Tools reads under; mu is the inner lock.
+	// mu guards sets, pending, loaded, kept, specs, and byQualified. Callers
+	// that run on the Session goroutine hold the Session's registryMu, which
+	// is the lock ToolInspector.Tools reads under; mu is the inner lock. The
+	// one updater is the holder of the Session's admission token: it asks the
+	// host (ToolSources, ToolSets, the filter) with no lock held, and takes
+	// the locks only to swap in what it learned.
 	mu sync.Mutex
 }
 
@@ -79,7 +85,7 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		registry.searcher = bm25Searcher{}
 	}
 	registry.search = &searchTool{registry: registry}
-	if err := registry.collectSources(ctx); err != nil {
+	if registry.sourceTools, err = registry.collectSources(ctx); err != nil {
 		return nil, err
 	}
 	names := map[string]bool{}
@@ -108,6 +114,9 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 	// not fatal: the Session starts and its other Tools work.
 	results, err := registry.resolveAll(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if registry.kept, err = registry.screen(registry.catalogIDs(results)); err != nil {
 		return nil, err
 	}
 	if err := registry.install(results); err != nil {
@@ -161,6 +170,50 @@ func (r *toolRegistry) resolveAll(ctx context.Context) ([]setResult, error) {
 	return results, nil
 }
 
+// catalogIDs lists the qualified IDs of the catalog that results resolve, or
+// of the catalog as it is when results is nil. Only the updater calls it.
+func (r *toolRegistry) catalogIDs(results []setResult) []string {
+	if results == nil {
+		ids := make([]string, 0, len(r.catalog))
+		for i := range r.catalog {
+			ids = append(ids, r.catalog[i].id)
+		}
+		return ids
+	}
+	var ids []string
+	for _, res := range results {
+		for _, entry := range res.tools {
+			ids = append(ids, r.qualify(res.state.spec.Name, entry.spec.ID))
+		}
+	}
+	return ids
+}
+
+// screen asks the WithToolFilter keep about every ID, with no lock held. A
+// Session without a filter keeps every Tool, and screen returns nil.
+func (r *toolRegistry) screen(ids []string) (map[string]bool, error) {
+	if r.filter == nil {
+		return nil, nil
+	}
+	kept := make(map[string]bool, len(ids))
+	err := callHost("WithToolFilter", func() error {
+		for _, id := range ids {
+			kept[id] = r.filter(id)
+		}
+		return nil
+	})
+	// [FAILURE-CLASS] a filter that panics fails the Run, loudly, rather than change the Tool surface unseen.
+	if err != nil {
+		return nil, runtimeError(CodeExtensionFailure, "WithToolFilter", PublicText(err, "WithToolFilter failed"), err)
+	}
+	return kept, nil
+}
+
+// refused reports whether the filter switched the catalog Tool id off.
+func (r *toolRegistry) refused(id string) bool {
+	return r.filter != nil && !r.kept[id]
+}
+
 // install replaces the catalog with what results resolved. The caller holds
 // mu, or is constructing.
 func (r *toolRegistry) install(results []setResult) error {
@@ -199,16 +252,17 @@ type setReport struct {
 	gone []string
 }
 
-// apply installs a resolution (nil results keep the catalog as it is), then
-// settles the loaded Tools against it. recorded is the loaded list the Session
+// apply installs a resolution (nil results keep the catalog as it is) and
+// the filter's answer kept for it, then settles the loaded Tools against it. recorded is the loaded list the Session
 // remembers: the Transcript's when it is a LoadedToolSource, so every
 // instance decides from the Record. A loaded Tool whose ToolSet answered
 // without it is gone: it leaves the loaded Tools, and the caller stores a
 // tool_unloaded Event so the Record says so too. A loaded Tool of a ToolSet
 // that is unavailable is only hidden, since the ToolSet said nothing about it.
-func (r *toolRegistry) apply(results []setResult, source LoadedToolSource) (setReport, error) {
+func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source LoadedToolSource) (setReport, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.kept = kept
 	if results != nil {
 		if err := r.install(results); err != nil {
 			return setReport{}, err
@@ -322,7 +376,7 @@ func (r *toolRegistry) indexable(entry *catalogTool) bool {
 	if r.hidden(entry.spec) {
 		return false
 	}
-	if r.filter != nil && !r.filter(entry.id) {
+	if r.refused(entry.id) {
 		return false
 	}
 	return !r.staticHolds(entry.id)
@@ -368,7 +422,7 @@ func (r *toolRegistry) rebuild() error {
 	for i := range r.catalog {
 		entry := &r.catalog[i]
 		if entry.set.mode == modeActive {
-			if r.hidden(entry.spec) || (r.filter != nil && !r.filter(entry.id)) {
+			if r.hidden(entry.spec) || r.refused(entry.id) {
 				continue
 			}
 			if err := register(entry.id, entry.tool, entry.spec); err != nil {
@@ -424,44 +478,47 @@ func (r *toolRegistry) staticTools() []toolEntry {
 
 func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 
-// collectSources asks every ToolSource for its Tools. A failure, a panic or a
-// bad Tool of any ToolSource fails them all together, as one source.
-func (r *toolRegistry) collectSources(ctx context.Context) error {
-	var tools []Tool
-	for _, source := range r.sources {
-		var supplied []Tool
-		sourceErr := callHost("ToolSource", func() (failure error) {
-			supplied, failure = source.Tools(ctx)
-			return failure
-		})
-		if sourceErr != nil {
-			if failure := contextFailure(ctx, "ToolSource"); failure != nil {
+// collectSources asks every ToolSource for its Tools and takes them in. A
+// failure, a panic or a bad Tool of any ToolSource fails them all together, as
+// one source. It asks them concurrently and takes no lock, as resolveAll does:
+// a ToolSource may be slow. The Tools keep the order of the ToolSources.
+func (r *toolRegistry) collectSources(ctx context.Context) ([]toolEntry, error) {
+	supplied := make([][]Tool, len(r.sources))
+	failures := make([]error, len(r.sources))
+	var wg sync.WaitGroup
+	for i, source := range r.sources {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			failures[i] = callHost("ToolSource", func() (failure error) {
+				supplied[i], failure = source.Tools(ctx)
 				return failure
-			}
-			return runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
+			})
+		}()
+	}
+	wg.Wait()
+	for _, sourceErr := range failures {
+		if sourceErr == nil {
+			continue
 		}
-		tools = append(tools, supplied...)
+		if failure := contextFailure(ctx, "ToolSource"); failure != nil {
+			return nil, failure
+		}
+		return nil, runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
 	}
-	entries, err := intake("ToolSource", tools, r.rootTools)
-	if err != nil {
-		return err
-	}
-	r.sourceTools = entries
-	return nil
+	return intake("ToolSource", slices.Concat(supplied...), r.rootTools)
 }
 
-// refreshSources re-collects the dynamic Tools and rebuilds visibility. On
-// failure the previous surface stays in place.
-func (r *toolRegistry) refreshSources(ctx context.Context) error {
+// refreshSources swaps in the Tools collectSources took in and the filter's
+// answer kept, and rebuilds visibility. On failure the previous surface stays
+// in place.
+func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	previous := r.sourceTools
-	if err := r.collectSources(ctx); err != nil {
-		r.sourceTools = previous
-		return err
-	}
+	previous, previousKept := r.sourceTools, r.kept
+	r.sourceTools, r.kept = entries, kept
 	if err := r.rebuild(); err != nil {
-		r.sourceTools = previous
+		r.sourceTools, r.kept = previous, previousKept
 		_ = r.rebuild()
 		return err
 	}
