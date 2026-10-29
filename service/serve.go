@@ -132,6 +132,7 @@ func (st *runState) serveLocked(ctx, runCtx context.Context) error {
 	}
 	var result gotato.RunResult
 	result, st.runErr = st.promptWithDeadline(ctx, spec, live)
+	st.dropUntakenFollow(live, result)
 	st.detach(runCtx, live)
 	if r.beforeRelease != nil {
 		r.beforeRelease()
@@ -249,6 +250,24 @@ func (st *runState) cleanupUnstarted(ctx context.Context, lockErr error) error {
 		lockErr = errors.Join(lockErr, fmt.Errorf("service: cleanup of session %s failed: %w", st.sessionID, deleteErr))
 	}
 	return lockErr
+}
+
+// dropUntakenFollow reports the first message of a following Run as dropped
+// when the Run ended without committing it as its prompt (it failed before
+// that, as a Session at its message limit does): its message_queued is in the
+// Record, and no one else would close it.
+// [DATA-LOSS] a message reported queued must end committed or dropped, and the Run that never committed it does not drop it.
+func (st *runState) dropUntakenFollow(live *gotato.Session, result gotato.RunResult) {
+	if st.follow == nil || (st.runErr == nil && result.Status == gotato.RunStatusCompleted) {
+		return
+	}
+	first := st.follow.first
+	for _, message := range live.Transcript().Messages() {
+		if message.ID == first.Message.ID {
+			return
+		}
+	}
+	live.DropQueued([]gotato.Queued{first}, "run_failed")
 }
 
 // dropFollow reports the messages a following Run was to take as dropped, with

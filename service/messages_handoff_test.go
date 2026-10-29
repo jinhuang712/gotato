@@ -26,9 +26,15 @@ type handoffRig struct {
 // and returns when it has settled and is held.
 func startHeld(t *testing.T) *handoffRig {
 	t.Helper()
+	return startHeldAgent(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}})
+}
+
+// startHeldAgent is startHeld for the Agent "echo" as given.
+func startHeldAgent(t *testing.T, agent service.Agent) *handoffRig {
+	t.Helper()
 	runner, err := service.New(service.Config{
 		Store:  session.NewMemoryStore(),
-		Agents: []service.Agent{{Name: "echo", Model: testkit.EchoModel{}}},
+		Agents: []service.Agent{agent},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -329,6 +335,49 @@ func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
 	}
 	if got := transcriptOf(t, rig.runner, rig.id); !equal(got, []string{"user:hello", "assistant:echo: hello"}) {
 		t.Fatalf("transcript = %v", got)
+	}
+}
+
+// A following Run whose first message cannot be committed (the Session is at
+// its message limit) ends without taking it: the message is reported dropped,
+// so its message_queued is closed in the Record.
+func TestAFollowingRunThatCannotCommitItsFirstMessageDropsIt(t *testing.T) {
+	rig := startHeldAgent(t, service.Agent{Name: "echo", Model: testkit.EchoModel{}, Limits: &gotato.CoreLimits{MaxMessages: 2}})
+	id := rig.send(t, service.MessageKindSteer, "late")
+	rig.release(t)
+	rig.waitRuns(t, 2)
+
+	// The following Run saves after it ends, so the Record is read until the
+	// drop is in it.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		events, err := rig.runner.Events(context.Background(), rig.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Every message_queued is closed once, by a commit or a drop.
+		open := map[gotato.MessageID]int{}
+		why := map[gotato.MessageID]string{}
+		for _, event := range events {
+			switch e := event.(type) {
+			case gotato.MessageQueued:
+				open[e.MessageID]++
+			case gotato.MessageCommitted:
+				if open[e.Message.ID] > 0 {
+					open[e.Message.ID]--
+				}
+			case gotato.MessageDropped:
+				open[e.MessageID]--
+				why[e.MessageID] = e.Why
+			}
+		}
+		if open[id] == 0 && why[id] == "run_failed" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("message %s: open count %d, dropped for %q; want closed by a run_failed drop", id, open[id], why[id])
+		}
+		runtime.Gosched()
 	}
 }
 
