@@ -2,10 +2,10 @@ package gateway
 
 import (
 	"go/ast"
-	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -33,6 +33,15 @@ func protocolOf(file string) string {
 // TestProtocolSiblings, and so does an entry that no longer exists.
 var knownEdges = map[string]string{}
 
+// emptyImporter resolves every import to an empty, complete package.
+type emptyImporter struct{}
+
+func (emptyImporter) Import(p string) (*types.Package, error) {
+	pkg := types.NewPackage(p, path.Base(p))
+	pkg.MarkComplete()
+	return pkg, nil
+}
+
 // TestProtocolSiblings enforces that the chat, responses and anthropic files
 // never use each other's declarations.
 func TestProtocolSiblings(t *testing.T) {
@@ -53,11 +62,14 @@ func TestProtocolSiblings(t *testing.T) {
 		files = append(files, f)
 	}
 	info := &types.Info{Uses: map[*ast.Ident]types.Object{}}
-	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-	pkg, err := conf.Check("gateway", fset, files, info)
-	if err != nil {
-		t.Fatal(err)
+	// Imports resolve to empty packages and their errors are ignored: a use of
+	// a declaration of this package does not need the standard library, and
+	// type-checking it from source costs seconds.
+	conf := types.Config{
+		Importer: emptyImporter{},
+		Error:    func(error) {},
 	}
+	pkg, _ := conf.Check("gateway", fset, files, info)
 
 	seen := map[string]bool{}
 	for id, obj := range info.Uses {
