@@ -522,6 +522,26 @@ func TestATurnThatMergedIsNotCompactedAgainOnAnOverflow(t *testing.T) {
 	}
 }
 
+// A merge at a Run's start that finds nothing to merge (one Segment past its
+// budget) starts no compaction, so it does not use the Turn's: an overflow
+// after it still compacts and the call is sent again.
+func TestAnOverflowAfterANoOpMergeStillCompacts(t *testing.T) {
+	l := segmented(t, 1, func(tokens int) modelctx.CompactPolicy {
+		return modelctx.CompactPolicy{SegmentBudgetTokens: tokens - 100}
+	})
+	for i := range 3 {
+		l.must(testkit.NewFakeModel(answering(strings.Repeat("y", 800))), fmt.Sprintf("later %d %s", i, strings.Repeat("x", 800)))
+	}
+	model := &stepModel{steps: []any{refusal{}, answering("fits now")}}
+	result, err := l.run(model, "next", "ok")
+	if err != nil || result.Status != gotato.RunStatusCompleted || model.calls() != 2 {
+		t.Fatalf("result = %+v, err = %v, %d calls", result, err, model.calls())
+	}
+	if got := whyOf(l.writer.Record()); len(got) < 2 || got[1] != gotato.CompactionWhyOverflow {
+		t.Fatalf("compactions = %v, want the closing and then an overflow", got)
+	}
+}
+
 func thinking(label string) gotato.ContentPart {
 	return gotato.ContentPart{Kind: gotato.ContentKindReasoning, Text: "think-" + label, Signature: []byte(`{"type":"thinking","signature":"sig-` + label + `"}`)}
 }

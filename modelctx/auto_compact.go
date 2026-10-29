@@ -15,8 +15,9 @@ import (
 //
 // Before every model call it compacts the Session when its size is past the
 // ceiling (why: past_ceiling), and when the provider refused the request as too
-// long (why: overflow). A Turn compacts at most once, whatever the trigger. A
-// Turn that is still past the ceiling after it ends the Run with
+// long (why: overflow). A Turn compacts at most once, whatever the trigger:
+// once a compaction or a merge has started in it, even one that was dropped.
+// A Turn that is still past the ceiling after it ends the Run with
 // an error of CodeLimitExceeded; a Turn whose request is still refused ends
 // it with CodeContextOverflow.
 type AutoCompactor struct {
@@ -24,9 +25,12 @@ type AutoCompactor struct {
 	policy  CompactPolicy
 	last    Result
 	runs    int
-	// turn is the Turn that has compacted, if any.
-	turn      turnKey
-	compacted bool
+	// turn is the Turn being prepared.
+	turn turnKey
+	// started says a compaction or a merge started in turn (it emitted
+	// compaction_started), whether or not it was written. A check that found
+	// nothing to close or merge did not start one.
+	started bool
 }
 
 type turnKey struct {
@@ -52,11 +56,11 @@ func (a *AutoCompactor) PrepareTurn(ctx context.Context, pending gotato.PendingT
 		return gotato.TurnPrepared{}, err
 	}
 	if key := (turnKey{pending.RunID, pending.Turn}); key != a.turn {
-		a.turn, a.compacted = key, false
+		a.turn, a.started = key, false
 	}
 	if pending.Overflow {
-		if a.compacted {
-			// The Turn compacted already: the refusal stands.
+		if a.started {
+			// [CONTRACT] a Turn compacts at most once (specs/compaction.md): the refusal stands.
 			return gotato.TurnPrepared{}, nil
 		}
 		prepared, _, err := a.compact(ctx, pending, gotato.CompactionWhyOverflow)
@@ -101,7 +105,6 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 			return prepared, false, err
 		}
 	}
-	a.compacted = true
 	options := compactCall{
 		CompactConfig: CompactConfig{CompactPolicy: a.policy},
 		why:           why, keepLastTurn: true, run: pending.RunID,
@@ -124,6 +127,9 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 	}
 	options.SegmentBudgetTokens = budget
 	result, err := runCompact(ctx, a.session, options)
+	// A compaction that was dropped counts as the Turn's; one that found
+	// nothing to close does not.
+	a.started = err != nil || result.Replaced
 	if err != nil {
 		if ctx.Err() != nil {
 			return prepared, false, err
@@ -141,6 +147,7 @@ func (a *AutoCompactor) compact(ctx context.Context, pending gotato.PendingTurn,
 		merged, err := mergeOldest(ctx, a.session, MergeConfig{
 			BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 		})
+		a.started = a.started || merged.Merged || merged.Error != ""
 		if err != nil {
 			return prepared, false, err
 		}
@@ -172,10 +179,11 @@ func (a *AutoCompactor) mergeOnly(ctx context.Context, pending gotato.PendingTur
 			return gotato.TurnPrepared{}, err
 		}
 	}
-	a.compacted = true
 	merge, err := mergeOldest(ctx, a.session, MergeConfig{
 		BudgetTokens: budget, CeilingTokens: a.CeilingTokens(), Recap: a.policy.Recap, Why: why, Location: a.policy.Location,
 	})
+	// A merge that found nothing to merge did not start one.
+	a.started = merge.Merged || merge.Error != ""
 	return gotato.TurnPrepared{Changed: merge.Merged}, err
 }
 

@@ -82,7 +82,7 @@ ceiling┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ �
        │   ✕ overflow: the provider refused the request as too long, at any size
 ```
 
-The first three compact on purpose: when the size crosses the ceiling, when an idle Session is about to lose its cache, and when the service asks. Compacting before the cache expires makes the first request after a pause small and cheap. An overflow is different: it is the provider saying no, so it can happen below the ceiling when our size estimate was low. A Turn compacts at most once, so if the retry is refused again the Run ends instead of looping.
+The first three compact on purpose: when the size crosses the ceiling, when an idle Session is about to lose its cache, and when the service asks. Compacting before the cache expires makes the first request after a pause small and cheap. An overflow is different: it is the provider saying no, so it can happen below the ceiling when our size estimate was low. A Turn compacts at most once, so if the retry is refused again the Run ends instead of looping. What counts is a compaction or a merge that started (it emitted `compaction_started`), even one that was dropped; a check that found nothing to close or merge does not count.
 
 ## When it fails
 
