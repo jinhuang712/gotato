@@ -147,12 +147,16 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 	// build makes the request of this Turn from the Transcript as it
 	// stands. A TurnPreparer that rewrote the Transcript has it built again.
 	build := func() (turnBuild, *RuntimeError) {
+		messages, failure := a.transcriptMessages()
+		if failure != nil {
+			return turnBuild{}, failure
+		}
 		snapshot := ContextSnapshot{
 			SessionID:          a.id,
 			RunID:              runID,
 			Turn:               turn,
 			SystemInstructions: a.instruction,
-			Messages:           cloneMessages(a.transcript.Messages()),
+			Messages:           cloneMessages(messages),
 		}
 		built, request, prefix, err := a.assembleTurn(runCtx, snapshot)
 		return turnBuild{snapshot: snapshot, built: built, request: request, prefix: prefix}, err
@@ -182,7 +186,9 @@ func (st *runState) callModel(turn TurnNumber, runStart int) (assistant Message,
 			if err := a.measureTranscript(); err != nil {
 				return Message{}, Usage{}, nil, asRuntimeError(err)
 			}
-			a.syncLoadedTools()
+			if err := a.syncLoadedTools(); err != nil {
+				return Message{}, Usage{}, nil, asRuntimeError(err)
+			}
 			if err := a.refreshToolsInRun(runCtx); err != nil {
 				return Message{}, Usage{}, nil, err
 			}
@@ -372,15 +378,21 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	runID, endRun := a.beginRun(cancel)
+	runID, endRun, startFailure := a.beginRun(cancel)
 	defer endRun()
 
 	st := &runState{a: a, ctx: ctx, runCtx: runCtx, runID: runID, started: time.Now()}
 	a.stage(RunStarted{Header: st.header(0), RequestID: a.requestID})
+	if startFailure != nil {
+		return st.fail(startFailure)
+	}
 	if err := a.refreshToolSets(runCtx, st.header(0)); err != nil {
 		return st.fail(err)
 	}
-	runStart := a.transcript.Len()
+	runStart, failure := a.transcriptLen()
+	if failure != nil {
+		return st.fail(failure)
+	}
 	if err := a.measureTranscript(); err != nil {
 		return st.fail(asRuntimeError(err))
 	}
@@ -397,8 +409,10 @@ func (a *Session) executeRun(ctx context.Context, prompt *Message) (RunResult, e
 }
 
 // beginRun registers a new Run, whose Abort is cancel, and returns its ID and
-// the function that unregisters it when the Run is over.
-func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
+// the function that unregisters it when the Run is over. failure is a panic in
+// the host's WithRunStart function, which fails the Run once RunStarted is
+// stored.
+func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func(), *RuntimeError) {
 	runID := RunID(nextID("run"))
 	a.runMu.Lock()
 	a.currentRunID = runID
@@ -409,8 +423,12 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 	a.currentRunStop = cancel
 	a.runMu.Unlock()
 	a.inRun.Store(true)
+	var failure *RuntimeError
 	if a.onRunStart != nil {
-		a.onRunStart(runID)
+		// [LIVENESS] a panic in the host's WithRunStart function fails this Run, not the process.
+		if err := callHost("WithRunStart", func() error { a.onRunStart(runID); return nil }); err != nil {
+			failure = runtimeError(CodeExtensionFailure, "WithRunStart", PublicText(err, "WithRunStart failed"), err)
+		}
 	}
 	return runID, func() {
 		a.inRun.Store(false)
@@ -423,7 +441,7 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 			a.currentRunStop = nil
 		}
 		a.runMu.Unlock()
-	}
+	}, failure
 }
 
 // commitPrompt commits the Prompt's user Message as the Run's first.

@@ -48,7 +48,11 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	if err != nil {
 		return runtimeError(CodeInternalInvariant, "commitMessage", "cannot encode Message", err)
 	}
-	if enforce && limitExceededUint32(a.limits.MaxMessages, uint32(a.transcript.Len()+1)) {
+	length, failure := a.transcriptLen()
+	if failure != nil {
+		return failure
+	}
+	if enforce && limitExceededUint32(a.limits.MaxMessages, uint32(length+1)) {
 		return runtimeError(CodeLimitExceeded, "commitMessage", "maximum Messages exceeded", nil)
 	}
 	if enforce && limitExceededUint64(a.limits.MaxMessageBytes, uint64(len(bytes))) {
@@ -59,7 +63,7 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 	// The transcript bound is tracked incrementally: one JSON array of n
 	// elements costs the elements plus n-1 separators and two brackets.
 	candidate := a.transcriptBytes + uint64(len(bytes))
-	if a.transcript.Len() > 0 {
+	if length > 0 {
 		candidate++
 	}
 	if enforce && limitExceededUint64(a.limits.MaxTranscriptBytes, candidate+2) {
@@ -76,7 +80,10 @@ func (a *Session) appendMessage(message Message, enforce bool) error {
 // externally mutated Transcript (a compacted or reloaded Session) is bounded
 // correctly without re-encoding on every commit.
 func (a *Session) measureTranscript() error {
-	messages := a.transcript.Messages()
+	messages, failure := a.transcriptMessages()
+	if failure != nil {
+		return failure
+	}
 	if len(messages) == 0 {
 		a.transcriptBytes = 0
 		return nil
@@ -111,6 +118,29 @@ func (a *Session) controlSizeError(message Message, operation string) error {
 	e := runtimeError(CodeLimitExceeded, operation, operation+" message is over the maximum Message bytes", nil)
 	e.Details = map[string]string{"limit": limitMessageBytes}
 	return e
+}
+
+// transcriptCall runs one read of the Transcript (or a method it has beside
+// Append); a panic in it fails the Run, with a code.
+// [LIVENESS] a panic in the host's Transcript would end the Session goroutine and the process instead of failing the Run.
+func transcriptCall(call func()) *RuntimeError {
+	err := callHost("Transcript", func() error { call(); return nil })
+	if err == nil {
+		return nil
+	}
+	return runtimeError(CodeInternalInvariant, "Transcript", PublicText(err, "Transcript failed"), err)
+}
+
+// transcriptLen is the Transcript's Len, guarded.
+func (a *Session) transcriptLen() (n int, failure *RuntimeError) {
+	failure = transcriptCall(func() { n = a.transcript.Len() })
+	return n, failure
+}
+
+// transcriptMessages is the Transcript's Messages, guarded.
+func (a *Session) transcriptMessages() (messages []Message, failure *RuntimeError) {
+	failure = transcriptCall(func() { messages = a.transcript.Messages() })
+	return messages, failure
 }
 
 // appendTranscript appends to the Transcript; a panic in it is an error.

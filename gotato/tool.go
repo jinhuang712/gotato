@@ -48,11 +48,16 @@ type PublicError interface {
 // error takes its Message from here.
 // [SECURITY] a foreign error can carry a host, a query or a secret that a client must not read.
 func PublicText(err error, fallback string) string {
-	var public PublicError
-	if errors.As(err, &public) {
-		return public.Public()
-	}
-	return fallback
+	text := fallback
+	// [LIVENESS] a Public method that panics gives the fallback; this runs on worker and Session goroutines, and a panic there would end the process.
+	_ = callHost("PublicError", func() error {
+		var public PublicError
+		if errors.As(err, &public) {
+			text = public.Public()
+		}
+		return nil
+	})
+	return text
 }
 
 // ToolSpec describes a Tool to the Model and to the Session. ID is the Tool's

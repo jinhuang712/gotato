@@ -205,8 +205,9 @@ func (r *assistantReader) grow(n int) *RuntimeError {
 // writePart stores the text received since the last part, once there is
 // enough of it or it is old enough.
 func (r *assistantReader) writePart() *RuntimeError {
-	if !r.a.isDurable() {
-		return nil
+	stored, failure := r.a.isDurable()
+	if failure != nil || !stored {
+		return failure
 	}
 	size := r.partText.Len() + r.partReasoning.Len()
 	if size == 0 || (size < replyPartBytes && time.Since(r.partStarted) < replyPartEvery) {

@@ -48,16 +48,29 @@ func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
 }
 
 func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
-	var tools []gotato.Tool
+	type offered struct {
+		tool gotato.Tool
+		id   string
+	}
+	var tools []offered
+	var failure error
 	add := func(list []gotato.Tool) {
 		for _, tool := range list {
-			if spec := tool.Spec(); t.allowed(spec) && t.active(spec.ID) {
-				tools = append(tools, tool)
+			spec, err := specOf(tool)
+			if err != nil {
+				failure = err
+				return
+			}
+			if t.allowed(spec) && t.active(spec.ID) {
+				tools = append(tools, offered{tool, spec.ID})
 			}
 		}
 	}
 	add(t.spec.Tools)
 	for _, source := range t.spec.ToolSources {
+		if failure != nil {
+			return nil, failure
+		}
 		supplied, err := source.Tools(ctx)
 		if err != nil {
 			return nil, err
@@ -67,22 +80,40 @@ func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	// read_result is offered whenever the Agent has a tool, its own or a
 	// ToolSet's, so the tool list does not change on the Turn a result is
 	// first spilled.
-	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) {
+	if t.results != nil && (len(tools) > 0 || t.hasToolSets.Load()) && failure == nil {
 		supplied, err := t.results.Tools(ctx)
 		if err != nil {
 			return nil, err
 		}
 		add(supplied)
 	}
-	if t.segments != nil {
+	if t.segments != nil && failure == nil {
 		supplied, err := t.segments.Tools(ctx)
 		if err != nil {
 			return nil, err
 		}
 		add(supplied)
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Spec().ID < tools[j].Spec().ID })
-	return tools, nil
+	if failure != nil {
+		return nil, failure
+	}
+	sort.Slice(tools, func(i, j int) bool { return tools[i].id < tools[j].id })
+	out := make([]gotato.Tool, len(tools))
+	for i, o := range tools {
+		out[i] = o.tool
+	}
+	return out, nil
+}
+
+// specOf reads a Tool's Spec, and a panic in it is an extension failure.
+// [LIVENESS] a Tool of the Agent that panics in Spec fails the call that lists it, as it fails a Session's, and does not reach net/http's recover.
+func specOf(tool gotato.Tool) (spec gotato.ToolSpec, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = gotato.ErrorOf(gotato.CodeExtensionFailure, "service: a Tool's Spec panicked")
+		}
+	}()
+	return tool.Spec(), nil
 }
 
 // allowed reports whether a Tool is within the Agent's MaxEffect.
@@ -130,7 +161,10 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		return nil, err
 	}
 	for _, tool := range offered {
-		spec := tool.Spec()
+		spec, err := specOf(tool)
+		if err != nil {
+			return nil, err
+		}
 		// [CONTRACT] the listing refuses the surface a Session refuses: a Tool ID two parts of the Agent supply.
 		if slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == spec.ID }) {
 			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: Agent "+agent+" has two Tools with ID "+spec.ID)
@@ -205,8 +239,11 @@ func (r *Runner) SetToolActive(ctx context.Context, sessionID, toolID string, ac
 		return ToolEntry{}, err
 	}
 	for _, tool := range offered {
-		if tool.Spec().ID == toolID {
-			ts := tool.Spec()
+		ts, err := specOf(tool)
+		if err != nil {
+			return ToolEntry{}, err
+		}
+		if ts.ID == toolID {
 			found = &ts
 			break
 		}

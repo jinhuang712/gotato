@@ -243,3 +243,102 @@ func TestExtensionPanicTextStaysOnTheCause(t *testing.T) {
 		t.Fatalf("the Cause lost the panic: %v", failure.Cause)
 	}
 }
+
+// hostileTranscript is a Transcript that panics in the one method named by
+// panics, and offers the optional ones a Session asks of it.
+type hostileTranscript struct {
+	*holdJournal
+	panics string
+}
+
+func (t *hostileTranscript) Len() int {
+	if t.panics == "Len" {
+		panic("boom-len")
+	}
+	return t.holdJournal.Len()
+}
+
+func (t *hostileTranscript) Messages() []gotato.Message {
+	if t.panics == "Messages" {
+		panic("boom-messages")
+	}
+	return t.holdJournal.Messages()
+}
+
+func (t *hostileTranscript) Durable() bool {
+	if t.panics == "Durable" {
+		panic("boom-durable")
+	}
+	return true
+}
+
+func (t *hostileTranscript) KeepsSpilledResults() bool { return false }
+
+func (t *hostileTranscript) LoadedTools() []string {
+	if t.panics == "LoadedTools" {
+		panic("boom-loaded")
+	}
+	return nil
+}
+
+// A panic in the Transcript's Len, Messages or Durable, or in a host's
+// WithRunStart function, fails the Run with a code and keeps the process.
+func TestPanicInAHostReadFailsTheRun(t *testing.T) {
+	cases := []struct {
+		name string
+		with func() []gotato.SessionOption
+		code gotato.ErrorCode
+		text string
+	}{
+		{"Len", func() []gotato.SessionOption {
+			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Len"})}
+		}, gotato.CodeInternalInvariant, "Transcript panic"},
+		{"Messages", func() []gotato.SessionOption {
+			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Messages"})}
+		}, gotato.CodeInternalInvariant, "Transcript panic"},
+		{"Durable", func() []gotato.SessionOption {
+			return []gotato.SessionOption{gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "Durable"})}
+		}, gotato.CodeInternalInvariant, "Transcript panic"},
+		{"WithRunStart", func() []gotato.SessionOption {
+			return []gotato.SessionOption{gotato.WithRunStart(func(gotato.RunID) { panic("boom-start") })}
+		}, gotato.CodeExtensionFailure, "WithRunStart panic"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := gotato.NewSession(context.Background(), append([]gotato.SessionOption{gotato.WithModel(testkit.EchoModel{})}, c.with()...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close(context.Background()) }()
+			result, err := s.Prompt(context.Background(), gotato.UserMessage("hi"))
+			var re *gotato.RuntimeError
+			if !errors.As(err, &re) || re.Code != c.code || re.Message != c.text {
+				t.Fatalf("err = %v, want %s %q", err, c.code, c.text)
+			}
+			if result.Status != gotato.RunStatusFailed {
+				t.Fatalf("status = %s", result.Status)
+			}
+		})
+	}
+}
+
+// A panic in LoadedTools fails the Session's construction, with a code.
+func TestPanicInLoadedToolsFailsNewSession(t *testing.T) {
+	_, err := gotato.NewSession(context.Background(), gotato.WithModel(testkit.EchoModel{}),
+		gotato.WithTranscript(&hostileTranscript{holdJournal: newHoldJournal(nil), panics: "LoadedTools"}))
+	if !gotato.IsCode(err, gotato.CodeInternalInvariant) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// panicText is a PublicError whose Public panics.
+type panicText struct{}
+
+func (panicText) Error() string  { return "x" }
+func (panicText) Public() string { panic("boom-public") }
+
+func TestPublicTextSurvivesAPanickingPublic(t *testing.T) {
+	if got := gotato.PublicText(panicText{}, "fallback"); got != "fallback" {
+		t.Fatalf("PublicText = %q", got)
+	}
+}

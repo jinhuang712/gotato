@@ -147,7 +147,11 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 	}
 	err := a.admissionError(operation)
 	if err == nil && cmd.kind == commandContinue {
-		err = validateContinuable(a.transcript.Messages())
+		if messages, failure := a.transcriptMessages(); failure != nil {
+			err = failure
+		} else {
+			err = validateContinuable(messages)
+		}
 	}
 	if err != nil {
 		a.reply(cmd, promptResponse{err: err}, false)

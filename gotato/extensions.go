@@ -166,7 +166,12 @@ func (s extensionSet) prepareTurn(ctx context.Context, pending PendingTurn) (boo
 // reports it as an ExtensionFailed Event when it is. Blocking is the default.
 func (s extensionSet) advisory(extension any, failure *RuntimeError) bool {
 	typed, ok := extension.(AdvisoryExtension)
-	if !ok || !typed.Advisory() {
+	if !ok {
+		return false
+	}
+	// [FAILURE-CLASS] an Extension whose Advisory panics is blocking, the default, so its failure is not swallowed.
+	advisory := false
+	if callHost("extension", func() error { advisory = typed.Advisory(); return nil }) != nil || !advisory {
 		return false
 	}
 	if s.report != nil && failure != nil {

@@ -382,9 +382,10 @@ const settleGrace = 5 * time.Second
 func (a *Session) Transcript() Transcript { return a.transcript }
 
 // isDurable reports whether the Session's Events are stored.
-func (a *Session) isDurable() bool {
+func (a *Session) isDurable() (stored bool, failure *RuntimeError) {
 	if d, ok := a.transcript.(durable); ok {
-		return d.Durable()
+		failure = transcriptCall(func() { stored = d.Durable() })
+		return stored, failure
 	}
-	return a.durable
+	return a.durable, nil
 }

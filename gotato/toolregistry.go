@@ -113,10 +113,24 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 	registry.install(results)
 	registry.fresh = true
 	if source, ok := cfg.transcript.(LoadedToolSource); ok {
-		registry.loaded = registry.known(source.LoadedTools())
+		recorded, err := loadedTools(source)
+		if err != nil {
+			return nil, err
+		}
+		registry.loaded = registry.known(recorded)
 	}
 	registry.rebuild()
 	return registry, nil
+}
+
+// loadedTools reads the loaded Tools the Transcript lists. It is called with no
+// lock held; a panic in it fails the Run, with a code.
+// [LIVENESS] a panic in the host's LoadedTools would end the Session goroutine, or leave the registry lock held.
+func loadedTools(source LoadedToolSource) (ids []string, err error) {
+	if failure := transcriptCall(func() { ids = source.LoadedTools() }); failure != nil {
+		return nil, failure
+	}
+	return ids, nil
 }
 
 // setResult is one ToolSet's answer to a resolution.
@@ -236,26 +250,26 @@ type setReport struct {
 }
 
 // apply installs a resolution (nil results keep the catalog as it is) and
-// the filter's answer kept for it, then settles the loaded Tools against it. recorded is the loaded list the Session
-// remembers: the Transcript's when it is a LoadedToolSource, so every
+// the filter's answer kept for it, then settles the loaded Tools against it. recorded, when not nil, is the
+// Transcript's loaded list, read before the lock (a LoadedToolSource), so every
 // instance decides from the Record. A loaded Tool whose ToolSet answered
 // without it is gone: it leaves the loaded Tools, and the caller stores a
 // tool_unloaded Event so the Record says so too. A loaded Tool of a ToolSet
 // that is unavailable is only hidden, since the ToolSet said nothing about it.
-func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source LoadedToolSource) setReport {
+func (r *toolRegistry) apply(results []setResult, kept map[string]bool, recorded *[]string) setReport {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.kept = kept
 	if results != nil {
 		r.install(results)
 	}
-	recorded := slices.Concat(r.loaded, r.parked)
-	if source != nil {
-		recorded = source.LoadedTools()
+	ids := slices.Concat(r.loaded, r.parked)
+	if recorded != nil {
+		ids = *recorded
 	}
 	var report setReport
 	var parked []string
-	for _, id := range recorded {
+	for _, id := range ids {
 		name, _, _ := strings.Cut(id, ".")
 		state := r.setNamed(name)
 		if state == nil || state.mode == modeActive {
@@ -277,7 +291,7 @@ func (r *toolRegistry) apply(results []setResult, kept map[string]bool, source L
 			report.unavailable = append(report.unavailable, state.spec.Name)
 		}
 	}
-	r.loaded, r.parked = r.known(recorded), parked
+	r.loaded, r.parked = r.known(ids), parked
 	r.rebuild()
 	return report
 }

@@ -505,3 +505,23 @@ func TestSetToolActiveOnAnUnknownToolWritesNothing(t *testing.T) {
 		t.Fatalf("the log grew from %d to %d entries for an unknown tool", len(before), len(after))
 	}
 }
+
+// panicSpecTool is a Tool whose Spec panics.
+type panicSpecTool struct{}
+
+func (panicSpecTool) Spec() gotato.ToolSpec { panic("boom-spec") }
+func (panicSpecTool) Execute(context.Context, gotato.ToolUse, gotato.ToolProgressFunc) (gotato.ToolResult, error) {
+	return gotato.ToolResult{}, nil
+}
+
+// A Tool of the Agent whose Spec panics fails the listing with a code.
+func TestAToolWhoseSpecPanicsFailsTheListing(t *testing.T) {
+	runner, _ := newRunner(t, service.Agent{
+		Name:  "boom",
+		Model: testkit.NewFakeModel(testkit.Text("done")),
+		Tools: []gotato.Tool{panicSpecTool{}},
+	})
+	if entries, err := runner.Tools(context.Background(), "boom", ""); !gotato.IsCode(err, gotato.CodeExtensionFailure) {
+		t.Fatalf("Runner.Tools = %+v, %v, want extension_failure", entries, err)
+	}
+}

@@ -84,9 +84,13 @@ func humanBytes(n int) string {
 
 // keepsSpilled reports whether the Session's Transcript keeps what the spill
 // writes.
-func (a *Session) keepsSpilled() bool {
+func (a *Session) keepsSpilled() (keeps bool, failure *RuntimeError) {
 	keeper, ok := a.transcript.(SpillKeeper)
-	return ok && keeper.KeepsSpilledResults()
+	if !ok {
+		return false, nil
+	}
+	failure = transcriptCall(func() { keeps = keeper.KeepsSpilledResults() })
+	return keeps, failure
 }
 
 // spill spills a result whose text is longer than one page, before it is
@@ -95,7 +99,11 @@ func (a *Session) keepsSpilled() bool {
 // returns the result as the Transcript holds it: a preview in place of the
 // text, the Parts that are not text kept as they were, and Spilled set.
 func (a *Session) spill(ctx context.Context, runID RunID, turn TurnNumber, toolID string, result ToolResult) (ToolResult, *RuntimeError) {
-	if !a.keepsSpilled() {
+	keeps, failure := a.keepsSpilled()
+	if failure != nil {
+		return result, failure
+	}
+	if !keeps {
 		return result, nil
 	}
 	size := 0

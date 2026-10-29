@@ -8,14 +8,19 @@ import (
 // lists, so the Session offers the Tools a load would: a compaction unloads
 // the Tools its Segment and kept tail did not call. A Tool of a ToolSet the
 // Agent installed active is never loaded or unloaded.
-func (a *Session) syncLoadedTools() {
+func (a *Session) syncLoadedTools() error {
 	source, ok := a.transcript.(LoadedToolSource)
 	if !ok {
-		return
+		return nil
+	}
+	recorded, err := loadedTools(source)
+	if err != nil {
+		return err
 	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
-	a.registry.syncLoaded(source.LoadedTools())
+	a.registry.syncLoaded(recorded)
+	return nil
 }
 
 // refreshToolSets resolves the ToolSets again at the start of a Run (the first
@@ -36,9 +41,16 @@ func (a *Session) refreshToolSets(ctx context.Context, header Header) *RuntimeEr
 	if err != nil {
 		return asRuntimeError(err)
 	}
-	source, _ := a.transcript.(LoadedToolSource)
+	var recorded *[]string
+	if source, ok := a.transcript.(LoadedToolSource); ok {
+		ids, err := loadedTools(source)
+		if err != nil {
+			return asRuntimeError(err)
+		}
+		recorded = &ids
+	}
 	a.registryMu.Lock()
-	report := a.registry.apply(results, kept, source)
+	report := a.registry.apply(results, kept, recorded)
 	a.registryMu.Unlock()
 	for _, name := range report.unavailable {
 		a.stage(ExtensionFailed{Header: header, Stage: "toolset:" + name, Code: CodeToolResolutionFailure})

@@ -54,11 +54,15 @@ func (a *Session) InspectContext(ctx context.Context) (ContextInspection, error)
 	if sourceErr != nil {
 		return ContextInspection{}, asRuntimeError(sourceErr)
 	}
+	messages, failure := a.transcriptMessages()
+	if failure != nil {
+		return ContextInspection{}, failure
+	}
 	snapshot := ContextSnapshot{
 		SessionID:          a.id,
 		Turn:               1,
 		SystemInstructions: a.instruction,
-		Messages:           cloneMessages(a.transcript.Messages()),
+		Messages:           cloneMessages(messages),
 	}
 	built, request, prefix, err := a.assembleTurn(ctx, snapshot)
 	if err != nil {

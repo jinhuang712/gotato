@@ -434,7 +434,7 @@ func TestACompactionNarrowsTheLoadedTools(t *testing.T) {
 		t.Fatalf("loaded = %v", got)
 	}
 	transcript.names = []string{"orders.refund"}
-	agent.syncLoadedTools()
+	_ = agent.syncLoadedTools()
 	var ids []string
 	for _, spec := range agent.registry.visibleSpecs() {
 		ids = append(ids, spec.ID)

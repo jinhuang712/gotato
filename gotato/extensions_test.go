@@ -552,3 +552,21 @@ func TestGuardDoesNotCarryRawErrorText(t *testing.T) {
 		t.Fatalf("failure = %v", failure)
 	}
 }
+
+// panicAdvisory fails every call, and panics when asked whether that is advisory.
+type panicAdvisory struct{ extensionFault }
+
+func (panicAdvisory) Advisory() bool { panic("advisory exploded") }
+
+// An Extension whose Advisory panics is blocking: its failure fails the Run.
+func TestAdvisoryPanicCountsAsBlocking(t *testing.T) {
+	model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
+	agent, err := NewSession(context.Background(), WithModel(model), WithExtension(panicAdvisory{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	if _, err := agent.Prompt(context.Background(), UserMessage("hello")); !IsCode(err, CodeExtensionFailure) {
+		t.Fatalf("Prompt = %v", err)
+	}
+}
