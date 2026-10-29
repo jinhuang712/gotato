@@ -27,6 +27,12 @@ Remove an item from *Backlog* in the commit that resolves it, as in [TODO.md](TO
 - [ ] **D-010 · Reasoning effort cannot be set through a self-hosted gateway on chat/anthropic wires.** Verdict: partly. `refuseReasoningConfig` rejects it on both; only Responses sends it. Wrong in the log: an unrecognised host already returns every reasoning artifact, so no `provider: deepseek` is needed. Fix: document how to set `provider` for a LiteLLM host (cache TTL optimizations need it); consider a pass-through extra body field.
 - [ ] **D-005 · No cost field or price table.** Verdict: confirmed, and a gap in the docs, not a stated non-goal. Fix: say in FEATURES.md that cost is the team's own conversion of `Usage`; add a worked example. No core change.
 
+### New since the first pass
+
+- [ ] **D-013 · No guide shows a streaming card, and the example uses `SubscribeInstance`, not `StreamRun`.** Verdict: partly. The downstream claim holds: a `StreamRun` sink gets every Event of the Run (deltas, `tool_started`, `tool_ended`, `tool_progress`), and no other Instance sees them. Not so: the docs never say "use `StreamRun` for a streaming card" (`guides/` only uses it to collect Events in tests), and `examples/larkbot` uses `SubscribeInstance` because a message sent into a running Run is queued there and its caller gets no sink. This refines D-006: a card needs `StreamRun` (or `StreamSession`), and a queued message has no deltas. Fix: a "streaming card" section in `guides/example-chat-bot.md` with that limit.
+- [ ] **D-014 · `guides/write-a-store.md` does not say how to run `storetest` without a database.** Verdict: partly. Wrong in the log: `storetest.Run` needs no external service and no transaction; `MemoryStore`, `FileStore` and the guide's `mystore` all pass it, and the contract is one conditional write with a unique `(id, seq)`. A multi-document transaction is a cost of the Mongo design chosen, not a Gotato rule. Fix: a "no database at hand" section (point to the three above and `storetest.Check`); a CI example that starts a real backing store; say that a single-document atomic write plus the unique key is enough.
+- [ ] **D-015 · A per-Run system prompt exists as `Update`, but no guide shows it.** Verdict: partly. There is no per-Run instruction field, but `Update: {"gotato.instruction": ...}` sets the Session's instruction as the Run's first write, `buildSession` re-reads it on every Run, `SkipSave` makes it last for one Run, and an empty value falls back to `Agent.Instruction` (code and FEATURES.md agree). It replaces, it does not append. Fix: a guide example; a test that pins the override (not checked whether one exists).
+
 ### P3 (docs)
 
 - [ ] **D-011 · Small doc gaps.** Verdict: partly. Unverified `native` deferred loading and the missing catalog budget are already stated in FEATURES.md. `guides/install.md` does say the adapter needs Go 1.25, but its opening line says only 1.24. Fix: add "1.25 with `adapter/mcp`" beside the opening line.
@@ -42,9 +48,11 @@ New entries that cite the old ones; do not edit them.
 | D-007 | The README documents the gap; the guides do not. |
 | D-009 | Docs warn and the default is safe; the example's prefix check is the weak point. |
 | D-010 | An unrecognised host returns reasoning by default; no `provider` needed. |
+| D-006 | A streamed card needs `StreamRun`, not `SubscribeInstance` (see D-013). |
 | D-011 | `install.md` already states the Go 1.25 need for the adapter. |
 
 ## Open checks for the downstream team
 
 - D-004: does their MCP gateway send annotations? (They planned to test it in a staging environment.) That decides whether D-004 hurts them at all.
 - D-001: which time did their failure happen? It would confirm the proxy-lag explanation, which is still an inference.
+- D-014: their own Store has not run the conformance suite yet, so it should not be treated as trustworthy until it has.

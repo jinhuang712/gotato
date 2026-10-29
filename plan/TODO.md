@@ -16,6 +16,9 @@ From the first real adoption (a Lark bot service running on several pods), each 
 - [ ] **D-002 · `adapter/mcp` cannot filter or rename tools.** Add `WithToolFilter` and `WithToolRename`.
 - [ ] **D-006 · `examples/larkbot` has no streaming card, and nothing says deltas are visible only on the writer Instance.** Add both; a writer switch needs the card's id in Session metadata.
 - [ ] **D-007 · `larkbot` does not de-duplicate across pods.** Copy the README note into the two guides; pass `message_id` as `RequestID`.
+- [ ] **D-013 · No guide shows a streaming card; `examples/larkbot` uses `SubscribeInstance`.** Add a "streaming card" section using `StreamRun`; say a queued message has no deltas.
+- [ ] **D-014 · `guides/write-a-store.md` has no "no database at hand" section.** Point to `MemoryStore`, `FileStore`, `mystore`, `storetest.Check`; add a CI example; say a single-document atomic write is enough.
+- [ ] **D-015 · A per-Run system prompt (`Update` with `gotato.instruction`) is not shown in any guide.** Add an example and a test that pins it.
 - [ ] **D-003 · Nothing warns against `http.Client.Timeout` on the MCP transport.** One sentence in the option comment and FEATURES.md.
 - [ ] **D-008 · No Mongo section in `guides/write-a-store.md`.**
 - [ ] **D-011 · `guides/install.md` opens with Go 1.24 only.** Add "1.25 with `adapter/mcp`".
