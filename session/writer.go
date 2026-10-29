@@ -419,10 +419,13 @@ func (w *Writer) Append(message gotato.Message) error { return w.record.Append(m
 // Record, writes them with everything the Record had queued, and returns every
 // Event written, so the step is durable when Write returns.
 func (w *Writer) Write(ctx context.Context, events []gotato.Event) ([]gotato.Event, error) {
+	// [CONCURRENCY] numbering and writing are one step under w.mu, so a Flush from another goroutine cannot take these events in between; the lock order is w.mu, then record.mu.
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if _, err := w.record.Write(ctx, events); err != nil {
 		return nil, err
 	}
-	return w.flush(ctx, false)
+	return w.flushLocked(ctx, false)
 }
 
 // EventsAfter implements gotato.EventSource: the stored Events after number
@@ -491,11 +494,16 @@ func (w *Writer) send(events []gotato.Event) {
 // publish, it hands them to the publisher before it lets go of the lock that
 // orders writes, so Events are published in the order they were written.
 func (w *Writer) flush(ctx context.Context, publish bool) ([]gotato.Event, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.flushLocked(ctx, publish)
+}
+
+// flushLocked is flush for a caller that holds w.mu.
+func (w *Writer) flushLocked(ctx context.Context, publish bool) ([]gotato.Event, error) {
 	// [DATA-LOSS] a write the caller canceled still lands whole, and a stalled Store cannot hold it for good.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), WriteTimeout)
 	defer cancel()
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.failed != nil {
 		return nil, w.failed
 	}

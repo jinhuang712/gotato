@@ -3,8 +3,10 @@ package session_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jinhuang712/gotato/gotato"
 	"github.com/jinhuang712/gotato/session"
@@ -553,5 +555,66 @@ func TestOpeningAnotherInstancesRecordWritesAClaimWithItsReason(t *testing.T) {
 				t.Fatalf("session_claimed = %+v, want epoch 2 from instance-a, why %s at %d", claimed, tc.why, head.Head+1)
 			}
 		})
+	}
+}
+
+// slowStore takes a while over every write, so that another goroutine can
+// come in between the steps of one.
+type slowStore struct{ *session.MemoryStore }
+
+func (s slowStore) Append(ctx context.Context, id string, after uint64, entries []session.Entry, info session.RecordInfo) error {
+	time.Sleep(time.Millisecond)
+	return s.MemoryStore.Append(ctx, id, after, entries, info)
+}
+
+// Write returns the Events it was given, numbered and stored, while another
+// goroutine changes the Record and flushes it: the Flush cannot take them
+// between their numbering and their write.
+func TestWriteReturnsItsOwnEventsWhileAnotherGoroutineFlushes(t *testing.T) {
+	ctx := context.Background()
+	writer, err := session.CreateWriter(ctx, slowStore{session.NewMemoryStore()}, session.New(), "instance-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			writer.Record().Set("k", strconv.Itoa(i))
+			if err := writer.Flush(ctx); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
+	for i := range 50 {
+		message := gotato.UserMessage(strconv.Itoa(i))
+		if err := writer.Append(message); err != nil {
+			t.Fatal(err)
+		}
+		written, err := writer.Write(ctx, []gotato.Event{messageEvent(message)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var own []gotato.Event
+		for _, event := range written {
+			if _, ok := event.(gotato.MessageCommitted); ok {
+				own = append(own, event)
+			}
+		}
+		if len(own) != 1 || own[0].Head().Number == 0 {
+			t.Fatalf("write %d returned %d of its own Events (%d in all), want 1, numbered", i, len(own), len(written))
+		}
 	}
 }

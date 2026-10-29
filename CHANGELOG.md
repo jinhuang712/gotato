@@ -4,7 +4,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ## Unreleased
 
-Nothing yet.
+### Fixed
+
+- `session.Writer.Write` numbers and stores its Events in one step. Before, a `Flush` from another goroutine could write them in between, and `Write` returned no Events and no error; now it always returns the Events it was given, numbered and stored.
 
 ## 0.2.0 — 2026-10-29
 
