@@ -25,6 +25,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Changed
 
+- **A Tool call ends at its `ToolCallDeadline`, even when the Tool ignores its `ctx`.** The call fails with the text `deadline_exceeded: the tool did not finish within ToolCallDeadline (<d>); its outcome is unknown`, recorded as executed, and the Run goes on. The Tool's goroutine runs on until `Execute` returns, and its late result is dropped.
+  - Before: the deadline only canceled the Tool's `ctx`. A Tool that ignored it held the Run until it returned, and its late result was kept; a Tool that honored it failed with `tool_execution_failure: tool failed`, which did not say it timed out.
+  - After: the Run stops waiting at the deadline, and in both cases the Model reads that the call timed out.
 - **A Tool's `Spec` is read once, when the Tool is resolved.** The Session keeps it: a root Tool's from `NewSession`, a `ToolSource`'s Tools' from each Turn, a `ToolSet`'s Tools' from each resolution. A Tool whose `Spec` panics, or a typed nil, now fails its whole source like any other bad Tool, instead of the process.
   - Before: `Spec` was read again on every rebuild of the Tool list, so a Spec that changed showed at once, and a Spec that panicked ended the process.
   - After: a Spec that changes shows at the next resolution of its source. Return a stable value, and supply Tools that change through a `ToolSource` or a `ToolSet`.

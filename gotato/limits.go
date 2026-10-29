@@ -31,8 +31,10 @@ type CoreLimits struct {
 	// default) keeps a batch sequential.
 	MaxParallelTools uint32
 	// ModelCallDeadline and ToolCallDeadline end one Model call or one Tool
-	// call that hangs. Zero is the default, 2 minutes; a negative value means
-	// no deadline, so only the Run's ctx ends the call.
+	// call that hangs. A Tool call past its deadline fails with
+	// deadline_exceeded and the Run goes on, even when the Tool ignores its
+	// ctx. Zero is the default, 2 minutes; a negative value means no
+	// deadline, so only the Run's ctx ends the call.
 	ModelCallDeadline time.Duration
 	ToolCallDeadline  time.Duration
 }

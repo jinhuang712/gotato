@@ -17,8 +17,10 @@ import (
 // the ToolSet otherwise.
 //
 // Execute must honor ctx: the Session cancels it when the Run is aborted or the
-// call passes its deadline, and a Tool that ignores it holds the Run until it
-// returns. progress may be called from Execute to report text while the call
+// call passes its ToolCallDeadline. At the deadline the Run stops waiting: the
+// call fails with deadline_exceeded, its outcome unknown, and the Run goes on.
+// A Tool that ignores ctx runs on in its goroutine until Execute returns, and
+// its late result is dropped. progress may be called from Execute to report text while the call
 // runs; the Session bounds how much it keeps. An error from Execute, or a panic,
 // becomes a failed ToolResult; a Tool reports a failure it wants the Model to
 // read by returning a ToolResult with a failed Status.

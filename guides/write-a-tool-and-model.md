@@ -126,7 +126,7 @@ func (t *CloseTicket) Execute(ctx context.Context, use gotato.ToolUse, progress 
 The rules a Tool keeps:
 
 - **`ToolSpec.ID` is the Tool's unique name.** `InputSchema` is the JSON Schema the arguments are checked against before `Execute` runs, so `Execute` can decode without defending against a missing field.
-- **Honor `ctx`.** The Session cancels it when the Run is aborted or the call passes its deadline. A Tool that ignores it holds the Run until it returns.
+- **Honor `ctx`.** The Session cancels it when the Run is aborted or the call passes its deadline. At the deadline the Run stops waiting: the Model reads that the call timed out with its outcome unknown, and the Run goes on. A Tool that ignores `ctx` runs on in its goroutine until it returns, and its late result is dropped.
 - **Thread safety.** A Turn may run its Tool calls in parallel. Set `ToolSpec.Sequential` for a Tool that must never run beside another Tool of the same Turn, and guard shared state in the Tool itself (the sketch above does not, because the example runs one call at a time).
 - **A panic becomes a failed Tool Result,** and does not take the process down.
 - **Install it** with `gotato.WithTools(tool)` on a Session, or in `service.Agent.Tools`.

@@ -463,3 +463,53 @@ func TestCoreOwnsItsFieldsOfAToolResult(t *testing.T) {
 		}
 	})
 }
+
+// deadlineTool waits for its ctx when honor is set, and otherwise ignores it
+// and sleeps for sleep.
+type deadlineTool struct {
+	honor bool
+	sleep time.Duration
+}
+
+func (t deadlineTool) Spec() ToolSpec {
+	return ToolSpec{ID: "slow", InputSchema: []byte(`{"type":"object"}`)}
+}
+
+func (t deadlineTool) Execute(ctx context.Context, _ ToolUse, _ ToolProgressFunc) (ToolResult, error) {
+	if t.honor {
+		<-ctx.Done()
+		return ToolResult{}, ctx.Err()
+	}
+	time.Sleep(t.sleep)
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "late ok"}}}, nil
+}
+
+// A call that passes its ToolCallDeadline ends at the deadline, whether or not
+// the Tool honors its ctx: the Model reads that it timed out, and the Run goes
+// on.
+func TestAToolCallEndsAtItsDeadline(t *testing.T) {
+	for _, honor := range []bool{false, true} {
+		model := &recordingModel{scripts: [][]ModelEvent{callTool("c1", "slow"), finalScript("done")}}
+		agent, err := NewSession(context.Background(), WithModel(model), WithTools(deadlineTool{honor: honor, sleep: 400 * time.Millisecond}),
+			WithLimits(CoreLimits{ToolCallDeadline: 50 * time.Millisecond}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		if _, err := agent.Prompt(context.Background(), UserMessage("go")); err != nil {
+			t.Fatalf("honor=%v: %v", honor, err)
+		}
+		if elapsed := time.Since(start); elapsed >= 300*time.Millisecond {
+			t.Fatalf("honor=%v: the Run took %v, past the 50ms deadline", honor, elapsed)
+		}
+		result := resultOf(t, model, 1, "c1")
+		want := "deadline_exceeded: the tool did not finish within ToolCallDeadline (50ms); its outcome is unknown"
+		if result.Status != ToolResultStatusFailed || result.SafeError != want {
+			t.Fatalf("honor=%v: the Model read %+v, want failed, %q", honor, result, want)
+		}
+		if committed := committedResults(agent); len(committed) != 1 || !committed[0].Executed {
+			t.Fatalf("honor=%v: committed = %+v, want one executed result", honor, committed)
+		}
+		_ = agent.Close(context.Background())
+	}
+}

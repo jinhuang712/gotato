@@ -285,7 +285,8 @@ func (g *toolGroupRun) handle(signal toolSignal) {
 
 // runTool is one worker: it executes one planned Tool call and reports its
 // progress and its result on signals. abandon releases a send nobody will
-// receive.
+// receive. At the call's ToolCallDeadline it stops waiting and reports the
+// call as timed out, with its outcome unknown.
 func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- toolSignal, abandon <-chan struct{}) {
 	toolCtx, toolCancel := boundedContext(ctx, a.limits.ToolCallDeadline)
 	defer toolCancel()
@@ -296,16 +297,44 @@ func (a *Session) runTool(ctx context.Context, plan toolPlan, signals chan<- too
 		case <-toolCtx.Done():
 		}
 	})
-	executed, toolErr := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
+	type outcome struct {
+		result ToolResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	// [LIMITATION] Go cannot stop a goroutine: a Tool that ignores ctx runs on until Execute returns, as after an Abort.
+	go func() {
+		result, err := executeToolSafely(toolCtx, plan.tool, plan.use, progress)
+		done <- outcome{result, err}
+	}()
+	var executed outcome
+	select {
+	case executed = <-done:
+	// [LIVENESS] a Tool that ignores its ctx must not hold the Run past the call's deadline.
+	case <-toolCtx.Done():
+		select {
+		case executed = <-done:
+		default:
+			if ctx.Err() != nil {
+				// The Run is canceled: collect settles this call.
+				return
+			}
+			executed.err = toolCtx.Err()
+		}
+	}
 	var result ToolResult
-	if toolErr != nil {
-		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(toolErr), Executed: true}
-	} else {
+	switch {
+	case executed.err != nil && ctx.Err() == nil && errors.Is(toolCtx.Err(), context.DeadlineExceeded):
+		text := fmt.Sprintf("%s: the tool did not finish within ToolCallDeadline (%s); its outcome is unknown", CodeDeadlineExceeded, a.limits.ToolCallDeadline)
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: text, Executed: true}
+	case executed.err != nil:
+		result = ToolResult{CallID: plan.call.ID, Status: ToolResultStatusFailed, SafeError: toolErrorText(executed.err), Executed: true}
+	default:
 		owned := ToolResult{CallID: plan.call.ID, Executed: true}
 		if _, builtin := plan.tool.(*searchTool); builtin {
-			owned.LoadedTools = executed.LoadedTools
+			owned.LoadedTools = executed.result.LoadedTools
 		}
-		result = ownResult(executed, owned)
+		result = ownResult(executed.result, owned)
 		if result.Status == "" {
 			result.Status = ToolResultStatusOK
 		}
