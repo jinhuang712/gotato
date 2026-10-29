@@ -55,12 +55,12 @@ func (s *Record) LastRunEnd() time.Time {
 // none, and adds its usage to the Record's. The caller holds the lock.
 func (s *Record) endRun(run RunInfo) {
 	found := false
-	for i := len(s.runs) - 1; i >= 0; i-- {
-		if s.runs[i].RunID != run.RunID {
+	for i, old := range slices.Backward(s.runs) {
+		if old.RunID != run.RunID {
 			continue
 		}
-		run.StartedAt = s.runs[i].StartedAt
-		run.RequestID = s.runs[i].RequestID
+		run.StartedAt = old.StartedAt
+		run.RequestID = old.RequestID
 		s.runs[i] = run
 		found = true
 		break

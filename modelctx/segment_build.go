@@ -264,8 +264,7 @@ func finalReplies(messages []gotato.Message) map[int]bool {
 	}
 	final := map[int]bool{}
 	seen := map[string]bool{}
-	for i := len(messages) - 1; i >= 0; i-- {
-		message := messages[i]
+	for i, message := range slices.Backward(messages) {
 		if message.Role != gotato.RoleAssistant || len(message.ToolCalls) > 0 || message.StopReason == gotato.StopReasonCutOff || strings.TrimSpace(gotato.TextOf(message)) == "" {
 			continue
 		}
