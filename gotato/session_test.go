@@ -316,7 +316,7 @@ func TestRefusedContinueFreesAdmissionBeforeItAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close(context.Background()) }()
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		if _, err := s.Continue(context.Background()); err == nil {
 			t.Fatal("Continue on an empty Session succeeded")
 		}
