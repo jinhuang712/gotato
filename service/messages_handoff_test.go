@@ -318,16 +318,14 @@ func TestAFollowingRunWithoutItsAgentDropsInTheRecord(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		_, dropped, _ := rig.events(t)
-		if dropped[id] == "run_failed" {
+		// The Record has the drop before the Instance's stream delivers it.
+		if dropped[id] == "run_failed" && len(rig.ended.OfKind(gotato.EventKindMessageDropped)) == 1 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("dropped %v; want message %s dropped for run_failed in the Record", dropped, id)
+			t.Fatalf("dropped %v, Instance stream has %d; want message %s dropped for run_failed in the Record and once on the stream", dropped, len(rig.ended.OfKind(gotato.EventKindMessageDropped)), id)
 		}
 		runtime.Gosched()
-	}
-	if got := rig.ended.OfKind(gotato.EventKindMessageDropped); len(got) != 1 {
-		t.Fatalf("the Instance stream has %d message_dropped, want 1", len(got))
 	}
 	if got := transcriptOf(t, rig.runner, rig.id); !equal(got, []string{"user:hello", "assistant:echo: hello"}) {
 		t.Fatalf("transcript = %v", got)
