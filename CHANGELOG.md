@@ -9,6 +9,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **A Tool of your own cannot take a name under a ToolSet's namespace.** The ID and the `Name` of a Tool from `WithTools` or a `ToolSource` may not start with the name of an installed ToolSet and a dot. A dotted name outside every namespace, like `payments.get_batch`, is still yours.
   - Before: `WithTools` with a Tool `files.read` and a ToolSet `files` started, then failed every Run once the ToolSet, installed active, carried `read`; a root Tool with `Name: "files.read"` ran in place of the ToolSet's `files.read` when the Model called it.
   - After: `NewSession` fails with `invalid_argument`; a `ToolSource` that supplies such a Tool keeps its last set and stores `extension_failed` (stage `toolsource`), and the Run goes on. Rename the Tool, for example `local_read`.
+- **A service Agent whose tools repeat a Tool ID is refused.** `Agent.Tools`, `Agent.ToolSources`, `read_result` and `read_segment` are one tool source to the Session, and a repeated ID fails it like any bad Tool.
+  - Before: the first Tool with the ID was kept and the other was dropped without a word, so an Agent's own `read_result` hid the built-in one.
+  - After: a Run of the Agent fails with `invalid_argument` (or, when a `ToolSource` starts repeating an ID mid-Session, the Session keeps its last set and stores `extension_failed`, stage `toolsource`), and `Runner.Tools` fails with `invalid_argument`. Give each Tool its own ID.
 - **`search_tools` is a reserved Tool name.** A Tool of your own may not have it as its ID or its `Name`.
   - Before: a root Tool `search_tools` worked while no ToolSet offered a catalog, then failed every Run once one did.
   - After: `NewSession` fails with `invalid_argument`; a `ToolSource` that supplies one keeps its last set, as above.

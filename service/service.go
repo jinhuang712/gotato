@@ -111,7 +111,9 @@ type Agent struct {
 	// Tools are Go Tools, the same for every Turn.
 	Tools []gotato.Tool
 	// ToolSources supply Tools that change between Turns (gotato.ToolSource).
-	// To attach a ToolSet, use Options with gotato.WithToolSet,
+	// Tools, ToolSources, read_result and read_segment are one ToolSource to
+	// the Session: a Tool ID that two of them supply fails it whole, as any
+	// bad Tool does (gotato.Tool). To attach a ToolSet, use Options with gotato.WithToolSet,
 	// gotato.WithActiveToolSet or gotato.WithFoldedToolSet instead.
 	ToolSources []gotato.ToolSource
 	// MaxEffect is the highest Effect a Tool of this Agent may have. A Tool

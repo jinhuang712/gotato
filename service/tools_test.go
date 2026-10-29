@@ -460,22 +460,23 @@ func TestNewRejectsAnUnknownMaxEffect(t *testing.T) {
 	}
 }
 
-// A Tool that an Agent's Tools and one of its ToolSources both list is one
-// entry of Runner.Tools, not two.
-func TestRunnerToolsListsATwiceNamedToolOnce(t *testing.T) {
+// A Tool ID that an Agent's Tools and one of its ToolSources both list fails
+// the Agent's tool surface as a whole, as any bad Tool of a source does: a Run
+// is refused with invalid_argument and so is Runner.Tools, and neither Tool
+// is kept in place of the other.
+func TestATwiceNamedToolFailsTheAgentsTools(t *testing.T) {
 	lookup := testkit.NewFakeTool("lookup", "found")
 	runner, _ := newRunner(t, service.Agent{
 		Name:        "twice",
 		Model:       testkit.NewFakeModel(testkit.Text("done")),
 		Tools:       []gotato.Tool{lookup},
-		ToolSources: []gotato.ToolSource{toolList{lookup}},
+		ToolSources: []gotato.ToolSource{toolList{testkit.NewFakeTool("lookup", "other")}},
 	})
-	entries, err := runner.Tools(context.Background(), "twice", "")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := runner.Run(context.Background(), service.RunRequest{Agent: "twice", Prompt: "go"}); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("Run err = %v, want invalid_argument", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("Runner.Tools = %+v, want lookup once", entries)
+	if entries, err := runner.Tools(context.Background(), "twice", ""); !gotato.IsCode(err, gotato.CodeInvalidArgument) {
+		t.Fatalf("Runner.Tools = %+v, %v, want invalid_argument", entries, err)
 	}
 }
 

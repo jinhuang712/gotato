@@ -16,7 +16,9 @@ import (
 // sessionTools is the ToolSource a live Session sees: its Agent's
 // static Tools and ToolSources within its MaxEffect, minus the ones the
 // Session deactivated. It is re-read at every Turn boundary like any
-// ToolSource.
+// ToolSource. It is one source to the Session: a Tool ID that two of its
+// parts both supply fails it whole, as any bad Tool does, and neither Tool is
+// kept in place of the other.
 type sessionTools struct {
 	spec    Agent
 	session *session.Record
@@ -47,12 +49,9 @@ func (r *Runner) resultTools(record *session.Record) gotato.ToolSource {
 
 func (t *sessionTools) Tools(ctx context.Context) ([]gotato.Tool, error) {
 	var tools []gotato.Tool
-	seen := map[string]bool{}
 	add := func(list []gotato.Tool) {
 		for _, tool := range list {
-			id := tool.Spec().ID
-			if !seen[id] && t.allowed(tool.Spec()) && t.active(id) {
-				seen[id] = true
+			if spec := tool.Spec(); t.allowed(spec) && t.active(spec.ID) {
 				tools = append(tools, tool)
 			}
 		}
@@ -131,7 +130,12 @@ func (r *Runner) Tools(ctx context.Context, agent, sessionID string) ([]ToolEntr
 		return nil, err
 	}
 	for _, tool := range offered {
-		entries = append(entries, ToolEntry{Spec: tool.Spec(), Active: filter.active(tool.Spec().ID)})
+		spec := tool.Spec()
+		// [CONTRACT] the listing refuses the surface a Session refuses: a Tool ID two parts of the Agent supply.
+		if slices.ContainsFunc(entries, func(e ToolEntry) bool { return e.Spec.ID == spec.ID }) {
+			return nil, gotato.ErrorOf(gotato.CodeInvalidArgument, "service: Agent "+agent+" has two Tools with ID "+spec.ID)
+		}
+		entries = append(entries, ToolEntry{Spec: spec, Active: filter.active(spec.ID)})
 	}
 	if s != nil {
 		// A Session's ToolSets live in the Agent's Options, so the live Session
