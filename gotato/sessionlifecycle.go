@@ -142,8 +142,7 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 		err = validateContinuable(a.transcript.Messages())
 	}
 	if err != nil {
-		cmd.result <- promptResponse{err: err}
-		<-a.admission
+		a.reply(cmd, promptResponse{err: err}, false)
 		return false
 	}
 	a.setStatus(SessionStatusBusy)
@@ -152,18 +151,20 @@ func (a *Session) serve(cmd sessionCommand) (closing bool) {
 		prompt = &cmd.message
 	}
 	result, err := a.executeRun(cmd.ctx, prompt)
-	// Release admission and record Idle before delivering the
-	// result: the caller that receives it must be able to start the
-	// next Run immediately instead of observing this finished
-	// Run's admission token as Busy.
+	closing = a.closeRequested.Load()
+	a.reply(cmd, promptResponse{result: result, err: err}, !closing)
+	return closing
+}
+
+// reply gives the admission token back, records Idle when idle is set, and
+// only then delivers resp to the caller.
+// [CONCURRENCY] the caller that receives resp must be able to start its next operation at once, not find this command's token held and be told Busy.
+func (a *Session) reply(cmd sessionCommand, resp promptResponse, idle bool) {
 	<-a.admission
-	if a.closeRequested.Load() {
-		cmd.result <- promptResponse{result: result, err: err}
-		return true
+	if idle {
+		a.setStatus(SessionStatusIdle)
 	}
-	a.setStatus(SessionStatusIdle)
-	cmd.result <- promptResponse{result: result, err: err}
-	return false
+	cmd.result <- resp
 }
 
 func (a *Session) finishClose() {

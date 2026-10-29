@@ -307,3 +307,21 @@ func TestSharedFeedOverAPlainTranscriptContinuesItsNumbers(t *testing.T) {
 		t.Fatalf("the Session's first Event is numbered %d, want 6, after the Feed's last", first.Head().Number)
 	}
 }
+
+// A refused Continue gives the admission token back before it answers, so the
+// caller that gets the error can start its next operation at once.
+func TestRefusedContinueFreesAdmissionBeforeItAnswers(t *testing.T) {
+	s, err := NewSession(context.Background(), WithModel(&recordingModel{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+	for i := 0; i < 2000; i++ {
+		if _, err := s.Continue(context.Background()); err == nil {
+			t.Fatal("Continue on an empty Session succeeded")
+		}
+		if _, err := s.InspectContext(context.Background()); IsCode(err, CodeBusy) {
+			t.Fatalf("InspectContext after a refused Continue was busy (round %d)", i)
+		}
+	}
+}
