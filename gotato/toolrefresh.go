@@ -86,6 +86,6 @@ func (a *Session) refreshToolsInRun(ctx context.Context) *RuntimeError {
 	if failure := contextFailure(ctx, "ToolSource"); failure != nil {
 		return failure
 	}
-	a.stage(ExtensionFailed{Header: a.nowHeader(), Stage: "toolsource", Code: asRuntimeError(sourceErr).Code})
+	a.stage(ExtensionFailed{Header: a.runHeader(), Stage: "toolsource", Code: asRuntimeError(sourceErr).Code})
 	return nil
 }

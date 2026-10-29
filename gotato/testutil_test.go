@@ -153,8 +153,33 @@ func (r *recorder) events() []Event {
 		time.Sleep(time.Millisecond)
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]Event(nil), r.got...)
+	got := append([]Event(nil), r.got...)
+	r.mu.Unlock()
+	requireRunSpans(r.t, got)
+	return got
+}
+
+// requireRunSpans fails the test when an Event that carries a RunID lies
+// outside the span of that Run, between its run_started and its run_ended.
+func requireRunSpans(t *testing.T, events []Event) {
+	t.Helper()
+	open := map[RunID]bool{}
+	ended := map[RunID]bool{}
+	for index, event := range events {
+		run := event.Head().RunID
+		switch {
+		case run == "":
+		case event.Kind() == EventKindRunStarted:
+			open[run] = true
+		case event.Kind() == EventKindRunEnded:
+			if !open[run] {
+				t.Errorf("event %d: run_ended of %s outside its span", index, run)
+			}
+			open[run], ended[run] = false, true
+		case !open[run]:
+			t.Errorf("event %d: %s of %s outside its run_started and run_ended", index, event.Kind(), run)
+		}
+	}
 }
 
 func (r *recorder) kinds() []EventKind {

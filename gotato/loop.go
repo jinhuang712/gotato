@@ -404,6 +404,7 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 	a.currentRunID = runID
 	a.currentTurn = 0
 	a.runEnding = false
+	a.abortBeforeStart = false
 	a.runKeeps = false
 	a.currentRunStop = cancel
 	a.runMu.Unlock()
@@ -413,7 +414,9 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 	}
 	return runID, func() {
 		a.inRun.Store(false)
+		// [LIVENESS] a Run whose run_ended was never written must not leave its span open for the next Run's Events.
 		a.runMu.Lock()
+		a.runOpen = false
 		if a.currentRunID == runID {
 			a.currentRunID = ""
 			a.currentTurn = 0

@@ -231,7 +231,7 @@ func (r *assistantReader) retried(retry ModelRetry) {
 	if len(r.assistant.Parts) == 0 && len(r.assistant.ToolCalls) == 0 {
 		// A retry before any output falls between steps: it gets a write of
 		// its own.
-		_ = a.writeNow(r.ctx, retried)
+		_ = a.write(r.ctx, []Event{retried})
 		return
 	}
 	// The stream was cut after some output and the same request is sent

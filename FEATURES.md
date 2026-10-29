@@ -699,10 +699,10 @@ Every step of a Session is an Event, so you can watch, log or measure it; a stor
 | `tool_result_committed`, `tool_result_spilled` | a Tool Result enters the Transcript, in the order the model asked; one over a page is stored whole, subscribers get it without the body ([G-F35](#g-f35--large-tool-results-)) | Record |
 | `tool_loaded`, `tool_unloaded` | with `tool_id` and `why` (`names`, `query`, `call`, `compaction`, `gone`; [G-F34](#g-f34--tool-search-)) | Record |
 | `run_requested`, `run_waiting`, `run_rejected` | a request for a new Run arrives, waits for a busy Session, or is refused with why: busy, at capacity, draining, `activation_limit`, or `not_writer` for a message | Instance |
-| `message_queued`, `message_committed` | a Steer, FollowUp or Interrupt waits for its point; a user Message enters the Transcript with its source (prompt, Steer, FollowUp, Interrupt) | Record |
+| `message_queued`, `message_committed` | a Steer, FollowUp or Interrupt waits for its point (one that arrives outside a Run has no `run_id`); a user Message enters the Transcript with its source (prompt, Steer, FollowUp, Interrupt) | Record |
 | `message_dropped`, `message_rejected` | a waiting message (source `notice` for a notice) is dropped with why (`run_ended`, `draining`, `writer_failed`, `run_failed`, `queue_full`, `session_closed`, `writer_gone`), or refused because the queue is full (`queue_full`) or it is over `MaxMessageBytes` (`too_large`) | Record |
 | `notice_queued`, `notice_committed` | a notice waits (`notice_kind`, `source`, `text`), and enters the Transcript right before a model call (`message`, and `queued`, absent for Gotato's own, committed at once) | Record |
-| `abort_requested` | an Abort arrives; `run_ended` follows | Record |
+| `abort_requested` | an Abort arrives, after `run_started` (one that comes sooner is written right after it); `run_ended` follows | Record |
 | `session_claimed`, `session_released` | an Instance claims the Session with why (new, idle, writer gone, waited) and the previous holder, re-opening a held Session writes it again with the same Epoch; the Writer lets it go | Record |
 | `session_fenced`, `liveness_lapsed` | a write is refused because another Instance holds the Claim; this Instance's row was not renewed in time | Instance |
 | `session_created`, `metadata_changed` | a Session is created, with `record_epoch` (a fork names `forked_from`: Session and position), the first Entry of every Record; a setting in the metadata changes | Record |

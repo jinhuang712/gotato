@@ -22,6 +22,10 @@ An Event is any type that embeds a Header, and its kind decides where it lives.
 
 Sealing means a caller switches on the type and reads checked fields, and no outside type can pose as an Event. In JSON an Event is one flat object whose `kind` names its type, and a kind a later version adds comes back as an `UnknownEvent`, so an old consumer keeps running. A delta is not stored because what it carried ends up whole in a Message. An Instance Event happens where no Claim is held, so no Record can take it.
 
+## An Event's Run is stamped when it is numbered
+
+The writer that numbers Events holds the span of the Run: it opens when `run_started` is written and closes when `run_ended` is. An Event that another goroutine writes (a queued message, a drop, an Abort) is stamped with the open Run and its Turn at that moment, so every Event with a `run_id` lies between that Run's `run_started` and `run_ended`. One that arrives outside a Run has no `run_id`. An Abort that comes before `run_started` is written right after it.
+
 ## Written, then sent
 
 A stored Event reaches a subscriber only after the Journal has written it.

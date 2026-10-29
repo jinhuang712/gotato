@@ -9,8 +9,11 @@ import (
 
 // Journal is an optional interface of a Transcript that keeps the Session's
 // stored Events, numbered, as the Entries of its Record. The Session calls
-// Write on its own goroutine at the end of each step, after the step's
-// Messages are committed through Append: when a write fails, the Run fails
+// Write under its write lock, which numbers the Events in order, so Writes do
+// not overlap, but from any goroutine: the Session's own at the end of each
+// step, after the step's Messages are committed through Append, and the
+// goroutine of a Steer, a Notice or an Abort for an Event of its own. When a
+// step's write fails, the Run fails
 // with its error, and the Events of the step are not sent. session.Record and
 // session.Writer implement it; a Session whose Transcript is not a Journal
 // numbers its Events in memory.

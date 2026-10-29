@@ -216,6 +216,12 @@ type Session struct {
 	currentRunID RunID
 	currentTurn  TurnNumber
 	runEnding    bool
+	// runOpen says the Run's span is open: its run_started is being written or
+	// is written, and its run_ended is not. Only writeEvents changes it, under
+	// emitMu and runMu both. abortBeforeStart records an Abort that came
+	// before; the write of run_started adds the abort_requested.
+	runOpen          bool
+	abortBeforeStart bool
 	// runKeeps says the ending Run leaves its queues for the host
 	// (WithQueueHandoff), so a message taken in meanwhile is kept, not dropped.
 	runKeeps       bool

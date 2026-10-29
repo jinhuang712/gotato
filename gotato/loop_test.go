@@ -263,3 +263,112 @@ func TestSteerHonorsItsContext(t *testing.T) {
 		t.Fatalf("FollowUp over a stalled store = %v after %v, want deadline_exceeded", err, time.Since(started))
 	}
 }
+
+// runSpanKinds lists an Event stream as kind@run, so a test reads where each
+// Event fell.
+func runSpanKinds(events []Event) []string {
+	var out []string
+	for _, event := range events {
+		out = append(out, string(event.Kind())+"@"+string(event.Head().RunID))
+	}
+	return out
+}
+
+// firstOfKind is the position of the first Event of kind, or -1.
+func firstOfKind(events []Event, kind EventKind) int {
+	for i, event := range events {
+		if event.Kind() == kind {
+			return i
+		}
+	}
+	return -1
+}
+
+// A Steer from the run-start hook comes before the Run's run_started is
+// written: it is stored outside the Run, with no RunID, not under the Run's.
+func TestSteerBeforeRunStartedHasNoRun(t *testing.T) {
+	var s *Session
+	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a"), finalScript("b")}}),
+		WithRunStart(func(RunID) { _ = s.Steer(context.Background(), UserMessage("s")) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+	rec := recordAll(t, s)
+	if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	events := rec.events()
+	queued := firstOfKind(events, EventKindMessageQueued)
+	if queued < 0 {
+		t.Fatalf("no message_queued: %v", runSpanKinds(events))
+	}
+	if run := events[queued].Head().RunID; run != "" {
+		t.Errorf("message_queued before run_started names Run %s: %v", run, runSpanKinds(events))
+	}
+}
+
+// A Notice from the run-start hook is stored outside the Run, like a Steer.
+func TestNoticeBeforeRunStartedHasNoRun(t *testing.T) {
+	var s *Session
+	s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}),
+		WithRunStart(func(RunID) { _, _ = s.Notice(context.Background(), "k", "t") }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+	rec := recordAll(t, s)
+	if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatal(err)
+	}
+	events := rec.events()
+	queued := firstOfKind(events, EventKindNoticeQueued)
+	if queued < 0 {
+		t.Fatalf("no notice_queued: %v", runSpanKinds(events))
+	}
+	if run := events[queued].Head().RunID; run != "" {
+		t.Errorf("notice_queued before run_started names Run %s: %v", run, runSpanKinds(events))
+	}
+}
+
+// A Steer whose write lands after the Run's run_ended does not name the Run.
+func TestSteerAfterRunEndedHasNoRun(t *testing.T) {
+	for range 200 {
+		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := recordAll(t, s)
+		done := make(chan struct{})
+		s.endingHook = func() { go func() { _ = s.Steer(context.Background(), UserMessage("late")); close(done) }() }
+		if _, err := s.Prompt(context.Background(), UserMessage("go")); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+		rec.events() // requireRunSpans runs on it
+		_ = s.Close(context.Background())
+	}
+}
+
+// An Abort that comes before the Run's run_started is written is stored right
+// after it, under the Run.
+func TestAbortBeforeRunStartedIsStoredAfterIt(t *testing.T) {
+	for range 300 {
+		var s *Session
+		s, err := NewSession(context.Background(), WithModel(&recordingModel{scripts: [][]ModelEvent{finalScript("a")}}), WithRunStart(func(RunID) { s.Abort() }))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := recordAll(t, s)
+		res, _ := s.Prompt(context.Background(), UserMessage("go"))
+		events := rec.events()
+		started, aborted, ended := firstOfKind(events, EventKindRunStarted), firstOfKind(events, EventKindAbortRequested), firstOfKind(events, EventKindRunEnded)
+		if started < 0 || aborted < started || ended < aborted {
+			t.Fatalf("want run_started, abort_requested, run_ended in order: %v", runSpanKinds(events))
+		}
+		if events[aborted].Head().RunID != res.RunID {
+			t.Fatalf("abort_requested names Run %s, want %s", events[aborted].Head().RunID, res.RunID)
+		}
+		_ = s.Close(context.Background())
+	}
+}

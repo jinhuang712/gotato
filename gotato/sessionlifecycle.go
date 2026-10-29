@@ -13,12 +13,20 @@ func (a *Session) Abort() { a.abort() }
 func (a *Session) abort() bool {
 	a.runMu.Lock()
 	stop := a.currentRunStop
-	header := NewHeader(a.id, a.currentRunID, a.currentTurn)
 	if stop == nil || a.runEnding {
 		// No Run, or one that is writing its end: an abort_requested after
 		// run_ended would say the Abort came after the Run.
 		a.runMu.Unlock()
 		return false
+	}
+	if !a.runOpen {
+		// The Run's run_started is not written yet, and an abort_requested
+		// before it would name a Run that has not begun: the Run only stops,
+		// and the write of run_started adds the Event (see openSpan).
+		a.abortBeforeStart = true
+		a.runMu.Unlock()
+		stop()
+		return true
 	}
 	// The Run stops at once; the Event is written beside it, and the Run's
 	// last write waits for it. It is counted while the Run cannot yet be
@@ -30,7 +38,7 @@ func (a *Session) abort() bool {
 	go func() {
 		ctx, cancel := finalContext(context.Background())
 		defer cancel()
-		_ = a.writeNow(ctx, AbortRequested{Header: header})
+		_ = a.writeNow(ctx, AbortRequested{Header: a.nowHeader()})
 		a.abortMu.Lock()
 		a.aborts--
 		a.abortCond.Broadcast()

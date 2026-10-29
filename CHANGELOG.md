@@ -6,6 +6,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Breaking
 
+- **An Event's Run is stamped when the Event is numbered, so no Event of a Run falls outside it.** A `message_queued`, `notice_queued`, `message_dropped` or `message_rejected` that is written outside a Run has no `run_id`, and an `abort_requested` always follows its Run's `run_started`.
+  - Before: these Events took the Run's `run_id` when the call was made, not when the Event was written: a Steer from `WithRunStart` or just as a Run ended was stored with the Run's ID before its `run_started` or after its `run_ended`, and an Abort in `WithRunStart` stored `abort_requested` before `run_started`.
+  - After: such a Steer or Notice is stored with an empty `run_id`; an Abort before `run_started` is written is stored right after it, in the same write, under the Run. A consumer that read the Run of a `message_queued` as the Run it was sent to should read the Run that takes it from `message_committed`.
 - **A Tool of your own cannot take a name under a ToolSet's namespace.** The ID and the `Name` of a Tool from `WithTools` or a `ToolSource` may not start with the name of an installed ToolSet and a dot. A dotted name outside every namespace, like `payments.get_batch`, is still yours.
   - Before: `WithTools` with a Tool `files.read` and a ToolSet `files` started, then failed every Run once the ToolSet, installed active, carried `read`; a root Tool with `Name: "files.read"` ran in place of the ToolSet's `files.read` when the Model called it.
   - After: `NewSession` fails with `invalid_argument`; a `ToolSource` that supplies such a Tool keeps its last set and stores `extension_failed` (stage `toolsource`), and the Run goes on. Rename the Tool, for example `local_read`.
