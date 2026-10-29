@@ -179,6 +179,20 @@ func (s *subscription) passes(event Event) (keep bool, err error) {
 	return keep, extensionFailure("Subscription", err)
 }
 
+// check runs the SubscribeVerify function, if any, after a read that returned
+// Events. A panic in it ends this Subscription.
+// [LIVENESS] a panic in the host's verify function ends this one Subscription, not the process.
+func (s *subscription) check(ctx context.Context) error {
+	if s.verify == nil {
+		return nil
+	}
+	var failure error
+	if err := callHost("SubscribeVerify", func() error { failure = s.verify(ctx); return nil }); err != nil {
+		return extensionFailure("Subscription", err)
+	}
+	return failure
+}
+
 // extensionFailure returns err, a panic of host code, as a RuntimeError that
 // Next returns; nil stays nil.
 func extensionFailure(stage string, err error) error {
@@ -394,10 +408,8 @@ func (s *subscription) catchUp(ctx context.Context, resume uint64, pending *[]Ev
 		return false, err
 	}
 	if len(batch) > 0 {
-		if s.verify != nil {
-			if err := s.verify(ctx); err != nil {
-				return false, err
-			}
+		if err := s.check(ctx); err != nil {
+			return false, err
 		}
 		s.mu.Lock()
 		s.resume = batch[len(batch)-1].Head().Number
@@ -485,8 +497,8 @@ func (s *subscription) look(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(batch) > 0 && s.verify != nil {
-		if err := s.verify(ctx); err != nil {
+	if len(batch) > 0 {
+		if err := s.check(ctx); err != nil {
 			return err
 		}
 	}

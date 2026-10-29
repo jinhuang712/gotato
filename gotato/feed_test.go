@@ -747,3 +747,22 @@ func TestFilterPanicDoesNotHangTheSession(t *testing.T) {
 		t.Fatalf("Next error = %v, want an extension_failure RuntimeError", err)
 	}
 }
+
+// A panic in a SubscribeVerify function ends the Subscription with an error.
+func TestVerifyPanicEndsTheSubscription(t *testing.T) {
+	source := &sliceSource{}
+	source.add(storedEvent(1))
+	feed := NewFeed(source)
+	s, err := feed.Subscribe(context.Background(), SubscribeAfter(0), SubscribeVerify(func(context.Context) error { panic("boom") }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = s.Next(ctx)
+	var runtimeErr *RuntimeError
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != CodeExtensionFailure {
+		t.Fatalf("Next error = %v, want an extension_failure RuntimeError", err)
+	}
+}
