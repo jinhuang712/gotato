@@ -17,6 +17,11 @@ import (
 // with its error, and the Events of the step are not sent. session.Record and
 // session.Writer implement it; a Session whose Transcript is not a Journal
 // numbers its Events in memory.
+//
+// Write is called under the Session's write-ordering lock, which numbers the
+// Events and sends them in one order, so it must not call back into the
+// Session (Subscribe, Prompt, Abort or any other method). A panic in it fails
+// the Run.
 // [SEAM] a store other than session.Record plugs in here; no Gotato package implements it besides session.
 type Journal interface {
 	// Write keeps events as the next Entries, in order, and returns every

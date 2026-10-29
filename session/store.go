@@ -100,6 +100,9 @@ type InstanceState struct {
 //  6. Instance of an unknown ID is not an error: it is a state that is not
 //     alive.
 //
+// A Writer calls Append under the lock that orders its writes, so an adapter
+// must not call back into the Session or the Writer from a Store method.
+//
 // How the Store grows, for those who write an adapter:
 //
 //   - Store gains no methods after 0.2.0. A later capability is an optional
