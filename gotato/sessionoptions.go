@@ -118,7 +118,9 @@ func WithMaxEffect(effect ToolEffect) SessionOption {
 
 // WithTools adds Tools the Model can call from the first Turn. It fails with
 // CodeInvalidArgument when a Tool is nil. Tools from a ToolSet or a ToolSource
-// are added by their own options.
+// are added by their own options. A Tool's ID and Name cannot be search_tools
+// or start with the name of an installed ToolSet and a dot: that namespace is
+// the ToolSet's, and NewSession refuses the Tool with CodeInvalidArgument.
 func WithTools(tools ...Tool) SessionOption {
 	return func(c *sessionConfig) error {
 		for _, tool := range tools {

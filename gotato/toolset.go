@@ -75,7 +75,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]toolEntry, erro
 	if err != nil {
 		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", PublicText(err, "cannot resolve ToolSet "+state.spec.Name), err)
 	}
-	return intake("ToolSet "+state.spec.Name, tools, nil)
+	return intake("ToolSet "+state.spec.Name, tools, nil, nil)
 }
 
 // toolSetState tracks one installed ToolSet. Its Tools are resolved at

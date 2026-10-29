@@ -643,3 +643,88 @@ func TestARootToolWhoseSpecPanicsFailsNewSession(t *testing.T) {
 		t.Fatalf("err = %v, want invalid_argument", err)
 	}
 }
+
+// aliasTool is a Tool whose ID and Name differ.
+type aliasTool struct{ id, name string }
+
+func (t aliasTool) Spec() ToolSpec { return ToolSpec{ID: t.id, Name: t.name, Effect: ToolEffectRead} }
+
+func (t aliasTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
+	return ToolResult{Content: []ContentPart{{Kind: ContentKindText, Text: "ran " + t.id}}}, nil
+}
+
+// A root Tool cannot take a name of the catalog: its ID or Name under an
+// installed ToolSet's namespace, or search_tools. NewSession refuses it.
+func TestARootToolCannotTakeANameOfTheCatalog(t *testing.T) {
+	for name, root := range map[string]Tool{
+		"ID in a namespace":   aliasTool{id: "files.read"},
+		"Name in a namespace": aliasTool{id: "local_read", name: "files.read"},
+		"ID search_tools":     aliasTool{id: SearchToolName},
+		"Name search_tools":   aliasTool{id: "find", name: SearchToolName},
+	} {
+		t.Run(name, func(t *testing.T) {
+			set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+			_, err := NewSession(context.Background(), WithModel(&testModel{}), WithTools(root), WithToolSet(set))
+			if !IsCode(err, CodeInvalidArgument) {
+				t.Fatalf("err = %v, want invalid_argument", err)
+			}
+		})
+	}
+	// A dotted ID outside every namespace is a name of your own.
+	set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+	agent, err := NewSession(context.Background(), WithModel(&testModel{}), WithTools(aliasTool{id: "payments.get_batch"}), WithToolSet(set))
+	if err != nil {
+		t.Fatalf("a dotted ID of your own: %v", err)
+	}
+	_ = agent.Close(context.Background())
+}
+
+// A ToolSource that supplies a name of the catalog keeps its last set, and
+// the Runs go on: an active ToolSet that grows the same name later does not
+// collide with it.
+func TestAToolSourceCannotTakeANameOfTheCatalog(t *testing.T) {
+	for name, taken := range map[string]Tool{
+		"namespace":    aliasTool{id: "files.read"},
+		"search_tools": aliasTool{id: SearchToolName},
+	} {
+		t.Run(name, func(t *testing.T) {
+			active := &flakySet{name: "files", tools: []Tool{&docTool{id: "write"}}}
+			listed := &flakySet{name: "docs", tools: []Tool{&docTool{id: "find"}}}
+			source := &dynamicSource{}
+			model := &recordingModel{scripts: [][]ModelEvent{finalScript("one"), finalScript("two"), finalScript("three")}}
+			agent, err := NewSession(context.Background(), WithModel(model), WithToolSource(source), WithActiveToolSet(active), WithToolSet(listed))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = agent.Close(context.Background()) }()
+			source.set(taken)
+			var stages []string
+			for _, event := range runEvents(t, agent, "one") {
+				if e, ok := event.(ExtensionFailed); ok {
+					stages = append(stages, e.Stage+"/"+string(e.Code))
+				}
+			}
+			if !slices.Equal(stages, []string{"toolsource/invalid_argument"}) {
+				t.Fatalf("warnings = %v, want the ToolSource refused", stages)
+			}
+			active.set([]Tool{&docTool{id: "write"}, &docTool{id: "read"}}, nil)
+			for _, text := range []string{"two", "three"} {
+				if _, err := agent.Prompt(context.Background(), UserMessage(text)); err != nil {
+					t.Fatalf("Run %q: %v", text, err)
+				}
+			}
+			ids := specIDs(agent.Tools())
+			if !slices.Equal(ids, []string{"files.read", "files.write", SearchToolName}) {
+				t.Fatalf("Tools = %v", ids)
+			}
+		})
+	}
+}
+
+func specIDs(specs []ToolSpec) []string {
+	ids := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		ids = append(ids, spec.ID)
+	}
+	return ids
+}

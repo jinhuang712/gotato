@@ -69,12 +69,7 @@ type toolRegistry struct {
 }
 
 func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, error) {
-	rootTools, err := intake("WithTools", cfg.tools, nil)
-	if err != nil {
-		return nil, err
-	}
 	registry := &toolRegistry{
-		rootTools: rootTools,
 		sources:   cfg.toolSources,
 		maxEffect: cfg.maxEffect,
 		filter:    cfg.toolFilter,
@@ -85,9 +80,6 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		registry.searcher = bm25Searcher{}
 	}
 	registry.search = &searchTool{registry: registry}
-	if registry.sourceTools, err = registry.collectSources(ctx); err != nil {
-		return nil, err
-	}
 	names := map[string]bool{}
 	for _, entry := range cfg.toolSets {
 		spec, err := toolSetSpec(entry.set)
@@ -108,6 +100,15 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 		}
 		names[spec.Name] = true
 		registry.sets = append(registry.sets, &toolSetState{set: entry.set, spec: spec, mode: entry.mode})
+	}
+	// The root surface is taken in once the ToolSets are named, so it cannot
+	// take one of their names.
+	var err error
+	if registry.rootTools, err = intake("WithTools", cfg.tools, nil, registry.rootName); err != nil {
+		return nil, err
+	}
+	if registry.sourceTools, err = registry.collectSources(ctx); err != nil {
+		return nil, err
 	}
 	// Resolving every ToolSet during construction keeps the catalog and the
 	// first Model request deterministic. A ToolSet that fails is unavailable,
@@ -506,7 +507,26 @@ func (r *toolRegistry) collectSources(ctx context.Context) ([]toolEntry, error) 
 		}
 		return nil, runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
 	}
-	return intake("ToolSource", slices.Concat(supplied...), r.rootTools)
+	return intake("ToolSource", slices.Concat(supplied...), r.rootTools, r.rootName)
+}
+
+// rootName refuses a name a Tool of the root surface (WithTools, a ToolSource)
+// cannot take, by its ID or its Name: search_tools, or a name under the
+// namespace of an installed ToolSet. A dotted name of your own, outside every
+// namespace, is allowed.
+// [CONTRACT] a name the Model calls resolves to one Tool: a root Tool can neither collide with a ToolSet's Tool nor capture a call meant for it.
+func (r *toolRegistry) rootName(spec ToolSpec) error {
+	for _, name := range []string{spec.ID, spec.Name} {
+		if name == SearchToolName {
+			return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+SearchToolName+" is reserved", nil)
+		}
+		for _, state := range r.sets {
+			if strings.HasPrefix(name, state.spec.Name+".") {
+				return runtimeError(CodeInvalidArgument, "Tool", "Tool name "+name+" is in the namespace of ToolSet "+state.spec.Name, nil)
+			}
+		}
+	}
+	return nil
 }
 
 // refreshSources swaps in the Tools collectSources took in and the filter's

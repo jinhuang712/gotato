@@ -37,9 +37,10 @@ type toolEntry struct {
 // WithTools, a ToolSource or a ToolSet. It reads each Tool's Spec once, checks
 // it and keeps it, so nothing after intake calls Spec again or fails on a Tool.
 // what names the source in an error. held are the Tools the source's IDs may
-// not repeat. A Tool that is nil, whose Spec panics or is invalid, or whose ID
-// is taken fails the whole source: the caller never keeps part of it.
-func intake(what string, tools []Tool, held []toolEntry) ([]toolEntry, error) {
+// not repeat, and check, when it is not nil, refuses the names a source may not
+// take. A Tool that is nil, whose Spec panics or is invalid, or whose ID is
+// taken fails the whole source: the caller never keeps part of it.
+func intake(what string, tools []Tool, held []toolEntry, check func(ToolSpec) error) ([]toolEntry, error) {
 	taken := make(map[string]bool, len(held)+len(tools))
 	for _, entry := range held {
 		taken[entry.spec.ID] = true
@@ -50,6 +51,11 @@ func intake(what string, tools []Tool, held []toolEntry) ([]toolEntry, error) {
 			spec := cloneToolSpec(tool.Spec())
 			if err := validateToolSpec(spec); err != nil {
 				return err
+			}
+			if check != nil {
+				if err := check(spec); err != nil {
+					return err
+				}
 			}
 			// [CONTRACT] a Tool ID names one Tool of the root namespace, or of its ToolSet.
 			if taken[spec.ID] {

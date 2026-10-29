@@ -35,7 +35,7 @@ A ToolSet is installed in one of three ways, and the mode sets how much of it th
                       toolset="crm" to list them)
 ```
 
-The catalog is the description of the one discovery tool, `search_tools`. It lists a loaded tool like any other, so its bytes do not change while tools load. A team folds a big ToolSet itself, since the catalog has no size budget. ToolSets resolve at the start of every Run, never inside one, so the catalog is the same on every request of a Run. A ToolSet that fails is shown as unavailable and skipped; the Run goes on.
+The catalog is the description of the one discovery tool, `search_tools`. It lists a loaded tool like any other, so its bytes do not change while tools load. A team folds a big ToolSet itself, since the catalog has no size budget. ToolSets resolve at the start of every Run, never inside one, so the catalog is the same on every request of a Run. A ToolSet that fails, or returns one bad tool, is shown as unavailable and skipped whole; the Run goes on. A ToolSet's tools are named `<set>.<tool>`, and the namespace is the ToolSet's: a tool of your own cannot take an ID or a name under it, nor `search_tools`, so every name the model calls means one tool.
 
 ## A load
 

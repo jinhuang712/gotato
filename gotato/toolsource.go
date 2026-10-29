@@ -11,7 +11,7 @@ import (
 // be resolved when the Model calls it.
 //
 // Tools returned by a ToolSource are qualified under the root namespace like
-// Tools installed with WithTools.
+// Tools installed with WithTools, and cannot take a name WithTools refuses.
 //
 // Tools takes the ctx of the Run (or of NewSession, or of the inspection) and
 // must honor it. When it fails, panics or returns a bad Tool (see Tool), the
