@@ -36,7 +36,8 @@ func WithToolSource(source ToolSource) SessionOption {
 
 // Tools reports the Tools the Session exposes to its Model, as a snapshot
 // sorted by ID. While the Session is idle it is the set its next Turn offers;
-// during a Run it reflects the set of the most recent Turn.
+// during a Run it reflects the set of the most recent Turn and the Tools loaded
+// since, each from the moment the Tool Result that loads it commits.
 func (a *Session) Tools() []ToolSpec {
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()

@@ -362,7 +362,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		if !found {
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
-			if a.registry.stageCall(call.ToolID) {
+			if a.registry.loadable(call.ToolID) != loadNotFound {
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}

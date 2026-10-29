@@ -39,16 +39,16 @@ The catalog is the description of the one discovery tool, `search_tools`. It lis
 
 ## A load
 
-A tool becomes visible at the end of the batch that asked for it, and the Record says so in the same write.
+A tool becomes visible once the Tool Result that loads it commits, and the Record says so in the same write. Only two results load a tool: a `search_tools` result, and the refusal of a call to a tool that was not loaded. A result that is not committed, or a failed search, loads nothing.
 
 ```text
  Model                    Loop                         Record
    │ search_tools(names|queries|toolset)                    │
-   │ ───────────────────▶ │ stage the load (top 3 of a query load,
+   │ ───────────────────▶ │ pick the tools (top 3 of a query load,
    │                      │   next 5 are listed only; a name loads exactly)
    │                      │ result: "Loaded: crm.find ..."  │
    │                      │ ── Tool Result + tool_loaded ─▶ │  one write
-   │                      │ batch ends: the tool is visible │
+   │                      │ committed: the tool is visible  │
    │ next Turn sees crm.find in its tools                   │
    │ crm.export called while not loaded: the call does NOT run,
    │   it is loaded now, the result says "call it again"    │
@@ -99,7 +99,7 @@ Calls are checked in source order, run in groups, and committed in source order.
  3 arguments fit the schema      Sequential tool is alone;  10 Tool Result Message
  4 Pre-tool extension may        the rest run in parallel   11 tool_result_committed (+ tool_loaded)
    block                         up to a bound; ToolEnded      in one flush
- a failure at 1-4 = a failed     as each ends               loads become visible at the batch end
+ a failure at 1-4 = a failed     as each ends               a load becomes visible as its result commits
  result the model can read
 ```
 

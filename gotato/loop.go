@@ -296,8 +296,17 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 			}
 			st.batch.next = committed + 1
 			a.stage(ToolResultCommitted{Header: hd(turn), Message: resultMessage.Clone(), CallID: call.ID, Status: toolResult.Status})
-			for _, load := range a.registry.announce(toolResult.LoadedTools) {
-				a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
+			// A Tool loads as the Tool Result that lists it commits, and its
+			// ToolLoaded goes in the same write, so the Record never says
+			// "Loaded" for a Tool it does not hold as loaded. registryMu
+			// serializes the visibility write with Session.Tools.
+			for _, id := range toolResult.LoadedTools {
+				a.registryMu.Lock()
+				loadedNow := a.registry.load(id)
+				a.registryMu.Unlock()
+				if loadedNow {
+					a.stage(ToolLoaded{Header: hd(turn), ToolID: id, Why: loadWhy(call, id)})
+				}
 			}
 			// The result is committed in memory already: a canceled
 			// Run still stores it.
@@ -336,22 +345,6 @@ func (st *runState) runToolBatch(turn TurnNumber, assistant Message) (toolOutcom
 		return nil, nil, err
 	}
 	st.batch = openBatch{}
-
-	// A load commits at the batch boundary, so a loaded Tool appears only
-	// in the next Model request. registryMu serializes the visibility
-	// write with Session.Tools on other goroutines.
-	a.registryMu.Lock()
-	loads, loadErr := a.registry.commitPending()
-	a.registryMu.Unlock()
-	if loadErr != nil {
-		return nil, nil, asRuntimeError(loadErr)
-	}
-	for _, load := range loads {
-		if load.announced {
-			continue
-		}
-		a.stage(ToolLoaded{Header: hd(turn), ToolID: load.id, Why: load.why})
-	}
 	return toolOutcomes, settledResults, nil
 }
 
@@ -422,9 +415,6 @@ func (a *Session) beginRun(cancel context.CancelFunc) (RunID, func()) {
 	}
 	return runID, func() {
 		a.inRun.Store(false)
-		// A Run that ends before a commit boundary must not leave a staged
-		// load behind for the next Run to commit unasked.
-		a.registry.abortPending()
 		a.runMu.Lock()
 		if a.currentRunID == runID {
 			a.currentRunID = ""

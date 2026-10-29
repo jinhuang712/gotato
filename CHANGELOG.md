@@ -34,6 +34,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - **`ToolSource`s are asked at once, with no lock held, and `WithToolFilter` is asked when the Tools are resolved.** A slow `ToolSource` no longer holds `Session.Tools` or `Session.ToolSets`.
   - Before: the ToolSources were asked one after another under the registry's locks; the filter ran on every rebuild of the Tool list, under the locks, and a filter that panicked ended the process.
   - After: the filter is asked at `NewSession`, at the start of every Run and at every Turn of a Session with a `ToolSource`; a change to its answer shows at the next of them. A filter that panics fails the Run (or `NewSession`) with `extension_failure`.
+- **A Tool loads when the Tool Result that loads it commits, and only then.** The load and its `tool_loaded` are one write with that result, so what the Model was told and what the Session offers agree.
+  - Before: loads waited for the end of the batch. A load the Model had been told of was lost when a later call of the same batch failed the Run (on a Transcript that is not a Record); a `search_tools` call that failed still loaded the Tools it named; a `search_tools` call that outlived its canceled Run could load a Tool into the next Run.
+  - After: `Session.Tools` shows a load as soon as its result commits, inside the batch. A failed `search_tools` call loads nothing, and a call that returns after its Run ended loads nothing.
 
 ## 0.2.0 — 2026-10-29
 

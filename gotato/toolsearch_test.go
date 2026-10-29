@@ -3,11 +3,13 @@ package gotato
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // runCollecting plays one Prompt and returns the ToolLoaded and ToolUnloaded
@@ -153,6 +155,154 @@ func TestTwoLoadsOfOneToolInABatchEmitOneFact(t *testing.T) {
 	agent := newSearchSession(t, model, WithToolSet(set))
 	if loads := runCollecting(t, agent, "x"); len(loads) != 1 {
 		t.Fatalf("tool_loaded = %+v, want one", loads)
+	}
+}
+
+func TestTwoCallsToAnUnloadedToolInABatchLoadItOnce(t *testing.T) {
+	set, tools := ordersSet()
+	model := &recordingModel{scripts: [][]ModelEvent{
+		multiCallScript(ToolCall{ID: "a", ToolID: "orders.lookup", Arguments: []byte(`{}`)}, ToolCall{ID: "b", ToolID: "orders.lookup", Arguments: []byte(`{}`)}),
+		finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set))
+	if loads := runCollecting(t, agent, "x"); len(loads) != 1 || loads[0].ToolID != "orders.lookup" || loads[0].Why != ToolLoadedWhyCall {
+		t.Fatalf("tool_loaded = %+v, want one load of orders.lookup by call", loads)
+	}
+	if tools["lookup"].runs.Load() != 0 {
+		t.Fatalf("lookup ran %d times before it was loaded", tools["lookup"].runs.Load())
+	}
+	if got := model.toolIDs(1); !slices.Equal(got, []string{"orders.lookup", SearchToolName}) {
+		t.Fatalf("tools after the batch = %v", got)
+	}
+}
+
+// multiCallScript is a Model reply that asks for every call at once.
+func multiCallScript(calls ...ToolCall) []ModelEvent {
+	out := make([]ModelEvent, 0, len(calls)+1)
+	for i := range calls {
+		out = append(out, ModelEvent{Kind: ModelEventKindToolCall, ToolCall: &calls[i]})
+	}
+	return append(out, ModelEvent{Kind: ModelEventKindDone, StopReason: StopReasonToolCalls})
+}
+
+// failingSearcher fails every query.
+type failingSearcher struct{}
+
+func (failingSearcher) Search(context.Context, string, []ToolSpec) ([]string, error) {
+	return nil, errors.New("index down")
+}
+
+// A search_tools call that fails loads nothing, even the Tools it named.
+func TestAFailedSearchLoadsNothing(t *testing.T) {
+	set, _ := ordersSet()
+	model := &recordingModel{scripts: [][]ModelEvent{
+		searchCall("s", map[string]any{"names": []string{"orders.lookup"}, "queries": []string{"refund"}}),
+		finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set), WithToolSearcher(failingSearcher{}))
+	if loads := runCollecting(t, agent, "x"); len(loads) != 0 {
+		t.Fatalf("tool_loaded = %+v, want none", loads)
+	}
+	if result := resultOf(t, model, 1, "s"); result.Status != ToolResultStatusFailed || len(result.LoadedTools) != 0 {
+		t.Fatalf("search result = %+v, want a failed result that loads nothing", result)
+	}
+	if got := model.toolIDs(1); !slices.Equal(got, []string{SearchToolName}) {
+		t.Fatalf("tools after the failed search = %v", got)
+	}
+}
+
+// stuckSearcher holds its first query, ignoring the context, until release.
+type stuckSearcher struct {
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (s *stuckSearcher) Search(_ context.Context, _ string, tools []ToolSpec) ([]string, error) {
+	first := false
+	s.once.Do(func() { first = true })
+	if first {
+		close(s.entered)
+		<-s.release
+	}
+	return []string{"orders.refund"}, nil
+}
+
+// A search_tools call that outlives its canceled Run loads nothing: not in that
+// Run, and not in the next.
+func TestALateSearchCannotLoadIntoTheNextRun(t *testing.T) {
+	set, _ := ordersSet()
+	searcher := &stuckSearcher{entered: make(chan struct{}), release: make(chan struct{})}
+	model := &recordingModel{scripts: [][]ModelEvent{
+		searchCall("s1", map[string]any{"queries": []string{"refund"}}),
+		searchCall("s2", map[string]any{"names": []string{"orders.lookup"}}),
+		finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set), WithToolSearcher(searcher))
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-searcher.entered; cancel() }()
+	if _, err := agent.Prompt(ctx, UserMessage("one")); err == nil {
+		t.Fatal("the canceled Run succeeded")
+	}
+	close(searcher.release)
+	// The abandoned worker returns after the Run; give it the time to act on
+	// the registry if it could.
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) && slices.ContainsFunc(agent.registry.candidates(), func(spec ToolSpec) bool { return spec.ID == "orders.refund" }) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	runCollecting(t, agent, "two")
+	if ids := specIDs(agent.Tools()); slices.Contains(ids, "orders.refund") {
+		t.Fatalf("tools = %v: the late search loaded orders.refund", ids)
+	}
+}
+
+// failOnCall is a PostToolUse Extension that fails on one call.
+type failOnCall struct{ id ToolCallID }
+
+func (f failOnCall) After(_ context.Context, result ToolResult) (ToolResult, error) {
+	if result.CallID == f.id {
+		return result, errors.New("post hook down")
+	}
+	return result, nil
+}
+
+// A load whose Tool Result committed stays loaded when a later call of the same
+// batch fails the Run: the Model was told the Tool is loaded.
+func TestALoadSurvivesAFailureLaterInItsBatch(t *testing.T) {
+	set, _ := ordersSet()
+	args, _ := json.Marshal(map[string]any{"names": []string{"orders.lookup"}})
+	model := &recordingModel{scripts: [][]ModelEvent{
+		multiCallScript(ToolCall{ID: "s", ToolID: SearchToolName, Arguments: args}, ToolCall{ID: "x", ToolID: "x", Arguments: []byte(`{}`)}),
+		finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set), WithTools(&docTool{id: "x", effect: ToolEffectRead}), WithExtension(failOnCall{id: "x"}))
+	events, err := agent.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = events.Close() }()
+	if _, err := agent.Prompt(context.Background(), UserMessage("one")); err == nil {
+		t.Fatal("the Run with a failing PostToolUse succeeded")
+	}
+	var loads []string
+	for {
+		event, err := events.Next(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e, ok := event.(ToolLoaded); ok {
+			loads = append(loads, e.ToolID)
+		}
+		if event.Kind() == EventKindRunEnded {
+			break
+		}
+	}
+	if !slices.Equal(loads, []string{"orders.lookup"}) {
+		t.Fatalf("tool_loaded = %v", loads)
+	}
+	runCollecting(t, agent, "two")
+	if got := model.toolIDs(1); !slices.Contains(got, "orders.lookup") {
+		t.Fatalf("the next Run offers %v, without the Tool the Model was told is loaded", got)
 	}
 }
 

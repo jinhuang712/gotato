@@ -104,8 +104,8 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	}
 	for _, name := range input.Names {
 		name = strings.TrimSpace(name)
-		switch t.registry.stageLoad(name, ToolLoadedWhyNames) {
-		case loadStaged:
+		switch t.registry.loadable(name) {
+		case loadOK:
 			add(&loaded, name)
 		case loadAlready:
 			add(&already, name)
@@ -115,7 +115,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	}
 	var noMatch []string
 	for _, query := range input.Queries {
-		ranked, err := t.registry.rank(ctx, query)
+		ranked, err := t.registry.rank(ctx, query, loaded)
 		if err != nil {
 			return ToolResult{}, err
 		}
@@ -126,9 +126,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		for i, id := range ranked {
 			switch {
 			case i < searchLoadCount:
-				if t.registry.stageLoad(id, ToolLoadedWhyQuery) == loadStaged {
-					add(&loaded, id)
-				}
+				add(&loaded, id)
 			case i < searchLoadCount+searchListCount:
 				add(&found, id)
 			}
@@ -159,4 +157,21 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 		Content:     []ContentPart{{Kind: ContentKindText, Text: strings.Join(parts, " ")}},
 		LoadedTools: loaded,
 	}, nil
+}
+
+// loadWhy says why a committed Tool Result of call loaded id: search_tools
+// loads by names when id is among the names it was passed, and by query
+// otherwise; any other result is a call to a Tool that was not loaded.
+func loadWhy(call ToolCall, id string) ToolLoadedWhy {
+	if call.ToolID != SearchToolName {
+		return ToolLoadedWhyCall
+	}
+	var input struct {
+		Names []string `json:"names"`
+	}
+	_ = json.Unmarshal(call.Arguments, &input)
+	if slices.ContainsFunc(input.Names, func(name string) bool { return strings.TrimSpace(name) == id }) {
+		return ToolLoadedWhyNames
+	}
+	return ToolLoadedWhyQuery
 }

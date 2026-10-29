@@ -18,18 +18,9 @@ type catalogTool struct {
 	set  *toolSetState
 }
 
-// pendingLoad is a load staged during the current batch.
-type pendingLoad struct {
-	id  string
-	why ToolLoadedWhy
-	// announced is set once the load's ToolLoaded Event is staged, with the
-	// Tool Result that lists it.
-	announced bool
-}
-
 // toolRegistry owns Tool identity and visibility for one Session. The Session
-// goroutine commits loads at batch boundaries; search_tools stages them from
-// its own goroutine, so mu guards every mutation of that state.
+// goroutine loads a Tool when the Tool Result that lists it commits;
+// search_tools only reads it, from its own goroutine.
 type toolRegistry struct {
 	rootTools   []toolEntry
 	sources     []ToolSource
@@ -47,10 +38,7 @@ type toolRegistry struct {
 	parked []string
 	// fresh is true until the first Run: NewSession just resolved every
 	// ToolSet, so that Run does not resolve them again.
-	fresh bool
-	// pending holds loads staged during the current batch. Visibility commits
-	// at the batch boundary, never inside it.
-	pending  []pendingLoad
+	fresh    bool
 	search   *searchTool
 	searcher ToolSearcher
 	filter   func(string) bool
@@ -59,7 +47,7 @@ type toolRegistry struct {
 	kept map[string]bool
 	// maxEffect hides every Tool above it; ToolEffectUnspecified means no cap.
 	maxEffect ToolEffect
-	// mu guards sets, pending, loaded, kept, specs, and byQualified. Callers
+	// mu guards sets, loaded, kept, specs, and byQualified. Callers
 	// that run on the Session goroutine hold the Session's registryMu, which
 	// is the lock ToolInspector.Tools reads under; mu is the inner lock. The
 	// one updater is the holder of the Session's admission token: it asks the
@@ -545,15 +533,6 @@ func (r *toolRegistry) refreshSources(entries []toolEntry, kept map[string]bool)
 	return nil
 }
 
-// abortPending discards loads staged by a Run that never reached a commit
-// boundary (a failed or canceled Run), so a later Run cannot load a Tool the
-// Model never got.
-func (r *toolRegistry) abortPending() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.pending = nil
-}
-
 func (r *toolRegistry) qualify(namespace, local string) string {
 	if namespace == "" {
 		return local
@@ -570,60 +549,60 @@ func (r *toolRegistry) lookup(id string) (entry toolEntry, ok bool) {
 
 func (r *toolRegistry) visibleSpecs() []ToolSpec { return cloneToolSpecs(r.specs) }
 
-// loadStatus says what staging a load did.
+// loadStatus says whether a Tool can be loaded.
 type loadStatus int
 
 const (
-	// loadStaged: the Tool will be visible after the batch.
-	loadStaged loadStatus = iota
-	// loadAlready: the Tool is visible, loaded, or staged already.
+	// loadOK: a catalog Tool the Session may load, not loaded yet.
+	loadOK loadStatus = iota
+	// loadAlready: the Tool is visible or loaded already.
 	loadAlready
 	// loadNotFound: no Tool the Session may load carries that ID.
 	loadNotFound
 )
 
-// stageLoad queues a Tool for loading. Visibility changes only at the batch
-// boundary (commitPending). A Tool the Effect cap or the filter refuses, or
-// that no ToolSet carries, is not found.
-func (r *toolRegistry) stageLoad(id string, why ToolLoadedWhy) loadStatus {
+// loadable reports whether id names a catalog Tool the Model may load. It
+// changes nothing: a Tool loads when the Tool Result that lists it commits
+// (load). A Tool the Effect cap or the filter refuses, or that no ToolSet
+// carries, is not found.
+func (r *toolRegistry) loadable(id string) loadStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.loadableLocked(id)
+}
+
+func (r *toolRegistry) loadableLocked(id string) loadStatus {
 	entry, ok := r.byCatalog[id]
 	if !ok || !r.indexable(entry) {
 		return loadNotFound
 	}
-	if entry.set.mode == modeActive || slices.Contains(r.loaded, id) || slices.ContainsFunc(r.pending, func(p pendingLoad) bool { return p.id == id }) {
+	if entry.set.mode == modeActive || slices.Contains(r.loaded, id) {
 		return loadAlready
 	}
-	r.pending = append(r.pending, pendingLoad{id: id, why: why})
-	return loadStaged
+	return loadOK
 }
 
-// stageCall handles a call to a Tool that is not visible. It stages the load
-// and reports true when the Tool is a catalog Tool the Session may load.
-func (r *toolRegistry) stageCall(id string) bool {
-	return r.stageLoad(id, ToolLoadedWhyCall) != loadNotFound
-}
-
-// announce marks the staged loads among ids as announced, and returns them: the
-// Loop stages their ToolLoaded Events with the Tool Result that lists them, so
-// one write holds both and a crash cannot leave a result that says "Loaded"
-// for a Tool the Record does not hold as loaded.
-func (r *toolRegistry) announce(ids []string) []pendingLoad {
+// load makes a catalog Tool visible when the Tool Result that lists it
+// commits, on the Session goroutine. It reports whether the Tool loaded now:
+// false when it was loaded already, or the Session may not load it.
+func (r *toolRegistry) load(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []pendingLoad
-	for i := range r.pending {
-		if !r.pending[i].announced && slices.Contains(ids, r.pending[i].id) {
-			r.pending[i].announced = true
-			out = append(out, r.pending[i])
-		}
+	if r.loadableLocked(id) != loadOK {
+		return false
 	}
-	return out
+	previous := r.loaded
+	r.loaded = append(slices.Clone(previous), id)
+	if err := r.rebuild(); err != nil {
+		r.loaded = previous
+		_ = r.rebuild()
+		return false
+	}
+	return true
 }
 
 // candidates lists, in ID order, the specs of the catalog Tools the Model may
-// still load: not loaded, not staged, in the Session's index.
+// still load: not loaded, in the Session's index.
 func (r *toolRegistry) candidates() []ToolSpec {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -631,9 +610,6 @@ func (r *toolRegistry) candidates() []ToolSpec {
 	for i := range r.catalog {
 		entry := &r.catalog[i]
 		if entry.set.mode == modeActive || !r.indexable(entry) || slices.Contains(r.loaded, entry.id) {
-			continue
-		}
-		if slices.ContainsFunc(r.pending, func(p pendingLoad) bool { return p.id == entry.id }) {
 			continue
 		}
 		out = append(out, cloneToolSpec(entry.spec))
@@ -748,33 +724,11 @@ func (r *toolRegistry) catalogText() string {
 	return b.String()
 }
 
-// commitPending makes staged loads visible. It reports what it loaded, in the
-// order staged, so the Loop can emit one Event per load.
-func (r *toolRegistry) commitPending() ([]pendingLoad, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.pending) == 0 {
-		return nil, nil
-	}
-	staged := r.pending
-	r.pending = nil
-	previous := r.loaded
-	r.loaded = slices.Clone(previous)
-	for _, p := range staged {
-		r.loaded = append(r.loaded, p.id)
-	}
-	if err := r.rebuild(); err != nil {
-		r.loaded = previous
-		_ = r.rebuild()
-		return nil, err
-	}
-	return staged, nil
-}
-
 // rank asks the searcher about one query. A panic or an error is a failure of
-// the call, which the Model reads as a failed Tool Result.
-func (r *toolRegistry) rank(ctx context.Context, query string) (ids []string, err error) {
-	candidates := r.candidates()
+// the call, which the Model reads as a failed Tool Result. A Tool in exclude,
+// one this call loads already, is not ranked.
+func (r *toolRegistry) rank(ctx context.Context, query string, exclude []string) (ids []string, err error) {
+	candidates := slices.DeleteFunc(r.candidates(), func(spec ToolSpec) bool { return slices.Contains(exclude, spec.ID) })
 	if len(candidates) == 0 || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
