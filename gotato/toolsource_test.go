@@ -150,3 +150,32 @@ func TestANilToolFromASourceOrASetFailsWithACode(t *testing.T) {
 		}
 	})
 }
+
+// A ToolSource Tool whose Spec panics during a Run leaves the last set in
+// place with an ExtensionFailed Event; the process and the Run go on.
+func TestAToolSourceToolWhoseSpecPanicsKeepsTheLastSet(t *testing.T) {
+	source := &dynamicSource{tools: []Tool{&scriptedTool{}}}
+	model := &testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}
+	session, err := NewSession(context.Background(), WithModel(model), WithToolSource(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close(context.Background()) }()
+	events := recordAll(t, session)
+	source.set(&scriptedTool{}, panicSpecTool{})
+	if _, err := session.Prompt(context.Background(), UserMessage("go")); err != nil {
+		t.Fatalf("the Run failed with its ToolSource: %v", err)
+	}
+	if got := model.lastRequest().Tools; len(got) != 1 || got[0].ID != "demo.echo" {
+		t.Fatalf("tools offered = %+v, want the last set", got)
+	}
+	var failed bool
+	for _, event := range events.events() {
+		if e, ok := event.(ExtensionFailed); ok && e.Stage == "toolsource" && e.Code == CodeInvalidArgument {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatal("no extension_failed event for the ToolSource")
+	}
+}

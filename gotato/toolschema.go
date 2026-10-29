@@ -26,6 +26,50 @@ func validateToolSpec(spec ToolSpec) error {
 	return nil
 }
 
+// toolEntry is a Tool as the registry holds it: with the Spec it read once,
+// when the Tool entered (see intake).
+type toolEntry struct {
+	tool Tool
+	spec ToolSpec
+}
+
+// intake is the one way a Tool enters the registry, whether it comes from
+// WithTools, a ToolSource or a ToolSet. It reads each Tool's Spec once, checks
+// it and keeps it, so nothing after intake calls Spec again or fails on a Tool.
+// what names the source in an error. held are the Tools the source's IDs may
+// not repeat. A Tool that is nil, whose Spec panics or is invalid, or whose ID
+// is taken fails the whole source: the caller never keeps part of it.
+func intake(what string, tools []Tool, held []toolEntry) ([]toolEntry, error) {
+	taken := make(map[string]bool, len(held)+len(tools))
+	for _, entry := range held {
+		taken[entry.spec.ID] = true
+	}
+	entries := make([]toolEntry, 0, len(tools))
+	err := callHost("Tool.Spec", func() error {
+		for _, tool := range tools {
+			spec := cloneToolSpec(tool.Spec())
+			if err := validateToolSpec(spec); err != nil {
+				return err
+			}
+			// [CONTRACT] a Tool ID names one Tool of the root namespace, or of its ToolSet.
+			if taken[spec.ID] {
+				return runtimeError(CodeInvalidArgument, what, what+" has a duplicate Tool ID: "+spec.ID, nil)
+			}
+			taken[spec.ID] = true
+			entries = append(entries, toolEntry{tool: tool, spec: spec})
+		}
+		return nil
+	})
+	// [LIVENESS] a nil Tool, or a Spec that panics, fails its source instead of the process.
+	if panicked, ok := err.(*panicError); ok {
+		return nil, runtimeError(CodeInvalidArgument, what, panicked.Public(), err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
 // validateToolSchema checks Tool arguments against the supported JSON Schema
 // subset. Core validates a JSON value rather than a Go struct, so `omitempty`
 // on a Go field never changes what `required` means here.

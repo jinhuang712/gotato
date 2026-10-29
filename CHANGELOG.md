@@ -11,6 +11,12 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 - `modelctx`: a compaction in the middle of a Run keeps the Run's last reply and everything after it. Before, a notice or a steer committed after a Turn's tool results was taken as the start of the Turn, so the next model call saw none of those results; after an interrupt the cut-off reply was closed into the Segment and its text lost; and on a Run's first Turn a prompt followed by a notice could be cut into the Segment. Now the prompt is kept whole, and a prompt past the ceiling ends the Run with `limit_exceeded`.
 - `modelctx`: a Turn counts as compacted only when a compaction or a merge started in it. Before, a merge at a Run's start that found nothing to merge used up the Turn's compaction, so an overflow after it ended the Run with `context_overflow` instead of compacting and sending the call again. A compaction that started and was dropped still counts.
 
+### Changed
+
+- **A Tool's `Spec` is read once, when the Tool is resolved.** The Session keeps it: a root Tool's from `NewSession`, a `ToolSource`'s Tools' from each Turn, a `ToolSet`'s Tools' from each resolution. A Tool whose `Spec` panics, or a typed nil, now fails its whole source like any other bad Tool, instead of the process.
+  - Before: `Spec` was read again on every rebuild of the Tool list, so a Spec that changed showed at once, and a Spec that panicked ended the process.
+  - After: a Spec that changes shows at the next resolution of its source. Return a stable value, and supply Tools that change through a `ToolSource` or a `ToolSet`.
+
 ## 0.2.0 — 2026-10-29
 
 Gotato 0.2.0 is the first release: a minimal, synchronous, Go-native agent runtime that runs on its own in a small `main` and embeds into running, multi-instance Go services. It needs Go 1.24 (the MCP adapter needs Go 1.25).

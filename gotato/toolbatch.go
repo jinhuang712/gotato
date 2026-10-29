@@ -356,8 +356,8 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		// schema-invalid arguments) settles as a failed Tool Result the Model
 		// can read and correct; it never ends the Run (GOALS.md G-G04: every
 		// failed tool call returns its reason to the model).
-		tool := a.registry.lookup(call.ToolID)
-		if tool == nil {
+		entry, found := a.registry.lookup(call.ToolID)
+		if !found {
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
 			if a.registry.stageCall(call.ToolID) {
@@ -371,7 +371,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: arguments for %s are not valid JSON", CodeToolArgumentFailure, call.ToolID)))
 			continue
 		}
-		spec := tool.Spec()
+		spec := entry.spec
 		if err := validateToolSchema(spec.InputSchema, call.Arguments); err != nil {
 			plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s: %s: %v", CodeToolArgumentFailure, call.ToolID, err)))
 			continue
@@ -379,7 +379,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		plan := toolPlan{
 			index:      sourceIndex,
 			call:       call,
-			tool:       tool,
+			tool:       entry.tool,
 			sequential: spec.Sequential,
 			use: ToolUse{
 				RunID:       runID,

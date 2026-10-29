@@ -31,13 +31,13 @@ type pendingLoad struct {
 // goroutine commits loads at batch boundaries; search_tools stages them from
 // its own goroutine, so mu guards every mutation of that state.
 type toolRegistry struct {
-	rootTools   []Tool
+	rootTools   []toolEntry
 	sources     []ToolSource
-	sourceTools []Tool
+	sourceTools []toolEntry
 	sets        []*toolSetState
 	catalog     []catalogTool
 	byCatalog   map[string]*catalogTool
-	byQualified map[string]Tool
+	byQualified map[string]toolEntry
 	specs       []ToolSpec
 	// loaded are the qualified IDs of the loaded catalog Tools, in load order.
 	loaded []string
@@ -63,8 +63,12 @@ type toolRegistry struct {
 }
 
 func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, error) {
+	rootTools, err := intake("WithTools", cfg.tools, nil)
+	if err != nil {
+		return nil, err
+	}
 	registry := &toolRegistry{
-		rootTools: cfg.tools,
+		rootTools: rootTools,
 		sources:   cfg.toolSources,
 		maxEffect: cfg.maxEffect,
 		filter:    cfg.toolFilter,
@@ -122,7 +126,7 @@ func newToolRegistry(ctx context.Context, cfg *sessionConfig) (*toolRegistry, er
 // setResult is one ToolSet's answer to a resolution.
 type setResult struct {
 	state *toolSetState
-	tools []Tool
+	tools []toolEntry
 	err   error
 }
 
@@ -166,15 +170,14 @@ func (r *toolRegistry) install(results []setResult) error {
 	r.catalog = r.catalog[:0:0]
 	r.byCatalog = map[string]*catalogTool{}
 	for _, state := range r.sets {
-		for _, tool := range state.resolved {
-			spec := tool.Spec()
-			id := r.qualify(state.spec.Name, spec.ID)
-			visible := cloneToolSpec(spec)
+		for _, resolved := range state.resolved {
+			id := r.qualify(state.spec.Name, resolved.spec.ID)
+			visible := cloneToolSpec(resolved.spec)
 			visible.ID = id
 			if visible.Name == "" {
-				visible.Name = spec.ID
+				visible.Name = resolved.spec.ID
 			}
-			r.catalog = append(r.catalog, catalogTool{id: id, tool: tool, spec: visible, set: state})
+			r.catalog = append(r.catalog, catalogTool{id: id, tool: resolved.tool, spec: visible, set: state})
 		}
 	}
 	sort.SliceStable(r.catalog, func(i, j int) bool { return r.catalog[i].id < r.catalog[j].id })
@@ -301,9 +304,9 @@ func (r *toolRegistry) hidden(spec ToolSpec) bool {
 func (r *toolRegistry) cappedEffect(id string) (ToolEffect, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, tool := range r.staticTools() {
-		if spec := tool.Spec(); r.qualify("", spec.ID) == id && r.hidden(spec) {
-			return spec.Effect, true
+	for _, entry := range r.staticTools() {
+		if entry.spec.ID == id && r.hidden(entry.spec) {
+			return entry.spec.Effect, true
 		}
 	}
 	if entry, ok := r.byCatalog[id]; ok && r.hidden(entry.spec) {
@@ -326,8 +329,8 @@ func (r *toolRegistry) indexable(entry *catalogTool) bool {
 }
 
 func (r *toolRegistry) staticHolds(id string) bool {
-	for _, tool := range r.staticTools() {
-		if r.qualify("", tool.Spec().ID) == id {
+	for _, entry := range r.staticTools() {
+		if entry.spec.ID == id {
 			return true
 		}
 	}
@@ -338,30 +341,26 @@ func (r *toolRegistry) staticHolds(id string) bool {
 // sort by qualified ID. A Tool above the Effect cap is left out entirely, so
 // it is neither offered nor resolvable by any name.
 func (r *toolRegistry) rebuild() error {
-	byQualified := map[string]Tool{}
+	byQualified := map[string]toolEntry{}
 	specs := make([]ToolSpec, 0, len(r.rootTools))
 	register := func(qualified string, tool Tool, spec ToolSpec) error {
 		if _, exists := byQualified[qualified]; exists {
 			return runtimeError(CodeInvalidArgument, "Tool", "duplicate qualified Tool ID: "+qualified, nil)
 		}
-		byQualified[qualified] = tool
 		visible := cloneToolSpec(spec)
 		visible.ID = qualified
 		if visible.Name == "" {
 			visible.Name = spec.ID
 		}
+		byQualified[qualified] = toolEntry{tool: tool, spec: visible}
 		specs = append(specs, visible)
 		return nil
 	}
-	for _, tool := range r.staticTools() {
-		spec := tool.Spec()
-		if err := validateToolSpec(spec); err != nil {
-			return err
-		}
-		if r.hidden(spec) {
+	for _, entry := range r.staticTools() {
+		if r.hidden(entry.spec) {
 			continue
 		}
-		if err := register(r.qualify("", spec.ID), tool, spec); err != nil {
+		if err := register(entry.spec.ID, entry.tool, entry.spec); err != nil {
 			return err
 		}
 	}
@@ -398,17 +397,16 @@ func (r *toolRegistry) rebuild() error {
 	r.specs = specs
 	// A local Tool name stays reachable when it is unambiguous, so a Model
 	// that answers with the bare name still resolves.
-	for _, tool := range r.staticTools() {
-		spec := tool.Spec()
-		if r.hidden(spec) {
+	for _, entry := range r.staticTools() {
+		if r.hidden(entry.spec) {
 			continue
 		}
-		for _, alias := range []string{spec.ID, spec.Name} {
+		for _, alias := range []string{entry.spec.ID, entry.spec.Name} {
 			if alias == "" {
 				continue
 			}
 			if _, taken := r.byQualified[alias]; !taken {
-				r.byQualified[alias] = tool
+				r.byQualified[alias] = entry
 			}
 		}
 	}
@@ -417,20 +415,17 @@ func (r *toolRegistry) rebuild() error {
 
 // staticTools is the root surface: Tools installed with WithTools(s) followed
 // by the current Tools of every ToolSource.
-func (r *toolRegistry) staticTools() []Tool {
+func (r *toolRegistry) staticTools() []toolEntry {
 	if len(r.sourceTools) == 0 {
 		return r.rootTools
 	}
-	out := make([]Tool, 0, len(r.rootTools)+len(r.sourceTools))
-	out = append(out, r.rootTools...)
-	out = append(out, r.sourceTools...)
-	return out
+	return slices.Concat(r.rootTools, r.sourceTools)
 }
 
 func (r *toolRegistry) hasSources() bool { return len(r.sources) > 0 }
 
-// collectSources asks every ToolSource for its Tools. A nil Tool or a panic
-// is a resolution failure, exactly as for a ToolSet.
+// collectSources asks every ToolSource for its Tools. A failure, a panic or a
+// bad Tool of any ToolSource fails them all together, as one source.
 func (r *toolRegistry) collectSources(ctx context.Context) error {
 	var tools []Tool
 	for _, source := range r.sources {
@@ -445,15 +440,13 @@ func (r *toolRegistry) collectSources(ctx context.Context) error {
 			}
 			return runtimeError(CodeToolResolutionFailure, "ToolSource", PublicText(sourceErr, "ToolSource failed"), sourceErr)
 		}
-		for _, tool := range supplied {
-			// [LIVENESS] a nil Tool would panic the process at its first Spec call, outside the host-panic recovery.
-			if tool == nil {
-				return runtimeError(CodeInvalidArgument, "ToolSource", "ToolSource returned a nil Tool", nil)
-			}
-			tools = append(tools, tool)
-		}
+		tools = append(tools, supplied...)
 	}
-	r.sourceTools = tools
+	entries, err := intake("ToolSource", tools, r.rootTools)
+	if err != nil {
+		return err
+	}
+	r.sourceTools = entries
 	return nil
 }
 
@@ -491,7 +484,12 @@ func (r *toolRegistry) qualify(namespace, local string) string {
 	return namespace + "." + local
 }
 
-func (r *toolRegistry) lookup(id string) Tool { return r.byQualified[id] }
+// lookup returns the visible Tool the Model calls by id, with its Spec; ok is
+// false when no visible Tool answers to id.
+func (r *toolRegistry) lookup(id string) (entry toolEntry, ok bool) {
+	entry, ok = r.byQualified[id]
+	return entry, ok
+}
 
 func (r *toolRegistry) visibleSpecs() []ToolSpec { return cloneToolSpecs(r.specs) }
 

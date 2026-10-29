@@ -559,3 +559,87 @@ func TestACanceledRunStopsAParallelResolution(t *testing.T) {
 		t.Fatal("the Run did not return after cancel")
 	}
 }
+
+// panicSpecTool is a Tool whose Spec panics.
+type panicSpecTool struct{}
+
+func (panicSpecTool) Spec() ToolSpec { panic("broken Tool Spec") }
+
+func (panicSpecTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
+	return ToolResult{}, nil
+}
+
+// A ToolSet that returns a bad Tool, a typed nil or one whose Spec panics, is
+// unavailable as a whole; the process and the Session go on.
+func TestABadToolMakesItsToolSetUnavailable(t *testing.T) {
+	for name, bad := range map[string]Tool{"typed nil": (*docTool)(nil), "Spec panics": panicSpecTool{}} {
+		t.Run(name, func(t *testing.T) {
+			set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}, bad}}
+			model := &recordingModel{scripts: [][]ModelEvent{finalScript("done")}}
+			agent, err := NewSession(context.Background(), WithModel(model), WithToolSet(set), WithTools(&docTool{id: "root"}))
+			if err != nil {
+				t.Fatalf("NewSession: %v", err)
+			}
+			defer func() { _ = agent.Close(context.Background()) }()
+			if got := unavailableStages(runEvents(t, agent, "go")); !slices.Equal(got, []string{"toolset:files"}) {
+				t.Fatalf("warnings = %v, want toolset:files", got)
+			}
+			if status := agent.ToolSets(); len(status) != 1 || !status[0].Unavailable || len(status[0].Tools) != 0 {
+				t.Fatalf("ToolSets = %+v, want files unavailable with no Tools", status)
+			}
+		})
+	}
+}
+
+// specCountingTool counts how often its Spec is read.
+type specCountingTool struct {
+	id    string
+	reads atomic.Int32
+}
+
+func (t *specCountingTool) Spec() ToolSpec {
+	t.reads.Add(1)
+	return ToolSpec{ID: t.id, Effect: ToolEffectRead}
+}
+
+func (t *specCountingTool) Execute(context.Context, ToolUse, ToolProgressFunc) (ToolResult, error) {
+	return ToolResult{}, nil
+}
+
+// A Tool's Spec is read once, when the Tool is resolved: a root Tool at
+// NewSession, a ToolSet's Tool at each resolution.
+func TestToolSpecIsReadWhenTheToolIsResolved(t *testing.T) {
+	root := &specCountingTool{id: "root"}
+	listed := &specCountingTool{id: "read"}
+	set := &stubToolSet{name: "files", tools: []Tool{listed}}
+	model := &recordingModel{scripts: [][]ModelEvent{
+		callTool("c1", "root"), finalScript("one"),
+		searchCall("c2", map[string]any{"names": []string{"files.read"}}), finalScript("two"),
+	}}
+	agent, err := NewSession(context.Background(), WithModel(model), WithTools(root), WithToolSet(set))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = agent.Close(context.Background()) }()
+	for _, text := range []string{"one", "two"} {
+		if _, err := agent.Prompt(context.Background(), UserMessage(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := root.reads.Load(); got != 1 {
+		t.Fatalf("root Spec read %d times, want once", got)
+	}
+	// NewSession resolves the ToolSet for the first Run, the second Run
+	// resolves it again.
+	if got := listed.reads.Load(); got != 2 {
+		t.Fatalf("ToolSet Tool Spec read %d times, want 2", got)
+	}
+}
+
+// A root Tool whose Spec panics fails NewSession with a code, not the process.
+func TestARootToolWhoseSpecPanicsFailsNewSession(t *testing.T) {
+	_, err := NewSession(context.Background(), WithModel(&testModel{}), WithTools(panicSpecTool{}))
+	if !IsCode(err, CodeInvalidArgument) {
+		t.Fatalf("err = %v, want invalid_argument", err)
+	}
+}

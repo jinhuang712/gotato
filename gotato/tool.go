@@ -7,6 +7,14 @@ import (
 
 // Tool is one capability a Session can call. Spec describes it; Execute runs it.
 //
+// Spec is read when the Tool is resolved; return a stable value. The Session
+// reads it once and keeps it: a root Tool's at NewSession, a ToolSource's Tools'
+// at every Turn, a ToolSet's Tools' at every resolution. A host whose Tools
+// change supplies them through a ToolSource or a ToolSet. A Tool that is nil,
+// whose Spec panics or is invalid, or whose ID repeats another of its source
+// fails its whole source: NewSession for a Tool of WithTools, the ToolSource or
+// the ToolSet otherwise.
+//
 // Execute must honor ctx: the Session cancels it when the Run is aborted or the
 // call passes its deadline, and a Tool that ignores it holds the Run until it
 // returns. progress may be called from Execute to report text while the call

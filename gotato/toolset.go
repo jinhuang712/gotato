@@ -15,7 +15,9 @@ type ToolSetSpec struct {
 // is a grouping, not the unit of loading: the Model loads its Tools one by one
 // with search_tools, unless the ToolSet is installed active. Resolution must
 // be deterministic, and a failure must not partially register the returned
-// collection. A Tool's ID in the Session is "<set>.<tool>".
+// collection: a ToolSet whose Tools fails, or that returns one bad Tool (see
+// Tool), is unavailable as a whole. A Tool's ID in the Session is
+// "<set>.<tool>".
 type ToolSet interface {
 	Spec() ToolSetSpec
 	Tools(context.Context) ([]Tool, error)
@@ -62,7 +64,9 @@ func toolSetSpec(set ToolSet) (spec ToolSetSpec, err error) {
 	return spec, nil
 }
 
-func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
+// resolveToolSet asks one ToolSet for its Tools and takes them in. Any
+// failure, of the ToolSet or of one of its Tools, is the ToolSet's.
+func resolveToolSet(ctx context.Context, state *toolSetState) ([]toolEntry, error) {
 	var tools []Tool
 	err := callHost("ToolSet", func() (failure error) {
 		tools, failure = state.set.Tools(ctx)
@@ -71,23 +75,7 @@ func resolveToolSet(ctx context.Context, state *toolSetState) ([]Tool, error) {
 	if err != nil {
 		return nil, runtimeError(CodeToolResolutionFailure, "ToolSet", PublicText(err, "cannot resolve ToolSet "+state.spec.Name), err)
 	}
-	local := map[string]bool{}
-	for _, tool := range tools {
-		// [LIVENESS] a nil Tool would panic the process at its first Spec call, outside the host-panic recovery.
-		if tool == nil {
-			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "ToolSet "+state.spec.Name+" returned a nil Tool", nil)
-		}
-		spec := tool.Spec()
-		if err := validateToolSpec(spec); err != nil {
-			return nil, err
-		}
-		// [CONTRACT] a Tool ID is unique within its ToolSet.
-		if local[spec.ID] {
-			return nil, runtimeError(CodeInvalidArgument, "ToolSet", "duplicate local Tool name in ToolSet "+state.spec.Name+": "+spec.ID, nil)
-		}
-		local[spec.ID] = true
-	}
-	return tools, nil
+	return intake("ToolSet "+state.spec.Name, tools, nil)
 }
 
 // toolSetState tracks one installed ToolSet. Its Tools are resolved at
@@ -97,7 +85,7 @@ type toolSetState struct {
 	set      ToolSet
 	spec     ToolSetSpec
 	mode     installMode
-	resolved []Tool
+	resolved []toolEntry
 	// failure is why the last resolution failed; nil when the ToolSet is
 	// available. An unavailable ToolSet holds no Tools.
 	failure error
