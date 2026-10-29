@@ -565,3 +565,50 @@ func unloadedIDs(request ModelRequest) []string {
 	}
 	return ids
 }
+
+// While a ToolSet is unavailable, the Model reads that it is: a call to its
+// loaded Tool, a search for it by name and a listing of the ToolSet all say so,
+// and search_tools stays offered.
+func TestTheModelReadsThatAToolSetIsUnavailable(t *testing.T) {
+	set := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+	model := &recordingModel{scripts: [][]ModelEvent{
+		searchCall("c1", map[string]any{"names": []string{"files.read"}}), finalScript("one"),
+		callTool("c2", "files.read"),
+		searchCall("c3", map[string]any{"names": []string{"files.read"}}),
+		searchCall("c4", map[string]any{"toolset": "files"}),
+		finalScript("two"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(set))
+	runCollecting(t, agent, "one")
+	set.err = errors.New("down")
+	runCollecting(t, agent, "two")
+
+	if !slices.Contains(model.toolIDs(2), SearchToolName) {
+		t.Fatalf("tools = %v, want search_tools while files is unavailable", model.toolIDs(2))
+	}
+	call := resultOf(t, model, 3, "c2")
+	if want := `tool_resolution_failure: tool "files.read" is in ToolSet "files", which is unavailable now; try again in a later Run`; call.SafeError != want {
+		t.Fatalf("call result = %q, want %q", call.SafeError, want)
+	}
+	if text := textOfResult(resultOf(t, model, 4, "c3")); text != "Unavailable now, its ToolSet is unavailable; try again in a later Run: files.read." {
+		t.Fatalf("search by name = %q", text)
+	}
+	if text := textOfResult(resultOf(t, model, 5, "c4")); text != "files is unavailable now; try again in a later Run." {
+		t.Fatalf("toolset listing = %q", text)
+	}
+}
+
+// A search by name for a Tool the Model already sees, a root Tool or one of an
+// active ToolSet, says it is available, not that it was not found.
+func TestASearchForAVisibleToolSaysItIsAvailable(t *testing.T) {
+	files := &stubToolSet{name: "files", tools: []Tool{&docTool{id: "read"}}}
+	act := &stubToolSet{name: "act", tools: []Tool{&docTool{id: "x"}}}
+	model := &recordingModel{scripts: [][]ModelEvent{
+		searchCall("c1", map[string]any{"names": []string{"root1", "act.x"}}), finalScript("done"),
+	}}
+	agent := newSearchSession(t, model, WithToolSet(files), WithActiveToolSet(act), WithTools(&docTool{id: "root1"}))
+	runCollecting(t, agent, "go")
+	if text := textOfResult(resultOf(t, model, 1, "c1")); text != "Already available: root1, act.x." {
+		t.Fatalf("search = %q", text)
+	}
+}

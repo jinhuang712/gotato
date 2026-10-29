@@ -35,7 +35,7 @@ A ToolSet is installed in one of three ways, and the mode sets how much of it th
                       toolset="crm" to list them)
 ```
 
-The catalog is the description of the one discovery tool, `search_tools`. It lists a loaded tool like any other, so its bytes do not change while tools load. A team folds a big ToolSet itself, since the catalog has no size budget. ToolSets resolve at the start of every Run, never inside one, so the catalog is the same on every request of a Run. A ToolSet that fails, or returns one bad tool, is shown as unavailable and skipped whole; the Run goes on. A ToolSet's tools are named `<set>.<tool>`, and the namespace is the ToolSet's: a tool of your own cannot take an ID or a name under it, nor `search_tools`, so every name the model calls means one tool.
+The catalog is the description of the one discovery tool, `search_tools`. It lists a loaded tool like any other, so its bytes do not change while tools load. A team folds a big ToolSet itself, since the catalog has no size budget. ToolSets resolve at the start of every Run, never inside one, so the catalog is the same on every request of a Run. A ToolSet that fails, or returns one bad tool, is shown as unavailable and skipped whole; the Run goes on. While it is unavailable, the model reads so wherever it meets it: a call to a tool it had loaded, a search by that name and a listing of the ToolSet each say the ToolSet is unavailable now and to try again in a later Run. `search_tools` stays offered while any listed or folded ToolSet is installed, even when none is available now, so the tool list does not change when a ToolSet goes down. A ToolSet's tools are named `<set>.<tool>`, and the namespace is the ToolSet's: a tool of your own cannot take an ID or a name under it, nor `search_tools`, so every name the model calls means one tool.
 
 ## A load
 
@@ -54,7 +54,7 @@ A tool becomes visible once the Tool Result that loads it commits, and the Recor
    │   it is loaded now, the result says "call it again"    │
 ```
 
-Search is BM25 over each tool's ID and description, and a team can plug in its own `ToolSearcher`. A load is a fact (`tool_loaded`), so any Instance that loads the Record offers the same tools, and a Fork carries them. A loaded tool stays until a compaction, which keeps the tools called in the Segment it closes or in the kept tail and unloads the rest (`tool_unloaded`). A loaded tool its ToolSet no longer carries is unloaded with `why: gone`, once, by the Instance that ran.
+A search by name for a tool the model already sees, such as a root tool, says it is already available. Search is BM25 over each tool's ID and description, and a team can plug in its own `ToolSearcher`. A load is a fact (`tool_loaded`), so any Instance that loads the Record offers the same tools, and a Fork carries them. A loaded tool stays until a compaction, which keeps the tools called in the Segment it closes or in the kept tail and unloads the rest (`tool_unloaded`). A loaded tool its ToolSet no longer carries is unloaded with `why: gone`, once, by the Instance that ran.
 
 ## Loading and the cache
 

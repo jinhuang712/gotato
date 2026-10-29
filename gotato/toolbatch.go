@@ -94,8 +94,12 @@ func (a *Session) rejectedPlan(index int, call ToolCall, message string, loaded 
 
 // unresolvedToolText is the failed Result of a call to a Tool the Model cannot
 // call. A Tool that exists but the Effect cap hides is said to be not allowed
-// in this Session; any other name is an unknown tool.
+// in this Session, and a Tool of a ToolSet that is unavailable now is said to
+// be so; any other name is an unknown tool.
 func (a *Session) unresolvedToolText(id string) string {
+	if set := a.registry.unavailableSet(id); set != "" {
+		return fmt.Sprintf("%s: tool %q is in ToolSet %q, which is unavailable now; try again in a later Run", CodeToolResolutionFailure, id, set)
+	}
 	if effect, capped := a.registry.cappedEffect(id); capped {
 		if effect == ToolEffectUnspecified {
 			effect = "unspecified, which counts as destructive"
@@ -391,7 +395,7 @@ func (a *Session) preflightTools(ctx context.Context, runID RunID, turn TurnNumb
 		if !found {
 			// A catalog Tool the Model has not loaded does not run: it is
 			// loaded now, and the Model calls it again.
-			if a.registry.loadable(call.ToolID) != loadNotFound {
+			if status := a.registry.loadable(call.ToolID); status == loadOK || status == loadAlready {
 				plans = append(plans, a.rejectedPlan(sourceIndex, call, fmt.Sprintf("%s was not loaded, so this call did not run. It is loaded now; call it again.", call.ToolID), call.ToolID))
 				continue
 			}

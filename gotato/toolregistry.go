@@ -369,7 +369,10 @@ func (r *toolRegistry) rebuild() {
 		}
 		register(entry.spec.ID, entry.tool, entry.spec)
 	}
-	hasCatalog := false
+	// search_tools stays while a catalog ToolSet is installed, even one that
+	// is unavailable now or whose Tools are all hidden: the Model reads the
+	// truth from it, and the Tool list stays the same.
+	hasCatalog := slices.ContainsFunc(r.sets, func(state *toolSetState) bool { return state.mode != modeActive })
 	for i := range r.catalog {
 		entry := &r.catalog[i]
 		if entry.set.mode == modeActive {
@@ -379,11 +382,7 @@ func (r *toolRegistry) rebuild() {
 			register(entry.id, entry.tool, entry.spec)
 			continue
 		}
-		if !r.indexable(entry) {
-			continue
-		}
-		hasCatalog = true
-		if slices.Contains(r.loaded, entry.id) {
+		if r.indexable(entry) && slices.Contains(r.loaded, entry.id) {
 			register(entry.id, entry.tool, entry.spec)
 		}
 	}
@@ -505,14 +504,18 @@ const (
 	loadOK loadStatus = iota
 	// loadAlready: the Tool is visible or loaded already.
 	loadAlready
+	// loadUnavailable: the ID is in the namespace of a ToolSet that is
+	// unavailable now.
+	loadUnavailable
 	// loadNotFound: no Tool the Session may load carries that ID.
 	loadNotFound
 )
 
 // loadable reports whether id names a catalog Tool the Model may load. It
 // changes nothing: a Tool loads when the Tool Result that lists it commits
-// (load). A Tool the Effect cap or the filter refuses, or that no ToolSet
-// carries, is not found.
+// (load). A Tool the Model sees already, a root Tool among them, is already
+// available. A Tool the Effect cap or the filter refuses, or that no ToolSet
+// carries, is not found, unless its ToolSet is unavailable now.
 func (r *toolRegistry) loadable(id string) loadStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -520,7 +523,13 @@ func (r *toolRegistry) loadable(id string) loadStatus {
 }
 
 func (r *toolRegistry) loadableLocked(id string) loadStatus {
+	if _, visible := r.byQualified[id]; visible {
+		return loadAlready
+	}
 	entry, ok := r.byCatalog[id]
+	if !ok && r.unavailableSetLocked(id) != "" {
+		return loadUnavailable
+	}
 	if !ok || !r.indexable(entry) {
 		return loadNotFound
 	}
@@ -528,6 +537,27 @@ func (r *toolRegistry) loadableLocked(id string) loadStatus {
 		return loadAlready
 	}
 	return loadOK
+}
+
+// unavailableSet names the installed ToolSet that is unavailable now and whose
+// namespace holds id, or returns "". A ToolSet's name holds no dot, and no
+// root Tool takes a name in its namespace (rootName), so the prefix names one
+// ToolSet.
+func (r *toolRegistry) unavailableSet(id string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.unavailableSetLocked(id)
+}
+
+func (r *toolRegistry) unavailableSetLocked(id string) string {
+	name, _, dotted := strings.Cut(id, ".")
+	if !dotted {
+		return ""
+	}
+	if state := r.setNamed(name); state != nil && state.failure != nil {
+		return name
+	}
+	return ""
 }
 
 // load makes a catalog Tool visible when the Tool Result that lists it
@@ -582,8 +612,9 @@ func (r *toolRegistry) catalogView() (loaded []string, unloaded []ToolSpec) {
 }
 
 // setTools lists the Tools of a catalog ToolSet the Model may load, with
-// whether each is loaded. ok is false when no catalog ToolSet has that name.
-func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, ok bool) {
+// whether each is loaded, and whether the ToolSet is unavailable now. ok is
+// false when no catalog ToolSet has that name.
+func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, unavailable, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, state := range r.sets {
@@ -598,9 +629,9 @@ func (r *toolRegistry) setTools(name string) (specs []ToolSpec, loaded []bool, o
 			specs = append(specs, cloneToolSpec(entry.spec))
 			loaded = append(loaded, slices.Contains(r.loaded, entry.id))
 		}
-		return specs, loaded, true
+		return specs, loaded, state.failure != nil, true
 	}
-	return nil, nil, false
+	return nil, nil, false, false
 }
 
 // toolSetStatus reports every installed ToolSet and its Tools for ToolSets.
@@ -699,9 +730,12 @@ func (r *toolRegistry) rank(ctx context.Context, query string, exclude []string)
 // describeSet lists a catalog ToolSet's Tools with their descriptions, and
 // loads none.
 func (r *toolRegistry) describeSet(name string) string {
-	specs, loaded, ok := r.setTools(name)
+	specs, loaded, unavailable, ok := r.setTools(name)
 	if !ok {
 		return "Not found: toolset " + name + "."
+	}
+	if unavailable {
+		return name + " is unavailable now; try again in a later Run."
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s has %d tools:", name, len(specs))

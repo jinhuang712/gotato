@@ -25,6 +25,9 @@ What changed in Gotato, from the user's side. Newest first. A breaking change ca
 
 ### Changed
 
+- **The Model reads that a ToolSet is unavailable, not that its Tool is unknown.** While a ToolSet is unavailable, a call to a Tool of it fails with `tool_resolution_failure: tool "files.read" is in ToolSet "files", which is unavailable now; try again in a later Run`; `search_tools` by name lists it under `Unavailable now, its ToolSet is unavailable; try again in a later Run: …`, and `search_tools{toolset}` says `files is unavailable now; try again in a later Run.` A search by name for a Tool the Model already sees, such as a root Tool, says `Already available`. `search_tools` stays offered while any listed or folded ToolSet is installed.
+  - Before: the call said `unknown tool "files.read"`, the search `Not found: files.read.`, the listing `files has 0 tools:`, a search for a root Tool `Not found`; and `search_tools` left the tool list when no catalog Tool could be loaded, such as while the only ToolSet was down.
+  - After: the texts above, and the tool list keeps `search_tools`.
 - **A Tool call ends at its `ToolCallDeadline`, even when the Tool ignores its `ctx`.** The call fails with the text `deadline_exceeded: the tool did not finish within ToolCallDeadline (<d>); its outcome is unknown`, recorded as executed, and the Run goes on. The Tool's goroutine runs on until `Execute` returns, and its late result is dropped.
   - Before: the deadline only canceled the Tool's `ctx`. A Tool that ignored it held the Run until it returned, and its late result was kept; a Tool that honored it failed with `tool_execution_failure: tool failed`, which did not say it timed out.
   - After: the Run stops waiting at the deadline, and in both cases the Model reads that the call timed out.

@@ -9,9 +9,9 @@ import (
 )
 
 // SearchToolName is the local name of the built-in Tool the Model loads Tools
-// with. Its description is the catalog. It is visible while any ToolSet
-// installed with WithToolSet or WithFoldedToolSet holds a Tool the Session may
-// load.
+// with. Its description is the catalog. It is visible while any ToolSet is
+// installed with WithToolSet or WithFoldedToolSet, even when that ToolSet is
+// unavailable now or holds no Tool the Session may load.
 const SearchToolName = "search_tools"
 
 // Fixed counts of one search: the top matches of a query are loaded, and the
@@ -96,7 +96,7 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	if len(input.Names) == 0 && len(input.Queries) == 0 && strings.TrimSpace(input.Toolset) == "" {
 		return ToolResult{}, runtimeError(CodeToolArgumentFailure, SearchToolName, "pass names, queries or toolset", nil)
 	}
-	var loaded, already, notFound, found []string
+	var loaded, already, unavailable, notFound, found []string
 	add := func(list *[]string, id string) {
 		if !slices.Contains(*list, id) {
 			*list = append(*list, id)
@@ -109,6 +109,8 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 			add(&loaded, name)
 		case loadAlready:
 			add(&already, name)
+		case loadUnavailable:
+			add(&unavailable, name)
 		default:
 			add(&notFound, name)
 		}
@@ -139,6 +141,9 @@ func (t *searchTool) Execute(ctx context.Context, use ToolUse, progress ToolProg
 	}
 	if len(already) > 0 {
 		parts = append(parts, "Already available: "+strings.Join(already, ", ")+".")
+	}
+	if len(unavailable) > 0 {
+		parts = append(parts, "Unavailable now, its ToolSet is unavailable; try again in a later Run: "+strings.Join(unavailable, ", ")+".")
 	}
 	if len(found) > 0 {
 		parts = append(parts, "Also found, not loaded: "+strings.Join(found, ", ")+".")

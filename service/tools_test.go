@@ -253,9 +253,10 @@ func TestAToolSwitchedOffForASessionIsNeverInTheCatalogOrLoaded(t *testing.T) {
 		t.Fatal(err)
 	}
 	requests := model.Requests()
-	// Nothing in the ToolSet may load, so the Agent offers no search tool.
-	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || slices.Contains(got, gotato.SearchToolName) {
-		t.Fatalf("tools = %v, want neither files.read nor search_tools", got)
+	// Nothing in the ToolSet may load, yet the search tool stays offered
+	// while a catalog ToolSet is installed.
+	if got := toolIDsOf(requests[0]); slices.Contains(got, "files.read") || !slices.Contains(got, gotato.SearchToolName) {
+		t.Fatalf("tools = %v, want search_tools and no files.read", got)
 	}
 	record, err := session.View(ctx, runner.Store(), result.SessionID)
 	if err != nil {
