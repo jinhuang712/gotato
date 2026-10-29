@@ -603,7 +603,7 @@ func (st *runState) endAnswerTurn(t *turnRun, replyNumber uint64) (bool, RunResu
 		st.truncatedContinuations++
 		// A notice, not a user Message: it starts no Round, so the
 		// reasoning of the cut reply stays in the request.
-		if err := a.commitNotice(st.runCtx, st.runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber); err != nil {
+		if err := a.commitNotice(st.runCtx, st.runID, turn, NewNotice(NoticeSourceGotato, NoticeContinue, TruncatedContinuationText), 0, replyNumber, nil); err != nil {
 			return st.failTurn(err)
 		}
 		return true, RunResult{}, nil
@@ -673,15 +673,17 @@ func (a *Session) prepareTurn(ctx context.Context, runID RunID, turn TurnNumber,
 // only when a Steer or FollowUp is, and otherwise wait for the next Run.
 func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumber, settling bool) (bool, *RuntimeError) {
 	items := a.queue.take(settling)
+	// [DATA-LOSS] a message taken and not committed goes back to the queue, whatever stops the commits.
+	defer items.putBack()
 	injected := false
-	for _, item := range items {
+	for _, item := range items.items {
 		if item.source == MessageSourceNotice {
-			if err := a.commitNotice(ctx, runID, turn, item.message, item.number, 0); err != nil {
+			if err := a.commitNotice(ctx, runID, turn, item.message, item.number, 0, items); err != nil {
 				return injected, err
 			}
 			continue
 		}
-		if err := a.commitContinuation(ctx, runID, turn, item.message, item.source); err != nil {
+		if err := a.commitContinuation(ctx, runID, turn, item.message, item.source, items); err != nil {
 			return injected, err
 		}
 		injected = true
@@ -690,18 +692,32 @@ func (a *Session) consumeControl(ctx context.Context, runID RunID, turn TurnNumb
 }
 
 // commitContinuation commits a Message the Loop continues with (a control
-// Message) and stores its MessageCommitted
-// with the source that produced it.
-func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn TurnNumber, message Message, source MessageSource) *RuntimeError {
+// Message) and stores its MessageCommitted with the source that produced it.
+// taken is the lease the Message was taken under.
+func (a *Session) commitContinuation(ctx context.Context, runID RunID, turn TurnNumber, message Message, source MessageSource, taken *lease) *RuntimeError {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
 	message.RunID = runID
 	if err := a.commitMessage(message); err != nil {
+		a.dropUncommitted(runID, turn, message.ID, source, taken)
 		return asRuntimeError(err)
 	}
+	taken.done()
 	a.stage(MessageCommitted{Header: NewHeader(a.id, runID, turn), Message: message.Clone(), Source: source})
 	return a.flush(ctx)
+}
+
+// dropUncommitted stores the MessageDropped of a taken message that cannot be
+// committed, and settles it: it would fail again in the next Run, so it does
+// not go back to the queue. taken is nil for a message that never waited.
+// [FAILURE-CLASS] a message whose commit failed is dropped, not put back, or every Run that takes it fails on it.
+func (a *Session) dropUncommitted(runID RunID, turn TurnNumber, id MessageID, source MessageSource, taken *lease) {
+	if taken == nil {
+		return
+	}
+	a.stage(MessageDropped{Header: NewHeader(a.id, runID, turn), MessageID: id, Source: source, Why: "commit_failed"})
+	taken.done()
 }
 
 // discardControl drops control Messages left over when a Run reaches its

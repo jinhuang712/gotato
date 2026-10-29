@@ -136,8 +136,9 @@ func (a *Session) QueueNotice(ctx context.Context, message Message) (uint64, err
 
 // commitNotice commits a notice Message and stores its NoticeCommitted. number
 // is the notice_queued it came from, and causedBy the Event that caused a
-// notice of Gotato's own, each 0 when there is none.
-func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber, message Message, number, causedBy uint64) *RuntimeError {
+// notice of Gotato's own, each 0 when there is none. taken is the lease the
+// notice was taken under, nil for one that never waited.
+func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber, message Message, number, causedBy uint64, taken *lease) *RuntimeError {
 	if message.ID == "" {
 		message.ID = MessageID(nextID("message"))
 	}
@@ -148,8 +149,10 @@ func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber
 		message.Notice = &info
 	}
 	if err := a.commitMessage(message); err != nil {
+		a.dropUncommitted(runID, turn, message.ID, MessageSourceNotice, taken)
 		return asRuntimeError(err)
 	}
+	taken.done()
 	a.stage(NoticeCommitted{Header: NewHeader(a.id, runID, turn), Message: message.Clone(), Queued: number})
 	return a.flush(ctx)
 }
@@ -157,8 +160,11 @@ func (a *Session) commitNotice(ctx context.Context, runID RunID, turn TurnNumber
 // commitQueuedNotices commits every notice that waits, in order: right before
 // a model call.
 func (a *Session) commitQueuedNotices(ctx context.Context, runID RunID, turn TurnNumber) *RuntimeError {
-	for _, queued := range a.queue.takeNotices() {
-		if err := a.commitNotice(ctx, runID, turn, queued.message, queued.number, 0); err != nil {
+	taken := a.queue.takeNotices()
+	// [DATA-LOSS] a notice taken and not committed goes back to the queue, whatever stops the commits.
+	defer taken.putBack()
+	for _, queued := range taken.items {
+		if err := a.commitNotice(ctx, runID, turn, queued.message, queued.number, 0, taken); err != nil {
 			return err
 		}
 	}

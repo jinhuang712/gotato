@@ -128,11 +128,12 @@ func (q *controlQueue) interrupting() bool {
 	return slices.ContainsFunc(q.items, func(c control) bool { return c.source == MessageSourceInterrupt })
 }
 
-// take removes and returns what a Run takes at a boundary, in the order it was
-// accepted: the Steers and Interrupts, and the FollowUps too when the Run is
-// settling, and the notices with them. A notice never keeps a Run going: at
-// settlement they are taken only along with another message.
-func (q *controlQueue) take(settling bool) []control {
+// take removes what a Run takes at a boundary, in the order it was accepted:
+// the Steers and Interrupts, and the FollowUps too when the Run is settling,
+// and the notices with them. A notice never keeps a Run going: at settlement
+// they are taken only along with another message. The messages are the Run's
+// until the lease says what became of each.
+func (q *controlQueue) take(settling bool) *lease {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	withNotices := !settling
@@ -142,17 +143,55 @@ func (q *controlQueue) take(settling bool) []control {
 			break
 		}
 	}
-	return q.split(func(c control) bool {
+	return q.lease(func(c control) bool {
 		kind := c.kind
 		return kind == kindSteer || (settling && kind == kindFollowUp) || (withNotices && kind == kindNotice)
 	})
 }
 
-// takeNotices removes and returns the notices that wait, in order.
-func (q *controlQueue) takeNotices() []control {
+// takeNotices removes the notices that wait, in order, as take does.
+func (q *controlQueue) takeNotices() *lease {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.split(func(c control) bool { return c.kind == kindNotice })
+	return q.lease(func(c control) bool { return c.kind == kindNotice })
+}
+
+// lease is the messages a Run took from the queue, which it must settle: each
+// is committed or dropped by the Run, or goes back to the queue. A message is
+// settled the moment the Run commits it to the Transcript, or drops it, so it
+// is never put back after that.
+type lease struct {
+	q *controlQueue
+	// items are the messages taken; the first settled of them are done.
+	items   []control
+	settled int
+}
+
+// lease takes the messages that pick selects. The caller holds mu.
+func (q *controlQueue) lease(pick func(control) bool) *lease {
+	return &lease{q: q, items: q.split(pick)}
+}
+
+// done says the Run settled the message it is at. It is safe on a nil lease,
+// the case of a message that never waited in the queue.
+func (l *lease) done() {
+	if l != nil {
+		l.settled++
+	}
+}
+
+// putBack returns the messages that are not settled to the front of the
+// queue, in their order: they were accepted before everything that waits now.
+// [DATA-LOSS] a message taken and not committed goes back, or the Run's failure loses a message that was reported queued.
+func (l *lease) putBack() {
+	rest := l.items[l.settled:]
+	if len(rest) == 0 {
+		return
+	}
+	l.q.mu.Lock()
+	l.q.items = append(slices.Clone(rest), l.q.items...)
+	l.q.mu.Unlock()
+	l.settled = len(l.items)
 }
 
 // drain removes and returns every message that waits, notices only when
