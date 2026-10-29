@@ -73,19 +73,24 @@ func SubscribeBuffer(n int) SubscribeOption {
 // SubscribeFilter keeps only the Events for which keep returns true. It runs
 // on the publisher's goroutine, and on the subscriber's when it reads Events
 // again from the source; the calls never overlap, so keep needs no lock of its
-// own. It must be fast and must not block.
+// own. It must be fast and must not block. It may call the Subscription's Close
+// or End. A panic in it ends this Subscription: Next returns a *RuntimeError
+// with CodeExtensionFailure.
 func SubscribeFilter(keep func(Event) bool) SubscribeOption {
 	return func(c *subscribeConfig) { c.filter = keep }
 }
 
 // SubscribeLabelFilter keeps only the Events for which keep returns true,
 // given the label of the Feed the Event was mirrored from (see SetLabel). The
-// label is empty for an Event published to this Feed directly.
+// label is empty for an Event published to this Feed directly. Like
+// SubscribeFilter's keep, it may call Close or End, and a panic in it ends this
+// Subscription.
 func SubscribeLabelFilter(keep func(event Event, label string) bool) SubscribeOption {
 	return func(c *subscribeConfig) { c.labeled = keep }
 }
 
-// SubscribeUntil ends the stream after the Event for which done returns true.
+// SubscribeUntil ends the stream after the Event for which done returns true. A
+// panic in done ends the stream with a *RuntimeError of CodeExtensionFailure.
 func SubscribeUntil(done func(Event) bool) SubscribeOption {
 	return func(c *subscribeConfig) { c.until = done }
 }
@@ -158,20 +163,49 @@ func (s *subscription) signal() {
 
 // passes runs the subscriber's filter. The publisher's goroutine (offer) and
 // the subscriber's own (catch-up and tail reads) both call it, so the calls are
-// serialized: the filter is never run by two goroutines at once.
-func (s *subscription) passes(event Event) bool {
+// serialized: the filter is never run by two goroutines at once. No lock of
+// the Feed or the subscription is held. A panic is the error.
+func (s *subscription) passes(event Event) (keep bool, err error) {
 	if s.filter == nil {
-		return true
+		return true, nil
 	}
-	s.filterMu.Lock()
-	defer s.filterMu.Unlock()
-	return s.filter(event)
+	// [LIVENESS] a panic in a filter ends this one Subscription; it would end the process, or leave the Feed's lock held.
+	err = callHost("SubscribeFilter", func() error {
+		s.filterMu.Lock()
+		defer s.filterMu.Unlock()
+		keep = s.filter(event)
+		return nil
+	})
+	return keep, extensionFailure("Subscription", err)
 }
 
-// offer puts an Event in the queue without ever blocking. The Feed's lock is
-// held.
+// extensionFailure returns err, a panic of host code, as a RuntimeError that
+// Next returns; nil stays nil.
+func extensionFailure(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return runtimeError(CodeExtensionFailure, stage, PublicText(err, "subscription callback failed"), err)
+}
+
+// offer puts an Event in the queue without ever blocking. No lock of the Feed
+// is held: the filter runs first, with no lock at all. A filter that panics
+// ends this subscription.
 func (s *subscription) offer(event Event, label string) {
-	keep := s.passes(event) && (s.labeled == nil || s.labeled(event, label))
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	keep, err := s.passes(event)
+	if err == nil && keep && s.labeled != nil {
+		err = callHost("SubscribeLabelFilter", func() error { keep = s.labeled(event, label); return nil })
+		err = extensionFailure("Subscription", err)
+	}
+	if err != nil {
+		s.finish(err)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ending && !s.behind {
@@ -283,9 +317,14 @@ func (s *subscription) forward(ctx context.Context) {
 			s.finish(ctx.Err())
 			return
 		}
-		if s.until != nil && s.until(event) {
-			s.finish(nil)
-			return
+		if s.until != nil {
+			var last bool
+			// [LIVENESS] a panic in done ends this one Subscription, not the process.
+			err := callHost("SubscribeUntil", func() error { last = s.until(event); return nil })
+			if err != nil || last {
+				s.finish(extensionFailure("Subscription", err))
+				return
+			}
 		}
 	}
 }
@@ -365,7 +404,11 @@ func (s *subscription) catchUp(ctx context.Context, resume uint64, pending *[]Ev
 		s.cursor = max(s.cursor, s.resume)
 		s.mu.Unlock()
 		for _, event := range batch {
-			if s.passes(event) {
+			keep, err := s.passes(event)
+			if err != nil {
+				return false, err
+			}
+			if keep {
 				*pending = append(*pending, event)
 			}
 		}
@@ -447,12 +490,22 @@ func (s *subscription) look(ctx context.Context) error {
 			return err
 		}
 	}
+	// [CONCURRENCY] the filter runs before s.mu is taken, so it may call End or Close; an Event that a live publish queued meanwhile is skipped below by its number.
+	kept := make([]bool, len(batch))
+	for i, event := range batch {
+		if event.Head().Number > after {
+			var err error
+			if kept[i], err = s.passes(event); err != nil {
+				return err
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.behind {
 		return nil
 	}
-	for _, event := range batch {
+	for i, event := range batch {
 		number := event.Head().Number
 		if number <= s.cursor {
 			continue
@@ -463,7 +516,7 @@ func (s *subscription) look(ctx context.Context) error {
 			return nil
 		}
 		s.cursor = number
-		if s.passes(event) {
+		if kept[i] {
 			s.queue = append(s.queue, event)
 		}
 	}

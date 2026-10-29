@@ -3,6 +3,8 @@ package gotato
 import (
 	"context"
 	"io"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -185,11 +187,13 @@ func (f *Feed) PublishLabeled(event Event, label string) {
 		f.retain(event)
 	}
 	f.count++
-	for s := range f.subs {
-		s.offer(event, label)
-	}
+	subs := slices.Collect(maps.Keys(f.subs))
 	mirror := f.mirror
 	f.mu.Unlock()
+	// [CONCURRENCY] a subscriber's filter is host code: it runs here, outside f.mu, so it may call Close or End and never holds up another publisher.
+	for _, s := range subs {
+		s.offer(event, label)
+	}
 	if mirror != nil {
 		mirror.PublishLabeled(event, label)
 	}
@@ -248,7 +252,16 @@ func (f *Feed) eventsAfter(ctx context.Context, after uint64, limit int) ([]Even
 		return out, nil
 	}
 	f.mu.Unlock()
-	return source.EventsAfter(ctx, after, limit)
+	var batch []Event
+	var readErr error
+	// [LIVENESS] a panic in the host's source ends the one Subscription that reads it, not the process.
+	if failure := callHost("EventsAfter", func() error {
+		batch, readErr = source.EventsAfter(ctx, after, limit)
+		return nil
+	}); failure != nil {
+		return nil, extensionFailure("Subscription", failure)
+	}
+	return batch, readErr
 }
 
 // Close ends the Feed: each subscriber gets what is queued for it, and

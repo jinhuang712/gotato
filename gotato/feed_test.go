@@ -564,3 +564,186 @@ func TestWithoutTailAnIdleStreamStaysIdle(t *testing.T) {
 		t.Fatalf("an idle stream delivered %v without being given it", event.Kind())
 	}
 }
+
+// publishReturns reports whether publish returns within a second.
+func publishReturns(publish func()) bool {
+	done := make(chan struct{})
+	go func() { publish(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(time.Second):
+		return false
+	}
+}
+
+// A filter may close its own Subscription: it runs outside the Feed's lock.
+func TestFilterMayCloseItsSubscription(t *testing.T) {
+	feed := NewFeed(nil)
+	var sub Subscription
+	ready := make(chan struct{})
+	s, err := feed.Subscribe(context.Background(), SubscribeFilter(func(e Event) bool {
+		<-ready
+		if e.Head().Number == 2 {
+			_ = sub.Close()
+		}
+		return true
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub = s
+	close(ready)
+	if !publishReturns(func() { feed.Publish(storedEvent(1)); feed.Publish(storedEvent(2)) }) {
+		t.Fatal("Publish did not return after a filter closed its Subscription")
+	}
+}
+
+// A filter on an Instance's Feed that closes its Subscription does not stall
+// the Session Feeds that mirror to it.
+func TestInstanceFilterMayCloseItsSubscription(t *testing.T) {
+	inst := NewInstanceFeed()
+	first, second := NewFeed(nil), NewFeed(nil)
+	first.MirrorTo(inst)
+	second.MirrorTo(inst)
+	var sub Subscription
+	ready := make(chan struct{})
+	s, err := inst.Subscribe(context.Background(), SubscribeFilter(func(Event) bool {
+		<-ready
+		_ = sub.Close()
+		return true
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub = s
+	close(ready)
+	if !publishReturns(func() { first.Publish(storedEvent(1)) }) {
+		t.Fatal("Publish did not return")
+	}
+	if !publishReturns(func() { second.Publish(storedEvent(1)) }) {
+		t.Fatal("another Session's Publish stalled")
+	}
+}
+
+// A filter that calls End while the subscriber reads the source does not lock
+// the subscription up.
+func TestFilterMayEndWhileTheTailReads(t *testing.T) {
+	source := &sliceSource{}
+	feed := NewFeed(source)
+	var sub Subscription
+	ready := make(chan struct{})
+	s, err := feed.Subscribe(context.Background(), SubscribeTail(10*time.Millisecond), SubscribeFilter(func(e Event) bool {
+		<-ready
+		if e.Head().Number == 2 {
+			sub.End()
+		}
+		return true
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub = s
+	close(ready)
+	source.add(storedEvent(1))
+	feed.Publish(storedEvent(1))
+	next(t, s)
+	source.add(storedEvent(2)) // written by another Instance: only the tail sees it
+	time.Sleep(100 * time.Millisecond)
+	if !publishReturns(func() { feed.Publish(storedEvent(3)) }) {
+		t.Fatal("Publish blocked after a filter called End")
+	}
+}
+
+// A panic in a filter, a label filter or an until function ends that
+// Subscription with an extension failure; the publisher goes on.
+func TestHostFunctionPanicEndsOnlyThatSubscription(t *testing.T) {
+	boom := func(Event) bool { panic("boom") }
+	for name, options := range map[string][]SubscribeOption{
+		"filter":  {SubscribeFilter(boom)},
+		"labeled": {SubscribeLabelFilter(func(Event, string) bool { panic("boom") })},
+		"until":   {SubscribeUntil(boom)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			feed := NewFeed(nil)
+			bad, err := feed.Subscribe(context.Background(), options...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = bad.Close() }()
+			good, err := feed.Subscribe(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = good.Close() }()
+			if !publishReturns(func() { feed.Publish(storedEvent(1)); feed.Publish(storedEvent(2)) }) {
+				t.Fatal("Publish did not return")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var failure error
+			for failure == nil {
+				_, failure = bad.Next(ctx)
+			}
+			var runtimeErr *RuntimeError
+			if !errors.As(failure, &runtimeErr) || runtimeErr.Code != CodeExtensionFailure {
+				t.Fatalf("Next error = %v, want an extension_failure RuntimeError", failure)
+			}
+			if got := numbers(t, good, 2); !reflect.DeepEqual(got, []uint64{1, 2}) {
+				t.Fatalf("the other Subscription got %v", got)
+			}
+		})
+	}
+}
+
+// A panic in the source's EventsAfter ends the Subscription with an error.
+type panicSource struct{}
+
+func (panicSource) EventsAfter(context.Context, uint64, int) ([]Event, error) { panic("boom") }
+
+func TestEventSourcePanicEndsTheSubscription(t *testing.T) {
+	feed := NewFeed(panicSource{})
+	s, err := feed.Subscribe(context.Background(), SubscribeAfter(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = s.Next(ctx)
+	var runtimeErr *RuntimeError
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != CodeExtensionFailure {
+		t.Fatalf("Next error = %v, want an extension_failure RuntimeError", err)
+	}
+}
+
+// A filter that panics while a Session runs fails nothing: the Run ends, and
+// the Subscription reports it.
+func TestFilterPanicDoesNotHangTheSession(t *testing.T) {
+	s, err := NewSession(context.Background(), WithModel(&testModel{scripts: [][]ModelEvent{{{Kind: ModelEventKindDone, StopReason: StopReasonEndTurn}}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := s.Subscribe(context.Background(), SubscribeFilter(func(Event) bool { panic("boom") }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sub.Close() }()
+	done := make(chan error, 1)
+	go func() { _, err := s.Prompt(context.Background(), UserMessage("hi")); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Prompt hung after a filter panicked")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = sub.Next(ctx)
+	var runtimeErr *RuntimeError
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != CodeExtensionFailure {
+		t.Fatalf("Next error = %v, want an extension_failure RuntimeError", err)
+	}
+}
