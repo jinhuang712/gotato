@@ -107,6 +107,51 @@ func TestChatCacheReadTokens(t *testing.T) {
 	}
 }
 
+// TestChatAnthropicStyleCacheUsage: the top-level cache_read_input_tokens and
+// cache_creation_input_tokens fill the read and write counts; read is the
+// largest of the three read names, both are capped so that read + write never
+// exceeds InputTokens, and nothing changes the input count.
+func TestChatAnthropicStyleCacheUsage(t *testing.T) {
+	head := `{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105`
+	cases := []struct {
+		name        string
+		usage       string
+		read, write uint64
+	}{
+		{"read alone", head + `,"cache_read_input_tokens":70}`, 70, 0},
+		{"write alone", head + `,"cache_creation_input_tokens":30}`, 0, 30},
+		{"both", head + `,"cache_read_input_tokens":60,"cache_creation_input_tokens":40}`, 60, 40},
+		{"absent", head + `}`, 0, 0},
+		{"read is the largest name", head + `,"prompt_tokens_details":{"cached_tokens":64},"cache_read_input_tokens":50}`, 64, 0},
+		{"read above input is capped", head + `,"cache_read_input_tokens":500}`, 100, 0},
+		{"write is capped by what read leaves", head + `,"cache_read_input_tokens":80,"cache_creation_input_tokens":90}`, 80, 20},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}],\"usage\":" + tc.usage + "}\n\ndata: [DONE]\n\n"))
+			}))
+			defer server.Close()
+			client, _ := New(Config{BaseURL: server.URL, Model: "m"})
+			stream, err := client.Stream(context.Background(), gotato.ModelRequest{Messages: []gotato.Message{gotato.UserMessage("hi")}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *gotato.Usage
+			for _, ev := range drain(t, stream) {
+				if ev.Kind == gotato.ModelEventKindUsage {
+					u := ev.Usage
+					got = &u
+				}
+			}
+			if got == nil || got.CacheReadTokens != tc.read || got.CacheWriteTokens != tc.write || got.InputTokens != 100 || got.TotalTokens != 105 {
+				t.Fatalf("usage %+v, want read %d write %d input 100", got, tc.read, tc.write)
+			}
+		})
+	}
+}
+
 // TestRequestHeadersReachEveryWireAPI: per-request and configured headers go
 // out on every wire API, and none of them replaces authentication.
 func TestRequestHeadersReachEveryWireAPI(t *testing.T) {
