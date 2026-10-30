@@ -27,7 +27,7 @@ func (c *cli) cmdServe(args []string) int {
 	noIdleCompaction := fs.Bool("no-idle-compaction", false, "do not compact an idle session shortly before its prompt cache expires or it leaves memory")
 	drain := fs.Duration("drain-timeout", 0, "time to wait for active runs on shutdown before canceling them; 0 is the service's default (10s), a negative value waits for ever")
 	advertise := fs.String("advertise", "", "URL other callers reach this instance at, such as http://10.0.0.7:8787; a message for a run this instance writes, sent to another instance, is answered not_writer with it")
-	forward := fs.Bool("forward", false, "send a message or cancel for a run another instance writes to that instance's advertised address, instead of answering not_writer")
+	forward := fs.Bool("forward", false, "tests only: send a message or cancel for a run another instance writes to that instance's advertised address, instead of answering not_writer; it forwards to any address in the store, so do not use it in production")
 	if _, err := parseInterspersed(fs, args); err != nil {
 		return c.parseError(err)
 	}

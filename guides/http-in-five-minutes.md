@@ -158,13 +158,20 @@ POST pod-b/v1/sessions/ID/messages  {"text":"also check X"}
 A client can resend to the `Gotato-Writer` address itself. Or the handler forwards the message once, with `WithForwarding`:
 
 ```go
-allow := func(address string) bool { return strings.HasPrefix(address, "http://10.0.") }
+allow := func(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	ip, err := netip.ParseAddr(u.Hostname()) // a host name is refused
+	return err == nil && netip.MustParsePrefix("10.0.0.0/16").Contains(ip)
+}
 handler := httpapi.New(runner, httpapi.WithForwarding(nil, allow))
 ```
 
 - `WithForwarding(client, allow)` takes an HTTP client (`nil` uses one with a 30 second timeout) and an allow function.
 - The address comes from the Store, and anyone who can write that row can name it. A forward goes only to an address for which `allow` returns true; for any other, the answer is `not_writer`, as without forwarding.
-- A nil `allow` forwards nowhere. Pass the check you trust: a prefix of your cluster's network, or a lookup in your own list of Instances.
+- A nil `allow` forwards nowhere. Pass the check you trust: the host is an IP literal inside your cluster's CIDR (as above; never a string prefix, which `http://10.0.evil.com` passes), or a lookup in your own list of Instances.
 - A forwarded request carries the caller's headers, so your authentication runs at the Writer. It carries `Gotato-Forwarded: true`, and the Writer never forwards it again.
 - Only a message, a notice and an abort are forwarded. A `/runs` request for a Session that another Instance is running does not answer `not_writer`: it waits for that Run to end, for at most `service.Liveness.Wait` (5 seconds unless set), then runs on this Instance, or is refused `busy` (409, not run, retryable). Send Runs through your load balancer, which hashes the `session-id` header so every request for one Session reaches one Instance.
 
