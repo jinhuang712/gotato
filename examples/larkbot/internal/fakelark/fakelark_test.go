@@ -263,3 +263,38 @@ func (s *Server) firstMessage() string {
 	}
 	return ""
 }
+
+// A card the bot posted can be updated in place and recalled.
+func TestUpdateAndRecallACard(t *testing.T) {
+	s := New(Config{})
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	card := func(text string) string {
+		b, _ := json.Marshal(map[string]any{"elements": []any{map[string]any{"tag": "markdown", "content": text}}})
+		return string(b)
+	}
+	_, out := post(t, ts.URL+"/open-apis/im/v1/messages", map[string]any{"receive_id": "oc_x", "msg_type": "interactive", "content": card("one")})
+	id := out["data"].(map[string]any)["message_id"].(string)
+
+	do := func(method string, body any) int {
+		raw, _ := json.Marshal(body)
+		req, _ := http.NewRequestWithContext(t.Context(), method, ts.URL+"/open-apis/im/v1/messages/"+id, bytes.NewReader(raw))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := do(http.MethodPatch, map[string]any{"content": card("two")}); code != 200 {
+		t.Fatalf("patch: %d", code)
+	}
+	got := s.Cards("", "", time.Time{})
+	if len(got) != 1 || got[0].Text != "two" || got[0].Updates != 1 || got[0].MessageID != id {
+		t.Fatalf("after patch: %+v", got)
+	}
+	do(http.MethodDelete, nil)
+	if got := s.Cards("", "", time.Time{}); len(got) != 0 {
+		t.Fatalf("after delete: %+v", got)
+	}
+}

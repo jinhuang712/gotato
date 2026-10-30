@@ -56,10 +56,10 @@ resp, err := runner.StreamRun(ctx, req, func(e gotato.Event) error {
 
 Four limits:
 
-- **A queued message has no deltas.** A message sent with `runner.Send` into a Run that is going is queued in that Run, and its caller gets no sink. [`examples/larkbot`](../examples/larkbot/README.md) uses `SubscribeInstance` for its replies for this reason, and posts the final text of each Run, not deltas.
+- **A queued message has no deltas.** A message sent with `runner.Send` into a Run that is going is queued in that Run, and its caller gets no sink. [`examples/larkbot`](../examples/larkbot/README.md) streams only a Run it starts itself (with `StreamRun`); a queued message is answered by the final text of the Run it joined, read from `SubscribeInstance`.
 - **Deltas are sent, not stored.** A subscriber that reads too slowly skips only deltas, and the final text is in the `reply_ended` Event, which is stored.
 - **Deltas are visible only on the writer Instance.** `StreamSession` on another instance sees the stored Events at its next look and no deltas.
-- **A writer switch needs the card's own id.** If another pod takes the Session over, it must edit the same card, so store the id of the card (not the id of the user's message) in the Session's metadata. `examples/larkbot` stores only the thread root today, and has no streaming card.
+- **A writer switch needs the card's own id.** If another pod takes the Session over, it must edit the same card, so store the id of the card (not the id of the user's message) in the Session's metadata. `examples/larkbot` stores the card's id in `lark.card` next to the thread root, but does not read it back after a takeover: a Run another pod finishes is answered with a new card.
 
 ### Process text and the answer
 
@@ -67,7 +67,7 @@ Treat `text_delta` as a draft: the model does not yet know whether the reply wil
 
 ## Known gap: no de-duplication across pods
 
-Duplicates are left to you. `examples/larkbot` keeps an in-memory set of message IDs on each instance and drops a repeat it has seen; a repeat that lands on another instance is handled as new (the cluster scenario `s5` measures it). Marking an ID before the work loses the message if the instance dies in between, and marking it after lets two instances race, so the choice depends on your service. Gotato itself does not de-duplicate `RequestID` in 0.2.0. Pass the chat platform's message id as `MessageRequest.RequestID`, so that a repeat can be found in the Record's `run_started` Event, or keep the id in your own shared store.
+Duplicates are left to you. `examples/larkbot` keeps an in-memory set of message IDs on each instance and drops a repeat it has seen; a repeat that lands on another instance is handled as new (the cluster scenario `s5` measures it). Marking an ID before the work loses the message if the instance dies in between, and marking it after lets two instances race, so the choice depends on your service. Gotato itself does not de-duplicate `RequestID` in 0.2.0. Pass the chat platform's message id as `MessageRequest.RequestID` (`examples/larkbot` does, for a Run its message starts), so that a repeat can be found in the Record's `run_started` Event, or keep the id in your own shared store.
 
 ## 3. Try the cluster
 

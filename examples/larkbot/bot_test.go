@@ -246,7 +246,11 @@ func TestFakeEventReachesTheBotHandler(t *testing.T) {
 	if d := sent.Deliveries[0]; d.Status != 200 {
 		t.Fatalf("delivery: %+v", d)
 	}
-	waitFor(t, "the card", func() bool { return len(fl.srv.Cards("", "", time.Time{})) == 1 })
+	// The card is posted first and updated to the final text when the Run ends.
+	waitFor(t, "the card with the final text", func() bool {
+		c := fl.srv.Cards("", "", time.Time{})
+		return len(c) == 1 && c[0].Text == "ok"
+	})
 	c := fl.srv.Cards("", "", time.Time{})[0]
 	if c.ReplyTo != sent.MessageID || c.Chat != "oc_x" || c.Instance != "pod-a" || c.Session != shortID(sessionIDFor(sent.MessageID)) || c.Text != "ok" {
 		t.Fatalf("card = %+v", c)
@@ -302,9 +306,11 @@ func TestConversationBurstOverTwoInstances(t *testing.T) {
 	id := sessionIDFor(sent[0].MessageID)
 	waitFor(t, "every user message in the Transcript", func() bool { return len(userTexts(t, a.runner, id)) == len(turns) })
 	runs := func() int { return int(a.runsEnded.Load() + b.runsEnded.Load()) }
+	// The first card is posted when its Run starts, so the user's replies come
+	// while that Run is going and are queued into it: one Run is enough.
 	waitFor(t, "a card per Run", func() bool {
 		time.Sleep(400 * time.Millisecond)
-		return runs() >= 2 && len(fl.Cards("", "", time.Time{})) == runs()
+		return runs() >= 1 && len(fl.Cards("", "", time.Time{})) == runs()
 	})
 
 	seen := map[string]int{}

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,25 +21,48 @@ import (
 	"github.com/jinhuang712/gotato/testkit"
 )
 
-// fakeSender records what the bot would post to Lark.
+// fakeSender keeps what the bot would have on screen in Lark: a card that is
+// updated shows its new content, and one that is recalled is gone.
 type fakeSender struct {
 	mu   sync.Mutex
 	sent []sentMsg
+	next int
 }
 
-type sentMsg struct{ replyTo, chat, content string }
+type sentMsg struct{ id, replyTo, chat, content string }
 
-func (f *fakeSender) Reply(_ context.Context, messageID, content string) error {
+func (f *fakeSender) add(m sentMsg) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.sent = append(f.sent, sentMsg{replyTo: messageID, content: content})
+	f.next++
+	m.id = fmt.Sprintf("om_card_%d", f.next)
+	f.sent = append(f.sent, m)
+	return m.id
+}
+
+func (f *fakeSender) Reply(_ context.Context, messageID, content string) (string, error) {
+	return f.add(sentMsg{replyTo: messageID, content: content}), nil
+}
+
+func (f *fakeSender) Create(_ context.Context, chatID, content string) (string, error) {
+	return f.add(sentMsg{chat: chatID, content: content}), nil
+}
+
+func (f *fakeSender) Update(_ context.Context, cardID, content string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.sent {
+		if f.sent[i].id == cardID {
+			f.sent[i].content = content
+		}
+	}
 	return nil
 }
 
-func (f *fakeSender) Create(_ context.Context, chatID, content string) error {
+func (f *fakeSender) Delete(_ context.Context, cardID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.sent = append(f.sent, sentMsg{chat: chatID, content: content})
+	f.sent = slices.DeleteFunc(f.sent, func(m sentMsg) bool { return m.id == cardID })
 	return nil
 }
 

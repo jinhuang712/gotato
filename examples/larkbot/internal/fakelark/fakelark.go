@@ -1,5 +1,5 @@
 // Package fakelark plays Lark for the bot: it serves the subset of the Open
-// API the bot calls (token, reply, create message), records every card, and
+// API the bot calls (token, reply, create, update and recall message), records every card, and
 // delivers fabricated im.message.receive_v1 events to bot endpoints with
 // Lark's cluster semantics (one random endpoint per delivery, redelivery when
 // the ack takes more than 3 seconds). Standard library only.
@@ -47,6 +47,7 @@ type Card struct {
 	Text      string          `json:"text"`
 	Session   string          `json:"session,omitempty"`
 	Instance  string          `json:"instance,omitempty"`
+	Updates   int             `json:"updates,omitempty"` // how many times the bot patched this card
 }
 
 // Delivery is one attempt to hand an event to a bot endpoint.
@@ -109,6 +110,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /open-apis/auth/v3/tenant_access_token/internal", s.token)
 	mux.HandleFunc("POST /open-apis/im/v1/messages/{id}/reply", s.reply)
 	mux.HandleFunc("POST /open-apis/im/v1/messages", s.create)
+	mux.HandleFunc("PATCH /open-apis/im/v1/messages/{id}", s.patch)
+	mux.HandleFunc("DELETE /open-apis/im/v1/messages/{id}", s.remove)
 	mux.HandleFunc("POST /send", s.send)
 	mux.HandleFunc("POST /conversation", s.conversation)
 	mux.HandleFunc("GET /cards", s.listCards)
@@ -189,6 +192,47 @@ func (s *Server) record(w http.ResponseWriter, r *http.Request, chat, replyTo st
 	s.mu.Unlock()
 	writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{
 		"message_id": c.MessageID, "chat_id": chat, "msg_type": b.MsgType, "create_time": strconv.FormatInt(c.Time.UnixMilli(), 10)}})
+}
+
+// patch is "update a card": it replaces the content of a card the bot posted.
+func (s *Server) patch(w http.ResponseWriter, r *http.Request) {
+	var b postBody
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeJSON(w, 400, map[string]any{"code": 99992402, "msg": "invalid body: " + err.Error()})
+		return
+	}
+	id := r.PathValue("id")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.cards {
+		if s.cards[i].MessageID != id {
+			continue
+		}
+		c := &s.cards[i]
+		c.Card = json.RawMessage(b.Content)
+		if !json.Valid(c.Card) {
+			c.Card = json.RawMessage(strconv.Quote(b.Content))
+		}
+		c.Text, c.Session, c.Instance = parseCard(b.Content)
+		c.Updates++
+		writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"code": 230002, "msg": "message not found: " + id})
+}
+
+// remove recalls a card.
+func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.cards {
+		if s.cards[i].MessageID == id {
+			s.cards = append(s.cards[:i], s.cards[i+1:]...)
+			break
+		}
+	}
+	writeJSON(w, 200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
 }
 
 var footerRe = regexp.MustCompile(`session (\S+) · instance (\S+)`)
