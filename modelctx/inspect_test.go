@@ -2,6 +2,7 @@ package modelctx_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/jinhuang712/gotato/gotato"
@@ -42,6 +43,25 @@ func TestPrefixHashStableAcrossAppendOnlyTurns(t *testing.T) {
 	for i, want := range wantBreakpoints {
 		if second.Request.CacheBreakpoints[i] != want {
 			t.Fatalf("breakpoint %d = %+v, want %+v", i, second.Request.CacheBreakpoints[i], want)
+		}
+	}
+}
+
+// TestReportAlwaysCarriesTheCeiling: an unknown ceiling is 0 in JSON, not a
+// missing key, so a consumer can tell "off" from "not reported".
+func TestReportAlwaysCarriesTheCeiling(t *testing.T) {
+	for _, ceiling := range []int{0, 9000} {
+		encoded, err := json.Marshal(modelctx.Report{CompactCeilingTokens: ceiling})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		got, ok := fields["compact_ceiling_tokens"]
+		if !ok || got != float64(ceiling) {
+			t.Fatalf("ceiling %d: compact_ceiling_tokens = %v, present %v", ceiling, got, ok)
 		}
 	}
 }

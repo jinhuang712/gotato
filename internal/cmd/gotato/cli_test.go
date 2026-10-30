@@ -685,3 +685,23 @@ func TestALargeToolResultIsSpilledAndShownAsAnEventWithoutItsBody(t *testing.T) 
 		t.Fatalf("tool result = %+v", result)
 	}
 }
+
+func TestContextInspectShowsTheCeiling(t *testing.T) {
+	h := newHarness(t)
+	var created map[string]any
+	h.mustJSON(h.ok("session", "create", "--json"), &created)
+	id := created["id"].(string)
+	var fields map[string]any
+	h.mustJSON(h.ok("context", "inspect", id, "--json"), &fields)
+	if got, ok := fields["compact_ceiling_tokens"]; !ok || got != float64(0) {
+		t.Fatalf("json compact_ceiling_tokens = %v, present %v; want 0", got, ok)
+	}
+	if text := h.ok("context", "inspect", id); !strings.Contains(text, "compact_ceiling_tokens 0 (off") {
+		t.Fatalf("text output has no ceiling line:\n%s", text)
+	}
+	var set map[string]any
+	h.mustJSON(h.ok("session", "create", "--json", "--compact-ceiling", "20000"), &set)
+	if text := h.ok("context", "inspect", set["id"].(string)); !strings.Contains(text, "compact_ceiling_tokens 20000\n") {
+		t.Fatalf("text output = %s", text)
+	}
+}

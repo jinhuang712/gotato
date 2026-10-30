@@ -18,6 +18,10 @@ import (
 // the CLI and the HTTP endpoints return that kind. A Report from
 // Inspect or InspectSession runs the ContextBuilder alone.
 //
+// CompactCeilingTokens is always present: 0 means the ceiling trigger is off
+// (no window and no CeilingTokens), so the Session compacts only after a
+// refusal as too long.
+//
 // When CompactionPending is true, the next Run compacts the Session before
 // its first Turn, so that Turn sends a shorter request than this one.
 // PrefixHash covers the system prompt, the tools, and every Message but the
@@ -33,7 +37,7 @@ type Report struct {
 	SystemBytes          int                 `json:"system_bytes"`
 	PrefixHash           string              `json:"prefix_hash"`
 	CompactionPending    bool                `json:"compaction_pending"`
-	CompactCeilingTokens int                 `json:"compact_ceiling_tokens,omitempty"`
+	CompactCeilingTokens int                 `json:"compact_ceiling_tokens"`
 	Metadata             map[string]string   `json:"metadata,omitempty"`
 	Compactions          []gotato.Compaction `json:"compactions,omitempty"`
 	Context              gotato.ModelContext `json:"context"`

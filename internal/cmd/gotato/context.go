@@ -65,6 +65,11 @@ func (c *cli) contextInspect(mode string, args []string) int {
 	}
 	fmt.Fprintf(c.stdout, "session %s\nstrategy %s (append-only)\nmessages %d · ~%d tokens · system %d bytes · tools %d\nprefix_hash %s\n",
 		report.SessionID, report.Strategy, report.SelectedMessages, report.ApproxTokens, report.SystemBytes, len(report.Request.Tools), report.PrefixHash)
+	fmt.Fprintf(c.stdout, "compact_ceiling_tokens %d", report.CompactCeilingTokens)
+	if report.CompactCeilingTokens == 0 {
+		fmt.Fprint(c.stdout, " (off: compacts only after a refusal as too long)")
+	}
+	fmt.Fprintln(c.stdout)
 	if len(report.Compactions) > 0 {
 		fmt.Fprintf(c.stdout, "compactions %d (last replaced %d messages)\n", len(report.Compactions), report.Compactions[len(report.Compactions)-1].ReplacedMessages)
 	}
